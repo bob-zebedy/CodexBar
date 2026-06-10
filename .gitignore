@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+build/
+*.xcarchive
+*.xcresult
+*.dSYM
+*.moved-aside
+
+# User-specific Xcode state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Code signing inspection output
+codesign0
+codesign1
+codesign2
+
+# Archives and exported apps
+*.ipa
+*.pkg
+*.dmg
+*.zip
+
+# Logs
+*.log
