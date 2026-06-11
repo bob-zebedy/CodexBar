@@ -191,3 +191,4 @@ hdiutil convert \
 mv -f "${TEMP_OUTPUT_PATH}" "${OUTPUT_PATH}"
 
 echo "==> Created ${OUTPUT_PATH}"
+echo "==> Update appcast with: Scripts/update-appcast.sh \"${OUTPUT_PATH}\""

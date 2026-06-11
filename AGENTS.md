@@ -17,6 +17,8 @@ CodexBar 是一个 macOS 菜单栏应用，用来展示当前本机 Codex 账号
 - 应用运行时每分钟自动刷新，即使弹窗未打开也会刷新。
 - 双击账号图标可手动刷新。
 - 按住 Option/Alt 点击菜单栏图标时，才展示设置区。设置区为单行布局：左侧「开机自动启动」开关，右侧「退出」按钮，不展示刷新按钮。
+- 更新时间行右侧展示当前 App 版本（`App 版本: v{version} ({build})`），双击该文案触发 Sparkle 检查更新；检查期间该位置改为状态文案，3 秒后自动复位。
+- 集成 Sparkle 自动更新：启动时按 `SUScheduledCheckInterval`（Info.plist 配置，当前 3600 秒）后台静默检查，用户也可手动触发。
 - 没有通知功能：不监听 `account/rateLimits/updated`，不发送 macOS 本地通知（该功能已整体移除，不要恢复）。
 - 弹窗错误只展示普通错误文案，不包含 Debug 明细或环境变量模拟入口。
 
@@ -77,6 +79,16 @@ Xcode target 已关闭 App Sandbox，因为应用需要启动本机 Codex CLI �
 
 如果既找不到全局 Codex CLI，也找不到 Codex.app 内置二进制，弹窗会展示 `找不到 Codex CLI 或 Codex App` 错误。
 
+## 自动更新（Sparkle）
+
+应用通过 Sparkle 框架（SwiftPM 依赖）实现自动更新，由 `AppUpdater`（`@MainActor`、`ObservableObject`）封装：
+
+- `CodexBarApp` 创建 `@StateObject AppUpdater()` 并以 `environmentObject` 注入弹窗，`RateLimitsMenuView` 通过 `@EnvironmentObject` 读取。
+- 初始化时先校验 Info.plist 的 `SUFeedURL`（必须为 http/https）和 `SUPublicEDKey`（非空），任一缺失则**不创建** `SPUStandardUpdaterController`。此时双击版本文案展示「未配置更新资源」，方便 Debug/未签名构建下静默降级。
+- 配置齐全时创建 `SPUStandardUpdaterController(startingUpdater: true)`，`AppUpdater` 自身作为 `SPUUpdaterDelegate`。
+- `statusMessage` 是唯一发布的 UI 状态，由 `showStatusMessage` 设置并在 3 秒后用一个可取消的 `Task` 自动清空（新消息会先取消旧 Task）。状态文案：`正在检查更新`、`未配置更新资源`、`发现新版本 v{x}`、`已是最新版本`。
+- 当前 Info.plist 配置：`SUFeedURL = https://codexbar.zabrian.app/appcast.xml`，`SUScheduledCheckInterval = 3600`。
+
 ## 代码组织
 
 - `CodexBarApp.swift`：应用入口，创建 `RateLimitsViewModel`，配置 `MenuBarExtra`。
@@ -87,10 +99,14 @@ Xcode target 已关闭 App Sandbox，因为应用需要启动本机 Codex CLI �
 - `RateLimitsMenuView.swift`：点击菜单栏后的弹窗内容，含未登录橙色提示和设置区。
 - `QuotaRow.swift`：额度行和分段进度条。
 - `LoginItemSettings.swift`：使用 `SMAppService.mainApp` 管理开机自启。
-- `Assets.xcassets/AppIcon.appiconset`：App 图标资源，白底黑色中心符号使用 `timelapse`。
-- `Scripts/create-dmg.sh`：将项目根目录下导出的 `.app` 打包成拖拽安装 DMG。
+- `AppUpdater.swift`：封装 Sparkle 更新检查、状态文案与 `SPUUpdaterDelegate` 回调。
+- `Resources/Info.plist`：应用 Info.plist，含 `SUFeedURL`、`SUPublicEDKey`、`SUScheduledCheckInterval` 等 Sparkle 配置（`INFOPLIST_FILE` 指向此处）。
+- `Resources/Assets.xcassets/AppIcon.appiconset`：App 图标资源，白底黑色中心符号使用 `timelapse`。
+- `Scripts/create-dmg.sh`：将项目根目录下导出的 `.app` 打包成拖拽安装 DMG，结尾提示用 `update-appcast.sh` 更新 appcast。
+- `Scripts/update-appcast.sh`：对 DMG 签名（Sparkle `sign_update`）并把版本条目写入 `Updates/appcast.xml`。
+- `Updates/appcast.xml`：Sparkle appcast feed 源文件，发布时由 `update-appcast.sh` 维护。
 
-工程使用文件系统同步组（`PBXFileSystemSynchronizedRootGroup`），新增/删除源文件无需修改 `project.pbxproj`。
+工程使用文件系统同步组（`PBXFileSystemSynchronizedRootGroup`），新增/删除源文件无需修改 `project.pbxproj`。源码与资源已统一收纳在 `CodexBar/` 下（资源在 `CodexBar/Resources/`）。Sparkle 通过 SwiftPM 引入，依赖变更才需改 `project.pbxproj`。
 
 ## UI 约定
 
@@ -103,6 +119,7 @@ Xcode target 已关闭 App Sandbox，因为应用需要启动本机 Codex CLI �
 - 分段条展示剩余额度，剩余额度计算方式是 `100 - usedPercent`。
 - 额度行标签示例：`300` 分钟显示 `5 小时`，`10080` 分钟显示 `7 天`；缺少 `windowDurationMins` 时再回退到默认文案。
 - 重置时间格式使用 `MM-dd HH:mm`；更新时间格式使用 `HH:mm:ss`。
+- 版本文案格式 `App 版本: v{CFBundleShortVersionString} ({CFBundleVersion})`，用 `monospacedDigit` 字体、`lineLimit(1)`；有 `statusMessage` 时优先展示状态文案。读取 Info.plist 统一用 `Bundle.main.object(forInfoDictionaryKey:)`。
 - token 数按 `M`、`B` 紧凑单位展示；token 贡献墙使用蓝色方块，7 行 30 列布局，单日用量越高颜色越深
 
 ## 错误展示约定
@@ -134,6 +151,14 @@ Scripts/create-dmg.sh
 ```
 
 脚本会自动查找当前目录下唯一的 `.app`，根据 Xcode target 的 `MARKETING_VERSION` 生成 `CodexBar-v{version}.dmg`。脚本会在 DMG 中放入 `CodexBar.app` 和 `Applications -> /Applications` 快捷方式，并写入 Finder 布局：app 在左侧，Applications 在右侧。若有多个工程或 scheme，可用 `XCODE_PROJECT`、`XCODE_SCHEME` 环境变量指定。
+
+打包 DMG 后用 `update-appcast.sh` 更新 Sparkle appcast：
+
+```bash
+Scripts/update-appcast.sh CodexBar-v1.2.0.dmg   # 省略参数时自动取根目录下唯一 .dmg
+```
+
+脚本流程：用 Sparkle `sign_update`（PATH 中没有则在 DerivedData 内查找）对 DMG 签名得到 `edSignature` 和长度，从 `xcodebuild -showBuildSettings` 读取 `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`，生成 `<item>` 并插入 `Updates/appcast.xml`（按 `sparkle:version` 去重同版本旧条目，插在 `<language>` 之后），最后用 `xmllint` 校验。常用环境变量：`DOWNLOAD_BASE_URL`、`RELEASE_NOTES_BASE_URL`、`INCLUDE_RELEASE_NOTES`、`MINIMUM_SYSTEM_VERSION`、`SIGN_UPDATE`、`APPCAST_PATH`。发布时需把 DMG 上传到 `SUFeedURL` 对应的下载站点，并发布更新后的 `appcast.xml`。
 
 ## Git 远端
 

@@ -19,6 +19,8 @@ CodexBar 是一个轻量级 macOS 菜单栏应用，用来查看当前本机 Cod
 - 不按 Option/Alt 点击菜单栏图标时，只展示额度内容
 - 按住 Option/Alt 点击菜单栏图标时，才展示设置区；设置区为单行布局，左侧「开机自动启动」开关，右侧「退出」按钮
 - 未登录或认证失效时，弹窗顶部展示橙色提示，旧额度数据置灰保留展示
+- 更新时间行右侧展示当前 App 版本，双击即可通过 Sparkle 检查更新
+- 集成 Sparkle 自动更新，启动后会定期在后台静默检查新版本
 
 ## 运行要求
 
@@ -138,6 +140,29 @@ Scripts/create-dmg.sh CodexBar.app CodexBar-v1.0.0.dmg
 
 如果把应用移动到 `/Applications` 后再使用开机自启，建议打开应用后重新开启一次「开机启动」，让 macOS 记录最终的应用路径。
 
+## 自动更新
+
+CodexBar 内置 [Sparkle](https://sparkle-project.org) 自动更新。应用会按 Info.plist 中 `SUScheduledCheckInterval`（默认 1 小时）在后台静默检查，更新源为 `SUFeedURL` 指向的 appcast。弹窗更新时间行右侧也会显示当前版本，双击即可手动检查。
+
+发布新版本时，打包 DMG 后用脚本更新 appcast：
+
+```bash
+Scripts/update-appcast.sh CodexBar-v1.2.0.dmg
+```
+
+脚本会用 Sparkle 的 `sign_update` 对 DMG 签名，从 Xcode build settings 读取版本号，生成条目并写入 `Updates/appcast.xml`（自动去重同版本旧条目，并用 `xmllint` 校验）。省略参数时会自动取项目根目录下唯一的 `.dmg`。常用环境变量：
+
+- `DOWNLOAD_BASE_URL`：DMG 下载地址前缀
+- `RELEASE_NOTES_BASE_URL` / `INCLUDE_RELEASE_NOTES`：发行说明链接前缀，置 `0` 可省略
+- `MINIMUM_SYSTEM_VERSION`：最低系统版本（默认 15.0）
+- `SIGN_UPDATE`：`sign_update` 工具路径（默认从 PATH 或 DerivedData 查找）
+
+随后把 DMG 上传到下载站点，并发布更新后的 `appcast.xml`，客户端即可收到更新。
+
 ## 隐私
 
 CodexBar 只会和本机 Codex app-server 进程通信，不会把账号信息或额度数据发送给任何第三方服务。
+
+## 友情链接
+
+[感谢 Linux DO 社区的大力支持](https://linux.do)

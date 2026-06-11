@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"
+    xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"
+    xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <channel>
+        <title>CodexBar Updates</title>
+        <link>https://codexbar.zabrian.app/appcast.xml</link>
+        <description>CodexBar appcast feed</description>
+        <language>zh-CN</language>
+        <item>
+            <title>CodexBar.app 1.2.0</title>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes/1.2.0.html</sparkle:releaseNotesLink>
+            <pubDate>Thu, 11 Jun 2026 21:19:36 +0800</pubDate>
+            <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v1.2.0.dmg" sparkle:edSignature="uwe29fAr5NHr+Id4H0cEMqVDmFxWZb/R+GE0yxvbqKDet+NvY6tlWphl9GxbEW8FwVow5B9BF0nsg1PSJ7NIDQ==" length="1323252" type="application/octet-stream"/>
+        </item>
+    </channel>
+</rss>

@@ -12,6 +12,7 @@ struct RateLimitsMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + UsageHeatmap.Metrics.totalWidth
     
     @ObservedObject var viewModel: RateLimitsViewModel
+    @EnvironmentObject private var appUpdater: AppUpdater
     @StateObject private var loginItemSettings = LoginItemSettings()
     @State private var showsControls = false
     
@@ -154,6 +155,14 @@ private extension RateLimitsMenuView {
                 .foregroundStyle(.secondary)
             
             Spacer()
+            
+            Text(appUpdater.statusMessage ?? Self.appVersionLabel)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .onTapGesture(count: 2) {
+                    appUpdater.checkForUpdates()
+                }
         }
     }
     
@@ -206,6 +215,12 @@ private extension RateLimitsMenuView {
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "HH:mm:ss"
         return formatter
+    }()
+    
+    static let appVersionLabel: String = {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "--"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
+        return "App 版本: v\(version) (\(build))"
     }()
 }
 
