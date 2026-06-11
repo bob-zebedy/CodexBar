@@ -12,11 +12,14 @@ CodexBar 是一个 macOS 菜单栏应用，用来展示当前本机 Codex 账号
 - 弹窗第一行展示账号信息和套餐。
 - 弹窗展示两行分段电量条，额度行标签根据 `windowDurationMins` 动态生成。
 - 每行额度在进度条右侧展示剩余百分比和重置时间。
+- 弹窗展示最近 14 个完整自然日的 token 柱状图、累计 token 和单日峰值 token。
+- 鼠标划过 token 柱状图中的单日柱子时，展示对应日期和用量。
 - 更新时间显示在左侧。
 - 应用运行时每分钟自动刷新，即使弹窗未打开也会刷新。
+- 收到 `account/rateLimits/updated` 后会重新查询额度，并在「额度通知」已开启时发送 macOS 本地通知。
 - 双击账号图标可手动刷新。
 - 按住 Option/Alt 点击菜单栏图标时，才展示控制区。
-- Option/Alt 控制区包含「开机启动」开关和「退出」按钮，不展示刷新按钮。
+- Option/Alt 设置区左侧上下排列「开机启动」和「额度通知」开关，右下方展示「退出」按钮，不展示刷新按钮。
 - 弹窗错误只展示普通红色错误文案，不包含 Debug 明细或环境变量模拟入口。
 
 ## Codex 数据来源
@@ -42,9 +45,17 @@ codex app-server --listen stdio://
 {"method":"initialized"}
 {"method":"account/read","id":2,"params":{"refreshToken":false}}
 {"method":"account/rateLimits/read","id":3}
+{"method":"account/usage/read","id":4}
 ```
 
 注意：不能在 `initialize` 和 `initialized` 完成前请求额度，否则 Codex app-server 会拒绝请求。
+
+每日 token 统计使用 `account/usage/read`，读取 `summary.lifetimeTokens`、`summary.peakDailyTokens` 和 `dailyUsageBuckets`。
+如果本机 Codex app-server 不支持 `account/usage/read`，token 统计区域不展示，额度信息仍正常显示。
+
+`account/rateLimits/updated` 是 app-server notification，不是可请求方法。应用后台保留一个 app-server 连接监听该 notification；收到后重新调用 `account/rateLimits/read` 获取完整额度并更新 UI，在「额度通知」开启且系统通知权限已授权时发送本地通知。不要直接用 notification 中的稀疏 `rateLimits` payload 覆盖完整快照。
+
+后台监听连接启动时也必须按 `account/read`、`account/rateLimits/read` 的顺序初始化额度路径；如果监听连接因为 app-server 退出、认证失败或响应超时而断开，应用会在 30 秒后重新启动监听连接。
 
 ## 认证和沙盒
 
@@ -90,11 +101,15 @@ Xcode target 已关闭 App Sandbox，因为应用需要启动本机 Codex CLI �
 - 额度行标签示例：`300` 分钟显示 `5 小时`，`10080` 分钟显示 `7 天`；缺少 `windowDurationMins` 时再回退到默认文案。
 - 重置时间格式使用 `MM-dd HH:mm`。
 - 更新时间格式使用 `HH:mm:ss`。
+- token 数按 `M`、`B` 紧凑单位展示。
+- token 柱状图使用橙色，单日用量越高颜色越浓。
 
 ## 错误和调试
 
 - 当前代码不包含 Debug UI、Debug 详情展示或环境变量模拟错误入口。
 - Codex 交互错误会通过 `CodexRateLimitError.localizedDescription` 展示在弹窗中。
+- 每分钟自动刷新失败时，如果已有旧额度快照，旧快照不会被清空；弹窗继续显示上一次成功读取的数据和对应更新时间，同时展示错误文案。
+- `account/rateLimits/updated` 触发的刷新如果失败，不会更新 UI，也不会发送通知；只有当前没有旧快照时才会把错误展示到弹窗中。
 - 开机启动设置失败会展示 `设置开机启动失败: ...`。
 
 ## 构建验证

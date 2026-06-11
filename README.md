@@ -10,11 +10,14 @@ CodexBar 是一个轻量级 macOS 菜单栏应用，用来查看当前本机 Cod
 - 弹窗第一行展示账号信息和套餐
 - 弹窗使用两行分段电量条展示额度窗口，标签根据 `windowDurationMins` 动态生成
 - 每行额度在进度条右侧展示剩余百分比和重置时间
+- 弹窗展示最近 14 个完整自然日的 token 柱状图、累计 token 和单日峰值 token
+- 鼠标划过 token 柱状图中的单日柱子时，展示对应日期和用量
 - 更新时间显示在额度行下方，并使用 `HH:mm:ss` 格式
 - 应用运行时每分钟自动刷新额度，即使弹窗未打开也会刷新
+- 收到 `account/rateLimits/updated` 后会重新查询额度，并在「额度通知」已开启时发送本地通知
 - 双击账号图标可手动刷新
 - 不按 Option/Alt 点击菜单栏图标时，只展示额度内容
-- 按住 Option/Alt 点击菜单栏图标时，才展示「开机启动」开关和「退出」按钮
+- 按住 Option/Alt 点击菜单栏图标时，才展示设置区；设置区包含「开机启动」「额度通知」开关和「退出」按钮
 
 ## 运行要求
 
@@ -43,6 +46,7 @@ codex app-server --listen stdio://
 {"method":"initialized"}
 {"method":"account/read","id":2,"params":{"refreshToken":false}}
 {"method":"account/rateLimits/read","id":3}
+{"method":"account/usage/read","id":4}
 ```
 
 额度窗口来自 Codex app-server 返回的 `primary` 和 `secondary`：
@@ -53,9 +57,28 @@ codex app-server --listen stdio://
 
 剩余额度统一按 `100 - usedPercent` 计算。
 
+应用会保留一个后台 app-server 连接监听 `account/rateLimits/updated` 通知。该通知是稀疏更新，收到后不会直接用通知 payload 更新 UI，而是重新调用 `account/rateLimits/read` 获取完整额度并更新 UI；如果「额度通知」开启且系统通知权限已授权，则发送 macOS 本地通知。
+
+后台监听连接启动时也会按 `account/read`、`account/rateLimits/read` 的顺序初始化额度路径。如果监听连接因为 app-server 退出、认证失败或响应超时而断开，应用会在 30 秒后重新启动监听连接。
+
+「额度通知」开关只在按住 Option/Alt 打开菜单栏弹窗时展示。开启该开关时会请求 macOS 通知权限；关闭后不再发送额度更新通知。
+
+token 使用量来自 Codex app-server 返回的 `account/usage/read`：
+
+- `summary.lifetimeTokens`：累计 token
+- `summary.peakDailyTokens`：单日峰值 token
+- `dailyUsageBuckets`：按天聚合的 token 使用量，日期字段为 `startDate`
+
+如果本机 Codex app-server 不支持 `account/usage/read`，token 统计区域不会展示，额度信息仍会正常显示。
+
+token 数使用 `M`、`B` 紧凑单位展示。
+token 柱状图使用橙色，单日用量越高颜色越浓。
+
 ## 错误展示
 
 CodexBar 会在弹窗中用红色小字展示错误，例如未安装 Codex、app-server 启动失败、响应超时、当前未登录、需要重新验证身份、响应中缺少额度窗口等。应用不包含调试模拟入口，也不会在窗口里展示 Debug 明细。
+
+如果应用运行期间 Codex 退出登录或认证失效，每分钟自动刷新会继续尝试读取额度；刷新失败时会展示对应错误。如果之前已经成功读取过额度，旧的额度快照不会被清空，弹窗会继续显示上一次成功读取的数据和对应更新时间，同时显示错误文案。收到 `account/rateLimits/updated` 后触发的刷新如果失败，不会更新 UI，也不会发送通知；只有在当前没有任何旧快照时才会把该错误展示到弹窗中。
 
 ## 构建
 
