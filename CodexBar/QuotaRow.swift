@@ -75,11 +75,16 @@ private struct SegmentedQuotaBar: View {
     let percent: Int
     
     var body: some View {
-        HStack(spacing: Metrics.spacing) {
-            ForEach(0..<Metrics.segmentCount, id: \.self) { index in
-                Capsule(style: .continuous)
-                    .fill(index < filledSegments ? fillStyle : emptyStyle)
-                    .frame(maxWidth: .infinity)
+        GeometryReader { proxy in
+            let segmentCount = segmentCount(for: proxy.size.width)
+            let filledSegments = filledSegments(for: segmentCount)
+            
+            HStack(spacing: Metrics.spacing) {
+                ForEach(0..<segmentCount, id: \.self) { index in
+                    Capsule(style: .continuous)
+                        .fill(index < filledSegments ? fillStyle : emptyStyle)
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
         .accessibilityLabel("剩余 \(percent)%")
@@ -89,11 +94,15 @@ private struct SegmentedQuotaBar: View {
 private extension SegmentedQuotaBar {
     enum Metrics {
         static let spacing: CGFloat = 2
-        static let segmentCount = 20
+        static let idealSegmentWidth: CGFloat = 6
     }
     
-    var filledSegments: Int {
-        Int((Double(percent) / 100.0 * Double(Metrics.segmentCount)).rounded())
+    func segmentCount(for width: CGFloat) -> Int {
+        max(1, Int((width + Metrics.spacing) / (Metrics.idealSegmentWidth + Metrics.spacing)))
+    }
+    
+    func filledSegments(for segmentCount: Int) -> Int {
+        Int((Double(percent) / 100.0 * Double(segmentCount)).rounded())
     }
     
     var fillStyle: Color {
