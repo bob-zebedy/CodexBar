@@ -219,8 +219,7 @@ private extension RateLimitsMenuView {
     
     static let appVersionLabel: String = {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "--"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
-        return "App 版本: v\(version) (\(build))"
+        return "App 版本: v\(version)"
     }()
 }
 
