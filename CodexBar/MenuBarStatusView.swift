@@ -11,7 +11,9 @@ struct MenuBarStatusView: View {
     @ObservedObject var viewModel: RateLimitsViewModel
     
     var body: some View {
-        Image(systemName: "timelapse")
+        Image(systemName: viewModel.hasError ? "person.fill.xmark" : "person.fill.checkmark")
+            .contentTransition(.symbolEffect(.replace))
+            .animation(.default, value: viewModel.hasError)
             .task {
                 viewModel.startAutoRefresh()
             }
