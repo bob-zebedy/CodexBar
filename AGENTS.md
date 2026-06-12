@@ -1,44 +1,38 @@
-# CodexBar 项目记忆
+# AGENTS.md
+
+此文件为 Codex 等代码代理在本仓库工作时提供上下文和约定。请优先遵循这里的项目事实、构建命令和实现边界。
 
 ## 项目概览
 
-CodexBar 是一个 macOS 菜单栏应用，用来展示当前本机 Codex 账号的额度信息。应用使用 SwiftUI + MVVM，主入口是 `MenuBarExtra`，弹窗使用 `.menuBarExtraStyle(.window)`。
+CodexBar 是一个 macOS 菜单栏应用(SwiftUI + MVVM,最低 macOS 15.0),通过本机 Codex app-server 展示当前 Codex 账号的额度和 token 用量。主入口是 `MenuBarExtra`,弹窗使用 `.menuBarExtraStyle(.window)`。唯一外部依赖是 Sparkle(SwiftPM)。
 
-当前最低系统版本是 macOS 15.0。
+## 构建验证
 
-## 核心功能
-
-- 菜单栏图标：正常时显示 `person.fill.checkmark`，任何错误（包括未登录）时显示 `person.fill.xmark`，切换使用 `.contentTransition(.symbolEffect(.replace))` 动画。App 图标使用白底黑色 `timelapse`。
-- 弹窗第一行展示账号信息和套餐。
-- 弹窗展示两行分段电量条，额度行标签根据 `windowDurationMins` 动态生成。
-- 每行额度在进度条右侧展示剩余百分比和重置时间。
-- 弹窗展示 30 周宽度的完整自然日 token 蓝色贡献墙、累计 token 和单日峰值 token。
-- 鼠标划过 token 贡献墙中的单日方块时，在鼠标旁展示对应日期和用量。
-- 应用运行时每分钟自动刷新，即使弹窗未打开也会刷新。
-- 双击账号图标可手动刷新。
-- 按住 Option/Alt 点击菜单栏图标时，才展示设置区。设置区为单行布局：左侧「开机自动启动」开关，右侧「退出」按钮，不展示刷新按钮。
-- 更新时间行右侧展示当前 App 版本（`App 版本: v{version} ({build})`），双击该文案触发 Sparkle 检查更新；检查期间该位置改为状态文案，3 秒后自动复位。
-- 集成 Sparkle 自动更新：启动时按 `SUScheduledCheckInterval`（Info.plist 配置，当前 3600 秒）后台静默检查，用户也可手动触发。
-- 没有通知功能：不监听 `account/rateLimits/updated`，不发送 macOS 本地通知（该功能已整体移除，不要恢复）。
-- 弹窗错误只展示普通错误文案，不包含 Debug 明细或环境变量模拟入口。
-
-## Codex 数据来源与常驻连接
-
-应用通过本机 Codex app-server 读取数据。启动优先级：
-
-1. 如果全局 Codex CLI 可用，优先使用：
+修改后运行以下命令,确保无 error 和 warning:
 
 ```bash
-codex app-server --listen stdio://
+xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build
 ```
 
-2. 如果找不到全局 CLI，则回退到 Codex.app 内置二进制：
+SourceKit 经常对跨文件类型误报「Cannot find type ... in scope」(索引滞后),以 `xcodebuild` 实际编译结果为准。
 
-```bash
-/Applications/Codex.app/Contents/Resources/codex app-server --listen stdio://
-```
+工程使用文件系统同步组(`PBXFileSystemSynchronizedRootGroup`):新增/删除源文件无需修改 `project.pbxproj`,只有依赖变更才需要改它。
 
-应用与 app-server 维持**一条常驻连接**：首次拉取时启动进程，按顺序完成握手：
+## 架构
+
+数据流:`CodexRateLimitService`(JSON-RPC 常驻连接)→ `RateLimitsViewModel`(状态发布)→ `MenuBarStatusView`(菜单栏图标 + 在 `.task` 中驱动每分钟自动刷新)/ `RateLimitsMenuView`(弹窗)。
+
+- `CodexBarApp.swift`:入口,创建 `RateLimitsViewModel` 和 `@StateObject AppUpdater`,后者以 `environmentObject` 注入弹窗。
+- `CodexRateLimitService.swift`:app-server 常驻连接管理 + JSON-RPC 请求/响应。
+- `RateLimitModels.swift`:响应模型、业务快照模型、`CodexRateLimitError`(含 `requiresLogin`、`isAuthenticationRequired` 分类属性)。
+- `RateLimitsViewModel.swift`:错误状态单一来源——只发布 `lastError: CodexRateLimitError?`,`errorMessage`、`requiresLogin`、`hasError` 都是派生计算属性,**不要再加并列的错误布尔**。
+- `QuotaRow.swift`:额度行和分段进度条;`LoginItemSettings.swift`:`SMAppService.mainApp` 开机自启;`AppUpdater.swift`:Sparkle 封装。
+
+## Codex app-server 连接(核心逻辑)
+
+启动优先级:全局 `codex` CLI 优先,找不到则回退 `/Applications/Codex.app/Contents/Resources/codex`;两者都没有时弹窗展示「找不到 Codex CLI 或 Codex App」。启动命令:`codex app-server --listen stdio://`。
+
+应用维持**一条常驻连接**,首次握手顺序(必须在请求额度前完成,否则 app-server 拒绝请求):
 
 ```json
 {"method":"initialize","id":1,"params":{"clientInfo":{"name":"codex_bar","title":"Codex Bar","version":"1.0.0"}}}
@@ -46,124 +40,60 @@ codex app-server --listen stdio://
 {"method":"account/read","id":2,"params":{"refreshToken":false}}
 ```
 
-之后每分钟在同一会话上请求 `account/rateLimits/read` 和 `account/usage/read`。注意：不能在 `initialize` 和 `initialized` 完成前请求额度，否则 app-server 会拒绝请求。
+之后每分钟在同一会话上请求 `account/rateLimits/read` 和 `account/usage/read`。
 
-连接重建规则（`CodexRateLimitService.ensureConnection`）：
+连接重建规则(`CodexRateLimitService.ensureConnection`):
 
 - 进程已退出 → 重建。
-- 连接存活超过 `connectionMaxAge`（1 小时）→ 定期回收重建，覆盖 codex 全局升级后切换新二进制、服务端状态漂移等陈旧问题。
-- **复用的**连接上请求失败 → 丢弃重建一次再试；**全新**连接上的失败直接抛出，不做二次重试（避免故障时整套握手做两遍）。
-- 登录类错误（`requiresLogin`）→ 丢弃连接但不重试；下一次轮询起新进程读取最新 `~/.codex/auth.json`，用户重新登录后最多一分钟自动恢复。
+- 连接存活超过 `connectionMaxAge`(1 小时)→ 定期回收重建(覆盖 codex 全局升级、服务端状态漂移)。
+- **复用的**连接上请求失败 → 丢弃重建一次再试;**全新**连接上的失败直接抛出,不做二次重试。
+- 登录类错误(`requiresLogin`)→ 丢弃连接但不重试;下次轮询起新进程读取最新 `~/.codex/auth.json`,用户重新登录后最多一分钟自动恢复。
 
-认证重试：`account/rateLimits/read` 返回认证错误时，先在同一会话上调 `account/read`（`refreshToken: true`）刷新 token 再重试一次；仍失败抛 `authenticationRequired`。
+认证重试:`account/rateLimits/read` 返回认证错误时,先在同一会话上调 `account/read`(`refreshToken: true`)再重试一次;仍失败抛 `authenticationRequired`。
 
-每日 token 统计使用 `account/usage/read`，读取 `summary.lifetimeTokens`、`summary.peakDailyTokens` 和 `dailyUsageBuckets`。如果本机 app-server 不支持该方法，token 统计区域不展示，额度信息仍正常显示。
+token 统计来自 `account/usage/read`(`summary.lifetimeTokens`、`summary.peakDailyTokens`、`dailyUsageBuckets`);本机 app-server 不支持该方法时,token 区域不展示,额度信息仍正常显示。
 
 ## 并发约定
 
-工程开启了 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`：没有显式标注的类型一律推断为 MainActor 隔离。因此**所有非 UI 类型必须显式标 `nonisolated`**（`CodexRateLimitService`、`AppServerSession`、模型类型等都已标注），否则会出现「Call to main actor-isolated initializer in a synchronous nonisolated context」一类的错误。
+工程开启了 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`:未显式标注的类型一律推断为 MainActor 隔离。因此**所有非 UI 类型必须显式标 `nonisolated`**,否则会报「Call to main actor-isolated initializer in a synchronous nonisolated context」。
 
-`CodexRateLimitService` 是 `nonisolated final class` + `@unchecked Sendable`，连接状态只在私有串行 `DispatchQueue` 上读写，对外暴露 async 接口。
+`CodexRateLimitService` 是 `nonisolated final class` + `@unchecked Sendable`,连接状态只在私有串行 `DispatchQueue` 上读写,对外暴露 async 接口。
 
 ## 认证和沙盒
 
-CodexBar 必须使用真实 macOS 用户的 Codex 登录数据。之前遇到过 Xcode 运行时 `HOME` 指向 app container，导致 app-server 读取不到 `/Users/{username}/.codex`，报错：
+Xcode target 已关闭 App Sandbox(需要启动本机 Codex CLI 并读取用户登录状态)。服务层用真实用户 home(`getpwuid`)运行 app-server——Xcode 运行时 `HOME` 可能指向 app container,导致读不到 `~/.codex` 而报 "codex account authentication required"。
 
-```text
-codex account authentication required to read rate limits
-```
+## UI 与错误展示约定
 
-当前服务层会用真实用户 home（`getpwuid`）运行 app-server，避免读到沙盒容器路径。
+- 菜单栏正常图标 `person.fill.checkmark`,错误图标 `person.fill.xmark`,切换用 `.contentTransition(.symbolEffect(.replace))`。菜单栏不展示额度数字,详情只在弹窗中展示。
+- App 图标保持白底黑色 `timelapse`。
+- 不要给 symbol API 加低版本 fallback,最低系统版本已是 macOS 15.0。
+- 分段条展示**剩余**额度(`100 - usedPercent`);额度行标签由 `windowDurationMins` 动态生成(如 `300` → `5 小时`,`10080` → `7 天`)。重置时间格式 `MM-dd HH:mm`,更新时间格式 `HH:mm:ss`。
+- token 贡献墙为 30 列 × 7 行蓝色方块热力图,token 数按 `M`/`B` 紧凑单位展示。
+- 设置区仅在按住 Option 点击菜单栏图标时展示。
+- 登录类错误(`requiresLogin`):弹窗顶部橙色提示「Codex 未登录」,旧快照置灰(opacity 0.4)保留,红色错误行被抑制。其他错误:红色小字展示 `errorDescription`,旧快照保持全亮度。
+- 错误文案保持显示直到某次刷新成功(`refresh()` 开始时不清空 `lastError`);旧额度快照永远不清空。
 
-Xcode target 已关闭 App Sandbox，因为应用需要启动本机 Codex CLI 并访问用户的 Codex 登录状态。
+## 自动更新(Sparkle)
 
-如果既找不到全局 Codex CLI，也找不到 Codex.app 内置二进制，弹窗会展示 `找不到 Codex CLI 或 Codex App` 错误。
+`AppUpdater`(`@MainActor`、`ObservableObject`)初始化时先校验 Info.plist 的 `SUFeedURL`(http/https)和 `SUPublicEDKey`(非空),任一缺失则不创建 `SPUStandardUpdaterController`,双击版本文案显示「未配置更新资源」(Debug/未签名构建静默降级)。`statusMessage` 是唯一发布的 UI 状态,3 秒后由可取消的 `Task` 自动清空。Info.plist 位于 `CodexBar/Resources/Info.plist`(`SUFeedURL = https://codexbar.zabrian.app/appcast.xml`,检查间隔 3600 秒)。
 
-## 自动更新（Sparkle）
+## Git 提交规范
 
-应用通过 Sparkle 框架（SwiftPM 依赖）实现自动更新，由 `AppUpdater`（`@MainActor`、`ObservableObject`）封装：
+- 提交 message 使用 **Conventional Commits 前缀 + 中文描述**,格式:`<type>: <中文描述>`。
+- 常用 type:`feat`(新功能)、`fix`(修复)、`chore`(杂项/发布)、`refactor`(重构)、`docs`(文档)。
+- 描述简洁一行,不加句号。
+- **提交后不要主动 push,必须等用户明确同意后才能推送。**
 
-- `CodexBarApp` 创建 `@StateObject AppUpdater()` 并以 `environmentObject` 注入弹窗，`RateLimitsMenuView` 通过 `@EnvironmentObject` 读取。
-- 初始化时先校验 Info.plist 的 `SUFeedURL`（必须为 http/https）和 `SUPublicEDKey`（非空），任一缺失则**不创建** `SPUStandardUpdaterController`。此时双击版本文案展示「未配置更新资源」，方便 Debug/未签名构建下静默降级。
-- 配置齐全时创建 `SPUStandardUpdaterController(startingUpdater: true)`，`AppUpdater` 自身作为 `SPUUpdaterDelegate`。
-- `statusMessage` 是唯一发布的 UI 状态，由 `showStatusMessage` 设置并在 3 秒后用一个可取消的 `Task` 自动清空（新消息会先取消旧 Task）。状态文案：`正在检查更新`、`未配置更新资源`、`发现新版本 v{x}`、`已是最新版本`。
-- 当前 Info.plist 配置：`SUFeedURL = https://codexbar.zabrian.app/appcast.xml`，`SUScheduledCheckInterval = 3600`。
+### Tag 规范
 
-## 代码组织
+- tag 名格式:`v{MARKETING_VERSION}`(如 `v1.2.1`),与 Xcode target 的 `MARKETING_VERSION` 保持一致。
+- 使用**附注 tag**(`git tag -a`),message 格式:`Release v{version}`(如 `git tag -a v1.2.1 -m "Release v1.2.1"`)。
+- tag 同样不要主动 push,等用户明确同意。
 
-- `CodexBarApp.swift`：应用入口，创建 `RateLimitsViewModel`，配置 `MenuBarExtra`。
-- `RateLimitsViewModel.swift`：视图模型。错误状态单一来源：只发布 `lastError: CodexRateLimitError?`，`errorMessage`、`requiresLogin`、`hasError` 都是从它派生的计算属性，不要再加并列的错误布尔。
-- `CodexRateLimitService.swift`：常驻 app-server 连接管理 + JSON-RPC 请求/响应。
-- `RateLimitModels.swift`：Codex 响应模型、业务快照模型、`CodexRateLimitError`（含 `requiresLogin`、`isAuthenticationRequired` 分类属性）。
-- `MenuBarStatusView.swift`：菜单栏常驻图标（checkmark/xmark 切换 + 动画），并在 `.task` 中启动自动刷新。
-- `RateLimitsMenuView.swift`：点击菜单栏后的弹窗内容，含未登录橙色提示和设置区。
-- `QuotaRow.swift`：额度行和分段进度条。
-- `LoginItemSettings.swift`：使用 `SMAppService.mainApp` 管理开机自启。
-- `AppUpdater.swift`：封装 Sparkle 更新检查、状态文案与 `SPUUpdaterDelegate` 回调。
-- `Resources/Info.plist`：应用 Info.plist，含 `SUFeedURL`、`SUPublicEDKey`、`SUScheduledCheckInterval` 等 Sparkle 配置（`INFOPLIST_FILE` 指向此处）。
-- `Resources/Assets.xcassets/AppIcon.appiconset`：App 图标资源，白底黑色中心符号使用 `timelapse`。
-- `Scripts/create-dmg.sh`：将项目根目录下导出的 `.app` 打包成拖拽安装 DMG，结尾提示用 `update-appcast.sh` 更新 appcast。
-- `Scripts/update-appcast.sh`：对 DMG 签名（Sparkle `sign_update`）并把版本条目写入 `Updates/appcast.xml`。
-- `Updates/appcast.xml`：Sparkle appcast feed 源文件，发布时由 `update-appcast.sh` 维护。
+## 发布流程
 
-工程使用文件系统同步组（`PBXFileSystemSynchronizedRootGroup`），新增/删除源文件无需修改 `project.pbxproj`。源码与资源已统一收纳在 `CodexBar/` 下（资源在 `CodexBar/Resources/`）。Sparkle 通过 SwiftPM 引入，依赖变更才需改 `project.pbxproj`。
-
-## UI 约定
-
-- 菜单栏正常图标 `person.fill.checkmark`，错误图标 `person.fill.xmark`，切换用 `.contentTransition(.symbolEffect(.replace))` + `.animation(.default, value:)`。
-- 不要给 symbol API 加低版本 fallback；最低系统版本已经定为 macOS 15.0。
-- App 图标保持白底黑色 `timelapse`，不要恢复成蓝绿色图标。
-- 菜单栏不展示额度数字、窗口标签或外层圈数；额度详情只在弹窗中展示。
-- 弹窗账号图标使用 `person.fill`，双击该图标刷新数据。
-- 弹窗字体要保持紧凑，避免菜单栏弹窗内容被截断。
-- 分段条展示剩余额度，剩余额度计算方式是 `100 - usedPercent`。
-- 额度行标签示例：`300` 分钟显示 `5 小时`，`10080` 分钟显示 `7 天`；缺少 `windowDurationMins` 时再回退到默认文案。
-- 重置时间格式使用 `MM-dd HH:mm`；更新时间格式使用 `HH:mm:ss`。
-- 版本文案格式 `App 版本: v{CFBundleShortVersionString} ({CFBundleVersion})`，用 `monospacedDigit` 字体、`lineLimit(1)`；有 `statusMessage` 时优先展示状态文案。读取 Info.plist 统一用 `Bundle.main.object(forInfoDictionaryKey:)`。
-- token 数按 `M`、`B` 紧凑单位展示；token 贡献墙使用蓝色方块，7 行 30 列布局，单日用量越高颜色越深
-
-## 错误展示约定
-
-- 登录类错误（`requiresLogin` 为 true：`notLoggedIn`、`authenticationRequired`、消息含 "authentication required" 的 `serverError`）：弹窗顶部橙色提示「Codex 未登录」+ 图标 `person.crop.circle.badge.exclamationmark`；旧快照置灰（opacity 0.4）保留展示；红色错误行被抑制，避免重复文案。
-- 其他错误：弹窗红色小字展示 `errorDescription`；旧快照保持全亮度。
-- 错误文案保持显示直到某次刷新成功（`refresh()` 开始时不清空 `lastError`）。
-- 旧额度快照永远不清空，弹窗继续显示上一次成功读取的数据和更新时间。
-- 开机启动设置失败会展示 `设置开机启动失败: ...`，属于 `LoginItemSettings` 的独立错误位，与额度错误互不影响。
-
-## 构建验证
-
-修改后运行确保无 error 和 warning
-
-```bash
-xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build
-```
-
-SourceKit 经常对跨文件类型报「Cannot find type ... in scope」，属索引滞后误报，以 `xcodebuild` 实际编译结果为准。
-
-## 分发备注
-
-项目用于直接分发时，应使用 `Developer ID Application` 证书签名，并进行 notarization。
-
-Xcode 导出 `CodexBar.app` 到项目根目录后，可以运行：
-
-```bash
-Scripts/create-dmg.sh
-```
-
-脚本会自动查找当前目录下唯一的 `.app`，根据 Xcode target 的 `MARKETING_VERSION` 生成 `CodexBar-v{version}.dmg`。脚本会在 DMG 中放入 `CodexBar.app` 和 `Applications -> /Applications` 快捷方式，并写入 Finder 布局：app 在左侧，Applications 在右侧。若有多个工程或 scheme，可用 `XCODE_PROJECT`、`XCODE_SCHEME` 环境变量指定。
-
-打包 DMG 后用 `update-appcast.sh` 更新 Sparkle appcast：
-
-```bash
-Scripts/update-appcast.sh CodexBar-v1.2.0.dmg   # 省略参数时自动取根目录下唯一 .dmg
-```
-
-脚本流程：用 Sparkle `sign_update`（PATH 中没有则在 DerivedData 内查找）对 DMG 签名得到 `edSignature` 和长度，从 `xcodebuild -showBuildSettings` 读取 `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION`，生成 `<item>` 并插入 `Updates/appcast.xml`（按 `sparkle:version` 去重同版本旧条目，插在 `<language>` 之后），最后用 `xmllint` 校验。常用环境变量：`DOWNLOAD_BASE_URL`、`RELEASE_NOTES_BASE_URL`、`INCLUDE_RELEASE_NOTES`、`MINIMUM_SYSTEM_VERSION`、`SIGN_UPDATE`、`APPCAST_PATH`。发布时需把 DMG 上传到 `SUFeedURL` 对应的下载站点，并发布更新后的 `appcast.xml`。
-
-## Git 远端
-
-当前远端仓库：
-
-```text
-git@github.com:bob-zebedy/CodexBar.git
-```
+1. 用 `Developer ID Application` 证书签名并 notarization,Xcode 导出 `CodexBar.app` 到项目根目录。
+2. `Scripts/create-dmg.sh`:自动找到根目录唯一 `.app`,按 `MARKETING_VERSION` 生成 `CodexBar-v{version}.dmg`(含 Applications 快捷方式和 Finder 布局)。
+3. `Scripts/update-appcast.sh [dmg]`:用 Sparkle `sign_update` 签名 DMG,从 build settings 读版本号,将 `<item>` 写入 `Updates/appcast.xml`(同版本去重,`xmllint` 校验)。常用环境变量:`DOWNLOAD_BASE_URL`、`INCLUDE_RELEASE_NOTES`、`MINIMUM_SYSTEM_VERSION` 等。
+4. 上传 DMG 和更新后的 `appcast.xml` 到 `SUFeedURL` 对应站点。
