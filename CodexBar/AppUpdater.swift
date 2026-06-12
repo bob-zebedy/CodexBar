@@ -51,16 +51,16 @@ final class AppUpdater: NSObject, ObservableObject {
     private func showStatusMessage(_ message: String, autoDismiss: Bool = true) {
         clearStatusMessageTask?.cancel()
         statusMessage = message
-
+        
         guard autoDismiss else { return }
-
+        
         clearStatusMessageTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled else { return }
             self?.statusMessage = nil
         }
     }
-
+    
     private static func hasUsableSparkleConfiguration(in bundle: Bundle) -> Bool {
         guard
             let feedURLString = bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String,
@@ -70,7 +70,7 @@ final class AppUpdater: NSObject, ObservableObject {
         else {
             return false
         }
-
+        
         return !publicKey.isEmpty
     }
 }
@@ -80,7 +80,7 @@ extension AppUpdater: SPUUpdaterDelegate {
         hasAvailableUpdate = true
         showStatusMessage("发现新版本 v\(item.displayVersionString)", autoDismiss: false)
     }
-
+    
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
         hasAvailableUpdate = false
         showStatusMessage("已是最新版本")

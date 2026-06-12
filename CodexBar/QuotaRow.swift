@@ -120,27 +120,3 @@ private extension SegmentedQuotaBar {
         Color.secondary.opacity(0.18)
     }
 }
-
-#Preview {
-    VStack {
-        QuotaRow(
-            window: QuotaWindow(
-                kind: .fiveHour,
-                label: "5 小时",
-                usedPercent: 24,
-                resetsAt: Date().addingTimeInterval(3600)
-            )
-        )
-        
-        QuotaRow(
-            window: QuotaWindow(
-                kind: .weekly,
-                label: "7 天",
-                usedPercent: 50,
-                resetsAt: Date().addingTimeInterval(86400)
-            )
-        )
-    }
-    .padding()
-    .frame(width: RateLimitsMenuView.menuWidth)
-}

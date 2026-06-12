@@ -27,8 +27,12 @@ struct RateLimitsMenuView: View {
         .padding(Metrics.padding)
         .onAppear {
             viewModel.refreshIfNeeded()
-            loginItemSettings.refresh()
             showsControls = NSEvent.modifierFlags.contains(.option)
+            
+            // 开机自启状态读取是同步 XPC, 仅在设置区可见时刷新
+            if showsControls {
+                loginItemSettings.refresh()
+            }
         }
     }
 }
@@ -51,10 +55,7 @@ private extension RateLimitsMenuView {
             Group {
                 accountRow(title: snapshot.accountLabel, plan: snapshot.planLabel)
                 
-                VStack(spacing: 8) {
-                    QuotaRow(window: snapshot.fiveHour)
-                    QuotaRow(window: snapshot.weekly)
-                }
+                quotaLimitsView(snapshot.limits)
                 
                 if let usage = snapshot.usage {
                     UsageSummaryView(usage: usage)
@@ -64,11 +65,8 @@ private extension RateLimitsMenuView {
             }
             // 未登录时旧数据已过期, 置灰提示不可信
             .opacity(viewModel.requiresLogin ? 0.4 : 1)
-        } else if viewModel.isRefreshing {
-            accountRow(title: "Codex")
-            loadingView
         } else {
-            accountRow(title: "Codex")
+            accountRow(title: "")
             emptyView
         }
     }
@@ -95,23 +93,40 @@ private extension RateLimitsMenuView {
         }
     }
     
-    var loadingView: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-            
-            Text("正在获取数据")
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, Metrics.loadingVerticalPadding)
-    }
     
     var emptyView: some View {
         Text("暂无数据")
             .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
             .padding(.vertical, Metrics.loadingVerticalPadding)
+    }
+    
+    func quotaLimitsView(_ limits: [CodexQuotaLimitSnapshot]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(limits) { limit in
+                if limit.id != limits.first?.id {
+                    Divider()
+                }
+                
+                quotaLimitSection(limit)
+            }
+        }
+    }
+    
+    func quotaLimitSection(_ limit: CodexQuotaLimitSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(limit.title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            
+            VStack(spacing: 8) {
+                ForEach(limit.windows) { window in
+                    QuotaRow(window: window)
+                }
+            }
+        }
     }
     
     func accountRow(title: String, plan: String? = nil) -> some View {
@@ -130,7 +145,7 @@ private extension RateLimitsMenuView {
             
             if viewModel.isRefreshing {
                 ProgressView()
-                    .controlSize(.small)
+                    .controlSize(.mini)
                     .padding(.leading, 2)
             }
             
@@ -168,7 +183,16 @@ private extension RateLimitsMenuView {
     
     var settingsView: some View {
         HStack {
-            loginItemToggle
+            Toggle(
+                "开机自动启动",
+                isOn: Binding(
+                    get: { loginItemSettings.isEnabled },
+                    set: { loginItemSettings.setEnabled($0) }
+                )
+            )
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .font(.caption)
             
             Spacer()
             
@@ -178,25 +202,6 @@ private extension RateLimitsMenuView {
             .foregroundStyle(.red)
             .keyboardShortcut("q")
         }
-    }
-    
-    var loginItemToggle: some View {
-        settingsToggle(
-            "开机自动启动",
-            isEnabled: loginItemSettings.isEnabled,
-            setEnabled: { loginItemSettings.setEnabled($0) }
-        )
-    }
-    
-    func settingsToggle(
-        _ title: String,
-        isEnabled: Bool,
-        setEnabled: @escaping (Bool) -> Void
-    ) -> some View {
-        Toggle(title, isOn: Binding(get: { isEnabled }, set: setEnabled))
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .font(.caption)
     }
     
     @ViewBuilder
@@ -218,15 +223,15 @@ private extension RateLimitsMenuView {
     }()
     
     static let appVersionLabel: String = {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "--"
+        let version = Bundle.main.shortVersionString ?? "--"
         return "App 版本: v\(version)"
     }()
 }
 
 private struct UsageSummaryView: View {
     let usage: CodexUsageSnapshot
-    private let days: [CodexUsageSnapshot.Day]
-    @State private var hoveredDay: CodexUsageSnapshot.Day?
+    private let days: [DailyUsageBucket]
+    @State private var hoveredDay: DailyUsageBucket?
     
     init(usage: CodexUsageSnapshot) {
         self.usage = usage
@@ -257,10 +262,7 @@ private struct UsageSummaryView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: alignment)
             
-            Text(TokenCountFormatter.string(from: value))
-                .font(.caption.monospacedDigit().weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+            TokenCountText(tokens: value)
                 .frame(maxWidth: .infinity, alignment: alignment)
         }
         .frame(width: 96)
@@ -268,12 +270,16 @@ private struct UsageSummaryView: View {
 }
 
 private struct UsageHeatmap: View {
-    let days: [CodexUsageSnapshot.Day]
-    @Binding var hoveredDay: CodexUsageSnapshot.Day?
+    let days: [DailyUsageBucket]
+    @Binding var hoveredDay: DailyUsageBucket?
     @State private var hoverLocation: CGPoint = .zero
+    // hover 期间 body 频繁重算, 峰值只在构建时求一次
+    private let peakTokens: Int
     
-    private var peakTokens: Int {
-        max(days.lazy.map(\.tokens).max() ?? 0, 1)
+    init(days: [DailyUsageBucket], hoveredDay: Binding<DailyUsageBucket?>) {
+        self.days = days
+        self._hoveredDay = hoveredDay
+        self.peakTokens = max(days.lazy.map(\.tokens).max() ?? 0, 1)
     }
     
     var body: some View {
@@ -325,12 +331,12 @@ private struct UsageHeatmap: View {
                                     day: day,
                                     percent: Double(day.tokens) / Double(peakTokens),
                                     isHovered: hoveredDay?.id == day.id
-                                ) { hoveredDay, location in
-                                    self.hoveredDay = hoveredDay
+                                ) { location in
+                                    hoveredDay = day
                                     hoverLocation = location
-                                } onEnded: { day in
-                                    if self.hoveredDay?.id == day.id {
-                                        self.hoveredDay = nil
+                                } onEnded: {
+                                    if hoveredDay?.id == day.id {
+                                        hoveredDay = nil
                                     }
                                 }
                             } else {
@@ -373,11 +379,11 @@ private extension UsageHeatmap {
 }
 
 private struct UsageHeatmapSquare: View {
-    let day: CodexUsageSnapshot.Day
+    let day: DailyUsageBucket
     let percent: Double
     let isHovered: Bool
-    let onActive: (CodexUsageSnapshot.Day, CGPoint) -> Void
-    let onEnded: (CodexUsageSnapshot.Day) -> Void
+    let onActive: (CGPoint) -> Void
+    let onEnded: () -> Void
     
     var body: some View {
         GeometryReader { proxy in
@@ -393,9 +399,9 @@ private struct UsageHeatmapSquare: View {
                     switch phase {
                     case .active(let location):
                         let frame = proxy.frame(in: .named(UsageHeatmap.Metrics.coordinateSpaceName))
-                        onActive(day, CGPoint(x: frame.minX + location.x, y: frame.minY + location.y))
+                        onActive(CGPoint(x: frame.minX + location.x, y: frame.minY + location.y))
                     case .ended:
-                        onEnded(day)
+                        onEnded()
                     }
                 }
         }
@@ -428,7 +434,7 @@ private struct UsageHeatmapSquare: View {
 }
 
 private struct UsageHeatmapTooltip: View {
-    let day: CodexUsageSnapshot.Day
+    let day: DailyUsageBucket
     
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -436,11 +442,8 @@ private struct UsageHeatmapTooltip: View {
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             
-            Text(TokenCountFormatter.string(from: day.tokens))
-                .font(.caption.monospacedDigit().weight(.semibold))
+            TokenCountText(tokens: day.tokens)
                 .foregroundStyle(Color(nsColor: .labelColor))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 5)
@@ -451,6 +454,17 @@ private struct UsageHeatmapTooltip: View {
                 .stroke(Color.blue.opacity(0.22), lineWidth: 0.8)
         }
         .shadow(color: .black.opacity(0.14), radius: 7, y: 3)
+    }
+}
+
+private struct TokenCountText: View {
+    let tokens: Int
+    
+    var body: some View {
+        Text(TokenCountFormatter.string(from: tokens))
+            .font(.caption.monospacedDigit().weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
     }
 }
 
@@ -475,10 +489,4 @@ private enum TokenCountFormatter {
         formatter.maximumFractionDigits = 2
         return formatter
     }()
-}
-
-#Preview {
-    let viewModel = RateLimitsViewModel()
-    return RateLimitsMenuView(viewModel: viewModel)
-        .frame(width: RateLimitsMenuView.menuWidth)
 }

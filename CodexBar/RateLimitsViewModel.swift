@@ -33,7 +33,7 @@ final class RateLimitsViewModel: ObservableObject {
     }
     
     func refreshIfNeeded() {
-        guard snapshot == nil || Date().timeIntervalSince(snapshot?.generatedAt ?? .distantPast) > Self.refreshInterval else {
+        guard Date().timeIntervalSince(snapshot?.generatedAt ?? .distantPast) > Self.refreshInterval else {
             return
         }
         

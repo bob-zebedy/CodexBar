@@ -23,3 +23,9 @@ struct CodexBarApp: App {
         .menuBarExtraStyle(.window)
     }
 }
+
+nonisolated extension Bundle {
+    var shortVersionString: String? {
+        object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    }
+}

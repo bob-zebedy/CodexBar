@@ -24,7 +24,7 @@ SourceKit 经常对跨文件类型误报「Cannot find type ... in scope」(索�
 
 - `CodexBarApp.swift`:入口,创建 `RateLimitsViewModel` 和 `@StateObject AppUpdater`,后者以 `environmentObject` 注入弹窗。
 - `CodexRateLimitService.swift`:app-server 常驻连接管理 + JSON-RPC 请求/响应。
-- `RateLimitModels.swift`:响应模型、业务快照模型、`CodexRateLimitError`(含 `requiresLogin`、`isAuthenticationRequired` 分类属性)。
+- `RateLimitModels.swift`:wire 响应模型(纯 Decodable,不含展示逻辑)、业务快照模型(`CodexQuotaSnapshot` → `limits: [CodexQuotaLimitSnapshot]` → `windows: [QuotaWindow]`,支持多 limit 多窗口)、`CodexRateLimitError`(含 `requiresLogin`、`isAuthenticationRequired` 分类属性)。
 - `RateLimitsViewModel.swift`:错误状态单一来源——只发布 `lastError: CodexRateLimitError?`,`errorMessage`、`requiresLogin`、`hasError` 都是派生计算属性,**不要再加并列的错误布尔**。
 - `QuotaRow.swift`:额度行和分段进度条;`LoginItemSettings.swift`:`SMAppService.mainApp` 开机自启;`AppUpdater.swift`:Sparkle 封装。
 
@@ -41,6 +41,8 @@ SourceKit 经常对跨文件类型误报「Cannot find type ... in scope」(索�
 ```
 
 之后每分钟在同一会话上请求 `account/rateLimits/read` 和 `account/usage/read`。
+
+额度解析(`CodexQuotaSnapshot` 的转换 init,wire DTO 本身不做排序/兜底):优先读 `rateLimitsByLimitId`(多 limit),为空则回退顶层 `rateLimits`;顶层 `rateLimits.limitId` 指向的主 limit 置顶(缺省 `"codex"`),其余按名称排序;每个 limit 的 `primary`/`secondary` 窗口合成 `[QuotaWindow]`,无窗口的 limit 被过滤,全部为空才抛 `missingRateLimitWindow`。
 
 连接重建规则(`CodexRateLimitService.ensureConnection`):
 
@@ -68,9 +70,10 @@ Xcode target 已关闭 App Sandbox(需要启动本机 Codex CLI 并读取用户�
 - 菜单栏正常图标 `person.fill.checkmark`,错误图标 `person.fill.xmark`,切换用 `.contentTransition(.symbolEffect(.replace))`。菜单栏不展示额度数字,详情只在弹窗中展示。
 - App 图标保持白底黑色 `timelapse`。
 - 不要给 symbol API 加低版本 fallback,最低系统版本已是 macOS 15.0。
-- 分段条展示**剩余**额度(`100 - usedPercent`);额度行标签由 `windowDurationMins` 动态生成(如 `300` → `5 小时`,`10080` → `7 天`)。重置时间格式 `MM-dd HH:mm`,更新时间格式 `HH:mm:ss`。
+- 弹窗按 limit 分节展示(节标题取 `limitName` 回退 `limitId`,首字母大写,节之间 `Divider`)。分段条展示**剩余**额度(`100 - usedPercent`);额度行标签由 `windowDurationMins` 动态生成(如 `300` → `5 小时`,`10080` → `7 天`)。重置时间格式 `MM-dd HH:mm`,更新时间格式 `HH:mm:ss`。
 - token 贡献墙为 30 列 × 7 行蓝色方块热力图,token 数按 `M`/`B` 紧凑单位展示。
-- 设置区仅在按住 Option 点击菜单栏图标时展示。
+- 设置区仅在按住 Option 点击菜单栏图标时展示;开机自启状态读取是同步 XPC,也只在设置区可见时刷新。
+- **错误文案不暴露内部细节**:`serverTimeout` 只携带 JSON-RPC 步骤名;子进程 stderr 由 `PipeDrain` 排空丢弃,不进入任何用户可见文案。
 - 登录类错误(`requiresLogin`):弹窗顶部橙色提示「Codex 未登录」,旧快照置灰(opacity 0.4)保留,红色错误行被抑制。其他错误:红色小字展示 `errorDescription`,旧快照保持全亮度。
 - 错误文案保持显示直到某次刷新成功(`refresh()` 开始时不清空 `lastError`);旧额度快照永远不清空。
 

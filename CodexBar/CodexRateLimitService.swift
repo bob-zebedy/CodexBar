@@ -80,12 +80,16 @@ nonisolated final class CodexRateLimitService: @unchecked Sendable {
     }
     
     private static func fetchSnapshot(using connection: AppServerConnection) throws -> CodexQuotaSnapshot {
-        let rateLimitsResponse: AccountRateLimitsResponse
-        do {
-            rateLimitsResponse = try connection.session.request(
+        func readRateLimits() throws -> AccountRateLimitsResponse {
+            try connection.session.request(
                 "account/rateLimits/read",
                 as: AccountRateLimitsResponse.self
             )
+        }
+        
+        let rateLimitsResponse: AccountRateLimitsResponse
+        do {
+            rateLimitsResponse = try readRateLimits()
         } catch let error as CodexRateLimitError where error.isAuthenticationRequired {
             connection.accountResponse = try connection.session.request(
                 "account/read",
@@ -94,10 +98,7 @@ nonisolated final class CodexRateLimitService: @unchecked Sendable {
             )
             
             do {
-                rateLimitsResponse = try connection.session.request(
-                    "account/rateLimits/read",
-                    as: AccountRateLimitsResponse.self
-                )
+                rateLimitsResponse = try readRateLimits()
             } catch let retryError as CodexRateLimitError where retryError.isAuthenticationRequired {
                 throw CodexRateLimitError.authenticationRequired
             }
@@ -131,7 +132,7 @@ nonisolated final class CodexRateLimitService: @unchecked Sendable {
         let standardOutput = Pipe()
         let standardError = Pipe()
         let lineReader = JSONLineReader(fileHandle: standardOutput.fileHandleForReading)
-        let errorReader = PipeTextCollector(fileHandle: standardError.fileHandleForReading)
+        let errorReader = PipeDrain(fileHandle: standardError.fileHandleForReading)
         
         process.standardInput = standardInput
         process.standardOutput = standardOutput
@@ -264,8 +265,7 @@ nonisolated final class CodexRateLimitService: @unchecked Sendable {
     }
     
     private nonisolated static func clientVersion() -> String {
-        guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
-              !version.isEmpty else {
+        guard let version = Bundle.main.shortVersionString, !version.isEmpty else {
             return "1.0.0"
         }
         
@@ -298,7 +298,7 @@ private nonisolated final class AppServerSession {
     
     private let input: Pipe
     private let lineReader: JSONLineReader
-    private let errorReader: PipeTextCollector
+    private let errorReader: PipeDrain
     private let timeout: TimeInterval
     private var nextId = 1
     
@@ -306,7 +306,7 @@ private nonisolated final class AppServerSession {
         process: Process,
         input: Pipe,
         lineReader: JSONLineReader,
-        errorReader: PipeTextCollector,
+        errorReader: PipeDrain,
         timeout: TimeInterval
     ) {
         self.process = process
@@ -367,7 +367,7 @@ private nonisolated final class AppServerSession {
         let decoder = JSONDecoder()
         
         while Date() < deadline {
-            guard let line = lineReader.nextLine(timeout: 0.2) else {
+            guard let line = lineReader.nextLine(timeout: deadline.timeIntervalSinceNow) else {
                 continue
             }
             
@@ -390,12 +390,7 @@ private nonisolated final class AppServerSession {
             return result
         }
         
-        let stderr = errorReader.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if stderr.isEmpty {
-            throw CodexRateLimitError.serverTimeout(step)
-        }
-        
-        throw CodexRateLimitError.serverTimeout("\(step)：\(stderr)")
+        throw CodexRateLimitError.serverTimeout(step)
     }
 }
 
@@ -486,42 +481,15 @@ private nonisolated final class JSONLineReader: @unchecked Sendable {
     }
 }
 
-private nonisolated final class PipeTextCollector: @unchecked Sendable {
-    // 常驻连接 stderr 只保留末尾, 避免无界增长
-    private static let maxBytes = 16_384
-    
-    private let lock = NSLock()
+private nonisolated final class PipeDrain: @unchecked Sendable {
     private let fileHandle: FileHandle
-    private var data = Data()
-    
-    var text: String {
-        lock.lock()
-        defer { lock.unlock() }
-        return String(data: data, encoding: .utf8) ?? ""
-    }
     
     init(fileHandle: FileHandle) {
         self.fileHandle = fileHandle
-        fileHandle.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData)
-        }
+        fileHandle.readabilityHandler = { _ = $0.availableData }
     }
     
     func stop() {
         fileHandle.readabilityHandler = nil
-    }
-    
-    private func append(_ newData: Data) {
-        guard !newData.isEmpty else {
-            return
-        }
-        
-        lock.lock()
-        defer { lock.unlock() }
-        
-        data.append(newData)
-        if data.count > Self.maxBytes {
-            data = Data(data.suffix(Self.maxBytes))
-        }
     }
 }

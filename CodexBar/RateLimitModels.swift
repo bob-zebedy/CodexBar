@@ -8,28 +8,44 @@
 import Foundation
 
 nonisolated struct CodexQuotaSnapshot: Equatable {
-    let account: CodexAccount?
+    let account: CodexAccount
     let planType: String?
-    let limitName: String?
     let generatedAt: Date
-    let fiveHour: QuotaWindow
-    let weekly: QuotaWindow
+    let limits: [CodexQuotaLimitSnapshot]
     let usage: CodexUsageSnapshot?
     
-    var title: String {
-        if let limitName, !limitName.isEmpty {
-            return limitName
-        }
-        
-        return "Codex"
-    }
-    
     var accountLabel: String {
-        account?.displayName ?? "未登录"
+        account.displayName
     }
     
     var planLabel: String? {
-        account?.planType ?? planType
+        account.planType ?? planType
+    }
+}
+
+nonisolated struct CodexQuotaLimitSnapshot: Equatable, Identifiable {
+    let limitId: String
+    let limitName: String?
+    let windows: [QuotaWindow]
+    
+    var id: String { limitId }
+    
+    var title: String {
+        if let limitName, !limitName.isEmpty {
+            return limitName.capitalizingFirstLetter()
+        }
+        
+        return limitId.capitalizingFirstLetter()
+    }
+}
+
+nonisolated private extension String {
+    func capitalizingFirstLetter() -> String {
+        guard let first else {
+            return self
+        }
+        
+        return first.uppercased() + dropFirst()
     }
 }
 
@@ -58,21 +74,17 @@ nonisolated struct CodexAccount: Decodable, Equatable {
 
 nonisolated struct AccountReadResponse: Decodable {
     let account: CodexAccount?
-    let requiresOpenaiAuth: Bool
 }
 
 nonisolated struct QuotaWindow: Equatable, Identifiable {
-    enum Kind: String {
-        case fiveHour
-        case weekly
-    }
-    
-    let kind: Kind
-    let label: String
+    let id: String
+    let windowDurationMins: Int?
     let usedPercent: Int?
     let resetsAt: Date?
     
-    var id: String { kind.rawValue }
+    var label: String {
+        Self.windowLabel(for: windowDurationMins)
+    }
     
     var remainingPercent: Int {
         guard let usedPercent else {
@@ -85,18 +97,31 @@ nonisolated struct QuotaWindow: Equatable, Identifiable {
     var hasData: Bool {
         usedPercent != nil
     }
+    
+    private static func windowLabel(for minutes: Int?) -> String {
+        guard let minutes, minutes > 0 else {
+            return "额度"
+        }
+        
+        if minutes.isMultiple(of: 1_440) {
+            return "\(minutes / 1_440) 天"
+        }
+        
+        if minutes.isMultiple(of: 60) {
+            return "\(minutes / 60) 小时"
+        }
+        
+        return "\(minutes) 分钟"
+    }
 }
 
 nonisolated struct AccountRateLimitsResponse: Decodable {
     let rateLimits: RateLimitSnapshot
     let rateLimitsByLimitId: [String: RateLimitSnapshot]?
-    
-    var codexSnapshot: RateLimitSnapshot {
-        rateLimitsByLimitId?["codex"] ?? rateLimits
-    }
 }
 
 nonisolated struct RateLimitSnapshot: Decodable {
+    let limitId: String?
     let limitName: String?
     let planType: String?
     let primary: RateLimitWindow?
@@ -124,23 +149,18 @@ nonisolated struct UsageSummary: Decodable, Equatable {
     let peakDailyTokens: Int
 }
 
-nonisolated struct DailyUsageBucket: Decodable, Equatable {
+nonisolated struct DailyUsageBucket: Decodable, Equatable, Identifiable {
     let startDate: String
     let tokens: Int
+    
+    var id: String { startDate }
 }
 
 nonisolated struct CodexUsageSnapshot: Equatable {
-    struct Day: Equatable, Identifiable {
-        let startDate: String
-        let tokens: Int
-        
-        var id: String { startDate }
-    }
-    
     let summary: UsageSummary
     let dailyBuckets: [DailyUsageBucket]
     
-    func recentDays(count: Int, endingDaysAgo: Int = 0) -> [Day] {
+    func recentDays(count: Int, endingDaysAgo: Int) -> [DailyUsageBucket] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let tokensByDate = dailyBuckets.reduce(into: [String: Int]()) { result, bucket in
@@ -153,7 +173,7 @@ nonisolated struct CodexUsageSnapshot: Equatable {
             }
             
             let startDate = Self.dayFormatter.string(from: date)
-            return Day(startDate: startDate, tokens: tokensByDate[startDate] ?? 0)
+            return DailyUsageBucket(startDate: startDate, tokens: tokensByDate[startDate] ?? 0)
         }
     }
     
@@ -176,67 +196,74 @@ nonisolated extension CodexQuotaSnapshot {
             throw CodexRateLimitError.notLoggedIn
         }
         
-        let snapshot = rateLimitsResponse.codexSnapshot
+        let limits = Self.orderedSnapshots(from: rateLimitsResponse).compactMap { entry in
+            CodexQuotaLimitSnapshot(limitId: entry.limitId, snapshot: entry.snapshot)
+        }
         
-        try self.init(
-            account: account,
-            snapshot: snapshot,
-            usageResponse: usageResponse,
-            generatedAt: generatedAt
-        )
-    }
-    
-    private init(
-        account: CodexAccount?,
-        snapshot: RateLimitSnapshot,
-        usageResponse: AccountUsageResponse?,
-        generatedAt: Date
-    ) throws {
-        guard let primary = snapshot.primary else {
-            throw CodexRateLimitError.missingRateLimitWindow("5 小时额度")
+        guard !limits.isEmpty else {
+            throw CodexRateLimitError.missingRateLimitWindow
         }
         
         self.init(
             account: account,
-            planType: snapshot.planType,
-            limitName: snapshot.limitName,
+            planType: rateLimitsResponse.rateLimits.planType,
             generatedAt: generatedAt,
-            fiveHour: QuotaWindow(
-                kind: .fiveHour,
-                label: Self.windowLabel(for: primary.windowDurationMins, fallback: "5 小时"),
-                usedPercent: primary.usedPercent,
-                resetsAt: primary.resetDate
-            ),
-            weekly: QuotaWindow(
-                kind: .weekly,
-                label: Self.windowLabel(for: snapshot.secondary?.windowDurationMins, fallback: "7 天"),
-                usedPercent: snapshot.secondary?.usedPercent,
-                resetsAt: snapshot.secondary?.resetDate
-            ),
+            limits: limits,
             usage: usageResponse.map {
                 CodexUsageSnapshot(summary: $0.summary, dailyBuckets: $0.dailyUsageBuckets)
             }
         )
     }
     
-    private static func windowLabel(for minutes: Int?, fallback: String) -> String {
-        guard let minutes, minutes > 0 else {
-            return fallback
+    /// 展示顺序: 顶层 rateLimits 指向的主 limit 置顶, 其余按名称排序
+    private static func orderedSnapshots(
+        from response: AccountRateLimitsResponse
+    ) -> [(limitId: String, snapshot: RateLimitSnapshot)] {
+        let primaryLimitId = response.rateLimits.limitId ?? "codex"
+        
+        guard let byLimitId = response.rateLimitsByLimitId, !byLimitId.isEmpty else {
+            return [(primaryLimitId, response.rateLimits)]
         }
         
-        if minutes < 60 {
-            return "\(minutes) 分钟"
+        return byLimitId
+            .map { (limitId: $0.key, snapshot: $0.value) }
+            .sorted { lhs, rhs in
+                if (lhs.limitId == primaryLimitId) != (rhs.limitId == primaryLimitId) {
+                    return lhs.limitId == primaryLimitId
+                }
+                
+                return lhs.limitId.localizedStandardCompare(rhs.limitId) == .orderedAscending
+            }
+    }
+}
+
+nonisolated extension CodexQuotaLimitSnapshot {
+    init?(limitId: String, snapshot: RateLimitSnapshot) {
+        let windows = [("primary", snapshot.primary), ("secondary", snapshot.secondary)]
+            .compactMap { id, window in
+                window.map { QuotaWindow(id: id, window: $0) }
+            }
+        
+        guard !windows.isEmpty else {
+            return nil
         }
         
-        if minutes.isMultiple(of: 1_440) {
-            return "\(minutes / 1_440) 天"
-        }
-        
-        if minutes.isMultiple(of: 60) {
-            return "\(minutes / 60) 小时"
-        }
-        
-        return "\(minutes) 分钟"
+        self.init(
+            limitId: limitId,
+            limitName: snapshot.limitName,
+            windows: windows
+        )
+    }
+}
+
+nonisolated extension QuotaWindow {
+    init(id: String, window: RateLimitWindow) {
+        self.init(
+            id: id,
+            windowDurationMins: window.windowDurationMins,
+            usedPercent: window.usedPercent,
+            resetsAt: window.resetDate
+        )
     }
 }
 
@@ -245,7 +272,7 @@ nonisolated enum CodexRateLimitError: LocalizedError {
     case serverStartFailed(String)
     case serverTimeout(String)
     case serverError(String)
-    case missingRateLimitWindow(String)
+    case missingRateLimitWindow
     case notLoggedIn
     case authenticationRequired
     
@@ -259,8 +286,8 @@ nonisolated enum CodexRateLimitError: LocalizedError {
             return "Codex app-server 响应超时: \(step)"
         case .serverError(let message):
             return "Codex app-server 返回错误: \(message)"
-        case .missingRateLimitWindow(let name):
-            return "查询不到 \(name)"
+        case .missingRateLimitWindow:
+            return "查询不到数据"
         case .notLoggedIn:
             return "Codex 未登录"
         case .authenticationRequired:
