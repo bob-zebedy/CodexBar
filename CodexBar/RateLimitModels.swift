@@ -54,8 +54,12 @@ nonisolated struct CodexAccount: Decodable, Equatable {
     let email: String?
     let planType: String?
     
+    var hasEmail: Bool {
+        email?.isEmpty == false
+    }
+    
     var displayName: String {
-        if let email, !email.isEmpty {
+        if let email, hasEmail {
             return email
         }
         

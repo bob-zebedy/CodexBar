@@ -15,6 +15,7 @@ struct RateLimitsMenuView: View {
     @EnvironmentObject private var appUpdater: AppUpdater
     @StateObject private var loginItemSettings = LoginItemSettings()
     @State private var showsControls = false
+    @State private var isEmailBlurred = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.verticalSpacing) {
@@ -33,6 +34,9 @@ struct RateLimitsMenuView: View {
             if showsControls {
                 loginItemSettings.refresh()
             }
+        }
+        .onChange(of: viewModel.snapshot?.account.email) { _, _ in
+            isEmailBlurred = false
         }
     }
 }
@@ -53,7 +57,11 @@ private extension RateLimitsMenuView {
         
         if let snapshot = viewModel.snapshot {
             Group {
-                accountRow(title: snapshot.accountLabel, plan: snapshot.planLabel)
+                accountRow(
+                    title: snapshot.accountLabel,
+                    isEmail: snapshot.account.hasEmail,
+                    plan: snapshot.planLabel
+                )
                 
                 quotaLimitsView(snapshot.limits)
                 
@@ -129,7 +137,7 @@ private extension RateLimitsMenuView {
         }
     }
     
-    func accountRow(title: String, plan: String? = nil) -> some View {
+    func accountRow(title: String, isEmail: Bool = false, plan: String? = nil) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "person.fill")
                 .font(.system(size: Metrics.accountIconSize, weight: .medium))
@@ -142,6 +150,12 @@ private extension RateLimitsMenuView {
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .blur(radius: isEmail && isEmailBlurred ? 3 : 0)
+                .animation(.snappy(duration: 0.18), value: isEmailBlurred)
+                .onTapGesture(count: 2) {
+                    guard isEmail else { return }
+                    isEmailBlurred.toggle()
+                }
             
             if viewModel.isRefreshing {
                 ProgressView()

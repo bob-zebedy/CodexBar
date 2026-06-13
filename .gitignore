@@ -29,6 +29,7 @@ codesign2
 *.pkg
 *.dmg
 *.zip
+*.app
 
 # Logs
 *.log
