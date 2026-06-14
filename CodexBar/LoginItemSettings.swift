@@ -35,7 +35,7 @@ final class LoginItemSettings: ObservableObject {
             refresh()
         } catch {
             refresh()
-            errorMessage = "设置开机自动启动失败: \(error.localizedDescription)"
+            errorMessage = "设置开机启动失败: \(error.localizedDescription)"
         }
     }
 }

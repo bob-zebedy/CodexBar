@@ -9,12 +9,10 @@ import AppKit
 import SwiftUI
 
 struct RateLimitsMenuView: View {
-    static let menuWidth: CGFloat = Metrics.padding * 2 + UsageHeatmap.Metrics.totalWidth
+    static let menuWidth: CGFloat = Metrics.padding * 2 + Metrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
     
     @ObservedObject var viewModel: RateLimitsViewModel
     @EnvironmentObject private var appUpdater: AppUpdater
-    @StateObject private var loginItemSettings = LoginItemSettings()
-    @State private var showsControls = false
     @State private var isEmailBlurred = false
     
     var body: some View {
@@ -22,19 +20,9 @@ struct RateLimitsMenuView: View {
             content
             // 未登录已有专属橙色提示, 不再重复显示同文案的红色错误行
             errorView(viewModel.requiresLogin ? nil : viewModel.errorMessage)
-            errorView(loginItemSettings.errorMessage)
-            controls
         }
         .padding(Metrics.padding)
-        .onAppear {
-            viewModel.refreshIfNeeded()
-            showsControls = NSEvent.modifierFlags.contains(.option)
-            
-            // 开机自启状态读取是同步 XPC, 仅在设置区可见时刷新
-            if showsControls {
-                loginItemSettings.refresh()
-            }
-        }
+        .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, tint: .cyan, isOuterSurface: true)
         .onChange(of: viewModel.snapshot?.account.email) { _, _ in
             isEmailBlurred = false
         }
@@ -44,6 +32,9 @@ struct RateLimitsMenuView: View {
 private extension RateLimitsMenuView {
     enum Metrics {
         static let padding: CGFloat = 12
+        static let panelPadding: CGFloat = 10
+        static let surfaceCornerRadius: CGFloat = 14
+        static let panelCornerRadius: CGFloat = 8
         static let verticalSpacing: CGFloat = 10
         static let accountIconSize: CGFloat = 14
         static let loadingVerticalPadding: CGFloat = 16
@@ -57,7 +48,7 @@ private extension RateLimitsMenuView {
         
         if let snapshot = viewModel.snapshot {
             Group {
-                accountRow(
+                accountCard(
                     title: snapshot.accountLabel,
                     isEmail: snapshot.account.hasEmail,
                     plan: snapshot.planLabel
@@ -70,12 +61,17 @@ private extension RateLimitsMenuView {
                 }
                 
                 updatedAtRow(for: snapshot)
+                    .padding(.horizontal, Metrics.panelPadding)
+                    .padding(.vertical, 7)
+                    .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .mint)
             }
             // 未登录时旧数据已过期, 置灰提示不可信
             .opacity(viewModel.requiresLogin ? 0.4 : 1)
         } else {
-            accountRow(title: "")
+            accountCard(title: "")
             emptyView
+                .padding(Metrics.panelPadding)
+                .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
         }
     }
     
@@ -93,15 +89,6 @@ private extension RateLimitsMenuView {
         }
     }
     
-    @ViewBuilder
-    var controls: some View {
-        if showsControls {
-            Divider()
-            settingsView
-        }
-    }
-    
-    
     var emptyView: some View {
         Text("暂无数据")
             .foregroundStyle(.secondary)
@@ -113,12 +100,14 @@ private extension RateLimitsMenuView {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(limits) { limit in
                 if limit.id != limits.first?.id {
-                    Divider()
+                    LiquidGlassDivider()
                 }
                 
                 quotaLimitSection(limit)
             }
         }
+        .padding(Metrics.panelPadding)
+        .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .green)
     }
     
     func quotaLimitSection(_ limit: CodexQuotaLimitSnapshot) -> some View {
@@ -135,6 +124,13 @@ private extension RateLimitsMenuView {
                 }
             }
         }
+    }
+    
+    func accountCard(title: String, isEmail: Bool = false, plan: String? = nil) -> some View {
+        accountRow(title: title, isEmail: isEmail, plan: plan)
+            .padding(.horizontal, Metrics.panelPadding)
+            .padding(.vertical, 8)
+            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
     }
     
     func accountRow(title: String, isEmail: Bool = false, plan: String? = nil) -> some View {
@@ -166,13 +162,15 @@ private extension RateLimitsMenuView {
             Spacer()
             
             if let plan {
+                let tint = planBadgeTint(for: plan)
+                
                 Text(plan.uppercased())
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(tint)
                     .lineLimit(1)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
-                    .background(.secondary.opacity(0.12), in: Capsule())
+                    .liquidGlassCapsule(tint: tint)
             }
         }
     }
@@ -182,39 +180,18 @@ private extension RateLimitsMenuView {
             Text("更新时间 \(snapshot.generatedAt, formatter: Self.timeFormatter)")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            
+
             Spacer()
             
-            Text(appUpdater.statusMessage ?? Self.appVersionLabel)
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .onTapGesture(count: 2) {
-                    appUpdater.checkForUpdates()
-                }
-        }
-    }
-    
-    var settingsView: some View {
-        HStack {
-            Toggle(
-                "开机自动启动",
-                isOn: Binding(
-                    get: { loginItemSettings.isEnabled },
-                    set: { loginItemSettings.setEnabled($0) }
-                )
-            )
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .font(.caption)
-            
-            Spacer()
-            
-            Button("退出") {
-                NSApplication.shared.terminate(nil)
+            if let message = appUpdater.panelUpdateMessage {
+                Text(message)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .onTapGesture(count: 2) {
+                        appUpdater.startUpdate()
+                    }
             }
-            .foregroundStyle(.red)
-            .keyboardShortcut("q")
         }
     }
     
@@ -229,16 +206,41 @@ private extension RateLimitsMenuView {
         }
     }
     
+    func planBadgeTint(for plan: String) -> Color {
+        let normalizedPlan = plan.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        if normalizedPlan.contains("enterprise") {
+            return .green
+        }
+        
+        if normalizedPlan.contains("team") || normalizedPlan.contains("business") {
+            return .orange
+        }
+        
+        if normalizedPlan.contains("pro") {
+            return .purple
+        }
+        
+        if normalizedPlan.contains("plus") {
+            return .blue
+        }
+        
+        if normalizedPlan.contains("edu") {
+            return .teal
+        }
+        
+        if normalizedPlan.contains("free") {
+            return .secondary
+        }
+        
+        return .cyan
+    }
+    
     static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "HH:mm:ss"
         return formatter
-    }()
-    
-    static let appVersionLabel: String = {
-        let version = Bundle.main.shortVersionString ?? "--"
-        return "App 版本: v\(version)"
     }()
 }
 
@@ -254,8 +256,6 @@ private struct UsageSummaryView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Divider()
-            
             HStack(alignment: .firstTextBaseline) {
                 metric(label: "单日峰值", value: usage.summary.peakDailyTokens, alignment: .leading)
                 Spacer()
@@ -264,6 +264,8 @@ private struct UsageSummaryView: View {
             
             UsageHeatmap(days: days, hoveredDay: $hoveredDay)
         }
+        .padding(10)
+        .liquidGlassSurface(cornerRadius: 8, tint: .blue)
         .onAppear {
             hoveredDay = nil
         }
@@ -462,12 +464,7 @@ private struct UsageHeatmapTooltip: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 5)
         .frame(width: UsageHeatmap.Metrics.tooltipWidth, alignment: .leading)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .stroke(Color.blue.opacity(0.22), lineWidth: 0.8)
-        }
-        .shadow(color: .black.opacity(0.14), radius: 7, y: 3)
+        .liquidGlassSurface(cornerRadius: 7, tint: .blue)
     }
 }
 

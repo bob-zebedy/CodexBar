@@ -4,7 +4,7 @@
 
 ## 项目概览
 
-CodexBar 是一个 macOS 菜单栏应用(SwiftUI + MVVM,最低 macOS 15.0),通过本机 Codex app-server 展示当前 Codex 账号的额度和 token 用量。主入口是 `MenuBarExtra`,弹窗使用 `.menuBarExtraStyle(.window)`。唯一外部依赖是 Sparkle(SwiftPM)。
+CodexBar 是一个 macOS 菜单栏应用(SwiftUI + MVVM,最低 macOS 15.0),通过本机 Codex app-server 展示当前 Codex 账号的额度和 token 用量。`LSUIElement` 纯菜单栏应用(无 Dock 图标、无应用菜单),入口经 `NSApplicationDelegateAdaptor`(`CodexBarAppDelegate`)→ `StatusItemController` 手动管理 `NSStatusItem` + `NSPopover`,SwiftUI 内容托管在 popover 中。唯一外部依赖是 Sparkle(SwiftPM)。
 
 ## 构建验证
 
@@ -20,13 +20,15 @@ SourceKit 经常对跨文件类型误报「Cannot find type ... in scope」(索�
 
 ## 架构
 
-数据流:`CodexRateLimitService`(JSON-RPC 常驻连接)→ `RateLimitsViewModel`(状态发布)→ `MenuBarStatusView`(菜单栏图标 + 在 `.task` 中驱动每分钟自动刷新)/ `RateLimitsMenuView`(弹窗)。
+数据流:`CodexRateLimitService`(JSON-RPC 常驻连接)→ `RateLimitsViewModel`(状态发布)→ `StatusItemController`(菜单栏图标,经 Combine 订阅 `objectWillChange` 刷新图标)/ `RateLimitsMenuView`(popover 弹窗)。
 
-- `CodexBarApp.swift`:入口,创建 `RateLimitsViewModel` 和 `@StateObject AppUpdater`,后者以 `environmentObject` 注入弹窗。
+- `CodexBarApp.swift`:`@main`,仅声明一个占位 `Settings { EmptyView() }` Scene(`LSUIElement` 无入口触发它);真实 UI 由 `@NSApplicationDelegateAdaptor` 注入的 `CodexBarAppDelegate` 驱动。同文件含 `nonisolated extension Bundle`(`shortVersionString`、`displayVersionLabel`)。
+- `StatusItemController.swift`:`CodexBarAppDelegate`(持有 `RateLimitsViewModel`、`AppUpdater`)+ `StatusItemController`(私有)。后者 `install()` 时配置 `NSStatusItem`、popover、Combine 订阅,并调 `viewModel.startAutoRefresh()` 启动每分钟刷新;左键开关 popover(手写淡入淡出动画),右键弹 `NSMenu`(设置 / 退出),设置项打开独立 `NSWindow`(`makeSettingsWindow`,内嵌 `AppSettingsView`)。
+- `AppSettingsView.swift`:设置窗口 UI(开机自启开关、自动检查更新开关、当前版本 + 立即更新、检查更新、退出),经 `environmentObject` 注入 `AppUpdater`;`onAppear` 时刷新开机自启与自动检查状态。两个开关行复用 `settingsToggleRow(icon:title:isOn:isEnabled:)`。
 - `CodexRateLimitService.swift`:app-server 常驻连接管理 + JSON-RPC 请求/响应。
 - `RateLimitModels.swift`:wire 响应模型(纯 Decodable,不含展示逻辑)、业务快照模型(`CodexQuotaSnapshot` → `limits: [CodexQuotaLimitSnapshot]` → `windows: [QuotaWindow]`,支持多 limit 多窗口)、`CodexRateLimitError`(含 `requiresLogin`、`isAuthenticationRequired` 分类属性)。
 - `RateLimitsViewModel.swift`:错误状态单一来源——只发布 `lastError: CodexRateLimitError?`,`errorMessage`、`requiresLogin`、`hasError` 都是派生计算属性,**不要再加并列的错误布尔**。
-- `QuotaRow.swift`:额度行和分段进度条;`LoginItemSettings.swift`:`SMAppService.mainApp` 开机自启;`AppUpdater.swift`:Sparkle 封装。
+- `QuotaRow.swift`:额度行和分段进度条;`LoginItemSettings.swift`:`SMAppService.mainApp` 开机自启;`AppUpdater.swift`:Sparkle 封装;`LiquidGlassStyle.swift`:Liquid Glass 视觉(`liquidGlassSurface`/`liquidGlassCapsule` 修饰符、`LiquidGlassDivider`)。
 
 ## Codex app-server 连接(核心逻辑)
 
@@ -67,19 +69,22 @@ Xcode target 已关闭 App Sandbox(需要启动本机 Codex CLI 并读取用户�
 
 ## UI 与错误展示约定
 
-- 菜单栏正常图标 `person.fill.checkmark`,错误图标 `person.fill.xmark`,切换用 `.contentTransition(.symbolEffect(.replace))`。菜单栏不展示额度数字,详情只在弹窗中展示。
+- 菜单栏正常图标 `person.fill.checkmark`,错误图标 `person.fill.xmark`,由 `StatusItemController.updateStatusImage()` 直接设置 `NSStatusItem.button.image`。菜单栏不展示额度数字,详情只在 popover 中展示。
 - App 图标保持白底黑色 `timelapse`。
 - 不要给 symbol API 加低版本 fallback,最低系统版本已是 macOS 15.0。
-- 弹窗按 limit 分节展示(节标题取 `limitName` 回退 `limitId`,首字母大写,节之间 `Divider`)。分段条展示**剩余**额度(`100 - usedPercent`);额度行标签由 `windowDurationMins` 动态生成(如 `300` → `5 小时`,`10080` → `7 天`)。重置时间格式 `MM-dd HH:mm`,更新时间格式 `HH:mm:ss`。
+- 弹窗整体采用 Liquid Glass 风格(`LiquidGlassStyle.swift`):`.liquidGlassSurface(...)` 给各分区/外层加玻璃质感背景,`.liquidGlassCapsule` 给 plan 徽章,分隔线用 `LiquidGlassDivider`。plan 徽章颜色由 `planBadgeTint(for:)` 按计划名子串匹配(有序优先级:enterprise→team/business→pro→plus→edu→free→默认 cyan)。
+- 弹窗按 limit 分节展示(节标题取 `limitName` 回退 `limitId`,首字母大写,节之间 `LiquidGlassDivider`)。分段条展示**剩余**额度(`100 - usedPercent`);额度行标签由 `windowDurationMins` 动态生成(如 `300` → `5 小时`,`10080` → `7 天`)。重置时间格式 `MM-dd HH:mm`,更新时间格式 `HH:mm:ss`(更新时间行不展示版本号)。
 - token 贡献墙为 30 列 × 7 行蓝色方块热力图,token 数按 `M`/`B` 紧凑单位展示。
-- 设置区仅在按住 Option 点击菜单栏图标时展示;开机自启状态读取是同步 XPC,也只在设置区可见时刷新。
+- 设置走菜单栏图标**右键(或 Control 点击)菜单**的「设置」项,打开独立的 `AppSettingsView` 窗口;开机自启状态读取是同步 XPC,在设置窗口 `onAppear` 时刷新。
 - **错误文案不暴露内部细节**:`serverTimeout` 只携带 JSON-RPC 步骤名;子进程 stderr 由 `PipeDrain` 排空丢弃,不进入任何用户可见文案。
 - 登录类错误(`requiresLogin`):弹窗顶部橙色提示「Codex 未登录」,旧快照置灰(opacity 0.4)保留,红色错误行被抑制。其他错误:红色小字展示 `errorDescription`,旧快照保持全亮度。
 - 错误文案保持显示直到某次刷新成功(`refresh()` 开始时不清空 `lastError`);旧额度快照永远不清空。
 
 ## 自动更新(Sparkle)
 
-`AppUpdater`(`@MainActor`、`ObservableObject`)初始化时先校验 Info.plist 的 `SUFeedURL`(http/https)和 `SUPublicEDKey`(非空),任一缺失则不创建 `SPUStandardUpdaterController`,双击版本文案显示「未配置更新资源」(Debug/未签名构建静默降级)。`statusMessage` 是唯一发布的 UI 状态,3 秒后由可取消的 `Task` 自动清空。Info.plist 位于 `CodexBar/Resources/Info.plist`(`SUFeedURL = https://codexbar.zabrian.app/appcast.xml`,检查间隔 3600 秒)。
+`AppUpdater`(`@MainActor`、`ObservableObject`)初始化时先校验 Info.plist 的 `SUFeedURL`(http/https)和 `SUPublicEDKey`(非空),任一缺失则不创建 `SPUStandardUpdaterController`,各操作文案显示「未配置更新资源」(Debug/未签名构建静默降级);`canConfigureAutomaticChecks` 是 `updaterController != nil` 的计算属性,设置窗的「自动检查更新」开关据此禁用。
+
+按 UI 表面拆三个 `@Published` 文案,不要合并:`settingsStatusMessage`(设置窗版本行,默认 3 秒后由可取消 `Task` 清空,`autoDismissDelay: nil` 时常驻)、`panelUpdateMessage`(popover 底栏被动提示)、`availableUpdateMessage`(有新版的语义标志,驱动设置窗「立即更新」按钮)。`checkForUpdates()` 是设置窗的手动检查(置 `isManualCheckInProgress`),`startUpdate()` 拉起 Sparkle 安装面板,`setAutomaticallyChecksForUpdates(_:)`/`refreshAutomaticCheckSetting()` 同步开关状态。委托回调据 `isManualCheckInProgress` 路由:手动检查的结果进 `settingsStatusMessage`,自动检查发现新版进 `panelUpdateMessage`。Info.plist 位于 `CodexBar/Resources/Info.plist`(`SUFeedURL = https://codexbar.zabrian.app/appcast.xml`,检查间隔 3600 秒)。
 
 ## Git 提交规范
 

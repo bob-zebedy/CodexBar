@@ -12,11 +12,16 @@ import SwiftUI
 
 @MainActor
 final class AppUpdater: NSObject, ObservableObject {
-    @Published private(set) var statusMessage: String?
-    
+    @Published private(set) var settingsStatusMessage: String?
+    @Published private(set) var panelUpdateMessage: String?
+    @Published private(set) var availableUpdateMessage: String?
+    @Published private(set) var automaticallyChecksForUpdates = false
+
+    var canConfigureAutomaticChecks: Bool { updaterController != nil }
+
     private var updaterController: SPUStandardUpdaterController?
-    private var clearStatusMessageTask: Task<Void, Never>?
-    private var hasAvailableUpdate = false
+    private var clearSettingsStatusMessageTask: Task<Void, Never>?
+    private var isManualCheckInProgress = false
     
     init(bundle: Bundle = .main) {
         super.init()
@@ -30,34 +35,60 @@ final class AppUpdater: NSObject, ObservableObject {
             updaterDelegate: self,
             userDriverDelegate: nil
         )
+        refreshAutomaticCheckSetting()
     }
     
     func checkForUpdates() {
         guard let updaterController else {
-            showStatusMessage("未配置更新资源")
+            showSettingsStatusMessage("未配置更新资源")
             return
         }
         
-        if hasAvailableUpdate {
-            NSApplication.shared.activate()
-            updaterController.checkForUpdates(nil)
+        if let availableUpdateMessage {
+            showSettingsStatusMessage(availableUpdateMessage, autoDismissDelay: nil)
             return
         }
         
-        showStatusMessage("正在检查更新")
+        isManualCheckInProgress = true
+        showSettingsStatusMessage("正在检查更新")
         updaterController.updater.checkForUpdateInformation()
     }
     
-    private func showStatusMessage(_ message: String, autoDismiss: Bool = true) {
-        clearStatusMessageTask?.cancel()
-        statusMessage = message
+    func startUpdate() {
+        guard let updaterController else {
+            showSettingsStatusMessage("未配置更新资源")
+            return
+        }
         
-        guard autoDismiss else { return }
+        NSApplication.shared.activate()
+        updaterController.checkForUpdates(nil)
+    }
+    
+    func setAutomaticallyChecksForUpdates(_ isEnabled: Bool) {
+        guard let updaterController else {
+            automaticallyChecksForUpdates = false
+            showSettingsStatusMessage("未配置更新资源")
+            return
+        }
         
-        clearStatusMessageTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
+        updaterController.updater.automaticallyChecksForUpdates = isEnabled
+        refreshAutomaticCheckSetting()
+    }
+    
+    func refreshAutomaticCheckSetting() {
+        automaticallyChecksForUpdates = updaterController?.updater.automaticallyChecksForUpdates ?? false
+    }
+    
+    private func showSettingsStatusMessage(_ message: String, autoDismissDelay: Duration? = .seconds(3)) {
+        clearSettingsStatusMessageTask?.cancel()
+        settingsStatusMessage = message
+        
+        guard let autoDismissDelay else { return }
+        
+        clearSettingsStatusMessageTask = Task { [weak self] in
+            try? await Task.sleep(for: autoDismissDelay)
             guard !Task.isCancelled else { return }
-            self?.statusMessage = nil
+            self?.settingsStatusMessage = nil
         }
     }
     
@@ -77,12 +108,26 @@ final class AppUpdater: NSObject, ObservableObject {
 
 extension AppUpdater: SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        hasAvailableUpdate = true
-        showStatusMessage("发现新版本 v\(item.displayVersionString)", autoDismiss: false)
+        let message = "发现新版本: v\(item.displayVersionString)"
+        availableUpdateMessage = message
+        
+        if isManualCheckInProgress {
+            showSettingsStatusMessage(message, autoDismissDelay: nil)
+        } else {
+            panelUpdateMessage = message
+        }
+        
+        isManualCheckInProgress = false
     }
     
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
-        hasAvailableUpdate = false
-        showStatusMessage("已是最新版本")
+        availableUpdateMessage = nil
+        panelUpdateMessage = nil
+        
+        if isManualCheckInProgress {
+            showSettingsStatusMessage("已是最新版本", autoDismissDelay: .milliseconds(1500))
+        }
+        
+        isManualCheckInProgress = false
     }
 }
