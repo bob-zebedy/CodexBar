@@ -14,10 +14,6 @@ final class LoginItemSettings: ObservableObject {
     @Published private(set) var isEnabled = false
     @Published private(set) var errorMessage: String?
     
-    init() {
-        refresh()
-    }
-    
     func refresh() {
         isEnabled = SMAppService.mainApp.status == .enabled
     }

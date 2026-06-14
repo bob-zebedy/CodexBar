@@ -13,11 +13,11 @@ nonisolated struct CodexQuotaSnapshot: Equatable {
     let generatedAt: Date
     let limits: [CodexQuotaLimitSnapshot]
     let usage: CodexUsageSnapshot?
-    
+
     var accountLabel: String {
         account.displayName
     }
-    
+
     var planLabel: String? {
         account.planType ?? planType
     }
@@ -27,14 +27,14 @@ nonisolated struct CodexQuotaLimitSnapshot: Equatable, Identifiable {
     let limitId: String
     let limitName: String?
     let windows: [QuotaWindow]
-    
+
     var id: String { limitId }
-    
+
     var title: String {
         if let limitName, !limitName.isEmpty {
             return limitName.capitalizingFirstLetter()
         }
-        
+
         return limitId.capitalizingFirstLetter()
     }
 }
@@ -44,7 +44,7 @@ nonisolated private extension String {
         guard let first else {
             return self
         }
-        
+
         return first.uppercased() + dropFirst()
     }
 }
@@ -53,16 +53,16 @@ nonisolated struct CodexAccount: Decodable, Equatable {
     let type: String
     let email: String?
     let planType: String?
-    
+
     var hasEmail: Bool {
         email?.isEmpty == false
     }
-    
+
     var displayName: String {
         if let email, hasEmail {
             return email
         }
-        
+
         switch type {
         case "apiKey":
             return "API Key"
@@ -85,36 +85,36 @@ nonisolated struct QuotaWindow: Equatable, Identifiable {
     let windowDurationMins: Int?
     let usedPercent: Int?
     let resetsAt: Date?
-    
+
     var label: String {
         Self.windowLabel(for: windowDurationMins)
     }
-    
+
     var remainingPercent: Int {
         guard let usedPercent else {
             return 0
         }
-        
+
         return max(0, min(100, 100 - usedPercent))
     }
-    
+
     var hasData: Bool {
         usedPercent != nil
     }
-    
+
     private static func windowLabel(for minutes: Int?) -> String {
         guard let minutes, minutes > 0 else {
             return "额度"
         }
-        
+
         if minutes.isMultiple(of: 1_440) {
             return "\(minutes / 1_440) 天"
         }
-        
+
         if minutes.isMultiple(of: 60) {
             return "\(minutes / 60) 小时"
         }
-        
+
         return "\(minutes) 分钟"
     }
 }
@@ -133,10 +133,10 @@ nonisolated struct RateLimitSnapshot: Decodable {
 }
 
 nonisolated struct RateLimitWindow: Decodable {
-    let usedPercent: Int
+    let usedPercent: Int?
     let resetsAt: Int?
     let windowDurationMins: Int?
-    
+
     var resetDate: Date? {
         guard let resetsAt else { return nil }
         return Date(timeIntervalSince1970: TimeInterval(resetsAt))
@@ -156,31 +156,31 @@ nonisolated struct UsageSummary: Decodable, Equatable {
 nonisolated struct DailyUsageBucket: Decodable, Equatable, Identifiable {
     let startDate: String
     let tokens: Int
-    
+
     var id: String { startDate }
 }
 
 nonisolated struct CodexUsageSnapshot: Equatable {
     let summary: UsageSummary
     let dailyBuckets: [DailyUsageBucket]
-    
+
     func recentDays(count: Int, endingDaysAgo: Int) -> [DailyUsageBucket] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let tokensByDate = dailyBuckets.reduce(into: [String: Int]()) { result, bucket in
             result[bucket.startDate, default: 0] += bucket.tokens
         }
-        
+
         return (0..<count).reversed().compactMap { offset in
             guard let date = calendar.date(byAdding: .day, value: -(offset + endingDaysAgo), to: today) else {
                 return nil
             }
-            
+
             let startDate = Self.dayFormatter.string(from: date)
             return DailyUsageBucket(startDate: startDate, tokens: tokensByDate[startDate] ?? 0)
         }
     }
-    
+
     private nonisolated static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -199,15 +199,15 @@ nonisolated extension CodexQuotaSnapshot {
         guard let account = accountResponse.account else {
             throw CodexRateLimitError.notLoggedIn
         }
-        
+
         let limits = Self.orderedSnapshots(from: rateLimitsResponse).compactMap { entry in
             CodexQuotaLimitSnapshot(limitId: entry.limitId, snapshot: entry.snapshot)
         }
-        
+
         guard !limits.isEmpty else {
             throw CodexRateLimitError.missingRateLimitWindow
         }
-        
+
         self.init(
             account: account,
             planType: rateLimitsResponse.rateLimits.planType,
@@ -218,24 +218,31 @@ nonisolated extension CodexQuotaSnapshot {
             }
         )
     }
-    
+
     /// 展示顺序: 顶层 rateLimits 指向的主 limit 置顶, 其余按名称排序
     private static func orderedSnapshots(
         from response: AccountRateLimitsResponse
     ) -> [(limitId: String, snapshot: RateLimitSnapshot)] {
         let primaryLimitId = response.rateLimits.limitId ?? "codex"
-        
+
         guard let byLimitId = response.rateLimitsByLimitId, !byLimitId.isEmpty else {
             return [(primaryLimitId, response.rateLimits)]
         }
-        
+
         return byLimitId
             .map { (limitId: $0.key, snapshot: $0.value) }
             .sorted { lhs, rhs in
                 if (lhs.limitId == primaryLimitId) != (rhs.limitId == primaryLimitId) {
                     return lhs.limitId == primaryLimitId
                 }
-                
+
+                let lhsName = lhs.snapshot.limitName ?? lhs.limitId
+                let rhsName = rhs.snapshot.limitName ?? rhs.limitId
+                let nameOrder = lhsName.localizedStandardCompare(rhsName)
+                if nameOrder != .orderedSame {
+                    return nameOrder == .orderedAscending
+                }
+
                 return lhs.limitId.localizedStandardCompare(rhs.limitId) == .orderedAscending
             }
     }
@@ -247,11 +254,11 @@ nonisolated extension CodexQuotaLimitSnapshot {
             .compactMap { id, window in
                 window.map { QuotaWindow(id: id, window: $0) }
             }
-        
+
         guard !windows.isEmpty else {
             return nil
         }
-        
+
         self.init(
             limitId: limitId,
             limitName: snapshot.limitName,
@@ -275,11 +282,13 @@ nonisolated enum CodexRateLimitError: LocalizedError {
     case executableNotFound
     case serverStartFailed(String)
     case serverTimeout(String)
+    case serverConnectionClosed(String)
+    case invalidServerResponse(String)
     case serverError(String)
     case missingRateLimitWindow
     case notLoggedIn
     case authenticationRequired
-    
+
     var errorDescription: String? {
         switch self {
         case .executableNotFound:
@@ -288,17 +297,21 @@ nonisolated enum CodexRateLimitError: LocalizedError {
             return "Codex app-server 启动失败: \(message)"
         case .serverTimeout(let step):
             return "Codex app-server 响应超时: \(step)"
+        case .serverConnectionClosed(let step):
+            return "Codex app-server 连接断开: \(step)"
+        case .invalidServerResponse(let step):
+            return "Codex app-server 响应异常: \(step)"
         case .serverError(let message):
             return "Codex app-server 返回错误: \(message)"
         case .missingRateLimitWindow:
-            return "查询不到数据"
+            return "暂未获取到数据"
         case .notLoggedIn:
             return "Codex 未登录"
         case .authenticationRequired:
             return "Codex 需要身份验证"
         }
     }
-    
+
     var isAuthenticationRequired: Bool {
         switch self {
         case .serverError(let message):
@@ -309,7 +322,19 @@ nonisolated enum CodexRateLimitError: LocalizedError {
             return false
         }
     }
-    
+
+    var isUnsupportedUsageMethod: Bool {
+        guard case .serverError(let message) = self else {
+            return false
+        }
+
+        let normalizedMessage = message.lowercased()
+        return normalizedMessage.contains("method not found")
+        || normalizedMessage.contains("unknown method")
+        || normalizedMessage.contains("unsupported")
+        || normalizedMessage.contains("not supported")
+    }
+
     /// 凭证已失效或未登录, 需要用户在 Codex 中重新登录才能恢复
     var requiresLogin: Bool {
         switch self {

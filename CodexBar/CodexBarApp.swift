@@ -11,7 +11,7 @@ import SwiftUI
 @main
 struct CodexBarApp: App {
     @NSApplicationDelegateAdaptor(CodexBarAppDelegate.self) private var appDelegate
-    
+
     var body: some Scene {
         // 实际 UI 由 CodexBarAppDelegate 的 StatusItemController 驱动
         // App 仅需声明一个占位 Scene 设置窗口走右键菜单的 makeSettingsWindow

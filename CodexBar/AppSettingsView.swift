@@ -11,7 +11,7 @@ import SwiftUI
 struct AppSettingsView: View {
     @EnvironmentObject private var appUpdater: AppUpdater
     @StateObject private var loginItemSettings = LoginItemSettings()
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
             VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
@@ -23,7 +23,7 @@ struct AppSettingsView: View {
             }
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
-            
+
             HStack(alignment: .center, spacing: 12) {
                 quitButton
                 statusText
@@ -63,7 +63,7 @@ private extension AppSettingsView {
         static let panelCornerRadius: CGFloat = 10
         static let iconWidth: CGFloat = 18
     }
-    
+
     var launchAtLoginRow: some View {
         settingsToggleRow(
             icon: "power",
@@ -109,22 +109,22 @@ private extension AppSettingsView {
                 .disabled(!isEnabled)
         }
     }
-    
+
     var versionRow: some View {
         HStack(spacing: 10) {
             Image(systemName: "info.circle")
                 .frame(width: Metrics.iconWidth)
                 .foregroundStyle(.secondary)
-            
+
             Text("当前 APP 版本")
-            
+
             Spacer()
-            
+
             Text(versionStatus.text)
                 .font(versionStatus.isVersionLabel ? .body.monospacedDigit() : .body)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            
+
             if appUpdater.availableUpdateMessage != nil {
                 Button {
                     appUpdater.startUpdate()
@@ -140,7 +140,7 @@ private extension AppSettingsView {
             }
         }
     }
-    
+
     /// 版本行文案;无任何动态消息时回退到版本号(此时用等宽数字)
     var versionStatus: (text: String, isVersionLabel: Bool) {
         if let message = appUpdater.settingsStatusMessage ?? appUpdater.availableUpdateMessage {
@@ -148,7 +148,7 @@ private extension AppSettingsView {
         }
         return (Bundle.main.displayVersionLabel, true)
     }
-    
+
     @ViewBuilder
     var statusText: some View {
         if let message = loginItemSettings.errorMessage {
@@ -158,7 +158,7 @@ private extension AppSettingsView {
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
-    
+
     var checkUpdateButton: some View {
         Button {
             appUpdater.checkForUpdates()
@@ -166,7 +166,7 @@ private extension AppSettingsView {
             Label("检查更新", systemImage: "arrow.down.circle")
         }
     }
-    
+
     var quitButton: some View {
         Button(role: .destructive) {
             NSApplication.shared.terminate(nil)
