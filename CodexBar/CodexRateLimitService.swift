@@ -5,29 +5,27 @@
 //  Created by Bob on 2026-06-10.
 //
 
-import Darwin
 import Foundation
 
 /// 与 codex app-server 维持一条常驻连接: 首次拉取时启动进程并完成握手
 /// 之后所有额度读取复用同一会话; 进程退出或请求失败时自动重建连接
 nonisolated final class CodexRateLimitService: @unchecked Sendable {
-    private nonisolated static let bundledExecutablePath = "/Applications/Codex.app/Contents/Resources/codex"
     private static let requestTimeout: TimeInterval = 20
     // 连接定期回收: 覆盖 codex 全局升级后换用新二进制
     private static let connectionMaxAge: TimeInterval = 1 * 60 * 60
     // 进程环境在应用启动后不会变化, 只构建一次
-    private static let environment = appServerEnvironment()
-
+    private static let environment = CodexCLIResolver.environment
+    
     // 连接状态只在 queue 上读写
     private let queue = DispatchQueue(label: "CodexBar.app-server", qos: .utility)
     private var connection: AppServerConnection?
-
+    
     init() {}
-
+    
     deinit {
         connection?.session.close()
     }
-
+    
     func fetchRateLimits() async throws -> CodexQuotaSnapshot {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
@@ -35,7 +33,15 @@ nonisolated final class CodexRateLimitService: @unchecked Sendable {
             }
         }
     }
-
+    
+    func currentConnectionInfo() async -> CodexCLIConnectionInfo? {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                continuation.resume(returning: self.currentConnectionInfoOnQueue())
+            }
+        }
+    }
+    
     private func fetchRateLimitsOnQueue() throws -> CodexQuotaSnapshot {
         do {
             let (connection, reused) = try ensureConnection()
@@ -53,32 +59,40 @@ nonisolated final class CodexRateLimitService: @unchecked Sendable {
             throw error
         }
     }
-
+    
     private func ensureConnection() throws -> (connection: AppServerConnection, reused: Bool) {
         if let connection, connection.session.process.isRunning,
            Date().timeIntervalSince(connection.openedAt) < Self.connectionMaxAge {
             return (connection, reused: true)
         }
-
+        
         teardownConnection()
-
-        let command = try Self.resolveAppServerCommand(environment: Self.environment)
+        
+        let command = try CodexCLIResolver.resolveAppServerCommand(environment: Self.environment)
         let newConnection = try Self.openConnection(
             command: command,
             environment: Self.environment,
             clientVersion: Self.clientVersion(),
             timeout: Self.requestTimeout
         )
-
+        
         connection = newConnection
         return (newConnection, reused: false)
     }
-
+    
     private func teardownConnection() {
         connection?.session.close()
         connection = nil
     }
-
+    
+    private func currentConnectionInfoOnQueue() -> CodexCLIConnectionInfo? {
+        guard let connection, connection.session.process.isRunning else {
+            return nil
+        }
+        
+        return connection.commandInfo
+    }
+    
     private static func fetchSnapshot(using connection: AppServerConnection) throws -> CodexQuotaSnapshot {
         func readRateLimits() throws -> AccountRateLimitsResponse {
             try connection.session.request(
@@ -86,7 +100,7 @@ nonisolated final class CodexRateLimitService: @unchecked Sendable {
                 as: AccountRateLimitsResponse.self
             )
         }
-
+        
         let rateLimitsResponse: AccountRateLimitsResponse
         do {
             rateLimitsResponse = try readRateLimits()
@@ -96,28 +110,28 @@ nonisolated final class CodexRateLimitService: @unchecked Sendable {
                 params: ["refreshToken": true],
                 as: AccountReadResponse.self
             )
-
+            
             do {
                 rateLimitsResponse = try readRateLimits()
             } catch let retryError as CodexRateLimitError where retryError.isAuthenticationRequired {
                 throw CodexRateLimitError.authenticationRequired
             }
         }
-
+        
         let usageResponse = readUsageIfAvailable(using: connection)
-
+        
         return try CodexQuotaSnapshot(
             accountResponse: connection.accountResponse,
             rateLimitsResponse: rateLimitsResponse,
             usageResponse: usageResponse
         )
     }
-
+    
     private static func readUsageIfAvailable(using connection: AppServerConnection) -> AccountUsageResponse? {
         guard connection.isUsageReadAvailable else {
             return nil
         }
-
+        
         do {
             return try connection.session.request(
                 "account/usage/read",
@@ -130,7 +144,7 @@ nonisolated final class CodexRateLimitService: @unchecked Sendable {
             return nil
         }
     }
-
+    
     /// 启动 app-server 进程并完成 initialize、account/read 握手, 返回可复用的连接
     private static func openConnection(
         command: AppServerCommand,
@@ -142,23 +156,24 @@ nonisolated final class CodexRateLimitService: @unchecked Sendable {
         process.executableURL = URL(fileURLWithPath: command.executablePath)
         process.arguments = command.arguments
         process.environment = environment
-
+        
         let standardInput = Pipe()
         let standardOutput = Pipe()
         let standardError = Pipe()
         let lineReader = JSONLineReader(fileHandle: standardOutput.fileHandleForReading)
         let errorReader = PipeDrain(fileHandle: standardError.fileHandleForReading)
-
+        
         process.standardInput = standardInput
         process.standardOutput = standardOutput
         process.standardError = standardError
-
+        
         do {
             try process.run()
         } catch {
             throw CodexRateLimitError.serverStartFailed(error.localizedDescription)
         }
-
+        let openedAt = Date()
+        
         let session = AppServerSession(
             process: process,
             input: standardInput,
@@ -166,9 +181,9 @@ nonisolated final class CodexRateLimitService: @unchecked Sendable {
             errorReader: errorReader,
             timeout: timeout
         )
-
+        
         do {
-            _ = try session.request(
+            let initializeResult = try session.request(
                 "initialize",
                 params: [
                     "clientInfo": [
@@ -177,147 +192,83 @@ nonisolated final class CodexRateLimitService: @unchecked Sendable {
                         "version": clientVersion
                     ]
                 ],
-                as: EmptyResponse.self
+                as: InitializeResult.self
             )
-
+            
             try session.notify("initialized")
-
+            
             let accountResponse = try session.request(
                 "account/read",
                 params: ["refreshToken": false],
                 as: AccountReadResponse.self
             )
-
+            
+            let commandInfo = CodexCLIConnectionInfo(
+                source: command.source,
+                executablePath: command.executablePath,
+                version: Self.serverVersion(fromUserAgent: initializeResult.userAgent),
+                openedAt: openedAt
+            )
+            
             return AppServerConnection(
                 session: session,
-                accountResponse: accountResponse
+                accountResponse: accountResponse,
+                commandInfo: commandInfo
             )
         } catch {
             session.close()
             throw error
         }
     }
-
-    private nonisolated static func appServerEnvironment() -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        let homeDirectory = realUserHomeDirectory()
-        let path = environment["PATH"] ?? ""
-        let fallbackPaths = [
-            "/opt/homebrew/bin",
-            "/usr/local/bin",
-            "\(homeDirectory)/.npm-global/bin",
-            "\(homeDirectory)/.local/bin",
-            "\(homeDirectory)/.volta/bin",
-            "/usr/bin",
-            "/bin",
-            "/usr/sbin",
-            "/sbin"
-        ]
-
-        environment["HOME"] = homeDirectory
-        environment["USER"] = NSUserName()
-        environment["LOGNAME"] = NSUserName()
-        environment["PATH"] = mergedPath(path, fallbackPaths: fallbackPaths)
-        environment["TERM"] = environment["TERM"] ?? "xterm-256color"
-
-        return environment
-    }
-
-    private nonisolated static func resolveAppServerCommand(environment: [String: String]) throws -> AppServerCommand {
-        let cliPath = findExecutable(named: "codex", environment: environment)
-
-        if let cliPath, standardizedPath(cliPath) != standardizedPath(bundledExecutablePath) {
-            return AppServerCommand(executablePath: cliPath)
-        }
-
-        if FileManager.default.isExecutableFile(atPath: bundledExecutablePath) {
-            return AppServerCommand(executablePath: bundledExecutablePath)
-        }
-
-        if let cliPath {
-            return AppServerCommand(executablePath: cliPath)
-        }
-
-        throw CodexRateLimitError.executableNotFound
-    }
-
-    private nonisolated static func findExecutable(
-        named executableName: String,
-        environment: [String: String]
-    ) -> String? {
-        guard let path = environment["PATH"] else {
-            return nil
-        }
-
-        for directory in path.split(separator: ":") {
-            let executablePath = "\(directory)/\(executableName)"
-            if FileManager.default.isExecutableFile(atPath: executablePath) {
-                return executablePath
-            }
-        }
-
-        return nil
-    }
-
-    private nonisolated static func mergedPath(_ path: String, fallbackPaths: [String]) -> String {
-        var components: [String] = []
-        var seen = Set<String>()
-
-        for component in path.split(separator: ":").map(String.init) + fallbackPaths {
-            guard !component.isEmpty, !seen.contains(component) else {
-                continue
-            }
-
-            components.append(component)
-            seen.insert(component)
-        }
-
-        return components.joined(separator: ":")
-    }
-
-    private nonisolated static func standardizedPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).standardizedFileURL.path
-    }
-
+    
     private nonisolated static func clientVersion() -> String {
         guard let version = Bundle.main.shortVersionString, !version.isEmpty else {
             return "1.0.0"
         }
-
+        
         return version
     }
-
-    private nonisolated static func realUserHomeDirectory() -> String {
-        guard let passwd = getpwuid(getuid()),
-              let home = passwd.pointee.pw_dir else {
-            return NSHomeDirectory()
+    
+    /// userAgent 形如 "codex_bar/0.139.0 (...)"; 取首个 token 中 "/" 之后的运行版本号
+    private nonisolated static func serverVersion(fromUserAgent userAgent: String?) -> String? {
+        guard let firstToken = userAgent?.split(separator: " ").first,
+              let slashIndex = firstToken.firstIndex(of: "/") else {
+            return nil
         }
-
-        return String(cString: home)
+        
+        let version = firstToken[firstToken.index(after: slashIndex)...]
+        return version.isEmpty ? nil : String(version)
     }
 }
 
 private nonisolated final class AppServerConnection {
     let session: AppServerSession
-    let openedAt = Date()
+    let commandInfo: CodexCLIConnectionInfo
     var accountResponse: AccountReadResponse
     var isUsageReadAvailable = true
-
-    init(session: AppServerSession, accountResponse: AccountReadResponse) {
+    
+    var openedAt: Date { commandInfo.openedAt }
+    
+    init(
+        session: AppServerSession,
+        accountResponse: AccountReadResponse,
+        commandInfo: CodexCLIConnectionInfo
+    ) {
         self.session = session
         self.accountResponse = accountResponse
+        self.commandInfo = commandInfo
     }
 }
 
 private nonisolated final class AppServerSession {
     let process: Process
-
+    
     private let input: Pipe
     private let lineReader: JSONLineReader
     private let errorReader: PipeDrain
     private let timeout: TimeInterval
     private var nextId = 1
-
+    
     init(
         process: Process,
         input: Pipe,
@@ -331,21 +282,21 @@ private nonisolated final class AppServerSession {
         self.errorReader = errorReader
         self.timeout = timeout
     }
-
+    
     func close() {
         lineReader.stop()
         errorReader.stop()
         try? input.fileHandleForWriting.close()
-
+        
         if process.isRunning {
             process.terminate()
         }
     }
-
+    
     func notify(_ method: String, params: [String: Any]? = nil) throws {
         try write(message(method: method, id: nil, params: params), step: method)
     }
-
+    
     func request<Response: Decodable>(
         _ method: String,
         params: [String: Any]? = nil,
@@ -356,7 +307,7 @@ private nonisolated final class AppServerSession {
         try write(message(method: method, id: id, params: params), step: method)
         return try waitForResponse(id: id, step: method, decode: type)
     }
-
+    
     private func message(method: String, id: Int?, params: [String: Any]?) -> [String: Any] {
         var object: [String: Any] = ["method": method]
         if let id {
@@ -367,18 +318,18 @@ private nonisolated final class AppServerSession {
         }
         return object
     }
-
+    
     private func write(_ object: [String: Any], step: String) throws {
         var data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
         data.append(0x0A)
-
+        
         do {
             try input.fileHandleForWriting.write(contentsOf: data)
         } catch {
             throw CodexRateLimitError.serverConnectionClosed(step)
         }
     }
-
+    
     private func waitForResponse<Response: Decodable>(
         id: Int,
         step: String,
@@ -386,48 +337,45 @@ private nonisolated final class AppServerSession {
     ) throws -> Response {
         let deadline = Date().addingTimeInterval(timeout)
         let decoder = JSONDecoder()
-
+        
         while Date() < deadline {
             guard let line = lineReader.nextLine(timeout: deadline.timeIntervalSinceNow) else {
                 if lineReader.isClosed {
                     throw CodexRateLimitError.serverConnectionClosed(step)
                 }
-
+                
                 continue
             }
-
+            
             guard let data = line.data(using: .utf8) else {
                 continue
             }
-
+            
             guard let idEnvelope = try? decoder.decode(RPCIDEnvelope.self, from: data),
                   idEnvelope.id == id else {
                 continue
             }
-
+            
             if let errorEnvelope = try? decoder.decode(RPCErrorEnvelope.self, from: data),
                let error = errorEnvelope.error {
                 throw CodexRateLimitError.serverError(error.message)
             }
-
+            
             guard let envelope = try? decoder.decode(RPCResponseEnvelope<Response>.self, from: data),
                   let result = envelope.result else {
                 throw CodexRateLimitError.invalidServerResponse(step)
             }
-
+            
             return result
         }
-
+        
         throw CodexRateLimitError.serverTimeout(step)
     }
 }
 
-private nonisolated struct AppServerCommand: Sendable {
-    let executablePath: String
-    let arguments = ["app-server", "--listen", "stdio://"]
+private nonisolated struct InitializeResult: Decodable {
+    let userAgent: String?
 }
-
-private nonisolated struct EmptyResponse: Decodable {}
 
 private nonisolated struct RPCIDEnvelope: Decodable {
     let id: Int?
@@ -454,58 +402,58 @@ private nonisolated final class JSONLineReader: @unchecked Sendable {
     private var buffer = Data()
     private var lines: [String] = []
     private var closed = false
-
+    
     init(fileHandle: FileHandle) {
         self.fileHandle = fileHandle
         fileHandle.readabilityHandler = { [weak self] handle in
             self?.append(handle.availableData)
         }
     }
-
+    
     func nextLine(timeout: TimeInterval) -> String? {
         if let line = popLine() {
             return line
         }
-
+        
         if isClosed {
             return nil
         }
-
+        
         let result = semaphore.wait(timeout: .now() + timeout)
         guard result == .success else {
             return nil
         }
-
+        
         return popLine()
     }
-
+    
     func stop() {
         fileHandle.readabilityHandler = nil
         markClosed()
     }
-
+    
     var isClosed: Bool {
         lock.lock()
         defer { lock.unlock() }
-
+        
         return closed && lines.isEmpty
     }
-
+    
     private func append(_ data: Data) {
         guard !data.isEmpty else {
             markClosed()
             return
         }
-
+        
         lock.lock()
         defer { lock.unlock() }
-
+        
         buffer.append(data)
-
+        
         while let newlineRange = buffer.firstRange(of: Data([0x0A])) {
             let lineData = buffer[..<newlineRange.lowerBound]
             buffer.removeSubrange(...newlineRange.lowerBound)
-
+            
             if let line = String(data: lineData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                !line.isEmpty {
@@ -514,14 +462,14 @@ private nonisolated final class JSONLineReader: @unchecked Sendable {
             }
         }
     }
-
+    
     private func markClosed() {
         lock.lock()
         defer {
             lock.unlock()
             semaphore.signal()
         }
-
+        
         if !buffer.isEmpty {
             if let line = String(data: buffer, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -530,30 +478,30 @@ private nonisolated final class JSONLineReader: @unchecked Sendable {
             }
             buffer.removeAll()
         }
-
+        
         closed = true
     }
-
+    
     private func popLine() -> String? {
         lock.lock()
         defer { lock.unlock() }
-
+        
         guard !lines.isEmpty else {
             return nil
         }
-
+        
         return lines.removeFirst()
     }
 }
 
 private nonisolated final class PipeDrain: @unchecked Sendable {
     private let fileHandle: FileHandle
-
+    
     init(fileHandle: FileHandle) {
         self.fileHandle = fileHandle
         fileHandle.readabilityHandler = { _ = $0.availableData }
     }
-
+    
     func stop() {
         fileHandle.readabilityHandler = nil
     }

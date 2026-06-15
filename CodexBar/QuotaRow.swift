@@ -9,22 +9,22 @@ import SwiftUI
 
 struct QuotaRow: View {
     let window: QuotaWindow
-
+    
     var body: some View {
         HStack(alignment: .center, spacing: Metrics.spacing) {
             Text(window.label)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
                 .frame(width: Metrics.labelWidth, alignment: .leading)
-
+            
             SegmentedQuotaBar(percent: window.hasData ? window.remainingPercent : nil)
                 .frame(height: Metrics.barHeight)
-
+            
             Text(percentText)
                 .font(.caption.monospacedDigit().weight(.semibold))
                 .lineLimit(1)
                 .frame(width: Metrics.percentWidth, alignment: .leading)
-
+            
             Text(resetText)
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
@@ -42,27 +42,27 @@ private extension QuotaRow {
         static let percentWidth: CGFloat = 32
         static let resetWidth: CGFloat = 76
     }
-
+    
     var resetText: String {
         guard window.hasData else {
             return "暂无数据"
         }
-
+        
         guard let resetsAt = window.resetsAt else {
             return "--"
         }
-
+        
         return Self.resetFormatter.string(from: resetsAt)
     }
-
+    
     var percentText: String {
         guard window.hasData else {
             return "--"
         }
-
+        
         return "\(window.remainingPercent)%"
     }
-
+    
     static let resetFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -73,12 +73,12 @@ private extension QuotaRow {
 
 private struct SegmentedQuotaBar: View {
     let percent: Int?
-
+    
     var body: some View {
         GeometryReader { proxy in
             let segmentCount = segmentCount(for: proxy.size.width)
             let filledSegments = filledSegments(for: segmentCount)
-
+            
             HStack(spacing: Metrics.spacing) {
                 ForEach(0..<segmentCount, id: \.self) { index in
                     Capsule(style: .continuous)
@@ -87,7 +87,6 @@ private struct SegmentedQuotaBar: View {
                 }
             }
         }
-        .accessibilityLabel(accessibilityLabel)
     }
 }
 
@@ -96,32 +95,32 @@ private extension SegmentedQuotaBar {
         static let spacing: CGFloat = 2
         static let idealSegmentWidth: CGFloat = 6
     }
-
+    
     func segmentCount(for width: CGFloat) -> Int {
         max(1, Int((width + Metrics.spacing) / (Metrics.idealSegmentWidth + Metrics.spacing)))
     }
-
+    
     func filledSegments(for segmentCount: Int) -> Int {
         guard let percent else {
             return 0
         }
-
+        
         return Int((Double(percent) / 100.0 * Double(segmentCount)).rounded())
     }
-
+    
     func fillStyle(for index: Int, filledSegments: Int) -> Color {
         guard percent != nil else {
             return placeholderStyle
         }
-
+        
         return index < filledSegments ? filledStyle : emptyStyle
     }
-
+    
     var filledStyle: Color {
         guard let percent else {
             return placeholderStyle
         }
-
+        
         switch percent {
         case 50...:
             return .green
@@ -131,20 +130,12 @@ private extension SegmentedQuotaBar {
             return .red
         }
     }
-
+    
     var emptyStyle: Color {
         Color.secondary.opacity(0.18)
     }
-
+    
     var placeholderStyle: Color {
         Color.secondary.opacity(0.12)
-    }
-
-    var accessibilityLabel: String {
-        guard let percent else {
-            return "暂无额度数据"
-        }
-
-        return "剩余 \(percent)%"
     }
 }

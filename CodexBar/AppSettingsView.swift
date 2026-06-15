@@ -9,9 +9,12 @@ import AppKit
 import SwiftUI
 
 struct AppSettingsView: View {
+    @EnvironmentObject private var rateLimitsViewModel: RateLimitsViewModel
     @EnvironmentObject private var appUpdater: AppUpdater
     @StateObject private var loginItemSettings = LoginItemSettings()
-
+    @StateObject private var codexVersions = CodexCLIVersionViewModel()
+    @State private var copiedPathResetTasks: [CodexCLIExecutableSource: Task<Void, Never>] = [:]
+    
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
             VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
@@ -20,10 +23,12 @@ struct AppSettingsView: View {
                 automaticUpdateCheckRow
                 LiquidGlassDivider()
                 versionRow
+                LiquidGlassDivider()
+                codexVersionSection
             }
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
-
+            
             HStack(alignment: .center, spacing: 12) {
                 quitButton
                 statusText
@@ -48,6 +53,13 @@ struct AppSettingsView: View {
         .onAppear {
             loginItemSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
+            refreshCodexVersionSection()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshCodexVersionSection()
+        }
+        .onDisappear {
+            copiedPathResetTasks.values.forEach { $0.cancel() }
         }
     }
 }
@@ -55,15 +67,17 @@ struct AppSettingsView: View {
 private extension AppSettingsView {
     enum Metrics {
         static let padding: CGFloat = 20
-        static let windowWidth: CGFloat = 380
+        static let windowWidth: CGFloat = 430
         static let sectionSpacing: CGFloat = 18
         static let rowSpacing: CGFloat = 14
         static let panelPadding: CGFloat = 12
         static let surfaceCornerRadius: CGFloat = 16
         static let panelCornerRadius: CGFloat = 10
         static let iconWidth: CGFloat = 18
+        static let codexChildIndent: CGFloat = 28
+        static let codexVersionColumnWidth: CGFloat = 270
     }
-
+    
     var launchAtLoginRow: some View {
         settingsToggleRow(
             icon: "power",
@@ -74,7 +88,7 @@ private extension AppSettingsView {
             )
         )
     }
-
+    
     var automaticUpdateCheckRow: some View {
         settingsToggleRow(
             icon: "arrow.triangle.2.circlepath",
@@ -86,7 +100,7 @@ private extension AppSettingsView {
             isEnabled: appUpdater.canConfigureAutomaticChecks
         )
     }
-
+    
     func settingsToggleRow(
         icon: String,
         title: String,
@@ -97,11 +111,11 @@ private extension AppSettingsView {
             Image(systemName: icon)
                 .frame(width: Metrics.iconWidth)
                 .foregroundStyle(.tint)
-
+            
             Text(title)
-
+            
             Spacer()
-
+            
             Toggle(title, isOn: isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
@@ -109,22 +123,22 @@ private extension AppSettingsView {
                 .disabled(!isEnabled)
         }
     }
-
+    
     var versionRow: some View {
         HStack(spacing: 10) {
             Image(systemName: "info.circle")
                 .frame(width: Metrics.iconWidth)
                 .foregroundStyle(.secondary)
-
-            Text("当前 APP 版本")
-
+            
+            Text("CodexBar 版本")
+            
             Spacer()
-
+            
             Text(versionStatus.text)
                 .font(versionStatus.isVersionLabel ? .body.monospacedDigit() : .body)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-
+            
             if appUpdater.availableUpdateMessage != nil {
                 Button {
                     appUpdater.startUpdate()
@@ -136,19 +150,115 @@ private extension AppSettingsView {
                 .buttonStyle(.plain)
                 .foregroundStyle(.tint)
                 .help("立即更新")
-                .accessibilityLabel("立即更新")
             }
         }
     }
-
-    /// 版本行文案;无任何动态消息时回退到版本号(此时用等宽数字)
+    
+    /// 版本行文案;无任何动态消息时回退到版本号 (此时用等宽数字)
     var versionStatus: (text: String, isVersionLabel: Bool) {
         if let message = appUpdater.settingsStatusMessage ?? appUpdater.availableUpdateMessage {
             return (message, false)
         }
         return (Bundle.main.displayVersionLabel, true)
     }
-
+    
+    var codexVersionSection: some View {
+        VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
+            HStack(spacing: 10) {
+                Image(systemName: "number.circle")
+                    .frame(width: Metrics.iconWidth)
+                    .foregroundStyle(.secondary)
+                
+                Text("Codex 版本")
+                
+                Spacer()
+            }
+            
+            LiquidGlassDivider()
+                .padding(.leading, Metrics.iconWidth + 10)
+            
+            VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
+                codexVersionRow(icon: "terminal", item: codexVersions.snapshot.global)
+                
+                codexVersionRow(icon: "app.badge", item: codexVersions.snapshot.bundled)
+            }
+            .padding(.leading, Metrics.codexChildIndent)
+        }
+    }
+    
+    func refreshCodexVersionSection() {
+        // 版本探测是慢路径且自带并发合并; 连接信息只是一次缓存读取, 顺带刷新
+        codexVersions.refresh()
+        rateLimitsViewModel.refreshCodexConnectionInfo()
+    }
+    
+    func codexVersionRow(icon: String, item: CodexCLIVersionItem) -> some View {
+        let row = CodexCLIVersionDisplay(item: item, connection: rateLimitsViewModel.codexConnectionInfo)
+        let isPathCopied = copiedPathResetTasks[item.source] != nil
+        
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .frame(width: Metrics.iconWidth)
+                .foregroundStyle(.tertiary)
+            
+            Text(item.source.displayName)
+                .foregroundStyle(.secondary)
+            
+            Spacer(minLength: 28)
+            
+            VStack(alignment: .trailing, spacing: 3) {
+                HStack(spacing: 12) {
+                    if row.isCurrent {
+                        Text("当前使用")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.green)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .liquidGlassCapsule(tint: .green)
+                    }
+                    
+                    Text(row.displayVersion)
+                        .font(row.hasVersion ? .body.monospacedDigit() : .body)
+                        .foregroundStyle(row.hasVersion ? .secondary : .tertiary)
+                        .lineLimit(1)
+                }
+                
+                if let newerInstalledVersion = row.newerInstalledVersion {
+                    Text("已更新至 \(newerInstalledVersion)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
+                }
+                
+                if let path = row.path {
+                    Text(isPathCopied ? "已复制" : path)
+                        .font(.caption2)
+                        .foregroundStyle(isPathCopied ? .green : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(isPathCopied ? "已复制" : "点击复制")
+                        .onTapGesture {
+                            copyPathToPasteboard(path, source: item.source)
+                        }
+                }
+            }
+            .frame(maxWidth: Metrics.codexVersionColumnWidth, alignment: .trailing)
+        }
+    }
+    
+    func copyPathToPasteboard(_ path: String, source: CodexCLIExecutableSource) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(path, forType: .string)
+        
+        copiedPathResetTasks[source]?.cancel()
+        copiedPathResetTasks[source] = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(1500))
+            guard !Task.isCancelled else { return }
+            
+            copiedPathResetTasks[source] = nil
+        }
+    }
+    
     @ViewBuilder
     var statusText: some View {
         if let message = loginItemSettings.errorMessage {
@@ -158,7 +268,7 @@ private extension AppSettingsView {
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
-
+    
     var checkUpdateButton: some View {
         Button {
             appUpdater.checkForUpdates()
@@ -166,7 +276,7 @@ private extension AppSettingsView {
             Label("检查更新", systemImage: "arrow.down.circle")
         }
     }
-
+    
     var quitButton: some View {
         Button(role: .destructive) {
             NSApplication.shared.terminate(nil)

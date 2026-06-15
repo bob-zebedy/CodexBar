@@ -9,11 +9,11 @@ import SwiftUI
 
 struct RateLimitsMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + Metrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
-
+    
     @ObservedObject var viewModel: RateLimitsViewModel
     @EnvironmentObject private var appUpdater: AppUpdater
     @State private var isEmailBlurred = false
-
+    
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.verticalSpacing) {
             content
@@ -38,13 +38,13 @@ private extension RateLimitsMenuView {
         static let accountIconSize: CGFloat = 14
         static let loadingVerticalPadding: CGFloat = 16
     }
-
+    
     @ViewBuilder
     var content: some View {
         if viewModel.requiresLogin {
             loginRequiredNotice
         }
-
+        
         if let snapshot = viewModel.snapshot {
             Group {
                 accountCard(
@@ -52,13 +52,13 @@ private extension RateLimitsMenuView {
                     isEmail: snapshot.account.hasEmail,
                     plan: snapshot.planLabel
                 )
-
+                
                 quotaLimitsView(snapshot.limits)
-
+                
                 if let usage = snapshot.usage {
                     UsageSummaryView(usage: usage)
                 }
-
+                
                 updatedAtRow(for: snapshot)
                     .padding(.horizontal, Metrics.panelPadding)
                     .padding(.vertical, 7)
@@ -73,42 +73,42 @@ private extension RateLimitsMenuView {
                 .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
         }
     }
-
+    
     var loginRequiredNotice: some View {
         HStack(spacing: 8) {
             Image(systemName: "person.crop.circle.badge.exclamationmark")
                 .foregroundStyle(.orange)
-
+            
             Text("Codex 未登录")
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
-
+            
             Spacer()
         }
     }
-
+    
     var emptyView: some View {
         Text("暂无数据")
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.vertical, Metrics.loadingVerticalPadding)
     }
-
+    
     func quotaLimitsView(_ limits: [CodexQuotaLimitSnapshot]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(limits) { limit in
                 if limit.id != limits.first?.id {
                     LiquidGlassDivider()
                 }
-
+                
                 quotaLimitSection(limit)
             }
         }
         .padding(Metrics.panelPadding)
         .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .green)
     }
-
+    
     func quotaLimitSection(_ limit: CodexQuotaLimitSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(limit.title)
@@ -116,7 +116,7 @@ private extension RateLimitsMenuView {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-
+            
             VStack(spacing: 8) {
                 ForEach(limit.windows) { window in
                     QuotaRow(window: window)
@@ -124,14 +124,14 @@ private extension RateLimitsMenuView {
             }
         }
     }
-
+    
     func accountCard(title: String, isEmail: Bool = false, plan: String? = nil) -> some View {
         accountRow(title: title, isEmail: isEmail, plan: plan)
             .padding(.horizontal, Metrics.panelPadding)
             .padding(.vertical, 8)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
     }
-
+    
     func accountRow(title: String, isEmail: Bool = false, plan: String? = nil) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "person.fill")
@@ -140,7 +140,7 @@ private extension RateLimitsMenuView {
                 .onTapGesture(count: 2) {
                     viewModel.refresh()
                 }
-
+            
             Text(title)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
@@ -151,18 +151,18 @@ private extension RateLimitsMenuView {
                     guard isEmail else { return }
                     isEmailBlurred.toggle()
                 }
-
+            
             if viewModel.isRefreshing {
                 ProgressView()
                     .controlSize(.mini)
                     .padding(.leading, 2)
             }
-
+            
             Spacer()
-
+            
             if let plan {
                 let tint = planBadgeTint(for: plan)
-
+                
                 Text(plan.uppercased())
                     .font(.caption2)
                     .foregroundStyle(tint)
@@ -173,15 +173,15 @@ private extension RateLimitsMenuView {
             }
         }
     }
-
+    
     func updatedAtRow(for snapshot: CodexQuotaSnapshot) -> some View {
         HStack {
             Text("数据更新时间 \(snapshot.generatedAt, formatter: Self.timeFormatter)")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-
+            
             Spacer()
-
+            
             if let message = appUpdater.panelUpdateMessage {
                 Text(message)
                     .font(.caption2.monospacedDigit())
@@ -193,7 +193,7 @@ private extension RateLimitsMenuView {
             }
         }
     }
-
+    
     @ViewBuilder
     func errorView(_ message: String?) -> some View {
         if let message {
@@ -204,37 +204,37 @@ private extension RateLimitsMenuView {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
-
+    
     func planBadgeTint(for plan: String) -> Color {
         let normalizedPlan = plan.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-
+        
         if normalizedPlan.contains("enterprise") {
             return .green
         }
-
+        
         if normalizedPlan.contains("team") || normalizedPlan.contains("business") {
             return .orange
         }
-
+        
         if normalizedPlan.contains("pro") {
             return .purple
         }
-
+        
         if normalizedPlan.contains("plus") {
             return .blue
         }
-
+        
         if normalizedPlan.contains("edu") {
             return .teal
         }
-
+        
         if normalizedPlan.contains("free") {
             return .secondary
         }
-
+        
         return .cyan
     }
-
+    
     static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
