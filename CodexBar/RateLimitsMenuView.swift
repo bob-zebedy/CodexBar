@@ -5,12 +5,19 @@
 //  Created by Bob on 2026-06-10.
 //
 
+import Combine
 import SwiftUI
+
+@MainActor
+final class PopoverVisibilityState: ObservableObject {
+    @Published var isVisible = false
+}
 
 struct RateLimitsMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + Metrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
     
     @ObservedObject var viewModel: RateLimitsViewModel
+    @ObservedObject var popoverVisibility: PopoverVisibilityState
     @EnvironmentObject private var appUpdater: AppUpdater
     @State private var isEmailBlurred = false
     
@@ -178,14 +185,12 @@ private extension RateLimitsMenuView {
     func updatedAtRow(for snapshot: CodexQuotaSnapshot) -> some View {
         HStack {
             HStack(spacing: 5) {
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    AutoRefreshCountdownCircle(
-                        startedAt: viewModel.autoRefreshCountdownStartedAt ?? snapshot.generatedAt,
-                        interval: viewModel.autoRefreshInterval,
-                        now: timeline.date,
-                        color: .blue
-                    )
-                }
+                AutoRefreshCountdownTimeline(
+                    startedAt: viewModel.autoRefreshCountdownStartedAt ?? snapshot.generatedAt,
+                    interval: viewModel.autoRefreshInterval,
+                    isActive: popoverVisibility.isVisible,
+                    color: .blue
+                )
                 
                 Text("数据更新时间")
                     .foregroundStyle(Self.secondaryTextColor)
@@ -268,10 +273,38 @@ private extension RateLimitsMenuView {
     static let secondaryTextColor = Color.codexSecondaryLabel
 }
 
+private struct AutoRefreshCountdownTimeline: View {
+    let startedAt: Date
+    let interval: TimeInterval
+    let isActive: Bool
+    let color: Color
+    
+    var body: some View {
+        if isActive {
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                circle(now: timeline.date)
+            }
+        } else {
+            circle(now: Date())
+        }
+    }
+    
+    private func circle(now: Date) -> AutoRefreshCountdownCircle {
+        AutoRefreshCountdownCircle(
+            startedAt: startedAt,
+            interval: interval,
+            now: now,
+            isActive: isActive,
+            color: color
+        )
+    }
+}
+
 private struct AutoRefreshCountdownCircle: View {
     let startedAt: Date
     let interval: TimeInterval
     let now: Date
+    let isActive: Bool
     let color: Color
     
     private var progress: Double {
@@ -297,6 +330,12 @@ private struct AutoRefreshCountdownCircle: View {
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: 8, height: 8)
-        .animation(.linear(duration: 1), value: progress)
+        // 仅在 startedAt 变化(刷新重置)时播放恢复动画; 普通 tick 只改 now/progress, 直接跳变。
+        // popover 隐藏(isActive == false)时不开启动画事务, 避免不可见状态下的无谓渲染。
+        .animation(isActive ? .linear(duration: Metrics.resetAnimationDuration) : nil, value: startedAt)
+    }
+    
+    private enum Metrics {
+        static let resetAnimationDuration: TimeInterval = 0.20
     }
 }

@@ -406,7 +406,13 @@ private nonisolated final class JSONLineReader: @unchecked Sendable {
     init(fileHandle: FileHandle) {
         self.fileHandle = fileHandle
         fileHandle.readabilityHandler = { [weak self] handle in
-            self?.append(handle.availableData)
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                self?.markClosed()
+                return
+            }
+            self?.append(data)
         }
     }
     
@@ -440,11 +446,6 @@ private nonisolated final class JSONLineReader: @unchecked Sendable {
     }
     
     private func append(_ data: Data) {
-        guard !data.isEmpty else {
-            markClosed()
-            return
-        }
-        
         lock.lock()
         defer { lock.unlock() }
         
@@ -499,7 +500,12 @@ private nonisolated final class PipeDrain: @unchecked Sendable {
     
     init(fileHandle: FileHandle) {
         self.fileHandle = fileHandle
-        fileHandle.readabilityHandler = { _ = $0.availableData }
+        fileHandle.readabilityHandler = { handle in
+            guard !handle.availableData.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+        }
     }
     
     func stop() {

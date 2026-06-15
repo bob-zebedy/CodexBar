@@ -116,14 +116,14 @@ codex app-server --listen stdio://
 - `requestTimeout` 是 20 秒。
 - `initialize` 响应的 `userAgent` 首个 token 形如 `codex_bar/0.139.0 (...)`; `serverVersion(fromUserAgent:)` 取 `/` 后版本号作为当前运行版本。
 - 每条连接保存 `CodexCLIConnectionInfo(source, executablePath, version, openedAt)`, 设置页用它标记「当前使用」。
-- `JSONLineReader` 按行读取 stdout, 只消费匹配请求 id 的响应。
-- `PipeDrain` 持续排空 stderr, stderr 不进入用户可见文案。
+- `JSONLineReader` 按行读取 stdout, 只消费匹配请求 id 的响应; stdout EOF 时标记关闭并唤醒等待中的请求。
+- `PipeDrain` 持续排空 stderr, stderr 不进入用户可见文案; stderr EOF 时停止 readability handler。
 
 ## 自动刷新与连接重建
 
 - `RateLimitsViewModel.refreshInterval` 是 60 秒。
-- `startAutoRefresh()` 启动每秒唤醒的 `Task`, 每次调用 `refreshIfNeeded()`。
-- `refreshIfNeeded()` 只看 `autoRefreshCountdownStartedAt` 距当前是否超过 60 秒。
+- `startAutoRefresh()` 启动一个 `Task`, 每轮按 `autoRefreshDelay`(距下次刷新的剩余秒数, 下限 1 秒; `autoRefreshCountdownStartedAt` 为空时取 `refreshInterval`)休眠后调用 `refreshIfNeeded()`, 不再每秒空转唤醒。
+- `refreshIfNeeded()` 只看 `autoRefreshCountdownStartedAt` 距当前是否超过 60 秒, 作为动态休眠的兜底判断。
 - `refresh()` 用 `isRefreshing` 合并并发触发; 开始时不要清空 `lastError`。
 - `refresh()` 成功后更新 `snapshot` 并清空 `lastError`; 失败时保留旧 `snapshot`, 写入 `lastError`。
 - 无论成功失败, 刷新结束都更新 `codexConnectionInfo`、重置 `autoRefreshCountdownStartedAt`, 并关闭 `isRefreshing`。
@@ -188,6 +188,7 @@ Popover:
 - 无 quota 数据时显示 `--` / `暂无数据`, 并用占位色。
 - 重置时间格式 `MM-dd HH:mm`。
 - 更新时间行显示顺时针自动刷新倒计时圆环、「数据更新时间」和 `HH:mm:ss`; 时间文本使用 `.contentTransition(.numericText())` 和 `Color.codexSecondaryLabel`, 不展示应用版本号。
+- 倒计时圆环(`AutoRefreshCountdownCircle`)用 `Circle().trim` 按秒离散跳格, 不做连续动画: `Shape.trim` 的长连续动画是逐帧 CPU 重绘, 比每秒采样更耗 CPU, 不要改成连续动画。每秒采样由 `AutoRefreshCountdownTimeline` 的 `TimelineView` 驱动, 且只在 popover 可见(`PopoverVisibilityState.isVisible`, 由 `StatusItemController` 在 popover show/close 时维护)时启用; 隐藏时静态渲染一次。仅 `startedAt` 变化(刷新重置)且可见时播放 0.2 秒恢复动画, 普通 tick 直接跳变。
 - token 区域显示「单日峰值」和「全时累计」; `TokenCountText` 对 1K 以下显示完整整数, 1K 起显示 K/M/B。
 - 热力图是近 30 周、30 列 x 7 行、周日到周六排列、默认不包含今天; hover tooltip 显示日期和单日 token。
 

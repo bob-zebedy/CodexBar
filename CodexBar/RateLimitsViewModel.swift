@@ -52,7 +52,8 @@ final class RateLimitsViewModel: ObservableObject {
             self?.refreshIfNeeded()
             
             while !Task.isCancelled {
-                if (try? await Task.sleep(for: .seconds(1))) == nil {
+                let delay = self?.autoRefreshDelay ?? Self.refreshInterval
+                if (try? await Task.sleep(for: .seconds(delay))) == nil {
                     break
                 }
                 
@@ -86,5 +87,14 @@ final class RateLimitsViewModel: ObservableObject {
         Task {
             self.codexConnectionInfo = await service.currentConnectionInfo()
         }
+    }
+    
+    private var autoRefreshDelay: TimeInterval {
+        guard let autoRefreshCountdownStartedAt else {
+            return Self.refreshInterval
+        }
+        
+        let remaining = Self.refreshInterval - Date().timeIntervalSince(autoRefreshCountdownStartedAt)
+        return max(1, remaining)
     }
 }

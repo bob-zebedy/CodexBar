@@ -33,6 +33,7 @@ private final class StatusItemController: NSObject {
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
+    private let popoverVisibility = PopoverVisibilityState()
     
     private lazy var settingsWindowController = SettingsWindowController(
         viewModel: viewModel,
@@ -86,7 +87,10 @@ private final class StatusItemController: NSObject {
     }
     
     private func configurePopover() {
-        let rootView = RateLimitsMenuView(viewModel: viewModel)
+        let rootView = RateLimitsMenuView(
+            viewModel: viewModel,
+            popoverVisibility: popoverVisibility
+        )
             .environmentObject(appUpdater)
             .frame(width: RateLimitsMenuView.menuWidth)
         
@@ -164,6 +168,7 @@ private final class StatusItemController: NSObject {
         
         preparePopoverForFadeIn()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popoverVisibility.isVisible = true
         stabilizePopoverChromeAppearance()
         installPopoverDismissMonitors()
         fadePopover(to: 1, duration: Metrics.fadeInDuration)
@@ -229,6 +234,7 @@ private final class StatusItemController: NSObject {
         
         cancelPopoverTasks()
         removePopoverDismissMonitors()
+        popoverVisibility.isVisible = false
         
         guard popover.isShown else {
             resetPopoverAlpha()
@@ -270,6 +276,7 @@ private final class StatusItemController: NSObject {
             popover.performClose(nil)
         }
         
+        popoverVisibility.isVisible = false
         resetPopoverAlpha()
         popoverState = .hidden
     }
