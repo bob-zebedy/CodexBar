@@ -16,7 +16,9 @@ Xcode target 关闭了 App Sandbox,因为应用需要启动本机 Codex CLI/App 
 xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build
 ```
 
-要求无 error 和 warning。SourceKit 经常对跨文件类型误报「Cannot find type ... in scope」(索引滞后),以 `xcodebuild` 实际编译结果为准。文档、图片或发布元数据的纯修改可以不跑构建,但最终回复要说明未运行。
+要求无 error 和 warning
+
+SourceKit 经常对跨文件类型误报「Cannot find type ... in scope」(索引滞后),以 `xcodebuild` 实际编译结果为准。当前 Xcode 可能输出 `Metadata extraction skipped. No AppIntents.framework dependency found.` 的 metadata 阶段 warning,不作为项目代码 warning 处理。文档、图片或发布元数据的纯修改可以不跑构建,但最终回复要说明未运行。
 
 工程使用文件系统同步组(`PBXFileSystemSynchronizedRootGroup`):新增/删除 `CodexBar/` 下源码通常无需修改 `project.pbxproj`,只有依赖、target/build settings 或资源归属变更才需要改它。
 
@@ -25,23 +27,25 @@ xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/pl
 数据流:`CodexRateLimitService`(JSON-RPC 常驻连接)→ `RateLimitsViewModel`(状态发布)→ `StatusItemController`(菜单栏图标刷新)/`RateLimitsMenuView`(popover 弹窗)。
 
 - `CodexBarApp.swift`:`@main`,仅声明占位 `Settings { EmptyView() }` Scene;真实 UI 由 `CodexBarAppDelegate` 驱动。同文件有 `nonisolated extension Bundle` 提供 `shortVersionString` 和 `displayVersionLabel`(`v1.2.3`,缺失回退 `--`)。
-- `StatusItemController.swift`:`CodexBarAppDelegate` 持有 `RateLimitsViewModel` 和 `AppUpdater`。私有 `StatusItemController` 配置菜单栏按钮、popover、Combine 订阅和自动刷新;左键切换 popover,右键或 Control 点击弹出「设置 / 退出」菜单。popover 使用手写淡入淡出、`PopoverState` 状态机、本地/全局 mouse monitor 外部点击关闭,并在显示后延迟调用 `refreshIfNeeded()`。
-- `SettingsWindowController.swift`:独立管理设置窗口生命周期,复用同一个 `NSWindow`,通过 status item 所在屏幕居中,内容为注入 `AppUpdater` 的 `AppSettingsView`。
-- `RateLimitsViewModel.swift`:主线程 `ObservableObject`,只发布 `snapshot`、`isRefreshing`、`lastError`。错误状态单一来源是 `lastError: CodexRateLimitError?`,`errorMessage`、`requiresLogin`、`hasError` 都是派生计算属性,不要增加并列错误布尔或重复错误字符串状态。
-- `CodexRateLimitService.swift`:非 UI 服务,负责 app-server 进程、JSON-RPC 请求/响应、连接复用、认证重试和 usage 能力降级。
+- `StatusItemController.swift`:`CodexBarAppDelegate` 持有 `RateLimitsViewModel` 和 `AppUpdater`。私有 `StatusItemController` 配置菜单栏按钮、popover、Combine 订阅和自动刷新;左键切换 popover,右键或 Control 点击弹出「设置 / 退出」菜单。popover 使用手写淡入淡出、`PopoverState` 状态机、本地/全局 mouse monitor 外部点击关闭,并在显示后延迟调用 `refreshIfNeeded()`;设置窗口注入同一个 `RateLimitsViewModel` 和 `AppUpdater`。
+- `SettingsWindowController.swift`:独立管理设置窗口生命周期,复用同一个 `NSWindow`,内容为注入 `RateLimitsViewModel` 和 `AppUpdater` 的 `AppSettingsView`。首次显示或关闭后重开时通过 status item 所在屏幕居中;窗口已可见时再次打开只负责 `deminiaturize`、激活应用并置顶,不要重新居中或创建第二个窗口。
+- `RateLimitsViewModel.swift`:主线程 `ObservableObject`,发布 `snapshot`、`isRefreshing`、`lastError` 和 `codexConnectionInfo`。错误状态单一来源是 `lastError: CodexRateLimitError?`,`errorMessage`、`requiresLogin`、`hasError` 都是派生计算属性,不要增加并列错误布尔或重复错误字符串状态。`codexConnectionInfo` 来自 `CodexRateLimitService.currentConnectionInfo()`。
+- `CodexRateLimitService.swift`:非 UI 服务,负责 app-server 进程、JSON-RPC 请求/响应、连接复用、认证重试、usage 能力降级,并记录当前连接实际启动的 Codex 来源、路径和运行版本。
+- `CodexCLIResolver.swift`:Codex 可执行文件解析和 app-server 环境构造入口。负责区分 PATH 中的全局 `codex` 与 `/Applications/Codex.app/Contents/Resources/codex`,并给 app-server 和版本探测共用同一份真实用户环境。
+- `CodexCLIVersionService.swift`:设置页 Codex 版本探测服务和展示模型。并发读取全局 CLI 与 Codex App 内置 CLI 的 `--version`,合成磁盘安装版本、当前运行版本和「已更新至」提示。
 - `RateLimitModels.swift`:wire DTO 保持纯 `Decodable`,展示排序/兜底只放在业务快照转换里。核心模型是 `CodexQuotaSnapshot` → `CodexQuotaLimitSnapshot` → `QuotaWindow`,以及 `CodexUsageSnapshot`。
 - `RateLimitsMenuView.swift`:popover 主 UI,负责登录提示、账号卡片、limit 分节、使用量卡片、更新时间和错误行。邮箱双击可模糊/取消模糊,账号图标双击触发手动刷新。
 - `QuotaRow.swift`:单个 quota window 行和 `SegmentedQuotaBar`;条形图展示剩余额度而不是已用额度。
-- `UsageHeatmap.swift` / `TokenCountText.swift`:token 汇总、30 列 × 7 行热力图、hover tooltip 和 K/M/B 紧凑数字格式。
-- `AppSettingsView.swift` / `LoginItemSettings.swift`:设置窗口 UI 和 `SMAppService.mainApp` 开机自启。开机自启状态读取是同步 XPC,在设置窗口 `onAppear` 刷新。
+- `UsageHeatmap.swift` / `TokenCountText.swift`:token 汇总、30 列 × 7 行热力图、hover tooltip 和 token 数字格式。`TokenCountText` 对 1K 以下直接显示完整整数,1K 起使用 K/M/B 紧凑格式。
+- `AppSettingsView.swift` / `LoginItemSettings.swift`:设置窗口 UI、`SMAppService.mainApp` 开机自启和 Codex 版本区。开机自启状态读取是同步 XPC,在设置窗口 `onAppear` 刷新;Codex 版本区展示 CodexBar 版本、Codex CLI/Codex APP 版本与路径,路径点击复制并短暂显示「已复制」。
 - `AppUpdater.swift`:Sparkle 封装和更新状态文案路由。
 - `LiquidGlassStyle.swift`:Liquid Glass 视觉入口,包括 `.liquidGlassSurface(...)`、`.liquidGlassCapsule(...)` 和 `LiquidGlassDivider`。
 
 ## Codex app-server 连接
 
-启动命令为 `codex app-server --listen stdio://`。解析命令时优先找 PATH 中的全局 `codex`,但如果找到的路径等同于 `/Applications/Codex.app/Contents/Resources/codex`,则按内置 Codex.app CLI 处理;全局 CLI 不存在时回退 Codex.app 内置 CLI;两者都没有时展示「找不到 Codex CLI 或 Codex App」。
+启动命令为 `codex app-server --listen stdio://`。解析命令统一走 `CodexCLIResolver.resolveAppServerCommand()`:优先找 PATH 中的全局 `codex`,但如果找到的路径等同于 `/Applications/Codex.app/Contents/Resources/codex`,则按内置 Codex.app CLI 处理;全局 CLI 不存在时回退 Codex.app 内置 CLI;两者都没有时展示「找不到 Codex CLI 或 Codex App」。
 
-启动环境由 `CodexRateLimitService.appServerEnvironment()` 构造:保留当前环境,但 `HOME` 使用 `getpwuid(getuid())` 得到的真实用户 home,同步设置 `USER`、`LOGNAME`,合并 Homebrew、npm global、`.local`、Volta 和系统路径,并确保 `TERM` 有值。不要改回 Xcode sandbox/container 的 `HOME`,否则会读不到 `~/.codex/auth.json`。
+启动环境由 `CodexCLIResolver.environment` 构造:保留当前环境,但 `HOME` 使用 `getpwuid(getuid())` 得到的真实用户 home,同步设置 `USER`、`LOGNAME`,合并 Homebrew、npm global、`.local`、Volta 和系统路径,并确保 `TERM` 有值。不要改回 Xcode sandbox/container 的 `HOME`,否则会读不到 `~/.codex/auth.json`。
 
 应用维持一条常驻连接。首次握手必须在请求额度前完成:
 
@@ -56,7 +60,22 @@ xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/pl
 - `account/rateLimits/read`:额度数据,认证失败时先同会话调用 `account/read`(`refreshToken: true`)再重试一次;仍失败抛 `authenticationRequired`。
 - `account/usage/read`:token 统计,读取 `summary.lifetimeTokens`、`summary.peakDailyTokens`、`dailyUsageBuckets`。如果 app-server 返回 method not found/unknown/unsupported/not supported,当前连接的 `isUsageReadAvailable` 置为 false,本连接后续不再请求 usage;其他 usage 错误也只隐藏 token 区域,额度信息仍正常显示。
 
+`initialize` 响应解析为 `InitializeResult`,其中 `userAgent` 的首个 token 形如 `codex_bar/0.139.0 (...)`;`CodexRateLimitService.serverVersion(fromUserAgent:)` 取 `/` 后版本号作为当前运行版本。每条连接保存 `CodexCLIConnectionInfo(source, executablePath, version, openedAt)`,设置页用它标记「当前使用」。
+
 `requestTimeout` 是 20 秒。`JSONLineReader` 按行读取 stdout,只消费匹配请求 id 的响应;`PipeDrain` 持续排空 stderr 且不进入用户可见文案。
+
+## Codex 版本展示
+
+设置页的「Codex 版本」分区同时展示两个来源:
+
+- `Codex CLI`:PATH 中解析到的全局 CLI,图标使用 `terminal`。
+- `Codex APP`:`/Applications/Codex.app/Contents/Resources/codex` 或等价路径,图标使用 `app.badge`。
+
+`CodexCLIVersionService` 通过 `codex --version` 探测磁盘安装版本,全局和内置两个探测先并发启动再分别收集,单个探测超时 5 秒。探测错误只展示固定文案(`启动失败`/`读取超时`/`读取失败`/`版本未知`),不要把 stderr 原文透传给用户。
+
+`CodexCLIVersionViewModel.refresh()` 会合并并发触发,并对 60 秒内的重复触发节流。设置页在 `onAppear` 和 `NSApplication.didBecomeActiveNotification` 时调用刷新;当前没有用户可见的手动刷新按钮。路径行点击后复制到剪贴板,对应来源显示「已复制」1.5 秒。
+
+当前使用来源由 `RateLimitsViewModel.codexConnectionInfo` 决定。当前行优先展示 app-server 握手自报的运行版本;非当前行展示磁盘安装版本。如果当前运行版本与磁盘安装版本不同,说明后台升级后当前连接尚未重建,UI 显示「已更新至 <version>」。app-server 每小时连接回收后会重新握手并更新当前运行版本。
 
 ## 额度与使用量模型
 
@@ -76,7 +95,7 @@ xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/pl
 `CodexRateLimitService` 是 `nonisolated final class` + `@unchecked Sendable`,连接状态只在私有串行 `DispatchQueue(label: "CodexBar.app-server")` 上读写。
 
 - 进程已退出 → 重建。
-- 连接存活超过 `connectionMaxAge`(1 小时)→ 关闭后重建,覆盖 Codex 升级或服务端状态漂移。
+- 连接存活超过 `connectionMaxAge`(1 小时)→ 关闭后重建,覆盖 Codex 升级或服务端状态漂移,并刷新 `CodexCLIConnectionInfo` 的运行版本。
 - 复用连接上的非登录类请求失败 → 丢弃连接,重建一次再试。
 - 全新连接上的失败 → 直接抛出,避免故障时重复完整握手。
 - 登录类错误(`requiresLogin`)→ 丢弃连接但不立即重试;下次轮询重新启动进程读取最新登录状态,用户重新登录后最多一分钟自动恢复。
@@ -85,7 +104,7 @@ xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/pl
 
 工程开启 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`:未显式标注的类型会推断为 MainActor 隔离。因此非 UI 类型、DTO、模型、服务辅助类型和部分静态工具必须显式 `nonisolated`,否则容易出现「Call to main actor-isolated initializer in a synchronous nonisolated context」。
 
-UI 层(`CodexBarAppDelegate`、`StatusItemController`、`SettingsWindowController`、`RateLimitsViewModel`、`AppUpdater`、`LoginItemSettings`)保持 `@MainActor` 或主线程使用。服务层对外暴露 async API,内部用 queue 串行化 Process/Pipe 状态。
+UI 层(`CodexBarAppDelegate`、`StatusItemController`、`SettingsWindowController`、`RateLimitsViewModel`、`AppUpdater`、`LoginItemSettings`、`CodexCLIVersionViewModel`)保持 `@MainActor` 或主线程使用。服务层对外暴露 async API,内部用 queue 串行化 Process/Pipe 状态。`CodexRateLimitService` 使用 `CodexBar.app-server` 串行队列,`CodexCLIVersionService` 使用 `CodexBar.codex-version` 串行队列。
 
 ## UI 与错误展示约定
 
@@ -93,12 +112,13 @@ UI 层(`CodexBarAppDelegate`、`StatusItemController`、`SettingsWindowControlle
 - App 图标保持白底黑色 `timelapse`。
 - popover 宽度由 `RateLimitsMenuView.menuWidth` 绑定到热力图总宽度和 padding;修改热力图尺寸时同步检查弹窗宽度。
 - 弹窗整体采用 Liquid Glass 风格:外层和分区使用 `.liquidGlassSurface(...)`,plan 徽章用 `.liquidGlassCapsule`,分隔线用 `LiquidGlassDivider`。不要把设置、额度、usage 区块改回普通卡片样式。
+- `LiquidGlassStyle.swift` 当前是自绘 SwiftUI 玻璃效果(渐变、描边、高光和阴影),不是 macOS 26 原生 `.glassEffect`。不要在没有明确设计要求时切换到系统 `.glassEffect`,当前视觉以自绘方案为准。
 - plan 徽章颜色由 `planBadgeTint(for:)` 按子串匹配,优先级:enterprise → team/business → pro → plus → edu → free → 默认 cyan。
 - 弹窗按 limit 分节展示,标题取 `limitName` 回退 `limitId` 并首字母大写;节之间用 `LiquidGlassDivider`。
-- 额度条展示剩余百分比(`100 - usedPercent`),颜色阈值:剩余 50% 及以上绿色,25% 到 50% 橙色,低于 25% 红色;无数据使用占位色并显示 `--` / `暂无数据`。
+- 额度条展示剩余百分比(`100 - usedPercent`),颜色按 20% 一档递进:0-19 红色,20-39 橙色,40-59 黄色,60-79 薄荷色,80-100 绿色;无数据使用占位色并显示 `--` / `暂无数据`。
 - 重置时间格式 `MM-dd HH:mm`,更新时间格式 `HH:mm:ss`;更新时间行不展示应用版本号。
-- token 区域显示「单日峰值」和「全时累计」,数字通过 `TokenCountText` 格式化为 K/M/B,下方是 30 × 7 蓝色热力图;hover tooltip 显示日期和单日 token。
-- 设置走菜单栏图标右键或 Control 点击菜单的「设置」项,打开独立 `AppSettingsView` 窗口;不要恢复为 Option 点击或 popover 内设置区。
+- token 区域显示「单日峰值」和「全时累计」,数字通过 `TokenCountText` 格式化;1K 以下直接显示整数,1K 起显示 K/M/B。下方是 30 × 7 蓝色热力图;hover tooltip 显示日期和单日 token。
+- 设置走菜单栏图标右键或 Control 点击菜单的「设置」项,打开独立 `AppSettingsView` 窗口;不要恢复为 Option 点击或 popover 内设置区。设置页包含「CodexBar 版本」和「Codex 版本」两个版本区域;Codex CLI/Codex APP 子行相对标题缩进,并用「当前使用」徽章标记实际运行来源。
 - 登录类错误(`requiresLogin`)时,popover 顶部显示橙色「Codex 未登录」,旧快照 opacity 0.4 置灰保留,红色错误行被抑制。
 - 其他错误显示红色小字 `errorDescription`,旧快照保持全亮度。
 - `refresh()` 开始时不要清空 `lastError`;错误文案保持到某次刷新成功才消失。旧额度快照永远不因失败而清空。
@@ -122,7 +142,7 @@ Info.plist 位于 `CodexBar/Resources/Info.plist`,当前 `SUFeedURL = https://co
 
 CodexBar 只与本机 app-server 进程通信,账号与额度数据不发往第三方服务。除 Sparkle appcast/DMG 下载外,应用自身不做网络请求。
 
-App Sandbox 必须保持关闭(`ENABLE_APP_SANDBOX = NO`),否则无法可靠启动 Codex CLI 或读取当前用户登录状态。服务层必须用真实用户 home 运行 app-server,以免 Xcode 运行时 `HOME` 指向 app container 导致 "codex account authentication required"。
+App Sandbox 必须保持关闭(`ENABLE_APP_SANDBOX = NO`),否则无法可靠启动 Codex CLI 或读取当前用户登录状态。`CodexCLIResolver.environment` 必须用真实用户 home 运行 app-server 和版本探测,以免 Xcode 运行时 `HOME` 指向 app container 导致 "codex account authentication required"。
 
 ## Git 提交规范
 

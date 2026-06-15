@@ -122,9 +122,13 @@ private extension SegmentedQuotaBar {
         }
         
         switch percent {
-        case 50...:
+        case 80...:
             return .green
-        case 25..<50:
+        case 60..<80:
+            return .mint
+        case 40..<60:
+            return .yellow
+        case 20..<40:
             return .orange
         default:
             return .red
