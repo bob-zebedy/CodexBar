@@ -164,21 +164,55 @@ nonisolated struct CodexUsageSnapshot: Equatable {
     let summary: UsageSummary
     let dailyBuckets: [DailyUsageBucket]
     
-    func recentDays(count: Int, endingDaysAgo: Int) -> [DailyUsageBucket] {
+    func recentWeekGrid(columnCount: Int, endingDaysAgo: Int = 0, today: Date = Date()) -> [DailyUsageBucket?] {
+        guard columnCount > 0 else {
+            return []
+        }
+        
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
+        let todayStart = calendar.startOfDay(for: today)
+        let lastVisibleDate = calendar.date(
+            byAdding: .day,
+            value: -max(endingDaysAgo, 0),
+            to: todayStart
+        ) ?? todayStart
+        let currentWeekStart = Self.sundayStartOfWeek(containing: lastVisibleDate, calendar: calendar)
+        guard let firstWeekStart = calendar.date(
+            byAdding: .weekOfYear,
+            value: -(columnCount - 1),
+            to: currentWeekStart
+        ) else {
+            return []
+        }
+        
         let tokensByDate = dailyBuckets.reduce(into: [String: Int]()) { result, bucket in
             result[bucket.startDate, default: 0] += bucket.tokens
         }
         
-        return (0..<count).reversed().compactMap { offset in
-            guard let date = calendar.date(byAdding: .day, value: -(offset + endingDaysAgo), to: today) else {
-                return nil
+        return (0..<columnCount).flatMap { column -> [DailyUsageBucket?] in
+            guard let weekStart = calendar.date(byAdding: .weekOfYear, value: column, to: firstWeekStart) else {
+                return Array(repeating: nil, count: 7)
             }
             
-            let startDate = Self.dayFormatter.string(from: date)
-            return DailyUsageBucket(startDate: startDate, tokens: tokensByDate[startDate] ?? 0)
+            return (0..<7).map { weekdayOffset -> DailyUsageBucket? in
+                guard let date = calendar.date(byAdding: .day, value: weekdayOffset, to: weekStart) else {
+                    return nil
+                }
+                
+                guard date <= lastVisibleDate else {
+                    return nil
+                }
+                
+                let startDate = Self.dayFormatter.string(from: date)
+                return DailyUsageBucket(startDate: startDate, tokens: tokensByDate[startDate] ?? 0)
+            }
         }
+    }
+    
+    private static func sundayStartOfWeek(containing date: Date, calendar: Calendar) -> Date {
+        let weekday = calendar.component(.weekday, from: date)
+        let daysSinceSunday = weekday - 1
+        return calendar.date(byAdding: .day, value: -daysSinceSunday, to: date) ?? date
     }
     
     private nonisolated static let dayFormatter: DateFormatter = {
@@ -302,7 +336,7 @@ nonisolated enum CodexRateLimitError: LocalizedError {
         case .invalidServerResponse(let step):
             return "Codex app-server 响应异常: \(step)"
         case .serverError(let message):
-            return "Codex app-server 返回错误: \(message)"
+            return "Codex app-server 响应错误: \(message)"
         case .missingRateLimitWindow:
             return "暂未获取到数据"
         case .notLoggedIn:

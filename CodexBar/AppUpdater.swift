@@ -23,6 +23,8 @@ final class AppUpdater: NSObject, ObservableObject {
     private var clearSettingsStatusMessageTask: Task<Void, Never>?
     private var isManualCheckInProgress = false
     
+    private static let missingUpdateConfigurationMessage = "未配置更新资源"
+    
     init(bundle: Bundle = .main) {
         super.init()
         
@@ -40,7 +42,7 @@ final class AppUpdater: NSObject, ObservableObject {
     
     func checkForUpdates() {
         guard let updaterController else {
-            showSettingsStatusMessage("未配置更新资源")
+            showSettingsStatusMessage(Self.missingUpdateConfigurationMessage)
             return
         }
         
@@ -56,7 +58,7 @@ final class AppUpdater: NSObject, ObservableObject {
     
     func startUpdate() {
         guard let updaterController else {
-            showSettingsStatusMessage("未配置更新资源")
+            showSettingsStatusMessage(Self.missingUpdateConfigurationMessage)
             return
         }
         
@@ -67,7 +69,7 @@ final class AppUpdater: NSObject, ObservableObject {
     func setAutomaticallyChecksForUpdates(_ isEnabled: Bool) {
         guard let updaterController else {
             automaticallyChecksForUpdates = false
-            showSettingsStatusMessage("未配置更新资源")
+            showSettingsStatusMessage(Self.missingUpdateConfigurationMessage)
             return
         }
         

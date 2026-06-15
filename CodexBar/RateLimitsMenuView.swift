@@ -183,7 +183,7 @@ private extension RateLimitsMenuView {
                         startedAt: viewModel.autoRefreshCountdownStartedAt ?? snapshot.generatedAt,
                         interval: viewModel.autoRefreshInterval,
                         now: timeline.date,
-                        color: Self.secondaryTextColor
+                        color: .blue
                     )
                 }
                 
@@ -286,7 +286,7 @@ private struct AutoRefreshCountdownCircle: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(color.opacity(0.24), lineWidth: 1.4)
+                .stroke(color.opacity(0.15), lineWidth: 1.4)
             
             Circle()
                 .trim(from: 1 - progress, to: 1)

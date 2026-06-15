@@ -99,17 +99,20 @@ private final class StatusItemController: NSObject {
     }
     
     private func observeViewModel() {
-        viewModel.objectWillChange
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.updateStatusImage()
-                }
+        viewModel.$lastError
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak self] hasError in
+                self?.updateStatusImage(hasError: hasError)
             }
             .store(in: &cancellables)
     }
     
     private func updateStatusImage() {
-        let hasError = viewModel.hasError
+        updateStatusImage(hasError: viewModel.hasError)
+    }
+    
+    private func updateStatusImage(hasError: Bool) {
         guard hasError != lastHasError else {
             return
         }

@@ -9,12 +9,12 @@ import SwiftUI
 
 struct UsageSummaryView: View {
     let usage: CodexUsageSnapshot
-    private let days: [DailyUsageBucket]
+    private let days: [DailyUsageBucket?]
     @State private var hoveredDay: DailyUsageBucket?
     
     init(usage: CodexUsageSnapshot) {
         self.usage = usage
-        self.days = usage.recentDays(count: UsageHeatmap.Metrics.dayCount, endingDaysAgo: 1)
+        self.days = usage.recentWeekGrid(columnCount: UsageHeatmap.Metrics.columnCount, endingDaysAgo: 1)
     }
     
     var body: some View {
@@ -49,16 +49,16 @@ struct UsageSummaryView: View {
 }
 
 struct UsageHeatmap: View {
-    let days: [DailyUsageBucket]
+    let days: [DailyUsageBucket?]
     @Binding var hoveredDay: DailyUsageBucket?
     @State private var hoveredSquareFrame: CGRect = .zero
     // hover 期间 body 频繁重算, 峰值只在构建时求一次
     private let peakTokens: Int
     
-    init(days: [DailyUsageBucket], hoveredDay: Binding<DailyUsageBucket?>) {
+    init(days: [DailyUsageBucket?], hoveredDay: Binding<DailyUsageBucket?>) {
         self.days = days
         self._hoveredDay = hoveredDay
-        self.peakTokens = max(days.lazy.map(\.tokens).max() ?? 0, 1)
+        self.peakTokens = max(days.lazy.compactMap { $0?.tokens }.max() ?? 0, 1)
     }
     
     var body: some View {
@@ -81,13 +81,13 @@ struct UsageHeatmap: View {
     private var heatmapGrid: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text("近 \(days.count) 天")
+                Text("近 \(Metrics.columnCount) 周")
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
                 
                 Spacer()
                 
-                if let firstDate = days.first?.startDate, let lastDate = days.last?.startDate {
+                if let firstDate = visibleDays.first?.startDate, let lastDate = visibleDays.last?.startDate {
                     Text("\(firstDate) ~ \(lastDate)")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.tertiary)
@@ -101,8 +101,7 @@ struct UsageHeatmap: View {
                         ForEach(0..<Metrics.rowCount, id: \.self) { row in
                             let index = column * Metrics.rowCount + row
                             
-                            if days.indices.contains(index) {
-                                let day = days[index]
+                            if days.indices.contains(index), let day = days[index] {
                                 UsageHeatmapSquare(
                                     day: day,
                                     percent: Double(day.tokens) / Double(peakTokens),
@@ -133,6 +132,10 @@ struct UsageHeatmap: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    
+    private var visibleDays: [DailyUsageBucket] {
+        days.compactMap { $0 }
     }
     
     private var tooltipOffset: CGSize {
@@ -174,8 +177,6 @@ extension UsageHeatmap {
         static let tooltipHeight: CGFloat = 38
         static let tooltipSquareSpacing: CGFloat = 2
         static let tooltipFadeDuration: TimeInterval = 0.15
-        
-        static var dayCount: Int { columnCount * rowCount }
         
         static var totalWidth: CGFloat {
             CGFloat(columnCount) * squareSize + CGFloat(columnCount - 1) * squareSpacing
