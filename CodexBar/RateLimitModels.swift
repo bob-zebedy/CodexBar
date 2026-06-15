@@ -292,7 +292,7 @@ nonisolated enum CodexRateLimitError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .executableNotFound:
-            return "找不到 Codex CLI 或 Codex App"
+            return "找不到 Codex CLI 或 Codex APP"
         case .serverStartFailed(let message):
             return "Codex app-server 启动失败: \(message)"
         case .serverTimeout(let step):

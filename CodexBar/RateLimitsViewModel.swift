@@ -14,11 +14,13 @@ final class RateLimitsViewModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastError: CodexRateLimitError?
     @Published private(set) var codexConnectionInfo: CodexCLIConnectionInfo?
+    @Published private(set) var autoRefreshCountdownStartedAt: Date?
     
     // UI 状态统一从 lastError 派生, 保证单一真相来源
     var errorMessage: String? { lastError?.errorDescription }
     var requiresLogin: Bool { lastError?.requiresLogin ?? false }
     var hasError: Bool { lastError != nil }
+    var autoRefreshInterval: TimeInterval { Self.refreshInterval }
     
     private static let refreshInterval: TimeInterval = 60
     
@@ -34,7 +36,7 @@ final class RateLimitsViewModel: ObservableObject {
     }
     
     func refreshIfNeeded() {
-        guard Date().timeIntervalSince(snapshot?.generatedAt ?? .distantPast) > Self.refreshInterval else {
+        guard Date().timeIntervalSince(autoRefreshCountdownStartedAt ?? .distantPast) > Self.refreshInterval else {
             return
         }
         
@@ -50,11 +52,11 @@ final class RateLimitsViewModel: ObservableObject {
             self?.refreshIfNeeded()
             
             while !Task.isCancelled {
-                if (try? await Task.sleep(nanoseconds: UInt64(Self.refreshInterval * 1_000_000_000))) == nil {
+                if (try? await Task.sleep(for: .seconds(1))) == nil {
                     break
                 }
                 
-                self?.refresh()
+                self?.refreshIfNeeded()
             }
         }
     }
@@ -75,6 +77,7 @@ final class RateLimitsViewModel: ObservableObject {
             }
             
             self.codexConnectionInfo = await service.currentConnectionInfo()
+            self.autoRefreshCountdownStartedAt = Date()
             self.isRefreshing = false
         }
     }

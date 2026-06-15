@@ -22,6 +22,8 @@ struct RateLimitsMenuView: View {
         }
         .padding(Metrics.padding)
         .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, tint: .cyan, isOuterSurface: true)
+        .animation(Metrics.statusAnimation, value: viewModel.requiresLogin)
+        .animation(Metrics.statusAnimation, value: viewModel.errorMessage)
         .onChange(of: viewModel.snapshot?.account.email) { _, _ in
             isEmailBlurred = false
         }
@@ -37,12 +39,14 @@ private extension RateLimitsMenuView {
         static let verticalSpacing: CGFloat = 10
         static let accountIconSize: CGFloat = 14
         static let loadingVerticalPadding: CGFloat = 16
+        static let statusAnimation = Animation.codexStatus
     }
     
     @ViewBuilder
     var content: some View {
         if viewModel.requiresLogin {
             loginRequiredNotice
+                .transition(.opacity)
         }
         
         if let snapshot = viewModel.snapshot {
@@ -164,21 +168,35 @@ private extension RateLimitsMenuView {
                 let tint = planBadgeTint(for: plan)
                 
                 Text(plan.uppercased())
-                    .font(.caption2)
+                    .font(.caption2.weight(.bold))
                     .foregroundStyle(tint)
                     .lineLimit(1)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .liquidGlassCapsule(tint: tint)
             }
         }
     }
     
     func updatedAtRow(for snapshot: CodexQuotaSnapshot) -> some View {
         HStack {
-            Text("数据更新时间 \(snapshot.generatedAt, formatter: Self.timeFormatter)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 5) {
+                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                    AutoRefreshCountdownCircle(
+                        startedAt: viewModel.autoRefreshCountdownStartedAt ?? snapshot.generatedAt,
+                        interval: viewModel.autoRefreshInterval,
+                        now: timeline.date,
+                        color: Self.secondaryTextColor
+                    )
+                }
+                
+                Text("数据更新时间")
+                    .foregroundStyle(Self.secondaryTextColor)
+                
+                Text(Self.timeFormatter.string(from: snapshot.generatedAt))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .foregroundStyle(Self.secondaryTextColor)
+            }
+            .font(.caption2)
+            .animation(Metrics.statusAnimation, value: snapshot.generatedAt)
             
             Spacer()
             
@@ -187,11 +205,14 @@ private extension RateLimitsMenuView {
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .contentTransition(.opacity)
+                    .transition(.opacity)
                     .onTapGesture(count: 2) {
                         appUpdater.startUpdate()
                     }
             }
         }
+        .animation(Metrics.statusAnimation, value: appUpdater.panelUpdateMessage)
     }
     
     @ViewBuilder
@@ -202,6 +223,8 @@ private extension RateLimitsMenuView {
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .contentTransition(.opacity)
+                .transition(.opacity)
         }
     }
     
@@ -241,4 +264,39 @@ private extension RateLimitsMenuView {
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
+    
+    static let secondaryTextColor = Color.codexSecondaryLabel
+}
+
+private struct AutoRefreshCountdownCircle: View {
+    let startedAt: Date
+    let interval: TimeInterval
+    let now: Date
+    let color: Color
+    
+    private var progress: Double {
+        guard interval > 0 else {
+            return 0
+        }
+        
+        let elapsed = max(0, now.timeIntervalSince(startedAt))
+        return max(0, 1 - elapsed / interval)
+    }
+    
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(color.opacity(0.24), lineWidth: 1.4)
+            
+            Circle()
+                .trim(from: 1 - progress, to: 1)
+                .stroke(
+                    color,
+                    style: StrokeStyle(lineWidth: 1.4, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: 8, height: 8)
+        .animation(.linear(duration: 1), value: progress)
+    }
 }

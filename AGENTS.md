@@ -29,21 +29,21 @@ SourceKit 经常对跨文件类型误报「Cannot find type ... in scope」(索�
 - `CodexBarApp.swift`:`@main`,仅声明占位 `Settings { EmptyView() }` Scene;真实 UI 由 `CodexBarAppDelegate` 驱动。同文件有 `nonisolated extension Bundle` 提供 `shortVersionString` 和 `displayVersionLabel`(`v1.2.3`,缺失回退 `--`)。
 - `StatusItemController.swift`:`CodexBarAppDelegate` 持有 `RateLimitsViewModel` 和 `AppUpdater`。私有 `StatusItemController` 配置菜单栏按钮、popover、Combine 订阅和自动刷新;左键切换 popover,右键或 Control 点击弹出「设置 / 退出」菜单。popover 使用手写淡入淡出、`PopoverState` 状态机、本地/全局 mouse monitor 外部点击关闭,并在显示后延迟调用 `refreshIfNeeded()`;设置窗口注入同一个 `RateLimitsViewModel` 和 `AppUpdater`。
 - `SettingsWindowController.swift`:独立管理设置窗口生命周期,复用同一个 `NSWindow`,内容为注入 `RateLimitsViewModel` 和 `AppUpdater` 的 `AppSettingsView`。首次显示或关闭后重开时通过 status item 所在屏幕居中;窗口已可见时再次打开只负责 `deminiaturize`、激活应用并置顶,不要重新居中或创建第二个窗口。
-- `RateLimitsViewModel.swift`:主线程 `ObservableObject`,发布 `snapshot`、`isRefreshing`、`lastError` 和 `codexConnectionInfo`。错误状态单一来源是 `lastError: CodexRateLimitError?`,`errorMessage`、`requiresLogin`、`hasError` 都是派生计算属性,不要增加并列错误布尔或重复错误字符串状态。`codexConnectionInfo` 来自 `CodexRateLimitService.currentConnectionInfo()`。
+- `RateLimitsViewModel.swift`:主线程 `ObservableObject`,发布 `snapshot`、`isRefreshing`、`lastError`、`codexConnectionInfo` 和 `autoRefreshCountdownStartedAt`。错误状态单一来源是 `lastError: CodexRateLimitError?`,`errorMessage`、`requiresLogin`、`hasError` 都是派生计算属性,不要增加并列错误布尔或重复错误字符串状态。`codexConnectionInfo` 来自 `CodexRateLimitService.currentConnectionInfo()`;`autoRefreshInterval` 暴露 60 秒自动刷新间隔给 UI 倒计时。
 - `CodexRateLimitService.swift`:非 UI 服务,负责 app-server 进程、JSON-RPC 请求/响应、连接复用、认证重试、usage 能力降级,并记录当前连接实际启动的 Codex 来源、路径和运行版本。
 - `CodexCLIResolver.swift`:Codex 可执行文件解析和 app-server 环境构造入口。负责区分 PATH 中的全局 `codex` 与 `/Applications/Codex.app/Contents/Resources/codex`,并给 app-server 和版本探测共用同一份真实用户环境。
 - `CodexCLIVersionService.swift`:设置页 Codex 版本探测服务和展示模型。并发读取全局 CLI 与 Codex App 内置 CLI 的 `--version`,合成磁盘安装版本、当前运行版本和「已更新至」提示。
 - `RateLimitModels.swift`:wire DTO 保持纯 `Decodable`,展示排序/兜底只放在业务快照转换里。核心模型是 `CodexQuotaSnapshot` → `CodexQuotaLimitSnapshot` → `QuotaWindow`,以及 `CodexUsageSnapshot`。
-- `RateLimitsMenuView.swift`:popover 主 UI,负责登录提示、账号卡片、limit 分节、使用量卡片、更新时间和错误行。邮箱双击可模糊/取消模糊,账号图标双击触发手动刷新。
+- `RateLimitsMenuView.swift`:popover 主 UI,负责登录提示、账号卡片、limit 分节、使用量卡片、更新时间倒计时和错误行。邮箱双击可模糊/取消模糊,账号图标双击触发手动刷新;更新时间行使用 `TimelineView` 绘制自动刷新倒计时圆环。
 - `QuotaRow.swift`:单个 quota window 行和 `SegmentedQuotaBar`;条形图展示剩余额度而不是已用额度。
 - `UsageHeatmap.swift` / `TokenCountText.swift`:token 汇总、30 列 × 7 行热力图、hover tooltip 和 token 数字格式。`TokenCountText` 对 1K 以下直接显示完整整数,1K 起使用 K/M/B 紧凑格式。
-- `AppSettingsView.swift` / `LoginItemSettings.swift`:设置窗口 UI、`SMAppService.mainApp` 开机自启和 Codex 版本区。开机自启状态读取是同步 XPC,在设置窗口 `onAppear` 刷新;Codex 版本区展示 CodexBar 版本、Codex CLI/Codex APP 版本与路径,路径点击复制并短暂显示「已复制」。
+- `AppSettingsView.swift` / `LoginItemSettings.swift`:设置窗口 UI、`SMAppService.mainApp` 开机自启和 Codex 版本区。开机自启状态读取是同步 XPC,在设置窗口 `onAppear` 刷新;Codex 版本区展示 CodexBar 版本、Codex CLI/Codex APP 版本与路径,路径点击复制并淡入显示「已复制」1.5 秒,同时保留路径文本布局宽度避免跳动。
 - `AppUpdater.swift`:Sparkle 封装和更新状态文案路由。
-- `LiquidGlassStyle.swift`:Liquid Glass 视觉入口,包括 `.liquidGlassSurface(...)`、`.liquidGlassCapsule(...)` 和 `LiquidGlassDivider`。
+- `LiquidGlassStyle.swift`:Liquid Glass 视觉入口,包括 `.liquidGlassSurface(...)`、`.liquidGlassCapsule(...)` 和 `LiquidGlassDivider`;同时提供 `Animation.codexStatus` 统一状态文案过渡动画,以及 `Color.codexLabel` / `Color.codexSecondaryLabel` 给需要具体 `Color` 的转场和 tooltip 使用。
 
 ## Codex app-server 连接
 
-启动命令为 `codex app-server --listen stdio://`。解析命令统一走 `CodexCLIResolver.resolveAppServerCommand()`:优先找 PATH 中的全局 `codex`,但如果找到的路径等同于 `/Applications/Codex.app/Contents/Resources/codex`,则按内置 Codex.app CLI 处理;全局 CLI 不存在时回退 Codex.app 内置 CLI;两者都没有时展示「找不到 Codex CLI 或 Codex App」。
+启动命令为 `codex app-server --listen stdio://`。解析命令统一走 `CodexCLIResolver.resolveAppServerCommand()`:优先找 PATH 中的全局 `codex`,但如果找到的路径等同于 `/Applications/Codex.app/Contents/Resources/codex`,则按内置 Codex.app CLI 处理;全局 CLI 不存在时回退 Codex.app 内置 CLI;两者都没有时展示「找不到 Codex CLI 或 Codex APP」。
 
 启动环境由 `CodexCLIResolver.environment` 构造:保留当前环境,但 `HOME` 使用 `getpwuid(getuid())` 得到的真实用户 home,同步设置 `USER`、`LOGNAME`,合并 Homebrew、npm global、`.local`、Volta 和系统路径,并确保 `TERM` 有值。不要改回 Xcode sandbox/container 的 `HOME`,否则会读不到 `~/.codex/auth.json`。
 
@@ -90,6 +90,12 @@ SourceKit 经常对跨文件类型误报「Cannot find type ... in scope」(索�
 
 `CodexUsageSnapshot.recentDays(count:endingDaysAgo:)` 基于本地当天零点生成连续日期,按 `yyyy-MM-dd` 汇总 `dailyUsageBuckets`。UI 当前展示 `UsageHeatmap.Metrics.dayCount`(210 天)且 `endingDaysAgo: 1`,也就是默认不包含今天。热力图颜色按当前展示区间内的峰值缩放。
 
+## 自动刷新节奏
+
+`RateLimitsViewModel.refreshInterval` 是 60 秒。`startAutoRefresh()` 启动一个每秒唤醒的 `Task`,每次调用 `refreshIfNeeded()`;`refreshIfNeeded()` 只根据 `autoRefreshCountdownStartedAt` 距当前时间是否超过 60 秒判断是否刷新。`refresh()` 用 `isRefreshing` 合并并发触发,避免手动/自动重复刷新。
+
+`refresh()` 完成后会更新 `codexConnectionInfo`、`autoRefreshCountdownStartedAt` 并关闭 `isRefreshing`,无论本次刷新成功还是失败都会重置下一次自动刷新倒计时。popover 更新时间前的圆环以 `autoRefreshCountdownStartedAt` 为满圈起点,每秒顺时针减少,空圈后下一次自动检查会触发刷新;账号图标双击手动刷新完成后同样让圆环回到满圈。
+
 ## 连接重建规则
 
 `CodexRateLimitService` 是 `nonisolated final class` + `@unchecked Sendable`,连接状态只在私有串行 `DispatchQueue(label: "CodexBar.app-server")` 上读写。
@@ -111,14 +117,15 @@ UI 层(`CodexBarAppDelegate`、`StatusItemController`、`SettingsWindowControlle
 - 菜单栏正常图标是 `person.fill.checkmark`,错误图标是 `person.fill.xmark`;由 `StatusItemController.updateStatusImage()` 直接设置 `NSStatusItem.button.image`。菜单栏不展示额度数字,详情只在 popover 中展示。
 - App 图标保持白底黑色 `timelapse`。
 - popover 宽度由 `RateLimitsMenuView.menuWidth` 绑定到热力图总宽度和 padding;修改热力图尺寸时同步检查弹窗宽度。
-- 弹窗整体采用 Liquid Glass 风格:外层和分区使用 `.liquidGlassSurface(...)`,plan 徽章用 `.liquidGlassCapsule`,分隔线用 `LiquidGlassDivider`。不要把设置、额度、usage 区块改回普通卡片样式。
+- 弹窗整体采用 Liquid Glass 风格:外层和分区使用 `.liquidGlassSurface(...)`,分隔线用 `LiquidGlassDivider`;「当前使用」等小徽章可使用 `.liquidGlassCapsule(...)`。不要把设置、额度、usage 区块改回普通卡片样式。
 - `LiquidGlassStyle.swift` 当前是自绘 SwiftUI 玻璃效果(渐变、描边、高光和阴影),不是 macOS 26 原生 `.glassEffect`。不要在没有明确设计要求时切换到系统 `.glassEffect`,当前视觉以自绘方案为准。
-- plan 徽章颜色由 `planBadgeTint(for:)` 按子串匹配,优先级:enterprise → team/business → pro → plus → edu → free → 默认 cyan。
+- 账号行 plan 展示为右侧加粗纯文字,不加胶囊底色或额外 padding;颜色由 `planBadgeTint(for:)` 按子串匹配,优先级:enterprise → team/business → pro → plus → edu → free → 默认 cyan。
 - 弹窗按 limit 分节展示,标题取 `limitName` 回退 `limitId` 并首字母大写;节之间用 `LiquidGlassDivider`。
 - 额度条展示剩余百分比(`100 - usedPercent`),颜色按 20% 一档递进:0-19 红色,20-39 橙色,40-59 黄色,60-79 薄荷色,80-100 绿色;无数据使用占位色并显示 `--` / `暂无数据`。
-- 重置时间格式 `MM-dd HH:mm`,更新时间格式 `HH:mm:ss`;更新时间行不展示应用版本号。
+- 重置时间格式 `MM-dd HH:mm`;更新时间行显示顺时针自动刷新倒计时圆环、「数据更新时间」和 `HH:mm:ss`,时间文本使用 `.contentTransition(.numericText())` 和 `Color.codexSecondaryLabel`,不展示应用版本号。
 - token 区域显示「单日峰值」和「全时累计」,数字通过 `TokenCountText` 格式化;1K 以下直接显示整数,1K 起显示 K/M/B。下方是 30 × 7 蓝色热力图;hover tooltip 显示日期和单日 token。
 - 设置走菜单栏图标右键或 Control 点击菜单的「设置」项,打开独立 `AppSettingsView` 窗口;不要恢复为 Option 点击或 popover 内设置区。设置页包含「CodexBar 版本」和「Codex 版本」两个版本区域;Codex CLI/Codex APP 子行相对标题缩进,并用「当前使用」徽章标记实际运行来源。
+- 设置页版本状态、Codex 版本值、复制提示、popover 更新提示和错误提示使用 `Animation.codexStatus` 做淡入淡出;路径复制提示应保持路径文本布局宽度,避免「已复制」出现时行宽跳动。
 - 登录类错误(`requiresLogin`)时,popover 顶部显示橙色「Codex 未登录」,旧快照 opacity 0.4 置灰保留,红色错误行被抑制。
 - 其他错误显示红色小字 `errorDescription`,旧快照保持全亮度。
 - `refresh()` 开始时不要清空 `lastError`;错误文案保持到某次刷新成功才消失。旧额度快照永远不因失败而清空。

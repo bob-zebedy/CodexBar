@@ -35,6 +35,7 @@ struct AppSettingsView: View {
                 Spacer()
                 checkUpdateButton
             }
+            .animation(Metrics.statusAnimation, value: loginItemSettings.errorMessage)
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .red)
         }
@@ -76,6 +77,7 @@ private extension AppSettingsView {
         static let iconWidth: CGFloat = 18
         static let codexChildIndent: CGFloat = 28
         static let codexVersionColumnWidth: CGFloat = 270
+        static let statusAnimation = Animation.codexStatus
     }
     
     var launchAtLoginRow: some View {
@@ -125,7 +127,9 @@ private extension AppSettingsView {
     }
     
     var versionRow: some View {
-        HStack(spacing: 10) {
+        let status = versionStatus
+        
+        return HStack(spacing: 10) {
             Image(systemName: "info.circle")
                 .frame(width: Metrics.iconWidth)
                 .foregroundStyle(.secondary)
@@ -134,10 +138,12 @@ private extension AppSettingsView {
             
             Spacer()
             
-            Text(versionStatus.text)
-                .font(versionStatus.isVersionLabel ? .body.monospacedDigit() : .body)
+            Text(status.text)
+                .font(status.isVersionLabel ? .body.monospacedDigit() : .body)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .contentTransition(.opacity)
+                .animation(Metrics.statusAnimation, value: status.text)
             
             if appUpdater.availableUpdateMessage != nil {
                 Button {
@@ -150,8 +156,10 @@ private extension AppSettingsView {
                 .buttonStyle(.plain)
                 .foregroundStyle(.tint)
                 .help("立即更新")
+                .transition(.opacity)
             }
         }
+        .animation(Metrics.statusAnimation, value: appUpdater.availableUpdateMessage != nil)
     }
     
     /// 版本行文案;无任何动态消息时回退到版本号 (此时用等宽数字)
@@ -215,35 +223,58 @@ private extension AppSettingsView {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .liquidGlassCapsule(tint: .green)
+                            .transition(.opacity)
                     }
                     
                     Text(row.displayVersion)
                         .font(row.hasVersion ? .body.monospacedDigit() : .body)
                         .foregroundStyle(row.hasVersion ? .secondary : .tertiary)
                         .lineLimit(1)
+                        .contentTransition(.opacity)
+                        .animation(Metrics.statusAnimation, value: row.displayVersion)
                 }
+                .animation(Metrics.statusAnimation, value: row.isCurrent)
                 
                 if let newerInstalledVersion = row.newerInstalledVersion {
                     Text("已更新至 \(newerInstalledVersion)")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.orange)
                         .lineLimit(1)
+                        .transition(.opacity)
                 }
                 
                 if let path = row.path {
-                    Text(isPathCopied ? "已复制" : path)
-                        .font(.caption2)
-                        .foregroundStyle(isPathCopied ? .green : .secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    copiedPathText(path: path, isCopied: isPathCopied)
+                        .animation(Metrics.statusAnimation, value: isPathCopied)
                         .help(isPathCopied ? "已复制" : "点击复制")
                         .onTapGesture {
                             copyPathToPasteboard(path, source: item.source)
                         }
+                        .transition(.opacity)
                 }
             }
             .frame(maxWidth: Metrics.codexVersionColumnWidth, alignment: .trailing)
+            .animation(Metrics.statusAnimation, value: row.newerInstalledVersion)
+            .animation(Metrics.statusAnimation, value: row.path)
         }
+    }
+    
+    func copiedPathText(path: String, isCopied: Bool) -> some View {
+        ZStack(alignment: .trailing) {
+            Text(path)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .opacity(isCopied ? 0 : 1)
+            
+            Text("已复制")
+                .font(.caption2)
+                .foregroundStyle(.green)
+                .lineLimit(1)
+                .opacity(isCopied ? 1 : 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
     
     func copyPathToPasteboard(_ path: String, source: CodexCLIExecutableSource) {
@@ -266,6 +297,7 @@ private extension AppSettingsView {
                 .font(.caption)
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
+                .transition(.opacity)
         }
     }
     

@@ -244,10 +244,10 @@ private struct UsageHeatmapTooltip: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(day.startDate)
                 .font(.caption2.monospacedDigit())
-                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .foregroundStyle(Color.codexSecondaryLabel)
             
             TokenCountText(tokens: day.tokens)
-                .foregroundStyle(Color(nsColor: .labelColor))
+                .foregroundStyle(Color.codexLabel)
         }
         .padding(.horizontal, 7)
         .padding(.vertical, 5)

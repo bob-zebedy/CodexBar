@@ -7,6 +7,18 @@
 
 import SwiftUI
 
+extension Animation {
+    /// 状态文案/徽章等淡入淡出的统一过渡动画
+    static let codexStatus = Animation.easeInOut(duration: 0.18)
+}
+
+extension Color {
+    /// 主要文字色 (AppKit label),用于需要具体 Color 值而非 ShapeStyle 的场景
+    static let codexLabel = Color(nsColor: .labelColor)
+    /// 次要文字色 (AppKit secondaryLabel)
+    static let codexSecondaryLabel = Color(nsColor: .secondaryLabelColor)
+}
+
 extension View {
     func liquidGlassSurface(
         cornerRadius: CGFloat,
