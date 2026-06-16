@@ -17,11 +17,12 @@ struct QuotaRow: View {
                 .lineLimit(1)
                 .frame(width: Metrics.labelWidth, alignment: .leading)
             
-            SegmentedQuotaBar(percent: window.hasData ? window.remainingPercent : nil)
+            SegmentedQuotaBar(percent: displayPercent)
                 .frame(height: Metrics.barHeight)
             
             Text(percentText)
                 .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(percentColor)
                 .lineLimit(1)
                 .frame(width: Metrics.percentWidth, alignment: .leading)
             
@@ -63,6 +64,18 @@ private extension QuotaRow {
         return "\(window.remainingPercent)%"
     }
     
+    var displayPercent: Int? {
+        window.hasData ? window.remainingPercent : nil
+    }
+    
+    var percentColor: Color {
+        guard window.hasData else {
+            return .secondary
+        }
+        
+        return QuotaBarPalette.filledColor(for: window.remainingPercent)
+    }
+    
     static let resetFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -71,19 +84,56 @@ private extension QuotaRow {
     }()
 }
 
+private enum QuotaBarPalette {
+    static func filledColor(for percent: Int?) -> Color {
+        guard let percent else {
+            return placeholderColor
+        }
+        
+        switch percent {
+        case 80...:
+            return green
+        case 60..<80:
+            return teal
+        case 40..<60:
+            return yellow
+        case 20..<40:
+            return orange
+        default:
+            return red
+        }
+    }
+    
+    static let placeholderColor = color(hex: 0xE5E7EB)
+    private static let green = color(hex: 0x22C55E)
+    private static let teal = color(hex: 0x14B8A6)
+    private static let yellow = color(hex: 0xEAB308)
+    private static let orange = color(hex: 0xFF7A59)
+    private static let red = color(hex: 0xEF4444)
+    
+    private static func color(hex: Int) -> Color {
+        Color(
+            red: Double((hex >> 16) & 0xFF) / 255.0,
+            green: Double((hex >> 8) & 0xFF) / 255.0,
+            blue: Double(hex & 0xFF) / 255.0
+        )
+    }
+}
+
 private struct SegmentedQuotaBar: View {
     let percent: Int?
     
     var body: some View {
         GeometryReader { proxy in
-            let segmentCount = segmentCount(for: proxy.size.width)
-            let filledSegments = filledSegments(for: segmentCount)
+            let segmentWidth = segmentWidth(for: proxy.size.width)
+            let filledSegments = filledSegments()
+            let filledColor = QuotaBarPalette.filledColor(for: percent)
             
-            HStack(spacing: Metrics.spacing) {
-                ForEach(0..<segmentCount, id: \.self) { index in
+            HStack(spacing: Metrics.segmentSpacing) {
+                ForEach(0..<Metrics.segmentCount, id: \.self) { index in
                     Capsule(style: .continuous)
-                        .fill(fillStyle(for: index, filledSegments: filledSegments))
-                        .frame(maxWidth: .infinity)
+                        .fill(index < filledSegments ? filledColor : QuotaBarPalette.placeholderColor)
+                        .frame(width: segmentWidth, height: proxy.size.height)
                 }
             }
         }
@@ -92,54 +142,21 @@ private struct SegmentedQuotaBar: View {
 
 private extension SegmentedQuotaBar {
     enum Metrics {
-        static let spacing: CGFloat = 2
-        static let idealSegmentWidth: CGFloat = 6
+        static let segmentCount = 33
+        static let segmentSpacing: CGFloat = 2
     }
     
-    func segmentCount(for width: CGFloat) -> Int {
-        max(1, Int((width + Metrics.spacing) / (Metrics.idealSegmentWidth + Metrics.spacing)))
+    func segmentWidth(for width: CGFloat) -> CGFloat {
+        let availableWidth = max(width, 0)
+        let totalSpacing = CGFloat(Metrics.segmentCount - 1) * Metrics.segmentSpacing
+        return max(0, (availableWidth - totalSpacing) / CGFloat(Metrics.segmentCount))
     }
     
-    func filledSegments(for segmentCount: Int) -> Int {
+    func filledSegments() -> Int {
         guard let percent else {
             return 0
         }
         
-        return Int((Double(percent) / 100.0 * Double(segmentCount)).rounded())
-    }
-    
-    func fillStyle(for index: Int, filledSegments: Int) -> Color {
-        guard percent != nil else {
-            return placeholderStyle
-        }
-        
-        return index < filledSegments ? filledStyle : emptyStyle
-    }
-    
-    var filledStyle: Color {
-        guard let percent else {
-            return placeholderStyle
-        }
-        
-        switch percent {
-        case 80...:
-            return .green
-        case 60..<80:
-            return .mint
-        case 40..<60:
-            return .yellow
-        case 20..<40:
-            return .orange
-        default:
-            return .red
-        }
-    }
-    
-    var emptyStyle: Color {
-        Color.secondary.opacity(0.18)
-    }
-    
-    var placeholderStyle: Color {
-        Color.secondary.opacity(0.12)
+        return Int((Double(percent) / 100.0 * Double(Metrics.segmentCount)).rounded())
     }
 }
