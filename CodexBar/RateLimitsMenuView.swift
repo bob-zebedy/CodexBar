@@ -336,6 +336,6 @@ private struct AutoRefreshCountdownCircle: View {
     }
     
     private enum Metrics {
-        static let resetAnimationDuration: TimeInterval = 0.20
+        static let resetAnimationDuration: TimeInterval = 0.50
     }
 }
