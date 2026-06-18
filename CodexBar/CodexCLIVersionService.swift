@@ -43,14 +43,14 @@ nonisolated struct CodexCLIVersionItem: Equatable, Identifiable, Sendable {
     }
 }
 
-/// 合并磁盘探测版本和当前 app-server 握手版本
+// 合并磁盘探测版本和当前 app-server 握手版本
 nonisolated struct CodexCLIVersionDisplay: Equatable {
     let source: CodexCLIExecutableSource
     let isCurrent: Bool
     let displayVersion: String
     let hasVersion: Bool
     let path: String?
-    /// 当前会话尚未重连到新安装版本时显示的新版本号
+    // 当前会话尚未重连到新安装版本时显示的新版本号
     let newerInstalledVersion: String?
     
     init(item: CodexCLIVersionItem, connection: CodexCLIConnectionInfo?) {

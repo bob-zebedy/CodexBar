@@ -155,7 +155,7 @@ private extension AppSettingsView {
         .animation(Metrics.statusAnimation, value: appUpdater.availableUpdateMessage != nil)
     }
     
-    /// 版本行优先显示更新状态, 没有动态消息时回退到当前版本号
+    // 版本行优先显示更新状态, 没有动态消息时回退到当前版本号
     var versionStatus: (text: String, isVersionLabel: Bool) {
         if let message = appUpdater.settingsStatusMessage ?? appUpdater.availableUpdateMessage {
             return (message, false)

@@ -31,7 +31,7 @@ nonisolated struct CodexCLIInstallations: Sendable, Equatable {
     let globalPath: String?
     let bundledPath: String?
     
-    /// 与启动优先级一致: 全局优先, 回退内置
+    // 与启动优先级一致: 全局优先, 回退内置
     var activeSource: CodexCLIExecutableSource? {
         if globalPath != nil { return .global }
         if bundledPath != nil { return .bundled }
@@ -54,7 +54,7 @@ nonisolated enum CodexCLIResolver {
         try command(from: resolveInstallations(environment: environment))
     }
     
-    /// 从已解析的安装信息派生命令, 避免重复扫描 PATH
+    // 从已解析的安装信息派生命令, 避免重复扫描 PATH
     static func command(from installations: CodexCLIInstallations) throws -> AppServerCommand {
         guard let source = installations.activeSource,
               let path = installations.path(for: source) else {

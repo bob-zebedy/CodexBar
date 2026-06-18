@@ -162,7 +162,7 @@ nonisolated struct CodexUsageSnapshot: Equatable {
     let summary: UsageSummary
     let dailyBuckets: [DailyUsageBucket]
     
-    /// 给热力图生成按周排列的最近日期网格, 每列从周日开始
+    // 给热力图生成按周排列的最近日期网格, 每列从周日开始
     func recentWeekGrid(columnCount: Int, endingDaysAgo: Int = 0, today: Date = Date()) -> [DailyUsageBucket?] {
         guard columnCount > 0 else {
             return []
@@ -257,7 +257,7 @@ nonisolated extension CodexQuotaSnapshot {
         )
     }
     
-    /// 展示顺序: 顶层 rateLimits 指向的主 limit 置顶, 其余按名称排序
+    // 展示顺序: 顶层 rateLimits 指向的主 limit 置顶, 其余按名称排序
     private static func orderedSnapshots(
         from response: AccountRateLimitsResponse
     ) -> [(limitId: String, snapshot: RateLimitSnapshot)] {
@@ -334,12 +334,12 @@ nonisolated enum CodexStatusError: LocalizedError {
         }
     }
     
-    /// codex app-server 未登录
+    // codex app-server 未登录
     var isAuthenticationRequired: Bool {
         serverErrorMessageContains("codex account authentication required")
     }
     
-    /// codex app-server 不支持的方法
+    // codex app-server 不支持的方法
     var isUnsupportedMethod: Bool {
         switch self {
         case .unsupportedMethod:
@@ -357,7 +357,7 @@ nonisolated enum CodexStatusError: LocalizedError {
         return !isAuthenticationRequired && !isUnsupportedMethod
     }
     
-    /// 连接断开、超时、无法解析都需要重建 app-server 会话
+    // 连接断开、超时、无法解析都需要重建 app-server 会话
     var isTransportFailure: Bool {
         switch self {
         case .serverConnectionClosed, .serverTimeout, .invalidServerResponse:

@@ -1,6 +1,6 @@
 import Foundation
 
-/// UI 只关心可展示数据、未登录、初始化失败; 更细的错误保留在交互日志中
+// UI 只关心可展示数据、未登录、初始化失败; 更细的错误保留在交互日志中
 nonisolated enum CodexFetchOutcome {
     case data(CodexQuotaSnapshot)
     case notLoggedIn
@@ -13,7 +13,7 @@ private enum ConnectionResolution {
     case initializationFailed
 }
 
-/// 单接口读取结果按后续动作分类: 跳过、刷新认证、重建连接
+// 单接口读取结果按后续动作分类: 跳过、刷新认证、重建连接
 private enum ReadResult<Value> {
     case value(Value)
     case skipped(ReadSkipReason)
@@ -62,7 +62,7 @@ nonisolated private extension ReadResult {
         return nil
     }
     
-    /// 认证刷新后仍是 authRequired/broken 则上抛, 其余原样返回交给调用方按缓存策略处理
+    // 认证刷新后仍是 authRequired/broken 则上抛, 其余原样返回交给调用方按缓存策略处理
     func resultAfterAuthAttempt() throws -> ReadResult<Value> {
         switch self {
         case .value, .skipped:
@@ -75,7 +75,7 @@ nonisolated private extension ReadResult {
     }
 }
 
-/// 维持一条 codex app-server stdio 会话, 复用失败后按需重建
+// 维持一条 codex app-server stdio 会话, 复用失败后按需重建
 nonisolated final class CodexStatusService: @unchecked Sendable {
     private static let requestTimeout: TimeInterval = 20
     // 定期回收连接, 让后台升级后的 codex 二进制有机会生效
@@ -116,7 +116,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
         }
     }
     
-    /// 复用连接出现传输故障时只重建重试一次, 避免故障状态下反复拉起进程
+    // 复用连接出现传输故障时只重建重试一次, 避免故障状态下反复拉起进程
     private func resolveOutcomeOnQueue(allowRebuild: Bool) -> CodexFetchOutcome {
         switch ensureConnection() {
         case .notLoggedIn:
@@ -185,7 +185,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
         return connection.commandInfo
     }
     
-    /// 额度与用量独立读取; 认证失败全程只刷新一次 token, 传输故障交给外层重建连接
+    // 额度与用量独立读取; 认证失败全程只刷新一次 token, 传输故障交给外层重建连接
     private func fetchData(using connection: AppServerConnection, refreshAccountInfo: Bool) throws -> CodexQuotaSnapshot {
         var didRefresh = false
         
@@ -261,7 +261,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
         return snapshot
     }
     
-    /// 新值更新缓存; 本轮请求失败则回退到缓存并标记陈旧; 方法不支持/认证/断连一律视为无数据
+    // 新值更新缓存; 本轮请求失败则回退到缓存并标记陈旧; 方法不支持/认证/断连一律视为无数据
     private func cachedRead<Value>(
         _ result: ReadResult<Value>,
         cache: inout Value?
@@ -323,7 +323,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
         }
     }
     
-    /// 初始化失败与未登录在这里分流; 两者都不复用本次新建的进程
+    // 初始化失败与未登录在这里分流; 两者都不复用本次新建的进程
     private static func openConnection(
         command: AppServerCommand,
         environment: [String: String],
@@ -416,7 +416,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
         return version
     }
     
-    /// userAgent 形如 "codex_bar/0.139.0 (...)"; 取首个 token 中 "/" 之后的运行版本号
+    // userAgent 形如 "codex_bar/0.139.0 (...)"; 取首个 token 中 "/" 之后的运行版本号
     private nonisolated static func serverVersion(fromUserAgent userAgent: String?) -> String? {
         guard let firstToken = userAgent?.split(separator: " ").first,
               let slashIndex = firstToken.firstIndex(of: "/") else {

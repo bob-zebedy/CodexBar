@@ -1,6 +1,6 @@
 import AppKit
 
-/// 承载 SwiftUI 内容的单窗口控制器基类, 统一懒创建、居中与置顶逻辑
+// 承载 SwiftUI 内容的单窗口控制器基类, 统一懒创建、居中与置顶逻辑
 @MainActor
 class HostingWindowController {
     let screenProvider: () -> NSScreen?

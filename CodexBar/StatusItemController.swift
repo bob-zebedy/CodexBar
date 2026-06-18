@@ -47,13 +47,25 @@ private final class StatusItemController: NSObject {
     private var cancellables = Set<AnyCancellable>()
     private var lastHasError: Bool?
     
-    private static let normalImage = NSImage(systemSymbolName: "person.fill.checkmark", accessibilityDescription: nil)
-    private static let errorImage = NSImage(systemSymbolName: "person.fill.xmark", accessibilityDescription: nil)
+    private static let normalImage = makeStatusImage("person.fill.checkmark")
+    private static let errorImage = makeStatusImage("person.fill.xmark")
     
     init(viewModel: CodexStatusViewModel, appUpdater: AppUpdater) {
         self.viewModel = viewModel
         self.appUpdater = appUpdater
         super.init()
+    }
+    
+    private static func makeStatusImage(_ symbolName: String) -> NSImage? {
+        let configuration = NSImage.SymbolConfiguration(
+            pointSize: 16,
+            weight: .regular,
+            scale: .medium
+        )
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration)
+        image?.isTemplate = true
+        return image
     }
     
     func install() {

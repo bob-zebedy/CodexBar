@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-/// UI 级状态; 更细的连接和接口错误由服务层归并到日志
+// UI 级状态; 更细的连接和接口错误由服务层归并到日志
 nonisolated enum CodexLoadState: Equatable {
     case loading
     case loaded
