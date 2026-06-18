@@ -1,0 +1,60 @@
+{
+  "fill" : "automatic",
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "glass" : false,
+          "image-name-specializations" : [
+            {
+              "value" : "bar-white.png"
+            },
+            {
+              "appearance" : "light",
+              "value" : "bar-black.png"
+            }
+          ],
+          "name" : "bar",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              340
+            ]
+          }
+        },
+        {
+          "glass" : false,
+          "image-name-specializations" : [
+            {
+              "value" : "codex-white.png"
+            },
+            {
+              "appearance" : "light",
+              "value" : "codex-black.png"
+            }
+          ],
+          "name" : "codex",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              0,
+              -50
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}
