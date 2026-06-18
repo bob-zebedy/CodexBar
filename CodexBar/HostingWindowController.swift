@@ -17,10 +17,10 @@ class HostingWindowController {
         } else {
             target = makeWindow()
             target.isReleasedWhenClosed = false
-            // 重新打开时跟随到当前桌面, 避免把用户切回窗口旧桌面
-            target.collectionBehavior.insert(.moveToActiveSpace)
             window = target
         }
+        
+        applyWindowPresentationPolicy(target)
         
         if !target.isVisible {
             prepareForDisplay(target)
@@ -31,6 +31,12 @@ class HostingWindowController {
     
     func makeWindow() -> NSWindow {
         fatalError("subclass must override makeWindow()")
+    }
+    
+    func applyWindowPresentationPolicy(_ window: NSWindow) {
+        window.level = .floating
+        // 重新打开时跟随到当前桌面, 避免把用户切回窗口旧桌面
+        window.collectionBehavior.insert(.moveToActiveSpace)
     }
     
     func prepareForDisplay(_ window: NSWindow) {
