@@ -6,6 +6,8 @@ nonisolated struct CodexQuotaSnapshot: Equatable {
     let generatedAt: Date
     let limits: [CodexQuotaLimitSnapshot]
     let usage: CodexUsageSnapshot?
+    let isRateLimitsStale: Bool
+    let isUsageStale: Bool
     
     var accountLabel: String {
         account.displayName
@@ -225,6 +227,8 @@ nonisolated extension CodexQuotaSnapshot {
         accountResponse: AccountReadResponse,
         rateLimitsResponse: AccountRateLimitsResponse?,
         usageResponse: AccountUsageResponse? = nil,
+        isRateLimitsStale: Bool = false,
+        isUsageStale: Bool = false,
         generatedAt: Date = Date()
     ) throws {
         guard let account = accountResponse.account else {
@@ -247,7 +251,9 @@ nonisolated extension CodexQuotaSnapshot {
             planType: rateLimitsResponse?.rateLimits.planType,
             generatedAt: generatedAt,
             limits: limits,
-            usage: usage
+            usage: usage,
+            isRateLimitsStale: isRateLimitsStale,
+            isUsageStale: isUsageStale
         )
     }
     
@@ -316,6 +322,7 @@ nonisolated enum CodexStatusError: LocalizedError {
     case serverConnectionClosed
     case invalidServerResponse
     case serverError(String)
+    case unsupportedMethod
     case notLoggedIn
     
     var errorDescription: String? {
@@ -327,17 +334,27 @@ nonisolated enum CodexStatusError: LocalizedError {
         }
     }
     
-    /// codex app-server 目前通过 serverError 文案表示认证失败
+    /// codex app-server 未登录
     var isAuthenticationRequired: Bool {
-        serverErrorMessageContains("authentication required")
+        serverErrorMessageContains("codex account authentication required")
     }
     
-    var isUnsupportedUsageMethod: Bool {
-        serverErrorMessageContains("unknown variant")
-        || serverErrorMessageContains("method not found")
-        || serverErrorMessageContains("unknown method")
-        || serverErrorMessageContains("unsupported")
-        || serverErrorMessageContains("not supported")
+    /// codex app-server 不支持的方法
+    var isUnsupportedMethod: Bool {
+        switch self {
+        case .unsupportedMethod:
+            return true
+        default:
+            return serverErrorMessageContains("Invalid request: unknown variant")
+        }
+    }
+    
+    var isRetriableServerError: Bool {
+        guard case .serverError = self else {
+            return false
+        }
+        
+        return !isAuthenticationRequired && !isUnsupportedMethod
     }
     
     /// 连接断开、超时、无法解析都需要重建 app-server 会话

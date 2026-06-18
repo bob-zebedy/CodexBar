@@ -141,8 +141,12 @@ codex app-server --listen stdio://
 - `account/rateLimits/read` 读取额度。
 - `account/usage/read` 读取 `summary.lifetimeTokens`、`summary.peakDailyTokens`、`dailyUsageBuckets`。
 - 认证失败时同会话最多调用一次 `account/read`(`refreshToken: true`) 后重试原读取。
-- usage 方法不支持时, 将当前连接的 `isUsageReadAvailable` 置为 false, 本连接后续不再请求 usage。
-- 非认证业务错误不阻断整轮刷新, 详情只进日志。
+- 所有走 `AppServerSession.request` 的方法, 收到方法不支持错误后都记录到当前会话的 `unsupportedMethods`, 本连接后续不再请求该方法。
+- 方法不支持必须是 JSON-RPC error, 且 message 包含 `Invalid request: unknown variant`。
+- 请求有 JSON-RPC error 响应, 且不是认证失败、不是方法不支持、不是传输/解析故障时, 先立即重试同一个请求一次。
+- 非认证业务错误重试后仍失败时不阻断整轮刷新, 详情只进日志。
+- `account/rateLimits/read` 和 `account/usage/read` 重试后仍失败时, 若同账号有上次成功数据则复用旧数据并标记为 stale; 没有旧数据则不展示对应区域。
+- 方法不支持不复用旧数据; 对应读取结果视为空。
 - 传输/解析故障归为需要重建连接。
 
 连接细节:
@@ -186,6 +190,7 @@ UI 只展示「未登录」和「初始化失败」两类特殊状态; 具体请
 
 - 必须有 `AccountReadResponse.account`, 否则视为未登录。
 - `rateLimitsResponse` 和 `usageResponse` 都可以为空; 账户有效时仍生成快照, UI 展示「暂无数据」。
+- `isRateLimitsStale` / `isUsageStale` 标记额度或 token 区域是否来自同账号旧缓存; 本轮对应接口成功后重新生成 snapshot 并恢复为 `false`。
 - 优先读取 `rateLimitsByLimitId`; 为空时回退顶层 `rateLimits`。
 - 顶层 `rateLimits.limitId` 指向的主 limit 置顶, 缺省 `"codex"`。
 - 其余 limit 按 `limitName ?? limitId` 做 localized standard 排序, 再按 `limitId` 稳定排序。
@@ -227,6 +232,7 @@ Popover:
 - 计划名是右侧加粗纯文字; `planBadgeTint(for:)` 优先级: enterprise -> team/business -> pro -> plus -> edu -> free -> 默认 cyan。
 - 额度条展示剩余百分比, 颜色按 20% 一档: 红、橙、黄、薄荷、绿。
 - 无 quota 数据时显示 `--` / `暂无数据`, 并使用占位色。
+- `rateLimits` 或 `usage` 使用旧缓存时, 对应区域通过 `.markStale(true)` 降低透明度到 0.55, 不降低饱和度; 下一轮对应接口成功后恢复正常透明度。
 - 重置时间格式是 `MM-dd HH:mm`。
 - 更新时间行显示倒计时圆环、「数据更新时间」和 `HH:mm:ss`。
 - 倒计时只在 popover 可见时用 `TimelineView` 每秒 tick; 普通 tick 不做连续动画, 仅刷新起点变化时播放恢复动画。
@@ -281,6 +287,7 @@ Popover:
 
 - 不要主动 push。
 - 不要回滚或覆盖你没做的未提交改动。
+- 提交代码的时候不要做任何额外的改动，仅对目前代码进行提交即可。
 - 提交 message 使用 Conventional Commits 前缀 + 中文标题 + 空行 + 4 空格缩进 bullet body。
 - 提交 body 中多条 bullet 必须连续排列, bullet 之间不要空行; 使用命令提交时, 将完整 body 放在同一个 `-m` 参数或 `git commit -F` 文件中, 不要为每条 bullet 单独使用 `-m`。
 - 标题格式: `<type>: <中文描述>`, 不加句号。
@@ -310,8 +317,3 @@ Tag:
 - 是否运行了与改动匹配的验证命令。
 - 是否说明了未验证项和原因。
 - 是否避免泄露本机认证、路径之外的敏感信息或原始错误噪音。
-
-<!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-<!-- SPECKIT END -->

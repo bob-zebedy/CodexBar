@@ -16,14 +16,35 @@ private enum ConnectionResolution {
 /// 单接口读取结果按后续动作分类: 跳过、刷新认证、重建连接
 private enum ReadResult<Value> {
     case value(Value)
-    case skipped
+    case skipped(ReadSkipReason)
     case authRequired
     case broken
+}
+
+private enum ReadSkipReason {
+    case requestFailed
+    case methodUnsupported
 }
 
 private enum FetchFailure: Error {
     case notLoggedIn
     case needsRebuild
+}
+
+nonisolated private struct CachedSupplementalRead<Value> {
+    let value: Value?
+    let isStale: Bool
+}
+
+nonisolated private struct SupplementalDataCache {
+    var account: CodexAccount?
+    var rateLimits: AccountRateLimitsResponse?
+    var usage: AccountUsageResponse?
+    
+    mutating func useAccount(_ account: CodexAccount) {
+        guard self.account != account else { return }
+        self = Self(account: account)
+    }
 }
 
 nonisolated private extension ReadResult {
@@ -34,12 +55,18 @@ nonisolated private extension ReadResult {
         return false
     }
     
-    func valueAfterAuthAttempt() throws -> Value? {
-        switch self {
-        case .value(let value):
+    var value: Value? {
+        if case .value(let value) = self {
             return value
-        case .skipped:
-            return nil
+        }
+        return nil
+    }
+    
+    /// 认证刷新后仍是 authRequired/broken 则上抛, 其余原样返回交给调用方按缓存策略处理
+    func resultAfterAuthAttempt() throws -> ReadResult<Value> {
+        switch self {
+        case .value, .skipped:
+            return self
         case .authRequired:
             throw FetchFailure.notLoggedIn
         case .broken:
@@ -58,6 +85,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
     // connection 只在这个队列上访问
     private let queue = DispatchQueue(label: "CodexBar.app-server", qos: .utility)
     private var connection: AppServerConnection?
+    private var supplementalDataCache = SupplementalDataCache()
     
     // app-server 退出后继续写管道会触发 SIGPIPE; 忽略信号, 让 write 抛错后走重建
     private static let ignoreBrokenPipeSignal: Void = {
@@ -97,9 +125,10 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
             return .initializationFailed
         case .ready(let connection, let reused):
             do {
-                let snapshot = try Self.fetchData(using: connection, refreshAccountInfo: reused)
+                let snapshot = try fetchData(using: connection, refreshAccountInfo: reused)
                 return .data(snapshot)
             } catch FetchFailure.notLoggedIn {
+                supplementalDataCache = SupplementalDataCache()
                 teardownConnection()
                 return .notLoggedIn
             } catch FetchFailure.needsRebuild {
@@ -157,53 +186,95 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
     }
     
     /// 额度与用量独立读取; 认证失败全程只刷新一次 token, 传输故障交给外层重建连接
-    private static func fetchData(using connection: AppServerConnection, refreshAccountInfo: Bool) throws -> CodexQuotaSnapshot {
+    private func fetchData(using connection: AppServerConnection, refreshAccountInfo: Bool) throws -> CodexQuotaSnapshot {
         var didRefresh = false
         
         func refreshTokenIfNeeded() throws {
             guard !didRefresh else { throw FetchFailure.notLoggedIn }
             didRefresh = true
-            try refreshAccount(using: connection)
+            try Self.refreshAccount(using: connection)
         }
         
-        func readWithAuthRefresh<Value>(_ read: () -> ReadResult<Value>) throws -> Value? {
+        func readResultWithAuthRefresh<Value>(_ read: () -> ReadResult<Value>) throws -> ReadResult<Value> {
             let firstAttempt = read()
             guard firstAttempt.isAuthenticationRequired else {
-                return try firstAttempt.valueAfterAuthAttempt()
+                return try firstAttempt.resultAfterAuthAttempt()
             }
             
             try refreshTokenIfNeeded()
-            return try read().valueAfterAuthAttempt()
+            return try read().resultAfterAuthAttempt()
+        }
+        
+        func readSupplemental<Value: Decodable>(
+            _ method: String,
+            as type: Value.Type,
+            cache: inout Value?
+        ) throws -> CachedSupplementalRead<Value> {
+            try cachedRead(
+                readResultWithAuthRefresh {
+                    Self.read(method, using: connection, as: type)
+                },
+                cache: &cache
+            )
         }
         
         // 新建连接已读过 account; 复用连接才刷新账户状态
         if refreshAccountInfo {
-            if let response: AccountReadResponse = try readWithAuthRefresh({
-                read("account/read", params: ["refreshToken": false], using: connection, as: AccountReadResponse.self)
-            }) {
+            let accountResult: ReadResult<AccountReadResponse> = try readResultWithAuthRefresh {
+                Self.read("account/read", params: ["refreshToken": false], using: connection, as: AccountReadResponse.self)
+            }
+            if let response = accountResult.value {
                 guard response.account != nil else { throw FetchFailure.notLoggedIn }
                 connection.accountResponse = response
             }
         }
         
-        let rateLimits: AccountRateLimitsResponse? = try readWithAuthRefresh({
-            read("account/rateLimits/read", using: connection, as: AccountRateLimitsResponse.self)
-        })
-        
-        let usage: AccountUsageResponse? = try readWithAuthRefresh {
-            readUsage(using: connection)
+        guard let account = connection.accountResponse.account else {
+            throw FetchFailure.notLoggedIn
         }
+        
+        supplementalDataCache.useAccount(account)
+        
+        let rateLimitsRead = try readSupplemental(
+            "account/rateLimits/read",
+            as: AccountRateLimitsResponse.self,
+            cache: &supplementalDataCache.rateLimits
+        )
+        
+        let usageRead = try readSupplemental(
+            "account/usage/read",
+            as: AccountUsageResponse.self,
+            cache: &supplementalDataCache.usage
+        )
         
         // rateLimits/usage 都可为空, 只要账户有效就让 UI 展示"暂无数据"
         guard let snapshot = try? CodexQuotaSnapshot(
             accountResponse: connection.accountResponse,
-            rateLimitsResponse: rateLimits,
-            usageResponse: usage
+            rateLimitsResponse: rateLimitsRead.value,
+            usageResponse: usageRead.value,
+            isRateLimitsStale: rateLimitsRead.isStale,
+            isUsageStale: usageRead.isStale
         ) else {
             throw FetchFailure.notLoggedIn
         }
         
         return snapshot
+    }
+    
+    /// 新值更新缓存; 本轮请求失败则回退到缓存并标记陈旧; 方法不支持/认证/断连一律视为无数据
+    private func cachedRead<Value>(
+        _ result: ReadResult<Value>,
+        cache: inout Value?
+    ) -> CachedSupplementalRead<Value> {
+        switch result {
+        case .value(let value):
+            cache = value
+            return CachedSupplementalRead(value: value, isStale: false)
+        case .skipped(.requestFailed):
+            return CachedSupplementalRead(value: cache, isStale: cache != nil)
+        default:
+            return CachedSupplementalRead(value: nil, isStale: false)
+        }
     }
     
     private static func read<Value: Decodable>(
@@ -221,30 +292,15 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
         }
     }
     
-    private static func readUsage(using connection: AppServerConnection) -> ReadResult<AccountUsageResponse> {
-        guard connection.isUsageReadAvailable else {
-            return .skipped
-        }
-        
-        do {
-            return .value(try connection.session.request("account/usage/read", as: AccountUsageResponse.self))
-        } catch let error as CodexStatusError where error.isUnsupportedUsageMethod {
-            // 老版本 codex 不支持该方法时, 后续轮询不再请求 usage
-            connection.isUsageReadAvailable = false
-            return .skipped
-        } catch let error as CodexStatusError {
-            return classify(error)
-        } catch {
-            return .broken
-        }
-    }
-    
     private static func classify<Value>(_ error: CodexStatusError) -> ReadResult<Value> {
         if error.isAuthenticationRequired {
             return .authRequired
         }
-        // 非认证的业务错误不阻断整轮刷新, 详情只保留在日志中
-        return error.isTransportFailure ? .broken : .skipped
+        if error.isUnsupportedMethod {
+            return .skipped(.methodUnsupported)
+        }
+        // 重试后仍失败的非认证业务错误不阻断整轮刷新
+        return error.isTransportFailure ? .broken : .skipped(.requestFailed)
     }
     
     private static func refreshAccount(using connection: AppServerConnection) throws {
@@ -376,7 +432,6 @@ private nonisolated final class AppServerConnection {
     let session: AppServerSession
     let commandInfo: CodexCLIConnectionInfo
     var accountResponse: AccountReadResponse
-    var isUsageReadAvailable = true
     
     var openedAt: Date { commandInfo.openedAt }
     
@@ -406,6 +461,7 @@ private nonisolated final class AppServerSession {
     private let errorReader: PipeDrain
     private let timeout: TimeInterval
     private var nextId = 1
+    private var unsupportedMethods: Set<String> = []
     
     init(
         process: Process,
@@ -441,6 +497,37 @@ private nonisolated final class AppServerSession {
     }
     
     func request<Response: Decodable>(
+        _ method: String,
+        params: [String: Any]? = nil,
+        as type: Response.Type
+    ) throws -> Response {
+        guard !unsupportedMethods.contains(method) else {
+            throw CodexStatusError.unsupportedMethod
+        }
+        
+        do {
+            return try performRequestRememberingUnsupported(method, params: params, as: type)
+        } catch let error as CodexStatusError where error.isRetriableServerError {
+            return try performRequestRememberingUnsupported(method, params: params, as: type)
+        }
+    }
+    
+    private func performRequestRememberingUnsupported<Response: Decodable>(
+        _ method: String,
+        params: [String: Any]? = nil,
+        as type: Response.Type
+    ) throws -> Response {
+        do {
+            return try performRequest(method, params: params, as: type)
+        } catch let error as CodexStatusError {
+            if error.isUnsupportedMethod {
+                unsupportedMethods.insert(method)
+            }
+            throw error
+        }
+    }
+    
+    private func performRequest<Response: Decodable>(
         _ method: String,
         params: [String: Any]? = nil,
         as type: Response.Type

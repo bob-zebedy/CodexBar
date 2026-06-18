@@ -62,11 +62,11 @@ private extension CodexStatusMenuView {
             emptyPanel
         } else {
             if !snapshot.limits.isEmpty {
-                quotaLimitsView(snapshot.limits)
+                quotaLimitsView(snapshot.limits, isStale: snapshot.isRateLimitsStale)
             }
             
             if let usage = snapshot.usage {
-                UsageSummaryView(usage: usage)
+                UsageSummaryView(usage: usage, isStale: snapshot.isUsageStale)
             }
         }
         
@@ -130,7 +130,7 @@ private extension CodexStatusMenuView {
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
     }
     
-    func quotaLimitsView(_ limits: [CodexQuotaLimitSnapshot]) -> some View {
+    func quotaLimitsView(_ limits: [CodexQuotaLimitSnapshot], isStale: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(limits) { limit in
                 if limit.id != limits.first?.id {
@@ -140,6 +140,7 @@ private extension CodexStatusMenuView {
                 quotaLimitSection(limit)
             }
         }
+        .markStale(isStale)
         .padding(Metrics.panelPadding)
         .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .green)
     }

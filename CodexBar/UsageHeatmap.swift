@@ -2,11 +2,13 @@ import SwiftUI
 
 struct UsageSummaryView: View {
     let usage: CodexUsageSnapshot
+    let isStale: Bool
     private let days: [DailyUsageBucket?]
     @State private var hoveredDay: DailyUsageBucket?
     
-    init(usage: CodexUsageSnapshot) {
+    init(usage: CodexUsageSnapshot, isStale: Bool = false) {
         self.usage = usage
+        self.isStale = isStale
         self.days = usage.recentWeekGrid(columnCount: UsageHeatmap.Metrics.columnCount, endingDaysAgo: 1)
     }
     
@@ -16,6 +18,7 @@ struct UsageSummaryView: View {
             
             UsageHeatmap(days: days, hoveredDay: $hoveredDay)
         }
+        .markStale(isStale)
         .padding(10)
         .liquidGlassSurface(cornerRadius: 8, tint: .blue)
         .onAppear {

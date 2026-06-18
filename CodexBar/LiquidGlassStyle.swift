@@ -47,6 +47,11 @@ extension View {
             LiquidGlassCapsule(tint: tint)
         }
     }
+    
+    // 数据为缓存回退(本轮刷新失败)时弱化显示
+    func markStale(_ isStale: Bool) -> some View {
+        opacity(isStale ? 0.55 : 1)
+    }
 }
 
 struct LiquidGlassDivider: View {
