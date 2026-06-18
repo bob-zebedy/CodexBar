@@ -1,10 +1,3 @@
-//
-//  TokenCountText.swift
-//  CodexBar
-//
-//  Created by Bob on 2026-06-14.
-//
-
 import SwiftUI
 
 struct TokenCountText: View {

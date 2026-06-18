@@ -1,10 +1,3 @@
-//
-//  CodexCLIVersionService.swift
-//  CodexBar
-//
-//  Created by Bob on 2026-06-15.
-//
-
 import Combine
 import Foundation
 
@@ -13,7 +6,7 @@ nonisolated struct CodexCLIVersionSnapshot: Equatable, Sendable {
     let bundled: CodexCLIVersionItem
     let refreshedAt: Date
     
-    // distantPast 让首个 refresh 一定通过新鲜度门槛
+    // 让首次 refresh 不受节流限制
     static let empty = CodexCLIVersionSnapshot(
         global: CodexCLIVersionItem(source: .global),
         bundled: CodexCLIVersionItem(source: .bundled),
@@ -50,19 +43,19 @@ nonisolated struct CodexCLIVersionItem: Equatable, Identifiable, Sendable {
     }
 }
 
-/// 把磁盘探测(item)与连接握手(connection)两路版本信息合成为一行可直接渲染的展示数据
+/// 合并磁盘探测版本和当前 app-server 握手版本
 nonisolated struct CodexCLIVersionDisplay: Equatable {
     let source: CodexCLIExecutableSource
     let isCurrent: Bool
     let displayVersion: String
     let hasVersion: Bool
     let path: String?
-    /// 运行版本落后于磁盘已安装版本时(后台升级尚未重连)的新版本号, 否则 nil
+    /// 当前会话尚未重连到新安装版本时显示的新版本号
     let newerInstalledVersion: String?
     
     init(item: CodexCLIVersionItem, connection: CodexCLIConnectionInfo?) {
         let isCurrent = connection?.source == item.source
-        // 当前来源优先用正在运行的版本(连接握手自报), 其余用磁盘安装版本
+        // 当前来源优先显示正在运行的版本, 避免后台升级后误报已生效
         let runningVersion = isCurrent ? connection?.version : nil
         let version = runningVersion ?? item.version
         
@@ -100,7 +93,7 @@ nonisolated final class CodexCLIVersionService: @unchecked Sendable {
         let environment = CodexCLIResolver.environment
         let installations = CodexCLIResolver.resolveInstallations(environment: environment)
         
-        // 两个探测互不依赖, 先并发启动子进程, 再分别收集, 避免串行叠加超时
+        // 两个安装源互不依赖, 先并发启动再收集, 避免两个超时串行叠加
         let globalProbe = startProbe(
             source: .global,
             path: installations.globalPath,
@@ -121,7 +114,6 @@ nonisolated final class CodexCLIVersionService: @unchecked Sendable {
         )
     }
     
-    /// 一个已启动、等待收集的版本探测子进程
     private struct RunningProbe {
         let source: CodexCLIExecutableSource
         let path: String
@@ -235,7 +227,7 @@ final class CodexCLIVersionViewModel: ObservableObject {
     @Published private(set) var snapshot = CodexCLIVersionSnapshot.empty
     @Published private(set) var isRefreshing = false
     
-    // 版本几乎不变, 短时间内重复触发(didBecomeActive 频繁到达)直接复用上次结果
+    // onAppear 和 didBecomeActive 常连发, 版本探测需要节流以避免频繁启动子进程
     private static let refreshThrottle: TimeInterval = 60
     
     private let service: CodexCLIVersionService
@@ -250,7 +242,6 @@ final class CodexCLIVersionViewModel: ObservableObject {
     }
     
     func refresh() {
-        // 合并并发触发与短时重复触发(onAppear 与 didBecomeActive 常同时/频繁到达), 避免重复启动子进程
         guard !isRefreshing,
               Date().timeIntervalSince(snapshot.refreshedAt) > Self.refreshThrottle else {
             return

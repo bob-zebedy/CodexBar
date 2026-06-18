@@ -1,15 +1,8 @@
-//
-//  AppSettingsView.swift
-//  CodexBar
-//
-//  Created by Bob on 2026-06-14.
-//
-
 import AppKit
 import SwiftUI
 
 struct AppSettingsView: View {
-    @EnvironmentObject private var rateLimitsViewModel: RateLimitsViewModel
+    @EnvironmentObject private var statusViewModel: CodexStatusViewModel
     @EnvironmentObject private var appUpdater: AppUpdater
     @StateObject private var loginItemSettings = LoginItemSettings()
     @StateObject private var codexVersions = CodexCLIVersionViewModel()
@@ -162,7 +155,7 @@ private extension AppSettingsView {
         .animation(Metrics.statusAnimation, value: appUpdater.availableUpdateMessage != nil)
     }
     
-    /// 版本行文案;无任何动态消息时回退到版本号 (此时用等宽数字)
+    /// 版本行优先显示更新状态, 没有动态消息时回退到当前版本号
     var versionStatus: (text: String, isVersionLabel: Bool) {
         if let message = appUpdater.settingsStatusMessage ?? appUpdater.availableUpdateMessage {
             return (message, false)
@@ -195,13 +188,13 @@ private extension AppSettingsView {
     }
     
     func refreshCodexVersionSection() {
-        // 版本探测是慢路径且自带并发合并; 连接信息只是一次缓存读取, 顺带刷新
+        // 版本探测较慢且内部会合并并发请求; 连接信息只是缓存读取
         codexVersions.refresh()
-        rateLimitsViewModel.refreshCodexConnectionInfo()
+        statusViewModel.refreshCodexConnectionInfo()
     }
     
     func codexVersionRow(icon: String, item: CodexCLIVersionItem) -> some View {
-        let row = CodexCLIVersionDisplay(item: item, connection: rateLimitsViewModel.codexConnectionInfo)
+        let row = CodexCLIVersionDisplay(item: item, connection: statusViewModel.codexConnectionInfo)
         let isPathCopied = copiedPathResetTasks[item.source] != nil
         
         return HStack(alignment: .top, spacing: 10) {

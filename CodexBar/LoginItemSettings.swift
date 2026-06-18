@@ -1,10 +1,3 @@
-//
-//  LoginItemSettings.swift
-//  CodexBar
-//
-//  Created by Bob on 2026-06-10.
-//
-
 import Combine
 import Foundation
 import ServiceManagement

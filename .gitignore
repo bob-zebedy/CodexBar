@@ -33,3 +33,7 @@ codesign2
 
 # Logs
 *.log
+
+# Agent Tools
+.agents/
+.specify/

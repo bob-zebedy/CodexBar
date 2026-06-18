@@ -1,10 +1,3 @@
-//
-//  AppUpdater.swift
-//  CodexBar
-//
-//  Created by Bob on 2026-06-11.
-//
-
 import Combine
 import AppKit
 import Sparkle
@@ -28,6 +21,7 @@ final class AppUpdater: NSObject, ObservableObject {
     init(bundle: Bundle = .main) {
         super.init()
         
+        // 开发环境可能没有 Sparkle feed 或公钥, 此时保留设置 UI, 但禁用更新能力
         guard Self.hasUsableSparkleConfiguration(in: bundle) else {
             return
         }

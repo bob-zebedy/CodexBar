@@ -1,10 +1,3 @@
-//
-//  CodexCLIResolver.swift
-//  CodexBar
-//
-//  Created by Bob on 2026-06-15.
-//
-
 import Darwin
 import Foundation
 
@@ -29,7 +22,7 @@ nonisolated struct AppServerCommand: Sendable, Equatable {
 nonisolated struct CodexCLIConnectionInfo: Sendable, Equatable {
     let source: CodexCLIExecutableSource
     let executablePath: String
-    // initialize 握手里 app-server 自报的运行版本, 反映当前进程真实在跑的二进制
+    // 来自 initialize 握手, 代表当前 app-server 进程真实运行的版本
     let version: String?
     let openedAt: Date
 }
@@ -38,7 +31,7 @@ nonisolated struct CodexCLIInstallations: Sendable, Equatable {
     let globalPath: String?
     let bundledPath: String?
     
-    /// 当前会被启动的来源, 与 resolveAppServerCommand 优先级一致: 全局优先, 回退内置
+    /// 与启动优先级一致: 全局优先, 回退内置
     var activeSource: CodexCLIExecutableSource? {
         if globalPath != nil { return .global }
         if bundledPath != nil { return .bundled }
@@ -61,11 +54,11 @@ nonisolated enum CodexCLIResolver {
         try command(from: resolveInstallations(environment: environment))
     }
     
-    /// 从一份已解析的安装信息派生启动命令, 避免重复扫描 PATH
+    /// 从已解析的安装信息派生命令, 避免重复扫描 PATH
     static func command(from installations: CodexCLIInstallations) throws -> AppServerCommand {
         guard let source = installations.activeSource,
               let path = installations.path(for: source) else {
-            throw CodexRateLimitError.executableNotFound
+            throw CodexStatusError.executableNotFound
         }
         
         return AppServerCommand(source: source, executablePath: path)
@@ -92,6 +85,7 @@ nonisolated enum CodexCLIResolver {
         var environment = ProcessInfo.processInfo.environment
         let homeDirectory = realUserHomeDirectory()
         let path = environment["PATH"] ?? ""
+        // 菜单栏应用通常拿不到用户 shell PATH, 需要补上常见 CLI 安装目录
         let fallbackPaths = [
             "/opt/homebrew/bin",
             "/usr/local/bin",

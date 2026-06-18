@@ -1,21 +1,12 @@
-//
-//  LiquidGlassStyle.swift
-//  CodexBar
-//
-//  Created by Bob on 2026-06-14.
-//
-
 import SwiftUI
 
 extension Animation {
-    /// 状态文案/徽章等淡入淡出的统一过渡动画
     static let codexStatus = Animation.easeInOut(duration: 0.18)
 }
 
 extension Color {
-    /// 主要文字色 (AppKit label),用于需要具体 Color 值而非 ShapeStyle 的场景
+    // 某些自定义 View 需要具体 Color, 不能直接使用 .primary/.secondary 这类 ShapeStyle
     static let codexLabel = Color(nsColor: .labelColor)
-    /// 次要文字色 (AppKit secondaryLabel)
     static let codexSecondaryLabel = Color(nsColor: .secondaryLabelColor)
 }
 
