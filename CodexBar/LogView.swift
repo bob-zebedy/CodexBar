@@ -4,20 +4,22 @@ struct LogView: View {
     @ObservedObject var store: RequestLogStore
     
     var body: some View {
+        // 整表是锁内拷贝, 每轮渲染只取一次复用
+        let entries = store.entries
         VStack(spacing: 0) {
-            header
+            header(entries: entries)
             Divider()
             
-            if store.entries.isEmpty {
+            if entries.isEmpty {
                 emptyState
             } else {
-                logList
+                logList(entries: entries)
             }
         }
         .frame(minWidth: 640, minHeight: 480)
     }
     
-    private var header: some View {
+    private func header(entries: [RequestLogEntry]) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "doc.text.magnifyingglass")
                 .foregroundStyle(.tint)
@@ -25,7 +27,7 @@ struct LogView: View {
             Text("Codex 日志")
                 .font(.headline)
             
-            Text("\(store.entries.count)")
+            Text("\(entries.count)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 7)
@@ -40,7 +42,7 @@ struct LogView: View {
                 Label("清空", systemImage: "trash")
             }
             .controlSize(.small)
-            .disabled(store.entries.isEmpty)
+            .disabled(entries.isEmpty)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -58,10 +60,10 @@ struct LogView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
-    private var logList: some View {
+    private func logList(entries: [RequestLogEntry]) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(store.entries) { entry in
+                ForEach(entries) { entry in
                     LogRow(entry: entry)
                     Divider()
                 }
@@ -89,7 +91,7 @@ private struct LogRow: View {
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
                     if let request = entry.request {
-                        payloadBlock(caption: requestCaption, time: entry.requestedAt, text: request, color: .primary)
+                        payloadBlock(caption: "请求", time: entry.requestedAt, text: request, color: .primary)
                     }
                     
                     if let detail = entry.detail {
@@ -175,10 +177,6 @@ private struct LogRow: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-    
-    private var requestCaption: String {
-        "请求"
     }
     
     private var detailCaption: String {

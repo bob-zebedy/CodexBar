@@ -272,9 +272,9 @@ Popover:
 
 ## 发布脚本
 
-- `Scripts/create-dmg.sh [App.app] [Output.dmg]` 创建带 `/Applications` 链接的 DMG, 会尝试写 Finder 布局。
-- `Scripts/update-appcast.sh [CodexBar-vX.Y.Z.dmg]` 更新 `Updates/appcast.xml`, 需要 Sparkle `sign_update`。
-- 改发布脚本后至少运行 `bash -n Scripts/create-dmg.sh` 和 `bash -n Scripts/update-appcast.sh`。
+- `Scripts/dmg.sh [App.app] [Output.dmg]` 创建带 `/Applications` 链接的 DMG, 会尝试写 Finder 布局。
+- `Scripts/appcast.sh [CodexBar-vX.Y.Z.dmg]` 更新 `appcast.xml`, 需要 Sparkle `sign_update`。
+- 改发布脚本后至少运行 `bash -n Scripts/dmg.sh` 和 `bash -n Scripts/appcast.sh`。
 - 更新 appcast、tag、push、上传 DMG 都必须先得到用户明确同意。
 
 ## Git 规则

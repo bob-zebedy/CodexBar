@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 DMG_PATH="${1:-}"
-APPCAST_PATH="${APPCAST_PATH:-${PROJECT_DIR}/Updates/appcast.xml}"
+APPCAST_PATH="${APPCAST_PATH:-${PROJECT_DIR}/appcast.xml}"
 DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://codexbar.zabrian.app/download}"
 RELEASE_NOTES_BASE_URL="${RELEASE_NOTES_BASE_URL:-https://codexbar.zabrian.app/notes}"
 MINIMUM_SYSTEM_VERSION="${MINIMUM_SYSTEM_VERSION:-15.0}"
@@ -16,10 +16,10 @@ XCODE_SCHEME="${XCODE_SCHEME:-CodexBar}"
 
 usage() {
     cat >&2 <<USAGE
-usage: Scripts/update-appcast.sh [CodexBar-vX.Y.Z.dmg]
+usage: Scripts/appcast.sh [CodexBar-vX.Y.Z.dmg]
 
 Environment:
-  APPCAST_PATH            Path to appcast.xml. Defaults to Updates/appcast.xml.
+  APPCAST_PATH            Path to appcast.xml. Defaults to appcast.xml.
   DOWNLOAD_BASE_URL       Base URL for DMG downloads.
                            Defaults to https://codexbar.zabrian.app/download.
   RELEASE_NOTES_BASE_URL  Base URL for release notes.

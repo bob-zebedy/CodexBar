@@ -15,7 +15,7 @@ if [[ -z "${APP_PATH}" ]]; then
 
     if [[ "${#apps[@]}" -eq 0 ]]; then
         echo "error: 当前目录没有找到 .app" >&2
-        echo "usage: Scripts/create-dmg.sh [App.app] [Output.dmg]" >&2
+        echo "usage: Scripts/dmg.sh [App.app] [Output.dmg]" >&2
         exit 1
     fi
 
@@ -191,4 +191,4 @@ hdiutil convert \
 mv -f "${TEMP_OUTPUT_PATH}" "${OUTPUT_PATH}"
 
 echo "==> Created ${OUTPUT_PATH}"
-echo "==> Update appcast with: Scripts/update-appcast.sh \"${OUTPUT_PATH}\""
+echo "==> Update appcast with: Scripts/appcast.sh \"${OUTPUT_PATH}\""

@@ -8,12 +8,12 @@ final class PopoverVisibilityState: ObservableObject {
 
 struct CodexStatusMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + Metrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
-
+    
     @ObservedObject var viewModel: CodexStatusViewModel
     @ObservedObject var popoverVisibility: PopoverVisibilityState
     @EnvironmentObject private var appUpdater: AppUpdater
     @State private var isEmailBlurred = false
-
+    
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.verticalSpacing) {
             content
@@ -38,7 +38,7 @@ private extension CodexStatusMenuView {
         static let loadingVerticalPadding: CGFloat = 16
         static let statusAnimation = Animation.codexStatus
     }
-
+    
     @ViewBuilder
     var content: some View {
         if let snapshot = viewModel.snapshot {
@@ -47,39 +47,35 @@ private extension CodexStatusMenuView {
                 isEmail: snapshot.account.hasEmail,
                 plan: snapshot.planLabel
             )
-
+            
             dataSection(snapshot)
         } else {
             // 仅展示未登录 / 初始化失败两种特殊状态, 其余错误只进日志
             statusAccountCard
-            emptyView
-                .padding(Metrics.panelPadding)
-                .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
+            emptyPanel
         }
     }
-
+    
     @ViewBuilder
     func dataSection(_ snapshot: CodexQuotaSnapshot) -> some View {
         if snapshot.limits.isEmpty, snapshot.usage == nil {
-            emptyView
-                .padding(Metrics.panelPadding)
-                .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
+            emptyPanel
         } else {
             if !snapshot.limits.isEmpty {
                 quotaLimitsView(snapshot.limits)
             }
-
+            
             if let usage = snapshot.usage {
                 UsageSummaryView(usage: usage)
             }
         }
-
+        
         updatedAtRow(for: snapshot)
             .padding(.horizontal, Metrics.panelPadding)
             .padding(.vertical, 7)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .mint)
     }
-
+    
     var statusAccountCard: some View {
         HStack(spacing: 8) {
             Image(systemName: "person.fill")
@@ -88,7 +84,7 @@ private extension CodexStatusMenuView {
                 .onTapGesture(count: 2) {
                     viewModel.refresh()
                 }
-
+            
             if let text = statusDisplay.text {
                 Text(text)
                     .font(.caption.weight(.semibold))
@@ -96,20 +92,20 @@ private extension CodexStatusMenuView {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-
+            
             if viewModel.isRefreshing {
                 ProgressView()
                     .controlSize(.mini)
                     .padding(.leading, 2)
             }
-
+            
             Spacer()
         }
         .padding(.horizontal, Metrics.panelPadding)
         .padding(.vertical, 8)
         .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
     }
-
+    
     var statusDisplay: (text: String?, color: Color) {
         switch viewModel.loadState {
         case .notLoggedIn:
@@ -120,28 +116,34 @@ private extension CodexStatusMenuView {
             return (nil, .accentColor)
         }
     }
-
+    
     var emptyView: some View {
         Text("暂无数据")
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.vertical, Metrics.loadingVerticalPadding)
     }
-
+    
+    var emptyPanel: some View {
+        emptyView
+            .padding(Metrics.panelPadding)
+            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
+    }
+    
     func quotaLimitsView(_ limits: [CodexQuotaLimitSnapshot]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(limits) { limit in
                 if limit.id != limits.first?.id {
                     LiquidGlassDivider()
                 }
-
+                
                 quotaLimitSection(limit)
             }
         }
         .padding(Metrics.panelPadding)
         .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .green)
     }
-
+    
     func quotaLimitSection(_ limit: CodexQuotaLimitSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(limit.title)
@@ -149,7 +151,7 @@ private extension CodexStatusMenuView {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-
+            
             VStack(spacing: 8) {
                 ForEach(limit.windows) { window in
                     QuotaRow(window: window)
@@ -157,14 +159,14 @@ private extension CodexStatusMenuView {
             }
         }
     }
-
+    
     func accountCard(title: String, isEmail: Bool = false, plan: String? = nil) -> some View {
         accountRow(title: title, isEmail: isEmail, plan: plan)
             .padding(.horizontal, Metrics.panelPadding)
             .padding(.vertical, 8)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
     }
-
+    
     func accountRow(title: String, isEmail: Bool = false, plan: String? = nil) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "person.fill")
@@ -173,7 +175,7 @@ private extension CodexStatusMenuView {
                 .onTapGesture(count: 2) {
                     viewModel.refresh()
                 }
-
+            
             Text(title)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
@@ -184,18 +186,18 @@ private extension CodexStatusMenuView {
                     guard isEmail else { return }
                     isEmailBlurred.toggle()
                 }
-
+            
             if viewModel.isRefreshing {
                 ProgressView()
                     .controlSize(.mini)
                     .padding(.leading, 2)
             }
-
+            
             Spacer()
-
+            
             if let plan {
                 let tint = planBadgeTint(for: plan)
-
+                
                 Text(plan.uppercased())
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(tint)
@@ -203,7 +205,7 @@ private extension CodexStatusMenuView {
             }
         }
     }
-
+    
     func updatedAtRow(for snapshot: CodexQuotaSnapshot) -> some View {
         HStack {
             HStack(spacing: 5) {
@@ -213,10 +215,10 @@ private extension CodexStatusMenuView {
                     isActive: popoverVisibility.isVisible,
                     color: .blue
                 )
-
+                
                 Text("数据更新时间")
                     .foregroundStyle(Self.secondaryTextColor)
-
+                
                 Text(Self.timeFormatter.string(from: snapshot.generatedAt))
                     .monospacedDigit()
                     .contentTransition(.numericText())
@@ -224,9 +226,9 @@ private extension CodexStatusMenuView {
             }
             .font(.caption2)
             .animation(Metrics.statusAnimation, value: snapshot.generatedAt)
-
+            
             Spacer()
-
+            
             if let message = appUpdater.panelUpdateMessage {
                 Text(message)
                     .font(.caption2.monospacedDigit())
@@ -241,14 +243,14 @@ private extension CodexStatusMenuView {
         }
         .animation(Metrics.statusAnimation, value: appUpdater.panelUpdateMessage)
     }
-
+    
     func planBadgeTint(for plan: String) -> Color {
         let normalizedPlan = plan.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return Self.planTintRules.first { rule in
             rule.keywords.contains { normalizedPlan.contains($0) }
         }?.tint ?? .cyan
     }
-
+    
     static let planTintRules: [(keywords: [String], tint: Color)] = [
         (["enterprise"], .green),
         (["team", "business"], .orange),
@@ -257,14 +259,14 @@ private extension CodexStatusMenuView {
         (["edu"], .teal),
         (["free"], .secondary)
     ]
-
+    
     static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
-
+    
     static let secondaryTextColor = Color.codexSecondaryLabel
 }
 
@@ -273,7 +275,7 @@ private struct AutoRefreshCountdownTimeline: View {
     let interval: TimeInterval
     let isActive: Bool
     let color: Color
-
+    
     var body: some View {
         if isActive {
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
@@ -283,7 +285,7 @@ private struct AutoRefreshCountdownTimeline: View {
             circle(now: Date())
         }
     }
-
+    
     private func circle(now: Date) -> AutoRefreshCountdownCircle {
         AutoRefreshCountdownCircle(
             startedAt: startedAt,
@@ -301,21 +303,21 @@ private struct AutoRefreshCountdownCircle: View {
     let now: Date
     let isActive: Bool
     let color: Color
-
+    
     private var progress: Double {
         guard interval > 0 else {
             return 0
         }
-
+        
         let elapsed = max(0, now.timeIntervalSince(startedAt))
         return max(0, 1 - elapsed / interval)
     }
-
+    
     var body: some View {
         ZStack {
             Circle()
                 .stroke(color.opacity(0.15), lineWidth: 1.4)
-
+            
             Circle()
                 .trim(from: 1 - progress, to: 1)
                 .stroke(
@@ -328,7 +330,7 @@ private struct AutoRefreshCountdownCircle: View {
         // 只让刷新起点变化触发动画, 避免每秒 tick 被补间
         .animation(isActive ? .linear(duration: Metrics.resetAnimationDuration) : nil, value: startedAt)
     }
-
+    
     private enum Metrics {
         static let resetAnimationDuration: TimeInterval = 0.50
     }
