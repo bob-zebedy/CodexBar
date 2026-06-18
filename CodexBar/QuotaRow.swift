@@ -39,7 +39,7 @@ private extension QuotaRow {
     
     var resetText: String {
         guard window.hasData else {
-            return "暂无数据"
+            return "--"
         }
         
         guard let resetsAt = window.resetsAt else {

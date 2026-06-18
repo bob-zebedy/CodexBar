@@ -1,7 +1,7 @@
 import SwiftUI
 
 extension Animation {
-    static let codexStatus = Animation.easeInOut(duration: 0.18)
+    static let codexStatus = Animation.easeInOut(duration: 0.20)
 }
 
 extension Color {

@@ -36,4 +36,5 @@ codesign2
 
 # Agent Tools
 .agents/
+.claude/
 .specify/

@@ -182,7 +182,7 @@ private extension CodexStatusMenuView {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .blur(radius: isEmail && isEmailBlurred ? 3 : 0)
-                .animation(.snappy(duration: 0.18), value: isEmailBlurred)
+                .animation(.snappy(duration: 0.20), value: isEmailBlurred)
                 .onTapGesture(count: 2) {
                     guard isEmail else { return }
                     isEmailBlurred.toggle()
