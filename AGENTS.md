@@ -282,6 +282,7 @@ Popover:
 - 不要主动 push。
 - 不要回滚或覆盖你没做的未提交改动。
 - 提交 message 使用 Conventional Commits 前缀 + 中文标题 + 空行 + 4 空格缩进 bullet body。
+- 提交 body 中多条 bullet 必须连续排列, bullet 之间不要空行; 使用命令提交时, 将完整 body 放在同一个 `-m` 参数或 `git commit -F` 文件中, 不要为每条 bullet 单独使用 `-m`。
 - 标题格式: `<type>: <中文描述>`, 不加句号。
 - 常用 type: `feat`、`fix`、`chore`、`refactor`、`docs`。
 - 功能、修复、发布类提交必须写 body; 简单文档或杂项可只写标题行。
