@@ -19,7 +19,7 @@ struct CodexStatusMenuView: View {
             content
         }
         .padding(Metrics.padding)
-        .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, tint: .cyan, isOuterSurface: true)
+        .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, isOuterSurface: true)
         .animation(Metrics.statusAnimation, value: viewModel.loadState)
         .onChange(of: viewModel.snapshot?.account.email) { _, _ in
             isEmailBlurred = false
@@ -73,7 +73,7 @@ private extension CodexStatusMenuView {
         updatedAtRow(for: snapshot)
             .padding(.horizontal, Metrics.panelPadding)
             .padding(.vertical, 7)
-            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .mint)
+            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
     }
     
     var statusAccountCard: some View {
@@ -103,7 +103,7 @@ private extension CodexStatusMenuView {
         }
         .padding(.horizontal, Metrics.panelPadding)
         .padding(.vertical, 8)
-        .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
+        .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
     }
     
     var statusDisplay: (text: String?, color: Color) {
@@ -127,7 +127,7 @@ private extension CodexStatusMenuView {
     var emptyPanel: some View {
         emptyView
             .padding(Metrics.panelPadding)
-            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
+            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
     }
     
     func quotaLimitsView(_ limits: [CodexQuotaLimitSnapshot], isStale: Bool) -> some View {
@@ -142,7 +142,7 @@ private extension CodexStatusMenuView {
         }
         .markStale(isStale)
         .padding(Metrics.panelPadding)
-        .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .green)
+        .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
     }
     
     func quotaLimitSection(_ limit: CodexQuotaLimitSnapshot) -> some View {
@@ -165,7 +165,7 @@ private extension CodexStatusMenuView {
         accountRow(title: title, isEmail: isEmail, plan: plan)
             .padding(.horizontal, Metrics.panelPadding)
             .padding(.vertical, 8)
-            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
+            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
     }
     
     func accountRow(title: String, isEmail: Bool = false, plan: String? = nil) -> some View {
@@ -253,12 +253,12 @@ private extension CodexStatusMenuView {
     }
     
     static let planTintRules: [(keywords: [String], tint: Color)] = [
-        (["enterprise"], .green),
-        (["team", "business"], .orange),
-        (["pro"], .purple),
-        (["plus"], .blue),
-        (["edu"], .teal),
-        (["free"], .secondary)
+        (["enterprise"], Color(hex: 0x15803D)),
+        (["team", "business"], Color(hex: 0xD97706)),
+        (["pro"], Color(hex: 0xC026D3)),
+        (["plus"], Color(hex: 0x2563EB)),
+        (["edu"], Color(hex: 0x0891B2)),
+        (["free"], Color(hex: 0x64748B))
     ]
     
     static let timeFormatter: DateFormatter = {

@@ -20,7 +20,7 @@ struct AppSettingsView: View {
                 codexVersionSection
             }
             .padding(Metrics.panelPadding)
-            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .cyan)
+            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
             
             HStack(alignment: .center, spacing: 12) {
                 quitButton
@@ -30,7 +30,7 @@ struct AppSettingsView: View {
             }
             .animation(Metrics.statusAnimation, value: loginItemSettings.errorMessage)
             .padding(Metrics.panelPadding)
-            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius, tint: .red)
+            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
         }
         .padding(Metrics.padding)
         .frame(width: Metrics.windowWidth)
@@ -41,7 +41,6 @@ struct AppSettingsView: View {
                 bottomTrailing: Metrics.surfaceCornerRadius,
                 topTrailing: 0
             ),
-            tint: .cyan,
             isOuterSurface: true
         )
         .onAppear {

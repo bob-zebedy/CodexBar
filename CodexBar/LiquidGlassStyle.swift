@@ -8,12 +8,19 @@ extension Color {
     // 某些自定义 View 需要具体 Color, 不能直接使用 .primary/.secondary 这类 ShapeStyle
     static let codexLabel = Color(nsColor: .labelColor)
     static let codexSecondaryLabel = Color(nsColor: .secondaryLabelColor)
+    
+    init(hex: Int) {
+        self.init(
+            red: Double((hex >> 16) & 0xFF) / 255.0,
+            green: Double((hex >> 8) & 0xFF) / 255.0,
+            blue: Double(hex & 0xFF) / 255.0
+        )
+    }
 }
 
 extension View {
     func liquidGlassSurface(
         cornerRadius: CGFloat,
-        tint: Color,
         isOuterSurface: Bool = false
     ) -> some View {
         liquidGlassSurface(
@@ -23,20 +30,17 @@ extension View {
                 bottomTrailing: cornerRadius,
                 topTrailing: cornerRadius
             ),
-            tint: tint,
             isOuterSurface: isOuterSurface
         )
     }
     
     func liquidGlassSurface(
         cornerRadii: RectangleCornerRadii,
-        tint: Color,
         isOuterSurface: Bool = false
     ) -> some View {
         background {
             LiquidGlassSurface(
                 cornerRadii: cornerRadii,
-                tint: tint,
                 isOuterSurface: isOuterSurface
             )
         }
@@ -75,7 +79,6 @@ struct LiquidGlassDivider: View {
 
 private struct LiquidGlassSurface: View {
     let cornerRadii: RectangleCornerRadii
-    let tint: Color
     let isOuterSurface: Bool
     @Environment(\.colorScheme) private var colorScheme
     
@@ -87,31 +90,31 @@ private struct LiquidGlassSurface: View {
                 .fill(baseFill)
             
             shape
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(isOuterSurface ? 0.18 : 0.24),
-                            tint.opacity(isOuterSurface ? 0.08 : 0.12),
-                            .clear
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(highlightFill)
                 .blendMode(.plusLighter)
+            
+            LiquidGlassFrostedTexture(isOuterSurface: isOuterSurface)
+                .clipShape(shape)
             
             shape
                 .strokeBorder(
-                    LinearGradient(
-                        colors: [
-                            .white.opacity(isOuterSurface ? 0.44 : 0.36),
-                            tint.opacity(0.24),
-                            .primary.opacity(0.08)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
+                    borderColor,
                     lineWidth: isOuterSurface ? 1.0 : 0.8
+                )
+            
+            shape
+                .strokeBorder(rimHighlightColor, lineWidth: rimLineWidth)
+                .shadow(
+                    color: rimLightShadowColor,
+                    radius: isOuterSurface ? 0.5 : 1.0,
+                    x: 0,
+                    y: isOuterSurface ? -0.2 : -0.4
+                )
+                .shadow(
+                    color: rimDarkShadowColor,
+                    radius: isOuterSurface ? 0.8 : 1.3,
+                    x: 0,
+                    y: isOuterSurface ? 0.6 : 1.0
                 )
             
             LiquidGlassSpecular(cornerRadii: cornerRadii)
@@ -137,15 +140,32 @@ private struct LiquidGlassSurface: View {
         )
     }
     
-    private var baseFill: LinearGradient {
-        LinearGradient(
-            colors: [
-                baseColor.opacity(isOuterSurface ? 1 : 0.94),
-                baseColor.opacity(isOuterSurface ? 0.88 : 0.78)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+    private var baseFill: Color {
+        baseColor.opacity(0.6)
+    }
+    
+    private var highlightFill: Color {
+        .white.opacity(isOuterSurface ? 0.12 : 0.14)
+    }
+    
+    private var borderColor: Color {
+        .white.opacity(isOuterSurface ? 0.34 : 0.28)
+    }
+    
+    private var rimHighlightColor: Color {
+        .white.opacity(isOuterSurface ? 0.36 : 0.50)
+    }
+    
+    private var rimLightShadowColor: Color {
+        .white.opacity(colorScheme == .dark ? 0.05 : 0.20)
+    }
+    
+    private var rimDarkShadowColor: Color {
+        .black.opacity(colorScheme == .dark ? 0.28 : 0.12)
+    }
+    
+    private var rimLineWidth: CGFloat {
+        isOuterSurface ? 0.8 : 1.1
     }
     
     private var baseColor: Color {
@@ -181,6 +201,56 @@ private struct LiquidGlassSurface: View {
     }
 }
 
+private struct LiquidGlassFrostedTexture: View {
+    let isOuterSurface: Bool
+    @Environment(\.colorScheme) private var colorScheme
+    
+    var body: some View {
+        Canvas(opaque: false, rendersAsynchronously: true) { context, size in
+            let step: CGFloat = isOuterSurface ? 4 : 3
+            let columns = max(Int((size.width / step).rounded(.up)), 0)
+            let rows = max(Int((size.height / step).rounded(.up)), 0)
+            let baseOpacity = colorScheme == .dark ? 0.035 : 0.045
+            let outerScale = isOuterSurface ? 0.75 : 1
+            
+            for row in 0..<rows {
+                for column in 0..<columns {
+                    let sample = Self.noise(column: column, row: row)
+                    let isHighlight = sample >= 0.5
+                    let strength = isHighlight ? (sample - 0.5) * 2 : (0.5 - sample) * 2
+                    let opacity = baseOpacity * strength * outerScale
+                    let color: Color
+                    if isHighlight {
+                        color = Color.white.opacity(opacity)
+                    } else {
+                        color = Color.black.opacity(opacity * (colorScheme == .dark ? 0.24 : 0.16))
+                    }
+                    let rect = CGRect(
+                        x: CGFloat(column) * step,
+                        y: CGFloat(row) * step,
+                        width: 1,
+                        height: 1
+                    )
+                    
+                    context.fill(Path(rect), with: .color(color))
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+    
+    private nonisolated static func noise(column: Int, row: Int) -> Double {
+        var value = UInt64(column) &* 0x9E3779B185EBCA87
+        value ^= UInt64(row) &* 0xC2B2AE3D27D4EB4F
+        value ^= value >> 33
+        value &*= 0xFF51AFD7ED558CCD
+        value ^= value >> 33
+        value &*= 0xC4CEB9FE1A85EC53
+        value ^= value >> 33
+        return Double(value & 0xFFFF) / Double(0xFFFF)
+    }
+}
+
 private struct LiquidGlassCapsule: View {
     let tint: Color
     @Environment(\.colorScheme) private var colorScheme
@@ -206,6 +276,10 @@ private struct LiquidGlassCapsule: View {
             .overlay {
                 Capsule(style: .continuous)
                     .strokeBorder(.white.opacity(colorScheme == .dark ? 0.22 : 0.34), lineWidth: 0.7)
+            }
+            .overlay {
+                LiquidGlassFrostedTexture(isOuterSurface: false)
+                    .clipShape(Capsule(style: .continuous))
             }
     }
     

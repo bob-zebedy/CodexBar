@@ -97,20 +97,12 @@ private enum QuotaBarPalette {
         }
     }
     
-    static let placeholderColor = color(hex: 0xE5E7EB)
-    private static let green = color(hex: 0x22C55E)
-    private static let teal = color(hex: 0x14B8A6)
-    private static let yellow = color(hex: 0xEAB308)
-    private static let orange = color(hex: 0xFF7A59)
-    private static let red = color(hex: 0xEF4444)
-    
-    private static func color(hex: Int) -> Color {
-        Color(
-            red: Double((hex >> 16) & 0xFF) / 255.0,
-            green: Double((hex >> 8) & 0xFF) / 255.0,
-            blue: Double(hex & 0xFF) / 255.0
-        )
-    }
+    static let placeholderColor = Color(hex: 0xE5E7EB)
+    private static let green = Color(hex: 0x16A085)
+    private static let teal = Color(hex: 0x5DADE2)
+    private static let yellow = Color(hex: 0xF5B041)
+    private static let orange = Color(hex: 0xFF7A59)
+    private static let red = Color(hex: 0xEE3F3F)
 }
 
 private struct SegmentedQuotaBar: View {
@@ -135,7 +127,7 @@ private struct SegmentedQuotaBar: View {
 
 private extension SegmentedQuotaBar {
     enum Metrics {
-        static let segmentCount = 33
+        static let segmentCount = 50
         static let segmentSpacing: CGFloat = 2
     }
     

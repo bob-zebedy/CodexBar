@@ -20,7 +20,7 @@ struct UsageSummaryView: View {
         }
         .markStale(isStale)
         .padding(10)
-        .liquidGlassSurface(cornerRadius: 8, tint: .blue)
+        .liquidGlassSurface(cornerRadius: 8)
         .onAppear {
             hoveredDay = nil
         }
@@ -312,6 +312,6 @@ private struct UsageHeatmapTooltip: View {
         .padding(.horizontal, 7)
         .padding(.vertical, 5)
         .frame(width: UsageHeatmap.Metrics.tooltipWidth, alignment: .leading)
-        .liquidGlassSurface(cornerRadius: 7, tint: .blue)
+        .liquidGlassSurface(cornerRadius: 7)
     }
 }
