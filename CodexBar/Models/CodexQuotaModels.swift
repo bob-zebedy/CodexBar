@@ -44,37 +44,6 @@ nonisolated private extension String {
     }
 }
 
-nonisolated struct CodexAccount: Decodable, Equatable {
-    let type: String
-    let email: String?
-    let planType: String?
-    
-    var hasEmail: Bool {
-        email?.isEmpty == false
-    }
-    
-    var displayName: String {
-        if let email, hasEmail {
-            return email
-        }
-        
-        switch type {
-        case "apiKey":
-            return "API Key"
-        case "chatgpt":
-            return "ChatGPT"
-        case "amazonBedrock":
-            return "Amazon Bedrock"
-        default:
-            return type
-        }
-    }
-}
-
-nonisolated struct AccountReadResponse: Decodable {
-    let account: CodexAccount?
-}
-
 nonisolated struct QuotaWindow: Equatable, Identifiable {
     let id: String
     let windowDurationMins: Int?
@@ -136,90 +105,6 @@ nonisolated struct RateLimitWindow: Decodable {
         guard let resetsAt else { return nil }
         return Date(timeIntervalSince1970: TimeInterval(resetsAt))
     }
-}
-
-nonisolated struct AccountUsageResponse: Decodable {
-    let summary: UsageSummary
-    let dailyUsageBuckets: [DailyUsageBucket]
-}
-
-nonisolated struct UsageSummary: Decodable, Equatable {
-    let currentStreakDays: Int?
-    let lifetimeTokens: Int
-    let longestRunningTurnSec: Int?
-    let longestStreakDays: Int?
-    let peakDailyTokens: Int
-}
-
-nonisolated struct DailyUsageBucket: Decodable, Equatable, Identifiable {
-    let startDate: String
-    let tokens: Int
-    
-    var id: String { startDate }
-}
-
-nonisolated struct CodexUsageSnapshot: Equatable {
-    let summary: UsageSummary
-    let dailyBuckets: [DailyUsageBucket]
-    
-    // 给热力图生成按周排列的最近日期网格, 每列从周日开始
-    func recentWeekGrid(columnCount: Int, endingDaysAgo: Int = 0, today: Date = Date()) -> [DailyUsageBucket?] {
-        guard columnCount > 0 else {
-            return []
-        }
-        
-        let calendar = Calendar.current
-        let todayStart = calendar.startOfDay(for: today)
-        let lastVisibleDate = calendar.date(
-            byAdding: .day,
-            value: -max(endingDaysAgo, 0),
-            to: todayStart
-        ) ?? todayStart
-        let currentWeekStart = Self.sundayStartOfWeek(containing: lastVisibleDate, calendar: calendar)
-        guard let firstWeekStart = calendar.date(
-            byAdding: .weekOfYear,
-            value: -(columnCount - 1),
-            to: currentWeekStart
-        ) else {
-            return []
-        }
-        
-        let tokensByDate = dailyBuckets.reduce(into: [String: Int]()) { result, bucket in
-            result[bucket.startDate, default: 0] += bucket.tokens
-        }
-        
-        return (0..<columnCount).flatMap { column -> [DailyUsageBucket?] in
-            guard let weekStart = calendar.date(byAdding: .weekOfYear, value: column, to: firstWeekStart) else {
-                return Array(repeating: nil, count: 7)
-            }
-            
-            return (0..<7).map { weekdayOffset -> DailyUsageBucket? in
-                guard let date = calendar.date(byAdding: .day, value: weekdayOffset, to: weekStart) else {
-                    return nil
-                }
-                
-                guard date <= lastVisibleDate else {
-                    return nil
-                }
-                
-                let startDate = Self.dayFormatter.string(from: date)
-                return DailyUsageBucket(startDate: startDate, tokens: tokensByDate[startDate] ?? 0)
-            }
-        }
-    }
-    
-    private static func sundayStartOfWeek(containing date: Date, calendar: Calendar) -> Date {
-        let weekday = calendar.component(.weekday, from: date)
-        let daysSinceSunday = weekday - 1
-        return calendar.date(byAdding: .day, value: -daysSinceSunday, to: date) ?? date
-    }
-    
-    private nonisolated static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
 }
 
 nonisolated extension CodexQuotaSnapshot {
@@ -313,65 +198,5 @@ nonisolated extension QuotaWindow {
             usedPercent: window.usedPercent,
             resetsAt: window.resetDate
         )
-    }
-}
-
-nonisolated enum CodexStatusError: LocalizedError {
-    case executableNotFound
-    case serverTimeout
-    case serverConnectionClosed
-    case invalidServerResponse
-    case serverError(String)
-    case unsupportedMethod
-    case notLoggedIn
-    
-    var errorDescription: String? {
-        switch self {
-        case .executableNotFound:
-            return "找不到 Codex CLI 或 Codex APP"
-        default:
-            return nil
-        }
-    }
-    
-    // codex app-server 未登录
-    var isAuthenticationRequired: Bool {
-        serverErrorMessageContains("codex account authentication required")
-    }
-    
-    // codex app-server 不支持的方法
-    var isUnsupportedMethod: Bool {
-        switch self {
-        case .unsupportedMethod:
-            return true
-        default:
-            return serverErrorMessageContains("Invalid request: unknown variant")
-        }
-    }
-    
-    var isRetriableServerError: Bool {
-        guard case .serverError = self else {
-            return false
-        }
-        
-        return !isAuthenticationRequired && !isUnsupportedMethod
-    }
-    
-    // 连接断开、超时、无法解析都需要重建 app-server 会话
-    var isTransportFailure: Bool {
-        switch self {
-        case .serverConnectionClosed, .serverTimeout, .invalidServerResponse:
-            return true
-        default:
-            return false
-        }
-    }
-    
-    private func serverErrorMessageContains(_ keyword: String) -> Bool {
-        guard case .serverError(let message) = self else {
-            return false
-        }
-        
-        return message.range(of: keyword, options: .caseInsensitive) != nil
     }
 }

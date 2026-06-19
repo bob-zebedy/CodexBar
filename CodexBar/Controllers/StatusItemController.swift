@@ -37,13 +37,12 @@ private final class StatusItemController: NSObject {
     private lazy var logWindowController = LogWindowController { [weak self] in
         self?.statusItem.button?.window?.screen
     }
+    private lazy var popoverFadeCoordinator = PopoverFadeCoordinator(popover: popover)
+    private lazy var popoverDismissMonitor = PopoverDismissMonitor(popover: popover) { [weak self] in
+        self?.statusItem.button
+    }
     private var deferredRefreshTask: Task<Void, Never>?
-    private var popoverOpenTask: Task<Void, Never>?
-    private var popoverCloseTask: Task<Void, Never>?
     private var popoverState = PopoverState.hidden
-    private var popoverAnimationGeneration = 0
-    private var localMouseEventMonitor: Any?
-    private var globalMouseEventMonitor: Any?
     private var cancellables = Set<AnyCancellable>()
     private var lastHasError: Bool?
     
@@ -161,35 +160,23 @@ private final class StatusItemController: NSObject {
     private func cancelPopoverTasks() {
         deferredRefreshTask?.cancel()
         deferredRefreshTask = nil
-        popoverOpenTask?.cancel()
-        popoverOpenTask = nil
-        popoverCloseTask?.cancel()
-        popoverCloseTask = nil
+        popoverFadeCoordinator.cancel()
     }
     
     private func openPopover(relativeTo button: NSStatusBarButton) {
         cancelPopoverTasks()
         
-        popoverAnimationGeneration += 1
-        let generation = popoverAnimationGeneration
         popoverState = .opening
         
-        preparePopoverForFadeIn()
+        popoverFadeCoordinator.prepareForFadeIn()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popoverVisibility.isVisible = true
-        stabilizePopoverChromeAppearance()
-        installPopoverDismissMonitors()
-        fadePopover(to: 1, duration: Metrics.fadeInDuration)
+        popoverDismissMonitor.install { [weak self] in
+            self?.closePopover()
+        }
         
-        popoverOpenTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(Int(Metrics.fadeInDuration * 1000)))
-            guard let self, !Task.isCancelled, self.popoverAnimationGeneration == generation else {
-                return
-            }
-            
-            self.resetPopoverAlpha()
-            self.popoverState = .shown
-            self.popoverOpenTask = nil
+        popoverFadeCoordinator.fadeIn(duration: Metrics.fadeInDuration) { [weak self] in
+            self?.popoverState = .shown
         }
         
         scheduleDeferredRefresh()
@@ -254,171 +241,41 @@ private final class StatusItemController: NSObject {
         }
         
         cancelPopoverTasks()
-        removePopoverDismissMonitors()
+        popoverDismissMonitor.remove()
         popoverVisibility.isVisible = false
         
         guard popover.isShown else {
-            resetPopoverAlpha()
+            popoverFadeCoordinator.resetAlpha()
             popoverState = .hidden
             return
         }
         
-        guard animated, let contentView = popover.contentViewController?.view else {
+        guard animated else {
             finishPopoverClose()
             return
         }
         
-        popoverAnimationGeneration += 1
-        let generation = popoverAnimationGeneration
         popoverState = .closing
+        let didStartFadeOut = popoverFadeCoordinator.fadeOut(duration: Metrics.fadeOutDuration) { [weak self] in
+            self?.popoverState = .hidden
+        }
         
-        let popoverWindow = contentView.window
-        fadePopover(to: 0, duration: Metrics.fadeOutDuration)
-        popoverCloseTask = Task { @MainActor [weak self, weak contentView, weak popoverWindow] in
-            try? await Task.sleep(for: .milliseconds(Int(Metrics.fadeOutDuration * 1000)))
-            guard let self, !Task.isCancelled, self.popoverAnimationGeneration == generation else {
-                return
-            }
-            
-            self.popover.performClose(nil)
-            contentView?.alphaValue = 1
-            popoverWindow?.alphaValue = 1
-            self.popoverState = .hidden
-            self.popoverCloseTask = nil
+        if !didStartFadeOut {
+            finishPopoverClose()
         }
     }
     
     private func finishPopoverClose() {
         cancelPopoverTasks()
-        popoverAnimationGeneration += 1
-        removePopoverDismissMonitors()
+        popoverDismissMonitor.remove()
         
         if popover.isShown {
             popover.performClose(nil)
         }
         
         popoverVisibility.isVisible = false
-        resetPopoverAlpha()
+        popoverFadeCoordinator.resetAlpha()
         popoverState = .hidden
-    }
-    
-    private func installPopoverDismissMonitors() {
-        removePopoverDismissMonitors()
-        
-        localMouseEventMonitor = NSEvent.addLocalMonitorForEvents(matching: Metrics.dismissEventMask) { [weak self] event in
-            self?.closePopoverIfNeeded(for: event)
-            self?.restabilizePopoverChromeAfterEvent()
-            return event
-        }
-        
-        globalMouseEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: Metrics.dismissEventMask) { [weak self] _ in
-            self?.closePopover()
-        }
-    }
-    
-    private func removePopoverDismissMonitors() {
-        if let localMouseEventMonitor {
-            NSEvent.removeMonitor(localMouseEventMonitor)
-            self.localMouseEventMonitor = nil
-        }
-        
-        if let globalMouseEventMonitor {
-            NSEvent.removeMonitor(globalMouseEventMonitor)
-            self.globalMouseEventMonitor = nil
-        }
-    }
-    
-    private func restabilizePopoverChromeAfterEvent() {
-        Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self, self.popover.isShown else {
-                return
-            }
-            
-            self.stabilizePopoverChromeAppearance()
-        }
-    }
-    
-    private func stabilizePopoverChromeAppearance() {
-        guard let rootView = popover.contentViewController?.view.window?.contentView else {
-            return
-        }
-        
-        // NSPopover 会在点击后重新强调 NSVisualEffectView, 这里固定为 inactive 避免背景明暗跳变
-        stabilizeVisualEffectViews(in: rootView)
-    }
-    
-    private func stabilizeVisualEffectViews(in view: NSView) {
-        if let visualEffectView = view as? NSVisualEffectView {
-            visualEffectView.state = .inactive
-            visualEffectView.isEmphasized = false
-        }
-        
-        for subview in view.subviews {
-            stabilizeVisualEffectViews(in: subview)
-        }
-    }
-    
-    private func closePopoverIfNeeded(for event: NSEvent) {
-        guard popover.isShown else {
-            return
-        }
-        
-        if isEventInsidePopover(event) || isEventInsideStatusButton(event) {
-            return
-        }
-        
-        closePopover()
-    }
-    
-    private func isEventInsidePopover(_ event: NSEvent) -> Bool {
-        guard let contentView = popover.contentViewController?.view,
-              event.window == contentView.window else {
-            return false
-        }
-        
-        let point = contentView.convert(event.locationInWindow, from: nil)
-        return contentView.bounds.contains(point)
-    }
-    
-    private func isEventInsideStatusButton(_ event: NSEvent) -> Bool {
-        guard let button = statusItem.button,
-              let buttonWindow = button.window else {
-            return false
-        }
-        
-        let eventScreenPoint = event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
-        let buttonRectInWindow = button.convert(button.bounds, to: nil)
-        let buttonScreenRect = buttonWindow.convertToScreen(buttonRectInWindow)
-        return buttonScreenRect.contains(eventScreenPoint)
-    }
-    
-    private func preparePopoverForFadeIn() {
-        popover.contentViewController?.view.alphaValue = 0
-        popover.contentViewController?.view.window?.alphaValue = 0
-    }
-    
-    private func resetPopoverAlpha() {
-        popover.contentViewController?.view.alphaValue = 1
-        popover.contentViewController?.view.window?.alphaValue = 1
-    }
-    
-    private func fadePopover(to alpha: CGFloat, duration: TimeInterval) {
-        guard let contentView = popover.contentViewController?.view else {
-            return
-        }
-        
-        let popoverWindow = contentView.window
-        if alpha == 1 {
-            popoverWindow?.alphaValue = 0
-        }
-        
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = duration
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            popoverWindow?.animator().alphaValue = alpha
-            contentView.animator().alphaValue = alpha
-        }
     }
     
     private func scheduleDeferredRefresh() {
@@ -434,11 +291,6 @@ private final class StatusItemController: NSObject {
     }
     
     private enum Metrics {
-        static let dismissEventMask: NSEvent.EventTypeMask = [
-            .leftMouseDown,
-            .rightMouseDown,
-            .otherMouseDown
-        ]
         static let fadeInDuration: TimeInterval = 0.24
         static let fadeOutDuration: TimeInterval = 0.18
     }

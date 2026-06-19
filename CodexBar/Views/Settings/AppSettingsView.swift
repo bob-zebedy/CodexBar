@@ -6,7 +6,6 @@ struct AppSettingsView: View {
     @EnvironmentObject private var appUpdater: AppUpdater
     @StateObject private var loginItemSettings = LoginItemSettings()
     @StateObject private var codexVersions = CodexCLIVersionViewModel()
-    @State private var copiedPathResetTasks: [CodexCLIExecutableSource: Task<Void, Never>] = [:]
     
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
@@ -51,9 +50,6 @@ struct AppSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshCodexVersionSection()
         }
-        .onDisappear {
-            copiedPathResetTasks.values.forEach { $0.cancel() }
-        }
     }
 }
 
@@ -67,13 +63,11 @@ private extension AppSettingsView {
         static let surfaceCornerRadius: CGFloat = 16
         static let panelCornerRadius: CGFloat = 10
         static let iconWidth: CGFloat = 18
-        static let codexChildIndent: CGFloat = 28
-        static let codexVersionColumnWidth: CGFloat = 270
         static let statusAnimation = Animation.codexStatus
     }
     
     var launchAtLoginRow: some View {
-        settingsToggleRow(
+        SettingsToggleRow(
             icon: "power",
             title: "开机自动启动",
             isOn: Binding(
@@ -84,7 +78,7 @@ private extension AppSettingsView {
     }
     
     var automaticUpdateCheckRow: some View {
-        settingsToggleRow(
+        SettingsToggleRow(
             icon: "arrow.triangle.2.circlepath",
             title: "自动检查更新",
             isOn: Binding(
@@ -93,29 +87,6 @@ private extension AppSettingsView {
             ),
             isEnabled: appUpdater.canConfigureAutomaticChecks
         )
-    }
-    
-    func settingsToggleRow(
-        icon: String,
-        title: String,
-        isOn: Binding<Bool>,
-        isEnabled: Bool = true
-    ) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .frame(width: Metrics.iconWidth)
-                .foregroundStyle(.tint)
-            
-            Text(title)
-            
-            Spacer()
-            
-            Toggle(title, isOn: isOn)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .disabled(!isEnabled)
-        }
     }
     
     var versionRow: some View {
@@ -163,123 +134,16 @@ private extension AppSettingsView {
     }
     
     var codexVersionSection: some View {
-        VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
-            HStack(spacing: 10) {
-                Image(systemName: "number.circle")
-                    .frame(width: Metrics.iconWidth)
-                    .foregroundStyle(.secondary)
-                
-                Text("Codex 版本")
-                
-                Spacer()
-            }
-            
-            LiquidGlassDivider()
-                .padding(.leading, Metrics.iconWidth + 10)
-            
-            VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
-                codexVersionRow(icon: "terminal", item: codexVersions.snapshot.global)
-                
-                codexVersionRow(icon: "app.badge", item: codexVersions.snapshot.bundled)
-            }
-            .padding(.leading, Metrics.codexChildIndent)
-        }
+        CodexVersionSection(
+            snapshot: codexVersions.snapshot,
+            connectionInfo: statusViewModel.codexConnectionInfo
+        )
     }
     
     func refreshCodexVersionSection() {
         // 版本探测较慢且内部会合并并发请求; 连接信息只是缓存读取
         codexVersions.refresh()
         statusViewModel.refreshCodexConnectionInfo()
-    }
-    
-    func codexVersionRow(icon: String, item: CodexCLIVersionItem) -> some View {
-        let row = CodexCLIVersionDisplay(item: item, connection: statusViewModel.codexConnectionInfo)
-        let isPathCopied = copiedPathResetTasks[item.source] != nil
-        
-        return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
-                .frame(width: Metrics.iconWidth)
-                .foregroundStyle(.tertiary)
-            
-            Text(item.source.displayName)
-                .foregroundStyle(.secondary)
-            
-            Spacer(minLength: 28)
-            
-            VStack(alignment: .trailing, spacing: 3) {
-                HStack(spacing: 12) {
-                    if row.isCurrent {
-                        Text("当前使用")
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.green)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .liquidGlassCapsule(tint: .green)
-                            .transition(.opacity)
-                    }
-                    
-                    Text(row.displayVersion)
-                        .font(row.hasVersion ? .body.monospacedDigit() : .body)
-                        .foregroundStyle(row.hasVersion ? .secondary : .tertiary)
-                        .lineLimit(1)
-                        .contentTransition(.opacity)
-                        .animation(Metrics.statusAnimation, value: row.displayVersion)
-                }
-                .animation(Metrics.statusAnimation, value: row.isCurrent)
-                
-                if let newerInstalledVersion = row.newerInstalledVersion {
-                    Text("已更新至 \(newerInstalledVersion)")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.orange)
-                        .lineLimit(1)
-                        .transition(.opacity)
-                }
-                
-                if let path = row.path {
-                    copiedPathText(path: path, isCopied: isPathCopied)
-                        .animation(Metrics.statusAnimation, value: isPathCopied)
-                        .help(isPathCopied ? "已复制" : "点击复制")
-                        .onTapGesture {
-                            copyPathToPasteboard(path, source: item.source)
-                        }
-                        .transition(.opacity)
-                }
-            }
-            .frame(maxWidth: Metrics.codexVersionColumnWidth, alignment: .trailing)
-            .animation(Metrics.statusAnimation, value: row.newerInstalledVersion)
-            .animation(Metrics.statusAnimation, value: row.path)
-        }
-    }
-    
-    func copiedPathText(path: String, isCopied: Bool) -> some View {
-        ZStack(alignment: .trailing) {
-            Text(path)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .opacity(isCopied ? 0 : 1)
-            
-            Text("已复制")
-                .font(.caption2)
-                .foregroundStyle(.green)
-                .lineLimit(1)
-                .opacity(isCopied ? 1 : 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .trailing)
-    }
-    
-    func copyPathToPasteboard(_ path: String, source: CodexCLIExecutableSource) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(path, forType: .string)
-        
-        copiedPathResetTasks[source]?.cancel()
-        copiedPathResetTasks[source] = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(1500))
-            guard !Task.isCancelled else { return }
-            
-            copiedPathResetTasks[source] = nil
-        }
     }
     
     @ViewBuilder

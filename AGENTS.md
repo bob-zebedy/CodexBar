@@ -67,6 +67,7 @@ git status --short
 - 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 2.0.0`, `CURRENT_PROJECT_VERSION = 10`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`。
 - App Sandbox 必须保持关闭(`ENABLE_APP_SANDBOX = NO`), 因为应用要启动本机 Codex CLI/APP 内置 CLI, 并读取真实 macOS 用户的 Codex 登录状态。
 - 工程使用 `PBXFileSystemSynchronizedRootGroup`; 新增或删除 `CodexBar/` 下 Swift 文件通常无需改 `project.pbxproj`。只有依赖、target/build settings 或资源归属变更才改 Xcode 工程文件。
+- Swift 源码按目录组织: `App/`、`Controllers/`、`Models/`、`Services/`、`Views/`。不要把新 Swift 文件直接放回 `CodexBar/` 根层。
 - 不要为 macOS 15 以下添加 SF Symbols 或 SwiftUI API fallback。
 
 ## 架构地图
@@ -82,24 +83,36 @@ CodexStatusService(JSON-RPC app-server)
 
 关键文件职责:
 
-- `CodexBarApp.swift`: `@main` 入口、空 `Settings` scene、`Bundle.displayVersionLabel`。
-- `StatusItemController.swift`: `NSStatusItem`、`NSPopover`、右键菜单、设置/日志窗口入口、外部点击监控、淡入淡出状态机、自动刷新启动。
-- `HostingWindowController.swift`: 设置和日志窗口的懒创建、居中、置顶和跨桌面打开行为。
-- `SettingsWindowController.swift`: 独立设置窗口。
-- `LogWindowController.swift`: 独立日志窗口。
-- `CodexStatusViewModel.swift`: `@MainActor ObservableObject`, 发布 `snapshot`、`isRefreshing`、`loadState`、`codexConnectionInfo`、`autoRefreshCountdownStartedAt`。
-- `CodexStatusService.swift`: app-server 进程、JSON-RPC、连接复用、认证刷新、usage 降级、连接信息。
-- `RequestLog.swift`: 常驻交互日志存储, 记录请求、响应、错误和无响应请求。
-- `LogView.swift`: 日志窗口 UI, 状态标签为「进行」「完成」「错误」「请求」。
-- `CodexCLIResolver.swift`: 解析全局 `codex` 与 `/Applications/Codex.app/Contents/Resources/codex`, 并构造真实用户环境。
-- `CodexCLIVersionService.swift`: 并发探测全局 CLI 与 Codex APP 内置 CLI 的磁盘版本, 合成当前运行版本和「已更新至」提示。
-- `CodexQuotaModels.swift`: wire DTO、业务快照、limit/usage 转换、错误分类。
-- `CodexStatusMenuView.swift`: popover 主 UI, 包含账号卡片、状态卡片、额度、usage、更新时间倒计时和更新提示。
-- `QuotaRow.swift`: 单个 quota window 行和分段额度条。
-- `UsageHeatmap.swift` / `TokenCountText.swift`: token 汇总、近 30 周热力图、hover tooltip 和 K/M/B 紧凑数字格式。
-- `AppSettingsView.swift` / `LoginItemSettings.swift`: 设置窗口、开机自启、CodexBar 版本、Codex CLI/Codex APP 版本与路径复制。
-- `AppUpdater.swift`: Sparkle 封装, 更新状态按设置窗、popover 和可用更新拆分。
-- `LiquidGlassStyle.swift`: 自绘 Liquid Glass 视觉入口。
+- `App/CodexBarApp.swift`: `@main` 入口、空 `Settings` scene、`Bundle.displayVersionLabel`。
+- `Controllers/StatusItemController.swift`: `NSStatusItem`、`NSPopover` 状态切换、右键菜单、设置/日志窗口入口、自动刷新启动。
+- `Controllers/PopoverDismissMonitor.swift`: popover 外部点击关闭监控, 并稳定 `NSVisualEffectView` inactive 外观。
+- `Controllers/PopoverFadeCoordinator.swift`: popover 淡入淡出、alpha 重置和动画任务取消。
+- `Controllers/HostingWindowController.swift`: 设置和日志窗口的懒创建、居中、置顶和跨桌面打开行为。
+- `Controllers/SettingsWindowController.swift`: 独立设置窗口。
+- `Controllers/LogWindowController.swift`: 独立日志窗口。
+- `Services/CodexStatus/CodexStatusViewModel.swift`: `@MainActor ObservableObject`, 发布 `snapshot`、`isRefreshing`、`loadState`、`codexConnectionInfo`、`autoRefreshCountdownStartedAt`。
+- `Services/CodexStatus/CodexStatusService.swift`: app-server 连接生命周期、连接复用、认证刷新、rate limits/usage 降级和连接信息。
+- `Services/CodexStatus/AppServerSession.swift`: JSON-RPC 请求/通知、请求日志回填、业务错误重试、unsupported method 记录。
+- `Services/CodexStatus/AppServerPipeReaders.swift`: stdout 按行读取和 stderr drain, 不把子进程 stderr 展示给用户。
+- `Services/CodexStatus/RequestLog.swift`: 常驻交互日志存储, 记录请求、响应、错误和无响应请求。
+- `Services/CodexCLI/CodexCLIResolver.swift`: 解析全局 `codex` 与 `/Applications/Codex.app/Contents/Resources/codex`, 并构造真实用户环境。
+- `Services/CodexCLI/CodexCLIVersionService.swift`: 并发探测全局 CLI 与 Codex APP 内置 CLI 的磁盘版本, 合成当前运行版本和「已更新至」提示。
+- `Services/Settings/LoginItemSettings.swift`: 开机自启状态读取和注册/注销。
+- `Services/Updates/AppUpdater.swift`: Sparkle 封装, 更新状态按设置窗、popover 和可用更新拆分。
+- `Models/CodexAccountModels.swift`: account/read 响应和账号展示名。
+- `Models/CodexQuotaModels.swift`: rate limits DTO、quota 业务快照、limit/window 转换和排序。
+- `Models/CodexUsageModels.swift`: usage DTO、token summary、daily bucket 和近 30 周日期网格。
+- `Models/CodexStatusError.swift`: app-server、传输、认证和 unsupported method 错误分类。
+- `Views/Menu/CodexStatusMenuView.swift`: popover 主 UI 装配。
+- `Views/Menu/CodexStatusMenuSections.swift`: 账号卡片、状态卡片、额度区、空数据和更新时间行。
+- `Views/Menu/AutoRefreshCountdownView.swift`: 更新时间倒计时圆环和 popover 可见时的 `TimelineView` tick。
+- `Views/Menu/QuotaRow.swift`: 单个 quota window 行和分段额度条。
+- `Views/Menu/UsageHeatmap.swift` / `Views/Menu/TokenCountText.swift`: token 汇总、近 30 周热力图、hover tooltip 和 K/M/B 紧凑数字格式。
+- `Views/Settings/AppSettingsView.swift`: 设置窗口主布局、开机自启、CodexBar 版本和更新操作入口。
+- `Views/Settings/CodexVersionSection.swift`: Codex CLI/Codex APP 版本、当前使用标记、路径复制和「已更新至」提示。
+- `Views/Settings/SettingsToggleRow.swift`: 设置页通用开关行。
+- `Views/Log/LogView.swift`: 日志窗口 UI, 状态标签为「进行」「完成」「错误」「请求」。
+- `Views/Shared/LiquidGlassStyle.swift`: 自绘 Liquid Glass 视觉入口。
 
 ## app-server 合约
 

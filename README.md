@@ -42,6 +42,16 @@ xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/pl
 
 也可以直接用 Xcode 打开 `CodexBar.xcodeproj` 运行。项目使用 SwiftUI + MVVM 依赖 Sparkle (SwiftPM)
 
+## 源码结构
+
+Swift 源码按职责放在 `CodexBar/` 下的子目录中:
+
+- `App/`: 应用入口
+- `Controllers/`: 菜单栏、popover 和独立窗口控制器
+- `Models/`: account、quota、usage 和错误分类模型
+- `Services/`: app-server 会话、Codex CLI 解析、版本探测、开机自启和 Sparkle 更新
+- `Views/`: 菜单栏弹窗、设置窗口、日志窗口和共享 Liquid Glass 样式
+
 ## 隐私
 
 CodexBar 只与本机 Codex app-server 进程通信。账号信息和额度数据不会被收集或发送给任何个人或服务。
