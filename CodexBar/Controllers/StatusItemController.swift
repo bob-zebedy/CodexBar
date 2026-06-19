@@ -44,7 +44,7 @@ private final class StatusItemController: NSObject {
     private var deferredRefreshTask: Task<Void, Never>?
     private var popoverState = PopoverState.hidden
     private var cancellables = Set<AnyCancellable>()
-    private var lastHasError: Bool?
+    private var isShowingErrorImage: Bool?
     
     private static let normalImage = makeStatusImage("person.fill.checkmark")
     private static let errorImage = makeStatusImage("person.fill.xmark")
@@ -110,26 +110,28 @@ private final class StatusItemController: NSObject {
     }
     
     private func observeViewModel() {
-        viewModel.$loadState
-            .map(\.isError)
+        Publishers.CombineLatest(viewModel.$loadState, viewModel.$snapshot)
+            .map { loadState, snapshot in
+                loadState.isError || snapshot?.hasTrustedData == false
+            }
             .removeDuplicates()
-            .sink { [weak self] hasError in
-                self?.updateStatusImage(hasError: hasError)
+            .sink { [weak self] usesErrorImage in
+                self?.updateStatusImage(usesErrorImage: usesErrorImage)
             }
             .store(in: &cancellables)
     }
     
     private func updateStatusImage() {
-        updateStatusImage(hasError: viewModel.hasError)
+        updateStatusImage(usesErrorImage: viewModel.usesErrorImage)
     }
     
-    private func updateStatusImage(hasError: Bool) {
-        guard hasError != lastHasError else {
+    private func updateStatusImage(usesErrorImage: Bool) {
+        guard usesErrorImage != isShowingErrorImage else {
             return
         }
         
-        lastHasError = hasError
-        statusItem.button?.image = hasError ? Self.errorImage : Self.normalImage
+        isShowingErrorImage = usesErrorImage
+        statusItem.button?.image = usesErrorImage ? Self.errorImage : Self.normalImage
     }
     
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {

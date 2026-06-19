@@ -16,6 +16,18 @@ nonisolated struct CodexQuotaSnapshot: Equatable {
     var planLabel: String? {
         account.planType ?? planType
     }
+    
+    var hasTrustedData: Bool {
+        hasTrustedRateLimitsData || hasTrustedUsageData
+    }
+    
+    private var hasTrustedRateLimitsData: Bool {
+        !limits.isEmpty && !isRateLimitsStale
+    }
+    
+    private var hasTrustedUsageData: Bool {
+        usage != nil && !isUsageStale
+    }
 }
 
 nonisolated struct CodexQuotaLimitSnapshot: Equatable, Identifiable {

@@ -25,6 +25,10 @@ final class CodexStatusViewModel: ObservableObject {
     @Published private(set) var autoRefreshCountdownStartedAt: Date?
     
     var hasError: Bool { loadState.isError }
+    var hasUntrustedData: Bool {
+        snapshot?.hasTrustedData == false
+    }
+    var usesErrorImage: Bool { hasError || hasUntrustedData }
     var autoRefreshInterval: TimeInterval { Self.refreshInterval }
     
     private static let refreshInterval: TimeInterval = 60
