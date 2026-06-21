@@ -36,7 +36,10 @@ final class CodexHookSettings: ObservableObject {
         
         do {
             var config = try readConfigIfPresent()
-            try Self.removeCodexBarHooks(from: &config)
+            try Self.removeCodexBarHooks(
+                from: &config,
+                executablePath: currentExecutablePath
+            )
             
             if enabled {
                 try Self.installCodexBarHooks(
@@ -179,7 +182,10 @@ private extension CodexHookSettings {
         config["hooks"] = hooks
     }
     
-    static func removeCodexBarHooks(from config: inout JSONObject) throws {
+    static func removeCodexBarHooks(
+        from config: inout JSONObject,
+        executablePath: String
+    ) throws {
         guard config["hooks"] != nil else {
             return
         }
@@ -197,7 +203,13 @@ private extension CodexHookSettings {
                     return group
                 }
                 
-                let filteredHandlers = handlers.filter { !isCodexBarHandler($0) }
+                let filteredHandlers = handlers.filter {
+                    !isCurrentCodexBarHandler(
+                        $0,
+                        event: event,
+                        executablePath: executablePath
+                    )
+                }
                 guard !filteredHandlers.isEmpty else {
                     return nil
                 }
@@ -246,15 +258,6 @@ private extension CodexHookSettings {
         executablePath: String
     ) -> Bool {
         commandIfCommandHandler(handler) == hookCommand(for: event, executablePath: executablePath)
-    }
-    
-    static func isCodexBarHandler(_ handler: Any) -> Bool {
-        guard let command = commandIfCommandHandler(handler) else {
-            return false
-        }
-        
-        return command.contains("/Contents/MacOS/CodexBar")
-        && command.contains("--hook-event")
     }
     
     // 仅当 handler 是 type == "command" 时返回其 command 字符串, 否则 nil

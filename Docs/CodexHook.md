@@ -10,13 +10,12 @@
 ~/.codex/hooks.json
 ```
 
-写入前会先移除 CodexBar 自己旧的 Hook 处理器，再按当前 App 路径安装新处理器。关闭时只移除 CodexBar 自己的处理器，用户自定义 Hook、其他 App Hook 和同事件下的其他处理器必须保留。
+开启和关闭都会先移除当前 App 可执行文件路径对应的 CodexBar hook。开启时随后按当前 App 路径安装 hook。用户自定义 Hook、其他 App Hook、其他路径的 CodexBar Hook 和同事件下的其他处理器必须保留。
 
 CodexBar 处理器的识别条件:
 
 - `type` 是 `command`
-- `command` 包含 `/Contents/MacOS/CodexBar`
-- `command` 包含 `--hook-event`
+- `command` 必须等于当前 App 可执行文件路径生成的命令, 例如 `'<当前 CodexBar 可执行文件路径>' --hook-event SessionStart`
 
 检测是否已开启时，要求全部 CodexBar 事件都存在当前 App 路径对应的处理器。
 

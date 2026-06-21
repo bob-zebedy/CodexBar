@@ -342,39 +342,47 @@ private struct UsageHeatmapTooltip: View {
     @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
             if showsWorkflowStats {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: Metrics.headerSpacing) {
                     dateText
                     
-                    Spacer(minLength: 4)
+                    Spacer(minLength: Metrics.headerMinimumSpacer)
                     
                     tokenText
                 }
                 
-                metricRow("会话总数", value: "\(day.workflowStats.sessionCount)")
-                metricRow("对话轮次", value: "\(day.workflowStats.turnCount)")
-                metricRow("子智能体", value: "\(day.workflowStats.subagentCount)")
-                metricRow("工具调用", value: "\(day.workflowStats.toolCallCount)")
-                metricRow("权限请求", value: "\(day.workflowStats.permissionRequestCount)")
-                metricRow("上下文压缩", value: "\(day.workflowStats.contextCompactionCount)")
+                ForEach(workflowMetricRows, id: \.label) { row in
+                    metricRow(row.label, value: row.value)
+                }
             } else {
                 dateText
                 tokenText
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Metrics.horizontalPadding)
+        .padding(.vertical, Metrics.verticalPadding)
         .frame(
             width: tooltipWidth,
             height: tooltipHeight,
             alignment: .leading
         )
         .background {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
+            RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous)
                 .fill(tooltipFill)
         }
-        .liquidGlassSurface(cornerRadius: 7)
+        .liquidGlassSurface(cornerRadius: Metrics.cornerRadius)
+    }
+    
+    private var workflowMetricRows: [(label: String, value: String)] {
+        [
+            ("会话总数", "\(day.workflowStats.sessionCount)"),
+            ("对话轮次", "\(day.workflowStats.turnCount)"),
+            ("子智能体", "\(day.workflowStats.subagentCount)"),
+            ("工具调用", "\(day.workflowStats.toolCallCount)"),
+            ("权限请求", "\(day.workflowStats.permissionRequestCount)"),
+            ("上下文压缩", "\(day.workflowStats.contextCompactionCount)")
+        ]
     }
     
     private var tooltipHeight: CGFloat {
@@ -408,34 +416,49 @@ private struct UsageHeatmapTooltip: View {
     
     private var dateFont: Font {
         showsWorkflowStats
-        ? .system(size: 10).monospacedDigit()
+        ? .system(size: Metrics.workflowFontSize).monospacedDigit()
         : .caption2.monospacedDigit()
     }
     
     private var tokenFont: Font {
         showsWorkflowStats
-        ? .system(size: 10).monospacedDigit().weight(.semibold)
+        ? .system(size: Metrics.workflowFontSize).monospacedDigit().weight(.semibold)
         : .caption.monospacedDigit().weight(.semibold)
     }
     
     private func metricRow(_ label: String, value: String) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Metrics.metricRowSpacing) {
             Text(label)
                 .foregroundStyle(.secondary)
-                .frame(width: 54, alignment: .leading)
+                .frame(width: Metrics.metricLabelWidth, alignment: .leading)
             
             Text(value)
                 .foregroundStyle(Color.codexLabel)
                 .monospacedDigit()
                 .lineLimit(1)
-                .truncationMode(.tail)
+                .minimumScaleFactor(Metrics.metricValueMinimumScale)
+                .allowsTightening(true)
+                .layoutPriority(1)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .font(.system(size: 10))
+        .font(.system(size: Metrics.workflowFontSize))
     }
     
     private var tooltipFill: Color {
         Color(nsColor: .windowBackgroundColor)
             .opacity(colorScheme == .dark ? 0.88 : 0.82)
+    }
+    
+    private enum Metrics {
+        static let rowSpacing: CGFloat = 3
+        static let headerSpacing: CGFloat = 4
+        static let headerMinimumSpacer: CGFloat = 4
+        static let horizontalPadding: CGFloat = 8
+        static let verticalPadding: CGFloat = 6
+        static let cornerRadius: CGFloat = 7
+        static let metricRowSpacing: CGFloat = 6
+        static let metricLabelWidth: CGFloat = 54
+        static let metricValueMinimumScale: CGFloat = 0.60
+        static let workflowFontSize: CGFloat = 10
     }
 }

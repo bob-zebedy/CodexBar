@@ -29,45 +29,45 @@ nonisolated final class WorkflowStatsService: @unchecked Sendable {
         if let repairedSnapshot = repairDailyCacheIfNeededOnQueue() {
             return repairedSnapshot
         }
-
+        
         if let aggregates = loadDailyAggregatesOnQueue(), !aggregates.isEmpty {
             return WorkflowStatsSnapshot(dailyAggregates: aggregates)
         }
-
+        
         guard let data = loadEventLogDataOnQueue(), !data.isEmpty else {
             return .empty
         }
-
+        
         return WorkflowStatsSnapshot(events: WorkflowHookEvent.decodeJSONLines(from: data))
     }
-
+    
     private func repairDailyCacheIfNeededOnQueue() -> WorkflowStatsSnapshot? {
         guard dailyCacheNeedsRebuildOnQueue() else {
             return nil
         }
-
+        
         do {
             let eventLogData = try loadEventLogDataForRebuildOnQueue()
             let eventLogStateAfterRead = WorkflowStatsStorage.fileState(at: eventLogURL)
             guard eventLogStateAfterRead.size == UInt64(eventLogData.count) else {
                 throw WorkflowStatsRebuildError.eventsChangedDuringRebuild
             }
-
+            
             let decodedEvents = WorkflowHookEvent.decodeJSONLinesWithFailures(from: eventLogData)
             if eventLogStateAfterRead.size > 0,
                decodedEvents.values.isEmpty,
                decodedEvents.failedLineCount > 0 {
                 throw WorkflowStatsRebuildError.noReadableEvents(corruptLineCount: decodedEvents.failedLineCount)
             }
-
+            
             let aggregates = WorkflowDailyAggregate.aggregates(from: decodedEvents.values)
-
+            
             return try WorkflowStatsStorage.withExclusiveLock {
                 let currentEventLogState = WorkflowStatsStorage.fileState(at: eventLogURL)
                 guard currentEventLogState == eventLogStateAfterRead else {
                     throw WorkflowStatsRebuildError.eventsChangedDuringRebuild
                 }
-
+                
                 var state = WorkflowStatsStorage.loadMaintenanceState()
                 guard state.needsDailyRebuild(
                     eventLogSize: currentEventLogState.size,
@@ -75,16 +75,16 @@ nonisolated final class WorkflowStatsService: @unchecked Sendable {
                 ) else {
                     return loadDailyAggregatesOnQueue().map { WorkflowStatsSnapshot(dailyAggregates: $0) } ?? .empty
                 }
-
+                
                 let data = try WorkflowDailyAggregate.encodeJSONLines(aggregates)
                 try data.write(to: dailyLogURL, options: .atomic)
-
+                
                 state.markDailyRebuildSucceeded(
                     eventLogSize: currentEventLogState.size,
                     corruptEventLineCount: decodedEvents.failedLineCount
                 )
                 try WorkflowStatsStorage.saveMaintenanceState(state)
-
+                
                 return WorkflowStatsSnapshot(dailyAggregates: aggregates)
             }
         } catch {
@@ -92,22 +92,22 @@ nonisolated final class WorkflowStatsService: @unchecked Sendable {
             return nil
         }
     }
-
+    
     private func dailyCacheNeedsRebuildOnQueue() -> Bool {
         WorkflowStatsStorage.loadMaintenanceState().needsDailyRebuild(
             eventLogSize: WorkflowStatsStorage.fileSize(at: eventLogURL),
             dailyLogURL: dailyLogURL
         )
     }
-
+    
     private func loadEventLogDataForRebuildOnQueue() throws -> Data {
         guard FileManager.default.fileExists(atPath: eventLogURL.path) else {
             return Data()
         }
-
+        
         return try Data(contentsOf: eventLogURL)
     }
-
+    
     private func recordDailyRebuildFailureOnQueue(_ error: Error) {
         try? WorkflowStatsStorage.withExclusiveLock {
             var state = WorkflowStatsStorage.loadMaintenanceState()
@@ -115,17 +115,17 @@ nonisolated final class WorkflowStatsService: @unchecked Sendable {
             try WorkflowStatsStorage.saveMaintenanceState(state)
         }
     }
-
+    
     private func loadDailyAggregatesOnQueue() -> [WorkflowDailyAggregate]? {
         guard let data = try? Data(contentsOf: dailyLogURL), !data.isEmpty else {
             return nil
         }
-
+        
         let aggregates = WorkflowDailyAggregate.decodeJSONLines(from: data)
         guard !aggregates.isEmpty else {
             return nil
         }
-
+        
         return WorkflowDailyAggregate.normalized(aggregates: aggregates)
     }
     
@@ -169,27 +169,27 @@ nonisolated final class WorkflowStatsService: @unchecked Sendable {
 nonisolated enum WorkflowStatsStorage {
     private static let retentionDayCount = 210
     private static let identifierRetentionDayCount = 7
-
+    
     static func eventsURL() -> URL {
         directoryURL()
             .appendingPathComponent("events.jsonl", isDirectory: false)
     }
-
+    
     static func dailyURL() -> URL {
         directoryURL()
             .appendingPathComponent("daily.jsonl", isDirectory: false)
     }
-
+    
     static func lockURL() -> URL {
         directoryURL()
             .appendingPathComponent("stats.lock", isDirectory: false)
     }
-
+    
     static func maintenanceURL() -> URL {
         directoryURL()
             .appendingPathComponent("maintenance.json", isDirectory: false)
     }
-
+    
     static func directoryURL() -> URL {
         let applicationSupportURL = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -202,72 +202,72 @@ nonisolated enum WorkflowStatsStorage {
             .appendingPathComponent("CodexBar", isDirectory: true)
             .appendingPathComponent("HookEvents", isDirectory: true)
     }
-
+    
     static func withExclusiveLock<T>(_ work: () throws -> T) throws -> T {
         try FileManager.default.createDirectory(
             at: directoryURL(),
             withIntermediateDirectories: true
         )
-
+        
         let lockURL = lockURL()
         if !FileManager.default.fileExists(atPath: lockURL.path) {
             FileManager.default.createFile(atPath: lockURL.path, contents: nil)
         }
-
+        
         let lockHandle = try FileHandle(forUpdating: lockURL)
         defer {
             try? lockHandle.close()
         }
-
+        
         if flock(lockHandle.fileDescriptor, LOCK_EX) != 0 {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
-
+        
         defer {
             flock(lockHandle.fileDescriptor, LOCK_UN)
         }
-
+        
         return try work()
     }
-
+    
     static func loadMaintenanceState() -> WorkflowStatsMaintenanceState {
         let url = maintenanceURL()
         guard let data = try? Data(contentsOf: url), !data.isEmpty,
               let state = try? JSONDecoder().decode(WorkflowStatsMaintenanceState.self, from: data) else {
             return WorkflowStatsMaintenanceState()
         }
-
+        
         return state
     }
-
+    
     static func saveMaintenanceState(_ state: WorkflowStatsMaintenanceState) throws {
         try FileManager.default.createDirectory(
             at: directoryURL(),
             withIntermediateDirectories: true
         )
-
+        
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(state)
         try data.write(to: maintenanceURL(), options: .atomic)
     }
-
+    
     static func fileSize(at url: URL) -> UInt64 {
         fileState(at: url).size
     }
-
+    
     static func fileState(at url: URL) -> WorkflowStatsFileState {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let fileSize = attributes[.size] as? NSNumber else {
             return WorkflowStatsFileState(size: 0, modifiedAt: nil)
         }
-
+        
         return WorkflowStatsFileState(
             size: fileSize.uint64Value,
             modifiedAt: attributes[.modificationDate] as? Date
         )
     }
-
+    
     static func retentionCutoffDate(today: Date = Date(), calendar: Calendar = .current) -> Date {
         let todayStart = calendar.startOfDay(for: today)
         return calendar.date(
@@ -276,7 +276,7 @@ nonisolated enum WorkflowStatsStorage {
             to: todayStart
         ) ?? todayStart
     }
-
+    
     static func identifierRetentionCutoffDate(today: Date = Date(), calendar: Calendar = .current) -> Date {
         let todayStart = calendar.startOfDay(for: today)
         return calendar.date(
@@ -294,7 +294,7 @@ nonisolated struct WorkflowStatsFileState: Equatable {
 
 nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
     private static let maxErrorSummaryLength = 240
-
+    
     var lastMaintenanceDate: String?
     var lastAggregatedEventLogSize: UInt64?
     var needsDailyRebuild: Bool
@@ -302,7 +302,7 @@ nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
     var lastDailyRebuildFailedAt: String?
     var lastDailyRebuildError: String?
     var corruptEventLineCount: Int
-
+    
     init(
         lastMaintenanceDate: String? = nil,
         lastAggregatedEventLogSize: UInt64? = nil,
@@ -320,7 +320,7 @@ nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
         self.lastDailyRebuildError = lastDailyRebuildError
         self.corruptEventLineCount = corruptEventLineCount
     }
-
+    
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.lastMaintenanceDate = try container.decodeIfPresent(String.self, forKey: .lastMaintenanceDate)
@@ -331,32 +331,32 @@ nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
         self.lastDailyRebuildError = try container.decodeIfPresent(String.self, forKey: .lastDailyRebuildError)
         self.corruptEventLineCount = try container.decodeIfPresent(Int.self, forKey: .corruptEventLineCount) ?? 0
     }
-
+    
     func needsDailyRebuild(eventLogSize: UInt64, dailyLogURL: URL) -> Bool {
         if needsDailyRebuild {
             return true
         }
-
+        
         guard eventLogSize > 0 else {
             return false
         }
-
+        
         guard let lastAggregatedEventLogSize else {
             return true
         }
-
+        
         if lastAggregatedEventLogSize != eventLogSize {
             return true
         }
-
+        
         return WorkflowStatsStorage.fileSize(at: dailyLogURL) == 0
     }
-
+    
     mutating func markDailyCacheUpdated(eventLogSize: UInt64) {
         needsDailyRebuild = false
         lastAggregatedEventLogSize = eventLogSize
     }
-
+    
     mutating func markDailyRebuildSucceeded(eventLogSize: UInt64, corruptEventLineCount: Int) {
         markDailyCacheUpdated(eventLogSize: eventLogSize)
         lastDailyRebuildAt = Self.timestampString()
@@ -364,28 +364,28 @@ nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
         lastDailyRebuildError = nil
         self.corruptEventLineCount = corruptEventLineCount
     }
-
+    
     mutating func markDailyRebuildNeeded(error: Error? = nil) {
         needsDailyRebuild = true
-
+        
         guard let error else {
             return
         }
-
+        
         lastDailyRebuildFailedAt = Self.timestampString()
         lastDailyRebuildError = Self.errorSummary(error)
     }
-
+    
     static func timestampString(from date: Date = Date()) -> String {
         ISO8601DateFormatter.codexFractional.string(from: date)
     }
-
+    
     private static func errorSummary(_ error: Error) -> String {
         let message = error.localizedDescription
         guard message.count > maxErrorSummaryLength else {
             return message
         }
-
+        
         return String(message.prefix(maxErrorSummaryLength))
     }
 }
@@ -393,7 +393,7 @@ nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
 private nonisolated enum WorkflowStatsRebuildError: LocalizedError {
     case eventsChangedDuringRebuild
     case noReadableEvents(corruptLineCount: Int)
-
+    
     var errorDescription: String? {
         switch self {
         case .eventsChangedDuringRebuild:
