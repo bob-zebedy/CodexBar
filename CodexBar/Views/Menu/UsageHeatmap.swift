@@ -3,20 +3,38 @@ import SwiftUI
 struct UsageSummaryView: View {
     let usage: CodexUsageSnapshot
     let isStale: Bool
-    private let days: [DailyUsageBucket?]
-    @State private var hoveredDay: DailyUsageBucket?
+    let showsWorkflowStats: Bool
+    private let days: [UsageHeatmapDay?]
+    @State private var hoveredDay: UsageHeatmapDay?
     
-    init(usage: CodexUsageSnapshot, isStale: Bool = false) {
+    init(
+        usage: CodexUsageSnapshot,
+        workflowStats: WorkflowStatsSnapshot,
+        showsWorkflowStats: Bool,
+        isStale: Bool = false
+    ) {
         self.usage = usage
         self.isStale = isStale
-        self.days = usage.recentWeekGrid(columnCount: UsageHeatmap.Metrics.columnCount, endingDaysAgo: 1)
+        self.showsWorkflowStats = showsWorkflowStats
+        
+        self.days = UsageHeatmapDay.grid(
+            usage: usage,
+            workflowStats: workflowStats,
+            showsWorkflowStats: showsWorkflowStats,
+            columnCount: UsageHeatmap.Metrics.columnCount,
+            today: Date()
+        )
     }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             metricsGrid
             
-            UsageHeatmap(days: days, hoveredDay: $hoveredDay)
+            UsageHeatmap(
+                days: days,
+                showsWorkflowStats: showsWorkflowStats,
+                hoveredDay: $hoveredDay
+            )
         }
         .markStale(isStale)
         .padding(10)
@@ -108,16 +126,22 @@ struct UsageSummaryView: View {
 }
 
 struct UsageHeatmap: View {
-    let days: [DailyUsageBucket?]
-    @Binding var hoveredDay: DailyUsageBucket?
+    let days: [UsageHeatmapDay?]
+    let showsWorkflowStats: Bool
+    @Binding var hoveredDay: UsageHeatmapDay?
     @State private var hoveredSquareFrame: CGRect = .zero
     // hover 期间 body 频繁重算, 峰值只在构建时求一次
     private let peakTokens: Int
     
-    init(days: [DailyUsageBucket?], hoveredDay: Binding<DailyUsageBucket?>) {
+    init(
+        days: [UsageHeatmapDay?],
+        showsWorkflowStats: Bool,
+        hoveredDay: Binding<UsageHeatmapDay?>
+    ) {
         self.days = days
+        self.showsWorkflowStats = showsWorkflowStats
         self._hoveredDay = hoveredDay
-        self.peakTokens = max(days.lazy.compactMap { $0?.tokens }.max() ?? 0, 1)
+        self.peakTokens = max(days.lazy.compactMap { $0?.tokensForHeatmap }.max() ?? 0, 1)
     }
     
     var body: some View {
@@ -125,7 +149,7 @@ struct UsageHeatmap: View {
             heatmapGrid
             
             if let hoveredDay {
-                UsageHeatmapTooltip(day: hoveredDay)
+                UsageHeatmapTooltip(day: hoveredDay, showsWorkflowStats: showsWorkflowStats)
                     .id(hoveredDay.id)
                     .allowsHitTesting(false)
                     .offset(tooltipOffset)
@@ -163,7 +187,7 @@ struct UsageHeatmap: View {
                             if days.indices.contains(index), let day = days[index] {
                                 UsageHeatmapSquare(
                                     day: day,
-                                    percent: Double(day.tokens) / Double(peakTokens),
+                                    percent: Double(day.tokensForHeatmap) / Double(peakTokens),
                                     isHovered: hoveredDay?.id == day.id
                                 ) { frame in
                                     if hoveredDay?.id != day.id {
@@ -193,30 +217,35 @@ struct UsageHeatmap: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     
-    private var visibleDays: [DailyUsageBucket] {
+    private var visibleDays: [UsageHeatmapDay] {
         days.compactMap { $0 }
     }
     
     private var tooltipOffset: CGSize {
-        let aboveY = hoveredSquareFrame.minY - Metrics.tooltipSquareSpacing - Metrics.tooltipHeight
+        let aboveY = hoveredSquareFrame.minY - Metrics.tooltipSquareSpacing - tooltipHeight
         let tooltipY = aboveY >= 0 ? aboveY : hoveredSquareFrame.maxY + Metrics.tooltipSquareSpacing
         
         return CGSize(
             width: tooltipX(for: hoveredSquareFrame),
-            height: min(max(tooltipY, 0), max(0, Metrics.height - Metrics.tooltipHeight))
+            height: min(max(tooltipY, 0), max(0, Metrics.height - tooltipHeight))
         )
+    }
+    
+    private var tooltipHeight: CGFloat {
+        Metrics.tooltipHeight(showsWorkflowStats: showsWorkflowStats)
     }
     
     private func tooltipX(for squareFrame: CGRect) -> CGFloat {
         let trailingX = squareFrame.maxX + Metrics.tooltipSquareSpacing
-        let leadingX = squareFrame.minX - Metrics.tooltipSquareSpacing - Metrics.tooltipWidth
-        let maxX = max(0, Metrics.totalWidth - Metrics.tooltipWidth)
+        let tooltipWidth = Metrics.tooltipWidth(showsWorkflowStats: showsWorkflowStats)
+        let leadingX = squareFrame.minX - Metrics.tooltipSquareSpacing - tooltipWidth
+        let maxX = max(0, Metrics.totalWidth - tooltipWidth)
         
         if leadingX >= 0 {
             return leadingX
         }
         
-        if trailingX + Metrics.tooltipWidth <= Metrics.totalWidth {
+        if trailingX + tooltipWidth <= Metrics.totalWidth {
             return trailingX
         }
         
@@ -228,23 +257,33 @@ extension UsageHeatmap {
     enum Metrics {
         static let coordinateSpaceName = "usageHeatmap"
         static let columnCount = 30
-        static let rowCount = 7
+        static let rowCount = CodexWeekGrid.rowCount
         static let squareSize: CGFloat = 12
         static let squareSpacing: CGFloat = 3
         static let height: CGFloat = 120
-        static let tooltipWidth: CGFloat = 78
-        static let tooltipHeight: CGFloat = 38
+        static let workflowTooltipWidth: CGFloat = 132
+        static let tokenTooltipWidth: CGFloat = 92
+        static let workflowTooltipHeight: CGFloat = 116
+        static let tokenTooltipHeight: CGFloat = 40
         static let tooltipSquareSpacing: CGFloat = 2
         static let tooltipFadeDuration: TimeInterval = 0.15
         
         static var totalWidth: CGFloat {
             CGFloat(columnCount) * squareSize + CGFloat(columnCount - 1) * squareSpacing
         }
+        
+        static func tooltipWidth(showsWorkflowStats: Bool) -> CGFloat {
+            showsWorkflowStats ? workflowTooltipWidth : tokenTooltipWidth
+        }
+        
+        static func tooltipHeight(showsWorkflowStats: Bool) -> CGFloat {
+            showsWorkflowStats ? workflowTooltipHeight : tokenTooltipHeight
+        }
     }
 }
 
 private struct UsageHeatmapSquare: View {
-    let day: DailyUsageBucket
+    let day: UsageHeatmapDay
     let percent: Double
     let isHovered: Bool
     let onActive: (CGRect) -> Void
@@ -279,7 +318,7 @@ private struct UsageHeatmapSquare: View {
     }
     
     private var fillColor: Color {
-        guard day.tokens > 0 else {
+        guard day.tokensForHeatmap > 0 else {
             return Color.blue.opacity(isHovered ? 0.16 : 0.08)
         }
         
@@ -293,25 +332,110 @@ private struct UsageHeatmapSquare: View {
             return Color.blue.opacity(0.78)
         }
         
-        return Color.blue.opacity(day.tokens > 0 ? 0.18 : 0.10)
+        return Color.blue.opacity(day.tokensForHeatmap > 0 ? 0.18 : 0.10)
     }
 }
 
 private struct UsageHeatmapTooltip: View {
-    let day: DailyUsageBucket
+    let day: UsageHeatmapDay
+    let showsWorkflowStats: Bool
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(day.startDate)
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(Color.codexSecondaryLabel)
-            
-            TokenCountText(tokens: day.tokens)
+        VStack(alignment: .leading, spacing: 3) {
+            if showsWorkflowStats {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    dateText
+                    
+                    Spacer(minLength: 4)
+                    
+                    tokenText
+                }
+                
+                metricRow("会话总数", value: "\(day.workflowStats.sessionCount)")
+                metricRow("对话轮次", value: "\(day.workflowStats.turnCount)")
+                metricRow("子智能体", value: "\(day.workflowStats.subagentCount)")
+                metricRow("工具调用", value: "\(day.workflowStats.toolCallCount)")
+                metricRow("权限请求", value: "\(day.workflowStats.permissionRequestCount)")
+                metricRow("上下文压缩", value: "\(day.workflowStats.contextCompactionCount)")
+            } else {
+                dateText
+                tokenText
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(
+            width: tooltipWidth,
+            height: tooltipHeight,
+            alignment: .leading
+        )
+        .background {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(tooltipFill)
+        }
+        .liquidGlassSurface(cornerRadius: 7)
+    }
+    
+    private var tooltipHeight: CGFloat {
+        UsageHeatmap.Metrics.tooltipHeight(showsWorkflowStats: showsWorkflowStats)
+    }
+    
+    private var tooltipWidth: CGFloat {
+        UsageHeatmap.Metrics.tooltipWidth(showsWorkflowStats: showsWorkflowStats)
+    }
+    
+    private var dateText: some View {
+        Text(day.startDate)
+            .font(dateFont)
+            .foregroundStyle(Color.codexSecondaryLabel)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(1)
+    }
+    
+    @ViewBuilder
+    private var tokenText: some View {
+        if let tokenCount = day.tokenCount {
+            TokenCountText(tokens: tokenCount, font: tokenFont)
+                .foregroundStyle(Color.codexLabel)
+        } else {
+            Text("--")
+                .font(tokenFont)
                 .foregroundStyle(Color.codexLabel)
         }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 5)
-        .frame(width: UsageHeatmap.Metrics.tooltipWidth, alignment: .leading)
-        .liquidGlassSurface(cornerRadius: 7)
+    }
+    
+    private var dateFont: Font {
+        showsWorkflowStats
+        ? .system(size: 10).monospacedDigit()
+        : .caption2.monospacedDigit()
+    }
+    
+    private var tokenFont: Font {
+        showsWorkflowStats
+        ? .system(size: 10).monospacedDigit().weight(.semibold)
+        : .caption.monospacedDigit().weight(.semibold)
+    }
+    
+    private func metricRow(_ label: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: 54, alignment: .leading)
+            
+            Text(value)
+                .foregroundStyle(Color.codexLabel)
+                .monospacedDigit()
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .font(.system(size: 10))
+    }
+    
+    private var tooltipFill: Color {
+        Color(nsColor: .windowBackgroundColor)
+            .opacity(colorScheme == .dark ? 0.88 : 0.82)
     }
 }

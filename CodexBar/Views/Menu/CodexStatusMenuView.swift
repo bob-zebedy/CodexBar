@@ -10,6 +10,8 @@ struct CodexStatusMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + MenuMetrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
     
     @ObservedObject var viewModel: CodexStatusViewModel
+    @ObservedObject var workflowStatsViewModel: WorkflowStatsViewModel
+    @ObservedObject var codexHookSettings: CodexHookSettings
     @ObservedObject var popoverVisibility: PopoverVisibilityState
     @EnvironmentObject private var appUpdater: AppUpdater
     
@@ -20,6 +22,7 @@ struct CodexStatusMenuView: View {
         .padding(Metrics.padding)
         .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, isOuterSurface: true)
         .animation(Metrics.statusAnimation, value: viewModel.loadState)
+        .animation(Metrics.statusAnimation, value: codexHookSettings.isEnabled)
     }
 }
 
@@ -66,7 +69,12 @@ private extension CodexStatusMenuView {
             }
             
             if let usage = snapshot.usage {
-                UsageSummaryView(usage: usage, isStale: snapshot.isUsageStale)
+                UsageSummaryView(
+                    usage: usage,
+                    workflowStats: workflowStatsViewModel.snapshot,
+                    showsWorkflowStats: codexHookSettings.isEnabled,
+                    isStale: snapshot.isUsageStale
+                )
             }
         }
         

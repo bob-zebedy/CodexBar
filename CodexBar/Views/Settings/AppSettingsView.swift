@@ -6,6 +6,7 @@ struct AppSettingsView: View {
     @EnvironmentObject private var appUpdater: AppUpdater
     @StateObject private var loginItemSettings = LoginItemSettings()
     @StateObject private var codexVersions = CodexCLIVersionViewModel()
+    @ObservedObject var codexHookSettings: CodexHookSettings
     
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
@@ -13,6 +14,8 @@ struct AppSettingsView: View {
                 launchAtLoginRow
                 LiquidGlassDivider()
                 automaticUpdateCheckRow
+                LiquidGlassDivider()
+                codexHookRow
                 LiquidGlassDivider()
                 versionRow
                 LiquidGlassDivider()
@@ -28,6 +31,7 @@ struct AppSettingsView: View {
                 checkUpdateButton
             }
             .animation(Metrics.statusAnimation, value: loginItemSettings.errorMessage)
+            .animation(Metrics.statusAnimation, value: codexHookSettings.errorMessage)
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
         }
@@ -44,6 +48,7 @@ struct AppSettingsView: View {
         )
         .onAppear {
             loginItemSettings.refresh()
+            codexHookSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
             refreshCodexVersionSection()
         }
@@ -87,6 +92,29 @@ private extension AppSettingsView {
             ),
             isEnabled: appUpdater.canConfigureAutomaticChecks
         )
+    }
+    
+    var codexHookRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            SettingsToggleRow(
+                icon: "link",
+                title: "启用 Codex Hook",
+                isOn: Binding(
+                    get: { codexHookSettings.isEnabled },
+                    set: { codexHookSettings.setEnabled($0) }
+                )
+            )
+            
+            HStack(alignment: .top, spacing: 10) {
+                Color.clear
+                    .frame(width: Metrics.iconWidth)
+                
+                Text("开启后将会写入全局 Codex Hook 配置\n用于热力图中展示更多数据, 数据仅保存在本机")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
     
     var versionRow: some View {
@@ -149,6 +177,12 @@ private extension AppSettingsView {
     @ViewBuilder
     var statusText: some View {
         if let message = loginItemSettings.errorMessage {
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+                .transition(.opacity)
+        } else if let message = codexHookSettings.errorMessage {
             Text(message)
                 .font(.caption)
                 .foregroundStyle(.red)

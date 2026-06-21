@@ -6,7 +6,7 @@
 
 ## 目标
 
-CodexBar 是一个 macOS 菜单栏应用, 通过本机 Codex app-server 展示当前 Codex 账号、额度、token 用量、Codex CLI/APP 版本和交互日志。你的目标是交付可验证、范围清晰、贴合现有 SwiftUI/AppKit/MVVM 架构的修改, 并保护本地认证、隐私、菜单栏体验、Sparkle 更新和发布流程。
+CodexBar 是一个 macOS 菜单栏应用, 通过本机 Codex app-server 展示当前 Codex 账号、额度、token 用量、Codex CLI/APP 版本和交互日志, 并可通过 Codex Hook 统计本机工作流数据。你的目标是交付可验证、范围清晰、贴合现有 SwiftUI/AppKit/MVVM 架构的修改, 并保护本地认证、隐私、菜单栏体验、Hook 配置、Sparkle 更新和发布流程。
 
 ## 成功标准
 
@@ -79,123 +79,46 @@ CodexStatusService(JSON-RPC app-server)
   -> CodexStatusViewModel(@MainActor 状态发布)
   -> StatusItemController(菜单栏图标、popover、窗口入口)
   -> CodexStatusMenuView / AppSettingsView / LogView
+
+Codex Hook
+  -> WorkflowHookEventRecorder(--hook-event)
+  -> WorkflowStatsStorage(events.jsonl / daily.jsonl)
+  -> WorkflowStatsService
+  -> WorkflowStatsViewModel
+  -> UsageSummaryView / UsageHeatmap
 ```
 
-关键文件职责:
+目录职责:
 
-- `App/CodexBarApp.swift`: `@main` 入口、空 `Settings` scene、`Bundle.displayVersionLabel`。
-- `Controllers/StatusItemController.swift`: `NSStatusItem`、`NSPopover` 状态切换、右键菜单、设置/日志窗口入口、自动刷新启动。
-- `Controllers/PopoverDismissMonitor.swift`: popover 外部点击关闭监控, 并稳定 `NSVisualEffectView` inactive 外观。
-- `Controllers/PopoverFadeCoordinator.swift`: popover 淡入淡出、alpha 重置和动画任务取消。
-- `Controllers/HostingWindowController.swift`: 设置和日志窗口的懒创建、居中、置顶和跨桌面打开行为。
-- `Controllers/SettingsWindowController.swift`: 独立设置窗口。
-- `Controllers/LogWindowController.swift`: 独立日志窗口。
-- `Services/CodexStatus/CodexStatusViewModel.swift`: `@MainActor ObservableObject`, 发布 `snapshot`、`isRefreshing`、`loadState`、`codexConnectionInfo`、`autoRefreshCountdownStartedAt`。
-- `Services/CodexStatus/CodexStatusService.swift`: app-server 连接生命周期、连接复用、认证刷新、rate limits/usage 降级和连接信息。
-- `Services/CodexStatus/AppServerSession.swift`: JSON-RPC 请求/通知、请求日志回填、业务错误重试、unsupported method 记录。
-- `Services/CodexStatus/AppServerPipeReaders.swift`: stdout 按行读取和 stderr drain, 不把子进程 stderr 展示给用户。
-- `Services/CodexStatus/RequestLog.swift`: 常驻交互日志存储, 记录请求、响应、错误和无响应请求。
-- `Services/CodexCLI/CodexCLIResolver.swift`: 解析全局 `codex` 与 `/Applications/Codex.app/Contents/Resources/codex`, 并构造真实用户环境。
-- `Services/CodexCLI/CodexCLIVersionService.swift`: 并发探测全局 CLI 与 Codex APP 内置 CLI 的磁盘版本, 合成当前运行版本和「已更新至」提示。
-- `Services/Settings/LoginItemSettings.swift`: 开机自启状态读取和注册/注销。
-- `Services/Updates/AppUpdater.swift`: Sparkle 封装, 更新状态按设置窗、popover 和可用更新拆分。
-- `Models/CodexAccountModels.swift`: account/read 响应和账号展示名。
-- `Models/CodexQuotaModels.swift`: rate limits DTO、quota 业务快照、limit/window 转换和排序。
-- `Models/CodexUsageModels.swift`: usage DTO、token summary、daily bucket 和近 30 周日期网格。
-- `Models/CodexStatusError.swift`: app-server、传输、认证和 unsupported method 错误分类。
-- `Views/Menu/CodexStatusMenuView.swift`: popover 主 UI 装配。
-- `Views/Menu/CodexStatusMenuSections.swift`: 账号卡片、状态卡片、额度区、空数据和更新时间行。
-- `Views/Menu/AutoRefreshCountdownView.swift`: 更新时间倒计时圆环和 popover 可见时的 `TimelineView` tick。
-- `Views/Menu/QuotaRow.swift`: 单个 quota window 行和分段额度条。
-- `Views/Menu/UsageHeatmap.swift` / `Views/Menu/TokenCountText.swift`: token 汇总、近 30 周热力图、hover tooltip 和 K/M/B 紧凑数字格式。
-- `Views/Settings/AppSettingsView.swift`: 设置窗口主布局、开机自启、CodexBar 版本和更新操作入口。
-- `Views/Settings/CodexVersionSection.swift`: Codex CLI/Codex APP 版本、当前使用标记、路径复制和「已更新至」提示。
-- `Views/Settings/SettingsToggleRow.swift`: 设置页通用开关行。
-- `Views/Log/LogView.swift`: 日志窗口 UI, 状态标签为「进行」「完成」「错误」「请求」。
-- `Views/Shared/LiquidGlassStyle.swift`: 自绘 Liquid Glass 视觉入口。
+- `App/`: 入口和全局启动分支。
+- `Controllers/`: 菜单栏、popover、设置窗口和日志窗口控制。
+- `Models/`: account、quota、usage、workflow stats、共享日期网格和错误模型。
+- `Services/`: app-server、Codex CLI、设置、Hook 统计、更新和日志服务。
+- `Views/`: popover、设置、日志和共享 Liquid Glass 样式。
+
+Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.md](Docs/CodexHook.md)。
 
 ## app-server 合约
 
-启动命令统一是:
+- 详细合约见 [Docs/AppServer.md](Docs/AppServer.md)。
+- 必须通过 `CodexCLIResolver.resolveAppServerCommand()` 解析, 不要绕过 resolver 直接启动。
+- app-server 环境必须使用真实用户 `HOME`、`USER`、`LOGNAME`; 不要改回 Xcode sandbox/container 的 `HOME`。
+- 保留认证失败 refresh token、unsupported method、业务错误重试、stale cache 和连接重建语义。
+- 不要把子进程 stderr、认证文件或原始敏感 RPC 响应展示给用户。
 
-```bash
-codex app-server --listen stdio://
-```
+## Codex Hook 合约
 
-必须通过 `CodexCLIResolver.resolveAppServerCommand()` 解析:
-
-- 优先 PATH 中的全局 `codex`。
-- 如果 PATH 中的 `codex` 等价于 `/Applications/Codex.app/Contents/Resources/codex`, 当作内置 Codex APP CLI, 不当作全局 CLI。
-- 全局 CLI 不存在时回退 Codex APP 内置 CLI。
-- 两者都不存在时返回 `CodexStatusError.executableNotFound`, UI 归为「初始化失败」, 日志记录具体错误。
-
-启动环境由 `CodexCLIResolver.environment` 构造:
-
-- 保留当前环境。
-- `HOME` 必须来自 `getpwuid(getuid())` 的真实用户 home。
-- 同步设置 `USER`、`LOGNAME`。
-- 合并 Homebrew、npm global、`.local`、Volta 和系统路径。
-- 确保 `TERM` 有值。
-- 不要改回 Xcode sandbox/container 的 `HOME`, 否则会读不到真实 `~/.codex/auth.json`。
-
-首次连接流程:
-
-```json
-{"method":"initialize","id":1,"params":{"clientInfo":{"name":"codex_bar","title":"Codex Bar","version":"<Bundle MARKETING_VERSION 或 1.0.0>"}}}
-{"method":"initialized"}
-{"method":"account/read","id":2,"params":{"refreshToken":false}}
-```
-
-`initialized` 是无 id 请求, 不等待响应; 日志中记录为空响应请求, 不归为通知类型。
-
-同一会话后续读取:
-
-- `account/read` 每轮复用连接时用 `refreshToken: false` 更新账户状态。
-- `account/rateLimits/read` 读取额度。
-- `account/usage/read` 读取 `summary.lifetimeTokens`、`summary.peakDailyTokens`、`dailyUsageBuckets`。
-- 认证失败时同会话最多调用一次 `account/read`(`refreshToken: true`) 后重试原读取。
-- 所有走 `AppServerSession.request` 的方法, 收到方法不支持错误后都记录到当前会话的 `unsupportedMethods`, 本连接后续不再请求该方法。
-- 方法不支持必须是 JSON-RPC error, 且 message 包含 `Invalid request: unknown variant`。
-- 请求有 JSON-RPC error 响应, 且不是认证失败、不是方法不支持、不是传输/解析故障时, 先立即重试同一个请求一次。
-- 非认证业务错误重试后仍失败时不阻断整轮刷新, 详情只进日志。
-- `account/rateLimits/read` 和 `account/usage/read` 重试后仍失败时, 若同账号有上次成功数据则复用旧数据并标记为 stale; 没有旧数据则不展示对应区域。
-- 方法不支持不复用旧数据; 对应读取结果视为空。
-- 传输/解析故障归为需要重建连接。
-
-连接细节:
-
-- `requestTimeout` 是 20 秒。
-- `connectionMaxAge` 是 1 小时。
-- `SIGPIPE` 已被忽略, 写入断管后应由 `write` 抛错并走重建。
-- 复用连接出现传输故障时只重建重试一次。
-- 全新连接初始化失败直接返回「初始化失败」, 不重复完整握手。
-- `initialize` 响应 `userAgent` 首个 token 形如 `codex_bar/0.139.0 (...)`; 取 `/` 后版本号作为当前运行版本。
+- 详细设计见 [Docs/CodexHook.md](Docs/CodexHook.md)。
+- 设置开关只能追加或移除 CodexBar 自己的 Hook 处理器, 不能破坏用户已有 Hook。
+- Hook 命令只支持 `--hook-event`。
+- Hook 数据只保存在 `~/Library/Application Support/CodexBar/HookEvents/`。
+- Hook 写入可能并发触发, 更新 `events.jsonl`、`daily.jsonl` 和 `maintenance.json` 时必须通过 `stats.lock` 加锁。
 
 ## UI 状态与日志
 
-`CodexLoadState` 只有四种:
-
-- `loading`
-- `loaded`
-- `notLoggedIn`
-- `initializationFailed`
-
-UI 只展示「未登录」和「初始化失败」两类特殊状态; 具体请求错误、启动错误、超时、断连、解析失败都进入日志。
-
-日志状态标签:
-
-- `.pending` ->「进行」
-- `.response` ->「完成」
-- `.failure` ->「错误」
-- `.emptyResponse` ->「请求」
-
-日志规则:
-
-- 带 id 的 JSON-RPC 请求先记录为进行, 响应或错误到达后回填到同一条。
-- `initialized` 这类无 id 请求记录为空响应。
-- 日志容量上限 500 条, 单条详情上限 4000 字符。
-- 合法 JSON 通过 `JSONSerialization` 重新序列化, 使用 `.sortedKeys` 和 `.withoutEscapingSlashes`; 非 JSON 错误消息保持原样。
-- 不要把子进程 stderr 直接展示给用户。
+- app-server 状态和请求日志规则见 [Docs/AppServer.md](Docs/AppServer.md)。
+- UI 只展示「未登录」和「初始化失败」两类特殊状态; 具体请求错误、启动错误、超时、断连、解析失败都进入日志。
+- 日志窗口状态标签为「进行」「完成」「错误」「请求」。
 
 ## 数据模型
 
@@ -214,8 +137,13 @@ UI 只展示「未登录」和「初始化失败」两类特殊状态; 具体请
 `CodexUsageSnapshot`:
 
 - `recentWeekGrid(columnCount:endingDaysAgo:today:)` 基于本地当天零点生成按周排列的日期网格, 每列从周日开始。
-- UI 使用 30 列、7 行, 默认 `endingDaysAgo = 1`, 不包含今天。
+- UI 使用 30 列、7 行; Hook 开启或 app-server 已返回当天 token bucket 时包含今天, 否则不包含今天。
 - `nil` 表示未来日期或不可生成日期; 热力图不绘制方块也不参与峰值计算。
+
+工作流统计:
+
+- 统计口径、字段兼容和保留策略见 [Docs/CodexHook.md](Docs/CodexHook.md)。
+- UI 展示字段为「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」。
 
 ## 并发与隔离
 
@@ -227,6 +155,8 @@ UI 只展示「未登录」和「初始化失败」两类特殊状态; 具体请
 - `CodexStatusService` 使用 `CodexBar.app-server` 队列。
 - `CodexCLIVersionService` 使用 `CodexBar.codex-version` 队列, 全局和内置版本探测先并发启动再收集。
 - `RequestLogStore` 可从后台队列写入, storage 用锁保护, SwiftUI 通知切回主线程发送。
+- `WorkflowStatsService` 使用 `CodexBar.workflow-stats` 队列读取快照。
+- Hook 写入可能由多个 Codex 进程并发触发, 必须通过 `stats.lock` 和 `flock` 保护 `events.jsonl`、`daily.jsonl`、`maintenance.json` 的一致性。
 
 ## UI 约束
 
@@ -250,7 +180,11 @@ Popover:
 - 更新时间行显示倒计时圆环、「数据更新时间」和 `HH:mm:ss`。
 - 倒计时只在 popover 可见时用 `TimelineView` 每秒 tick; 普通 tick 不做连续动画, 仅刷新起点变化时播放恢复动画。
 - token 区域显示「单日峰值」和「全时累计」; `TokenCountText` 对 1K 以下显示完整整数, 1K 起显示 K/M/B。
-- 热力图是近 30 周、30 列 x 7 行、周日到周六排列、默认不包含今天。
+- token 区域还显示「当前连胜」、「最长连胜」和「最长任务」。
+- 热力图是近 30 周、30 列 x 7 行、周日到周六排列; Codex Hook 开启时包含今天, Hook 关闭时仅在 app-server 已返回当天 token bucket 时包含今天。
+- Hook 关闭时热力图 tooltip 只显示日期和 token 数; 宽度使用 `tokenTooltipWidth`。
+- Hook 开启时热力图 tooltip 首行左侧显示日期、右侧显示 token 数, 当天 token 数显示 `--`; 后续逐行显示「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」。
+- 工作流统计只展示在用量热力图 tooltip 中, 不再有单独的工作流统计区。
 
 设置窗口:
 
@@ -262,6 +196,8 @@ Popover:
 - 当前行优先展示 app-server 握手自报版本; 非当前行展示磁盘安装版本。
 - 当前运行版本与磁盘安装版本不同时, 显示「已更新至 <version>」。
 - 路径点击复制到剪贴板, 对应来源显示「已复制」1.5 秒; 保留路径文本布局宽度避免跳动。
+- 设置页包含「启用 Codex Hook」开关; 开启后会写入全局 Codex Hook 配置, 用于热力图展示更多本机统计数据。
+- Codex Hook 开关下方说明文案为小号辅助文字; 不展示启用/关闭状态文案, 只在失败时展示错误消息。
 
 日志窗口:
 
@@ -284,6 +220,7 @@ Popover:
 ## 认证、隐私与沙盒
 
 - CodexBar 只与本机 Codex app-server 通信; 账号、额度和 token 使用量不发往第三方服务。
+- Codex Hook 工作流统计只写入本机 `~/Library/Application Support/CodexBar/HookEvents/`, 不发往第三方服务。
 - 除 Sparkle appcast/DMG 下载外, 应用自身不做网络请求。
 - App Sandbox 必须保持关闭。
 - app-server 和版本探测必须使用真实用户 home。
@@ -300,7 +237,7 @@ Popover:
 
 - 不要主动 push。
 - 不要回滚或覆盖你没做的未提交改动。
-- 提交代码的时候不要做任何额外的改动，仅对目前代码进行提交即可。
+- 提交 Git 时候**禁止**任何改动任何内容，仅对目前代码进行提交即可。
 - 提交 message 使用 Conventional Commits 前缀 + 中文标题 + 空行 + 4 空格缩进 bullet body。
 - 提交 body 中多条 bullet 必须连续排列, bullet 之间不要空行; 使用命令提交时, 将完整 body 放在同一个 `-m` 参数或 `git commit -F` 文件中, 不要为每条 bullet 单独使用 `-m`。
 - 标题格式: `<type>: <中文描述>`, 不加句号。

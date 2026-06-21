@@ -2,10 +2,11 @@ import SwiftUI
 
 struct TokenCountText: View {
     let tokens: Int
+    var font: Font = .caption.monospacedDigit().weight(.semibold)
     
     var body: some View {
         Text(TokenCountFormatter.string(from: tokens))
-            .font(.caption.monospacedDigit().weight(.semibold))
+            .font(font)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
     }

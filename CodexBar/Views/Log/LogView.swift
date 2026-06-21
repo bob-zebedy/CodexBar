@@ -24,7 +24,7 @@ struct LogView: View {
             Image(systemName: "doc.text.magnifyingglass")
                 .foregroundStyle(.tint)
             
-            Text("Codex 日志")
+            Text("Codex app-server 日志")
                 .font(.headline)
             
             Text("\(entries.count)")

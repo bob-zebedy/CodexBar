@@ -5,20 +5,23 @@ import SwiftUI
 final class SettingsWindowController: HostingWindowController {
     private let viewModel: CodexStatusViewModel
     private let appUpdater: AppUpdater
+    private let codexHookSettings: CodexHookSettings
     
     init(
         viewModel: CodexStatusViewModel,
         appUpdater: AppUpdater,
+        codexHookSettings: CodexHookSettings,
         screenProvider: @escaping () -> NSScreen?
     ) {
         self.viewModel = viewModel
         self.appUpdater = appUpdater
+        self.codexHookSettings = codexHookSettings
         super.init(screenProvider: screenProvider)
     }
     
     override func makeWindow() -> NSWindow {
         let hostingController = NSHostingController(
-            rootView: AppSettingsView()
+            rootView: AppSettingsView(codexHookSettings: codexHookSettings)
                 .environmentObject(viewModel)
                 .environmentObject(appUpdater)
         )

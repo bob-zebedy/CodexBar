@@ -65,11 +65,36 @@ nonisolated struct CodexCLIVersionDisplay: Equatable {
         self.displayVersion = version ?? item.displayVersion
         self.path = (isCurrent ? connection?.executablePath : nil) ?? item.path
         
-        if let runningVersion, let installed = item.version, installed != runningVersion {
+        if let runningVersion,
+           let installed = item.version,
+           Self.isInstalledVersionNewer(installed, than: runningVersion) {
             self.newerInstalledVersion = installed
         } else {
             self.newerInstalledVersion = nil
         }
+    }
+    
+    private static func isInstalledVersionNewer(
+        _ installedVersion: String,
+        than runningVersion: String
+    ) -> Bool {
+        guard let installedComponents = normalizedVersionComponents(from: installedVersion),
+              let runningComponents = normalizedVersionComponents(from: runningVersion) else {
+            return false
+        }
+        
+        return runningComponents.lexicographicallyPrecedes(installedComponents)
+    }
+    
+    private static func normalizedVersionComponents(from version: String) -> [Int]? {
+        let components = version
+            .components(separatedBy: CharacterSet.decimalDigits.inverted)
+            .compactMap { $0.isEmpty ? nil : Int($0) }
+        guard !components.isEmpty else {
+            return nil
+        }
+        
+        return Array(components.reversed().drop(while: { $0 == 0 }).reversed())
     }
 }
 

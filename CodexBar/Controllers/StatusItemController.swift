@@ -5,12 +5,19 @@ import SwiftUI
 @MainActor
 final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     let viewModel = CodexStatusViewModel()
+    let workflowStatsViewModel = WorkflowStatsViewModel()
+    let codexHookSettings = CodexHookSettings()
     let appUpdater = AppUpdater()
     
     private var statusItemController: StatusItemController?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let controller = StatusItemController(viewModel: viewModel, appUpdater: appUpdater)
+        let controller = StatusItemController(
+            viewModel: viewModel,
+            workflowStatsViewModel: workflowStatsViewModel,
+            codexHookSettings: codexHookSettings,
+            appUpdater: appUpdater
+        )
         controller.install()
         statusItemController = controller
     }
@@ -23,6 +30,8 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 private final class StatusItemController: NSObject {
     private let viewModel: CodexStatusViewModel
+    private let workflowStatsViewModel: WorkflowStatsViewModel
+    private let codexHookSettings: CodexHookSettings
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
@@ -30,7 +39,8 @@ private final class StatusItemController: NSObject {
     
     private lazy var settingsWindowController = SettingsWindowController(
         viewModel: viewModel,
-        appUpdater: appUpdater
+        appUpdater: appUpdater,
+        codexHookSettings: codexHookSettings
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
     }
@@ -49,8 +59,15 @@ private final class StatusItemController: NSObject {
     private static let normalImage = makeStatusImage("person.fill.checkmark")
     private static let errorImage = makeStatusImage("person.fill.xmark")
     
-    init(viewModel: CodexStatusViewModel, appUpdater: AppUpdater) {
+    init(
+        viewModel: CodexStatusViewModel,
+        workflowStatsViewModel: WorkflowStatsViewModel,
+        codexHookSettings: CodexHookSettings,
+        appUpdater: AppUpdater
+    ) {
         self.viewModel = viewModel
+        self.workflowStatsViewModel = workflowStatsViewModel
+        self.codexHookSettings = codexHookSettings
         self.appUpdater = appUpdater
         super.init()
     }
@@ -96,6 +113,8 @@ private final class StatusItemController: NSObject {
     private func configurePopover() {
         let rootView = CodexStatusMenuView(
             viewModel: viewModel,
+            workflowStatsViewModel: workflowStatsViewModel,
+            codexHookSettings: codexHookSettings,
             popoverVisibility: popoverVisibility
         )
             .environmentObject(appUpdater)
@@ -117,6 +136,16 @@ private final class StatusItemController: NSObject {
             .removeDuplicates()
             .sink { [weak self] usesErrorImage in
                 self?.updateStatusImage(usesErrorImage: usesErrorImage)
+            }
+            .store(in: &cancellables)
+        
+        viewModel.$autoRefreshCountdownStartedAt
+            .compactMap { $0 }
+            .sink { [weak self] _ in
+                guard let self, self.popover.isShown else {
+                    return
+                }
+                self.refreshWorkflowStatsIfHookEnabled()
             }
             .store(in: &cancellables)
     }
@@ -173,6 +202,7 @@ private final class StatusItemController: NSObject {
         popoverFadeCoordinator.prepareForFadeIn()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popoverVisibility.isVisible = true
+        refreshWorkflowStatsIfHookEnabled()
         popoverDismissMonitor.install { [weak self] in
             self?.closePopover()
         }
@@ -289,6 +319,13 @@ private final class StatusItemController: NSObject {
             }
             
             self.viewModel.refreshIfNeeded()
+        }
+    }
+    
+    private func refreshWorkflowStatsIfHookEnabled() {
+        codexHookSettings.refresh()
+        if codexHookSettings.isEnabled {
+            workflowStatsViewModel.refreshIfNeeded()
         }
     }
     
