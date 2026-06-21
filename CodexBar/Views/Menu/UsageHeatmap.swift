@@ -432,16 +432,29 @@ private struct UsageHeatmapTooltip: View {
                 .foregroundStyle(.secondary)
                 .frame(width: Metrics.metricLabelWidth, alignment: .leading)
             
-            Text(value)
-                .foregroundStyle(Color.codexLabel)
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(Metrics.metricValueMinimumScale)
-                .allowsTightening(true)
-                .layoutPriority(1)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            fittingMetricValue(value)
         }
         .font(.system(size: Metrics.workflowFontSize))
+    }
+    
+    private func fittingMetricValue(_ value: String) -> some View {
+        ViewThatFits(in: .horizontal) {
+            metricValueText(value)
+                .fixedSize(horizontal: true, vertical: false)
+            
+            metricValueText(value)
+                .minimumScaleFactor(Metrics.metricValueMinimumScale)
+                .allowsTightening(true)
+        }
+        .layoutPriority(1)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+    
+    private func metricValueText(_ value: String) -> some View {
+        Text(value)
+            .foregroundStyle(Color.codexLabel)
+            .monospacedDigit()
+            .lineLimit(1)
     }
     
     private var tooltipFill: Color {

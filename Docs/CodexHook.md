@@ -51,8 +51,6 @@ Hook timeout 为 5 秒。App 启动最早阶段会调用 `WorkflowHookEventRecor
 --hook-event=SessionStart
 ```
 
-旧的 `codexbar_event` 参数已经删除，不再兼容。
-
 ## Payload 解析
 
 Hook stdin 会尝试解析为 Codex 官方 JSON 对象，只读取顶层字段。缺少字段时尽量兜底，不阻断记录。
@@ -176,7 +174,11 @@ Codex Hook 关闭时:
 
 - 默认不包含今天
 - tooltip 只显示日期和 token 数
-- tooltip 使用较窄宽度
+- tooltip 固定为 `92 x 40`
+- tooltip 横向 padding 为 `8`, 纵向 padding 为 `6`, 圆角为 `7`
+- 日期使用 `.caption2.monospacedDigit()`
+- token 数使用 `.caption.monospacedDigit().weight(.semibold)`
+- token 数通过 `TokenCountText` 展示: `1K` 以下显示完整整数, `1K` 起显示 `K` / `M` / `B`, 不使用千位逗号; 文本自身允许缩小到 `0.8`
 
 Codex Hook 开启时:
 
@@ -184,3 +186,8 @@ Codex Hook 开启时:
 - 没有当天 token bucket 时, 今天的 token 数显示为 `--`
 - tooltip 首行左侧显示日期、右侧显示 token 数
 - 后续逐行显示「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」
+- tooltip 固定为 `132 x 116`
+- tooltip 横向 padding 为 `8`, 纵向 padding 为 `6`, 圆角为 `7`
+- 日期和 token 数都使用 `10pt` 等宽数字; token 数额外加粗
+- 工作流统计行整体使用 `10pt`; 左侧标签固定宽度 `54`, 标签和值之间 spacing 为 `6`
+- 工作流统计行右侧数字优先使用正常 `10pt` 完整展示; 只有正常字号在横向剩余空间内放不下时, 才会启用自动缩小, 最小缩放比例为 `0.60`, 并允许字距收紧
