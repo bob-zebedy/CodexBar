@@ -85,6 +85,7 @@ Invalid request: unknown variant
 - `SIGPIPE` 已被忽略，写入断管后应由 `write` 抛错并走重建。
 - 复用连接出现传输故障时只重建重试一次。
 - 全新连接初始化失败直接返回「初始化失败」，不重复完整握手。
+- 关闭会话时先停止 stdout/stderr reader 并关闭 stdin，然后对 app-server 进程执行有界退出: 先 `terminate()` 等待 1 秒，仍未退出再 `SIGKILL` 并等待 0.5 秒；被强制结束或仍未退出时写入请求日志。
 
 ## UI 状态
 

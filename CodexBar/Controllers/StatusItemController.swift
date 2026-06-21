@@ -142,10 +142,10 @@ private final class StatusItemController: NSObject {
         viewModel.$autoRefreshCountdownStartedAt
             .compactMap { $0 }
             .sink { [weak self] _ in
-                guard let self, self.popover.isShown else {
+                guard let self else {
                     return
                 }
-                self.refreshWorkflowStatsIfHookEnabled()
+                self.refreshWorkflowStatsIfHookEnabled(performMaintenance: true)
             }
             .store(in: &cancellables)
     }
@@ -202,7 +202,7 @@ private final class StatusItemController: NSObject {
         popoverFadeCoordinator.prepareForFadeIn()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popoverVisibility.isVisible = true
-        refreshWorkflowStatsIfHookEnabled()
+        refreshWorkflowStatsIfHookEnabled(performMaintenance: false)
         popoverDismissMonitor.install { [weak self] in
             self?.closePopover()
         }
@@ -322,10 +322,10 @@ private final class StatusItemController: NSObject {
         }
     }
     
-    private func refreshWorkflowStatsIfHookEnabled() {
+    private func refreshWorkflowStatsIfHookEnabled(performMaintenance: Bool) {
         codexHookSettings.refresh()
         if codexHookSettings.isEnabled {
-            workflowStatsViewModel.refreshIfNeeded()
+            workflowStatsViewModel.refreshIfNeeded(performMaintenance: performMaintenance)
         }
     }
     

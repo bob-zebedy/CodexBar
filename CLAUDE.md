@@ -48,13 +48,13 @@ CodexStatusService (JSON-RPC over `codex app-server --listen stdio://`)
 
 ```
 WorkflowHookEventRecorder (--hook-event 子进程)
-  → WorkflowStatsStorage (events.jsonl / daily.jsonl，~/Library/Application Support/CodexBar/HookEvents/)
+  → WorkflowStatsStorage (events/YYYY-MM-DD.jsonl / daily.jsonl，~/Library/Application Support/CodexBar/HookEvents/)
   → WorkflowStatsService → WorkflowStatsViewModel
   → UsageSummaryView / UsageHeatmap (统计只在热力图 tooltip 中展示)
 ```
 
 - 设置开关只能追加/移除 CodexBar 自己的 Hook 处理器，绝不破坏用户已有 Hook。
-- Hook 写入可能由多个 Codex 进程并发触发，更新 `events.jsonl`/`daily.jsonl`/`maintenance.json` 必须经 `stats.lock` + `flock` 加锁。
+- Hook 写入可能由多个 Codex 进程并发触发，追加 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json` 必须经 `stats.lock` + `flock` 加锁；`daily.jsonl` 由主 App 刷新维护流程写回。
 - 字段兼容、保留策略、统计口径见 `Docs/CodexHook.md`。
 
 ## 并发分工

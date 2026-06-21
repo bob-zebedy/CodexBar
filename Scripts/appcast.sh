@@ -22,7 +22,8 @@ Environment:
   APPCAST_PATH            Path to appcast.xml. Defaults to appcast.xml.
   DOWNLOAD_BASE_URL       Base URL for DMG downloads.
                            Defaults to https://codexbar.zabrian.app/download.
-  RELEASE_NOTES_BASE_URL  Base URL for release notes.
+  RELEASE_NOTES_BASE_URL  Base URL for release notes. The version is appended
+                           as a fragment anchor (BASE#X.Y.Z).
                            Defaults to https://codexbar.zabrian.app/notes.
   INCLUDE_RELEASE_NOTES   Set to 0 to omit sparkle:releaseNotesLink.
   MINIMUM_SYSTEM_VERSION  Defaults to 15.0.
@@ -198,7 +199,7 @@ MIN_SYSTEM_ESCAPED="$(printf '%s' "${MINIMUM_SYSTEM_VERSION}" | xml_escape)"
 
 RELEASE_NOTES_XML=""
 if [[ "${INCLUDE_RELEASE_NOTES}" != "0" ]]; then
-    RELEASE_NOTES_URL="${RELEASE_NOTES_BASE_URL%/}/${SHORT_VERSION}.html"
+    RELEASE_NOTES_URL="${RELEASE_NOTES_BASE_URL%/}#${SHORT_VERSION}"
     RELEASE_NOTES_URL_ESCAPED="$(printf '%s' "${RELEASE_NOTES_URL}" | xml_escape)"
     RELEASE_NOTES_XML="<sparkle:releaseNotesLink>${RELEASE_NOTES_URL_ESCAPED}</sparkle:releaseNotesLink>
     "

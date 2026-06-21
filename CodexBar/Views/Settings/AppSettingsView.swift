@@ -109,7 +109,7 @@ private extension AppSettingsView {
                 Color.clear
                     .frame(width: Metrics.iconWidth)
                 
-                Text("开启后将会写入全局 Codex Hook 配置\n用于热力图中展示更多数据, 数据仅保存在本机")
+                Text("开启后将会写入全局 Codex Hook 配置\n用于近 30 周数据中展示更多统计数据\n该数据仅保存在本机")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

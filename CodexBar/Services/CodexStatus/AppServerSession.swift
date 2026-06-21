@@ -9,6 +9,8 @@ nonisolated final class AppServerSession {
     private static let writeFailureMessage = "连接已断开, 无法发送请求"
     private static let responseConnectionClosedMessage = "连接已断开, 等待响应失败"
     private static let responseTimeoutMessage = "等待响应超时"
+    private static let closeGracefulTimeout: TimeInterval = 1.0
+    private static let closeKillTimeout: TimeInterval = 0.5
     
     private let input: Pipe
     private let lineReader: JSONLineReader
@@ -37,7 +39,18 @@ nonisolated final class AppServerSession {
         try? input.fileHandleForWriting.close()
         
         if process.isRunning {
-            process.terminate()
+            switch ProcessTermination.terminate(
+                process,
+                gracefulTimeout: Self.closeGracefulTimeout,
+                killTimeout: Self.closeKillTimeout
+            ) {
+            case .alreadyExited, .terminated:
+                break
+            case .killed:
+                RequestLogStore.shared.recordFailure(message: "app-server 退出超时, 已强制结束")
+            case .stillRunning:
+                RequestLogStore.shared.recordFailure(message: "app-server 退出超时, 可能仍在后台运行")
+            }
         }
     }
     

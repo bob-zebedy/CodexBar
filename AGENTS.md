@@ -82,7 +82,7 @@ CodexStatusService(JSON-RPC app-server)
 
 Codex Hook
   -> WorkflowHookEventRecorder(--hook-event)
-  -> WorkflowStatsStorage(events.jsonl / daily.jsonl)
+  -> WorkflowStatsStorage(events/YYYY-MM-DD.jsonl / daily.jsonl)
   -> WorkflowStatsService
   -> WorkflowStatsViewModel
   -> UsageSummaryView / UsageHeatmap
@@ -112,7 +112,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - 设置开关只能追加或移除 CodexBar 自己的 Hook 处理器, 不能破坏用户已有 Hook。
 - Hook 命令只支持 `--hook-event`。
 - Hook 数据只保存在 `~/Library/Application Support/CodexBar/HookEvents/`。
-- Hook 写入可能并发触发, 更新 `events.jsonl`、`daily.jsonl` 和 `maintenance.json` 时必须通过 `stats.lock` 加锁。
+- Hook 写入可能并发触发, 追加 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json` 时必须通过 `stats.lock` 加锁。
 
 ## UI 状态与日志
 
@@ -156,7 +156,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - `CodexCLIVersionService` 使用 `CodexBar.codex-version` 队列, 全局和内置版本探测先并发启动再收集。
 - `RequestLogStore` 可从后台队列写入, storage 用锁保护, SwiftUI 通知切回主线程发送。
 - `WorkflowStatsService` 使用 `CodexBar.workflow-stats` 队列读取快照。
-- Hook 写入可能由多个 Codex 进程并发触发, 必须通过 `stats.lock` 和 `flock` 保护 `events.jsonl`、`daily.jsonl`、`maintenance.json` 的一致性。
+- Hook 写入可能由多个 Codex 进程并发触发, 必须通过 `stats.lock` 和 `flock` 保护 `events/YYYY-MM-DD.jsonl` 和 `maintenance.json` 的一致性; `daily.jsonl` 由主 App 刷新维护流程写回。
 
 ## UI 约束
 
@@ -196,7 +196,7 @@ Popover:
 - 当前行优先展示 app-server 握手自报版本; 非当前行展示磁盘安装版本。
 - 当前运行版本与磁盘安装版本不同时, 显示「已更新至 <version>」。
 - 路径点击复制到剪贴板, 对应来源显示「已复制」1.5 秒; 保留路径文本布局宽度避免跳动。
-- 设置页包含「启用 Codex Hook」开关; 开启后会写入全局 Codex Hook 配置, 用于热力图展示更多本机统计数据。
+- 设置页包含「启用 Codex Hook」开关; 开启后会写入全局 Codex Hook 配置, 用于近 30 周数据展示更多本机统计数据。
 - Codex Hook 开关下方说明文案为小号辅助文字; 不展示启用/关闭状态文案, 只在失败时展示错误消息。
 
 日志窗口:
