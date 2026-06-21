@@ -6,11 +6,11 @@ nonisolated enum WorkflowHookEventRecorder {
         guard let eventName = hookEventName(from: arguments) else {
             return false
         }
-
+        
         try? record(eventName: eventName)
         return true
     }
-
+    
     private static func hookEventName(from arguments: [String]) -> String? {
         for argument in arguments.dropFirst() {
             if argument.hasPrefix("--hook-event=") {
@@ -19,17 +19,17 @@ nonisolated enum WorkflowHookEventRecorder {
                 return value.isEmpty ? nil : value
             }
         }
-
+        
         if let optionIndex = arguments.firstIndex(of: "--hook-event"),
            arguments.indices.contains(arguments.index(after: optionIndex)) {
             let value = arguments[arguments.index(after: optionIndex)]
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return value.isEmpty ? nil : value
         }
-
+        
         return nil
     }
-
+    
     private static func record(eventName: String) throws {
         let payload = stdinPayload()
         let timestamp = payload.date(for: "timestamp") ?? Date()
@@ -49,68 +49,68 @@ nonisolated enum WorkflowHookEventRecorder {
             sessionId: sessionId,
             turnId: turnId
         )
-
+        
         try recordStatsTransaction(event: event)
     }
-
+    
     private static func recordStatsTransaction(event: WorkflowHookEvent) throws {
         try WorkflowStatsStorage.withExclusiveLock {
             let dateKey = WorkflowStatsStorage.dateKey(for: event.timestamp)
             let eventLogURL = WorkflowStatsStorage.eventLogURL(for: dateKey)
             var maintenanceState = WorkflowStatsStorage.loadMaintenanceState()
-
+            
             try append(event.jsonLineData(), to: eventLogURL)
             maintenanceState.markPending(dateKey)
             try WorkflowStatsStorage.saveMaintenanceState(maintenanceState)
         }
     }
-
+    
     private static func append(_ data: Data, to url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-
+        
         if !FileManager.default.fileExists(atPath: url.path) {
             FileManager.default.createFile(atPath: url.path, contents: nil)
         }
-
+        
         let fileHandle = try FileHandle(forWritingTo: url)
         defer {
             try? fileHandle.close()
         }
-
+        
         try fileHandle.seekToEnd()
         try fileHandle.write(contentsOf: data)
     }
-
+    
     private static func stdinPayload() -> WorkflowHookPayload {
         guard isatty(STDIN_FILENO) == 0 else {
             return WorkflowHookPayload(values: [:])
         }
-
+        
         let data = FileHandle.standardInput.readDataToEndOfFile()
         guard !data.isEmpty,
               let object = try? JSONSerialization.jsonObject(with: data),
               let values = object as? [String: Any] else {
             return WorkflowHookPayload(values: [:])
         }
-
+        
         return WorkflowHookPayload(values: values)
     }
 }
 
 private nonisolated struct WorkflowHookPayload {
     let values: [String: Any]
-
+    
     func string(for key: String) -> String? {
         Self.normalizedString(values[key])
     }
-
+    
     func date(for key: String) -> Date? {
         Self.normalizedDate(values[key])
     }
-
+    
     private static func normalizedString(_ value: Any?) -> String? {
         switch value {
         case let string as String:
@@ -122,7 +122,7 @@ private nonisolated struct WorkflowHookPayload {
             return nil
         }
     }
-
+    
     private static func normalizedDate(_ value: Any?) -> Date? {
         switch value {
         case let string as String:
@@ -135,24 +135,24 @@ private nonisolated struct WorkflowHookPayload {
             return nil
         }
     }
-
+    
     private static func date(from string: String) -> Date? {
         let trimmedString = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedString.isEmpty else {
             return nil
         }
-
+        
         if let date = ISO8601DateFormatter.codexFractional.date(from: trimmedString) {
             return date
         }
-
+        
         if let date = DateFormatter.codexLocalTimestamp.date(from: trimmedString) {
             return date
         }
-
+        
         return iso8601Formatter.date(from: trimmedString)
     }
-
+    
     private static let iso8601Formatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]

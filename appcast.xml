@@ -8,6 +8,15 @@
         <description>CodexBar appcast feed</description>
         <language>zh-CN</language>
         <item>
+            <title>CodexBar.app 2.4.1</title>
+            <sparkle:version>17</sparkle:version>
+            <sparkle:shortVersionString>2.4.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.4.1</sparkle:releaseNotesLink>
+            <pubDate>Sun, 21 Jun 2026 23:11:45 +0800</pubDate>
+            <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.4.1.dmg" sparkle:edSignature="TBEbo3dJ65fTF3RotYnDQXBhZCk0SKGy0V5NN/YPNTiQY11xhFT6Z+w1luumWdEZJqZuSXC+vbLmiDZYh2dkDw==" length="2887949" type="application/octet-stream"/>
+        </item>
+        <item>
             <title>CodexBar.app 2.4.0</title>
             <sparkle:version>16</sparkle:version>
             <sparkle:shortVersionString>2.4.0</sparkle:shortVersionString>
