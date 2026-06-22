@@ -115,7 +115,7 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 - 设置状态为 `opening`, 准备透明度淡入
 - 显示 `NSPopover`, 把 `PopoverVisibilityState.isVisible` 设为 `true`
 - 调用 `refreshWorkflowStatsIfHookEnabled(performMaintenance: false)`, 只读取已有 `daily.jsonl`, 不做重维护
-- 安装 `PopoverDismissMonitor`
+- 安装 `PopoverDismissMonitor`, 监听 popover window 并只将 popover window 置前和设为 key window
 - 执行 0.24 秒淡入
 - 延迟 160 ms 后调用 `viewModel.refreshIfNeeded()`
 
@@ -123,7 +123,9 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 
 - 移除本地和全局事件监听
 - 将 `isVisible` 设为 `false`, 让倒计时停止 `TimelineView` 每秒 tick
+- 临时禁止设置窗口和日志窗口成为 key window, 避免关闭 popover 时 AppKit 把这些辅助窗口提到前面
 - 默认执行 0.18 秒淡出, 无法淡出时直接关闭
+- popover 关闭后延迟 120 ms 恢复设置窗口和日志窗口的 key window 能力
 
 `PopoverDismissMonitor` 监听这些 dismiss 条件:
 
@@ -136,7 +138,9 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 
 Command-Space 不直接关闭 popover, 只短暂抑制 600 ms 内的 active 变化关闭逻辑, 避免 Spotlight 或系统搜索抢焦点时误关弹窗。
 
-设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开时移动到当前桌面并置前
+设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开对应入口时只移动和置前对应窗口。
+
+设置窗口和日志窗口使用 `AuxiliaryHostingWindow`; 窗口可以成为 key window, 但不能成为 main window。通过快捷键打开或关闭 popover 时, 只激活并置前 popover, 不主动置前已有的设置窗口或日志窗口。
 
 ## 5. Codex 状态刷新流程
 
@@ -501,8 +505,9 @@ flowchart TD
 额度区:
 
 - 多个 limit 间用 `LiquidGlassDivider` 分隔
-- 每个 quota window 展示标签, 50 段电量条, 剩余百分比和重置时间
-- 重置时间格式为 `MM-dd HH:mm`
+- 每个 quota window 展示标签, 50 个固定胶囊组成的电量条, 剩余百分比和重置时间
+- 胶囊宽度为 `3.5`, 间距为 `1.5`, 高度为 `12`
+- 重置时间格式为 `MM-dd HH:mm`, 在额度行最右侧对齐
 - 无数据时百分比和重置时间显示 `--`, 电量条用占位色
 - stale 数据通过 `.markStale(true)` 降低透明度到 0.55
 

@@ -64,7 +64,7 @@ git status --short
 - 平台: SwiftUI + AppKit + MVVM, 最低 macOS 15.0。
 - 应用形态: `LSUIElement` 菜单栏应用, 无 Dock 图标、无主窗口。
 - 外部依赖: Sparkle(SwiftPM)。
-- 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 2.0.0`, `CURRENT_PROJECT_VERSION = 10`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`。
+- 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 2.4.4`, `CURRENT_PROJECT_VERSION = 20`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`。
 - App Sandbox 必须保持关闭(`ENABLE_APP_SANDBOX = NO`), 因为应用要启动本机 Codex CLI/APP 内置 CLI, 并读取真实 macOS 用户的 Codex 登录状态。
 - 工程使用 `PBXFileSystemSynchronizedRootGroup`; 新增或删除 `CodexBar/` 下 Swift 文件通常无需改 `project.pbxproj`。只有依赖、target/build settings 或资源归属变更才改 Xcode 工程文件。
 - Swift 源码按目录组织: `App/`、`Controllers/`、`Models/`、`Services/`、`Views/`。不要把新 Swift 文件直接放回 `CodexBar/` 根层。
@@ -173,10 +173,10 @@ Popover:
 - `LiquidGlassStyle.swift` 是自绘玻璃效果, 不是 macOS 原生 `.glassEffect`; 没有明确设计要求时不要切换。
 - 账号图标双击触发刷新。邮箱文本双击切换模糊。
 - 计划名是右侧加粗纯文字; `planBadgeTint(for:)` 优先级: enterprise -> team/business -> pro -> plus -> edu -> free -> 默认 cyan。
-- 额度条展示剩余百分比, 颜色按 20% 一档: 红、橙、黄、薄荷、绿。
+- 额度条展示剩余百分比, 固定为 50 个胶囊, 每个胶囊宽 `3.5`, 间距 `1.5`, 高 `12`; 颜色按 20% 一档: 红、橙、黄、薄荷、绿。
 - 无 quota 数据时显示 `--` / `暂无数据`, 并使用占位色。
 - `rateLimits` 或 `usage` 使用旧缓存时, 对应区域通过 `.markStale(true)` 降低透明度到 0.55, 不降低饱和度; 下一轮对应接口成功后恢复正常透明度。
-- 重置时间格式是 `MM-dd HH:mm`。
+- 重置时间格式是 `MM-dd HH:mm`, 在额度行最右侧对齐。
 - 更新时间行显示倒计时圆环、「数据更新时间」和 `HH:mm:ss`。
 - 倒计时只在 popover 可见时用 `TimelineView` 每秒 tick; 普通 tick 不做连续动画, 仅刷新起点变化时播放恢复动画。
 - token 区域显示「单日峰值」和「全时累计」; `TokenCountText` 对 1K 以下显示完整整数, 1K 起显示 K/M/B。
@@ -258,8 +258,8 @@ fix: 修复 Codex 状态刷新
 
 Tag:
 
-- tag 名格式 `v{MARKETING_VERSION}`, 例如 `v2.0.0`。
-- 使用附注 tag: `git tag -a v2.0.0 -m "Release v2.0.0"`。
+- tag 名格式 `v{MARKETING_VERSION}`, 例如 `v2.4.4`。
+- 使用附注 tag: `git tag -a v2.4.4 -m "Release v2.4.4"`。
 
 ## 最终检查
 

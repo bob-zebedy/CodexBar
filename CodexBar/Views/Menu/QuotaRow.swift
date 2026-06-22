@@ -11,7 +11,6 @@ struct QuotaRow: View {
                 .frame(width: Metrics.labelWidth, alignment: .leading)
             
             SegmentedQuotaBar(percent: displayPercent)
-                .frame(height: Metrics.barHeight)
             
             Text(percentText)
                 .font(.caption.monospacedDigit().weight(.semibold))
@@ -19,12 +18,15 @@ struct QuotaRow: View {
                 .lineLimit(1)
                 .frame(width: Metrics.percentWidth, alignment: .leading)
             
+            Spacer(minLength: 0)
+            
             Text(resetText)
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(width: Metrics.resetWidth, alignment: .trailing)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -32,7 +34,6 @@ private extension QuotaRow {
     enum Metrics {
         static let spacing: CGFloat = 8
         static let labelWidth: CGFloat = 52
-        static let barHeight: CGFloat = 12
         static let percentWidth: CGFloat = 32
         static let resetWidth: CGFloat = 76
     }
@@ -105,35 +106,32 @@ private struct SegmentedQuotaBar: View {
     let percent: Int?
     
     var body: some View {
-        GeometryReader { proxy in
-            let segmentWidth = segmentWidth(for: proxy.size.width)
-            let filledSegments = filledSegments()
-            let filledColor = QuotaBarPalette.filledColor(for: percent)
-            
-            HStack(spacing: Metrics.segmentSpacing) {
-                ForEach(0..<Metrics.segmentCount, id: \.self) { index in
-                    Capsule(style: .continuous)
-                        .fill(index < filledSegments ? filledColor : QuotaBarPalette.placeholderColor)
-                        .frame(width: segmentWidth, height: proxy.size.height)
-                }
+        let filledColor = QuotaBarPalette.filledColor(for: percent)
+        
+        HStack(spacing: Metrics.segmentSpacing) {
+            ForEach(0..<Metrics.segmentCount, id: \.self) { index in
+                Capsule(style: .continuous)
+                    .fill(index < filledSegments ? filledColor : QuotaBarPalette.placeholderColor)
+                    .frame(width: Metrics.segmentWidth, height: Metrics.segmentHeight)
             }
         }
+        .frame(width: Metrics.totalWidth, height: Metrics.segmentHeight, alignment: .leading)
     }
 }
 
 private extension SegmentedQuotaBar {
     enum Metrics {
         static let segmentCount = 50
-        static let segmentSpacing: CGFloat = 2
+        static let segmentWidth: CGFloat = 3.5
+        static let segmentSpacing: CGFloat = 1.5
+        static let segmentHeight: CGFloat = 12
+        
+        static var totalWidth: CGFloat {
+            CGFloat(segmentCount) * segmentWidth + CGFloat(segmentCount - 1) * segmentSpacing
+        }
     }
     
-    func segmentWidth(for width: CGFloat) -> CGFloat {
-        let availableWidth = max(width, 0)
-        let totalSpacing = CGFloat(Metrics.segmentCount - 1) * Metrics.segmentSpacing
-        return max(0, (availableWidth - totalSpacing) / CGFloat(Metrics.segmentCount))
-    }
-    
-    func filledSegments() -> Int {
+    var filledSegments: Int {
         guard let percent else {
             return 0
         }

@@ -50,7 +50,7 @@ CodexStatusService (JSON-RPC over `codex app-server --listen stdio://`)
 WorkflowHookEventRecorder (--hook-event 子进程)
   → WorkflowStatsStorage (events/YYYY-MM-DD.jsonl / daily.jsonl，~/Library/Application Support/CodexBar/HookEvents/)
   → WorkflowStatsService → WorkflowStatsViewModel
-  → UsageSummaryView / UsageHeatmap (统计只在热力图 tooltip 中展示)
+  → UsageSummaryView / UsageHeatmap (统计只在热力图侧边详情面板中展示)
 ```
 
 - 设置开关只能追加/移除 CodexBar 自己的 Hook 处理器，绝不破坏用户已有 Hook。
