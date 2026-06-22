@@ -16,7 +16,7 @@ final class LogWindowController: HostingWindowController {
     override func makeWindow() -> NSWindow {
         let hostingController = NSHostingController(rootView: LogView(store: store))
         
-        let window = NSWindow(contentViewController: hostingController)
+        let window = AuxiliaryHostingWindow(contentViewController: hostingController)
         window.title = "CodexBar 日志"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.contentMinSize = Metrics.minimumContentSize

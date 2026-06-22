@@ -155,8 +155,9 @@ final class PopoverDismissMonitor {
             return
         }
         
-        NSApplication.shared.activate()
-        popoverWindow.makeKey()
+        popoverWindow.orderFrontRegardless()
+        NSRunningApplication.current.activate(options: [])
+        popoverWindow.makeKeyAndOrderFront(nil)
     }
     
     private func removeEventMonitor(_ monitor: inout Any?) {

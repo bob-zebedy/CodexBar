@@ -1,5 +1,18 @@
 import AppKit
 
+@MainActor
+final class AuxiliaryHostingWindow: NSWindow {
+    var allowsKeyFocus = true
+    
+    override var canBecomeKey: Bool {
+        allowsKeyFocus
+    }
+    
+    override var canBecomeMain: Bool {
+        false
+    }
+}
+
 // 承载 SwiftUI 内容的单窗口控制器基类, 统一懒创建、居中与窗口管理逻辑
 @MainActor
 class HostingWindowController {
@@ -48,9 +61,14 @@ class HostingWindowController {
             window.deminiaturize(nil)
         }
         
-        NSApplication.shared.activate()
-        window.makeKeyAndOrderFront(nil)
+        (window as? AuxiliaryHostingWindow)?.allowsKeyFocus = true
         window.orderFrontRegardless()
+        NSRunningApplication.current.activate(options: [])
+        window.makeKeyAndOrderFront(nil)
+    }
+    
+    func setAllowsKeyFocus(_ allowsKeyFocus: Bool) {
+        (window as? AuxiliaryHostingWindow)?.allowsKeyFocus = allowsKeyFocus
     }
     
     func center(_ window: NSWindow) {

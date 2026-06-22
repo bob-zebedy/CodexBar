@@ -64,6 +64,7 @@ private final class StatusItemController: NSObject {
     private var cancellables = Set<AnyCancellable>()
     private var isShowingErrorImage: Bool?
     private var registeredHotKeyShortcut: GlobalHotKeyShortcut?
+    private var auxiliaryWindowFocusRestoreTask: Task<Void, Never>?
     
     private static let normalImage = makeStatusImage("person.fill.checkmark")
     private static let errorImage = makeStatusImage("person.fill.xmark")
@@ -106,6 +107,8 @@ private final class StatusItemController: NSObject {
     
     func uninstall() {
         closePopover(animated: false)
+        auxiliaryWindowFocusRestoreTask?.cancel()
+        setAuxiliaryWindowKeyFocus(true)
         globalHotKeyController.uninstall()
         cancellables.removeAll()
         NSStatusBar.system.removeStatusItem(statusItem)
@@ -356,13 +359,16 @@ private final class StatusItemController: NSObject {
         }
         
         guard animated else {
+            suspendAuxiliaryWindowKeyFocus()
             finishPopoverClose(hidesDetailPanel: false)
             return
         }
         
+        suspendAuxiliaryWindowKeyFocus()
         popoverState = .closing
         let didStartFadeOut = popoverFadeCoordinator.fadeOut(duration: Metrics.fadeOutDuration) { [weak self] in
             self?.popoverState = .hidden
+            self?.scheduleAuxiliaryWindowKeyFocusRestore()
         }
         
         if !didStartFadeOut {
@@ -384,6 +390,31 @@ private final class StatusItemController: NSObject {
         popoverVisibility.isVisible = false
         popoverFadeCoordinator.resetAlpha()
         popoverState = .hidden
+        scheduleAuxiliaryWindowKeyFocusRestore()
+    }
+    
+    private func suspendAuxiliaryWindowKeyFocus() {
+        auxiliaryWindowFocusRestoreTask?.cancel()
+        auxiliaryWindowFocusRestoreTask = nil
+        setAuxiliaryWindowKeyFocus(false)
+    }
+    
+    private func scheduleAuxiliaryWindowKeyFocusRestore() {
+        auxiliaryWindowFocusRestoreTask?.cancel()
+        auxiliaryWindowFocusRestoreTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Metrics.auxiliaryWindowKeyFocusRestoreDelayMilliseconds))
+            guard let self, !Task.isCancelled else {
+                return
+            }
+            
+            self.setAuxiliaryWindowKeyFocus(true)
+            self.auxiliaryWindowFocusRestoreTask = nil
+        }
+    }
+    
+    private func setAuxiliaryWindowKeyFocus(_ allowsKeyFocus: Bool) {
+        settingsWindowController.setAllowsKeyFocus(allowsKeyFocus)
+        logWindowController.setAllowsKeyFocus(allowsKeyFocus)
     }
     
     private func scheduleDeferredRefresh() {
@@ -423,6 +454,7 @@ private final class StatusItemController: NSObject {
     private enum Metrics {
         static let fadeInDuration: TimeInterval = 0.24
         static let fadeOutDuration: TimeInterval = 0.18
+        static let auxiliaryWindowKeyFocusRestoreDelayMilliseconds: UInt64 = 120
     }
     
     private enum PopoverState {

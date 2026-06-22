@@ -33,7 +33,7 @@ final class SettingsWindowController: HostingWindowController {
         )
         hostingController.sizingOptions = [.preferredContentSize]
         
-        let window = NSWindow(contentViewController: hostingController)
+        let window = AuxiliaryHostingWindow(contentViewController: hostingController)
         window.title = "CodexBar 设置"
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.contentMinSize = Metrics.minimumContentSize

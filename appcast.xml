@@ -8,6 +8,15 @@
         <description>CodexBar appcast feed</description>
         <language>zh-CN</language>
         <item>
+            <title>CodexBar.app 2.4.4</title>
+            <sparkle:version>20</sparkle:version>
+            <sparkle:shortVersionString>2.4.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.4.4</sparkle:releaseNotesLink>
+            <pubDate>Tue, 23 Jun 2026 00:21:01 +0800</pubDate>
+            <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.4.4.dmg" sparkle:edSignature="86Arq3i4v0VziTt0/t7g6vLjiLNMA4NpT39mp1E4gA+s+u5Md6MDITfZGlDUeCGBskLhNofYoHGn1h/a/UJpDg==" length="3023619" type="application/octet-stream"/>
+        </item>
+        <item>
             <title>CodexBar.app 2.4.3</title>
             <sparkle:version>19</sparkle:version>
             <sparkle:shortVersionString>2.4.3</sparkle:shortVersionString>
@@ -42,15 +51,6 @@
             <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.4.0</sparkle:releaseNotesLink>
             <pubDate>Sun, 21 Jun 2026 22:32:31 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.4.0.dmg" sparkle:edSignature="h375ImnKqMc1M+q26ouBl/wlEMoaoMC2vSBHqFEIu106ShDdr2UaKF/6i9ms10qiItyNVDjspv6bQFVIlJ0qBA==" length="2887904" type="application/octet-stream"/>
-        </item>
-        <item>
-            <title>CodexBar.app 2.3.2</title>
-            <sparkle:version>15</sparkle:version>
-            <sparkle:shortVersionString>2.3.2</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.3.2</sparkle:releaseNotesLink>
-            <pubDate>Sun, 21 Jun 2026 15:00:26 +0800</pubDate>
-            <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.3.2.dmg" sparkle:edSignature="bfK4ho9NjcsCywJjT7aZltj6WDdZH3i4dvygfW2QL2+K+dO16OhsFWwTacV5MXPYDEpcCWSWZtWknZngv0p5Ag==" length="2850099" type="application/octet-stream"/>
         </item>
         <item>
             <title>CodexBar.app 2.3.0</title>
