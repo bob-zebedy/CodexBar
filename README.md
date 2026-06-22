@@ -82,6 +82,8 @@ Swift 源码按职责放在 `CodexBar/` 下的子目录中:
 - `Services/`: app-server 会话、Codex CLI 解析、版本探测、Hook 设置、工作流统计、开机自启和 Sparkle 更新
 - `Views/`: 菜单栏弹窗、设置窗口、日志窗口和共享 Liquid Glass 样式
 
+更详细的启动、刷新、Hook 统计、设置、日志、更新和发布流程见 [开发文档](Docs/DevelopmentGuide.md)。
+
 ## 隐私
 
 CodexBar 只与本机 Codex app-server 进程通信。账号信息、额度数据、token 用量和 Hook 工作流数据不会被收集或发送给任何个人或服务。
