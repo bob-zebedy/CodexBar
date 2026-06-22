@@ -6,24 +6,30 @@ final class SettingsWindowController: HostingWindowController {
     private let viewModel: CodexStatusViewModel
     private let appUpdater: AppUpdater
     private let codexHookSettings: CodexHookSettings
+    private let globalHotKeySettings: GlobalHotKeySettings
     
     init(
         viewModel: CodexStatusViewModel,
         appUpdater: AppUpdater,
         codexHookSettings: CodexHookSettings,
+        globalHotKeySettings: GlobalHotKeySettings,
         screenProvider: @escaping () -> NSScreen?
     ) {
         self.viewModel = viewModel
         self.appUpdater = appUpdater
         self.codexHookSettings = codexHookSettings
+        self.globalHotKeySettings = globalHotKeySettings
         super.init(screenProvider: screenProvider)
     }
     
     override func makeWindow() -> NSWindow {
         let hostingController = NSHostingController(
-            rootView: AppSettingsView(codexHookSettings: codexHookSettings)
-                .environmentObject(viewModel)
-                .environmentObject(appUpdater)
+            rootView: AppSettingsView(
+                codexHookSettings: codexHookSettings,
+                globalHotKeySettings: globalHotKeySettings
+            )
+            .environmentObject(viewModel)
+            .environmentObject(appUpdater)
         )
         hostingController.sizingOptions = [.preferredContentSize]
         

@@ -82,13 +82,14 @@ nonisolated final class WorkflowStatsService: @unchecked Sendable {
                 result[aggregate.date] = aggregate
             }
             
-            changedState = markRebuildDates(
+            let changedByRebuild = markRebuildDates(
                 eventDateKeys: eventDateKeys,
                 dailyDecodeResult: dailyDecodeResult,
                 dailyByDate: dailyByDate,
                 state: &state
-            ) || changedState
-            changedState = reconcileEventFiles(eventDateKeys: eventDateKeys, state: &state) || changedState
+            )
+            let changedByReconcile = reconcileEventFiles(eventDateKeys: eventDateKeys, state: &state)
+            changedState = changedState || changedByRebuild || changedByReconcile
             
             let tasks = makeMaintenanceTasks(
                 state: &state,
@@ -568,19 +569,18 @@ nonisolated enum WorkflowStatsStorage {
     }
     
     static func retentionCutoffDate(today: Date = Date(), calendar: Calendar = .current) -> Date {
-        let todayStart = calendar.startOfDay(for: today)
-        return calendar.date(
-            byAdding: .day,
-            value: -(retentionDayCount - 1),
-            to: todayStart
-        ) ?? todayStart
+        cutoffDate(dayCount: retentionDayCount, today: today, calendar: calendar)
     }
     
     static func identifierRetentionCutoffDate(today: Date = Date(), calendar: Calendar = .current) -> Date {
+        cutoffDate(dayCount: identifierRetentionDayCount, today: today, calendar: calendar)
+    }
+    
+    private static func cutoffDate(dayCount: Int, today: Date, calendar: Calendar) -> Date {
         let todayStart = calendar.startOfDay(for: today)
         return calendar.date(
             byAdding: .day,
-            value: -(identifierRetentionDayCount - 1),
+            value: -(dayCount - 1),
             to: todayStart
         ) ?? todayStart
     }

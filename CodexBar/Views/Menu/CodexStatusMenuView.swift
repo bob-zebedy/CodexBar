@@ -13,6 +13,7 @@ struct CodexStatusMenuView: View {
     @ObservedObject var workflowStatsViewModel: WorkflowStatsViewModel
     @ObservedObject var codexHookSettings: CodexHookSettings
     @ObservedObject var popoverVisibility: PopoverVisibilityState
+    let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
     @EnvironmentObject private var appUpdater: AppUpdater
     
     var body: some View {
@@ -73,7 +74,8 @@ private extension CodexStatusMenuView {
                     usage: usage,
                     workflowStats: workflowStatsViewModel.snapshot,
                     showsWorkflowStats: codexHookSettings.isEnabled,
-                    isStale: snapshot.isUsageStale
+                    isStale: snapshot.isUsageStale,
+                    onHoverContextChange: onUsageHeatmapHoverChange
                 )
             }
         }

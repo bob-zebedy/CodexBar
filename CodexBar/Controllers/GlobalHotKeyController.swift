@@ -1,0 +1,110 @@
+import Carbon.HIToolbox
+import Foundation
+
+final class GlobalHotKeyController {
+    private let onPressed: @MainActor () -> Void
+    private var eventHandler: EventHandlerUPP?
+    private var eventHandlerRef: EventHandlerRef?
+    private var hotKeyRef: EventHotKeyRef?
+    private var nextHotKeyID: UInt32 = 1
+    
+    init(onPressed: @escaping @MainActor () -> Void) {
+        self.onPressed = onPressed
+    }
+    
+    deinit {
+        uninstall()
+    }
+    
+    func install(shortcut: GlobalHotKeyShortcut) -> Bool {
+        let newEventHandler = Self.makeEventHandler()
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+        let userData = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+        var installedHandlerRef: EventHandlerRef?
+        
+        guard InstallEventHandler(
+            GetApplicationEventTarget(),
+            newEventHandler,
+            1,
+            &eventType,
+            userData,
+            &installedHandlerRef
+        ) == noErr else {
+            return false
+        }
+        
+        let hotKeyID = EventHotKeyID(signature: Self.hotKeySignature, id: nextHotKeyID)
+        var registeredHotKeyRef: EventHotKeyRef?
+        let status = RegisterEventHotKey(
+            shortcut.keyCode,
+            shortcut.modifiers,
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &registeredHotKeyRef
+        )
+        
+        guard status == noErr else {
+            if let installedHandlerRef {
+                RemoveEventHandler(installedHandlerRef)
+            }
+            return false
+        }
+        
+        clearCurrentRegistration()
+        
+        eventHandler = newEventHandler
+        eventHandlerRef = installedHandlerRef
+        hotKeyRef = registeredHotKeyRef
+        nextHotKeyID &+= 1
+        return true
+    }
+    
+    func uninstall() {
+        clearCurrentRegistration()
+    }
+    
+    private func clearCurrentRegistration() {
+        if let hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
+        }
+        
+        if let eventHandlerRef {
+            RemoveEventHandler(eventHandlerRef)
+            self.eventHandlerRef = nil
+        }
+        
+        eventHandler = nil
+    }
+    
+    private func handleHotKeyPressed() {
+        Task { @MainActor [onPressed] in
+            onPressed()
+        }
+    }
+    
+    private static func makeEventHandler() -> EventHandlerUPP {
+        { _, _, userData in
+            guard let userData else {
+                return noErr
+            }
+            
+            let controller = Unmanaged<GlobalHotKeyController>
+                .fromOpaque(userData)
+                .takeUnretainedValue()
+            controller.handleHotKeyPressed()
+            return noErr
+        }
+    }
+    
+    private static let hotKeySignature: OSType = {
+        let scalars = Array("CDBR".unicodeScalars)
+        return scalars.reduce(UInt32(0)) { result, scalar in
+            (result << 8) + scalar.value
+        }
+    }()
+}

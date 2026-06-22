@@ -14,20 +14,21 @@ nonisolated enum WorkflowHookEventRecorder {
     private static func hookEventName(from arguments: [String]) -> String? {
         for argument in arguments.dropFirst() {
             if argument.hasPrefix("--hook-event=") {
-                let value = String(argument.dropFirst("--hook-event=".count))
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                return value.isEmpty ? nil : value
+                return normalizedHookEventName(String(argument.dropFirst("--hook-event=".count)))
             }
         }
         
         if let optionIndex = arguments.firstIndex(of: "--hook-event"),
            arguments.indices.contains(arguments.index(after: optionIndex)) {
-            let value = arguments[arguments.index(after: optionIndex)]
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
+            return normalizedHookEventName(arguments[arguments.index(after: optionIndex)])
         }
         
         return nil
+    }
+    
+    private static func normalizedHookEventName(_ value: String) -> String? {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? nil : trimmedValue
     }
     
     private static func record(eventName: String) throws {

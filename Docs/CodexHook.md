@@ -166,7 +166,7 @@ subagentStopCount, sessionCount, turnCount, projectCounts, sessionIds, turnIds
 
 | `daily.jsonl` 字段       | 从 `events/YYYY-MM-DD.jsonl` 读取什么                | 写入 / 更新规则                                                                                                                                                                                                           | 页面关系                                               |
 | ------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `date`                   | `timestamp`                                          | Hook 写入时先把事件时间解析为绝对时间，再按当前本地时区格式化为 `yyyy-MM-dd` 选择日期文件。维护流程按当前处理的文件日期生成同名 `daily.jsonl` 行。早于最近 210 天保留窗口的日期不会进入聚合。                             | 热力图日期键；tooltip 日期。                           |
+| `date`                   | `timestamp`                                          | Hook 写入时先把事件时间解析为绝对时间，再按当前本地时区格式化为 `yyyy-MM-dd` 选择日期文件。维护流程按当前处理的文件日期生成同名 `daily.jsonl` 行。早于最近 210 天保留窗口的日期不会进入聚合。                             | 热力图日期键；详情面板日期。                           |
 | `eventCount`             | 每条成功解码并保留下来的事件行                       | 每处理一条事件就 `+1`，发生在具体事件类型判断之前。因此 `UserPromptSubmit`、未知 `event`、`tool: null`、`session: null` 等行都会计入，只要 `timestamp` 和 `event` 可解析。                                                | 进入 `WorkflowDailyStats.eventCount`，当前页面不展示。 |
 | `sessionStartCount`      | `event`                                              | `event` 归一化后等于 `sessionstart` 时 `+1`。不要求 `session` 非空。                                                                                                                                                      | 作为「会话总数」兜底来源。                             |
 | `stopCount`              | `event`                                              | `event` 归一化后等于 `stop` 时 `+1`。不要求 `turn` 非空。                                                                                                                                                                 | 作为「对话轮次」兜底来源。                             |
@@ -202,24 +202,35 @@ UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyStats`:
 
 用量热力图固定为近 30 周、30 列 x 7 行、周日到周六排列。`account/usage/read` 返回当天 `dailyUsageBuckets` 时, 热力图展示今天的小方块和对应 token 数; 没有当天 bucket 时再按 Hook 开关决定是否包含今天。
 
+热力图 hover 时不在 popover 内绘制旧式 tooltip, 而是通过 `UsageHeatmapHoverContext` 通知 `HeatmapDetailPanelController` 展示侧边详情面板。指针会吸附到最近方块, 离开热力图后延迟 160 ms 清除选中状态。
+
+详情面板是 popover 的 borderless nonactivating child panel:
+
+- 不接收鼠标事件, 不抢走 popover key window
+- 按悬停列优先显示在 popover 左侧或右侧, 左右空间不足时尝试另一侧
+- 最终位置会被夹在当前屏幕可见区域内, 屏幕边缘保留 `8` px
+- 与 popover 之间保留 `4` px gap
+- 侧边切换使用抽屉动画: 收起 `0.12` 秒, 展开 `0.18` 秒
+
 Codex Hook 关闭时:
 
 - 默认不包含今天
-- tooltip 只显示日期和 token 数
-- tooltip 固定为 `92 x 40`
-- tooltip 横向 padding 为 `8`, 纵向 padding 为 `6`, 圆角为 `7`
+- 详情面板显示日期, token 数和「用量强度」分段条
+- 详情面板固定为 `212 x 84`
+- 详情面板横向 padding 为 `12`, 纵向 padding 为 `10`, 圆角为 `12`
 - 日期使用 `.caption2.monospacedDigit()`
-- token 数使用 `.caption.monospacedDigit().weight(.semibold)`
+- token 数使用 `14pt` 等宽数字并加粗
 - token 数通过 `TokenCountText` 展示: `1K` 以下显示完整整数, `1K` 起显示 `K` / `M` / `B`, 不使用千位逗号; 文本自身允许缩小到 `0.8`
 
 Codex Hook 开启时:
 
 - 热力图包含今天
 - 没有当天 token bucket 时, 今天的 token 数显示为 `--`
-- tooltip 首行左侧显示日期、右侧显示 token 数
+- 详情面板首行左侧显示日期、右侧显示 token 数
+- 第二行显示「用量强度」分段条
 - 后续逐行显示「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」
-- tooltip 固定为 `132 x 116`
-- tooltip 横向 padding 为 `8`, 纵向 padding 为 `6`, 圆角为 `7`
-- 日期和 token 数都使用 `10pt` 等宽数字; token 数额外加粗
-- 工作流统计行整体使用 `10pt`; 左侧标签固定宽度 `54`, 标签和值之间 spacing 为 `6`
-- 工作流统计行右侧数字优先使用正常 `10pt` 完整展示; 只有正常字号在横向剩余空间内放不下时, 才会启用自动缩小, 最小缩放比例为 `0.60`, 并允许字距收紧
+- 详情面板固定为 `212 x 189`
+- 详情面板横向 padding 为 `12`, 纵向 padding 为 `10`, 圆角为 `12`
+- 日期使用 `.caption2.monospacedDigit()`, token 数使用 `14pt` 等宽数字并加粗
+- 工作流统计行整体使用 `11pt`; 左侧标签固定宽度 `72`, 标签和值之间 spacing 为 `6`
+- 工作流统计行右侧数字优先使用正常字号完整展示; 只有正常字号在横向剩余空间内放不下时, 才会启用自动缩小, 最小缩放比例为 `0.60`, 并允许字距收紧

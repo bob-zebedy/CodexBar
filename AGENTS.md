@@ -164,7 +164,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 
 - 正常图标是 `person.fill.checkmark`, 错误图标是 `person.fill.xmark`。
 - 菜单栏不展示额度数字; 详情只在 popover 中展示。
-- 左键切换 popover; 右键或 Control 点击显示「设置 / 日志 / 退出」。
+- 左键或全局快捷键切换 popover; 右键或 Control 点击显示「设置 / 日志 / 退出」。
 
 Popover:
 
@@ -182,22 +182,25 @@ Popover:
 - token 区域显示「单日峰值」和「全时累计」; `TokenCountText` 对 1K 以下显示完整整数, 1K 起显示 K/M/B。
 - token 区域还显示「当前连胜」、「最长连胜」和「最长任务」。
 - 热力图是近 30 周、30 列 x 7 行、周日到周六排列; Codex Hook 开启时包含今天, Hook 关闭时仅在 app-server 已返回当天 token bucket 时包含今天。
-- Hook 关闭时热力图 tooltip 只显示日期和 token 数; 宽度使用 `tokenTooltipWidth`。
-- Hook 开启时热力图 tooltip 首行左侧显示日期、右侧显示 token 数, 当天 token 数显示 `--`; 后续逐行显示「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」。
-- 工作流统计只展示在用量热力图 tooltip 中, 不再有单独的工作流统计区。
+- 热力图 hover 使用 `HeatmapDetailPanelController` 展示侧边详情面板, 不是 popover 内 tooltip; 面板作为 popover child window, 不接收鼠标事件, 左右贴边展示并在屏幕可见区域内夹紧。
+- Hook 关闭时详情面板显示日期、token 数和「用量强度」分段条, 尺寸 `212 x 84`。
+- Hook 开启时详情面板首行左侧显示日期、右侧显示 token 数, 当天 token 数显示 `--`; 后续显示「用量强度」、「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」, 尺寸 `212 x 189`。
+- 工作流统计只展示在用量热力图详情面板中, 不再有单独的工作流统计区。
 
 设置窗口:
 
 - 通过右键菜单「设置」打开独立 `AppSettingsView` 窗口。
 - 不要恢复为 Option 点击或 popover 内设置区。
-- 设置页包含「CodexBar 版本」和「Codex 版本」区域。
+- 设置页包含「使用快捷键」行、「CodexBar 版本」和「Codex 版本」区域。
 - `Codex CLI` 行图标用 `terminal`; `Codex APP` 行图标用 `app.badge`。
 - 当前运行来源显示「当前使用」。
 - 当前行优先展示 app-server 握手自报版本; 非当前行展示磁盘安装版本。
 - 当前运行版本与磁盘安装版本不同时, 显示「已更新至 <version>」。
 - 路径点击复制到剪贴板, 对应来源显示「已复制」1.5 秒; 保留路径文本布局宽度避免跳动。
+- 默认全局快捷键是 `⌘⇧W`; 快捷键录制至少需要两个修饰键, 不允许 Command-Space 或 Command-Tab; 注册冲突、无法识别和校验错误显示在快捷键行内。
 - 设置页包含「启用 Codex Hook」开关; 开启后会写入全局 Codex Hook 配置, 用于近 30 周数据展示更多本机统计数据。
-- Codex Hook 开关下方说明文案为小号辅助文字; 不展示启用/关闭状态文案, 只在失败时展示错误消息。
+- Codex Hook 开关下方说明文案为小号辅助文字; 不展示启用/关闭状态文案。
+- 开机启动和 Codex Hook 错误显示在设置组与底部按钮组之间的独立错误组; 无错误时不展示该组, 退出和检查更新按钮之间不展示错误文案。
 
 日志窗口:
 

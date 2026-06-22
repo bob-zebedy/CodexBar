@@ -7,6 +7,7 @@ struct AppSettingsView: View {
     @StateObject private var loginItemSettings = LoginItemSettings()
     @StateObject private var codexVersions = CodexCLIVersionViewModel()
     @ObservedObject var codexHookSettings: CodexHookSettings
+    @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
     
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
@@ -14,6 +15,8 @@ struct AppSettingsView: View {
                 launchAtLoginRow
                 LiquidGlassDivider()
                 automaticUpdateCheckRow
+                LiquidGlassDivider()
+                hotKeyRow
                 LiquidGlassDivider()
                 codexHookRow
                 LiquidGlassDivider()
@@ -24,17 +27,18 @@ struct AppSettingsView: View {
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
             
+            settingsErrorPanel
+            
             HStack(alignment: .center, spacing: 12) {
                 quitButton
-                statusText
                 Spacer()
                 checkUpdateButton
             }
-            .animation(Metrics.statusAnimation, value: loginItemSettings.errorMessage)
-            .animation(Metrics.statusAnimation, value: codexHookSettings.errorMessage)
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
         }
+        .animation(Metrics.statusAnimation, value: loginItemSettings.errorMessage)
+        .animation(Metrics.statusAnimation, value: codexHookSettings.errorMessage)
         .padding(Metrics.padding)
         .frame(width: Metrics.windowWidth)
         .liquidGlassSurface(
@@ -92,6 +96,10 @@ private extension AppSettingsView {
             ),
             isEnabled: appUpdater.canConfigureAutomaticChecks
         )
+    }
+    
+    var hotKeyRow: some View {
+        HotKeyRecorderRow(settings: globalHotKeySettings)
     }
     
     var codexHookRow: some View {
@@ -175,18 +183,15 @@ private extension AppSettingsView {
     }
     
     @ViewBuilder
-    var statusText: some View {
-        if let message = loginItemSettings.errorMessage {
+    var settingsErrorPanel: some View {
+        if let message = settingsErrorMessage {
             Text(message)
                 .font(.caption)
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
-                .transition(.opacity)
-        } else if let message = codexHookSettings.errorMessage {
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.red)
-                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(Metrics.panelPadding)
+                .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
                 .transition(.opacity)
         }
     }
@@ -207,5 +212,9 @@ private extension AppSettingsView {
         }
         .foregroundStyle(.red)
         .keyboardShortcut("q")
+    }
+    
+    var settingsErrorMessage: String? {
+        loginItemSettings.errorMessage ?? codexHookSettings.errorMessage
     }
 }

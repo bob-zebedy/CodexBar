@@ -3,31 +3,80 @@ import SwiftUI
 struct TokenCountText: View {
     let tokens: Int
     var font: Font = .caption.monospacedDigit().weight(.semibold)
+    var reservedNumericWidth: CGFloat?
+    var reservedUnitWidth: CGFloat?
     
     var body: some View {
-        Text(TokenCountFormatter.string(from: tokens))
+        content
             .font(font)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
     }
+    
+    @ViewBuilder
+    private var content: some View {
+        let parts = TokenCountFormatter.parts(from: tokens)
+        
+        if let reservedNumericWidth {
+            HStack(spacing: 0) {
+                Text(parts.number)
+                    .numericRollTransition(value: Double(tokens))
+                    .frame(minWidth: reservedNumericWidth, alignment: .trailing)
+                
+                if let unit = parts.unit {
+                    Text(unit)
+                        .frame(width: reservedUnitWidth, alignment: .trailing)
+                }
+            }
+        } else {
+            Text(parts.text)
+        }
+    }
+}
+
+private struct NumericRollTransition: ViewModifier {
+    let value: Double
+    @State private var previous: Double?
+    
+    func body(content: Content) -> some View {
+        content
+            .contentTransition(.numericText(countsDown: countsDown))
+            .onChange(of: value) { _, newValue in
+                previous = newValue
+            }
+    }
+    
+    private var countsDown: Bool {
+        guard let previous else {
+            return false
+        }
+        return value < previous
+    }
+}
+
+extension View {
+    func numericRollTransition(value: Double) -> some View {
+        modifier(NumericRollTransition(value: value))
+    }
 }
 
 private enum TokenCountFormatter {
-    static func string(from tokens: Int) -> String {
+    static func parts(from tokens: Int) -> TokenCountParts {
         switch tokens {
         case 1_000_000_000...:
-            return decimal(Double(tokens) / 1_000_000_000) + "B"
+            return TokenCountParts(number: decimal(Double(tokens) / 1_000_000_000), unit: "B")
         case 1_000_000...:
-            return decimal(Double(tokens) / 1_000_000) + "M"
+            return TokenCountParts(number: decimal(Double(tokens) / 1_000_000), unit: "M")
         case 1_000...:
-            return decimal(Double(tokens) / 1_000) + "K"
+            return TokenCountParts(number: decimal(Double(tokens) / 1_000), unit: "K")
         default:
-            return String(tokens)
+            return TokenCountParts(number: String(tokens), unit: nil)
         }
     }
     
     private static func decimal(_ value: Double) -> String {
-        let rounded = value >= 0.1 ? (value * 10).rounded() / 10 : (value * 100).rounded() / 100
+        let roundingScale: Double = value >= 0.1 ? 10 : 100
+        let rounded = (value * roundingScale).rounded() / roundingScale
         return formatter.string(from: NSNumber(value: rounded)) ?? String(format: "%.1f", rounded)
     }
     
@@ -39,4 +88,13 @@ private enum TokenCountFormatter {
         formatter.maximumFractionDigits = 2
         return formatter
     }()
+    
+    struct TokenCountParts {
+        let number: String
+        let unit: String?
+        
+        var text: String {
+            number + (unit ?? "")
+        }
+    }
 }

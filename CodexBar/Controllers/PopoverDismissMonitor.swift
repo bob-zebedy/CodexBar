@@ -10,6 +10,8 @@ final class PopoverDismissMonitor {
     private var workspaceActivateObserver: NSObjectProtocol?
     private var popoverWindowResignKeyObserver: NSObjectProtocol?
     private var deferredWindowFocusTask: Task<Void, Never>?
+    private var suppressActivationDismissTask: Task<Void, Never>?
+    private var suppressesActivationDismiss = false
     private var onDismiss: (() -> Void)?
     
     init(
@@ -47,7 +49,9 @@ final class PopoverDismissMonitor {
             object: NSApplication.shared,
             queue: .main
         ) { [weak self] _ in
-            self?.scheduleDismiss()
+            Task { @MainActor [weak self] in
+                self?.scheduleDismissForActivationChange()
+            }
         }
         
         workspaceActivateObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -79,6 +83,9 @@ final class PopoverDismissMonitor {
         onDismiss = nil
         deferredWindowFocusTask?.cancel()
         deferredWindowFocusTask = nil
+        suppressActivationDismissTask?.cancel()
+        suppressActivationDismissTask = nil
+        suppressesActivationDismiss = false
         removeEventMonitor(&localEventMonitor)
         removeEventMonitor(&globalMouseEventMonitor)
         removeObserver(&appResignActiveObserver)
@@ -102,7 +109,9 @@ final class PopoverDismissMonitor {
             object: popoverWindow,
             queue: .main
         ) { [weak self] _ in
-            self?.scheduleDismiss()
+            Task { @MainActor [weak self] in
+                self?.scheduleDismissForActivationChange()
+            }
         }
     }
     
@@ -110,6 +119,14 @@ final class PopoverDismissMonitor {
         Task { @MainActor [weak self] in
             self?.dismiss()
         }
+    }
+    
+    private func scheduleDismissForActivationChange() {
+        guard !suppressesActivationDismiss else {
+            return
+        }
+        
+        scheduleDismiss()
     }
     
     private func dismiss() {
@@ -121,6 +138,10 @@ final class PopoverDismissMonitor {
     }
     
     private func dismissIfDifferentApplication(processIdentifier: pid_t?) {
+        guard !suppressesActivationDismiss else {
+            return
+        }
+        
         if let processIdentifier, processIdentifier == NSRunningApplication.current.processIdentifier {
             return
         }
@@ -165,20 +186,32 @@ final class PopoverDismissMonitor {
             return true
         }
         
-        if isSystemDismissShortcut(event) {
+        if isCommandShortcut(event, keyCode: Metrics.tabKeyCode) {
             dismiss()
+        } else if isCommandShortcut(event, keyCode: Metrics.spaceKeyCode) {
+            suppressNextActivationDismiss()
         }
         
         return false
     }
     
-    private func isSystemDismissShortcut(_ event: NSEvent) -> Bool {
+    private func isCommandShortcut(_ event: NSEvent, keyCode: UInt16) -> Bool {
         let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard modifierFlags.contains(.command) else {
-            return false
+        return modifierFlags.contains(.command) && event.keyCode == keyCode
+    }
+    
+    private func suppressNextActivationDismiss() {
+        suppressActivationDismissTask?.cancel()
+        suppressesActivationDismiss = true
+        suppressActivationDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(Metrics.activationDismissSuppressionMilliseconds))
+            guard let self, !Task.isCancelled else {
+                return
+            }
+            
+            self.suppressesActivationDismiss = false
+            self.suppressActivationDismissTask = nil
         }
-        
-        return event.keyCode == Metrics.tabKeyCode || event.keyCode == Metrics.spaceKeyCode
     }
     
     private func dismissIfNeeded(for event: NSEvent) {
@@ -265,5 +298,6 @@ final class PopoverDismissMonitor {
         static let escapeKeyCode: UInt16 = 53
         static let tabKeyCode: UInt16 = 48
         static let spaceKeyCode: UInt16 = 49
+        static let activationDismissSuppressionMilliseconds: UInt64 = 600
     }
 }

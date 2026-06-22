@@ -7,6 +7,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     let viewModel = CodexStatusViewModel()
     let workflowStatsViewModel = WorkflowStatsViewModel()
     let codexHookSettings = CodexHookSettings()
+    let globalHotKeySettings = GlobalHotKeySettings()
     let appUpdater = AppUpdater()
     
     private var statusItemController: StatusItemController?
@@ -16,6 +17,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             viewModel: viewModel,
             workflowStatsViewModel: workflowStatsViewModel,
             codexHookSettings: codexHookSettings,
+            globalHotKeySettings: globalHotKeySettings,
             appUpdater: appUpdater
         )
         controller.install()
@@ -32,15 +34,21 @@ private final class StatusItemController: NSObject {
     private let viewModel: CodexStatusViewModel
     private let workflowStatsViewModel: WorkflowStatsViewModel
     private let codexHookSettings: CodexHookSettings
+    private let globalHotKeySettings: GlobalHotKeySettings
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let popoverVisibility = PopoverVisibilityState()
+    private let heatmapDetailPanelController = HeatmapDetailPanelController()
+    private lazy var globalHotKeyController = GlobalHotKeyController { [weak self] in
+        self?.togglePopoverFromHotKey()
+    }
     
     private lazy var settingsWindowController = SettingsWindowController(
         viewModel: viewModel,
         appUpdater: appUpdater,
-        codexHookSettings: codexHookSettings
+        codexHookSettings: codexHookSettings,
+        globalHotKeySettings: globalHotKeySettings
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
     }
@@ -55,6 +63,7 @@ private final class StatusItemController: NSObject {
     private var popoverState = PopoverState.hidden
     private var cancellables = Set<AnyCancellable>()
     private var isShowingErrorImage: Bool?
+    private var registeredHotKeyShortcut: GlobalHotKeyShortcut?
     
     private static let normalImage = makeStatusImage("person.fill.checkmark")
     private static let errorImage = makeStatusImage("person.fill.xmark")
@@ -63,11 +72,13 @@ private final class StatusItemController: NSObject {
         viewModel: CodexStatusViewModel,
         workflowStatsViewModel: WorkflowStatsViewModel,
         codexHookSettings: CodexHookSettings,
+        globalHotKeySettings: GlobalHotKeySettings,
         appUpdater: AppUpdater
     ) {
         self.viewModel = viewModel
         self.workflowStatsViewModel = workflowStatsViewModel
         self.codexHookSettings = codexHookSettings
+        self.globalHotKeySettings = globalHotKeySettings
         self.appUpdater = appUpdater
         super.init()
     }
@@ -87,6 +98,7 @@ private final class StatusItemController: NSObject {
     func install() {
         configureStatusButton()
         configurePopover()
+        observeGlobalHotKeySettings()
         observeViewModel()
         updateStatusImage()
         viewModel.startAutoRefresh()
@@ -94,6 +106,7 @@ private final class StatusItemController: NSObject {
     
     func uninstall() {
         closePopover(animated: false)
+        globalHotKeyController.uninstall()
         cancellables.removeAll()
         NSStatusBar.system.removeStatusItem(statusItem)
     }
@@ -115,7 +128,10 @@ private final class StatusItemController: NSObject {
             viewModel: viewModel,
             workflowStatsViewModel: workflowStatsViewModel,
             codexHookSettings: codexHookSettings,
-            popoverVisibility: popoverVisibility
+            popoverVisibility: popoverVisibility,
+            onUsageHeatmapHoverChange: { [weak self] context in
+                self?.updateHeatmapDetailPanel(context)
+            }
         )
             .environmentObject(appUpdater)
             .frame(width: CodexStatusMenuView.menuWidth)
@@ -148,6 +164,44 @@ private final class StatusItemController: NSObject {
                 self.refreshWorkflowStatsIfHookEnabled(performMaintenance: true)
             }
             .store(in: &cancellables)
+    }
+    
+    private func observeGlobalHotKeySettings() {
+        globalHotKeySettings.$shortcut
+            .removeDuplicates()
+            .sink { [weak self] shortcut in
+                self?.applyGlobalHotKey(shortcut)
+            }
+            .store(in: &cancellables)
+    }
+    
+    private func applyGlobalHotKey(_ shortcut: GlobalHotKeyShortcut?) {
+        guard shortcut != registeredHotKeyShortcut else {
+            return
+        }
+        
+        guard let shortcut else {
+            globalHotKeyController.uninstall()
+            registeredHotKeyShortcut = nil
+            return
+        }
+        
+        if globalHotKeyController.install(shortcut: shortcut) {
+            registeredHotKeyShortcut = shortcut
+            globalHotKeySettings.clearError()
+            return
+        }
+        
+        let message = hotKeyConflictMessage(for: shortcut)
+        globalHotKeySettings.restoreShortcut(registeredHotKeyShortcut, message: message)
+    }
+    
+    private func hotKeyConflictMessage(for shortcut: GlobalHotKeyShortcut) -> String {
+        if shortcut == .default {
+            return "默认快捷键 \(shortcut.label) 已被占用，请重新设置"
+        }
+        
+        return "快捷键已被占用，请重新设置"
     }
     
     private func updateStatusImage() {
@@ -188,6 +242,14 @@ private final class StatusItemController: NSObject {
         }
     }
     
+    private func togglePopoverFromHotKey() {
+        guard let button = statusItem.button else {
+            return
+        }
+        
+        togglePopover(relativeTo: button)
+    }
+    
     private func cancelPopoverTasks() {
         deferredRefreshTask?.cancel()
         deferredRefreshTask = nil
@@ -219,40 +281,50 @@ private final class StatusItemController: NSObject {
         
         let menu = NSMenu()
         
-        let settingsItem = NSMenuItem(
+        menu.addItem(menuItem(
             title: "设置",
             action: #selector(openSettings),
-            keyEquivalent: ","
-        )
-        settingsItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
-        settingsItem.target = self
-        menu.addItem(settingsItem)
+            keyEquivalent: ",",
+            symbolName: "gearshape"
+        ))
         
-        let logItem = NSMenuItem(
+        menu.addItem(menuItem(
             title: "日志",
             action: #selector(openLog),
-            keyEquivalent: "l"
-        )
-        logItem.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: nil)
-        logItem.target = self
-        menu.addItem(logItem)
+            keyEquivalent: "l",
+            symbolName: "doc.text.magnifyingglass"
+        ))
         
         menu.addItem(.separator())
         
-        let quitItem = NSMenuItem(
+        menu.addItem(menuItem(
             title: "退出",
             action: #selector(quit),
-            keyEquivalent: "q"
-        )
-        quitItem.image = NSImage(systemSymbolName: "power", accessibilityDescription: nil)
-        quitItem.target = self
-        menu.addItem(quitItem)
+            keyEquivalent: "q",
+            symbolName: "power"
+        ))
         
         menu.popUp(
             positioning: nil,
             at: NSPoint(x: 0, y: button.bounds.minY - 4),
             in: button
         )
+    }
+    
+    private func menuItem(
+        title: String,
+        action: Selector,
+        keyEquivalent: String,
+        symbolName: String
+    ) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: title,
+            action: action,
+            keyEquivalent: keyEquivalent
+        )
+        item.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        item.target = self
+        return item
     }
     
     @objc private func openSettings() {
@@ -273,6 +345,7 @@ private final class StatusItemController: NSObject {
         }
         
         cancelPopoverTasks()
+        heatmapDetailPanelController.hide(immediate: true, delayed: false)
         popoverDismissMonitor.remove()
         popoverVisibility.isVisible = false
         
@@ -283,7 +356,7 @@ private final class StatusItemController: NSObject {
         }
         
         guard animated else {
-            finishPopoverClose()
+            finishPopoverClose(hidesDetailPanel: false)
             return
         }
         
@@ -297,8 +370,11 @@ private final class StatusItemController: NSObject {
         }
     }
     
-    private func finishPopoverClose() {
+    private func finishPopoverClose(hidesDetailPanel: Bool = true) {
         cancelPopoverTasks()
+        if hidesDetailPanel {
+            heatmapDetailPanelController.hide(immediate: true)
+        }
         popoverDismissMonitor.remove()
         
         if popover.isShown {
@@ -327,6 +403,21 @@ private final class StatusItemController: NSObject {
         if codexHookSettings.isEnabled {
             workflowStatsViewModel.refreshIfNeeded(performMaintenance: performMaintenance)
         }
+    }
+    
+    private func updateHeatmapDetailPanel(_ context: UsageHeatmapHoverContext?) {
+        guard popover.isShown,
+              let popoverContentView = popover.contentViewController?.view,
+              let popoverWindow = popoverContentView.window else {
+            heatmapDetailPanelController.hide(immediate: true)
+            return
+        }
+        
+        heatmapDetailPanelController.update(
+            context: context,
+            relativeTo: popoverWindow,
+            contentView: popoverContentView
+        )
     }
     
     private enum Metrics {

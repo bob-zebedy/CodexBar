@@ -66,11 +66,12 @@ sequenceDiagram
     end
 ```
 
-普通启动时, `CodexBarAppDelegate` 创建四个长期对象:
+普通启动时, `CodexBarAppDelegate` 创建五个长期对象:
 
 - `CodexStatusViewModel`: app-server 刷新状态
 - `WorkflowStatsViewModel`: Hook 工作流统计快照
 - `CodexHookSettings`: Hook 配置状态和写入操作
+- `GlobalHotKeySettings`: 全局快捷键配置和错误状态
 - `AppUpdater`: Sparkle 更新状态
 
 `StatusItemController.install()` 负责:
@@ -78,9 +79,10 @@ sequenceDiagram
 - 配置菜单栏按钮图标, tooltip 和点击事件
 - 配置 popover 的 SwiftUI 根视图
 - 订阅状态变化并切换菜单栏图标
+- 订阅全局快捷键配置并安装或移除 Carbon hot key
 - 开始每 60 秒自动刷新
 
-App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall()`, 关闭 popover, 移除订阅并从系统状态栏移除 status item
+App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall()`, 关闭 popover, 注销全局快捷键, 移除订阅并从系统状态栏移除 status item
 
 ## 4. 菜单栏, Popover 与窗口流程
 
@@ -100,9 +102,12 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 | 左键点击         | 切换 popover     |
 | 右键点击         | 打开上下文菜单   |
 | Control + 点击   | 打开上下文菜单   |
+| 全局快捷键       | 切换 popover     |
 | 上下文菜单"设置" | 打开独立设置窗口 |
 | 上下文菜单"日志" | 打开独立日志窗口 |
 | 上下文菜单"退出" | 终止 App         |
+
+全局快捷键由 `GlobalHotKeySettings` 和 `GlobalHotKeyController` 管理。没有用户设置时默认注册 `⌘⇧W`; 用户清除后不注册快捷键。注册冲突时恢复到上一个已注册快捷键, 并把错误显示在设置窗口的快捷键行内。
 
 打开 popover 的顺序:
 
@@ -124,10 +129,12 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 
 - popover 外部鼠标点击
 - Escape
-- Command-Tab 或 Command-Space 等系统切换快捷键
+- Command-Tab
 - App 失去 active
 - 其他应用被激活
 - popover window 失去 key
+
+Command-Space 不直接关闭 popover, 只短暂抑制 600 ms 内的 active 变化关闭逻辑, 避免 Spotlight 或系统搜索抢焦点时误关弹窗。
 
 设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开时移动到当前桌面并置前
 
@@ -347,7 +354,8 @@ codex app-server --listen stdio://
 - Popover 只展示"未登录"和"初始化失败"两类特殊状态
 - 具体启动失败, 请求失败, 超时, 断连, 解析失败和业务错误进入日志窗口
 - 账户有效时, rate limits 和 usage 可以单独失败, 失败区域按缓存或无数据处理
-- 涉及本机配置写入的错误显示在设置窗口底部状态区
+- 登录项和 Hook 写入错误显示在设置窗口中部的独立错误组
+- 全局快捷键录制, 校验和注册错误显示在快捷键行内
 - Hook 子进程尽量快速退出, 事件记录失败不会阻断 Codex 自身流程
 
 app-server 与状态刷新错误:
@@ -383,19 +391,21 @@ app-server 与状态刷新错误:
 
 设置, Hook 和更新错误:
 
-| 错误来源                         | 检测位置                                                 | 用户可见状态                           | 重试或降级                                       |
-| -------------------------------- | -------------------------------------------------------- | -------------------------------------- | ------------------------------------------------ |
-| 登录项注册或取消失败             | `LoginItemSettings.setEnabled`                           | 设置窗口底部显示"设置开机启动失败"     | 调用 `refresh()` 恢复实际状态                    |
-| `hooks.json` 读取失败或结构非法  | `CodexHookSettings.refresh`                              | Hook 开关视为关闭, 底部显示读取失败    | 不写配置                                         |
-| Hook 开关写入失败                | `CodexHookSettings.setEnabled`                           | 底部显示"设置 Codex Hook 失败"         | 调用 `refresh()` 恢复实际状态                    |
-| Hook 子进程 payload 不是 JSON    | `WorkflowHookEventRecorder.stdinPayload`                 | 无 UI 提示                             | 使用空 payload 和 fallback 字段继续记录          |
-| Hook 子进程写入失败              | `WorkflowHookEventRecorder.handleIfRequested`            | 无 UI 提示                             | `try? record` 吞掉错误并正常退出, 避免阻断 Codex |
-| `daily.jsonl` 缺失, 空文件或坏行 | `WorkflowStatsService.prepareMaintenanceTasksOnQueue`    | tooltip 可能暂时显示 0                 | 标记 dirty, 后续从 events 文件重建               |
-| events 文件变小或 offset 不一致  | `WorkflowStatsService.reconcileEventFiles`               | tooltip 可能暂时显示旧聚合             | 标记 dirty, 从头重建当天聚合                     |
-| 单个维护任务失败                 | `WorkflowStatsService.performMaintenanceIfNeededOnQueue` | 使用已有 daily 或空 snapshot           | 对应日期标记 dirty                               |
-| Sparkle 配置缺失                 | `AppUpdater.init`                                        | 更新开关禁用, 操作显示"未配置更新资源" | 不创建 updater controller                        |
-| 手动检查没有更新                 | `updaterDidNotFindUpdate`                                | 显示"没有可用更新"                     | 1 秒后自动清理状态                               |
-| 手动检查失败                     | `didAbortWithError`                                      | 显示"检查更新失败"                     | 不展示底层错误细节                               |
+| 错误来源                         | 检测位置                                                 | 用户可见状态                              | 重试或降级                                       |
+| -------------------------------- | -------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------ |
+| 登录项注册或取消失败             | `LoginItemSettings.setEnabled`                           | 设置窗口中部错误组显示"设置开机启动失败"  | 调用 `refresh()` 恢复实际状态                    |
+| `hooks.json` 读取失败或结构非法  | `CodexHookSettings.refresh`                              | Hook 开关视为关闭, 中部错误组显示读取失败 | 不写配置                                         |
+| Hook 开关写入失败                | `CodexHookSettings.setEnabled`                           | 中部错误组显示"设置 Codex Hook 失败"      | 调用 `refresh()` 恢复实际状态                    |
+| 快捷键无法识别或不符合规则       | `HotKeyRecorderRow` / `GlobalHotKeySettings.setShortcut` | 快捷键行内显示红色错误                    | 用户清除后重新录制                               |
+| 快捷键注册冲突                   | `StatusItemController.applyGlobalHotKey`                 | 快捷键行内显示占用提示                    | 恢复上一个已注册快捷键                           |
+| Hook 子进程 payload 不是 JSON    | `WorkflowHookEventRecorder.stdinPayload`                 | 无 UI 提示                                | 使用空 payload 和 fallback 字段继续记录          |
+| Hook 子进程写入失败              | `WorkflowHookEventRecorder.handleIfRequested`            | 无 UI 提示                                | `try? record` 吞掉错误并正常退出, 避免阻断 Codex |
+| `daily.jsonl` 缺失, 空文件或坏行 | `WorkflowStatsService.prepareMaintenanceTasksOnQueue`    | 热力图详情面板可能暂时显示 0              | 标记 dirty, 后续从 events 文件重建               |
+| events 文件变小或 offset 不一致  | `WorkflowStatsService.reconcileEventFiles`               | 热力图详情面板可能暂时显示旧聚合          | 标记 dirty, 从头重建当天聚合                     |
+| 单个维护任务失败                 | `WorkflowStatsService.performMaintenanceIfNeededOnQueue` | 使用已有 daily 或空 snapshot              | 对应日期标记 dirty                               |
+| Sparkle 配置缺失                 | `AppUpdater.init`                                        | 更新开关禁用, 操作显示"未配置更新资源"    | 不创建 updater controller                        |
+| 手动检查没有更新                 | `updaterDidNotFindUpdate`                                | 显示"没有可用更新"                        | 1 秒后自动清理状态                               |
+| 手动检查失败                     | `didAbortWithError`                                      | 显示"检查更新失败"                        | 不展示底层错误细节                               |
 
 Codex 版本探测错误:
 
@@ -501,14 +511,19 @@ flowchart TD
 - 指标行展示"全时累计", "单日峰值", "当前连胜", "最长连胜", "最长任务"
 - token 文本由 `TokenCountText` 格式化, 1K 以下完整显示, 1K 起显示 K/M/B
 - 热力图方块强度按当天 token 相对当前 30 周峰值计算, 并用 `pow(percent, 0.62)` 调整视觉强度
-- hover 时显示 tooltip, 并根据方块位置自动放在左, 右, 上, 下的可用空间内
+- hover 时通过 `UsageHeatmapHoverContext` 通知 `HeatmapDetailPanelController` 展示侧边详情面板
+- 指针会吸附到最近方块, 吸附动画 0.12 秒; 离开热力图后延迟 160 ms 清除选中状态
 
-tooltip 分两种:
+热力图详情面板是 popover 的 borderless nonactivating child panel, 不接收鼠标事件, 按悬停列优先显示在 popover 左侧或右侧; 左右空间不足时尝试另一侧, 最终在当前屏幕可见区域内保留 8 px 边距。侧边切换时先以 0.12 秒抽屉动画收起, 再以 0.18 秒展开。
 
-| Hook 状态 | tooltip 内容                                                                 | 尺寸        |
-| --------- | ---------------------------------------------------------------------------- | ----------- |
-| 关闭      | 日期和 token 数                                                              | `92 x 40`   |
-| 开启      | 日期, token 数, 会话总数, 对话轮次, 子智能体, 工具调用, 权限请求, 上下文压缩 | `132 x 116` |
+详情面板分两种:
+
+| Hook 状态 | 内容                                                                                           | 尺寸        |
+| --------- | ---------------------------------------------------------------------------------------------- | ----------- |
+| 关闭      | 日期, token 数和"用量强度"分段条                                                               | `212 x 84`  |
+| 开启      | 日期, token 数, "用量强度"分段条, 会话总数, 对话轮次, 子智能体, 工具调用, 权限请求, 上下文压缩 | `212 x 189` |
+
+Hook 开启且当天没有 token bucket 时, 今天的 token 数显示 `--`。日期使用 `AnimatedDateText` 做数字滚动, token 数使用 `TokenCountText` 并保留数字和单位宽度。
 
 更新时间行:
 
@@ -538,7 +553,7 @@ sequenceDiagram
     participant HookApp as Hook 记录进程
     participant Store as 本机事件存储
     participant Stats as 统计维护
-    participant Tooltip as 热力图提示
+    participant Detail as 热力图详情面板
 
     User->>Settings: 打开启用 Hook
     Settings->>Config: 请求写入 Hook 配置
@@ -590,11 +605,11 @@ sequenceDiagram
         Stats->>Stats: 合并事件计数, 会话去重和工具统计
         alt 单日维护失败
             Stats->>Store: 标记当天下次重建
-            Stats-->>Tooltip: 继续使用已有聚合或空数据
+            Stats-->>Detail: 继续使用已有聚合或空数据
         else 维护成功
             Stats->>Store: 原子写回每日聚合
             Stats->>Store: 更新维护状态并清理过期事件
-            Stats-->>Tooltip: 展示最新统计
+            Stats-->>Detail: 展示最新统计
         end
     end
 ```
@@ -769,14 +784,16 @@ App 再次成为 active 时, 也会刷新 Codex 版本区
 | --------------- | ---------------------------------------------------- | ------------------------------------ |
 | 开机自动启动    | `SMAppService.mainApp.status`                        | `register()` / `unregister()`        |
 | 自动检查更新    | Sparkle updater                                      | 设置 `automaticallyChecksForUpdates` |
+| 使用快捷键      | `GlobalHotKeySettings.shortcut`                      | 写入 `UserDefaults` 并注册 hot key   |
 | 启用 Codex Hook | `~/.codex/hooks.json`                                | 追加或移除当前 CodexBar command hook |
 | CodexBar 版本   | Bundle + AppUpdater 状态                             | 有更新状态时优先显示动态消息         |
 | Codex 版本      | `CodexCLIVersionSnapshot` + 当前 app-server 握手信息 | 路径点击复制到剪贴板                 |
 
 错误显示:
 
-- 开机启动失败显示在底部状态区
-- Hook 设置失败显示在底部状态区
+- 开机启动失败和 Hook 设置失败显示在设置组与底部按钮组之间的独立错误组
+- 没有登录项或 Hook 错误时不渲染错误组
+- 快捷键无法识别, 规则不合法或注册冲突显示在快捷键行内
 - 更新检查状态显示在 CodexBar 版本行
 - Hook 开关说明只展示辅助说明, 不展示启用或关闭状态文案
 

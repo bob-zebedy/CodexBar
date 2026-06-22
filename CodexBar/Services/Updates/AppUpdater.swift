@@ -1,5 +1,5 @@
-import Combine
 import AppKit
+import Combine
 import Sparkle
 import SwiftUI
 
@@ -79,7 +79,10 @@ final class AppUpdater: NSObject, ObservableObject {
         clearSettingsStatusMessageTask?.cancel()
         settingsStatusMessage = message
         
-        guard let autoDismissDelay else { return }
+        guard let autoDismissDelay else {
+            clearSettingsStatusMessageTask = nil
+            return
+        }
         
         clearSettingsStatusMessageTask = Task { [weak self] in
             try? await Task.sleep(for: autoDismissDelay)
@@ -103,7 +106,7 @@ final class AppUpdater: NSObject, ObservableObject {
 }
 
 extension AppUpdater: SPUUpdaterDelegate {
-    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+    func updater(_: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         let message = "发现新版本: v\(item.displayVersionString)"
         availableUpdateMessage = message
         
@@ -116,7 +119,7 @@ extension AppUpdater: SPUUpdaterDelegate {
         isManualCheckInProgress = false
     }
     
-    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
+    func updaterDidNotFindUpdate(_: SPUUpdater, error _: Error) {
         availableUpdateMessage = nil
         panelUpdateMessage = nil
         
@@ -127,7 +130,7 @@ extension AppUpdater: SPUUpdaterDelegate {
         isManualCheckInProgress = false
     }
     
-    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+    func updater(_: SPUUpdater, didAbortWithError _: Error) {
         guard isManualCheckInProgress else {
             return
         }

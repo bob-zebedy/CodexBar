@@ -36,9 +36,7 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
     private var storage: [RequestLogEntry] = []
     
     var entries: [RequestLogEntry] {
-        lock.lock()
-        defer { lock.unlock() }
-        return storage
+        withLock { storage }
     }
     
     private init() {}
@@ -104,34 +102,44 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
     }
     
     func clear() {
-        lock.lock()
-        storage.removeAll()
-        lock.unlock()
+        withLock {
+            storage.removeAll()
+        }
         
         notifyChange()
     }
     
     private func append(_ entry: RequestLogEntry) {
-        lock.lock()
-        storage.insert(entry, at: 0)
-        if storage.count > Self.capacity {
-            storage.removeLast(storage.count - Self.capacity)
+        withLock {
+            storage.insert(entry, at: 0)
+            if storage.count > Self.capacity {
+                storage.removeLast(storage.count - Self.capacity)
+            }
         }
-        lock.unlock()
         
         notifyChange()
     }
     
     private func update(_ id: UUID, _ mutate: (inout RequestLogEntry) -> Void) {
-        lock.lock()
-        guard let index = storage.firstIndex(where: { $0.id == id }) else {
-            lock.unlock()
+        let didUpdate = withLock {
+            guard let index = storage.firstIndex(where: { $0.id == id }) else {
+                return false
+            }
+            mutate(&storage[index])
+            return true
+        }
+        
+        guard didUpdate else {
             return
         }
-        mutate(&storage[index])
-        lock.unlock()
         
         notifyChange()
+    }
+    
+    private func withLock<T>(_ work: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return work()
     }
     
     private func notifyChange() {
