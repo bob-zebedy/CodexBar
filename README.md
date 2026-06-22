@@ -89,3 +89,7 @@ Swift 源码按职责放在 `CodexBar/` 下的子目录中:
 CodexBar 只与本机 Codex app-server 进程通信。账号信息、额度数据、token 用量和 Hook 工作流数据不会被收集或发送给任何个人或服务。
 
 只有检查和下载 App 更新时会产生额外网络请求，请求范围仅包含 [appcast](https://codexbar.zabrian.app/appcast.xml) 和 appcast 中对应的 DMG 下载地址。
+
+## 许可证
+
+本项目采用 GNU General Public License v3.0 [LICENSE](LICENSE)
