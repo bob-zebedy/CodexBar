@@ -139,7 +139,7 @@ CodexBar 最多保留最近 210 天数据。
 ```text
 date, eventCount, sessionStartCount, stopCount, preToolUseCount, postToolUseCount,
 permissionRequestCount, preCompactCount, postCompactCount, subagentStartCount,
-subagentStopCount, sessionIds, turnIds, sessionCount, turnCount, projectCounts
+subagentStopCount, sessionCount, turnCount, projectCounts, sessionIds, turnIds
 ```
 
 其中 `sessionIds` / `turnIds` / `sessionCount` / `turnCount` 没有值时写为 `null`，`projectCounts` 内部项目名按稳定顺序写出。

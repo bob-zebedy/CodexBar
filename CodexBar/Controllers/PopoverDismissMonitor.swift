@@ -7,7 +7,10 @@ final class PopoverDismissMonitor {
     private var localEventMonitor: Any?
     private var globalMouseEventMonitor: Any?
     private var appResignActiveObserver: NSObjectProtocol?
+    private var workspaceActivateObserver: NSObjectProtocol?
     private var popoverWindowResignKeyObserver: NSObjectProtocol?
+    private var deferredWindowFocusTask: Task<Void, Never>?
+    private var onDismiss: (() -> Void)?
     
     init(
         popover: NSPopover,
@@ -19,51 +22,120 @@ final class PopoverDismissMonitor {
     
     func install(onDismiss: @escaping () -> Void) {
         remove()
+        self.onDismiss = onDismiss
         
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: Metrics.dismissEventMask) { [weak self] event in
             guard let self else {
                 return event
             }
             
-            if self.dismissesKeyEvent(event, onDismiss: onDismiss) {
+            if self.handleKeyEvent(event) {
                 return nil
             }
             
-            self.dismissIfNeeded(for: event, onDismiss: onDismiss)
+            self.dismissIfNeeded(for: event)
             self.restabilizePopoverChromeAfterEvent()
             return event
         }
         
-        globalMouseEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: Metrics.mouseDismissEventMask) { _ in
-            Task { @MainActor in
-                onDismiss()
-            }
+        globalMouseEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: Metrics.mouseDismissEventMask) { [weak self] _ in
+            self?.scheduleDismiss()
         }
         
         appResignActiveObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didResignActiveNotification,
+            forName: NSApplication.willResignActiveNotification,
             object: NSApplication.shared,
             queue: .main
-        ) { _ in
-            onDismiss()
+        ) { [weak self] _ in
+            self?.scheduleDismiss()
         }
         
-        if let popoverWindow = popover.contentViewController?.view.window {
-            popoverWindowResignKeyObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didResignKeyNotification,
-                object: popoverWindow,
-                queue: .main
-            ) { _ in
-                onDismiss()
+        workspaceActivateObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let activatedProcessIdentifier = (
+                notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            )?.processIdentifier
+            
+            Task { @MainActor [weak self, activatedProcessIdentifier] in
+                self?.dismissIfDifferentApplication(processIdentifier: activatedProcessIdentifier)
             }
+        }
+        
+        installPopoverWindowObserverAndFocus()
+        deferredWindowFocusTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, !Task.isCancelled, self.popover.isShown else {
+                return
+            }
+            
+            self.installPopoverWindowObserverAndFocus()
         }
     }
     
     func remove() {
+        onDismiss = nil
+        deferredWindowFocusTask?.cancel()
+        deferredWindowFocusTask = nil
         removeEventMonitor(&localEventMonitor)
         removeEventMonitor(&globalMouseEventMonitor)
         removeObserver(&appResignActiveObserver)
+        removeObserver(&workspaceActivateObserver, center: NSWorkspace.shared.notificationCenter)
         removeObserver(&popoverWindowResignKeyObserver)
+    }
+    
+    private func installPopoverWindowObserverAndFocus() {
+        installPopoverWindowObserver()
+        focusPopoverWindow()
+    }
+    
+    private func installPopoverWindowObserver() {
+        removeObserver(&popoverWindowResignKeyObserver)
+        guard let popoverWindow = popover.contentViewController?.view.window else {
+            return
+        }
+        
+        popoverWindowResignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: popoverWindow,
+            queue: .main
+        ) { [weak self] _ in
+            self?.scheduleDismiss()
+        }
+    }
+    
+    private nonisolated func scheduleDismiss() {
+        Task { @MainActor [weak self] in
+            self?.dismiss()
+        }
+    }
+    
+    private func dismiss() {
+        guard popover.isShown else {
+            return
+        }
+        
+        onDismiss?()
+    }
+    
+    private func dismissIfDifferentApplication(processIdentifier: pid_t?) {
+        if let processIdentifier, processIdentifier == NSRunningApplication.current.processIdentifier {
+            return
+        }
+        
+        dismiss()
+    }
+    
+    private func focusPopoverWindow() {
+        guard popover.isShown,
+              let popoverWindow = popover.contentViewController?.view.window else {
+            return
+        }
+        
+        NSApplication.shared.activate()
+        popoverWindow.makeKey()
     }
     
     private func removeEventMonitor(_ monitor: inout Any?) {
@@ -73,24 +145,44 @@ final class PopoverDismissMonitor {
         }
     }
     
-    private func removeObserver(_ observer: inout NSObjectProtocol?) {
+    private func removeObserver(
+        _ observer: inout NSObjectProtocol?,
+        center: NotificationCenter = .default
+    ) {
         if let currentObserver = observer {
-            NotificationCenter.default.removeObserver(currentObserver)
+            center.removeObserver(currentObserver)
             observer = nil
         }
     }
     
-    private func dismissesKeyEvent(_ event: NSEvent, onDismiss: () -> Void) -> Bool {
-        guard popover.isShown, event.type == .keyDown, event.keyCode == Metrics.escapeKeyCode else {
+    private func handleKeyEvent(_ event: NSEvent) -> Bool {
+        guard popover.isShown, event.type == .keyDown else {
             return false
         }
         
-        onDismiss()
-        return true
+        if event.keyCode == Metrics.escapeKeyCode {
+            dismiss()
+            return true
+        }
+        
+        if isSystemDismissShortcut(event) {
+            dismiss()
+        }
+        
+        return false
     }
     
-    private func dismissIfNeeded(for event: NSEvent, onDismiss: () -> Void) {
-        guard popover.isShown else {
+    private func isSystemDismissShortcut(_ event: NSEvent) -> Bool {
+        let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard modifierFlags.contains(.command) else {
+            return false
+        }
+        
+        return event.keyCode == Metrics.tabKeyCode || event.keyCode == Metrics.spaceKeyCode
+    }
+    
+    private func dismissIfNeeded(for event: NSEvent) {
+        guard popover.isShown, isMouseDismissEvent(event) else {
             return
         }
         
@@ -98,7 +190,16 @@ final class PopoverDismissMonitor {
             return
         }
         
-        onDismiss()
+        dismiss()
+    }
+    
+    private func isMouseDismissEvent(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            return true
+        default:
+            return false
+        }
     }
     
     private func restabilizePopoverChromeAfterEvent() {
@@ -162,5 +263,7 @@ final class PopoverDismissMonitor {
         ]
         static let dismissEventMask: NSEvent.EventTypeMask = mouseDismissEventMask.union(.keyDown)
         static let escapeKeyCode: UInt16 = 53
+        static let tabKeyCode: UInt16 = 48
+        static let spaceKeyCode: UInt16 = 49
     }
 }
