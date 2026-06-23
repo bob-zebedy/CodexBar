@@ -19,8 +19,7 @@ final class HeatmapDetailPanelController {
     private var hideTask: Task<Void, Never>?
     private var currentSide = UsageHeatmapDetailSide.left
     private var visibilityGeneration = 0
-    private var isSwitchingSide = false
-    private var isDrawerHiding = false
+    private var drawerTransition = DrawerTransition.idle
     private var pendingSideSwitchRequest: PanelRequest?
     private weak var popoverWindow: NSWindow?
     
@@ -45,7 +44,7 @@ final class HeatmapDetailPanelController {
     func hide(immediate: Bool = false, delayed: Bool = true) {
         cancelHideTask()
         visibilityGeneration += 1
-        isSwitchingSide = false
+        drawerTransition = .idle
         pendingSideSwitchRequest = nil
         
         guard let panel, panel.isVisible else {
@@ -54,7 +53,7 @@ final class HeatmapDetailPanelController {
         
         guard !immediate else {
             resetDrawerVisualState(for: panel)
-            isDrawerHiding = false
+            drawerTransition = .idle
             orderOut(panel)
             return
         }
@@ -74,7 +73,7 @@ final class HeatmapDetailPanelController {
                 return
             }
             
-            self.isDrawerHiding = true
+            self.drawerTransition = .exiting
             let hidden = self.drawerHiddenTranslation(for: side, panelWidth: panel.frame.width)
             self.animateContentTranslation(
                 to: hidden,
@@ -89,7 +88,7 @@ final class HeatmapDetailPanelController {
                     
                     self.orderOut(panel)
                     self.setContentTranslation(0)
-                    self.isDrawerHiding = false
+                    self.drawerTransition = .idle
                     self.hideTask = nil
                 }
             }
@@ -126,37 +125,53 @@ final class HeatmapDetailPanelController {
             restorePopoverKeyWindow(popoverWindow)
         }
         
-        if wasVisible && isSwitchingSide {
-            pendingSideSwitchRequest = request
-            return
-        }
-        
-        if wasVisible && currentSide != position.side {
-            beginSideSwitch(on: panel, from: currentSide, to: request)
+        if wasVisible {
+            updateVisiblePanel(request, on: panel)
             return
         }
         
         visibilityGeneration += 1
-        let resumesDrawerHide = wasVisible && isDrawerHiding
+        apply(request, to: panel)
+        showPanelWithDrawerAnimation(panel, relativeTo: popoverWindow)
+    }
+    
+    private func updateVisiblePanel(_ request: PanelRequest, on panel: NSPanel) {
+        if drawerTransition == .switchingSide {
+            pendingSideSwitchRequest = request
+            return
+        }
+        
+        if currentSide != request.position.side {
+            beginSideSwitch(on: panel, from: currentSide, to: request)
+            return
+        }
+        
+        let activeTransition = drawerTransition
+        if activeTransition != .entering {
+            visibilityGeneration += 1
+        }
         apply(request, to: panel)
         
-        if resumesDrawerHide {
-            isDrawerHiding = false
+        switch activeTransition {
+        case .entering:
+            return
+        case .exiting:
+            drawerTransition = .idle
             animateContentTranslation(to: 0, duration: Metrics.drawerEnterDuration, timing: .easeOut)
-            return
-        }
-        
-        guard !wasVisible else {
+        case .idle, .switchingSide:
+            drawerTransition = .idle
             resetDrawerVisualState(for: panel)
-            return
         }
-        
+    }
+    
+    private func showPanelWithDrawerAnimation(_ panel: NSPanel, relativeTo popoverWindow: NSWindow) {
         let generation = visibilityGeneration
-        let hidden = drawerHiddenTranslation(for: position.side, panelWidth: panelSize.width)
+        let hidden = drawerHiddenTranslation(for: currentSide, panelWidth: panel.frame.width)
         setContentTranslation(hidden)
         panel.alphaValue = 0
         attach(panel, to: popoverWindow)
         panel.order(.above, relativeTo: popoverWindow.windowNumber)
+        drawerTransition = .entering
         animateContentTranslationAfterInitialLayout(
             from: hidden,
             panel: panel,
@@ -171,8 +186,7 @@ final class HeatmapDetailPanelController {
     ) {
         visibilityGeneration += 1
         let generation = visibilityGeneration
-        isSwitchingSide = true
-        isDrawerHiding = false
+        drawerTransition = .switchingSide
         pendingSideSwitchRequest = nil
         
         let hidden = drawerHiddenTranslation(for: sourceSide, panelWidth: panel.frame.width)
@@ -184,7 +198,7 @@ final class HeatmapDetailPanelController {
             Task { @MainActor [weak self] in
                 guard let self,
                       generation == self.visibilityGeneration,
-                      self.isSwitchingSide,
+                      self.drawerTransition == .switchingSide,
                       panel.isVisible else {
                     return
                 }
@@ -218,8 +232,7 @@ final class HeatmapDetailPanelController {
                     return
                 }
                 
-                self.isSwitchingSide = false
-                self.isDrawerHiding = false
+                self.drawerTransition = .idle
                 self.setContentTranslation(0)
                 self.handlePendingSideSwitchRequest(on: panel)
             }
@@ -541,7 +554,17 @@ final class HeatmapDetailPanelController {
                 to: 0,
                 duration: Metrics.drawerEnterDuration,
                 timing: .easeOut
-            )
+            ) {
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          generation == self.visibilityGeneration else {
+                        return
+                    }
+                    
+                    self.drawerTransition = .idle
+                    self.setContentTranslation(0)
+                }
+            }
         }
     }
     
@@ -581,6 +604,13 @@ final class HeatmapDetailPanelController {
         static let drawerExitDuration: TimeInterval = 0.12
         static let drawerOverscan: CGFloat = 1
         static let drawerTransformAnimationKey = "CodexBar.heatmapDetailDrawerTransform"
+    }
+    
+    private enum DrawerTransition {
+        case idle
+        case entering
+        case exiting
+        case switchingSide
     }
     
     private struct PanelPosition {

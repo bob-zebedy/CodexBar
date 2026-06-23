@@ -5,7 +5,7 @@
 CodexBar 是一个轻量级 macOS 菜单栏应用。它直接连接本机 Codex 的 app-server，定期读取额度信息；也可以通过 Codex Hook 记录本机工作流数据，让你不用打开终端就能随时知道: 还剩多少额度、什么时候重置、最近用了多少 token，以及今天的会话、对话轮次、工具调用等情况。
 
 <p align="center">
-  <img src="Images/screenshot.png" alt="CodexBar" width="532">
+  <img src="Images/record.gif" width="532">
 </p>
 
 ## 特性

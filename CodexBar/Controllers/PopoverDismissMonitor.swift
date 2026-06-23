@@ -41,7 +41,10 @@ final class PopoverDismissMonitor {
         }
         
         globalMouseEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: Metrics.mouseDismissEventMask) { [weak self] _ in
-            self?.scheduleDismiss()
+            let screenPoint = NSEvent.mouseLocation
+            Task { @MainActor [weak self, screenPoint] in
+                self?.dismissIfNeeded(at: screenPoint)
+            }
         }
         
         appResignActiveObserver = NotificationCenter.default.addObserver(
@@ -220,7 +223,15 @@ final class PopoverDismissMonitor {
             return
         }
         
-        if isEventInsidePopover(event) || isEventInsideStatusButton(event) {
+        dismissIfNeeded(at: screenPoint(for: event))
+    }
+    
+    private func dismissIfNeeded(at screenPoint: NSPoint) {
+        guard popover.isShown else {
+            return
+        }
+        
+        if isScreenPointInsidePopover(screenPoint) || isScreenPointInsideStatusButton(screenPoint) {
             return
         }
         
@@ -267,26 +278,27 @@ final class PopoverDismissMonitor {
         }
     }
     
-    private func isEventInsidePopover(_ event: NSEvent) -> Bool {
-        guard let contentView = popover.contentViewController?.view,
-              event.window == contentView.window else {
+    private func screenPoint(for event: NSEvent) -> NSPoint {
+        event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
+    }
+    
+    private func isScreenPointInsidePopover(_ screenPoint: NSPoint) -> Bool {
+        guard let popoverWindow = popover.contentViewController?.view.window else {
             return false
         }
         
-        let point = contentView.convert(event.locationInWindow, from: nil)
-        return contentView.bounds.contains(point)
+        return popoverWindow.frame.contains(screenPoint)
     }
     
-    private func isEventInsideStatusButton(_ event: NSEvent) -> Bool {
+    private func isScreenPointInsideStatusButton(_ screenPoint: NSPoint) -> Bool {
         guard let button = statusButtonProvider(),
               let buttonWindow = button.window else {
             return false
         }
         
-        let eventScreenPoint = event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
         let buttonRectInWindow = button.convert(button.bounds, to: nil)
         let buttonScreenRect = buttonWindow.convertToScreen(buttonRectInWindow)
-        return buttonScreenRect.contains(eventScreenPoint)
+        return buttonScreenRect.contains(screenPoint)
     }
     
     private enum Metrics {
