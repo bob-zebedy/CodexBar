@@ -92,4 +92,4 @@ CodexBar 只与本机 Codex app-server 进程通信。账号信息、额度数�
 
 ## 许可证
 
-本项目采用 GNU General Public License v3.0 [LICENSE](LICENSE)
+本项目采用 [GNU General Public License v3.0](LICENSE)

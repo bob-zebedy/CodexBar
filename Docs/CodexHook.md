@@ -57,6 +57,7 @@ Hook stdin 会尝试解析为 Codex 官方 JSON 对象，只读取顶层字段�
 
 读取字段:
 
+- 事件: `hook_event_name`，缺失时回退 Hook 命令参数 `--hook-event`
 - 目录: `cwd`
 - 工具: `tool_name`
 - 模型: `model`
@@ -64,7 +65,7 @@ Hook stdin 会尝试解析为 Codex 官方 JSON 对象，只读取顶层字段�
 - 会话: `session_id`
 - 轮次: `turn_id`
 
-事件名来自 Hook 命令参数 `--hook-event`。事件时间优先读取 payload 顶层 `timestamp`，解析后按本机时区写成 `yyyy-MM-dd HH:mm:ss.SSS`；如果 payload 缺失或无法解析，记录当前时间作为兜底。同一个事件时间也会按本机时区格式化为 `yyyy-MM-dd` 的 date key，用于选择 `events/YYYY-MM-DD.jsonl` 文件。每行按固定顺序写入 `timestamp`、`event`、`model`、`permission`、`session`、`turn`、`tool`、`cwd`；缺失值写为 `null`。
+事件名优先来自 payload 顶层 `hook_event_name`；缺失时回退 Hook 命令参数 `--hook-event`。`--hook-event` 仍用于识别当前进程是否是 Hook 子进程，避免普通 App 启动时读取 stdin。事件时间优先读取 payload 顶层 `timestamp`，解析后按本机时区写成 `yyyy-MM-dd HH:mm:ss.SSS`；如果 payload 缺失或无法解析，记录当前时间作为兜底。同一个事件时间也会按本机时区格式化为 `yyyy-MM-dd` 的 date key，用于选择 `events/YYYY-MM-DD.jsonl` 文件。每行按固定顺序写入 `timestamp`、`event`、`model`、`permission`、`session`、`turn`、`tool`、`cwd`；缺失值写为 `null`。
 
 事件名统计时会去掉 `_` 和 `-` 并转小写，因此 `PreToolUse`、`pre_tool_use`、`pre-tool-use` 会归为同一个事件。
 

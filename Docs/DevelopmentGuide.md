@@ -680,16 +680,18 @@ sequenceDiagram
 
 读取字段:
 
-| Hook payload 字段       | 写入字段                                        |
-| ----------------------- | ----------------------------------------------- |
-| `timestamp`             | `timestamp`, 本机时间 `yyyy-MM-dd HH:mm:ss.SSS` |
-| `cwd`                   | `cwd`                                           |
-| `tool_name`             | `tool`                                          |
-| `model`                 | `model`                                         |
-| `permission_mode`       | `permission`                                    |
-| `session_id`            | `session`                                       |
-| `turn_id`               | `turn`                                          |
-| 命令参数 `--hook-event` | `event`                                         |
+| Hook payload 字段 | 写入字段                                        |
+| ----------------- | ----------------------------------------------- |
+| `timestamp`       | `timestamp`, 本机时间 `yyyy-MM-dd HH:mm:ss.SSS` |
+| `hook_event_name` | `event`                                         |
+| `cwd`             | `cwd`                                           |
+| `tool_name`       | `tool`                                          |
+| `model`           | `model`                                         |
+| `permission_mode` | `permission`                                    |
+| `session_id`      | `session`                                       |
+| `turn_id`         | `turn`                                          |
+
+`hook_event_name` 缺失时回退命令参数 `--hook-event`；`--hook-event` 仍用于识别当前进程是否是 Hook 子进程。
 
 缺失字段不阻断写入:
 

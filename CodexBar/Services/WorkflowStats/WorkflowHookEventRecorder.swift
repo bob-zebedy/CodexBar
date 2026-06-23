@@ -3,11 +3,11 @@ import Foundation
 
 nonisolated enum WorkflowHookEventRecorder {
     static func handleIfRequested(arguments: [String] = CommandLine.arguments) -> Bool {
-        guard let eventName = hookEventName(from: arguments) else {
+        guard let fallbackEventName = hookEventName(from: arguments) else {
             return false
         }
         
-        try? record(eventName: eventName)
+        try? record(fallbackEventName: fallbackEventName)
         return true
     }
     
@@ -31,8 +31,10 @@ nonisolated enum WorkflowHookEventRecorder {
         return trimmedValue.isEmpty ? nil : trimmedValue
     }
     
-    private static func record(eventName: String) throws {
+    private static func record(fallbackEventName: String) throws {
         let payload = stdinPayload()
+        let eventName = payload.string(for: "hook_event_name")
+            .flatMap(normalizedHookEventName) ?? fallbackEventName
         let timestamp = payload.date(for: "timestamp") ?? Date()
         let cwd = payload.string(for: "cwd") ?? FileManager.default.currentDirectoryPath
         let tool = payload.string(for: "tool_name")
