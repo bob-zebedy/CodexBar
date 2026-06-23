@@ -657,7 +657,7 @@ struct UsageHeatmapDayDetailView: View {
     }
     
     private var tokenIntensityDot: some View {
-        metricDot(tint: tokenIntensityAccent, darkOpacity: 0.88, lightOpacity: 0.76)
+        metricDot(tint: .blue, darkOpacity: 0.88, lightOpacity: 0.76)
     }
     
     private func metricRowLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -746,10 +746,6 @@ struct UsageHeatmapDayDetailView: View {
         }
         
         return min(max(Double(context.day.tokensForHeatmap) / Double(context.peakTokens), 0), 1)
-    }
-    
-    private var tokenIntensityAccent: Color {
-        tokenIntensityLevel >= Metrics.tokenIntensitySegmentCount ? .blue : .cyan
     }
     
     private func tokenIntensityFill(for index: Int) -> Color {

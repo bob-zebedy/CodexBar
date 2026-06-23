@@ -450,7 +450,7 @@ Codex 版本探测错误:
 - 每个 limit 的 `primary` 和 `secondary` 合成 `[QuotaWindow]`
 - 没有窗口的 limit 被过滤
 - `remainingPercent = clamp(100 - usedPercent, 0...100)`
-- `windowDurationMins` 标签按天, 小时, 分钟格式化, 缺失或非正数显示"额度"
+- `windowDurationMins` 标签按 `ND`, `NH`, `NM` 格式化, 缺失或非正数显示"额度"
 - 本轮 rate limits 请求失败但同账号有旧缓存时复用旧值, 并把 `isRateLimitsStale` 设为 `true`
 
 用量规则:
@@ -506,8 +506,9 @@ flowchart TD
 
 - 多个 limit 间用 `LiquidGlassDivider` 分隔
 - 每个 quota window 展示标签, 50 个固定胶囊组成的电量条, 剩余百分比和重置时间
-- 胶囊宽度为 `3.5`, 间距为 `1.5`, 高度为 `12`
-- 重置时间格式为 `MM-dd HH:mm`, 在额度行最右侧对齐
+- 胶囊宽度为 `3.5`, 间距为 `2`, 高度为 `12`
+- 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到电量条间距 `12`, 电量条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`
+- 重置时间格式为 `MM-dd HH:mm`, 使用等宽数字, 在额度行最右侧对齐
 - 无数据时百分比和重置时间显示 `--`, 电量条用占位色
 - stale 数据通过 `.markStale(true)` 降低透明度到 0.55
 
@@ -529,6 +530,7 @@ flowchart TD
 | 开启      | 日期, token 数, "用量强度"分段条, 会话总数, 对话轮次, 子智能体, 工具调用, 权限请求, 上下文压缩 | `212 x 189` |
 
 Hook 开启且当天没有 token bucket 时, 今天的 token 数显示 `--`。日期使用 `AnimatedDateText` 做数字滚动, token 数使用 `TokenCountText` 并保留数字和单位宽度。
+「用量强度」前置圆点固定为蓝色, 不随用量强度变化。
 
 更新时间行:
 

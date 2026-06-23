@@ -84,14 +84,14 @@ nonisolated struct QuotaWindow: Equatable, Identifiable {
         }
         
         if minutes.isMultiple(of: 1_440) {
-            return "\(minutes / 1_440) 天"
+            return "\(minutes / 1_440)D"
         }
         
         if minutes.isMultiple(of: 60) {
-            return "\(minutes / 60) 小时"
+            return "\(minutes / 60)H"
         }
         
-        return "\(minutes) 分钟"
+        return "\(minutes)M"
     }
 }
 

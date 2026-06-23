@@ -64,7 +64,7 @@ git status --short
 - 平台: SwiftUI + AppKit + MVVM, 最低 macOS 15.0。
 - 应用形态: `LSUIElement` 菜单栏应用, 无 Dock 图标、无主窗口。
 - 外部依赖: Sparkle(SwiftPM)。
-- 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 2.4.4`, `CURRENT_PROJECT_VERSION = 20`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`。
+- 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 2.4.5`, `CURRENT_PROJECT_VERSION = 21`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`。
 - App Sandbox 必须保持关闭(`ENABLE_APP_SANDBOX = NO`), 因为应用要启动本机 Codex CLI/APP 内置 CLI, 并读取真实 macOS 用户的 Codex 登录状态。
 - 工程使用 `PBXFileSystemSynchronizedRootGroup`; 新增或删除 `CodexBar/` 下 Swift 文件通常无需改 `project.pbxproj`。只有依赖、target/build settings 或资源归属变更才改 Xcode 工程文件。
 - Swift 源码按目录组织: `App/`、`Controllers/`、`Models/`、`Services/`、`Views/`。不要把新 Swift 文件直接放回 `CodexBar/` 根层。
@@ -132,7 +132,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - 其余 limit 按 `limitName ?? limitId` 做 localized standard 排序, 再按 `limitId` 稳定排序。
 - `primary` / `secondary` 合成 `[QuotaWindow]`; 没有窗口的 limit 被过滤。
 - `QuotaWindow.remainingPercent = clamp(100 - usedPercent, 0...100)`; 无 `usedPercent` 视为无数据。
-- `windowDurationMins` 标签: 整天「N 天」, 整小时「N 小时」, 否则「N 分钟」, 缺失或非正数为「额度」。
+- `windowDurationMins` 标签: 整天 `ND`, 整小时 `NH`, 否则 `NM`, 缺失或非正数为「额度」。
 
 `CodexUsageSnapshot`:
 
@@ -173,10 +173,11 @@ Popover:
 - `LiquidGlassStyle.swift` 是自绘玻璃效果, 不是 macOS 原生 `.glassEffect`; 没有明确设计要求时不要切换。
 - 账号图标双击触发刷新。邮箱文本双击切换模糊。
 - 计划名是右侧加粗纯文字; `planBadgeTint(for:)` 优先级: enterprise -> team/business -> pro -> plus -> edu -> free -> 默认 cyan。
-- 额度条展示剩余百分比, 固定为 50 个胶囊, 每个胶囊宽 `3.5`, 间距 `1.5`, 高 `12`; 颜色按 20% 一档: 红、橙、黄、薄荷、绿。
+- 额度条展示剩余百分比, 固定为 50 个胶囊, 每个胶囊宽 `3.5`, 间距 `2`, 高 `12`; 颜色按 20% 一档: 红、橙、黄、薄荷、绿。
+- 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到额度条间距 `12`, 额度条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`; 不通过加宽 popover 解决额度行溢出。
 - 无 quota 数据时显示 `--` / `暂无数据`, 并使用占位色。
 - `rateLimits` 或 `usage` 使用旧缓存时, 对应区域通过 `.markStale(true)` 降低透明度到 0.55, 不降低饱和度; 下一轮对应接口成功后恢复正常透明度。
-- 重置时间格式是 `MM-dd HH:mm`, 在额度行最右侧对齐。
+- 重置时间格式是 `MM-dd HH:mm`, 使用等宽数字, 在额度行最右侧对齐。
 - 更新时间行显示倒计时圆环、「数据更新时间」和 `HH:mm:ss`。
 - 倒计时只在 popover 可见时用 `TimelineView` 每秒 tick; 普通 tick 不做连续动画, 仅刷新起点变化时播放恢复动画。
 - token 区域显示「单日峰值」和「全时累计」; `TokenCountText` 对 1K 以下显示完整整数, 1K 起显示 K/M/B。
@@ -185,6 +186,7 @@ Popover:
 - 热力图 hover 使用 `HeatmapDetailPanelController` 展示侧边详情面板, 不是 popover 内 tooltip; 面板作为 popover child window, 不接收鼠标事件, 左右贴边展示并在屏幕可见区域内夹紧。
 - Hook 关闭时详情面板显示日期、token 数和「用量强度」分段条, 尺寸 `212 x 84`。
 - Hook 开启时详情面板首行左侧显示日期、右侧显示 token 数, 当天 token 数显示 `--`; 后续显示「用量强度」、「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」, 尺寸 `212 x 189`。
+- 「用量强度」前置圆点固定为蓝色, 不随用量强度变化。
 - 工作流统计只展示在用量热力图详情面板中, 不再有单独的工作流统计区。
 
 设置窗口:
@@ -258,8 +260,8 @@ fix: 修复 Codex 状态刷新
 
 Tag:
 
-- tag 名格式 `v{MARKETING_VERSION}`, 例如 `v2.4.4`。
-- 使用附注 tag: `git tag -a v2.4.4 -m "Release v2.4.4"`。
+- tag 名格式 `v{MARKETING_VERSION}`, 例如 `v2.4.5`。
+- 使用附注 tag: `git tag -a v2.4.5 -m "Release v2.4.5"`。
 
 ## 最终检查
 

@@ -4,21 +4,25 @@ struct QuotaRow: View {
     let window: QuotaWindow
     
     var body: some View {
-        HStack(alignment: .center, spacing: Metrics.spacing) {
+        HStack(alignment: .center, spacing: 0) {
             Text(window.label)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
-                .frame(width: Metrics.labelWidth, alignment: .leading)
+                .minimumScaleFactor(Metrics.labelMinimumScaleFactor)
+                .allowsTightening(true)
+                .frame(width: Metrics.labelWidth, alignment: .center)
             
             SegmentedQuotaBar(percent: displayPercent)
+                .padding(.leading, Metrics.labelBarSpacing)
             
             Text(percentText)
                 .font(.caption.monospacedDigit().weight(.semibold))
                 .foregroundStyle(percentColor)
                 .lineLimit(1)
                 .frame(width: Metrics.percentWidth, alignment: .leading)
+                .padding(.leading, Metrics.barPercentSpacing)
             
-            Spacer(minLength: 0)
+            Spacer(minLength: Metrics.percentResetSpacing)
             
             Text(resetText)
                 .font(.caption2.monospacedDigit())
@@ -32,10 +36,13 @@ struct QuotaRow: View {
 
 private extension QuotaRow {
     enum Metrics {
-        static let spacing: CGFloat = 8
-        static let labelWidth: CGFloat = 52
-        static let percentWidth: CGFloat = 32
-        static let resetWidth: CGFloat = 76
+        static let labelWidth: CGFloat = 34
+        static let labelMinimumScaleFactor: CGFloat = 0.75
+        static let labelBarSpacing: CGFloat = 12
+        static let barPercentSpacing: CGFloat = 8
+        static let percentWidth: CGFloat = 37
+        static let percentResetSpacing: CGFloat = 6
+        static let resetWidth: CGFloat = 75
     }
     
     var resetText: String {
@@ -123,7 +130,7 @@ private extension SegmentedQuotaBar {
     enum Metrics {
         static let segmentCount = 50
         static let segmentWidth: CGFloat = 3.5
-        static let segmentSpacing: CGFloat = 1.5
+        static let segmentSpacing: CGFloat = 2
         static let segmentHeight: CGFloat = 12
         
         static var totalWidth: CGFloat {
