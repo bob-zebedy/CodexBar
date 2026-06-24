@@ -1,12 +1,12 @@
 import Combine
 import Foundation
 
-nonisolated struct CodexCLIVersionSnapshot: Equatable, Sendable {
+nonisolated struct CodexCLIVersionSnapshot: Equatable {
     let global: CodexCLIVersionItem
     let bundled: CodexCLIVersionItem
     let refreshedAt: Date
 
-    // 让首次 refresh 不受节流限制
+    /// 让首次 refresh 不受节流限制
     static let empty = CodexCLIVersionSnapshot(
         global: CodexCLIVersionItem(source: .global),
         bundled: CodexCLIVersionItem(source: .bundled),
@@ -14,13 +14,15 @@ nonisolated struct CodexCLIVersionSnapshot: Equatable, Sendable {
     )
 }
 
-nonisolated struct CodexCLIVersionItem: Equatable, Identifiable, Sendable {
+nonisolated struct CodexCLIVersionItem: Equatable, Identifiable {
     let source: CodexCLIExecutableSource
     let path: String?
     let version: String?
     let errorMessage: String?
 
-    var id: CodexCLIExecutableSource { source }
+    var id: CodexCLIExecutableSource {
+        source
+    }
 
     init(
         source: CodexCLIExecutableSource,
@@ -43,14 +45,14 @@ nonisolated struct CodexCLIVersionItem: Equatable, Identifiable, Sendable {
     }
 }
 
-// 合并磁盘探测版本和当前 app-server 握手版本
+/// 合并磁盘探测版本和当前 app-server 握手版本
 nonisolated struct CodexCLIVersionDisplay: Equatable {
     let source: CodexCLIExecutableSource
     let isCurrent: Bool
     let displayVersion: String
     let hasVersion: Bool
     let path: String?
-    // 当前会话尚未重连到新安装版本时显示的新版本号
+    /// 当前会话尚未重连到新安装版本时显示的新版本号
     let newerInstalledVersion: String?
 
     init(item: CodexCLIVersionItem, connection: CodexCLIConnectionInfo?) {
@@ -59,18 +61,18 @@ nonisolated struct CodexCLIVersionDisplay: Equatable {
         let runningVersion = isCurrent ? connection?.version : nil
         let version = runningVersion ?? item.version
 
-        self.source = item.source
+        source = item.source
         self.isCurrent = isCurrent
-        self.hasVersion = version != nil
-        self.displayVersion = version ?? item.displayVersion
-        self.path = (isCurrent ? connection?.executablePath : nil) ?? item.path
+        hasVersion = version != nil
+        displayVersion = version ?? item.displayVersion
+        path = (isCurrent ? connection?.executablePath : nil) ?? item.path
 
         if let runningVersion,
            let installed = item.version,
            Self.isInstalledVersionNewer(installed, than: runningVersion) {
-            self.newerInstalledVersion = installed
+            newerInstalledVersion = installed
         } else {
-            self.newerInstalledVersion = nil
+            newerInstalledVersion = nil
         }
     }
 
@@ -98,7 +100,7 @@ nonisolated struct CodexCLIVersionDisplay: Equatable {
     }
 }
 
-nonisolated final class CodexCLIVersionService: @unchecked Sendable {
+final nonisolated class CodexCLIVersionService: @unchecked Sendable {
     private let queue = DispatchQueue(label: "CodexBar.codex-version", qos: .utility)
     private let timeout: TimeInterval
     private static let pipeDrainTimeout: TimeInterval = 0.25
@@ -206,9 +208,9 @@ nonisolated final class CodexCLIVersionService: @unchecked Sendable {
 
     private static func finishProbe(_ outcome: ProbeOutcome) -> CodexCLIVersionItem {
         switch outcome {
-        case .resolved(let item):
+        case let .resolved(item):
             return item
-        case .running(let probe):
+        case let .running(probe):
             guard probe.finished.wait(timeout: .now() + max(0, probe.deadline.timeIntervalSinceNow)) == .success else {
                 terminateTimedOutProbe(probe)
                 return CodexCLIVersionItem(source: probe.source, path: probe.path, errorMessage: "读取超时")
@@ -259,10 +261,9 @@ nonisolated final class CodexCLIVersionService: @unchecked Sendable {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
     }
-
 }
 
-private nonisolated final class PipeCollector: @unchecked Sendable {
+private final nonisolated class PipeCollector: @unchecked Sendable {
     private let lock = NSLock()
     private let closedSemaphore = DispatchSemaphore(value: 0)
     private let fileHandle: FileHandle
@@ -343,7 +344,7 @@ final class CodexCLIVersionViewModel: ObservableObject {
     @Published private(set) var snapshot = CodexCLIVersionSnapshot.empty
     @Published private(set) var isRefreshing = false
 
-    // onAppear 和 didBecomeActive 常连发, 版本探测需要节流以避免频繁启动子进程
+    /// onAppear 和 didBecomeActive 常连发, 版本探测需要节流以避免频繁启动子进程
     private static let refreshThrottle: TimeInterval = 60
 
     private let service: CodexCLIVersionService

@@ -1,25 +1,25 @@
 import Darwin
 import Foundation
 
-nonisolated enum CodexCLIExecutableSource: String, Sendable, Equatable {
+nonisolated enum CodexCLIExecutableSource: String, Equatable {
     case global
     case bundled
 
     var displayName: String {
         switch self {
-        case .global: return "Codex CLI"
-        case .bundled: return "Codex APP"
+        case .global: "Codex CLI"
+        case .bundled: "Codex APP"
         }
     }
 }
 
-nonisolated struct AppServerCommand: Sendable, Equatable {
+nonisolated struct AppServerCommand: Equatable {
     let source: CodexCLIExecutableSource
     let executablePath: String
     let arguments = ["app-server", "--listen", "stdio://"]
 }
 
-nonisolated struct CodexCLIConnectionInfo: Sendable, Equatable {
+nonisolated struct CodexCLIConnectionInfo: Equatable {
     let source: CodexCLIExecutableSource
     let executablePath: String
     // 来自 initialize 握手, 代表当前 app-server 进程真实运行的版本
@@ -27,7 +27,7 @@ nonisolated struct CodexCLIConnectionInfo: Sendable, Equatable {
     let openedAt: Date
 }
 
-nonisolated struct CodexCLIInstallations: Sendable, Equatable {
+nonisolated struct CodexCLIInstallations: Equatable {
     let globalPath: String?
     let bundledPath: String?
 
@@ -40,8 +40,8 @@ nonisolated struct CodexCLIInstallations: Sendable, Equatable {
 
     func path(for source: CodexCLIExecutableSource) -> String? {
         switch source {
-        case .global: return globalPath
-        case .bundled: return bundledPath
+        case .global: globalPath
+        case .bundled: bundledPath
         }
     }
 }
@@ -54,7 +54,7 @@ nonisolated enum CodexCLIResolver {
         try command(from: resolveInstallations(environment: environment))
     }
 
-    // 从已解析的安装信息派生命令, 避免重复扫描 PATH
+    /// 从已解析的安装信息派生命令, 避免重复扫描 PATH
     static func command(from installations: CodexCLIInstallations) throws -> AppServerCommand {
         guard let source = installations.activeSource,
               let path = installations.path(for: source) else {
@@ -68,11 +68,10 @@ nonisolated enum CodexCLIResolver {
         let cliPath = findExecutable(named: "codex", environment: environment)
         let cliIsBundled = cliPath.map { pathsAreEquivalent($0, bundledExecutablePath) } ?? false
 
-        let bundledPath: String?
-        if FileManager.default.isExecutableFile(atPath: bundledExecutablePath) {
-            bundledPath = bundledExecutablePath
+        let bundledPath: String? = if FileManager.default.isExecutableFile(atPath: bundledExecutablePath) {
+            bundledExecutablePath
         } else {
-            bundledPath = cliIsBundled ? cliPath : nil
+            cliIsBundled ? cliPath : nil
         }
 
         return CodexCLIInstallations(

@@ -1,8 +1,8 @@
 import Combine
 import Foundation
 
-// JSON-RPC 交互日志: 带 id 的请求先记录为进行, 响应或错误到达后回填到同一条
-// `initialized` 这类无 id 请求没有响应可等, 单独记录为空响应
+/// JSON-RPC 交互日志: 带 id 的请求先记录为进行, 响应或错误到达后回填到同一条
+/// `initialized` 这类无 id 请求没有响应可等, 单独记录为空响应
 nonisolated struct RequestLogEntry: Identifiable, Equatable {
     enum Kind {
         case pending
@@ -20,19 +20,19 @@ nonisolated struct RequestLogEntry: Identifiable, Equatable {
     var detail: String?
 }
 
-// 常驻日志存储, 写入来自后台队列, storage 用锁保护, SwiftUI 通知切回主线程发送
-nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
+/// 常驻日志存储, 写入来自后台队列, storage 用锁保护, SwiftUI 通知切回主线程发送
+final nonisolated class RequestLogStore: ObservableObject, @unchecked Sendable {
     static let shared = RequestLogStore()
 
-    // nonisolated 存储不能用 @Published 包装可变数组, 这里手动发送变更
+    /// nonisolated 存储不能用 @Published 包装可变数组, 这里手动发送变更
     let objectWillChange = ObservableObjectPublisher()
 
     // 环形上限避免长时间运行后日志无限增长
     private static let capacity = 500
-    private static let maxDetailLength = 4000
+    private static let maxRequestLength = 4000
 
     private let lock = NSLock()
-    // 最新在前, 既方便渲染也让刚发出的请求更快被回填
+    /// 最新在前, 既方便渲染也让刚发出的请求更快被回填
     private var storage: [RequestLogEntry] = []
 
     var entries: [RequestLogEntry] {
@@ -50,7 +50,7 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
                 respondedAt: nil,
                 kind: .pending,
                 method: method,
-                request: Self.normalized(payload),
+                request: Self.normalizedPreview(payload),
                 detail: nil
             )
         )
@@ -81,7 +81,7 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
                 respondedAt: nil,
                 kind: .emptyResponse,
                 method: method,
-                request: Self.normalized(payload),
+                request: Self.normalizedPreview(payload),
                 detail: ""
             )
         )
@@ -152,14 +152,18 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
         }
     }
 
-    // 合法 JSON 重新序列化为稳定、未转义斜杠的日志文本; 非 JSON 错误消息保持原样
+    /// 合法 JSON 重新序列化为稳定、未转义斜杠的日志文本; 非 JSON 错误消息保持原样
     private static func normalized(_ text: String) -> String {
+        jsonNormalized(text) ?? text
+    }
+
+    private static func normalizedPreview(_ text: String) -> String {
         let readableText = jsonNormalized(text) ?? text
-        guard readableText.count > maxDetailLength else {
+        guard readableText.count > maxRequestLength else {
             return readableText
         }
 
-        return String(readableText.prefix(maxDetailLength)) + "…"
+        return String(readableText.prefix(maxRequestLength)) + "…"
     }
 
     private static func jsonNormalized(_ text: String) -> String? {
@@ -167,8 +171,8 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
               let object = try? JSONSerialization.jsonObject(with: data),
               JSONSerialization.isValidJSONObject(object),
               let output = try? JSONSerialization.data(
-                withJSONObject: object,
-                options: [.sortedKeys, .withoutEscapingSlashes]
+                  withJSONObject: object,
+                  options: [.sortedKeys, .withoutEscapingSlashes]
               ) else {
             return nil
         }

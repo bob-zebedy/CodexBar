@@ -4,15 +4,16 @@ import SwiftUI
 
 @MainActor
 final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
-    let viewModel = CodexStatusViewModel()
+    private let codexStatusService = CodexStatusService()
+    lazy var viewModel = CodexStatusViewModel(service: codexStatusService)
     let workflowStatsViewModel = WorkflowStatsViewModel()
-    let codexHookSettings = CodexHookSettings()
+    lazy var codexHookSettings = CodexHookSettings(codexStatusService: codexStatusService)
     let globalHotKeySettings = GlobalHotKeySettings()
     let appUpdater = AppUpdater()
 
     private var statusItemController: StatusItemController?
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_: Notification) {
         let controller = StatusItemController(
             viewModel: viewModel,
             workflowStatsViewModel: workflowStatsViewModel,
@@ -24,7 +25,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         statusItemController = controller
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    func applicationWillTerminate(_: Notification) {
         statusItemController?.uninstall()
     }
 }
@@ -44,8 +45,9 @@ private final class StatusItemController: NSObject {
     private lazy var globalHotKeyController = GlobalHotKeyController { [weak self] in
         self?.toggleMenuSurfaceFromHotKey()
     }
+
     private lazy var fallbackPanelController = FallbackPanelController { [unowned self] in
-        self.makeMenuHostingController(usesPreferredContentSize: false)
+        makeMenuHostingController(usesPreferredContentSize: false)
     }
 
     private lazy var settingsWindowController = SettingsWindowController(
@@ -56,9 +58,11 @@ private final class StatusItemController: NSObject {
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
     }
+
     private lazy var logWindowController = LogWindowController { [weak self] in
         self?.statusItem.button?.window?.screen
     }
+
     private lazy var menuSurfaceFadeCoordinator = MenuSurfaceFadeCoordinator(
         contentViewProvider: { [weak self] in
             self?.activeMenuSurfaceContentView
@@ -163,8 +167,8 @@ private final class StatusItemController: NSObject {
                 self?.updateHeatmapDetailPanel(context)
             }
         )
-            .environmentObject(appUpdater)
-            .frame(width: CodexStatusMenuView.menuWidth)
+        .environmentObject(appUpdater)
+        .frame(width: CodexStatusMenuView.menuWidth)
 
         let hostingController = NSHostingController(rootView: AnyView(rootView))
         if usesPreferredContentSize {
@@ -185,12 +189,12 @@ private final class StatusItemController: NSObject {
             .store(in: &cancellables)
 
         viewModel.$autoRefreshCountdownStartedAt
-            .compactMap { $0 }
+            .compactMap(\.self)
             .sink { [weak self] _ in
                 guard let self else {
                     return
                 }
-                self.refreshWorkflowStatsIfHookEnabled(performMaintenance: true)
+                refreshWorkflowStatsIfHookEnabled(performMaintenance: true)
             }
             .store(in: &cancellables)
     }
@@ -439,7 +443,7 @@ private final class StatusItemController: NSObject {
     }
 
     private func closeMenuSurface(animated: Bool = true) {
-        if menuSurfaceState == .closing && animated {
+        if menuSurfaceState == .closing, animated {
             return
         }
 
@@ -503,8 +507,8 @@ private final class StatusItemController: NSObject {
                 return
             }
 
-            self.setAuxiliaryWindowKeyFocus(true)
-            self.auxiliaryWindowFocusRestoreTask = nil
+            setAuxiliaryWindowKeyFocus(true)
+            auxiliaryWindowFocusRestoreTask = nil
         }
     }
 
@@ -517,11 +521,11 @@ private final class StatusItemController: NSObject {
         delayedStatusRefreshTask?.cancel()
         delayedStatusRefreshTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(160))
-            guard let self, !Task.isCancelled, self.isActiveMenuSurfaceVisible else {
+            guard let self, !Task.isCancelled, isActiveMenuSurfaceVisible else {
                 return
             }
 
-            self.viewModel.refreshIfNeeded()
+            viewModel.refreshIfNeeded()
         }
     }
 
@@ -550,33 +554,33 @@ private final class StatusItemController: NSObject {
     private var isActiveMenuSurfaceVisible: Bool {
         switch activeMenuSurface {
         case .none:
-            return false
+            false
         case .popover:
-            return popover.isShown
+            popover.isShown
         case .fallbackPanel:
-            return fallbackPanelController.isVisible
+            fallbackPanelController.isVisible
         }
     }
 
     private var activeMenuSurfaceContentView: NSView? {
         switch activeMenuSurface {
         case .none:
-            return nil
+            nil
         case .popover:
-            return popover.contentViewController?.view
+            popover.contentViewController?.view
         case .fallbackPanel:
-            return fallbackPanelController.contentView
+            fallbackPanelController.contentView
         }
     }
 
     private var activeMenuSurfaceWindow: NSWindow? {
         switch activeMenuSurface {
         case .none:
-            return nil
+            nil
         case .popover:
-            return popover.contentViewController?.view.window
+            popover.contentViewController?.view.window
         case .fallbackPanel:
-            return fallbackPanelController.window
+            fallbackPanelController.window
         }
     }
 
@@ -615,8 +619,8 @@ private final class StatusItemController: NSObject {
 private extension CGRect {
     var hasFiniteGeometry: Bool {
         origin.x.isFinite &&
-        origin.y.isFinite &&
-        size.width.isFinite &&
-        size.height.isFinite
+            origin.y.isFinite &&
+            size.width.isFinite &&
+            size.height.isFinite
     }
 }

@@ -10,7 +10,9 @@ final class AppUpdater: NSObject, ObservableObject {
     @Published private(set) var availableUpdateMessage: String?
     @Published private(set) var automaticallyChecksForUpdates = false
 
-    var canConfigureAutomaticChecks: Bool { updaterController != nil }
+    var canConfigureAutomaticChecks: Bool {
+        updaterController != nil
+    }
 
     private var updaterController: SPUStandardUpdaterController?
     private var clearSettingsStatusMessageTask: Task<Void, Never>?
@@ -96,8 +98,7 @@ final class AppUpdater: NSObject, ObservableObject {
             let feedURLString = bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String,
             let scheme = URL(string: feedURLString)?.scheme?.lowercased(),
             scheme == "https" || scheme == "http",
-            let publicKey = bundle.object(forInfoDictionaryKey: "SUPublicEDKey") as? String
-        else {
+            let publicKey = bundle.object(forInfoDictionaryKey: "SUPublicEDKey") as? String else {
             return false
         }
 

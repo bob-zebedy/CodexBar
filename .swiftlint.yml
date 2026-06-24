@@ -1,12 +1,6 @@
 included:
     - CodexBar
 
-excluded:
-    - .build
-    - DerivedData
-    - /tmp
-    - CodexBar/Resources
-
 line_length:
     warning: 140
     error: 180

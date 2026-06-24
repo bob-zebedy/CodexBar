@@ -63,14 +63,14 @@ extension View {
 private enum TokenCountFormatter {
     static func parts(from tokens: Int) -> TokenCountParts {
         switch tokens {
-        case 1_000_000_000...:
-            return TokenCountParts(number: decimal(Double(tokens) / 1_000_000_000), unit: "B")
-        case 1_000_000...:
-            return TokenCountParts(number: decimal(Double(tokens) / 1_000_000), unit: "M")
-        case 1_000...:
-            return TokenCountParts(number: decimal(Double(tokens) / 1_000), unit: "K")
+        case 1000000000...:
+            TokenCountParts(number: decimal(Double(tokens) / 1000000000), unit: "B")
+        case 1000000...:
+            TokenCountParts(number: decimal(Double(tokens) / 1000000), unit: "M")
+        case 1000...:
+            TokenCountParts(number: decimal(Double(tokens) / 1000), unit: "K")
         default:
-            return TokenCountParts(number: String(tokens), unit: nil)
+            TokenCountParts(number: String(tokens), unit: nil)
         }
     }
 

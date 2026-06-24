@@ -90,11 +90,11 @@ private enum QuotaBarPalette {
         switch percent {
         case 80...:
             return green
-        case 60..<80:
+        case 60 ..< 80:
             return teal
-        case 40..<60:
+        case 40 ..< 60:
             return yellow
-        case 20..<40:
+        case 20 ..< 40:
             return orange
         default:
             return red
@@ -116,7 +116,7 @@ private struct SegmentedQuotaBar: View {
         let filledColor = QuotaBarPalette.filledColor(for: percent)
 
         HStack(spacing: Metrics.segmentSpacing) {
-            ForEach(0..<Metrics.segmentCount, id: \.self) { index in
+            ForEach(0 ..< Metrics.segmentCount, id: \.self) { index in
                 Capsule(style: .continuous)
                     .fill(index < filledSegments ? filledColor : QuotaBarPalette.placeholderColor)
                     .frame(width: Metrics.segmentWidth, height: Metrics.segmentHeight)

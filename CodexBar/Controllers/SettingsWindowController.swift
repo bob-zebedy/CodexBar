@@ -22,6 +22,11 @@ final class SettingsWindowController: HostingWindowController {
         super.init(screenProvider: screenProvider)
     }
 
+    override func open() {
+        refreshHookStatus()
+        super.open()
+    }
+
     override func makeWindow() -> NSWindow {
         let hostingController = NSHostingController(
             rootView: AppSettingsView(
@@ -59,5 +64,10 @@ final class SettingsWindowController: HostingWindowController {
 
     private enum Metrics {
         static let minimumContentSize = NSSize(width: 420, height: 240)
+    }
+
+    private func refreshHookStatus() {
+        codexHookSettings.refresh()
+        codexHookSettings.verifyInstalledHooks()
     }
 }

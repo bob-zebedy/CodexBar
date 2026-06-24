@@ -1,6 +1,6 @@
 import Foundation
 
-// UI 只关心可展示数据、未登录、初始化失败; 更细的错误保留在交互日志中
+/// UI 只关心可展示数据、未登录、初始化失败; 更细的错误保留在交互日志中
 nonisolated enum CodexFetchOutcome {
     case data(CodexQuotaSnapshot)
     case notLoggedIn
@@ -31,12 +31,12 @@ private enum FetchFailure: Error {
     case needsRebuild
 }
 
-nonisolated private struct CachedSupplementalRead<Value> {
+private nonisolated struct CachedSupplementalRead<Value> {
     let value: Value?
     let isStale: Bool
 }
 
-nonisolated private struct SupplementalDataCache {
+private nonisolated struct SupplementalDataCache {
     var account: CodexAccount?
     var rateLimits: AccountRateLimitsResponse?
     var usage: AccountUsageResponse?
@@ -47,7 +47,7 @@ nonisolated private struct SupplementalDataCache {
     }
 }
 
-nonisolated private extension ReadResult {
+private nonisolated extension ReadResult {
     var isAuthenticationRequired: Bool {
         if case .authRequired = self {
             return true
@@ -56,13 +56,13 @@ nonisolated private extension ReadResult {
     }
 
     var value: Value? {
-        if case .value(let value) = self {
+        if case let .value(value) = self {
             return value
         }
         return nil
     }
 
-    // 认证刷新后仍是 authRequired/broken 则上抛, 其余原样返回交给调用方按缓存策略处理
+    /// 认证刷新后仍是 authRequired/broken 则上抛, 其余原样返回交给调用方按缓存策略处理
     func resultAfterAuthAttempt() throws -> ReadResult<Value> {
         switch self {
         case .value, .skipped:
@@ -75,8 +75,8 @@ nonisolated private extension ReadResult {
     }
 }
 
-// 维持一条 codex app-server stdio 会话, 复用失败后按需重建
-nonisolated final class CodexStatusService: @unchecked Sendable {
+/// 维持一条 codex app-server stdio 会话, 复用失败后按需重建
+final nonisolated class CodexStatusService: @unchecked Sendable {
     private static let requestTimeout: TimeInterval = 20
     // 定期回收连接, 让后台升级后的 codex 二进制有机会生效
     private static let connectionMaxAge: TimeInterval = 1 * 60 * 60
@@ -87,7 +87,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
     private var connection: AppServerConnection?
     private var supplementalDataCache = SupplementalDataCache()
 
-    // app-server 退出后继续写管道会触发 SIGPIPE; 忽略信号, 让 write 抛错后走重建
+    /// app-server 退出后继续写管道会触发 SIGPIPE; 忽略信号, 让 write 抛错后走重建
     private static let ignoreBrokenPipeSignal: Void = {
         signal(SIGPIPE, SIG_IGN)
     }()
@@ -116,14 +116,50 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
         }
     }
 
-    // 复用连接出现传输故障时只重建重试一次, 避免故障状态下反复拉起进程
+    func readCodexConfig() async throws -> CodexConfigReadResponse {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    let connection = try self.readyConnectionOnQueue()
+                    let response = try connection.session.request(
+                        "config/read",
+                        params: ["includeLayers": false],
+                        as: CodexConfigReadResponse.self
+                    )
+                    continuation.resume(returning: response)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    func listCodexHooks(cwds: [String]) async throws -> CodexHooksListResponse {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    let connection = try self.readyConnectionOnQueue()
+                    let response = try connection.session.request(
+                        "hooks/list",
+                        params: ["cwds": cwds],
+                        as: CodexHooksListResponse.self
+                    )
+                    continuation.resume(returning: response)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// 复用连接出现传输故障时只重建重试一次, 避免故障状态下反复拉起进程
     private func resolveOutcomeOnQueue(allowRebuild: Bool) -> CodexFetchOutcome {
         switch ensureConnection() {
         case .notLoggedIn:
             return .notLoggedIn
         case .initializationFailed:
             return .initializationFailed
-        case .ready(let connection, let reused):
+        case let .ready(connection, reused):
             do {
                 let snapshot = try fetchData(using: connection, refreshAccountInfo: reused)
                 return .data(snapshot)
@@ -133,7 +169,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
                 return .notLoggedIn
             } catch FetchFailure.needsRebuild {
                 teardownConnection()
-                if reused && allowRebuild {
+                if reused, allowRebuild {
                     return resolveOutcomeOnQueue(allowRebuild: false)
                 }
                 return .initializationFailed
@@ -141,6 +177,17 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
                 teardownConnection()
                 return .initializationFailed
             }
+        }
+    }
+
+    private func readyConnectionOnQueue() throws -> AppServerConnection {
+        switch ensureConnection() {
+        case let .ready(connection, _):
+            return connection
+        case .notLoggedIn:
+            throw CodexStatusError.notLoggedIn
+        case .initializationFailed:
+            throw CodexStatusError.serverConnectionClosed
         }
     }
 
@@ -166,7 +213,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
             clientVersion: Self.clientVersion(),
             timeout: Self.requestTimeout
         )
-        if case .ready(let newConnection, _) = resolution {
+        if case let .ready(newConnection, _) = resolution {
             connection = newConnection
         }
         return resolution
@@ -185,7 +232,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
         return connection.commandInfo
     }
 
-    // 额度与用量独立读取; 认证失败全程只刷新一次 token, 传输故障交给外层重建连接
+    /// 额度与用量独立读取; 认证失败全程只刷新一次 token, 传输故障交给外层重建连接
     private func fetchData(using connection: AppServerConnection, refreshAccountInfo: Bool) throws -> CodexQuotaSnapshot {
         var didRefresh = false
 
@@ -261,13 +308,13 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
         return snapshot
     }
 
-    // 新值更新缓存; 本轮请求失败则回退到缓存并标记陈旧; 方法不支持/认证/断连一律视为无数据
+    /// 新值更新缓存; 本轮请求失败则回退到缓存并标记陈旧; 方法不支持/认证/断连一律视为无数据
     private func cachedRead<Value>(
         _ result: ReadResult<Value>,
         cache: inout Value?
     ) -> CachedSupplementalRead<Value> {
         switch result {
-        case .value(let value):
+        case let .value(value):
             cache = value
             return CachedSupplementalRead(value: value, isStale: false)
         case .skipped(.requestFailed):
@@ -284,7 +331,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
         as type: Value.Type
     ) -> ReadResult<Value> {
         do {
-            return .value(try connection.session.request(method, params: params, as: type))
+            return try .value(connection.session.request(method, params: params, as: type))
         } catch let error as CodexStatusError {
             return classify(error)
         } catch {
@@ -323,7 +370,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
         }
     }
 
-    // 初始化失败与未登录在这里分流; 两者都不复用本次新建的进程
+    /// 初始化失败与未登录在这里分流; 两者都不复用本次新建的进程
     private static func openConnection(
         command: AppServerCommand,
         environment: [String: String],
@@ -416,7 +463,7 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
         return version
     }
 
-    // userAgent 形如 "codex_bar/0.139.0 (...)"; 取首个 token 中 "/" 之后的运行版本号
+    /// userAgent 形如 "codex_bar/0.139.0 (...)"; 取首个 token 中 "/" 之后的运行版本号
     private nonisolated static func serverVersion(fromUserAgent userAgent: String?) -> String? {
         guard let firstToken = userAgent?.split(separator: " ").first,
               let slashIndex = firstToken.firstIndex(of: "/") else {
@@ -428,12 +475,14 @@ nonisolated final class CodexStatusService: @unchecked Sendable {
     }
 }
 
-private nonisolated final class AppServerConnection {
+private final nonisolated class AppServerConnection {
     let session: AppServerSession
     let commandInfo: CodexCLIConnectionInfo
     var accountResponse: AccountReadResponse
 
-    var openedAt: Date { commandInfo.openedAt }
+    var openedAt: Date {
+        commandInfo.openedAt
+    }
 
     init(
         session: AppServerSession,

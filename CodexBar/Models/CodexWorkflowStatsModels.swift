@@ -1,33 +1,16 @@
 import Foundation
 
-// Hook 事件类型: 由归一化后的事件名 (去除 _/-、小写) 映射, 是名称到聚合计数的唯一映射来源
-nonisolated enum WorkflowEventKind: String {
-    case sessionStart = "sessionstart"
-    case stop = "stop"
-    case preToolUse = "pretooluse"
-    case postToolUse = "posttooluse"
-    case permissionRequest = "permissionrequest"
-    case preCompact = "precompact"
-    case postCompact = "postcompact"
-    case subagentStart = "subagentstart"
-    case subagentStop = "subagentstop"
-
-    init?(normalizedName: String) {
-        self.init(rawValue: normalizedName)
-    }
-}
-
 private nonisolated enum WorkflowStatsJSON {
     static func lineData(_ fields: [String]) -> Data {
         let json = "{\(fields.joined(separator: ","))}"
         return Data(json.utf8) + Data([0x0A])
     }
 
-    static func field<T: Encodable>(_ name: String, _ value: T?) throws -> String {
-        "\"\(name)\":\(try Self.value(value))"
+    static func field(_ name: String, _ value: (some Encodable)?) throws -> String {
+        try "\"\(name)\":\(Self.value(value))"
     }
 
-    static func value<T: Encodable>(_ value: T?) throws -> String {
+    static func value(_ value: (some Encodable)?) throws -> String {
         guard let value else {
             return "null"
         }
@@ -35,7 +18,7 @@ private nonisolated enum WorkflowStatsJSON {
         return try Self.value(value)
     }
 
-    static func value<T: Encodable>(_ value: T) throws -> String {
+    static func value(_ value: some Encodable) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(value)
@@ -95,16 +78,16 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
 
         self.timestamp = timestamp
         self.name = name
-        self.directoryPath = Self.string(from: container, key: .cwd)
-        self.toolName = Self.string(from: container, key: .toolName)
-        self.modelName = Self.string(from: container, key: .modelName)
-        self.permissionMode = Self.string(from: container, key: .permissionMode)
-        self.sessionId = Self.string(from: container, key: .sessionId)
-        self.turnId = Self.string(from: container, key: .turnId)
+        directoryPath = Self.string(from: container, key: .cwd)
+        toolName = Self.string(from: container, key: .toolName)
+        modelName = Self.string(from: container, key: .modelName)
+        permissionMode = Self.string(from: container, key: .permissionMode)
+        sessionId = Self.string(from: container, key: .sessionId)
+        turnId = Self.string(from: container, key: .turnId)
     }
 
-    var kind: WorkflowEventKind? {
-        WorkflowEventKind(normalizedName: normalizedName)
+    var hookEvent: CodexHookEvent? {
+        CodexHookEvent(eventName: name)
     }
 
     var projectDisplayName: String? {
@@ -115,13 +98,6 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         let url = URL(fileURLWithPath: directoryPath).standardizedFileURL
         let lastComponent = url.lastPathComponent
         return lastComponent.isEmpty ? directoryPath : lastComponent
-    }
-
-    private var normalizedName: String {
-        name
-            .replacingOccurrences(of: "_", with: "")
-            .replacingOccurrences(of: "-", with: "")
-            .lowercased()
     }
 
     private static func string(
@@ -143,15 +119,15 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     }
 
     func jsonLineData() throws -> Data {
-        let fields = [
-            try WorkflowStatsJSON.field("timestamp", DateFormatter.codexLocalTimestamp.string(from: timestamp)),
-            try WorkflowStatsJSON.field("event", name),
-            try WorkflowStatsJSON.field("model", modelName),
-            try WorkflowStatsJSON.field("permission", permissionMode),
-            try WorkflowStatsJSON.field("session", sessionId),
-            try WorkflowStatsJSON.field("turn", turnId),
-            try WorkflowStatsJSON.field("tool", toolName),
-            try WorkflowStatsJSON.field("cwd", directoryPath)
+        let fields = try [
+            WorkflowStatsJSON.field("timestamp", DateFormatter.codexLocalTimestamp.string(from: timestamp)),
+            WorkflowStatsJSON.field("event", name),
+            WorkflowStatsJSON.field("model", modelName),
+            WorkflowStatsJSON.field("permission", permissionMode),
+            WorkflowStatsJSON.field("session", sessionId),
+            WorkflowStatsJSON.field("turn", turnId),
+            WorkflowStatsJSON.field("tool", toolName),
+            WorkflowStatsJSON.field("cwd", directoryPath)
         ]
 
         return WorkflowStatsJSON.lineData(fields)
@@ -175,12 +151,12 @@ nonisolated struct WorkflowDailyStats: Equatable, Identifiable {
     let turnCount: Int
     let toolCallCount: Int
     let permissionRequestCount: Int
-    let mostActiveProject: String?
     let contextCompactionCount: Int
     let subagentCount: Int
-    let eventCount: Int
 
-    var id: String { startDate }
+    var id: String {
+        startDate
+    }
 
     static func empty(startDate: String) -> WorkflowDailyStats {
         WorkflowDailyStats(
@@ -189,10 +165,8 @@ nonisolated struct WorkflowDailyStats: Equatable, Identifiable {
             turnCount: 0,
             toolCallCount: 0,
             permissionRequestCount: 0,
-            mostActiveProject: nil,
             contextCompactionCount: 0,
-            subagentCount: 0,
-            eventCount: 0
+            subagentCount: 0
         )
     }
 }
@@ -210,7 +184,7 @@ nonisolated struct WorkflowStatsSnapshot: Equatable {
 
     init(dailyAggregates: [WorkflowDailyAggregate], generatedAt: Date = Date()) {
         self.generatedAt = generatedAt
-        self.dailyStats = dailyAggregates
+        dailyStats = dailyAggregates
             .map(\.stats)
             .sorted { $0.startDate < $1.startDate }
     }
@@ -239,8 +213,8 @@ nonisolated struct WorkflowDailyIdentifierCache {
     var turnIds: Set<String>
 
     init(aggregate: WorkflowDailyAggregate) {
-        self.sessionIds = Set(aggregate.sessionIds ?? [])
-        self.turnIds = Set(aggregate.turnIds ?? [])
+        sessionIds = Set(aggregate.sessionIds ?? [])
+        turnIds = Set(aggregate.turnIds ?? [])
     }
 }
 
@@ -262,45 +236,47 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     var sessionIds: [String]?
     var turnIds: [String]?
 
-    var id: String { date }
+    var id: String {
+        date
+    }
 
     init(date: String) {
         self.date = date
-        self.eventCount = 0
-        self.sessionStartCount = 0
-        self.stopCount = 0
-        self.preToolUseCount = 0
-        self.postToolUseCount = 0
-        self.permissionRequestCount = 0
-        self.preCompactCount = 0
-        self.postCompactCount = 0
-        self.subagentStartCount = 0
-        self.subagentStopCount = 0
-        self.sessionCount = nil
-        self.turnCount = nil
-        self.projectCounts = [:]
-        self.sessionIds = []
-        self.turnIds = []
+        eventCount = 0
+        sessionStartCount = 0
+        stopCount = 0
+        preToolUseCount = 0
+        postToolUseCount = 0
+        permissionRequestCount = 0
+        preCompactCount = 0
+        postCompactCount = 0
+        subagentStartCount = 0
+        subagentStopCount = 0
+        sessionCount = nil
+        turnCount = nil
+        projectCounts = [:]
+        sessionIds = []
+        turnIds = []
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.date = try container.decode(String.self, forKey: .date)
-        self.eventCount = try container.decodeIfPresent(Int.self, forKey: .eventCount) ?? 0
-        self.sessionStartCount = try container.decodeIfPresent(Int.self, forKey: .sessionStartCount) ?? 0
-        self.stopCount = try container.decodeIfPresent(Int.self, forKey: .stopCount) ?? 0
-        self.preToolUseCount = try container.decodeIfPresent(Int.self, forKey: .preToolUseCount) ?? 0
-        self.postToolUseCount = try container.decodeIfPresent(Int.self, forKey: .postToolUseCount) ?? 0
-        self.permissionRequestCount = try container.decodeIfPresent(Int.self, forKey: .permissionRequestCount) ?? 0
-        self.preCompactCount = try container.decodeIfPresent(Int.self, forKey: .preCompactCount) ?? 0
-        self.postCompactCount = try container.decodeIfPresent(Int.self, forKey: .postCompactCount) ?? 0
-        self.subagentStartCount = try container.decodeIfPresent(Int.self, forKey: .subagentStartCount) ?? 0
-        self.subagentStopCount = try container.decodeIfPresent(Int.self, forKey: .subagentStopCount) ?? 0
-        self.sessionCount = try container.decodeIfPresent(Int.self, forKey: .sessionCount)
-        self.turnCount = try container.decodeIfPresent(Int.self, forKey: .turnCount)
-        self.projectCounts = try container.decodeIfPresent([String: Int].self, forKey: .projectCounts) ?? [:]
-        self.sessionIds = try container.decodeIfPresent([String].self, forKey: .sessionIds)
-        self.turnIds = try container.decodeIfPresent([String].self, forKey: .turnIds)
+        date = try container.decode(String.self, forKey: .date)
+        eventCount = try container.decodeIfPresent(Int.self, forKey: .eventCount) ?? 0
+        sessionStartCount = try container.decodeIfPresent(Int.self, forKey: .sessionStartCount) ?? 0
+        stopCount = try container.decodeIfPresent(Int.self, forKey: .stopCount) ?? 0
+        preToolUseCount = try container.decodeIfPresent(Int.self, forKey: .preToolUseCount) ?? 0
+        postToolUseCount = try container.decodeIfPresent(Int.self, forKey: .postToolUseCount) ?? 0
+        permissionRequestCount = try container.decodeIfPresent(Int.self, forKey: .permissionRequestCount) ?? 0
+        preCompactCount = try container.decodeIfPresent(Int.self, forKey: .preCompactCount) ?? 0
+        postCompactCount = try container.decodeIfPresent(Int.self, forKey: .postCompactCount) ?? 0
+        subagentStartCount = try container.decodeIfPresent(Int.self, forKey: .subagentStartCount) ?? 0
+        subagentStopCount = try container.decodeIfPresent(Int.self, forKey: .subagentStopCount) ?? 0
+        sessionCount = try container.decodeIfPresent(Int.self, forKey: .sessionCount)
+        turnCount = try container.decodeIfPresent(Int.self, forKey: .turnCount)
+        projectCounts = try container.decodeIfPresent([String: Int].self, forKey: .projectCounts) ?? [:]
+        sessionIds = try container.decodeIfPresent([String].self, forKey: .sessionIds)
+        turnIds = try container.decodeIfPresent([String].self, forKey: .turnIds)
     }
 
     mutating func record(
@@ -310,7 +286,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     ) {
         eventCount += 1
 
-        switch event.kind {
+        switch event.hookEvent {
         case .sessionStart: sessionStartCount += 1
         case .stop: stopCount += 1
         case .preToolUse: preToolUseCount += 1
@@ -320,6 +296,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         case .postCompact: postCompactCount += 1
         case .subagentStart: subagentStartCount += 1
         case .subagentStop: subagentStopCount += 1
+        case .userPromptSubmit:
+            break
         case .none: break
         }
 
@@ -373,10 +351,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
             turnCount: turnTotal,
             toolCallCount: toolCallCount,
             permissionRequestCount: permissionRequestCount,
-            mostActiveProject: mostActiveProject,
             contextCompactionCount: contextCompactionCount,
-            subagentCount: subagentCount,
-            eventCount: eventCount
+            subagentCount: subagentCount
         )
     }
 
@@ -406,28 +382,28 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
 
     static func encodeJSONLines(_ aggregates: [WorkflowDailyAggregate]) throws -> Data {
         try aggregates.reduce(into: Data()) { result, aggregate in
-            result.append(try aggregate.jsonLineData())
+            try result.append(aggregate.jsonLineData())
         }
     }
 
     func jsonLineData() throws -> Data {
-        let fields = [
-            try WorkflowStatsJSON.field("date", date),
-            try WorkflowStatsJSON.field("eventCount", eventCount),
-            try WorkflowStatsJSON.field("sessionStartCount", sessionStartCount),
-            try WorkflowStatsJSON.field("stopCount", stopCount),
-            try WorkflowStatsJSON.field("preToolUseCount", preToolUseCount),
-            try WorkflowStatsJSON.field("postToolUseCount", postToolUseCount),
-            try WorkflowStatsJSON.field("permissionRequestCount", permissionRequestCount),
-            try WorkflowStatsJSON.field("preCompactCount", preCompactCount),
-            try WorkflowStatsJSON.field("postCompactCount", postCompactCount),
-            try WorkflowStatsJSON.field("subagentStartCount", subagentStartCount),
-            try WorkflowStatsJSON.field("subagentStopCount", subagentStopCount),
-            try WorkflowStatsJSON.field("sessionCount", sessionCount),
-            try WorkflowStatsJSON.field("turnCount", turnCount),
-            try WorkflowStatsJSON.field("projectCounts", projectCounts),
-            try WorkflowStatsJSON.field("sessionIds", sessionIds),
-            try WorkflowStatsJSON.field("turnIds", turnIds)
+        let fields = try [
+            WorkflowStatsJSON.field("date", date),
+            WorkflowStatsJSON.field("eventCount", eventCount),
+            WorkflowStatsJSON.field("sessionStartCount", sessionStartCount),
+            WorkflowStatsJSON.field("stopCount", stopCount),
+            WorkflowStatsJSON.field("preToolUseCount", preToolUseCount),
+            WorkflowStatsJSON.field("postToolUseCount", postToolUseCount),
+            WorkflowStatsJSON.field("permissionRequestCount", permissionRequestCount),
+            WorkflowStatsJSON.field("preCompactCount", preCompactCount),
+            WorkflowStatsJSON.field("postCompactCount", postCompactCount),
+            WorkflowStatsJSON.field("subagentStartCount", subagentStartCount),
+            WorkflowStatsJSON.field("subagentStopCount", subagentStopCount),
+            WorkflowStatsJSON.field("sessionCount", sessionCount),
+            WorkflowStatsJSON.field("turnCount", turnCount),
+            WorkflowStatsJSON.field("projectCounts", projectCounts),
+            WorkflowStatsJSON.field("sessionIds", sessionIds),
+            WorkflowStatsJSON.field("turnIds", turnIds)
         ]
 
         return WorkflowStatsJSON.lineData(fields)
@@ -450,19 +426,6 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
 
     private static func normalizedIdentifiers(_ identifiers: [String]?) -> [String] {
         Set(identifiers ?? []).sorted()
-    }
-
-    private var mostActiveProject: String? {
-        projectCounts
-            .sorted { lhs, rhs in
-                if lhs.value != rhs.value {
-                    return lhs.value > rhs.value
-                }
-
-                return lhs.key.localizedStandardCompare(rhs.key) == .orderedAscending
-            }
-            .first?
-            .key
     }
 
     private static func date(from string: String) -> Date? {

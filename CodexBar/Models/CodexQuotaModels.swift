@@ -35,7 +35,9 @@ nonisolated struct CodexQuotaLimitSnapshot: Equatable, Identifiable {
     let limitName: String?
     let windows: [QuotaWindow]
 
-    var id: String { limitId }
+    var id: String {
+        limitId
+    }
 
     var title: String {
         if let limitName, !limitName.isEmpty {
@@ -46,7 +48,7 @@ nonisolated struct CodexQuotaLimitSnapshot: Equatable, Identifiable {
     }
 }
 
-nonisolated private extension String {
+private nonisolated extension String {
     func capitalizingFirstLetter() -> String {
         guard let first else {
             return self
@@ -83,8 +85,8 @@ nonisolated struct QuotaWindow: Equatable, Identifiable {
             return "额度"
         }
 
-        if minutes.isMultiple(of: 1_440) {
-            return "\(minutes / 1_440)D"
+        if minutes.isMultiple(of: 1440) {
+            return "\(minutes / 1440)D"
         }
 
         if minutes.isMultiple(of: 60) {

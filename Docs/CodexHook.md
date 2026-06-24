@@ -10,14 +10,35 @@
 ~/.codex/hooks.json
 ```
 
-开启和关闭都会先移除当前 App 可执行文件路径对应的 CodexBar hook。开启时随后按当前 App 路径安装 hook。用户自定义 Hook、其他 App Hook、其他路径的 CodexBar Hook 和同事件下的其他处理器必须保留。
+开启前会先复用 App 当前的 Codex app-server 会话调用 `config/read`。如果有效配置中 `[features] hooks = false`，或兼容旧名 `codex_hooks = false`，CodexBar 不写入 `hooks.json`，并在 Hook 选项下方显示全局禁用说明。
+
+开启和关闭都会先移除 `command` 包含当前 App 可执行文件路径的 CodexBar hook。开启时随后按当前 App 路径安装 hook。用户自定义 Hook、其他 App Hook 和同事件下的其他处理器必须保留。
 
 CodexBar 处理器的识别条件:
 
 - `type` 是 `command`
-- `command` 必须等于当前 App 可执行文件路径生成的命令, 例如 `'<当前 CodexBar 可执行文件路径>' --hook-event SessionStart`
+- `command` 必须包含当前 App 可执行文件路径生成的 shell 命令, 例如 `'<当前 CodexBar 可执行文件路径>'`
 
-检测是否已开启时，要求全部 CodexBar 事件都存在当前 App 路径对应的处理器。
+也就是说，如果用户手写的 Hook 命令同样包含当前 CodexBar 可执行文件路径，也会被当作当前 CodexBar 处理器移除；不包含当前路径的用户 Hook 会保留。
+
+检测是否已开启时，只要任意 CodexBar 事件存在当前 App 路径对应的处理器，开关就保持开启；如果缺少部分事件，`hooks/list` 验证会在 Hook 选项下方显示 `CodexBar Hook 已不完整`。
+
+开启写入成功后会复用同一条 app-server 会话调用 `hooks/list` 做有效性检查:
+
+- `command`: 必须包含 CodexBar 当前可执行文件路径生成的命令。
+- `eventName`: 必须覆盖全部 CodexBar 事件；`hooks/list` 返回值使用 `sessionStart` 这类 lower camel 名称，CodexBar 会与写入的 `SessionStart` 配置名做映射。
+- `enabled`: 必须为 `true`，否则提示 Codex 已禁用这些 Hook。
+- `sourcePath`: 必须指向全局 `~/.codex/hooks.json`。
+- `trustStatus`: `untrusted` 或 `modified` 时提示用户在 Codex 中执行 `/hooks` 并信任 CodexBar。
+- `warnings` / `errors`: 参与验证优先级判断；设置页只显示最高优先级问题，完整返回内容进入日志窗口。
+
+`config/read` 和 `hooks/list` 都通过 `AppServerSession.request` 调用，请求和响应会进入 CodexBar 日志窗口。
+
+`config/read` 请求失败时，CodexBar 不写入 `hooks.json`，调用 `refresh()` 恢复本地实际状态，并在 Hook 选项下方显示 `设置 Codex Hook 失败: <错误>`。只有请求成功且明确读到全局禁用 Hook 时，才显示 `Codex 配置已禁用 Hook`。
+
+`hooks/list` 请求失败或验证发现问题时，CodexBar 不回滚已经写入的 Hook。请求失败时显示 `无法验证 Codex Hook: <错误>`；请求成功但验证未通过时只显示最高优先级的一条摘要。当前优先级为: 无返回结果、Codex 返回错误、Hook 被禁用、Hook 未被信任、事件不完整、来源异常、Codex 返回警告。
+
+Hook 事件定义集中在 `CodexHookEvent`。`configName` 用于写入 `hooks.json`, `appServerName` 用于匹配 `hooks/list` 返回的 lower camel 事件名, `init(eventName:)` 用于把 events 中的 `hook_event_name` 归一化到同一组事件。
 
 ## Hook 事件
 
@@ -39,25 +60,20 @@ SubagentStop
 命令格式:
 
 ```bash
-'/Applications/CodexBar.app/Contents/MacOS/CodexBar' --hook-event SessionStart
+'/Applications/CodexBar.app/Contents/MacOS/CodexBar'
 ```
 
-Hook timeout 为 5 秒。App 启动最早阶段会调用 `WorkflowHookEventRecorder.handleIfRequested()`，如果命中 Hook 参数，只记录数据并立即退出正常 App 启动流程。
+Hook timeout 为 5 秒。App 启动最早阶段会调用 `WorkflowHookEventRecorder.handleIfRequested()`，如果识别到 Hook 输入，只记录数据并立即退出正常 App 启动流程。
 
-支持的参数形式:
-
-```bash
---hook-event SessionStart
---hook-event=SessionStart
-```
+Hook 子进程通过 stdin payload 顶层 `hook_event_name` 判断事件名。
 
 ## Payload 解析
 
-Hook stdin 会尝试解析为 Codex 官方 JSON 对象，只读取顶层字段。缺少字段时尽量兜底，不阻断记录。
+Hook stdin 会尝试解析为 Codex 官方 JSON 对象，只读取顶层字段。`hook_event_name` 是记录事件的必需字段；其他字段缺失时尽量兜底，不阻断记录。
 
 读取字段:
 
-- 事件: `hook_event_name`，缺失时回退 Hook 命令参数 `--hook-event`
+- 事件: `hook_event_name`
 - 目录: `cwd`
 - 工具: `tool_name`
 - 模型: `model`
@@ -65,7 +81,7 @@ Hook stdin 会尝试解析为 Codex 官方 JSON 对象，只读取顶层字段�
 - 会话: `session_id`
 - 轮次: `turn_id`
 
-事件名优先来自 payload 顶层 `hook_event_name`；缺失时回退 Hook 命令参数 `--hook-event`。`--hook-event` 仍用于识别当前进程是否是 Hook 子进程，避免普通 App 启动时读取 stdin。事件时间优先读取 payload 顶层 `timestamp`，解析后按本机时区写成 `yyyy-MM-dd HH:mm:ss.SSS`；如果 payload 缺失或无法解析，记录当前时间作为兜底。同一个事件时间也会按本机时区格式化为 `yyyy-MM-dd` 的 date key，用于选择 `events/YYYY-MM-DD.jsonl` 文件。每行按固定顺序写入 `timestamp`、`event`、`model`、`permission`、`session`、`turn`、`tool`、`cwd`；缺失值写为 `null`。
+事件名来自 payload 顶层 `hook_event_name`。没有事件名且 stdin 没有输入时按普通 App 启动；stdin 有输入但事件名缺失时吞掉本次 Hook，避免 Hook 子进程继续启动完整菜单栏 App。事件时间优先读取 payload 顶层 `timestamp`，解析后按本机时区写成 `yyyy-MM-dd HH:mm:ss.SSS`；如果 `timestamp` 缺失或无法解析，记录当前时间作为兜底。同一个事件时间也会按本机时区格式化为 `yyyy-MM-dd` 的 date key，用于选择 `events/YYYY-MM-DD.jsonl` 文件。每行按固定顺序写入 `timestamp`、`event`、`model`、`permission`、`session`、`turn`、`tool`、`cwd`；缺失值写为 `null`。
 
 事件名统计时会去掉 `_` 和 `-` 并转小写，因此 `PreToolUse`、`pre_tool_use`、`pre-tool-use` 会归为同一个事件。
 

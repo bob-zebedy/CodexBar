@@ -39,12 +39,12 @@ final class MenuSurfaceFadeCoordinator {
 
         fadeInCompletionTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(duration * 1000)))
-            guard let self, !Task.isCancelled, self.fadeGeneration == operationGeneration else {
+            guard let self, !Task.isCancelled, fadeGeneration == operationGeneration else {
                 return
             }
 
-            self.resetAlpha()
-            self.fadeInCompletionTask = nil
+            resetAlpha()
+            fadeInCompletionTask = nil
             completion()
         }
     }
@@ -60,14 +60,14 @@ final class MenuSurfaceFadeCoordinator {
 
         fadeOutCompletionTask = Task { @MainActor [weak self, weak contentView, weak activeMenuSurfaceWindow] in
             try? await Task.sleep(for: .milliseconds(Int(duration * 1000)))
-            guard let self, !Task.isCancelled, self.fadeGeneration == operationGeneration else {
+            guard let self, !Task.isCancelled, fadeGeneration == operationGeneration else {
                 return
             }
 
-            self.closeActiveMenuSurface()
+            closeActiveMenuSurface()
             contentView?.alphaValue = 1
             activeMenuSurfaceWindow?.alphaValue = 1
-            self.fadeOutCompletionTask = nil
+            fadeOutCompletionTask = nil
             completion()
         }
 

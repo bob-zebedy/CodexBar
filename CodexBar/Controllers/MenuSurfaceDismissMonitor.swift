@@ -34,12 +34,12 @@ final class MenuSurfaceDismissMonitor {
                 return event
             }
 
-            if self.handleKeyEvent(event) {
+            if handleKeyEvent(event) {
                 return nil
             }
 
-            self.dismissIfNeeded(for: event)
-            self.restabilizeActiveMenuSurfaceChromeAfterEvent()
+            dismissIfNeeded(for: event)
+            restabilizeActiveMenuSurfaceChromeAfterEvent()
             return event
         }
 
@@ -77,11 +77,11 @@ final class MenuSurfaceDismissMonitor {
         installActiveMenuSurfaceWindowObserverAndFocus()
         deferredWindowFocusTask = Task { @MainActor [weak self] in
             await Task.yield()
-            guard let self, !Task.isCancelled, self.isPresented() else {
+            guard let self, !Task.isCancelled, isPresented() else {
                 return
             }
 
-            self.installActiveMenuSurfaceWindowObserverAndFocus()
+            installActiveMenuSurfaceWindowObserverAndFocus()
         }
     }
 
@@ -216,8 +216,8 @@ final class MenuSurfaceDismissMonitor {
                 return
             }
 
-            self.suppressesActivationDismiss = false
-            self.suppressActivationDismissTask = nil
+            suppressesActivationDismiss = false
+            suppressActivationDismissTask = nil
         }
     }
 
@@ -244,20 +244,20 @@ final class MenuSurfaceDismissMonitor {
     private func isMouseDismissEvent(_ event: NSEvent) -> Bool {
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            return true
+            true
         default:
-            return false
+            false
         }
     }
 
     private func restabilizeActiveMenuSurfaceChromeAfterEvent() {
         Task { @MainActor [weak self] in
             await Task.yield()
-            guard let self, self.isPresented() else {
+            guard let self, isPresented() else {
                 return
             }
 
-            self.stabilizeActiveMenuSurfaceChromeAppearance()
+            stabilizeActiveMenuSurfaceChromeAppearance()
         }
     }
 

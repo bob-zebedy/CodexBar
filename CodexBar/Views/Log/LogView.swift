@@ -182,11 +182,11 @@ private struct LogRow: View {
     private var detailCaption: String {
         switch entry.kind {
         case .response, .emptyResponse:
-            return "响应"
+            "响应"
         case .failure:
-            return "错误"
+            "错误"
         default:
-            return "详情"
+            "详情"
         }
     }
 
@@ -202,26 +202,26 @@ private extension RequestLogEntry.Kind {
     var label: String {
         switch self {
         case .pending:
-            return "进行"
+            "进行"
         case .response:
-            return "完成"
+            "完成"
         case .failure:
-            return "错误"
+            "错误"
         case .emptyResponse:
-            return "请求"
+            "请求"
         }
     }
 
     var tint: Color {
         switch self {
         case .pending:
-            return .orange
+            .orange
         case .response:
-            return .green
+            .green
         case .failure:
-            return .red
+            .red
         case .emptyResponse:
-            return .blue
+            .blue
         }
     }
 }

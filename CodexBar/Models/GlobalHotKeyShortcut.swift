@@ -1,7 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 
-nonisolated struct GlobalHotKeyShortcut: Codable, Equatable, Sendable {
+nonisolated struct GlobalHotKeyShortcut: Codable, Equatable {
     let keyCode: UInt32
     let modifiers: UInt32
     let keyLabel: String
@@ -55,8 +55,8 @@ nonisolated struct GlobalHotKeyShortcut: Codable, Equatable, Sendable {
             hasModifier(shiftKey) ? "⇧" : nil,
             hasModifier(cmdKey) ? "⌘" : nil
         ]
-            .compactMap { $0 }
-            .joined()
+        .compactMap(\.self)
+        .joined()
     }
 
     private var modifierCount: Int {

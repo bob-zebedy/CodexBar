@@ -166,7 +166,7 @@ private struct HotKeyCaptureView: NSViewRepresentable {
     let onCancel: () -> Void
     let onWindowClose: () -> Void
 
-    func makeNSView(context: Context) -> HotKeyCaptureNSView {
+    func makeNSView(context _: Context) -> HotKeyCaptureNSView {
         let view = HotKeyCaptureNSView()
         view.onCapture = onCapture
         view.onCancel = onCancel
@@ -174,7 +174,7 @@ private struct HotKeyCaptureView: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: HotKeyCaptureNSView, context: Context) {
+    func updateNSView(_ nsView: HotKeyCaptureNSView, context _: Context) {
         nsView.onCapture = onCapture
         nsView.onCancel = onCancel
         nsView.onWindowClose = onWindowClose
@@ -193,14 +193,9 @@ private final class HotKeyCaptureNSView: NSView {
     var onCapture: ((NSEvent) -> Void)?
     var onCancel: (() -> Void)?
     var onWindowClose: (() -> Void)?
-    private var windowCloseObserver: NSObjectProtocol?
 
     override var acceptsFirstResponder: Bool {
         true
-    }
-
-    deinit {
-        removeWindowCloseObserver()
     }
 
     override func viewDidMoveToWindow() {
@@ -223,19 +218,23 @@ private final class HotKeyCaptureNSView: NSView {
             return
         }
 
-        windowCloseObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            self?.onWindowClose?()
-        }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowWillClose(_:)),
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
+    }
+
+    @objc private func windowWillClose(_: Notification) {
+        onWindowClose?()
     }
 
     private func removeWindowCloseObserver() {
-        if let windowCloseObserver {
-            NotificationCenter.default.removeObserver(windowCloseObserver)
-            self.windowCloseObserver = nil
-        }
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSWindow.willCloseNotification,
+            object: nil
+        )
     }
 }

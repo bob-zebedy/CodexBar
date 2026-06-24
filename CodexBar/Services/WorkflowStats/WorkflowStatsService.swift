@@ -2,7 +2,7 @@ import Combine
 import Darwin
 import Foundation
 
-nonisolated final class WorkflowStatsService: @unchecked Sendable {
+final nonisolated class WorkflowStatsService: @unchecked Sendable {
     private let queue = DispatchQueue(label: "CodexBar.workflow-stats", qos: .utility)
     private let eventsDirectoryURL: URL
     private let dailyLogURL: URL
@@ -338,8 +338,7 @@ nonisolated final class WorkflowStatsService: @unchecked Sendable {
         record: (WorkflowHookEvent) -> Void
     ) -> Int {
         guard let line = String(bytes: lineData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        else {
+            .trimmingCharacters(in: .whitespacesAndNewlines) else {
             return 1
         }
 
@@ -469,7 +468,6 @@ nonisolated final class WorkflowStatsService: @unchecked Sendable {
 
         return date >= WorkflowStatsStorage.identifierRetentionCutoffDate()
     }
-
 }
 
 nonisolated enum WorkflowStatsStorage {
@@ -632,10 +630,10 @@ nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.schema = try container.decodeIfPresent(Int.self, forKey: .schema) ?? Self.currentSchema
-        self.pending = Self.normalizedDates(try container.decodeIfPresent([String].self, forKey: .pending) ?? [])
-        self.dirty = Self.normalizedDates(try container.decodeIfPresent([String].self, forKey: .dirty) ?? [])
-        self.days = try container.decodeIfPresent([String: WorkflowStatsDayMaintenanceState].self, forKey: .days) ?? [:]
+        schema = try container.decodeIfPresent(Int.self, forKey: .schema) ?? Self.currentSchema
+        pending = try Self.normalizedDates(container.decodeIfPresent([String].self, forKey: .pending) ?? [])
+        dirty = try Self.normalizedDates(container.decodeIfPresent([String].self, forKey: .dirty) ?? [])
+        days = try container.decodeIfPresent([String: WorkflowStatsDayMaintenanceState].self, forKey: .days) ?? [:]
     }
 
     mutating func markPending(_ dateKey: String) {

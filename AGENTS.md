@@ -81,7 +81,7 @@ CodexStatusService(JSON-RPC app-server)
   -> CodexStatusMenuView / AppSettingsView / LogView
 
 Codex Hook
-  -> WorkflowHookEventRecorder(--hook-event)
+  -> WorkflowHookEventRecorder(stdin hook_event_name)
   -> WorkflowStatsStorage(events/YYYY-MM-DD.jsonl / daily.jsonl)
   -> WorkflowStatsService
   -> WorkflowStatsViewModel
@@ -109,8 +109,8 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 ## Codex Hook 合约
 
 - 详细设计见 [Docs/CodexHook.md](Docs/CodexHook.md)。
-- 设置开关只能追加或移除 CodexBar 自己的 Hook 处理器, 不能破坏用户已有 Hook。
-- Hook 命令只支持 `--hook-event`。
+- 设置开关只能追加或移除 command 包含当前 CodexBar 可执行路径的 Hook 处理器, 不能破坏其他用户 Hook。
+- Hook 命令写入当前 CodexBar 可执行文件路径; Hook 事件名来自 Codex 传入的 stdin payload 顶层 `hook_event_name`。
 - Hook 数据只保存在 `~/Library/Application Support/CodexBar/HookEvents/`。
 - Hook 写入可能并发触发, 追加 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json` 时必须通过 `stats.lock` 加锁。
 
@@ -202,14 +202,16 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - 路径点击复制到剪贴板, 对应来源显示「已复制」1.5 秒; 保留路径文本布局宽度避免跳动。
 - 默认全局快捷键是 `⌘⇧W`; 快捷键录制至少需要两个修饰键, 不允许 Command-Space 或 Command-Tab; 注册冲突、无法识别和校验错误显示在快捷键行内。
 - 设置页包含「启用 Codex Hook」开关; 开启后会写入全局 Codex Hook 配置, 用于近 30 周数据展示更多本机统计数据。
-- Codex Hook 开关下方说明文案为小号辅助文字; 不展示启用/关闭状态文案。
-- 开机启动和 Codex Hook 错误显示在设置组与底部按钮组之间的独立错误组; 无错误时不展示该组, 退出和检查更新按钮之间不展示错误文案。
+- 开启 Codex Hook 前必须通过当前 `CodexStatusService` app-server 会话调用 `config/read`, 如果 Codex 全局配置禁用了 Hook, 则不写入 `hooks.json`, 开启失败并在 Hook 选项下方提示。
+- 开启 Codex Hook 写入 `hooks.json` 后必须通过当前 app-server 会话调用 `hooks/list` 验证 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`warnings` 和 `errors`; 未信任时提示用户去 Codex `/hooks` 信任。
+- Codex Hook 开关下方只在必要时显示 Hook 相关错误; 不展示固定说明文案、启用状态或关闭状态文案。
+- 开机启动错误显示在设置组与底部按钮组之间的独立错误组; 无错误时不展示该组, 退出和检查更新按钮之间不展示错误文案。
 
 日志窗口:
 
 - 通过右键菜单「日志」打开。
 - 日志窗口应持续显示全局 `RequestLogStore.shared` 中的记录, 不因窗口关闭丢失。
-- 详情文本必须可选择, 长内容由存储层截断。
+- 详情文本必须可选择; 请求 payload 预览由存储层截断到 4000 字符, 响应和错误详情不按长度截断。
 
 ## Sparkle 更新
 

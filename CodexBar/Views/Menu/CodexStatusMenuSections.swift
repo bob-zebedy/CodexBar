@@ -109,11 +109,11 @@ struct StatusAccountCard: View {
     private var statusDisplay: (text: String?, color: Color) {
         switch loadState {
         case .notLoggedIn:
-            return ("未登录", .orange)
+            ("未登录", .orange)
         case .initializationFailed:
-            return ("初始化失败", .red)
+            ("初始化失败", .red)
         case .loading, .loaded:
-            return (nil, .accentColor)
+            (nil, .accentColor)
         }
     }
 }

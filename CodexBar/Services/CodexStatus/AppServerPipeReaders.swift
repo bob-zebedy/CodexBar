@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated final class JSONLineReader: @unchecked Sendable {
+final nonisolated class JSONLineReader: @unchecked Sendable {
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private let fileHandle: FileHandle
@@ -62,7 +62,7 @@ nonisolated final class JSONLineReader: @unchecked Sendable {
 
             if let line = String(bytes: lineData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
-               !line.isEmpty {
+                !line.isEmpty {
                 lines.append(line)
                 semaphore.signal()
             }
@@ -79,7 +79,7 @@ nonisolated final class JSONLineReader: @unchecked Sendable {
         if !buffer.isEmpty {
             if let line = String(bytes: buffer, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
-               !line.isEmpty {
+                !line.isEmpty {
                 lines.append(line)
             }
             buffer.removeAll()
@@ -100,7 +100,7 @@ nonisolated final class JSONLineReader: @unchecked Sendable {
     }
 }
 
-nonisolated final class PipeDrain: @unchecked Sendable {
+final nonisolated class PipeDrain: @unchecked Sendable {
     private let fileHandle: FileHandle
 
     init(fileHandle: FileHandle) {

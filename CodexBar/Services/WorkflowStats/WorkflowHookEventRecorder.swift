@@ -2,37 +2,20 @@ import Darwin
 import Foundation
 
 nonisolated enum WorkflowHookEventRecorder {
-    static func handleIfRequested(arguments: [String] = CommandLine.arguments) -> Bool {
-        guard let fallbackEventName = hookEventName(from: arguments) else {
-            return false
+    static func handleIfRequested() -> Bool {
+        let payload = stdinPayload()
+
+        guard let eventName = payload.string(for: "hook_event_name") else {
+            // 如果 Codex 已经通过 stdin 传了内容但事件名缺失, 吞掉本次 Hook
+            // 避免 Hook 子进程继续启动完整菜单栏 App
+            return payload.hasInput
         }
 
-        try? record(fallbackEventName: fallbackEventName)
+        try? record(payload: payload, eventName: eventName)
         return true
     }
 
-    private static func hookEventName(from arguments: [String]) -> String? {
-        for argument in arguments.dropFirst() where argument.hasPrefix("--hook-event=") {
-            return normalizedHookEventName(String(argument.dropFirst("--hook-event=".count)))
-        }
-
-        if let optionIndex = arguments.firstIndex(of: "--hook-event"),
-           arguments.indices.contains(arguments.index(after: optionIndex)) {
-            return normalizedHookEventName(arguments[arguments.index(after: optionIndex)])
-        }
-
-        return nil
-    }
-
-    private static func normalizedHookEventName(_ value: String) -> String? {
-        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedValue.isEmpty ? nil : trimmedValue
-    }
-
-    private static func record(fallbackEventName: String) throws {
-        let payload = stdinPayload()
-        let eventName = payload.string(for: "hook_event_name")
-            .flatMap(normalizedHookEventName) ?? fallbackEventName
+    private static func record(payload: WorkflowHookPayload, eventName: String) throws {
         let timestamp = payload.date(for: "timestamp") ?? Date()
         let cwd = payload.string(for: "cwd") ?? FileManager.default.currentDirectoryPath
         let tool = payload.string(for: "tool_name")
@@ -87,22 +70,26 @@ nonisolated enum WorkflowHookEventRecorder {
 
     private static func stdinPayload() -> WorkflowHookPayload {
         guard isatty(STDIN_FILENO) == 0 else {
-            return WorkflowHookPayload(values: [:])
+            return WorkflowHookPayload(values: [:], hasInput: false)
         }
 
         let data = FileHandle.standardInput.readDataToEndOfFile()
-        guard !data.isEmpty,
-              let object = try? JSONSerialization.jsonObject(with: data),
-              let values = object as? [String: Any] else {
-            return WorkflowHookPayload(values: [:])
+        guard !data.isEmpty else {
+            return WorkflowHookPayload(values: [:], hasInput: false)
         }
 
-        return WorkflowHookPayload(values: values)
+        guard let object = try? JSONSerialization.jsonObject(with: data),
+              let values = object as? [String: Any] else {
+            return WorkflowHookPayload(values: [:], hasInput: true)
+        }
+
+        return WorkflowHookPayload(values: values, hasInput: true)
     }
 }
 
 private nonisolated struct WorkflowHookPayload {
     let values: [String: Any]
+    let hasInput: Bool
 
     func string(for key: String) -> String? {
         Self.normalizedString(values[key])
@@ -130,7 +117,7 @@ private nonisolated struct WorkflowHookPayload {
             return date(from: string)
         case let number as NSNumber:
             let rawValue = number.doubleValue
-            let seconds = rawValue > 10_000_000_000 ? rawValue / 1000 : rawValue
+            let seconds = rawValue > 10000000000 ? rawValue / 1000 : rawValue
             return Date(timeIntervalSince1970: seconds)
         default:
             return nil
@@ -151,12 +138,6 @@ private nonisolated struct WorkflowHookPayload {
             return date
         }
 
-        return iso8601Formatter.date(from: trimmedString)
+        return ISO8601DateFormatter.codexInternetDateTime.date(from: trimmedString)
     }
-
-    private static let iso8601Formatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
 }

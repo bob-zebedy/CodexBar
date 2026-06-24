@@ -17,7 +17,9 @@ nonisolated struct DailyUsageBucket: Decodable, Equatable, Identifiable {
     let startDate: String
     let tokens: Int
 
-    var id: String { startDate }
+    var id: String {
+        startDate
+    }
 }
 
 nonisolated struct CodexUsageSnapshot: Equatable {
@@ -29,7 +31,7 @@ nonisolated struct CodexUsageSnapshot: Equatable {
         return tokensByDate[startDate]
     }
 
-    // 给热力图生成按周排列的最近日期网格, 每列从周日开始
+    /// 给热力图生成按周排列的最近日期网格, 每列从周日开始
     func recentWeekGrid(columnCount: Int, endingDaysAgo: Int = 0, today: Date = Date()) -> [DailyUsageBucket?] {
         let tokenCountsByDate = tokensByDate
         return CodexWeekGrid.dates(

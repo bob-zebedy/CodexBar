@@ -4,8 +4,8 @@ import Foundation
 final class GlobalHotKeyController {
     private let onPressed: @MainActor () -> Void
     private var eventHandler: EventHandlerUPP?
-    private var eventHandlerRef: EventHandlerRef?
-    private var hotKeyRef: EventHotKeyRef?
+    private nonisolated(unsafe) var eventHandlerRef: EventHandlerRef?
+    private nonisolated(unsafe) var hotKeyRef: EventHotKeyRef?
     private var nextHotKeyID: UInt32 = 1
 
     init(onPressed: @escaping @MainActor () -> Void) {
@@ -13,7 +13,7 @@ final class GlobalHotKeyController {
     }
 
     deinit {
-        uninstall()
+        Self.removeRegistration(hotKeyRef: hotKeyRef, eventHandlerRef: eventHandlerRef)
     }
 
     func install(shortcut: GlobalHotKeyShortcut) -> Bool {
@@ -68,16 +68,9 @@ final class GlobalHotKeyController {
     }
 
     private func clearCurrentRegistration() {
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
-            self.hotKeyRef = nil
-        }
-
-        if let eventHandlerRef {
-            RemoveEventHandler(eventHandlerRef)
-            self.eventHandlerRef = nil
-        }
-
+        Self.removeRegistration(hotKeyRef: hotKeyRef, eventHandlerRef: eventHandlerRef)
+        hotKeyRef = nil
+        eventHandlerRef = nil
         eventHandler = nil
     }
 
@@ -98,6 +91,19 @@ final class GlobalHotKeyController {
                 .takeUnretainedValue()
             controller.handleHotKeyPressed()
             return noErr
+        }
+    }
+
+    private nonisolated static func removeRegistration(
+        hotKeyRef: EventHotKeyRef?,
+        eventHandlerRef: EventHandlerRef?
+    ) {
+        if let hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+        }
+
+        if let eventHandlerRef {
+            RemoveEventHandler(eventHandlerRef)
         }
     }
 

@@ -1,13 +1,13 @@
 import Foundation
 
 nonisolated enum JSONLines {
-    // 按行解码 JSONL: 切分换行、trim、跳过空行与解码失败的行
+    /// 按行解码 JSONL: 切分换行、trim、跳过空行与解码失败的行
     static func decode<T: Decodable>(_ type: T.Type = T.self, from data: Data) -> [T] {
         decodeWithFailures(type, from: data).values
     }
 
     static func decodeWithFailures<T: Decodable>(
-        _ type: T.Type = T.self,
+        _: T.Type = T.self,
         from data: Data
     ) -> JSONLinesDecodeResult<T> {
         guard let text = String(bytes: data, encoding: .utf8) else {

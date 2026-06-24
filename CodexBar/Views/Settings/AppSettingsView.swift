@@ -16,13 +16,13 @@ struct AppSettingsView: View {
                 LiquidGlassDivider()
                 automaticUpdateCheckRow
                 LiquidGlassDivider()
-                hotKeyRow
-                LiquidGlassDivider()
                 codexHookRow
                 LiquidGlassDivider()
-                versionRow
+                hotKeyRow
                 LiquidGlassDivider()
                 codexVersionSection
+                LiquidGlassDivider()
+                versionRow
             }
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
@@ -39,6 +39,7 @@ struct AppSettingsView: View {
         }
         .animation(Metrics.statusAnimation, value: loginItemSettings.errorMessage)
         .animation(Metrics.statusAnimation, value: codexHookSettings.errorMessage)
+        .animation(Metrics.statusAnimation, value: codexHookSettings.isUpdating)
         .padding(Metrics.padding)
         .frame(width: Metrics.windowWidth)
         .liquidGlassSurface(
@@ -52,11 +53,12 @@ struct AppSettingsView: View {
         )
         .onAppear {
             loginItemSettings.refresh()
-            codexHookSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
             refreshCodexVersionSection()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            codexHookSettings.refresh()
+            codexHookSettings.verifyInstalledHooks()
             refreshCodexVersionSection()
         }
     }
@@ -110,17 +112,21 @@ private extension AppSettingsView {
                 isOn: Binding(
                     get: { codexHookSettings.isEnabled },
                     set: { codexHookSettings.setEnabled($0) }
-                )
+                ),
+                isEnabled: !codexHookSettings.isUpdating
             )
 
-            HStack(alignment: .top, spacing: 10) {
-                Color.clear
-                    .frame(width: Metrics.iconWidth)
+            if let message = codexHookSettings.errorMessage {
+                HStack(alignment: .top, spacing: 10) {
+                    Color.clear
+                        .frame(width: Metrics.iconWidth)
 
-                Text("开启后将会写入全局 Codex Hook 配置\n用于近 30 周数据中展示更多统计数据\n该数据仅保存在本机")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .transition(.opacity)
             }
         }
     }
@@ -161,7 +167,7 @@ private extension AppSettingsView {
         .animation(Metrics.statusAnimation, value: appUpdater.availableUpdateMessage != nil)
     }
 
-    // 版本行优先显示更新状态, 没有动态消息时回退到当前版本号
+    /// 版本行优先显示更新状态, 没有动态消息时回退到当前版本号
     var versionStatus: (text: String, isVersionLabel: Bool) {
         if let message = appUpdater.settingsStatusMessage ?? appUpdater.availableUpdateMessage {
             return (message, false)
@@ -215,6 +221,6 @@ private extension AppSettingsView {
     }
 
     var settingsErrorMessage: String? {
-        loginItemSettings.errorMessage ?? codexHookSettings.errorMessage
+        loginItemSettings.errorMessage
     }
 }

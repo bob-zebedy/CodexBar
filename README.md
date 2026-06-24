@@ -39,6 +39,8 @@ CodexBar 可以在设置中开启「启用 Codex Hook」
 
 开启后会在全局 `~/.codex/hooks.json` 中增加以下 Hook，用于接收 Codex 的会话、工具调用、权限请求、上下文压缩和子智能体事件。
 
+开启前会通过本机 Codex app-server 检查全局 `config.toml` 是否禁用了 Hook；如果已禁用，CodexBar 不会写入配置，并会在 Hook 选项下方提示。写入后还会用 `hooks/list` 确认 CodexBar 自己的 Hook 命令、事件、来源、启用状态、信任状态以及 Codex 返回的警告或错误。
+
 - `SessionStart`: 记录一次 Codex 会话开始，用于统计会话总数
 - `UserPromptSubmit`: 记录用户提交提示词事件，保留为原始活动事件
 - `PreToolUse`: 记录工具调用开始
@@ -53,12 +55,12 @@ CodexBar 可以在设置中开启「启用 Codex Hook」
 每个事件都会追加一个 `command` 类型的 Hook，命令形如:
 
 ```bash
-'/Applications/CodexBar.app/Contents/MacOS/CodexBar' --hook-event SessionStart
+'/Applications/CodexBar.app/Contents/MacOS/CodexBar'
 ```
 
 开启后，用量热力图会包含今天；鼠标悬停到任意一天时，弹窗会在 token 数之外展示当天的会话总数、对话轮次、子智能体、工具调用、权限请求和上下文压缩次数。关闭 Hook 时，弹窗只展示日期和 token 数；如果 app-server 尚未返回当天 token 数据，热力图不会额外占位展示今天。
 
-CodexBar 只会追加或移除自己安装的 Hook，不会删除你已有的其他 Codex Hook。
+CodexBar 只会追加或移除 command 中包含当前 CodexBar 可执行路径的 Hook，不会删除其他 Codex Hook。
 
 统计数据只保存在本机 `~/Library/Application Support/CodexBar/HookEvents/`，不会发送给任何个人或第三方服务。
 

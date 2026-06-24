@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated final class AppServerSession {
+final nonisolated class AppServerSession {
     let process: Process
 
     private typealias EncodedMessage = (data: Data, text: String)
@@ -203,7 +203,7 @@ nonisolated final class AppServerSession {
 
     private func decodeResponse<Response: Decodable>(
         _ line: ResponseLine,
-        as type: Response.Type,
+        as _: Response.Type,
         token: UUID,
         decoder: JSONDecoder
     ) throws -> Response {

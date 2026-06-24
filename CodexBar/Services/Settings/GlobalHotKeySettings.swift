@@ -11,7 +11,7 @@ final class GlobalHotKeySettings: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.shortcut = Self.loadShortcut(from: defaults)
+        shortcut = Self.loadShortcut(from: defaults)
     }
 
     func setShortcut(_ shortcut: GlobalHotKeyShortcut) {

@@ -67,29 +67,29 @@ final class HeatmapDetailPanelController {
 
             guard let self,
                   !Task.isCancelled,
-                  generation == self.visibilityGeneration,
+                  generation == visibilityGeneration,
                   let panel = self.panel,
                   panel.isVisible else {
                 return
             }
 
-            self.drawerTransition = .exiting
-            let hidden = self.drawerHiddenTranslation(for: side, panelWidth: panel.frame.width)
-            self.animateContentTranslation(
+            drawerTransition = .exiting
+            let hidden = drawerHiddenTranslation(for: side, panelWidth: panel.frame.width)
+            animateContentTranslation(
                 to: hidden,
                 duration: Metrics.drawerExitDuration,
                 timing: .easeIn
             ) {
                 Task { @MainActor [weak self] in
                     guard let self,
-                          generation == self.visibilityGeneration else {
+                          generation == visibilityGeneration else {
                         return
                     }
 
-                    self.orderOut(panel)
-                    self.setContentTranslation(0)
-                    self.drawerTransition = .idle
-                    self.hideTask = nil
+                    orderOut(panel)
+                    setContentTranslation(0)
+                    drawerTransition = .idle
+                    hideTask = nil
                 }
             }
         }
@@ -197,14 +197,14 @@ final class HeatmapDetailPanelController {
         ) {
             Task { @MainActor [weak self] in
                 guard let self,
-                      generation == self.visibilityGeneration,
-                      self.drawerTransition == .switchingSide,
+                      generation == visibilityGeneration,
+                      drawerTransition == .switchingSide,
                       panel.isVisible else {
                     return
                 }
 
-                self.showHiddenSideSwitchRequest(
-                    self.nextSideSwitchRequest(fallback: request),
+                showHiddenSideSwitchRequest(
+                    nextSideSwitchRequest(fallback: request),
                     on: panel,
                     generation: generation
                 )
@@ -227,14 +227,14 @@ final class HeatmapDetailPanelController {
         ) {
             Task { @MainActor [weak self] in
                 guard let self,
-                      generation == self.visibilityGeneration,
+                      generation == visibilityGeneration,
                       panel.isVisible else {
                     return
                 }
 
-                self.drawerTransition = .idle
-                self.setContentTranslation(0)
-                self.handlePendingSideSwitchRequest(on: panel)
+                drawerTransition = .idle
+                setContentTranslation(0)
+                handlePendingSideSwitchRequest(on: panel)
             }
         }
     }
@@ -423,15 +423,14 @@ final class HeatmapDetailPanelController {
         heatmapScreenFrame: CGRect?,
         showsWorkflowStats: Bool
     ) -> CGFloat {
-        let proposedY: CGFloat
-        if showsWorkflowStats {
-            proposedY = menuSurfaceFrame.minY
+        let proposedY: CGFloat = if showsWorkflowStats {
+            menuSurfaceFrame.minY
         } else if let heatmapScreenFrame {
-            proposedY = heatmapScreenFrame.maxY - panelSize.height
+            heatmapScreenFrame.maxY - panelSize.height
         } else if let anchorScreenFrame {
-            proposedY = anchorScreenFrame.maxY - panelSize.height
+            anchorScreenFrame.maxY - panelSize.height
         } else {
-            proposedY = menuSurfaceFrame.midY - panelSize.height / 2
+            menuSurfaceFrame.midY - panelSize.height / 2
         }
 
         return clamped(
@@ -515,8 +514,8 @@ final class HeatmapDetailPanelController {
 
         let animation = CABasicAnimation(keyPath: "transform")
         animation.fromValue = fromTranslationX.map { CATransform3DMakeTranslation($0, 0, 0) }
-        ?? layer.presentation()?.transform
-        ?? layer.transform
+            ?? layer.presentation()?.transform
+            ?? layer.transform
         animation.toValue = targetTransform
         animation.duration = duration
         animation.timingFunction = CAMediaTimingFunction(name: timing)
@@ -540,16 +539,16 @@ final class HeatmapDetailPanelController {
             guard let self,
                   let panel,
                   panel.isVisible,
-                  generation == self.visibilityGeneration else {
+                  generation == visibilityGeneration else {
                 return
             }
 
-            self.setContentTranslation(hiddenTranslationX)
+            setContentTranslation(hiddenTranslationX)
             panel.contentView?.layoutSubtreeIfNeeded()
             panel.displayIfNeeded()
             CATransaction.flush()
             panel.alphaValue = 1
-            self.animateContentTranslation(
+            animateContentTranslation(
                 from: hiddenTranslationX,
                 to: 0,
                 duration: Metrics.drawerEnterDuration,
@@ -557,12 +556,12 @@ final class HeatmapDetailPanelController {
             ) {
                 Task { @MainActor [weak self] in
                     guard let self,
-                          generation == self.visibilityGeneration else {
+                          generation == visibilityGeneration else {
                         return
                     }
 
-                    self.drawerTransition = .idle
-                    self.setContentTranslation(0)
+                    drawerTransition = .idle
+                    setContentTranslation(0)
                 }
             }
         }

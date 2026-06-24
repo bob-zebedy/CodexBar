@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-// UI 级状态; 更细的连接和接口错误由服务层归并到日志
+/// UI 级状态; 更细的连接和接口错误由服务层归并到日志
 nonisolated enum CodexLoadState: Equatable {
     case loading
     case loaded
@@ -24,12 +24,21 @@ final class CodexStatusViewModel: ObservableObject {
     @Published private(set) var codexConnectionInfo: CodexCLIConnectionInfo?
     @Published private(set) var autoRefreshCountdownStartedAt: Date?
 
-    var hasError: Bool { loadState.isError }
+    var hasError: Bool {
+        loadState.isError
+    }
+
     var hasUntrustedData: Bool {
         snapshot?.hasTrustedData == false
     }
-    var usesErrorImage: Bool { hasError || hasUntrustedData }
-    var autoRefreshInterval: TimeInterval { Self.refreshInterval }
+
+    var usesErrorImage: Bool {
+        hasError || hasUntrustedData
+    }
+
+    var autoRefreshInterval: TimeInterval {
+        Self.refreshInterval
+    }
 
     private static let refreshInterval: TimeInterval = 60
 
@@ -62,7 +71,7 @@ final class CodexStatusViewModel: ObservableObject {
 
             while !Task.isCancelled {
                 let delay = self?.autoRefreshDelay ?? Self.refreshInterval
-                if (try? await Task.sleep(for: .seconds(delay))) == nil {
+                if await (try? Task.sleep(for: .seconds(delay))) == nil {
                     break
                 }
 
@@ -80,7 +89,7 @@ final class CodexStatusViewModel: ObservableObject {
 
         Task {
             switch await service.fetchOutcome() {
-            case .data(let snapshot):
+            case let .data(snapshot):
                 self.snapshot = snapshot
                 self.loadState = .loaded
             case .notLoggedIn:

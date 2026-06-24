@@ -52,7 +52,7 @@ extension View {
         }
     }
 
-    // 数据为缓存回退(本轮刷新失败)时弱化显示
+    /// 数据为缓存回退(本轮刷新失败)时弱化显示
     func markStale(_ isStale: Bool) -> some View {
         opacity(isStale ? 0.55 : 1)
     }
@@ -171,13 +171,13 @@ private struct LiquidGlassSurface: View {
     private var baseColor: Color {
         if colorScheme == .dark {
             return isOuterSurface
-            ? Color(red: 0.07, green: 0.08, blue: 0.095)
-            : Color(red: 0.16, green: 0.18, blue: 0.20)
+                ? Color(red: 0.07, green: 0.08, blue: 0.095)
+                : Color(red: 0.16, green: 0.18, blue: 0.20)
         }
 
         return isOuterSurface
-        ? Color(red: 0.97, green: 0.985, blue: 1.0)
-        : Color.white
+            ? Color(red: 0.97, green: 0.985, blue: 1.0)
+            : Color.white
     }
 
     private var raisedHighlightShadowColor: Color {
@@ -213,17 +213,16 @@ private struct LiquidGlassFrostedTexture: View {
             let baseOpacity = colorScheme == .dark ? 0.035 : 0.045
             let outerScale = isOuterSurface ? 0.75 : 1
 
-            for row in 0..<rows {
-                for column in 0..<columns {
+            for row in 0 ..< rows {
+                for column in 0 ..< columns {
                     let sample = Self.noise(column: column, row: row)
                     let isHighlight = sample >= 0.5
                     let strength = isHighlight ? (sample - 0.5) * 2 : (0.5 - sample) * 2
                     let opacity = baseOpacity * strength * outerScale
-                    let color: Color
-                    if isHighlight {
-                        color = Color.white.opacity(opacity)
+                    let color = if isHighlight {
+                        Color.white.opacity(opacity)
                     } else {
-                        color = Color.black.opacity(opacity * (colorScheme == .dark ? 0.24 : 0.16))
+                        Color.black.opacity(opacity * (colorScheme == .dark ? 0.24 : 0.16))
                     }
                     let rect = CGRect(
                         x: CGFloat(column) * step,
@@ -296,8 +295,8 @@ private struct LiquidGlassCapsule: View {
 
     private var baseColor: Color {
         colorScheme == .dark
-        ? Color(red: 0.16, green: 0.18, blue: 0.20)
-        : Color.white
+            ? Color(red: 0.16, green: 0.18, blue: 0.20)
+            : Color.white
     }
 }
 

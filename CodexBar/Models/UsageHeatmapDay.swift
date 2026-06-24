@@ -5,7 +5,9 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     let tokenCount: Int?
     let workflowStats: WorkflowDailyStats
 
-    var id: String { startDate }
+    var id: String {
+        startDate
+    }
 
     var tokensForHeatmap: Int {
         tokenCount ?? 0

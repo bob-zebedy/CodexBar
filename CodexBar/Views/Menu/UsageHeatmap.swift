@@ -51,7 +51,7 @@ struct UsageSummaryView: View {
             today: Date()
         )
         self.days = days
-        self.peakTokens = max(days.lazy.compactMap { $0?.tokensForHeatmap }.max() ?? 0, 1)
+        peakTokens = max(days.lazy.compactMap { $0?.tokensForHeatmap }.max() ?? 0, 1)
     }
 
     var body: some View {
@@ -111,10 +111,10 @@ struct UsageSummaryView: View {
         }
     }
 
-    private func metric<Content: View>(
+    private func metric(
         label: String,
         alignment: Alignment,
-        @ViewBuilder value: () -> Content
+        @ViewBuilder value: () -> some View
     ) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
@@ -142,9 +142,9 @@ struct UsageSummaryView: View {
         }
 
         let duration = max(seconds, 0)
-        let days = duration / 86_400
-        let hours = duration % 86_400 / 3_600
-        let minutes = duration % 3_600 / 60
+        let days = duration / 86400
+        let hours = duration % 86400 / 3600
+        let minutes = duration % 3600 / 60
         let remainingSeconds = duration % 60
 
         if days > 0 {
@@ -187,8 +187,8 @@ struct UsageSummaryView: View {
 
         let x = heatmapGridScreenFrame.minX + CGFloat(selection.column) * UsageHeatmap.Metrics.squarePitch
         let y = heatmapGridScreenFrame.maxY
-        - CGFloat(selection.row) * UsageHeatmap.Metrics.squarePitch
-        - UsageHeatmap.Metrics.squareSize
+            - CGFloat(selection.row) * UsageHeatmap.Metrics.squarePitch
+            - UsageHeatmap.Metrics.squareSize
 
         return CGRect(
             x: x,
@@ -203,7 +203,7 @@ struct UsageSummaryView: View {
             return
         }
 
-        guard let updatedDay = days.compactMap({ $0 }).first(where: { $0.id == hoverSelection.day.id }) else {
+        guard let updatedDay = days.compactMap(\.self).first(where: { $0.id == hoverSelection.day.id }) else {
             withAnimation(Metrics.statusAnimation) {
                 self.hoverSelection = nil
             }
@@ -245,7 +245,7 @@ struct UsageHeatmap: View {
     ) {
         self.days = days
         self.onScreenFrameChange = onScreenFrameChange
-        self._selection = selection
+        _selection = selection
         self.peakTokens = peakTokens
     }
 
@@ -276,9 +276,9 @@ struct UsageHeatmap: View {
             }
 
             HStack(alignment: .top, spacing: Metrics.squareSpacing) {
-                ForEach(0..<Metrics.columnCount, id: \.self) { column in
+                ForEach(0 ..< Metrics.columnCount, id: \.self) { column in
                     VStack(spacing: Metrics.squareSpacing) {
-                        ForEach(0..<Metrics.rowCount, id: \.self) { row in
+                        ForEach(0 ..< Metrics.rowCount, id: \.self) { row in
                             let index = column * Metrics.rowCount + row
 
                             if days.indices.contains(index), let day = days[index] {
@@ -299,7 +299,7 @@ struct UsageHeatmap: View {
             .contentShape(Rectangle())
             .onContinuousHover(coordinateSpace: .local) { phase in
                 switch phase {
-                case .active(let point):
+                case let .active(point):
                     updatePointerLocation(point)
                 case .ended:
                     scheduleDeactivate()
@@ -313,7 +313,7 @@ struct UsageHeatmap: View {
     }
 
     private var visibleDays: [UsageHeatmapDay] {
-        days.compactMap { $0 }
+        days.compactMap(\.self)
     }
 
     private var dateRangeText: String? {
@@ -348,8 +348,8 @@ struct UsageHeatmap: View {
         let column = Int(((point.x - Metrics.squareSize / 2) / Metrics.squarePitch).rounded())
         let row = Int(((point.y - Metrics.squareSize / 2) / Metrics.squarePitch).rounded())
 
-        guard (0..<Metrics.columnCount).contains(column),
-              (0..<Metrics.rowCount).contains(row) else {
+        guard (0 ..< Metrics.columnCount).contains(column),
+              (0 ..< Metrics.rowCount).contains(row) else {
             return nil
         }
 
@@ -473,13 +473,13 @@ private struct UsageHeatmapSquare: View {
 private struct HeatmapScreenFrameReader: NSViewRepresentable {
     let onChange: (CGRect?) -> Void
 
-    func makeNSView(context: Context) -> HeatmapScreenFrameReportingView {
+    func makeNSView(context _: Context) -> HeatmapScreenFrameReportingView {
         let view = HeatmapScreenFrameReportingView()
         view.onChange = onChange
         return view
     }
 
-    func updateNSView(_ nsView: HeatmapScreenFrameReportingView, context: Context) {
+    func updateNSView(_ nsView: HeatmapScreenFrameReportingView, context _: Context) {
         nsView.onChange = onChange
         nsView.scheduleReport()
     }
@@ -502,7 +502,7 @@ private final class HeatmapScreenFrameReportingView: NSView {
     }
 
     func scheduleReport() {
-        // updateNSView 每次 hover 重渲染都会调到这里, 合并掉重复的待执行 report, 至多保留一个。
+        // updateNSView 每次 hover 重渲染都会调到这里, 合并掉重复的待执行 report, 至多保留一个
         guard !reportScheduled else {
             return
         }
@@ -512,8 +512,8 @@ private final class HeatmapScreenFrameReportingView: NSView {
             guard let self else {
                 return
             }
-            self.reportScheduled = false
-            self.reportFrame()
+            reportScheduled = false
+            reportFrame()
         }
     }
 
@@ -573,8 +573,8 @@ struct UsageHeatmapDayDetailView: View {
 
     static func panelSize(showsWorkflowStats: Bool) -> CGSize {
         showsWorkflowStats
-        ? CGSize(width: Metrics.workflowPanelWidth, height: Metrics.workflowPanelHeight)
-        : CGSize(width: Metrics.tokenPanelWidth, height: Metrics.tokenPanelHeight)
+            ? CGSize(width: Metrics.workflowPanelWidth, height: Metrics.workflowPanelHeight)
+            : CGSize(width: Metrics.tokenPanelWidth, height: Metrics.tokenPanelHeight)
     }
 
     @ViewBuilder
@@ -660,7 +660,7 @@ struct UsageHeatmapDayDetailView: View {
         metricDot(tint: .blue, darkOpacity: 0.88, lightOpacity: 0.76)
     }
 
-    private func metricRowLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func metricRowLayout(@ViewBuilder content: () -> some View) -> some View {
         HStack(spacing: Metrics.metricRowSpacing, content: content)
             .font(.system(size: Metrics.workflowFontSize))
             .frame(height: Metrics.metricRowHeight)
@@ -674,7 +674,7 @@ struct UsageHeatmapDayDetailView: View {
 
     private var tokenIntensityStrip: some View {
         HStack(spacing: Metrics.tokenIntensitySegmentSpacing) {
-            ForEach(0..<Metrics.tokenIntensitySegmentCount, id: \.self) { index in
+            ForEach(0 ..< Metrics.tokenIntensitySegmentCount, id: \.self) { index in
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
                     .fill(tokenIntensityFill(for: index))
                     .frame(maxWidth: .infinity)
@@ -797,8 +797,8 @@ struct UsageHeatmapDayDetailView: View {
 
     private var panelBoundaryColor: Color {
         colorScheme == .dark
-        ? .white.opacity(0.18)
-        : .black.opacity(0.14)
+            ? .white.opacity(0.18)
+            : .black.opacity(0.14)
     }
 
     private struct WorkflowMetricRow: Identifiable {
@@ -806,7 +806,9 @@ struct UsageHeatmapDayDetailView: View {
         let value: Int
         let tint: Color
 
-        var id: String { label }
+        var id: String {
+            label
+        }
     }
 
     private enum Metrics {
@@ -865,7 +867,7 @@ private struct AnimatedDateText: View {
               let day = Int(components.day) else {
             return 0
         }
-        return Double(year * 10_000 + month * 100 + day)
+        return Double(year * 10000 + month * 100 + day)
     }
 
     private var components: DateTextComponents? {

@@ -1,0 +1,56 @@
+# CodexBar SwiftFormat 配置
+
+# 项目语言设置
+--swift-version 6.0
+--language-mode 6
+
+# 文件范围
+--exclude .build,DerivedData,Pods,Carthage,Generated
+--linebreaks lf
+--trim-whitespace always
+--header ignore
+
+# 基础布局
+--indent 4
+--allman false
+--else-position same-line
+--guard-else same-line
+--indent-case false
+--empty-braces no-space
+--max-width none
+
+# 换行规则
+--allow-partial-wrapping true
+--closing-paren balanced
+--wrap-arguments before-first
+--wrap-parameters before-first
+--wrap-collections before-first
+--wrap-conditions preserve
+--wrap-effects preserve
+--wrap-return-type preserve
+
+# 导入与字面量
+--import-grouping alpha,access-control
+--hex-literal-case uppercase
+--decimal-grouping none
+--binary-grouping none
+--hex-grouping none
+--octal-grouping none
+
+# Swift 风格
+--acronyms ID,URL,UUID
+--self remove
+--semicolons never
+--trailing-commas never
+--ranges spaced
+--operator-func spaced
+--pattern-let hoist
+--nil-init remove
+--void-type Void
+--some-any true
+
+# 保持格式化结果可预期, 不自动重排源码结构
+--disable markTypes,organizeDeclarations,sortDeclarations,trailingClosures,enumNamespaces,preferForLoop
+
+# 多行 guard 大括号不换行
+--disable wrapMultilineStatementBraces

@@ -28,12 +28,12 @@ nonisolated enum CodexWeekGrid {
             return []
         }
 
-        return (0..<columnCount).flatMap { column -> [Date?] in
+        return (0 ..< columnCount).flatMap { column -> [Date?] in
             guard let weekStart = calendar.date(byAdding: .weekOfYear, value: column, to: firstWeekStart) else {
                 return Array(repeating: nil, count: rowCount)
             }
 
-            return (0..<rowCount).map { weekdayOffset -> Date? in
+            return (0 ..< rowCount).map { weekdayOffset -> Date? in
                 guard let date = calendar.date(byAdding: .day, value: weekdayOffset, to: weekStart),
                       date <= lastVisibleDate else {
                     return nil
