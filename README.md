@@ -77,10 +77,10 @@ xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/pl
 Swift 源码按职责放在 `CodexBar/` 下的子目录中:
 
 - `App/`: 应用入口
-- `Controllers/`: 菜单栏、popover 和独立窗口控制器
+- `Controllers/`: 菜单栏、菜单面板和独立窗口控制器
 - `Models/`: account、quota、usage、工作流统计、共享日期网格和错误分类模型
 - `Services/`: app-server 会话、Codex CLI 解析、版本探测、Hook 设置、工作流统计、开机自启和 Sparkle 更新
-- `Views/`: 菜单栏弹窗、设置窗口、日志窗口和共享 Liquid Glass 样式
+- `Views/`: 菜单面板、设置窗口、日志窗口和共享 Liquid Glass 样式
 
 更详细的启动、刷新、Hook 统计、设置、日志、更新和发布流程见 [开发文档](Docs/DevelopmentGuide.md)。
 

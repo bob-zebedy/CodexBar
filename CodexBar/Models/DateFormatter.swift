@@ -9,7 +9,7 @@ extension DateFormatter {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
-    
+
     // yyyy-MM-dd HH:mm:ss.SSS, Hook 原始事件写入本机时间字符串
     nonisolated static let codexLocalTimestamp: DateFormatter = {
         let formatter = DateFormatter()

@@ -123,7 +123,6 @@ rm -f "${RW_DMG}" "${TEMP_OUTPUT_PATH}"
 
 echo "==> Preparing DMG contents"
 ditto "${APP_PATH}" "${STAGING_DIR}/${APP_NAME}.app"
-ln -sfn /Applications "${STAGING_DIR}/Applications"
 
 echo "==> Creating writable DMG"
 hdiutil create \
@@ -146,10 +145,15 @@ fi
 echo "==> Writing Finder layout"
 osascript <<APPLESCRIPT
 set mountFolder to POSIX file "${MOUNT_POINT}" as alias
+set applicationsFolder to POSIX file "/Applications" as alias
 
 tell application "Finder"
     open mountFolder
     delay 1
+    if exists item "Applications" of mountFolder then
+        delete item "Applications" of mountFolder
+    end if
+    make new alias file to applicationsFolder at mountFolder with properties {name:"Applications"}
     set targetWindow to front Finder window
     set current view of targetWindow to icon view
     set toolbar visible of targetWindow to false

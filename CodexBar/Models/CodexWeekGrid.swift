@@ -2,7 +2,7 @@ import Foundation
 
 nonisolated enum CodexWeekGrid {
     static let rowCount = 7
-    
+
     static func dates(
         columnCount: Int,
         endingDaysAgo: Int = 0,
@@ -12,7 +12,7 @@ nonisolated enum CodexWeekGrid {
         guard columnCount > 0 else {
             return []
         }
-        
+
         let todayStart = calendar.startOfDay(for: today)
         let lastVisibleDate = calendar.date(
             byAdding: .day,
@@ -27,23 +27,23 @@ nonisolated enum CodexWeekGrid {
         ) else {
             return []
         }
-        
+
         return (0..<columnCount).flatMap { column -> [Date?] in
             guard let weekStart = calendar.date(byAdding: .weekOfYear, value: column, to: firstWeekStart) else {
                 return Array(repeating: nil, count: rowCount)
             }
-            
+
             return (0..<rowCount).map { weekdayOffset -> Date? in
                 guard let date = calendar.date(byAdding: .day, value: weekdayOffset, to: weekStart),
                       date <= lastVisibleDate else {
                     return nil
                 }
-                
+
                 return date
             }
         }
     }
-    
+
     private static func sundayStartOfWeek(containing date: Date, calendar: Calendar) -> Date {
         let weekday = calendar.component(.weekday, from: date)
         let daysSinceSunday = weekday - 1

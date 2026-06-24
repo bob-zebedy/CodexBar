@@ -9,9 +9,9 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     let codexHookSettings = CodexHookSettings()
     let globalHotKeySettings = GlobalHotKeySettings()
     let appUpdater = AppUpdater()
-    
+
     private var statusItemController: StatusItemController?
-    
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let controller = StatusItemController(
             viewModel: viewModel,
@@ -23,7 +23,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         controller.install()
         statusItemController = controller
     }
-    
+
     func applicationWillTerminate(_ notification: Notification) {
         statusItemController?.uninstall()
     }
@@ -38,12 +38,16 @@ private final class StatusItemController: NSObject {
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
-    private let popoverVisibility = PopoverVisibilityState()
+    private let menuSurfaceVisibility = MenuSurfaceVisibilityState()
     private let heatmapDetailPanelController = HeatmapDetailPanelController()
+    private var activeMenuSurface = ActiveMenuSurface.none
     private lazy var globalHotKeyController = GlobalHotKeyController { [weak self] in
-        self?.togglePopoverFromHotKey()
+        self?.toggleMenuSurfaceFromHotKey()
     }
-    
+    private lazy var fallbackPanelController = FallbackPanelController { [unowned self] in
+        self.makeMenuHostingController(usesPreferredContentSize: false)
+    }
+
     private lazy var settingsWindowController = SettingsWindowController(
         viewModel: viewModel,
         appUpdater: appUpdater,
@@ -55,20 +59,35 @@ private final class StatusItemController: NSObject {
     private lazy var logWindowController = LogWindowController { [weak self] in
         self?.statusItem.button?.window?.screen
     }
-    private lazy var popoverFadeCoordinator = PopoverFadeCoordinator(popover: popover)
-    private lazy var popoverDismissMonitor = PopoverDismissMonitor(popover: popover) { [weak self] in
-        self?.statusItem.button
-    }
-    private var deferredRefreshTask: Task<Void, Never>?
-    private var popoverState = PopoverState.hidden
+    private lazy var menuSurfaceFadeCoordinator = MenuSurfaceFadeCoordinator(
+        contentViewProvider: { [weak self] in
+            self?.activeMenuSurfaceContentView
+        },
+        closeActiveMenuSurface: { [weak self] in
+            self?.closeActiveMenuSurface()
+        }
+    )
+    private lazy var menuSurfaceDismissMonitor = MenuSurfaceDismissMonitor(
+        isPresented: { [weak self] in
+            self?.isActiveMenuSurfaceVisible == true
+        },
+        windowProvider: { [weak self] in
+            self?.activeMenuSurfaceWindow
+        },
+        statusButtonProvider: { [weak self] in
+            self?.statusItem.button
+        }
+    )
+    private var delayedStatusRefreshTask: Task<Void, Never>?
+    private var menuSurfaceState = MenuSurfaceState.hidden
     private var cancellables = Set<AnyCancellable>()
     private var isShowingErrorImage: Bool?
     private var registeredHotKeyShortcut: GlobalHotKeyShortcut?
     private var auxiliaryWindowFocusRestoreTask: Task<Void, Never>?
-    
+
     private static let normalImage = makeStatusImage("person.fill.checkmark")
     private static let errorImage = makeStatusImage("person.fill.xmark")
-    
+
     init(
         viewModel: CodexStatusViewModel,
         workflowStatsViewModel: WorkflowStatsViewModel,
@@ -83,7 +102,7 @@ private final class StatusItemController: NSObject {
         self.appUpdater = appUpdater
         super.init()
     }
-    
+
     private static func makeStatusImage(_ symbolName: String) -> NSImage? {
         let configuration = NSImage.SymbolConfiguration(
             pointSize: 16,
@@ -95,7 +114,7 @@ private final class StatusItemController: NSObject {
         image?.isTemplate = true
         return image
     }
-    
+
     func install() {
         configureStatusButton()
         configurePopover()
@@ -104,49 +123,56 @@ private final class StatusItemController: NSObject {
         updateStatusImage()
         viewModel.startAutoRefresh()
     }
-    
+
     func uninstall() {
-        closePopover(animated: false)
+        closeMenuSurface(animated: false)
         auxiliaryWindowFocusRestoreTask?.cancel()
         setAuxiliaryWindowKeyFocus(true)
         globalHotKeyController.uninstall()
         cancellables.removeAll()
         NSStatusBar.system.removeStatusItem(statusItem)
     }
-    
+
     private func configureStatusButton() {
         guard let button = statusItem.button else {
             return
         }
-        
+
         button.target = self
         button.action = #selector(statusItemClicked(_:))
         button.imagePosition = .imageOnly
         button.toolTip = "CodexBar"
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
-    
+
     private func configurePopover() {
+        let hostingController = makeMenuHostingController(usesPreferredContentSize: true)
+
+        popover.behavior = .applicationDefined
+        popover.animates = false
+        popover.contentViewController = hostingController
+    }
+
+    private func makeMenuHostingController(usesPreferredContentSize: Bool) -> NSHostingController<AnyView> {
         let rootView = CodexStatusMenuView(
             viewModel: viewModel,
             workflowStatsViewModel: workflowStatsViewModel,
             codexHookSettings: codexHookSettings,
-            popoverVisibility: popoverVisibility,
+            menuSurfaceVisibility: menuSurfaceVisibility,
             onUsageHeatmapHoverChange: { [weak self] context in
                 self?.updateHeatmapDetailPanel(context)
             }
         )
             .environmentObject(appUpdater)
             .frame(width: CodexStatusMenuView.menuWidth)
-        
-        let hostingController = NSHostingController(rootView: rootView)
-        hostingController.sizingOptions = [.preferredContentSize]
-        
-        popover.behavior = .applicationDefined
-        popover.animates = false
-        popover.contentViewController = hostingController
+
+        let hostingController = NSHostingController(rootView: AnyView(rootView))
+        if usesPreferredContentSize {
+            hostingController.sizingOptions = [.preferredContentSize]
+        }
+        return hostingController
     }
-    
+
     private func observeViewModel() {
         Publishers.CombineLatest(viewModel.$loadState, viewModel.$snapshot)
             .map { loadState, snapshot in
@@ -157,7 +183,7 @@ private final class StatusItemController: NSObject {
                 self?.updateStatusImage(usesErrorImage: usesErrorImage)
             }
             .store(in: &cancellables)
-        
+
         viewModel.$autoRefreshCountdownStartedAt
             .compactMap { $0 }
             .sink { [weak self] _ in
@@ -168,7 +194,7 @@ private final class StatusItemController: NSObject {
             }
             .store(in: &cancellables)
     }
-    
+
     private func observeGlobalHotKeySettings() {
         globalHotKeySettings.$shortcut
             .removeDuplicates()
@@ -177,143 +203,213 @@ private final class StatusItemController: NSObject {
             }
             .store(in: &cancellables)
     }
-    
+
     private func applyGlobalHotKey(_ shortcut: GlobalHotKeyShortcut?) {
         guard shortcut != registeredHotKeyShortcut else {
             return
         }
-        
+
         guard let shortcut else {
             globalHotKeyController.uninstall()
             registeredHotKeyShortcut = nil
             return
         }
-        
+
         if globalHotKeyController.install(shortcut: shortcut) {
             registeredHotKeyShortcut = shortcut
             globalHotKeySettings.clearError()
             return
         }
-        
+
         let message = hotKeyConflictMessage(for: shortcut)
         globalHotKeySettings.restoreShortcut(registeredHotKeyShortcut, message: message)
     }
-    
+
     private func hotKeyConflictMessage(for shortcut: GlobalHotKeyShortcut) -> String {
         if shortcut == .default {
             return "默认快捷键 \(shortcut.label) 已被占用，请重新设置"
         }
-        
+
         return "快捷键已被占用，请重新设置"
     }
-    
+
     private func updateStatusImage() {
         updateStatusImage(usesErrorImage: viewModel.usesErrorImage)
     }
-    
+
     private func updateStatusImage(usesErrorImage: Bool) {
         guard usesErrorImage != isShowingErrorImage else {
             return
         }
-        
+
         isShowingErrorImage = usesErrorImage
         statusItem.button?.image = usesErrorImage ? Self.errorImage : Self.normalImage
     }
-    
+
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
         guard let event = NSApplication.shared.currentEvent else {
-            togglePopover(relativeTo: sender)
+            toggleMenuSurface(relativeTo: sender)
             return
         }
-        
+
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
             showContextMenu(relativeTo: sender)
         } else {
-            togglePopover(relativeTo: sender)
+            toggleMenuSurface(relativeTo: sender)
         }
     }
-    
-    private func togglePopover(relativeTo button: NSStatusBarButton) {
-        switch popoverState {
+
+    private func toggleMenuSurface(relativeTo button: NSStatusBarButton) {
+        toggleMenuSurface {
+            openPopover(relativeTo: button)
+        }
+    }
+
+    private func toggleMenuSurface(open: () -> Void) {
+        switch menuSurfaceState {
         case .hidden:
-            openPopover(relativeTo: button)
+            open()
         case .opening, .shown:
-            closePopover()
+            closeMenuSurface()
         case .closing:
-            finishPopoverClose()
-            openPopover(relativeTo: button)
+            completeMenuSurfaceClose()
+            open()
         }
     }
-    
-    private func togglePopoverFromHotKey() {
-        guard let button = statusItem.button else {
+
+    private func toggleMenuSurfaceFromHotKey() {
+        let targetScreen = screenContainingMouse() ?? NSScreen.main
+        toggleMenuSurface {
+            openMenuSurfaceFromHotKey(on: targetScreen)
+        }
+    }
+
+    private func openMenuSurfaceFromHotKey(on targetScreen: NSScreen?) {
+        guard let button = statusItem.button,
+              isTrustedStatusItemAnchor(button, on: targetScreen) else {
+            openFallbackPanel(on: targetScreen)
             return
         }
-        
-        togglePopover(relativeTo: button)
+
+        openPopover(relativeTo: button)
     }
-    
-    private func cancelPopoverTasks() {
-        deferredRefreshTask?.cancel()
-        deferredRefreshTask = nil
-        popoverFadeCoordinator.cancel()
+
+    private func isTrustedStatusItemAnchor(
+        _ button: NSStatusBarButton,
+        on targetScreen: NSScreen?
+    ) -> Bool {
+        guard let window = button.window,
+              let screen = window.screen,
+              !button.isHidden,
+              !button.bounds.isEmpty else {
+            return false
+        }
+
+        let buttonRectInWindow = button.convert(button.bounds, to: nil)
+        let buttonScreenRect = window.convertToScreen(buttonRectInWindow)
+        guard buttonScreenRect.hasFiniteGeometry,
+              buttonScreenRect.width >= Metrics.minimumTrustedAnchorLength,
+              buttonScreenRect.height >= Metrics.minimumTrustedAnchorLength else {
+            return false
+        }
+
+        let trustedScreenFrame = (targetScreen ?? screen).frame.insetBy(
+            dx: -Metrics.anchorScreenTolerance,
+            dy: -Metrics.anchorScreenTolerance
+        )
+        return trustedScreenFrame.intersects(buttonScreenRect)
     }
-    
+
+    private func screenContainingMouse() -> NSScreen? {
+        let mouseLocation = NSEvent.mouseLocation
+        return NSScreen.screens.first { screen in
+            screen.frame.contains(mouseLocation)
+        }
+    }
+
+    private func cancelMenuSurfaceTasks() {
+        delayedStatusRefreshTask?.cancel()
+        delayedStatusRefreshTask = nil
+        menuSurfaceFadeCoordinator.cancel()
+    }
+
     private func openPopover(relativeTo button: NSStatusBarButton) {
-        cancelPopoverTasks()
-        
-        popoverState = .opening
-        
-        popoverFadeCoordinator.prepareForFadeIn()
+        cancelMenuSurfaceTasks()
+
+        menuSurfaceState = .opening
+        activeMenuSurface = .popover
+
+        menuSurfaceFadeCoordinator.prepareForFadeIn()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popoverVisibility.isVisible = true
-        refreshWorkflowStatsIfHookEnabled(performMaintenance: false)
-        popoverDismissMonitor.install { [weak self] in
-            self?.closePopover()
-        }
-        
-        popoverFadeCoordinator.fadeIn(duration: Metrics.fadeInDuration) { [weak self] in
-            self?.popoverState = .shown
-        }
-        
-        scheduleDeferredRefresh()
+        completeMenuSurfaceOpen()
     }
-    
+
+    private func openFallbackPanel(on screen: NSScreen?) {
+        cancelMenuSurfaceTasks()
+
+        fallbackPanelController.prepareForDisplay(on: screen)
+        menuSurfaceState = .opening
+        activeMenuSurface = .fallbackPanel
+
+        menuSurfaceFadeCoordinator.prepareForFadeIn()
+        fallbackPanelController.show()
+        completeMenuSurfaceOpen()
+    }
+
+    private func completeMenuSurfaceOpen() {
+        menuSurfaceVisibility.isVisible = true
+        refreshWorkflowStatsIfHookEnabled(performMaintenance: false)
+        menuSurfaceDismissMonitor.install { [weak self] in
+            self?.closeMenuSurface()
+        }
+
+        menuSurfaceFadeCoordinator.fadeIn(duration: Metrics.fadeInDuration) { [weak self] in
+            self?.menuSurfaceState = .shown
+        }
+
+        scheduleDelayedStatusRefresh()
+    }
+
     private func showContextMenu(relativeTo button: NSStatusBarButton) {
-        closePopover(animated: false)
-        
+        closeMenuSurface(animated: false)
+        presentStatusItemMenu(makeContextMenu(), relativeTo: button)
+    }
+
+    private func presentStatusItemMenu(_ menu: NSMenu, relativeTo button: NSStatusBarButton) {
+        statusItem.menu = menu
+        defer { statusItem.menu = nil }
+        button.performClick(nil)
+    }
+
+    private func makeContextMenu() -> NSMenu {
         let menu = NSMenu()
-        
+
         menu.addItem(menuItem(
             title: "设置",
             action: #selector(openSettings),
             keyEquivalent: ",",
             symbolName: "gearshape"
         ))
-        
+
         menu.addItem(menuItem(
             title: "日志",
             action: #selector(openLog),
             keyEquivalent: "l",
             symbolName: "doc.text.magnifyingglass"
         ))
-        
+
         menu.addItem(.separator())
-        
+
         menu.addItem(menuItem(
             title: "退出",
             action: #selector(quit),
             keyEquivalent: "q",
             symbolName: "power"
         ))
-        
-        menu.popUp(
-            positioning: nil,
-            at: NSPoint(x: 0, y: button.bounds.minY - 4),
-            in: button
-        )
+
+        return menu
     }
-    
+
     private func menuItem(
         title: String,
         action: Selector,
@@ -329,76 +425,76 @@ private final class StatusItemController: NSObject {
         item.target = self
         return item
     }
-    
+
     @objc private func openSettings() {
         settingsWindowController.open()
     }
-    
+
     @objc private func openLog() {
         logWindowController.open()
     }
-    
+
     @objc private func quit() {
         NSApplication.shared.terminate(nil)
     }
-    
-    private func closePopover(animated: Bool = true) {
-        if popoverState == .closing && animated {
+
+    private func closeMenuSurface(animated: Bool = true) {
+        if menuSurfaceState == .closing && animated {
             return
         }
-        
-        cancelPopoverTasks()
+
+        cancelMenuSurfaceTasks()
         heatmapDetailPanelController.hide(immediate: true, delayed: false)
-        popoverDismissMonitor.remove()
-        popoverVisibility.isVisible = false
-        
-        guard popover.isShown else {
-            popoverFadeCoordinator.resetAlpha()
-            popoverState = .hidden
+        menuSurfaceDismissMonitor.remove()
+        menuSurfaceVisibility.isVisible = false
+
+        guard isActiveMenuSurfaceVisible else {
+            menuSurfaceFadeCoordinator.resetAlpha()
+            menuSurfaceState = .hidden
+            activeMenuSurface = .none
             return
         }
-        
+
         guard animated else {
             suspendAuxiliaryWindowKeyFocus()
-            finishPopoverClose(hidesDetailPanel: false)
+            completeMenuSurfaceClose(hidesDetailPanel: false)
             return
         }
-        
+
         suspendAuxiliaryWindowKeyFocus()
-        popoverState = .closing
-        let didStartFadeOut = popoverFadeCoordinator.fadeOut(duration: Metrics.fadeOutDuration) { [weak self] in
-            self?.popoverState = .hidden
+        menuSurfaceState = .closing
+        let didStartFadeOut = menuSurfaceFadeCoordinator.fadeOut(duration: Metrics.fadeOutDuration) { [weak self] in
+            self?.menuSurfaceState = .hidden
             self?.scheduleAuxiliaryWindowKeyFocusRestore()
         }
-        
+
         if !didStartFadeOut {
-            finishPopoverClose()
+            completeMenuSurfaceClose()
         }
     }
-    
-    private func finishPopoverClose(hidesDetailPanel: Bool = true) {
-        cancelPopoverTasks()
+
+    private func completeMenuSurfaceClose(hidesDetailPanel: Bool = true) {
+        cancelMenuSurfaceTasks()
         if hidesDetailPanel {
             heatmapDetailPanelController.hide(immediate: true)
         }
-        popoverDismissMonitor.remove()
-        
-        if popover.isShown {
-            popover.performClose(nil)
-        }
-        
-        popoverVisibility.isVisible = false
-        popoverFadeCoordinator.resetAlpha()
-        popoverState = .hidden
+        menuSurfaceDismissMonitor.remove()
+
+        closeActiveMenuSurface()
+
+        menuSurfaceVisibility.isVisible = false
+        menuSurfaceFadeCoordinator.resetAlpha()
+        menuSurfaceState = .hidden
+        activeMenuSurface = .none
         scheduleAuxiliaryWindowKeyFocusRestore()
     }
-    
+
     private func suspendAuxiliaryWindowKeyFocus() {
         auxiliaryWindowFocusRestoreTask?.cancel()
         auxiliaryWindowFocusRestoreTask = nil
         setAuxiliaryWindowKeyFocus(false)
     }
-    
+
     private func scheduleAuxiliaryWindowKeyFocusRestore() {
         auxiliaryWindowFocusRestoreTask?.cancel()
         auxiliaryWindowFocusRestoreTask = Task { @MainActor [weak self] in
@@ -406,61 +502,121 @@ private final class StatusItemController: NSObject {
             guard let self, !Task.isCancelled else {
                 return
             }
-            
+
             self.setAuxiliaryWindowKeyFocus(true)
             self.auxiliaryWindowFocusRestoreTask = nil
         }
     }
-    
+
     private func setAuxiliaryWindowKeyFocus(_ allowsKeyFocus: Bool) {
         settingsWindowController.setAllowsKeyFocus(allowsKeyFocus)
         logWindowController.setAllowsKeyFocus(allowsKeyFocus)
     }
-    
-    private func scheduleDeferredRefresh() {
-        deferredRefreshTask?.cancel()
-        deferredRefreshTask = Task { @MainActor [weak self] in
+
+    private func scheduleDelayedStatusRefresh() {
+        delayedStatusRefreshTask?.cancel()
+        delayedStatusRefreshTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(160))
-            guard let self, !Task.isCancelled, self.popover.isShown else {
+            guard let self, !Task.isCancelled, self.isActiveMenuSurfaceVisible else {
                 return
             }
-            
+
             self.viewModel.refreshIfNeeded()
         }
     }
-    
+
     private func refreshWorkflowStatsIfHookEnabled(performMaintenance: Bool) {
         codexHookSettings.refresh()
         if codexHookSettings.isEnabled {
             workflowStatsViewModel.refreshIfNeeded(performMaintenance: performMaintenance)
         }
     }
-    
+
     private func updateHeatmapDetailPanel(_ context: UsageHeatmapHoverContext?) {
-        guard popover.isShown,
-              let popoverContentView = popover.contentViewController?.view,
-              let popoverWindow = popoverContentView.window else {
+        guard isActiveMenuSurfaceVisible,
+              let menuSurfaceContentView = activeMenuSurfaceContentView,
+              let menuSurfaceWindow = activeMenuSurfaceWindow else {
             heatmapDetailPanelController.hide(immediate: true)
             return
         }
-        
+
         heatmapDetailPanelController.update(
             context: context,
-            relativeTo: popoverWindow,
-            contentView: popoverContentView
+            relativeTo: menuSurfaceWindow,
+            contentView: menuSurfaceContentView
         )
     }
-    
+
+    private var isActiveMenuSurfaceVisible: Bool {
+        switch activeMenuSurface {
+        case .none:
+            return false
+        case .popover:
+            return popover.isShown
+        case .fallbackPanel:
+            return fallbackPanelController.isVisible
+        }
+    }
+
+    private var activeMenuSurfaceContentView: NSView? {
+        switch activeMenuSurface {
+        case .none:
+            return nil
+        case .popover:
+            return popover.contentViewController?.view
+        case .fallbackPanel:
+            return fallbackPanelController.contentView
+        }
+    }
+
+    private var activeMenuSurfaceWindow: NSWindow? {
+        switch activeMenuSurface {
+        case .none:
+            return nil
+        case .popover:
+            return popover.contentViewController?.view.window
+        case .fallbackPanel:
+            return fallbackPanelController.window
+        }
+    }
+
+    private func closeActiveMenuSurface() {
+        if popover.isShown {
+            popover.performClose(nil)
+        }
+
+        fallbackPanelController.orderOut()
+
+        activeMenuSurface = .none
+    }
+
     private enum Metrics {
         static let fadeInDuration: TimeInterval = 0.24
         static let fadeOutDuration: TimeInterval = 0.18
         static let auxiliaryWindowKeyFocusRestoreDelayMilliseconds: UInt64 = 120
+        static let minimumTrustedAnchorLength: CGFloat = 1
+        static let anchorScreenTolerance: CGFloat = 1
     }
-    
-    private enum PopoverState {
+
+    private enum MenuSurfaceState {
         case hidden
         case opening
         case shown
         case closing
+    }
+
+    private enum ActiveMenuSurface {
+        case none
+        case popover
+        case fallbackPanel
+    }
+}
+
+private extension CGRect {
+    var hasFiniteGeometry: Bool {
+        origin.x.isFinite &&
+        origin.y.isFinite &&
+        size.width.isFinite &&
+        size.height.isFinite
     }
 }

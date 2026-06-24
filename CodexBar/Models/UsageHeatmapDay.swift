@@ -4,13 +4,13 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     let startDate: String
     let tokenCount: Int?
     let workflowStats: WorkflowDailyStats
-    
+
     var id: String { startDate }
-    
+
     var tokensForHeatmap: Int {
         tokenCount ?? 0
     }
-    
+
     static func grid(
         usage: CodexUsageSnapshot,
         workflowStats: WorkflowStatsSnapshot,
@@ -30,7 +30,7 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
             endingDaysAgo: endingDaysAgo,
             today: today
         )
-        
+
         return merge(
             tokenDays: tokenDays,
             workflowDays: workflowDays,
@@ -38,7 +38,7 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
             todayTokenCount: todayTokenCount
         )
     }
-    
+
     private static func merge(
         tokenDays: [DailyUsageBucket?],
         workflowDays: [WorkflowDailyStats?],
@@ -49,7 +49,7 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
             guard let startDate = tokenDay?.startDate ?? workflowDay?.startDate else {
                 return nil
             }
-            
+
             return UsageHeatmapDay(
                 startDate: startDate,
                 tokenCount: startDate == todayString ? todayTokenCount : tokenDay?.tokens ?? 0,

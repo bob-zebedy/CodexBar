@@ -11,7 +11,7 @@ nonisolated enum WorkflowEventKind: String {
     case postCompact = "postcompact"
     case subagentStart = "subagentstart"
     case subagentStop = "subagentstop"
-    
+
     init?(normalizedName: String) {
         self.init(rawValue: normalizedName)
     }
@@ -22,24 +22,30 @@ private nonisolated enum WorkflowStatsJSON {
         let json = "{\(fields.joined(separator: ","))}"
         return Data(json.utf8) + Data([0x0A])
     }
-    
+
     static func field<T: Encodable>(_ name: String, _ value: T?) throws -> String {
         "\"\(name)\":\(try Self.value(value))"
     }
-    
+
     static func value<T: Encodable>(_ value: T?) throws -> String {
         guard let value else {
             return "null"
         }
-        
+
         return try Self.value(value)
     }
-    
+
     static func value<T: Encodable>(_ value: T) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(value)
-        return String(decoding: data, as: UTF8.self)
+        guard let text = String(bytes: data, encoding: .utf8) else {
+            throw EncodingError.invalidValue(
+                value,
+                .init(codingPath: [], debugDescription: "Encoded workflow stats JSON was not UTF-8")
+            )
+        }
+        return text
     }
 }
 
@@ -52,7 +58,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     let permissionMode: String?
     let sessionId: String?
     let turnId: String?
-    
+
     init(
         timestamp: Date,
         name: String,
@@ -72,7 +78,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         self.sessionId = sessionId
         self.turnId = turnId
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         guard let timestampString = Self.string(from: container, key: .timestamp),
@@ -86,7 +92,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
                 .init(codingPath: decoder.codingPath, debugDescription: "Missing hook event name")
             )
         }
-        
+
         self.timestamp = timestamp
         self.name = name
         self.directoryPath = Self.string(from: container, key: .cwd)
@@ -96,28 +102,28 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         self.sessionId = Self.string(from: container, key: .sessionId)
         self.turnId = Self.string(from: container, key: .turnId)
     }
-    
+
     var kind: WorkflowEventKind? {
         WorkflowEventKind(normalizedName: normalizedName)
     }
-    
+
     var projectDisplayName: String? {
         guard let directoryPath, !directoryPath.isEmpty else {
             return nil
         }
-        
+
         let url = URL(fileURLWithPath: directoryPath).standardizedFileURL
         let lastComponent = url.lastPathComponent
         return lastComponent.isEmpty ? directoryPath : lastComponent
     }
-    
+
     private var normalizedName: String {
         name
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: "-", with: "")
             .lowercased()
     }
-    
+
     private static func string(
         from container: KeyedDecodingContainer<CodingKeys>,
         key: CodingKeys
@@ -128,14 +134,14 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
                 return trimmedValue
             }
         }
-        
+
         return nil
     }
-    
+
     private static func date(from string: String) -> Date? {
         DateFormatter.codexLocalTimestamp.date(from: string)
     }
-    
+
     func jsonLineData() throws -> Data {
         let fields = [
             try WorkflowStatsJSON.field("timestamp", DateFormatter.codexLocalTimestamp.string(from: timestamp)),
@@ -147,10 +153,10 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
             try WorkflowStatsJSON.field("tool", toolName),
             try WorkflowStatsJSON.field("cwd", directoryPath)
         ]
-        
+
         return WorkflowStatsJSON.lineData(fields)
     }
-    
+
     private enum CodingKeys: String, CodingKey {
         case timestamp
         case event
@@ -173,9 +179,9 @@ nonisolated struct WorkflowDailyStats: Equatable, Identifiable {
     let contextCompactionCount: Int
     let subagentCount: Int
     let eventCount: Int
-    
+
     var id: String { startDate }
-    
+
     static func empty(startDate: String) -> WorkflowDailyStats {
         WorkflowDailyStats(
             startDate: startDate,
@@ -194,26 +200,26 @@ nonisolated struct WorkflowDailyStats: Equatable, Identifiable {
 nonisolated struct WorkflowStatsSnapshot: Equatable {
     let generatedAt: Date
     let dailyStats: [WorkflowDailyStats]
-    
+
     static let empty = WorkflowStatsSnapshot(generatedAt: Date(), dailyStats: [])
-    
+
     init(generatedAt: Date = Date(), dailyStats: [WorkflowDailyStats]) {
         self.generatedAt = generatedAt
         self.dailyStats = dailyStats
     }
-    
+
     init(dailyAggregates: [WorkflowDailyAggregate], generatedAt: Date = Date()) {
         self.generatedAt = generatedAt
         self.dailyStats = dailyAggregates
             .map(\.stats)
             .sorted { $0.startDate < $1.startDate }
     }
-    
+
     func recentWeekGrid(columnCount: Int, endingDaysAgo: Int = 0, today: Date = Date()) -> [WorkflowDailyStats?] {
         let statsByDate = dailyStats.reduce(into: [String: WorkflowDailyStats]()) { result, stats in
             result[stats.startDate] = stats
         }
-        
+
         return CodexWeekGrid.dates(
             columnCount: columnCount,
             endingDaysAgo: endingDaysAgo,
@@ -231,7 +237,7 @@ nonisolated struct WorkflowStatsSnapshot: Equatable {
 nonisolated struct WorkflowDailyIdentifierCache {
     var sessionIds: Set<String>
     var turnIds: Set<String>
-    
+
     init(aggregate: WorkflowDailyAggregate) {
         self.sessionIds = Set(aggregate.sessionIds ?? [])
         self.turnIds = Set(aggregate.turnIds ?? [])
@@ -255,9 +261,9 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     var projectCounts: [String: Int]
     var sessionIds: [String]?
     var turnIds: [String]?
-    
+
     var id: String { date }
-    
+
     init(date: String) {
         self.date = date
         self.eventCount = 0
@@ -276,7 +282,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         self.sessionIds = []
         self.turnIds = []
     }
-    
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.date = try container.decode(String.self, forKey: .date)
@@ -296,14 +302,14 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         self.sessionIds = try container.decodeIfPresent([String].self, forKey: .sessionIds)
         self.turnIds = try container.decodeIfPresent([String].self, forKey: .turnIds)
     }
-    
+
     mutating func record(
         _ event: WorkflowHookEvent,
         keepsIdentifiers: Bool,
         identifierCache: inout WorkflowDailyIdentifierCache
     ) {
         eventCount += 1
-        
+
         switch event.kind {
         case .sessionStart: sessionStartCount += 1
         case .stop: stopCount += 1
@@ -316,51 +322,51 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         case .subagentStop: subagentStopCount += 1
         case .none: break
         }
-        
+
         if keepsIdentifiers {
             if let sessionId = event.sessionId {
                 Self.append(sessionId, to: &sessionIds, using: &identifierCache.sessionIds)
             }
-            
+
             if let turnId = event.turnId {
                 Self.append(turnId, to: &turnIds, using: &identifierCache.turnIds)
             }
         }
-        
+
         if let projectDisplayName = event.projectDisplayName {
             projectCounts[projectDisplayName, default: 0] += 1
         }
     }
-    
+
     mutating func compactIdentifiersIfNeeded(keepsIdentifiers: Bool) {
         guard !keepsIdentifiers else {
             sessionIds = Self.normalizedIdentifiers(sessionIds)
             turnIds = Self.normalizedIdentifiers(turnIds)
             return
         }
-        
+
         sessionCount = resolvedSessionCount
         turnCount = resolvedTurnCount
         sessionIds = nil
         turnIds = nil
     }
-    
+
     // 会话/轮次最终值: 优先使用去重/压缩后的数量, 起止事件计数只作为缺失兜底
     private var resolvedSessionCount: Int {
         sessionCount ?? sessionIds?.count ?? sessionStartCount
     }
-    
+
     private var resolvedTurnCount: Int {
         turnCount ?? turnIds?.count ?? stopCount
     }
-    
+
     var stats: WorkflowDailyStats {
         let sessionTotal = resolvedSessionCount
         let turnTotal = resolvedTurnCount
         let toolCallCount = max(preToolUseCount, postToolUseCount)
         let contextCompactionCount = max(preCompactCount, postCompactCount)
         let subagentCount = max(subagentStartCount, subagentStopCount)
-        
+
         return WorkflowDailyStats(
             startDate: date,
             sessionCount: sessionTotal,
@@ -373,7 +379,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
             eventCount: eventCount
         )
     }
-    
+
     static func normalized(
         aggregates: [WorkflowDailyAggregate],
         today: Date = Date(),
@@ -381,29 +387,29 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     ) -> [WorkflowDailyAggregate] {
         let retentionCutoffDate = WorkflowStatsStorage.retentionCutoffDate(today: today, calendar: calendar)
         let identifierCutoffDate = WorkflowStatsStorage.identifierRetentionCutoffDate(today: today, calendar: calendar)
-        
+
         return aggregates.compactMap { aggregate in
             guard let date = Self.date(from: aggregate.date), date >= retentionCutoffDate else {
                 return nil
             }
-            
+
             var mutableAggregate = aggregate
             mutableAggregate.compactIdentifiersIfNeeded(keepsIdentifiers: date >= identifierCutoffDate)
             return mutableAggregate
         }
         .sorted { $0.date < $1.date }
     }
-    
+
     static func decodeJSONLines(from data: Data) -> [WorkflowDailyAggregate] {
         JSONLines.decode(from: data)
     }
-    
+
     static func encodeJSONLines(_ aggregates: [WorkflowDailyAggregate]) throws -> Data {
         try aggregates.reduce(into: Data()) { result, aggregate in
             result.append(try aggregate.jsonLineData())
         }
     }
-    
+
     func jsonLineData() throws -> Data {
         let fields = [
             try WorkflowStatsJSON.field("date", date),
@@ -423,10 +429,10 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
             try WorkflowStatsJSON.field("sessionIds", sessionIds),
             try WorkflowStatsJSON.field("turnIds", turnIds)
         ]
-        
+
         return WorkflowStatsJSON.lineData(fields)
     }
-    
+
     private static func append(
         _ identifier: String,
         to identifiers: inout [String]?,
@@ -435,34 +441,34 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         guard identifierSet.insert(identifier).inserted else {
             return
         }
-        
+
         if identifiers == nil {
             identifiers = []
         }
         identifiers?.append(identifier)
     }
-    
+
     private static func normalizedIdentifiers(_ identifiers: [String]?) -> [String] {
         Set(identifiers ?? []).sorted()
     }
-    
+
     private var mostActiveProject: String? {
         projectCounts
             .sorted { lhs, rhs in
                 if lhs.value != rhs.value {
                     return lhs.value > rhs.value
                 }
-                
+
                 return lhs.key.localizedStandardCompare(rhs.key) == .orderedAscending
             }
             .first?
             .key
     }
-    
+
     private static func date(from string: String) -> Date? {
         DateFormatter.codexDay.date(from: string)
     }
-    
+
     private enum CodingKeys: String, CodingKey {
         case date
         case eventCount

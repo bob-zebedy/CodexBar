@@ -14,14 +14,14 @@ struct AccountCard: View {
     let isRefreshing: Bool
     let onRefresh: () -> Void
     @State private var isEmailBlurred = false
-    
+
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "person.fill")
                 .font(.system(size: MenuMetrics.accountIconSize, weight: .medium))
                 .foregroundStyle(.tint)
                 .onTapGesture(count: 2, perform: onRefresh)
-            
+
             Text(title)
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
@@ -32,15 +32,15 @@ struct AccountCard: View {
                     guard isEmail else { return }
                     isEmailBlurred.toggle()
                 }
-            
+
             if isRefreshing {
                 ProgressView()
                     .controlSize(.mini)
                     .padding(.leading, 2)
             }
-            
+
             Spacer()
-            
+
             if let plan {
                 Text(plan.uppercased())
                     .font(.caption2.weight(.bold))
@@ -55,14 +55,14 @@ struct AccountCard: View {
             isEmailBlurred = false
         }
     }
-    
+
     private static func planBadgeTint(for plan: String) -> Color {
         let normalizedPlan = plan.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return planTintRules.first { rule in
             rule.keywords.contains { normalizedPlan.contains($0) }
         }?.tint ?? .cyan
     }
-    
+
     private static let planTintRules: [(keywords: [String], tint: Color)] = [
         (["enterprise"], Color(hex: 0x15803D)),
         (["team", "business"], Color(hex: 0xD97706)),
@@ -77,14 +77,14 @@ struct StatusAccountCard: View {
     let loadState: CodexLoadState
     let isRefreshing: Bool
     let onRefresh: () -> Void
-    
+
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "person.fill")
                 .font(.system(size: MenuMetrics.accountIconSize, weight: .medium))
                 .foregroundStyle(statusDisplay.color)
                 .onTapGesture(count: 2, perform: onRefresh)
-            
+
             if let text = statusDisplay.text {
                 Text(text)
                     .font(.caption.weight(.semibold))
@@ -92,20 +92,20 @@ struct StatusAccountCard: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            
+
             if isRefreshing {
                 ProgressView()
                     .controlSize(.mini)
                     .padding(.leading, 2)
             }
-            
+
             Spacer()
         }
         .padding(.horizontal, MenuMetrics.panelPadding)
         .padding(.vertical, 8)
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
     }
-    
+
     private var statusDisplay: (text: String?, color: Color) {
         switch loadState {
         case .notLoggedIn:
@@ -132,14 +132,14 @@ struct EmptyDataPanel: View {
 struct QuotaLimitsSection: View {
     let limits: [CodexQuotaLimitSnapshot]
     let isStale: Bool
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(limits) { limit in
                 if limit.id != limits.first?.id {
                     LiquidGlassDivider()
                 }
-                
+
                 quotaLimitSection(limit)
             }
         }
@@ -147,7 +147,7 @@ struct QuotaLimitsSection: View {
         .padding(MenuMetrics.panelPadding)
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
     }
-    
+
     private func quotaLimitSection(_ limit: CodexQuotaLimitSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(limit.title)
@@ -155,7 +155,7 @@ struct QuotaLimitsSection: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            
+
             VStack(spacing: 8) {
                 ForEach(limit.windows) { window in
                     QuotaRow(window: window)
@@ -172,7 +172,7 @@ struct UpdatedAtRow: View {
     let isCountdownActive: Bool
     let updateMessage: String?
     let startUpdate: () -> Void
-    
+
     var body: some View {
         HStack {
             HStack(spacing: 5) {
@@ -182,10 +182,10 @@ struct UpdatedAtRow: View {
                     isActive: isCountdownActive,
                     color: .blue
                 )
-                
+
                 Text("数据更新时间")
                     .foregroundStyle(Self.secondaryTextColor)
-                
+
                 Text(Self.timeFormatter.string(from: snapshot.generatedAt))
                     .monospacedDigit()
                     .contentTransition(.numericText())
@@ -193,9 +193,9 @@ struct UpdatedAtRow: View {
             }
             .font(.caption2)
             .animation(Metrics.statusAnimation, value: snapshot.generatedAt)
-            
+
             Spacer()
-            
+
             if let updateMessage {
                 Text(updateMessage)
                     .font(.caption2.monospacedDigit())
@@ -208,16 +208,16 @@ struct UpdatedAtRow: View {
         }
         .animation(Metrics.statusAnimation, value: updateMessage)
     }
-    
+
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
-    
+
     private static let secondaryTextColor = Color.codexSecondaryLabel
-    
+
     private enum Metrics {
         static let statusAnimation = Animation.codexStatus
     }

@@ -8,7 +8,7 @@ struct AppSettingsView: View {
     @StateObject private var codexVersions = CodexCLIVersionViewModel()
     @ObservedObject var codexHookSettings: CodexHookSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
             VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
@@ -26,9 +26,9 @@ struct AppSettingsView: View {
             }
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
-            
+
             settingsErrorPanel
-            
+
             HStack(alignment: .center, spacing: 12) {
                 quitButton
                 Spacer()
@@ -74,7 +74,7 @@ private extension AppSettingsView {
         static let iconWidth: CGFloat = 18
         static let statusAnimation = Animation.codexStatus
     }
-    
+
     var launchAtLoginRow: some View {
         SettingsToggleRow(
             icon: "power",
@@ -85,7 +85,7 @@ private extension AppSettingsView {
             )
         )
     }
-    
+
     var automaticUpdateCheckRow: some View {
         SettingsToggleRow(
             icon: "arrow.triangle.2.circlepath",
@@ -97,11 +97,11 @@ private extension AppSettingsView {
             isEnabled: appUpdater.canConfigureAutomaticChecks
         )
     }
-    
+
     var hotKeyRow: some View {
         HotKeyRecorderRow(settings: globalHotKeySettings)
     }
-    
+
     var codexHookRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
@@ -112,11 +112,11 @@ private extension AppSettingsView {
                     set: { codexHookSettings.setEnabled($0) }
                 )
             )
-            
+
             HStack(alignment: .top, spacing: 10) {
                 Color.clear
                     .frame(width: Metrics.iconWidth)
-                
+
                 Text("开启后将会写入全局 Codex Hook 配置\n用于近 30 周数据中展示更多统计数据\n该数据仅保存在本机")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -124,26 +124,26 @@ private extension AppSettingsView {
             }
         }
     }
-    
+
     var versionRow: some View {
         let status = versionStatus
-        
+
         return HStack(spacing: 10) {
             Image(systemName: "info.circle")
                 .frame(width: Metrics.iconWidth)
                 .foregroundStyle(.secondary)
-            
+
             Text("CodexBar 版本")
-            
+
             Spacer()
-            
+
             Text(status.text)
                 .font(status.isVersionLabel ? .body.monospacedDigit() : .body)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .contentTransition(.opacity)
                 .animation(Metrics.statusAnimation, value: status.text)
-            
+
             if appUpdater.availableUpdateMessage != nil {
                 Button {
                     appUpdater.startUpdate()
@@ -160,7 +160,7 @@ private extension AppSettingsView {
         }
         .animation(Metrics.statusAnimation, value: appUpdater.availableUpdateMessage != nil)
     }
-    
+
     // 版本行优先显示更新状态, 没有动态消息时回退到当前版本号
     var versionStatus: (text: String, isVersionLabel: Bool) {
         if let message = appUpdater.settingsStatusMessage ?? appUpdater.availableUpdateMessage {
@@ -168,20 +168,20 @@ private extension AppSettingsView {
         }
         return (Bundle.main.displayVersionLabel, true)
     }
-    
+
     var codexVersionSection: some View {
         CodexVersionSection(
             snapshot: codexVersions.snapshot,
             connectionInfo: statusViewModel.codexConnectionInfo
         )
     }
-    
+
     func refreshCodexVersionSection() {
         // 版本探测较慢且内部会合并并发请求; 连接信息只是缓存读取
         codexVersions.refresh()
         statusViewModel.refreshCodexConnectionInfo()
     }
-    
+
     @ViewBuilder
     var settingsErrorPanel: some View {
         if let message = settingsErrorMessage {
@@ -195,7 +195,7 @@ private extension AppSettingsView {
                 .transition(.opacity)
         }
     }
-    
+
     var checkUpdateButton: some View {
         Button {
             appUpdater.checkForUpdates()
@@ -203,7 +203,7 @@ private extension AppSettingsView {
             Label("检查更新", systemImage: "arrow.down.circle")
         }
     }
-    
+
     var quitButton: some View {
         Button(role: .destructive) {
             NSApplication.shared.terminate(nil)
@@ -213,7 +213,7 @@ private extension AppSettingsView {
         .foregroundStyle(.red)
         .keyboardShortcut("q")
     }
-    
+
     var settingsErrorMessage: String? {
         loginItemSettings.errorMessage ?? codexHookSettings.errorMessage
     }

@@ -7,15 +7,15 @@ final class GlobalHotKeyController {
     private var eventHandlerRef: EventHandlerRef?
     private var hotKeyRef: EventHotKeyRef?
     private var nextHotKeyID: UInt32 = 1
-    
+
     init(onPressed: @escaping @MainActor () -> Void) {
         self.onPressed = onPressed
     }
-    
+
     deinit {
         uninstall()
     }
-    
+
     func install(shortcut: GlobalHotKeyShortcut) -> Bool {
         let newEventHandler = Self.makeEventHandler()
         var eventType = EventTypeSpec(
@@ -24,7 +24,7 @@ final class GlobalHotKeyController {
         )
         let userData = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         var installedHandlerRef: EventHandlerRef?
-        
+
         guard InstallEventHandler(
             GetApplicationEventTarget(),
             newEventHandler,
@@ -35,7 +35,7 @@ final class GlobalHotKeyController {
         ) == noErr else {
             return false
         }
-        
+
         let hotKeyID = EventHotKeyID(signature: Self.hotKeySignature, id: nextHotKeyID)
         var registeredHotKeyRef: EventHotKeyRef?
         let status = RegisterEventHotKey(
@@ -46,53 +46,53 @@ final class GlobalHotKeyController {
             0,
             &registeredHotKeyRef
         )
-        
+
         guard status == noErr else {
             if let installedHandlerRef {
                 RemoveEventHandler(installedHandlerRef)
             }
             return false
         }
-        
+
         clearCurrentRegistration()
-        
+
         eventHandler = newEventHandler
         eventHandlerRef = installedHandlerRef
         hotKeyRef = registeredHotKeyRef
         nextHotKeyID &+= 1
         return true
     }
-    
+
     func uninstall() {
         clearCurrentRegistration()
     }
-    
+
     private func clearCurrentRegistration() {
         if let hotKeyRef {
             UnregisterEventHotKey(hotKeyRef)
             self.hotKeyRef = nil
         }
-        
+
         if let eventHandlerRef {
             RemoveEventHandler(eventHandlerRef)
             self.eventHandlerRef = nil
         }
-        
+
         eventHandler = nil
     }
-    
+
     private func handleHotKeyPressed() {
         Task { @MainActor [onPressed] in
             onPressed()
         }
     }
-    
+
     private static func makeEventHandler() -> EventHandlerUPP {
         { _, _, userData in
             guard let userData else {
                 return noErr
             }
-            
+
             let controller = Unmanaged<GlobalHotKeyController>
                 .fromOpaque(userData)
                 .takeUnretainedValue()
@@ -100,7 +100,7 @@ final class GlobalHotKeyController {
             return noErr
         }
     }
-    
+
     private static let hotKeySignature: OSType = {
         let scalars = Array("CDBR".unicodeScalars)
         return scalars.reduce(UInt32(0)) { result, scalar in

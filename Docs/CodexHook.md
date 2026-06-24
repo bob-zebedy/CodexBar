@@ -119,7 +119,7 @@ Hook 可能由多个 Codex 进程并发触发。`WorkflowHookEventRecorder` 会�
 
 Hook 写入路径不更新 `daily.jsonl`，也不执行重建或清理旧文件，避免在 Hook timeout 内持锁执行重活。
 
-`WorkflowStatsService` 只在现有自动刷新或手动刷新触发工作流统计刷新时检查 `maintenance.json`。打开 popover 时只读取现有 `daily.jsonl`。如果没有 `pending` 或 `dirty`，服务不会执行维护。
+`WorkflowStatsService` 只在现有自动刷新或手动刷新触发工作流统计刷新时检查 `maintenance.json`。打开菜单面板时只读取现有 `daily.jsonl`。如果没有 `pending` 或 `dirty`，服务不会执行维护。
 
 维护时优先处理 `dirty`，从对应日期文件第一行开始流式重建当天聚合；再处理 `pending`，从 `days[date].offset` 开始流式读取新增事件并合并到已有当天聚合。每条坏行会被跳过并计入 `days[date].corrupt`。处理完成后先在 `stats.lock` 外原子写回 `daily.jsonl`，再短暂持有 `stats.lock` 更新 `maintenance.json`，避免主 App 写 daily 时阻塞 Hook 追加事件。
 
@@ -203,14 +203,14 @@ UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyStats`:
 
 用量热力图固定为近 30 周、30 列 x 7 行、周日到周六排列。`account/usage/read` 返回当天 `dailyUsageBuckets` 时, 热力图展示今天的小方块和对应 token 数; 没有当天 bucket 时再按 Hook 开关决定是否包含今天。
 
-热力图 hover 时不在 popover 内绘制旧式 tooltip, 而是通过 `UsageHeatmapHoverContext` 通知 `HeatmapDetailPanelController` 展示侧边详情面板。指针会吸附到最近方块, 离开热力图后延迟 160 ms 清除选中状态。
+热力图 hover 时不在菜单面板内绘制旧式 tooltip, 而是通过 `UsageHeatmapHoverContext` 通知 `HeatmapDetailPanelController` 展示侧边详情面板。指针会吸附到最近方块, 离开热力图后延迟 160 ms 清除选中状态。
 
-详情面板是 popover 的 borderless nonactivating child panel:
+详情面板是菜单面板的 borderless nonactivating child panel:
 
-- 不接收鼠标事件, 不抢走 popover key window
-- 按悬停列优先显示在 popover 左侧或右侧, 左右空间不足时尝试另一侧
+- 不接收鼠标事件, 不抢走菜单面板 key window
+- 按悬停列优先显示在菜单面板左侧或右侧, 左右空间不足时尝试另一侧
 - 最终位置会被夹在当前屏幕可见区域内, 屏幕边缘保留 `8` px
-- 与 popover 之间保留 `4` px gap
+- 与菜单面板之间保留 `4` px gap
 - 侧边切换使用抽屉动画: 收起 `0.12` 秒, 展开 `0.18` 秒
 
 Codex Hook 关闭时:

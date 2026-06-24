@@ -10,7 +10,7 @@ nonisolated struct RequestLogEntry: Identifiable, Equatable {
         case failure
         case emptyResponse
     }
-    
+
     let id: UUID
     let requestedAt: Date
     var respondedAt: Date?
@@ -23,24 +23,24 @@ nonisolated struct RequestLogEntry: Identifiable, Equatable {
 // 常驻日志存储, 写入来自后台队列, storage 用锁保护, SwiftUI 通知切回主线程发送
 nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
     static let shared = RequestLogStore()
-    
+
     // nonisolated 存储不能用 @Published 包装可变数组, 这里手动发送变更
     let objectWillChange = ObservableObjectPublisher()
-    
+
     // 环形上限避免长时间运行后日志无限增长
     private static let capacity = 500
     private static let maxDetailLength = 4000
-    
+
     private let lock = NSLock()
     // 最新在前, 既方便渲染也让刚发出的请求更快被回填
     private var storage: [RequestLogEntry] = []
-    
+
     var entries: [RequestLogEntry] {
         withLock { storage }
     }
-    
+
     private init() {}
-    
+
     func beginRequest(method: String, payload: String) -> UUID {
         let id = UUID()
         append(
@@ -56,7 +56,7 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
         )
         return id
     }
-    
+
     func finishRequest(_ id: UUID, response: String) {
         update(id) { entry in
             entry.kind = .response
@@ -64,7 +64,7 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
             entry.respondedAt = Date()
         }
     }
-    
+
     func failRequest(_ id: UUID, message: String) {
         update(id) { entry in
             entry.kind = .failure
@@ -72,7 +72,7 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
             entry.respondedAt = Date()
         }
     }
-    
+
     func recordRequestWithEmptyResponse(method: String, payload: String) {
         append(
             RequestLogEntry(
@@ -86,7 +86,7 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
             )
         )
     }
-    
+
     func recordFailure(method: String? = nil, message: String) {
         append(
             RequestLogEntry(
@@ -100,15 +100,15 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
             )
         )
     }
-    
+
     func clear() {
         withLock {
             storage.removeAll()
         }
-        
+
         notifyChange()
     }
-    
+
     private func append(_ entry: RequestLogEntry) {
         withLock {
             storage.insert(entry, at: 0)
@@ -116,10 +116,10 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
                 storage.removeLast(storage.count - Self.capacity)
             }
         }
-        
+
         notifyChange()
     }
-    
+
     private func update(_ id: UUID, _ mutate: (inout RequestLogEntry) -> Void) {
         let didUpdate = withLock {
             guard let index = storage.firstIndex(where: { $0.id == id }) else {
@@ -128,20 +128,20 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
             mutate(&storage[index])
             return true
         }
-        
+
         guard didUpdate else {
             return
         }
-        
+
         notifyChange()
     }
-    
+
     private func withLock<T>(_ work: () -> T) -> T {
         lock.lock()
         defer { lock.unlock() }
         return work()
     }
-    
+
     private func notifyChange() {
         if Thread.isMainThread {
             objectWillChange.send()
@@ -151,17 +151,17 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
             }
         }
     }
-    
+
     // 合法 JSON 重新序列化为稳定、未转义斜杠的日志文本; 非 JSON 错误消息保持原样
     private static func normalized(_ text: String) -> String {
         let readableText = jsonNormalized(text) ?? text
         guard readableText.count > maxDetailLength else {
             return readableText
         }
-        
+
         return String(readableText.prefix(maxDetailLength)) + "…"
     }
-    
+
     private static func jsonNormalized(_ text: String) -> String? {
         guard let data = text.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data),
@@ -172,7 +172,7 @@ nonisolated final class RequestLogStore: ObservableObject, @unchecked Sendable {
               ) else {
             return nil
         }
-        
-        return String(decoding: output, as: UTF8.self)
+
+        return String(bytes: output, encoding: .utf8)
     }
 }

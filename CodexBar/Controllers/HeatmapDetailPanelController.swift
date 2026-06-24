@@ -6,7 +6,7 @@ private final class DetailPanel: NSPanel {
     override var canBecomeKey: Bool {
         false
     }
-    
+
     override var canBecomeMain: Bool {
         false
     }
@@ -21,50 +21,50 @@ final class HeatmapDetailPanelController {
     private var visibilityGeneration = 0
     private var drawerTransition = DrawerTransition.idle
     private var pendingSideSwitchRequest: PanelRequest?
-    private weak var popoverWindow: NSWindow?
-    
+    private weak var menuSurfaceWindow: NSWindow?
+
     func update(
         context: UsageHeatmapHoverContext?,
-        relativeTo popoverWindow: NSWindow?,
+        relativeTo menuSurfaceWindow: NSWindow?,
         contentView: NSView?
     ) {
         guard let context else {
             hide()
             return
         }
-        
-        guard let popoverWindow else {
+
+        guard let menuSurfaceWindow else {
             hide(immediate: true)
             return
         }
-        
-        show(context: context, relativeTo: popoverWindow, contentView: contentView)
+
+        show(context: context, relativeTo: menuSurfaceWindow, contentView: contentView)
     }
-    
+
     func hide(immediate: Bool = false, delayed: Bool = true) {
         cancelHideTask()
         visibilityGeneration += 1
         drawerTransition = .idle
         pendingSideSwitchRequest = nil
-        
+
         guard let panel, panel.isVisible else {
             return
         }
-        
+
         guard !immediate else {
             resetDrawerVisualState(for: panel)
             drawerTransition = .idle
             orderOut(panel)
             return
         }
-        
+
         let generation = visibilityGeneration
         let side = currentSide
         hideTask = Task { @MainActor [weak self] in
             if delayed {
                 try? await Task.sleep(for: .milliseconds(Metrics.hideDelayMilliseconds))
             }
-            
+
             guard let self,
                   !Task.isCancelled,
                   generation == self.visibilityGeneration,
@@ -72,7 +72,7 @@ final class HeatmapDetailPanelController {
                   panel.isVisible else {
                 return
             }
-            
+
             self.drawerTransition = .exiting
             let hidden = self.drawerHiddenTranslation(for: side, panelWidth: panel.frame.width)
             self.animateContentTranslation(
@@ -85,7 +85,7 @@ final class HeatmapDetailPanelController {
                           generation == self.visibilityGeneration else {
                         return
                     }
-                    
+
                     self.orderOut(panel)
                     self.setContentTranslation(0)
                     self.drawerTransition = .idle
@@ -94,24 +94,24 @@ final class HeatmapDetailPanelController {
             }
         }
     }
-    
+
     private func show(
         context: UsageHeatmapHoverContext,
-        relativeTo popoverWindow: NSWindow,
+        relativeTo menuSurfaceWindow: NSWindow,
         contentView: NSView?
     ) {
         cancelHideTask()
-        
+
         let panel = ensurePanel()
         let wasVisible = panel.isVisible
         if wasVisible {
-            attach(panel, to: popoverWindow)
+            attach(panel, to: menuSurfaceWindow)
         }
-        
+
         let panelSize = UsageHeatmapDayDetailView.panelSize(showsWorkflowStats: context.showsWorkflowStats)
         let position = panelPosition(
             for: panelSize,
-            relativeTo: popoverWindow,
+            relativeTo: menuSurfaceWindow,
             contentView: contentView,
             anchorScreenFrame: context.anchorScreenFrame,
             heatmapScreenFrame: context.heatmapScreenFrame,
@@ -119,39 +119,39 @@ final class HeatmapDetailPanelController {
             preferredSide: context.preferredSide
         )
         let request = PanelRequest(context: context, position: position)
-        
-        panel.level = popoverWindow.level
+
+        panel.level = menuSurfaceWindow.level
         defer {
-            restorePopoverKeyWindow(popoverWindow)
+            restoreMenuSurfaceKeyWindow(menuSurfaceWindow)
         }
-        
+
         if wasVisible {
             updateVisiblePanel(request, on: panel)
             return
         }
-        
+
         visibilityGeneration += 1
         apply(request, to: panel)
-        showPanelWithDrawerAnimation(panel, relativeTo: popoverWindow)
+        showPanelWithDrawerAnimation(panel, relativeTo: menuSurfaceWindow)
     }
-    
+
     private func updateVisiblePanel(_ request: PanelRequest, on panel: NSPanel) {
         if drawerTransition == .switchingSide {
             pendingSideSwitchRequest = request
             return
         }
-        
+
         if currentSide != request.position.side {
             beginSideSwitch(on: panel, from: currentSide, to: request)
             return
         }
-        
+
         let activeTransition = drawerTransition
         if activeTransition != .entering {
             visibilityGeneration += 1
         }
         apply(request, to: panel)
-        
+
         switch activeTransition {
         case .entering:
             return
@@ -163,14 +163,14 @@ final class HeatmapDetailPanelController {
             resetDrawerVisualState(for: panel)
         }
     }
-    
-    private func showPanelWithDrawerAnimation(_ panel: NSPanel, relativeTo popoverWindow: NSWindow) {
+
+    private func showPanelWithDrawerAnimation(_ panel: NSPanel, relativeTo menuSurfaceWindow: NSWindow) {
         let generation = visibilityGeneration
         let hidden = drawerHiddenTranslation(for: currentSide, panelWidth: panel.frame.width)
         setContentTranslation(hidden)
         panel.alphaValue = 0
-        attach(panel, to: popoverWindow)
-        panel.order(.above, relativeTo: popoverWindow.windowNumber)
+        attach(panel, to: menuSurfaceWindow)
+        panel.order(.above, relativeTo: menuSurfaceWindow.windowNumber)
         drawerTransition = .entering
         animateContentTranslationAfterInitialLayout(
             from: hidden,
@@ -178,7 +178,7 @@ final class HeatmapDetailPanelController {
             generation: generation
         )
     }
-    
+
     private func beginSideSwitch(
         on panel: NSPanel,
         from sourceSide: UsageHeatmapDetailSide,
@@ -188,7 +188,7 @@ final class HeatmapDetailPanelController {
         let generation = visibilityGeneration
         drawerTransition = .switchingSide
         pendingSideSwitchRequest = nil
-        
+
         let hidden = drawerHiddenTranslation(for: sourceSide, panelWidth: panel.frame.width)
         animateContentTranslation(
             to: hidden,
@@ -202,7 +202,7 @@ final class HeatmapDetailPanelController {
                       panel.isVisible else {
                     return
                 }
-                
+
                 self.showHiddenSideSwitchRequest(
                     self.nextSideSwitchRequest(fallback: request),
                     on: panel,
@@ -211,14 +211,14 @@ final class HeatmapDetailPanelController {
             }
         }
     }
-    
+
     private func showHiddenSideSwitchRequest(_ request: PanelRequest, on panel: NSPanel, generation: Int) {
         let side = request.position.side
         let hidden = drawerHiddenTranslation(for: side, panelWidth: request.position.frame.width)
         setContentTranslation(hidden)
         apply(request, to: panel)
         setContentTranslation(hidden)
-        
+
         animateContentTranslation(
             from: hidden,
             to: 0,
@@ -231,31 +231,31 @@ final class HeatmapDetailPanelController {
                       panel.isVisible else {
                     return
                 }
-                
+
                 self.drawerTransition = .idle
                 self.setContentTranslation(0)
                 self.handlePendingSideSwitchRequest(on: panel)
             }
         }
     }
-    
+
     private func nextSideSwitchRequest(fallback request: PanelRequest) -> PanelRequest {
         guard let pendingSideSwitchRequest,
               pendingSideSwitchRequest.position.side == request.position.side else {
             return request
         }
-        
+
         self.pendingSideSwitchRequest = nil
         return pendingSideSwitchRequest
     }
-    
+
     private func handlePendingSideSwitchRequest(on panel: NSPanel) {
         guard let pendingSideSwitchRequest else {
             return
         }
-        
+
         self.pendingSideSwitchRequest = nil
-        
+
         if pendingSideSwitchRequest.position.side != currentSide {
             beginSideSwitch(on: panel, from: currentSide, to: pendingSideSwitchRequest)
         } else {
@@ -263,12 +263,12 @@ final class HeatmapDetailPanelController {
             resetDrawerVisualState(for: panel)
         }
     }
-    
+
     private func ensurePanel() -> NSPanel {
         if let panel {
             return panel
         }
-        
+
         let panel = DetailPanel(
             contentRect: NSRect(origin: .zero, size: UsageHeatmapDayDetailView.panelSize(showsWorkflowStats: true)),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -287,36 +287,36 @@ final class HeatmapDetailPanelController {
         self.panel = panel
         return panel
     }
-    
+
     private func attach(_ panel: NSPanel, to parentWindow: NSWindow) {
-        popoverWindow = parentWindow
+        menuSurfaceWindow = parentWindow
         guard panel.parent !== parentWindow else {
             return
         }
-        
+
         panel.parent?.removeChildWindow(panel)
         parentWindow.addChildWindow(panel, ordered: .above)
     }
-    
+
     private func orderOut(_ panel: NSPanel) {
-        let parentWindow = panel.parent ?? popoverWindow
+        let parentWindow = panel.parent ?? menuSurfaceWindow
         panel.orderOut(nil)
         parentWindow?.removeChildWindow(panel)
-        restorePopoverKeyWindow(parentWindow)
+        restoreMenuSurfaceKeyWindow(parentWindow)
     }
-    
-    private func restorePopoverKeyWindow(_ popoverWindow: NSWindow?) {
+
+    private func restoreMenuSurfaceKeyWindow(_ menuSurfaceWindow: NSWindow?) {
         guard NSApplication.shared.isActive else {
             return
         }
-        
-        popoverWindow?.makeKey()
+
+        menuSurfaceWindow?.makeKey()
     }
-    
+
     private func updateContent(_ context: UsageHeatmapHoverContext) {
         let rootView = UsageHeatmapDayDetailView(context: context)
         let size = UsageHeatmapDayDetailView.panelSize(showsWorkflowStats: context.showsWorkflowStats)
-        
+
         if let hostingController {
             hostingController.rootView = rootView
         } else {
@@ -325,16 +325,16 @@ final class HeatmapDetailPanelController {
             panel?.contentViewController = hostingController
             self.hostingController = hostingController
         }
-        
+
         configurePanelLayers()
         panel?.setContentSize(size)
     }
-    
+
     private func configurePanelLayers() {
         if let hostingView = hostingController?.view {
             configurePanelLayer(for: hostingView)
         }
-        
+
         if let contentView = panel?.contentView {
             configurePanelLayer(for: contentView)
             if let frameView = contentView.superview {
@@ -342,14 +342,14 @@ final class HeatmapDetailPanelController {
             }
         }
     }
-    
+
     private func apply(_ request: PanelRequest, to panel: NSPanel) {
         updateContent(request.context)
         panel.setFrame(request.position.frame, display: true)
         panel.alphaValue = 1
         currentSide = request.position.side
     }
-    
+
     private func configurePanelLayer(for view: NSView) {
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.clear.cgColor
@@ -357,20 +357,20 @@ final class HeatmapDetailPanelController {
         view.layer?.cornerRadius = UsageHeatmapDayDetailView.panelCornerRadius
         view.layer?.cornerCurve = .continuous
     }
-    
+
     private func panelPosition(
         for panelSize: CGSize,
-        relativeTo popoverWindow: NSWindow,
+        relativeTo menuSurfaceWindow: NSWindow,
         contentView: NSView?,
         anchorScreenFrame: CGRect?,
         heatmapScreenFrame: CGRect?,
         showsWorkflowStats: Bool,
         preferredSide: UsageHeatmapDetailSide
     ) -> PanelPosition {
-        let popoverFrame = contentScreenFrame(for: contentView, in: popoverWindow) ?? popoverWindow.frame
-        let visibleFrame = (popoverWindow.screen ?? NSScreen.main)?.visibleFrame ?? popoverFrame
-        let leftX = popoverFrame.minX - Metrics.panelGap - panelSize.width
-        let rightX = popoverFrame.maxX + Metrics.panelGap
+        let menuSurfaceFrame = contentScreenFrame(for: contentView, in: menuSurfaceWindow) ?? menuSurfaceWindow.frame
+        let visibleFrame = (menuSurfaceWindow.screen ?? NSScreen.main)?.visibleFrame ?? menuSurfaceFrame
+        let leftX = menuSurfaceFrame.minX - Metrics.panelGap - panelSize.width
+        let rightX = menuSurfaceFrame.maxX + Metrics.panelGap
         let horizontal = horizontalPlacement(
             preferredSide: preferredSide,
             left: HorizontalPlacement(
@@ -384,7 +384,7 @@ final class HeatmapDetailPanelController {
                 isAvailable: rightX + panelSize.width <= visibleFrame.maxX - Metrics.screenPadding
             )
         )
-        
+
         let x = clamped(
             horizontal.x,
             lower: visibleFrame.minX + Metrics.screenPadding,
@@ -394,7 +394,7 @@ final class HeatmapDetailPanelController {
             x: x,
             y: panelY(
                 for: panelSize,
-                popoverFrame: popoverFrame,
+                menuSurfaceFrame: menuSurfaceFrame,
                 visibleFrame: visibleFrame,
                 anchorScreenFrame: anchorScreenFrame,
                 heatmapScreenFrame: heatmapScreenFrame,
@@ -403,21 +403,21 @@ final class HeatmapDetailPanelController {
             width: panelSize.width,
             height: panelSize.height
         )
-        
+
         return PanelPosition(
             frame: frame,
             side: actualSide(
                 forX: x,
                 panelWidth: panelSize.width,
-                popoverFrame: popoverFrame,
+                menuSurfaceFrame: menuSurfaceFrame,
                 fallback: horizontal.side
             )
         )
     }
-    
+
     private func panelY(
         for panelSize: CGSize,
-        popoverFrame: CGRect,
+        menuSurfaceFrame: CGRect,
         visibleFrame: CGRect,
         anchorScreenFrame: CGRect?,
         heatmapScreenFrame: CGRect?,
@@ -425,22 +425,22 @@ final class HeatmapDetailPanelController {
     ) -> CGFloat {
         let proposedY: CGFloat
         if showsWorkflowStats {
-            proposedY = popoverFrame.minY
+            proposedY = menuSurfaceFrame.minY
         } else if let heatmapScreenFrame {
             proposedY = heatmapScreenFrame.maxY - panelSize.height
         } else if let anchorScreenFrame {
             proposedY = anchorScreenFrame.maxY - panelSize.height
         } else {
-            proposedY = popoverFrame.midY - panelSize.height / 2
+            proposedY = menuSurfaceFrame.midY - panelSize.height / 2
         }
-        
+
         return clamped(
             proposedY,
-            lower: max(visibleFrame.minY + Metrics.screenPadding, popoverFrame.minY),
+            lower: max(visibleFrame.minY + Metrics.screenPadding, menuSurfaceFrame.minY),
             upper: visibleFrame.maxY - panelSize.height - Metrics.screenPadding
         )
     }
-    
+
     private func horizontalPlacement(
         preferredSide: UsageHeatmapDetailSide,
         left: HorizontalPlacement,
@@ -448,33 +448,33 @@ final class HeatmapDetailPanelController {
     ) -> HorizontalPlacement {
         let primary = preferredSide == .left ? left : right
         let fallback = preferredSide == .left ? right : left
-        
+
         if primary.isAvailable {
             return primary
         }
         return fallback.isAvailable ? fallback : primary
     }
-    
+
     private func actualSide(
         forX x: CGFloat,
         panelWidth: CGFloat,
-        popoverFrame: CGRect,
+        menuSurfaceFrame: CGRect,
         fallback: UsageHeatmapDetailSide
     ) -> UsageHeatmapDetailSide {
-        if x + panelWidth <= popoverFrame.minX {
+        if x + panelWidth <= menuSurfaceFrame.minX {
             return .left
         }
-        if x >= popoverFrame.maxX {
+        if x >= menuSurfaceFrame.maxX {
             return .right
         }
         return fallback
     }
-    
+
     private func cancelHideTask() {
         hideTask?.cancel()
         hideTask = nil
     }
-    
+
     private func drawerHiddenTranslation(for side: UsageHeatmapDetailSide, panelWidth: CGFloat) -> CGFloat {
         let distance = panelWidth + Metrics.drawerOverscan
         switch side {
@@ -484,19 +484,19 @@ final class HeatmapDetailPanelController {
             return -distance
         }
     }
-    
+
     private func setContentTranslation(_ translationX: CGFloat) {
         guard let layer = hostingController?.view.layer else {
             return
         }
-        
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.removeAnimation(forKey: Metrics.drawerTransformAnimationKey)
         layer.transform = CATransform3DMakeTranslation(translationX, 0, 0)
         CATransaction.commit()
     }
-    
+
     private func animateContentTranslation(
         from fromTranslationX: CGFloat? = nil,
         to translationX: CGFloat,
@@ -508,11 +508,11 @@ final class HeatmapDetailPanelController {
             completion?()
             return
         }
-        
+
         let targetTransform = CATransform3DMakeTranslation(translationX, 0, 0)
         CATransaction.begin()
         CATransaction.setCompletionBlock(completion)
-        
+
         let animation = CABasicAnimation(keyPath: "transform")
         animation.fromValue = fromTranslationX.map { CATransform3DMakeTranslation($0, 0, 0) }
         ?? layer.presentation()?.transform
@@ -522,10 +522,10 @@ final class HeatmapDetailPanelController {
         animation.timingFunction = CAMediaTimingFunction(name: timing)
         layer.add(animation, forKey: Metrics.drawerTransformAnimationKey)
         layer.transform = targetTransform
-        
+
         CATransaction.commit()
     }
-    
+
     private func animateContentTranslationAfterInitialLayout(
         from hiddenTranslationX: CGFloat,
         panel: NSPanel,
@@ -534,7 +534,7 @@ final class HeatmapDetailPanelController {
         panel.contentView?.layoutSubtreeIfNeeded()
         panel.displayIfNeeded()
         CATransaction.flush()
-        
+
         Task { @MainActor [weak self, weak panel] in
             await Task.yield()
             guard let self,
@@ -543,7 +543,7 @@ final class HeatmapDetailPanelController {
                   generation == self.visibilityGeneration else {
                 return
             }
-            
+
             self.setContentTranslation(hiddenTranslationX)
             panel.contentView?.layoutSubtreeIfNeeded()
             panel.displayIfNeeded()
@@ -560,42 +560,42 @@ final class HeatmapDetailPanelController {
                           generation == self.visibilityGeneration else {
                         return
                     }
-                    
+
                     self.drawerTransition = .idle
                     self.setContentTranslation(0)
                 }
             }
         }
     }
-    
+
     private func resetDrawerVisualState(for panel: NSPanel) {
         setContentTranslation(0)
         panel.alphaValue = 1
     }
-    
+
     private func contentScreenFrame(for contentView: NSView?, in window: NSWindow) -> CGRect? {
         guard let contentView else {
             return nil
         }
-        
+
         contentView.layoutSubtreeIfNeeded()
         let frameInWindow = contentView.convert(contentView.bounds, to: nil)
         let screenFrame = window.convertToScreen(frameInWindow)
         guard screenFrame.width > 0, screenFrame.height > 0 else {
             return nil
         }
-        
+
         return screenFrame
     }
-    
+
     private func clamped(_ value: CGFloat, lower: CGFloat, upper: CGFloat) -> CGFloat {
         guard lower <= upper else {
             return lower
         }
-        
+
         return min(max(value, lower), upper)
     }
-    
+
     private enum Metrics {
         static let panelGap: CGFloat = 4
         static let screenPadding: CGFloat = 8
@@ -605,25 +605,25 @@ final class HeatmapDetailPanelController {
         static let drawerOverscan: CGFloat = 1
         static let drawerTransformAnimationKey = "CodexBar.heatmapDetailDrawerTransform"
     }
-    
+
     private enum DrawerTransition {
         case idle
         case entering
         case exiting
         case switchingSide
     }
-    
+
     private struct PanelPosition {
         let frame: NSRect
         let side: UsageHeatmapDetailSide
     }
-    
+
     private struct HorizontalPlacement {
         let x: CGFloat
         let side: UsageHeatmapDetailSide
         let isAvailable: Bool
     }
-    
+
     private struct PanelRequest {
         let context: UsageHeatmapHoverContext
         let position: PanelPosition

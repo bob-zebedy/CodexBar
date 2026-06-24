@@ -1,0 +1,45 @@
+included:
+    - CodexBar
+
+excluded:
+    - .build
+    - DerivedData
+    - /tmp
+    - CodexBar/Resources
+
+line_length:
+    warning: 140
+    error: 180
+    ignores_comments: true
+    ignores_urls: true
+    ignores_function_declarations: true
+    ignores_interpolated_strings: true
+
+file_length:
+    warning: 900
+    error: 1200
+    ignore_comment_only_lines: true
+
+type_body_length:
+    warning: 550
+    error: 700
+
+function_body_length:
+    warning: 80
+    error: 120
+
+function_parameter_count:
+    warning: 7
+    error: 9
+
+cyclomatic_complexity:
+    warning: 15
+    error: 25
+    ignores_case_statements: true
+
+identifier_name:
+    min_length:
+        warning: 1
+    max_length:
+        warning: 60
+        error: 80

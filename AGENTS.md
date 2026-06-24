@@ -77,7 +77,7 @@ git status --short
 ```text
 CodexStatusService(JSON-RPC app-server)
   -> CodexStatusViewModel(@MainActor 状态发布)
-  -> StatusItemController(菜单栏图标、popover、窗口入口)
+  -> StatusItemController(菜单栏图标、菜单面板、窗口入口)
   -> CodexStatusMenuView / AppSettingsView / LogView
 
 Codex Hook
@@ -91,10 +91,10 @@ Codex Hook
 目录职责:
 
 - `App/`: 入口和全局启动分支。
-- `Controllers/`: 菜单栏、popover、设置窗口和日志窗口控制。
+- `Controllers/`: 菜单栏、菜单面板、设置窗口和日志窗口控制。
 - `Models/`: account、quota、usage、workflow stats、共享日期网格和错误模型。
 - `Services/`: app-server、Codex CLI、设置、Hook 统计、更新和日志服务。
-- `Views/`: popover、设置、日志和共享 Liquid Glass 样式。
+- `Views/`: 菜单面板、设置、日志和共享 Liquid Glass 样式。
 
 Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.md](Docs/CodexHook.md)。
 
@@ -163,10 +163,11 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 菜单栏:
 
 - 正常图标是 `person.fill.checkmark`, 错误图标是 `person.fill.xmark`。
-- 菜单栏不展示额度数字; 详情只在 popover 中展示。
-- 左键或全局快捷键切换 popover; 右键或 Control 点击显示「设置 / 日志 / 退出」。
+- 菜单栏不展示额度数字; 详情只在菜单面板中展示。
+- 左键或全局快捷键切换菜单面板; 右键或 Control 点击显示「设置 / 日志 / 退出」。
+- 全局快捷键打开菜单面板前必须校验当前 status item 锚点可信; 锚点无 window、无有效 screen、按钮隐藏、bounds 为空、屏幕矩形异常, 或屏幕矩形没有落在目标屏幕范围内时, 使用无箭头 fallback `NSPanel` 在目标屏幕顶部居中打开。目标屏幕优先取鼠标所在屏幕, 找不到时取主屏幕。快捷键关闭已打开的菜单面板不受此校验影响。
 
-Popover:
+菜单面板:
 
 - `CodexStatusMenuView.menuWidth` 由热力图宽度和 padding 推导; 改热力图尺寸时同步检查弹窗宽度。
 - 外层和分区使用 `.liquidGlassSurface(...)`; 分隔线使用 `LiquidGlassDivider`; 小徽章可用 `.liquidGlassCapsule(...)`。
@@ -174,16 +175,16 @@ Popover:
 - 账号图标双击触发刷新。邮箱文本双击切换模糊。
 - 计划名是右侧加粗纯文字; `planBadgeTint(for:)` 优先级: enterprise -> team/business -> pro -> plus -> edu -> free -> 默认 cyan。
 - 额度条展示剩余百分比, 固定为 50 个胶囊, 每个胶囊宽 `3.5`, 间距 `2`, 高 `12`; 颜色按 20% 一档: 红、橙、黄、薄荷、绿。
-- 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到额度条间距 `12`, 额度条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`; 不通过加宽 popover 解决额度行溢出。
+- 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到额度条间距 `12`, 额度条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`; 不通过加宽菜单面板解决额度行溢出。
 - 无 quota 数据时显示 `--` / `暂无数据`, 并使用占位色。
 - `rateLimits` 或 `usage` 使用旧缓存时, 对应区域通过 `.markStale(true)` 降低透明度到 0.55, 不降低饱和度; 下一轮对应接口成功后恢复正常透明度。
 - 重置时间格式是 `MM-dd HH:mm`, 使用等宽数字, 在额度行最右侧对齐。
 - 更新时间行显示倒计时圆环、「数据更新时间」和 `HH:mm:ss`。
-- 倒计时只在 popover 可见时用 `TimelineView` 每秒 tick; 普通 tick 不做连续动画, 仅刷新起点变化时播放恢复动画。
+- 倒计时只在菜单面板可见时用 `TimelineView` 每秒 tick; 普通 tick 不做连续动画, 仅刷新起点变化时播放恢复动画。
 - token 区域显示「单日峰值」和「全时累计」; `TokenCountText` 对 1K 以下显示完整整数, 1K 起显示 K/M/B。
 - token 区域还显示「当前连胜」、「最长连胜」和「最长任务」。
 - 热力图是近 30 周、30 列 x 7 行、周日到周六排列; Codex Hook 开启时包含今天, Hook 关闭时仅在 app-server 已返回当天 token bucket 时包含今天。
-- 热力图 hover 使用 `HeatmapDetailPanelController` 展示侧边详情面板, 不是 popover 内 tooltip; 面板作为 popover child window, 不接收鼠标事件, 左右贴边展示并在屏幕可见区域内夹紧。
+- 热力图 hover 使用 `HeatmapDetailPanelController` 展示侧边详情面板, 不是菜单面板内 tooltip; 面板作为菜单面板 child window, 不接收鼠标事件, 左右贴边展示并在屏幕可见区域内夹紧。
 - Hook 关闭时详情面板显示日期、token 数和「用量强度」分段条, 尺寸 `212 x 84`。
 - Hook 开启时详情面板首行左侧显示日期、右侧显示 token 数, 当天 token 数显示 `--`; 后续显示「用量强度」、「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」, 尺寸 `212 x 189`。
 - 「用量强度」前置圆点固定为蓝色, 不随用量强度变化。
@@ -192,7 +193,7 @@ Popover:
 设置窗口:
 
 - 通过右键菜单「设置」打开独立 `AppSettingsView` 窗口。
-- 不要恢复为 Option 点击或 popover 内设置区。
+- 不要恢复为 Option 点击或菜单面板内设置区。
 - 设置页包含「使用快捷键」行、「CodexBar 版本」和「Codex 版本」区域。
 - `Codex CLI` 行图标用 `terminal`; `Codex APP` 行图标用 `app.badge`。
 - 当前运行来源显示「当前使用」。
@@ -217,7 +218,7 @@ Popover:
 - 任一缺失时不创建 `SPUStandardUpdaterController`, 更新操作显示「未配置更新资源」。
 - `canConfigureAutomaticChecks` 是 `updaterController != nil`。
 - `settingsStatusMessage` 用于设置窗版本行, 默认 3 秒后清空。
-- `panelUpdateMessage` 用于 popover 底栏被动提示, 双击触发 `startUpdate()`。
+- `panelUpdateMessage` 用于菜单面板底栏被动提示, 双击触发 `startUpdate()`。
 - `availableUpdateMessage` 驱动设置窗版本行和「立即更新」按钮。
 - 手动检查结果进 `settingsStatusMessage`; 自动发现新版进 `panelUpdateMessage`。
 - 当前 `SUFeedURL = https://codexbar.zabrian.app/appcast.xml`, `SUScheduledCheckInterval = 3600`。
@@ -233,7 +234,7 @@ Popover:
 
 ## 发布脚本
 
-- `Scripts/dmg.sh [App.app] [Output.dmg]` 创建带 `/Applications` 链接的 DMG, 会尝试写 Finder 布局。
+- `Scripts/dmg.sh [App.app] [Output.dmg]` 创建带 `/Applications` Finder alias 的 DMG, 会尝试写 Finder 布局。
 - `Scripts/appcast.sh [CodexBar-vX.Y.Z.dmg]` 更新 `appcast.xml`, 需要 Sparkle `sign_update`。
 - 改发布脚本后至少运行 `bash -n Scripts/dmg.sh` 和 `bash -n Scripts/appcast.sh`。
 - 更新 appcast、tag、push、上传 DMG 都必须先得到用户明确同意。

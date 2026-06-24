@@ -5,15 +5,18 @@ nonisolated enum JSONLines {
     static func decode<T: Decodable>(_ type: T.Type = T.self, from data: Data) -> [T] {
         decodeWithFailures(type, from: data).values
     }
-    
+
     static func decodeWithFailures<T: Decodable>(
         _ type: T.Type = T.self,
         from data: Data
     ) -> JSONLinesDecodeResult<T> {
-        let text = String(decoding: data, as: UTF8.self)
+        guard let text = String(bytes: data, encoding: .utf8) else {
+            return JSONLinesDecodeResult(values: [], failedLineCount: data.isEmpty ? 0 : 1)
+        }
+
         let decoder = JSONDecoder()
         var failedLineCount = 0
-        
+
         let values = text
             .split(whereSeparator: \.isNewline)
             .compactMap { line -> T? in
@@ -21,15 +24,15 @@ nonisolated enum JSONLines {
                 guard !trimmedLine.isEmpty, let lineData = trimmedLine.data(using: .utf8) else {
                     return nil
                 }
-                
+
                 if let value = try? decoder.decode(T.self, from: lineData) {
                     return value
                 }
-                
+
                 failedLineCount += 1
                 return nil
             }
-        
+
         return JSONLinesDecodeResult(values: values, failedLineCount: failedLineCount)
     }
 }

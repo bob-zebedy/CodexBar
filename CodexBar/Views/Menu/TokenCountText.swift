@@ -5,24 +5,24 @@ struct TokenCountText: View {
     var font: Font = .caption.monospacedDigit().weight(.semibold)
     var reservedNumericWidth: CGFloat?
     var reservedUnitWidth: CGFloat?
-    
+
     var body: some View {
         content
             .font(font)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
     }
-    
+
     @ViewBuilder
     private var content: some View {
         let parts = TokenCountFormatter.parts(from: tokens)
-        
+
         if let reservedNumericWidth {
             HStack(spacing: 0) {
                 Text(parts.number)
                     .numericRollTransition(value: Double(tokens))
                     .frame(minWidth: reservedNumericWidth, alignment: .trailing)
-                
+
                 if let unit = parts.unit {
                     Text(unit)
                         .frame(width: reservedUnitWidth, alignment: .trailing)
@@ -37,7 +37,7 @@ struct TokenCountText: View {
 private struct NumericRollTransition: ViewModifier {
     let value: Double
     @State private var previous: Double?
-    
+
     func body(content: Content) -> some View {
         content
             .contentTransition(.numericText(countsDown: countsDown))
@@ -45,7 +45,7 @@ private struct NumericRollTransition: ViewModifier {
                 previous = newValue
             }
     }
-    
+
     private var countsDown: Bool {
         guard let previous else {
             return false
@@ -73,13 +73,13 @@ private enum TokenCountFormatter {
             return TokenCountParts(number: String(tokens), unit: nil)
         }
     }
-    
+
     private static func decimal(_ value: Double) -> String {
         let roundingScale: Double = value >= 0.1 ? 10 : 100
         let rounded = (value * roundingScale).rounded() / roundingScale
         return formatter.string(from: NSNumber(value: rounded)) ?? String(format: "%.1f", rounded)
     }
-    
+
     private static let formatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -88,11 +88,11 @@ private enum TokenCountFormatter {
         formatter.maximumFractionDigits = 2
         return formatter
     }()
-    
+
     struct TokenCountParts {
         let number: String
         let unit: String?
-        
+
         var text: String {
             number + (unit ?? "")
         }

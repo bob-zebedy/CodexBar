@@ -7,7 +7,7 @@ final class SettingsWindowController: HostingWindowController {
     private let appUpdater: AppUpdater
     private let codexHookSettings: CodexHookSettings
     private let globalHotKeySettings: GlobalHotKeySettings
-    
+
     init(
         viewModel: CodexStatusViewModel,
         appUpdater: AppUpdater,
@@ -21,7 +21,7 @@ final class SettingsWindowController: HostingWindowController {
         self.globalHotKeySettings = globalHotKeySettings
         super.init(screenProvider: screenProvider)
     }
-    
+
     override func makeWindow() -> NSWindow {
         let hostingController = NSHostingController(
             rootView: AppSettingsView(
@@ -32,17 +32,17 @@ final class SettingsWindowController: HostingWindowController {
             .environmentObject(appUpdater)
         )
         hostingController.sizingOptions = [.preferredContentSize]
-        
+
         let window = AuxiliaryHostingWindow(contentViewController: hostingController)
         window.title = "CodexBar 设置"
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.contentMinSize = Metrics.minimumContentSize
         return window
     }
-    
+
     override func prepareForDisplay(_ window: NSWindow) {
         window.contentViewController?.view.layoutSubtreeIfNeeded()
-        
+
         if let fittingSize = window.contentViewController?.view.fittingSize,
            fittingSize.width > 0,
            fittingSize.height > 0 {
@@ -53,10 +53,10 @@ final class SettingsWindowController: HostingWindowController {
                 )
             )
         }
-        
+
         super.prepareForDisplay(window)
     }
-    
+
     private enum Metrics {
         static let minimumContentSize = NSSize(width: 420, height: 240)
     }

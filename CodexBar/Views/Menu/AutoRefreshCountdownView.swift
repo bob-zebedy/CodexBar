@@ -5,7 +5,7 @@ struct AutoRefreshCountdownTimeline: View {
     let interval: TimeInterval
     let isActive: Bool
     let color: Color
-    
+
     var body: some View {
         if isActive {
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
@@ -15,7 +15,7 @@ struct AutoRefreshCountdownTimeline: View {
             circle(now: Date())
         }
     }
-    
+
     private func circle(now: Date) -> AutoRefreshCountdownCircle {
         AutoRefreshCountdownCircle(
             startedAt: startedAt,
@@ -33,21 +33,21 @@ private struct AutoRefreshCountdownCircle: View {
     let now: Date
     let isActive: Bool
     let color: Color
-    
+
     private var progress: Double {
         guard interval > 0 else {
             return 0
         }
-        
+
         let elapsed = max(0, now.timeIntervalSince(startedAt))
         return max(0, 1 - elapsed / interval)
     }
-    
+
     var body: some View {
         ZStack {
             Circle()
                 .stroke(color.opacity(0.15), lineWidth: 1.4)
-            
+
             Circle()
                 .trim(from: 1 - progress, to: 1)
                 .stroke(
@@ -60,7 +60,7 @@ private struct AutoRefreshCountdownCircle: View {
         // 只让刷新起点变化触发动画, 避免每秒 tick 被补间
         .animation(isActive ? .linear(duration: Metrics.resetAnimationDuration) : nil, value: startedAt)
     }
-    
+
     private enum Metrics {
         static let resetAnimationDuration: TimeInterval = 0.50
     }

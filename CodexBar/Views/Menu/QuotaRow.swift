@@ -2,7 +2,7 @@ import SwiftUI
 
 struct QuotaRow: View {
     let window: QuotaWindow
-    
+
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
             Text(window.label)
@@ -11,19 +11,19 @@ struct QuotaRow: View {
                 .minimumScaleFactor(Metrics.labelMinimumScaleFactor)
                 .allowsTightening(true)
                 .frame(width: Metrics.labelWidth, alignment: .center)
-            
+
             SegmentedQuotaBar(percent: displayPercent)
                 .padding(.leading, Metrics.labelBarSpacing)
-            
+
             Text(percentText)
                 .font(.caption.monospacedDigit().weight(.semibold))
                 .foregroundStyle(percentColor)
                 .lineLimit(1)
                 .frame(width: Metrics.percentWidth, alignment: .leading)
                 .padding(.leading, Metrics.barPercentSpacing)
-            
+
             Spacer(minLength: Metrics.percentResetSpacing)
-            
+
             Text(resetText)
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
@@ -44,35 +44,35 @@ private extension QuotaRow {
         static let percentResetSpacing: CGFloat = 6
         static let resetWidth: CGFloat = 75
     }
-    
+
     var resetText: String {
         guard window.hasData, let resetsAt = window.resetsAt else {
             return "--"
         }
-        
+
         return Self.resetFormatter.string(from: resetsAt)
     }
-    
+
     var percentText: String {
         guard window.hasData else {
             return "--"
         }
-        
+
         return "\(window.remainingPercent)%"
     }
-    
+
     var displayPercent: Int? {
         window.hasData ? window.remainingPercent : nil
     }
-    
+
     var percentColor: Color {
         guard window.hasData else {
             return .secondary
         }
-        
+
         return QuotaBarPalette.filledColor(for: window.remainingPercent)
     }
-    
+
     static let resetFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -86,7 +86,7 @@ private enum QuotaBarPalette {
         guard let percent else {
             return placeholderColor
         }
-        
+
         switch percent {
         case 80...:
             return green
@@ -100,7 +100,7 @@ private enum QuotaBarPalette {
             return red
         }
     }
-    
+
     static let placeholderColor = Color(hex: 0xE5E7EB)
     private static let green = Color(hex: 0x16A085)
     private static let teal = Color(hex: 0x5DADE2)
@@ -111,10 +111,10 @@ private enum QuotaBarPalette {
 
 private struct SegmentedQuotaBar: View {
     let percent: Int?
-    
+
     var body: some View {
         let filledColor = QuotaBarPalette.filledColor(for: percent)
-        
+
         HStack(spacing: Metrics.segmentSpacing) {
             ForEach(0..<Metrics.segmentCount, id: \.self) { index in
                 Capsule(style: .continuous)
@@ -132,17 +132,17 @@ private extension SegmentedQuotaBar {
         static let segmentWidth: CGFloat = 3.5
         static let segmentSpacing: CGFloat = 2
         static let segmentHeight: CGFloat = 12
-        
+
         static var totalWidth: CGFloat {
             CGFloat(segmentCount) * segmentWidth + CGFloat(segmentCount - 1) * segmentSpacing
         }
     }
-    
+
     var filledSegments: Int {
         guard let percent else {
             return 0
         }
-        
+
         return Int((Double(percent) / 100.0 * Double(Metrics.segmentCount)).rounded())
     }
 }

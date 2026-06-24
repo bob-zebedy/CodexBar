@@ -8,7 +8,7 @@
 
 CodexBar 是一个 macOS 菜单栏应用, 使用 SwiftUI + AppKit + MVVM
 
-App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 Codex Hook 记录本机工作流事件, 并把这些数据展示在菜单栏 popover, 设置窗口和日志窗口中
+App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 Codex Hook 记录本机工作流事件, 并把这些数据展示在菜单面板, 设置窗口和日志窗口中
 
 关键边界:
 
@@ -24,10 +24,10 @@ App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 C
 | 目录                    | 职责                                                                    |
 | ----------------------- | ----------------------------------------------------------------------- |
 | `CodexBar/App/`         | SwiftUI 入口和 AppDelegate 启动分支                                     |
-| `CodexBar/Controllers/` | 菜单栏, popover, 设置窗口, 日志窗口和窗口行为                           |
+| `CodexBar/Controllers/` | 菜单栏, 菜单面板, 设置窗口, 日志窗口和窗口行为                           |
 | `CodexBar/Models/`      | account, quota, usage, workflow stats, 日期网格和错误模型               |
 | `CodexBar/Services/`    | app-server, Codex CLI 解析, 版本探测, Hook 设置, 统计维护, 更新, 登录项 |
-| `CodexBar/Views/`       | popover, 设置窗口, 日志窗口和共享 Liquid Glass 样式                     |
+| `CodexBar/Views/`       | 菜单面板, 设置窗口, 日志窗口和共享 Liquid Glass 样式                     |
 | `Docs/`                 | app-server, Hook 和开发文档                                             |
 | `Scripts/`              | DMG 和 appcast 发布脚本                                                 |
 
@@ -61,7 +61,7 @@ sequenceDiagram
     else 普通菜单栏启动
         App->>Delegate: 进入 App 启动流程
         Delegate->>Controller: 创建菜单栏控制器
-        Controller->>Controller: 安装菜单栏按钮和 popover
+        Controller->>Controller: 安装菜单栏按钮和菜单面板
         Controller->>VM: 启动自动刷新
     end
 ```
@@ -77,14 +77,14 @@ sequenceDiagram
 `StatusItemController.install()` 负责:
 
 - 配置菜单栏按钮图标, tooltip 和点击事件
-- 配置 popover 的 SwiftUI 根视图
+- 配置菜单面板的 SwiftUI 根视图
 - 订阅状态变化并切换菜单栏图标
 - 订阅全局快捷键配置并安装或移除 Carbon hot key
 - 开始每 60 秒自动刷新
 
-App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall()`, 关闭 popover, 注销全局快捷键, 移除订阅并从系统状态栏移除 status item
+App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall()`, 关闭菜单面板, 注销全局快捷键, 移除订阅并从系统状态栏移除 status item
 
-## 4. 菜单栏, Popover 与窗口流程
+## 4. 菜单栏, 菜单面板与窗口流程
 
 菜单栏按钮由 `NSStatusBar.system.statusItem(withLength:)` 创建
 
@@ -99,48 +99,51 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 
 | 操作             | 行为             |
 | ---------------- | ---------------- |
-| 左键点击         | 切换 popover     |
+| 左键点击         | 切换菜单面板     |
 | 右键点击         | 打开上下文菜单   |
 | Control + 点击   | 打开上下文菜单   |
-| 全局快捷键       | 切换 popover     |
+| 全局快捷键       | 切换菜单面板     |
 | 上下文菜单"设置" | 打开独立设置窗口 |
 | 上下文菜单"日志" | 打开独立日志窗口 |
 | 上下文菜单"退出" | 终止 App         |
 
 全局快捷键由 `GlobalHotKeySettings` 和 `GlobalHotKeyController` 管理。没有用户设置时默认注册 `⌘⇧W`; 用户清除后不注册快捷键。注册冲突时恢复到上一个已注册快捷键, 并把错误显示在设置窗口的快捷键行内。
 
-打开 popover 的顺序:
+通过全局快捷键打开菜单面板前, `StatusItemController` 会先用鼠标所在屏幕作为目标屏幕, 找不到时回退主屏幕, 再校验当前 `NSStatusBarButton` 锚点是否可信: 按钮必须有 window 和有效 screen、未隐藏且 bounds 非空, 换算后的屏幕矩形必须是有限尺寸, 宽高至少 1 px, 并且与目标屏幕范围相交。锚点可信时使用 `NSPopover` 挂在 status item 下方; 锚点不可信时使用无箭头 fallback `NSPanel`, 放在目标屏幕顶部居中位置。已打开时仍允许快捷键关闭当前面板。鼠标点击路径不做这层 fallback, 因为点击 sender 本身就是当前锚点。
+
+打开菜单面板的顺序:
 
 - 取消正在等待的延迟刷新和淡入淡出任务
+- 如果来自全局快捷键且当前状态需要打开菜单面板, 先用目标屏幕确认 status item 锚点可信; 不可信时改用同一屏幕顶部居中的 fallback `NSPanel`
 - 设置状态为 `opening`, 准备透明度淡入
-- 显示 `NSPopover`, 把 `PopoverVisibilityState.isVisible` 设为 `true`
+- 显示 `NSPopover` 或 fallback `NSPanel`, 把 `MenuSurfaceVisibilityState.isVisible` 设为 `true`
 - 调用 `refreshWorkflowStatsIfHookEnabled(performMaintenance: false)`, 只读取已有 `daily.jsonl`, 不做重维护
-- 安装 `PopoverDismissMonitor`, 监听 popover window 并只将 popover window 置前和设为 key window
+- 安装 `MenuSurfaceDismissMonitor`, 监听当前菜单面板 window 并只将当前菜单面板 window 置前和设为 key window
 - 执行 0.24 秒淡入
 - 延迟 160 ms 后调用 `viewModel.refreshIfNeeded()`
 
-关闭 popover 的顺序:
+关闭菜单面板的顺序:
 
 - 移除本地和全局事件监听
 - 将 `isVisible` 设为 `false`, 让倒计时停止 `TimelineView` 每秒 tick
-- 临时禁止设置窗口和日志窗口成为 key window, 避免关闭 popover 时 AppKit 把这些辅助窗口提到前面
+- 临时禁止设置窗口和日志窗口成为 key window, 避免关闭菜单面板时 AppKit 把这些辅助窗口提到前面
 - 默认执行 0.18 秒淡出, 无法淡出时直接关闭
-- popover 关闭后延迟 120 ms 恢复设置窗口和日志窗口的 key window 能力
+- 菜单面板关闭后延迟 120 ms 恢复设置窗口和日志窗口的 key window 能力
 
-`PopoverDismissMonitor` 监听这些 dismiss 条件:
+`MenuSurfaceDismissMonitor` 监听这些 dismiss 条件:
 
-- popover 外部鼠标点击
+- 菜单面板外部鼠标点击
 - Escape
 - Command-Tab
 - App 失去 active
 - 其他应用被激活
-- popover window 失去 key
+- 菜单面板 window 失去 key
 
-Command-Space 不直接关闭 popover, 只短暂抑制 600 ms 内的 active 变化关闭逻辑, 避免 Spotlight 或系统搜索抢焦点时误关弹窗。
+Command-Space 不直接关闭菜单面板, 只短暂抑制 600 ms 内的 active 变化关闭逻辑, 避免 Spotlight 或系统搜索抢焦点时误关弹窗。
 
 设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开对应入口时只移动和置前对应窗口。
 
-设置窗口和日志窗口使用 `AuxiliaryHostingWindow`; 窗口可以成为 key window, 但不能成为 main window。通过快捷键打开或关闭 popover 时, 只激活并置前 popover, 不主动置前已有的设置窗口或日志窗口。
+设置窗口和日志窗口使用 `AuxiliaryHostingWindow`; 窗口可以成为 key window, 但不能成为 main window。通过快捷键打开或关闭菜单面板时, 只激活并置前当前面板, 不主动置前已有的设置窗口或日志窗口。
 
 ## 5. Codex 状态刷新流程
 
@@ -148,7 +151,7 @@ Command-Space 不直接关闭 popover, 只短暂抑制 600 ms 内的 active 变�
 
 - `startAutoRefresh()` 先尝试一次 `refreshIfNeeded()`, 之后按 `autoRefreshDelay` 循环
 - 刷新间隔是 60 秒
-- `refreshIfNeeded()` 会比较 `autoRefreshCountdownStartedAt`, 避免 popover 打开和自动刷新同时触发重复请求
+- `refreshIfNeeded()` 会比较 `autoRefreshCountdownStartedAt`, 避免菜单面板打开和自动刷新同时触发重复请求
 - `refresh()` 通过 `isRefreshing` 防重入
 
 下面的时序图展示刷新, app-server 握手, 额度与用量读取, 以及常见错误后的重试或降级
@@ -355,7 +358,7 @@ codex app-server --listen stdio://
 
 错误处理的基本原则:
 
-- Popover 只展示"未登录"和"初始化失败"两类特殊状态
+- 菜单面板只展示"未登录"和"初始化失败"两类特殊状态
 - 具体启动失败, 请求失败, 超时, 断连, 解析失败和业务错误进入日志窗口
 - 账户有效时, rate limits 和 usage 可以单独失败, 失败区域按缓存或无数据处理
 - 登录项和 Hook 写入错误显示在设置窗口中部的独立错误组
@@ -432,7 +435,7 @@ Codex 版本探测错误:
 
 ## 8. Snapshot 合成流程
 
-`CodexQuotaSnapshot` 是 popover 展示 app-server 数据的唯一入口
+`CodexQuotaSnapshot` 是菜单面板展示 app-server 数据的唯一入口
 
 它由 `AccountReadResponse`, 可选的 `AccountRateLimitsResponse` 和可选的 `AccountUsageResponse` 合成
 
@@ -469,7 +472,7 @@ Codex 版本探测错误:
 - `nil` 表示未来日期或无法生成日期, UI 不绘制方块, 也不参与峰值计算
 - 今天没有 token bucket 但 Hook 开启时, 今天 token 显示 `--`
 
-## 9. Popover UI 展示流程
+## 9. 菜单面板 UI 展示流程
 
 `CodexStatusMenuView.menuWidth` 由热力图宽度和 padding 推导:
 
@@ -481,7 +484,7 @@ UI 状态分支:
 
 ```mermaid
 flowchart TD
-    Start["渲染菜单栏弹窗"] --> HasSnapshot{"是否有账号快照"}
+    Start["渲染菜单面板"] --> HasSnapshot{"是否有账号快照"}
     HasSnapshot -- "否" --> StatusCard["显示未登录或初始化失败"]
     StatusCard --> Empty["显示暂无数据面板"]
     HasSnapshot -- "是" --> Account["显示账号和计划"]
@@ -520,7 +523,7 @@ flowchart TD
 - hover 时通过 `UsageHeatmapHoverContext` 通知 `HeatmapDetailPanelController` 展示侧边详情面板
 - 指针会吸附到最近方块, 吸附动画 0.12 秒; 离开热力图后延迟 160 ms 清除选中状态
 
-热力图详情面板是 popover 的 borderless nonactivating child panel, 不接收鼠标事件, 按悬停列优先显示在 popover 左侧或右侧; 左右空间不足时尝试另一侧, 最终在当前屏幕可见区域内保留 8 px 边距。侧边切换时先以 0.12 秒抽屉动画收起, 再以 0.18 秒展开。
+热力图详情面板是菜单面板的 borderless nonactivating child panel, 不接收鼠标事件, 按悬停列优先显示在菜单面板左侧或右侧; 左右空间不足时尝试另一侧, 最终在当前屏幕可见区域内保留 8 px 边距。侧边切换时先以 0.12 秒抽屉动画收起, 再以 0.18 秒展开。
 
 详情面板分两种:
 
@@ -535,8 +538,8 @@ Hook 开启且当天没有 token bucket 时, 今天的 token 数显示 `--`。�
 更新时间行:
 
 - 显示倒计时圆环, "数据更新时间"和 `HH:mm:ss`
-- popover 可见时使用 `TimelineView(.periodic(..., by: 1))` 每秒 tick
-- popover 不可见时只渲染一次静态圆环
+- 菜单面板可见时使用 `TimelineView(.periodic(..., by: 1))` 每秒 tick
+- 菜单面板不可见时只渲染一次静态圆环
 - 普通 tick 不做连续动画, 只有刷新起点变化时播放 0.5 秒恢复动画
 - 如果 Sparkle 自动发现新版, 右侧显示 `panelUpdateMessage`, 双击该文本调用 `startUpdate()`
 
@@ -720,7 +723,7 @@ Hook 数据目录:
 
 - `refreshIfNeeded(performMaintenance: false)` 至少间隔 5 秒
 - `performMaintenance: true` 时跳过 5 秒节流, 直接刷新
-- 打开 popover 时如果 Hook 开启, 只读取现有 `daily.jsonl`, 不维护
+- 打开菜单面板时如果 Hook 开启, 只读取现有 `daily.jsonl`, 不维护
 - app-server 自动刷新倒计时重置时, 如果 Hook 开启, 触发一次带维护的 workflow stats 刷新
 
 维护流程在 `WorkflowStatsService` 的 `CodexBar.workflow-stats` 串行队列执行
@@ -866,7 +869,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区
 被动发现新版:
 
 - 自动检查发现新版时设置 `panelUpdateMessage`
-- popover 底部更新时间行显示该消息
+- 菜单面板底部更新时间行显示该消息
 - 双击消息调用 `startUpdate()`, 激活 App 并打开 Sparkle 更新流程
 
 ## 16. 日志窗口流程
@@ -895,7 +898,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区
 
 - 解析 App 路径, 未指定时从项目根查找唯一 `.app`
 - 读取 `MARKETING_VERSION`, 优先从 Xcode build settings 读取, 失败后回退 `project.pbxproj` 和 App `Info.plist`
-- 准备临时 staging 目录, 复制 `.app` 并创建 `/Applications` 符号链接
+- 准备临时 staging 目录, 复制 `.app`, 挂载后通过 Finder 创建 `/Applications` alias
 - 创建可写 DMG
 - 挂载 DMG 并用 AppleScript 写 Finder icon view 布局
 - 压缩为最终 UDZO DMG

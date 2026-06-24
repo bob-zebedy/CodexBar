@@ -5,10 +5,10 @@ import Foundation
 final class CodexHookSettings: ObservableObject {
     @Published private(set) var isEnabled = false
     @Published private(set) var errorMessage: String?
-    
+
     private let hooksURL: URL
     private let fileManager: FileManager
-    
+
     init(
         hooksURL: URL = CodexHookSettings.defaultHooksURL(),
         fileManager: FileManager = .default
@@ -16,7 +16,7 @@ final class CodexHookSettings: ObservableObject {
         self.hooksURL = hooksURL
         self.fileManager = fileManager
     }
-    
+
     func refresh() {
         do {
             let config = try readConfigIfPresent()
@@ -30,24 +30,24 @@ final class CodexHookSettings: ObservableObject {
             errorMessage = "读取 Codex Hook 配置失败: \(error.localizedDescription)"
         }
     }
-    
+
     func setEnabled(_ enabled: Bool) {
         errorMessage = nil
-        
+
         do {
             var config = try readConfigIfPresent()
             try Self.removeCodexBarHooks(
                 from: &config,
                 executablePath: currentExecutablePath
             )
-            
+
             if enabled {
                 try Self.installCodexBarHooks(
                     in: &config,
                     executablePath: currentExecutablePath
                 )
             }
-            
+
             try write(config)
             isEnabled = enabled
         } catch {
@@ -60,12 +60,12 @@ final class CodexHookSettings: ObservableObject {
 private extension CodexHookSettings {
     typealias JSONObject = [String: Any]
     typealias JSONArray = [Any]
-    
+
     enum HookConfigError: LocalizedError {
         case invalidRoot
         case invalidHooks
         case invalidEvent(String)
-        
+
         var errorDescription: String? {
             switch self {
             case .invalidRoot:
@@ -77,7 +77,7 @@ private extension CodexHookSettings {
             }
         }
     }
-    
+
     static let codexBarEvents = [
         "SessionStart",
         "UserPromptSubmit",
@@ -90,81 +90,81 @@ private extension CodexHookSettings {
         "SubagentStart",
         "SubagentStop"
     ]
-    
+
     nonisolated static func defaultHooksURL() -> URL {
         FileManager.default
             .homeDirectoryForCurrentUser
             .appendingPathComponent(".codex", isDirectory: true)
             .appendingPathComponent("hooks.json")
     }
-    
+
     var currentExecutablePath: String {
         Bundle.main.executableURL?.path
         ?? CommandLine.arguments.first
         ?? "/Applications/CodexBar.app/Contents/MacOS/CodexBar"
     }
-    
+
     func readConfigIfPresent() throws -> JSONObject {
         guard fileManager.fileExists(atPath: hooksURL.path) else {
             return [:]
         }
-        
+
         return try readConfig()
     }
-    
+
     func readConfig() throws -> JSONObject {
         let data = try Data(contentsOf: hooksURL)
         guard !data.isEmpty else {
             return [:]
         }
-        
+
         let object = try JSONSerialization.jsonObject(with: data)
         guard let config = object as? JSONObject else {
             throw HookConfigError.invalidRoot
         }
-        
+
         return config
     }
-    
+
     func write(_ config: JSONObject) throws {
         try fileManager.createDirectory(
             at: hooksURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        
+
         let data = try JSONSerialization.data(
             withJSONObject: config,
             options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         )
         try data.write(to: hooksURL, options: .atomic)
     }
-    
+
     static func containsCodexBarHooks(in config: JSONObject, executablePath: String) -> Bool {
         guard let hooks = config["hooks"] as? JSONObject else {
             return false
         }
-        
+
         return codexBarEvents.allSatisfy { event in
             guard let groups = hooks[event] as? JSONArray else {
                 return false
             }
-            
+
             return groups.contains { group in
                 guard let group = group as? JSONObject,
                       let handlers = group["hooks"] as? JSONArray else {
                     return false
                 }
-                
+
                 return handlers.contains {
                     isCurrentCodexBarHandler($0, event: event, executablePath: executablePath)
                 }
             }
         }
     }
-    
+
     static func installCodexBarHooks(in config: inout JSONObject, executablePath: String) throws {
         var hooks = try hooksObject(from: config)
-        
+
         for event in codexBarEvents {
             var groups = try eventGroups(named: event, from: hooks)
             groups.append([
@@ -178,10 +178,10 @@ private extension CodexHookSettings {
             ])
             hooks[event] = groups
         }
-        
+
         config["hooks"] = hooks
     }
-    
+
     static func removeCodexBarHooks(
         from config: inout JSONObject,
         executablePath: String
@@ -189,20 +189,20 @@ private extension CodexHookSettings {
         guard config["hooks"] != nil else {
             return
         }
-        
+
         var hooks = try hooksObject(from: config)
-        
+
         for (event, value) in hooks {
             guard let groups = value as? JSONArray else {
                 throw HookConfigError.invalidEvent(event)
             }
-            
+
             let filteredGroups = groups.compactMap { group -> Any? in
                 guard var groupObject = group as? JSONObject,
                       let handlers = groupObject["hooks"] as? JSONArray else {
                     return group
                 }
-                
+
                 let filteredHandlers = handlers.filter {
                     !isCurrentCodexBarHandler(
                         $0,
@@ -213,45 +213,45 @@ private extension CodexHookSettings {
                 guard !filteredHandlers.isEmpty else {
                     return nil
                 }
-                
+
                 groupObject["hooks"] = filteredHandlers
                 return groupObject
             }
-            
+
             if filteredGroups.isEmpty {
                 hooks.removeValue(forKey: event)
             } else {
                 hooks[event] = filteredGroups
             }
         }
-        
+
         config["hooks"] = hooks
     }
-    
+
     static func hooksObject(from config: JSONObject) throws -> JSONObject {
         guard let value = config["hooks"] else {
             return [:]
         }
-        
+
         guard let hooks = value as? JSONObject else {
             throw HookConfigError.invalidHooks
         }
-        
+
         return hooks
     }
-    
+
     static func eventGroups(named event: String, from hooks: JSONObject) throws -> JSONArray {
         guard let value = hooks[event] else {
             return []
         }
-        
+
         guard let groups = value as? JSONArray else {
             throw HookConfigError.invalidEvent(event)
         }
-        
+
         return groups
     }
-    
+
     static func isCurrentCodexBarHandler(
         _ handler: Any,
         event: String,
@@ -259,7 +259,7 @@ private extension CodexHookSettings {
     ) -> Bool {
         commandIfCommandHandler(handler) == hookCommand(for: event, executablePath: executablePath)
     }
-    
+
     // 仅当 handler 是 type == "command" 时返回其 command 字符串, 否则 nil
     private static func commandIfCommandHandler(_ handler: Any) -> String? {
         guard let handler = handler as? JSONObject,
@@ -267,14 +267,14 @@ private extension CodexHookSettings {
               let command = handler["command"] as? String else {
             return nil
         }
-        
+
         return command
     }
-    
+
     static func hookCommand(for event: String, executablePath: String) -> String {
         "\(shellQuoted(executablePath)) --hook-event \(event)"
     }
-    
+
     static func shellQuoted(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }

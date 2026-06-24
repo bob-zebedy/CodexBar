@@ -2,14 +2,14 @@ import SwiftUI
 
 struct LogView: View {
     @ObservedObject var store: RequestLogStore
-    
+
     var body: some View {
         // 整表是锁内拷贝, 每轮渲染只取一次复用
         let entries = store.entries
         VStack(spacing: 0) {
             header(entries: entries)
             Divider()
-            
+
             if entries.isEmpty {
                 emptyState
             } else {
@@ -18,24 +18,24 @@ struct LogView: View {
         }
         .frame(minWidth: 640, minHeight: 480)
     }
-    
+
     private func header(entries: [RequestLogEntry]) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "doc.text.magnifyingglass")
                 .foregroundStyle(.tint)
-            
+
             Text("Codex app-server 日志")
                 .font(.headline)
-            
+
             Text("\(entries.count)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
                 .background(Capsule().fill(.quaternary))
-            
+
             Spacer()
-            
+
             Button {
                 store.clear()
             } label: {
@@ -47,19 +47,19 @@ struct LogView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
     }
-    
+
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "tray")
                 .font(.largeTitle)
                 .foregroundStyle(.tertiary)
-            
+
             Text("暂无日志")
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    
+
     private func logList(entries: [RequestLogEntry]) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
@@ -76,7 +76,7 @@ struct LogView: View {
 private struct LogRow: View {
     let entry: RequestLogEntry
     @State private var isExpanded = false
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -87,13 +87,13 @@ private struct LogRow: View {
                 summary
             }
             .buttonStyle(.plain)
-            
+
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
                     if let request = entry.request {
                         payloadBlock(caption: "请求", time: entry.requestedAt, text: request, color: .primary)
                     }
-                    
+
                     if let detail = entry.detail {
                         payloadBlock(
                             caption: detailCaption,
@@ -115,7 +115,7 @@ private struct LogRow: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
     }
-    
+
     private var summary: some View {
         HStack(spacing: 8) {
             Image(systemName: "chevron.right")
@@ -123,11 +123,11 @@ private struct LogRow: View {
                 .foregroundStyle(.secondary)
                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 .frame(width: 12)
-            
+
             Text(Self.timeFormatter.string(from: entry.requestedAt))
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
-            
+
             Text(entry.kind.label)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(entry.kind.tint)
@@ -137,7 +137,7 @@ private struct LogRow: View {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .fill(entry.kind.tint.opacity(0.14))
                 )
-            
+
             if let method = entry.method {
                 Text(method)
                     .font(.caption.weight(.medium).monospaced())
@@ -150,26 +150,26 @@ private struct LogRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            
+
             Spacer(minLength: 0)
         }
         .contentShape(Rectangle())
     }
-    
+
     private func payloadBlock(caption: String, time: Date?, text: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
                 Text(caption)
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.tertiary)
-                
+
                 if let time {
                     Text(Self.timeFormatter.string(from: time))
                         .font(.caption2.monospaced())
                         .foregroundStyle(.tertiary)
                 }
             }
-            
+
             Text(text)
                 .font(.caption.monospaced())
                 .foregroundStyle(color)
@@ -178,7 +178,7 @@ private struct LogRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
-    
+
     private var detailCaption: String {
         switch entry.kind {
         case .response, .emptyResponse:
@@ -189,7 +189,7 @@ private struct LogRow: View {
             return "详情"
         }
     }
-    
+
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -211,7 +211,7 @@ private extension RequestLogEntry.Kind {
             return "请求"
         }
     }
-    
+
     var tint: Color {
         switch self {
         case .pending:

@@ -2,20 +2,20 @@ import Combine
 import SwiftUI
 
 @MainActor
-final class PopoverVisibilityState: ObservableObject {
+final class MenuSurfaceVisibilityState: ObservableObject {
     @Published var isVisible = false
 }
 
 struct CodexStatusMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + MenuMetrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
-    
+
     @ObservedObject var viewModel: CodexStatusViewModel
     @ObservedObject var workflowStatsViewModel: WorkflowStatsViewModel
     @ObservedObject var codexHookSettings: CodexHookSettings
-    @ObservedObject var popoverVisibility: PopoverVisibilityState
+    @ObservedObject var menuSurfaceVisibility: MenuSurfaceVisibilityState
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
     @EnvironmentObject private var appUpdater: AppUpdater
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.verticalSpacing) {
             content
@@ -36,7 +36,7 @@ private extension CodexStatusMenuView {
         static let verticalSpacing: CGFloat = 10
         static let statusAnimation = Animation.codexStatus
     }
-    
+
     @ViewBuilder
     var content: some View {
         if let snapshot = viewModel.snapshot {
@@ -47,7 +47,7 @@ private extension CodexStatusMenuView {
                 isRefreshing: viewModel.isRefreshing,
                 onRefresh: viewModel.refresh
             )
-            
+
             dataSection(snapshot)
         } else {
             // 仅展示未登录 / 初始化失败两种特殊状态, 其余错误只进日志
@@ -59,7 +59,7 @@ private extension CodexStatusMenuView {
             EmptyDataPanel()
         }
     }
-    
+
     @ViewBuilder
     func dataSection(_ snapshot: CodexQuotaSnapshot) -> some View {
         if snapshot.limits.isEmpty, snapshot.usage == nil {
@@ -68,7 +68,7 @@ private extension CodexStatusMenuView {
             if !snapshot.limits.isEmpty {
                 QuotaLimitsSection(limits: snapshot.limits, isStale: snapshot.isRateLimitsStale)
             }
-            
+
             if let usage = snapshot.usage {
                 UsageSummaryView(
                     usage: usage,
@@ -79,19 +79,19 @@ private extension CodexStatusMenuView {
                 )
             }
         }
-        
+
         updatedAtRow(for: snapshot)
             .padding(.horizontal, Metrics.panelPadding)
             .padding(.vertical, 7)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
     }
-    
+
     func updatedAtRow(for snapshot: CodexQuotaSnapshot) -> some View {
         UpdatedAtRow(
             snapshot: snapshot,
             countdownStartedAt: viewModel.autoRefreshCountdownStartedAt ?? snapshot.generatedAt,
             countdownInterval: viewModel.autoRefreshInterval,
-            isCountdownActive: popoverVisibility.isVisible,
+            isCountdownActive: menuSurfaceVisibility.isVisible,
             updateMessage: appUpdater.panelUpdateMessage,
             startUpdate: appUpdater.startUpdate
         )

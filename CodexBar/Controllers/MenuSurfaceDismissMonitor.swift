@@ -1,52 +1,55 @@
 import AppKit
 
 @MainActor
-final class PopoverDismissMonitor {
-    private let popover: NSPopover
+final class MenuSurfaceDismissMonitor {
+    private let isPresented: () -> Bool
+    private let windowProvider: () -> NSWindow?
     private let statusButtonProvider: () -> NSStatusBarButton?
     private var localEventMonitor: Any?
     private var globalMouseEventMonitor: Any?
     private var appResignActiveObserver: NSObjectProtocol?
     private var workspaceActivateObserver: NSObjectProtocol?
-    private var popoverWindowResignKeyObserver: NSObjectProtocol?
+    private var activeMenuSurfaceWindowResignKeyObserver: NSObjectProtocol?
     private var deferredWindowFocusTask: Task<Void, Never>?
     private var suppressActivationDismissTask: Task<Void, Never>?
     private var suppressesActivationDismiss = false
     private var onDismiss: (() -> Void)?
-    
+
     init(
-        popover: NSPopover,
+        isPresented: @escaping () -> Bool,
+        windowProvider: @escaping () -> NSWindow?,
         statusButtonProvider: @escaping () -> NSStatusBarButton?
     ) {
-        self.popover = popover
+        self.isPresented = isPresented
+        self.windowProvider = windowProvider
         self.statusButtonProvider = statusButtonProvider
     }
-    
+
     func install(onDismiss: @escaping () -> Void) {
         remove()
         self.onDismiss = onDismiss
-        
+
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: Metrics.dismissEventMask) { [weak self] event in
             guard let self else {
                 return event
             }
-            
+
             if self.handleKeyEvent(event) {
                 return nil
             }
-            
+
             self.dismissIfNeeded(for: event)
-            self.restabilizePopoverChromeAfterEvent()
+            self.restabilizeActiveMenuSurfaceChromeAfterEvent()
             return event
         }
-        
+
         globalMouseEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: Metrics.mouseDismissEventMask) { [weak self] _ in
             let screenPoint = NSEvent.mouseLocation
             Task { @MainActor [weak self, screenPoint] in
                 self?.dismissIfNeeded(at: screenPoint)
             }
         }
-        
+
         appResignActiveObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.willResignActiveNotification,
             object: NSApplication.shared,
@@ -56,7 +59,7 @@ final class PopoverDismissMonitor {
                 self?.scheduleDismissForActivationChange()
             }
         }
-        
+
         workspaceActivateObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
@@ -65,23 +68,23 @@ final class PopoverDismissMonitor {
             let activatedProcessIdentifier = (
                 notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             )?.processIdentifier
-            
+
             Task { @MainActor [weak self, activatedProcessIdentifier] in
                 self?.dismissIfDifferentApplication(processIdentifier: activatedProcessIdentifier)
             }
         }
-        
-        installPopoverWindowObserverAndFocus()
+
+        installActiveMenuSurfaceWindowObserverAndFocus()
         deferredWindowFocusTask = Task { @MainActor [weak self] in
             await Task.yield()
-            guard let self, !Task.isCancelled, self.popover.isShown else {
+            guard let self, !Task.isCancelled, self.isPresented() else {
                 return
             }
-            
-            self.installPopoverWindowObserverAndFocus()
+
+            self.installActiveMenuSurfaceWindowObserverAndFocus()
         }
     }
-    
+
     func remove() {
         onDismiss = nil
         deferredWindowFocusTask?.cancel()
@@ -93,23 +96,23 @@ final class PopoverDismissMonitor {
         removeEventMonitor(&globalMouseEventMonitor)
         removeObserver(&appResignActiveObserver)
         removeObserver(&workspaceActivateObserver, center: NSWorkspace.shared.notificationCenter)
-        removeObserver(&popoverWindowResignKeyObserver)
+        removeObserver(&activeMenuSurfaceWindowResignKeyObserver)
     }
-    
-    private func installPopoverWindowObserverAndFocus() {
-        installPopoverWindowObserver()
-        focusPopoverWindow()
+
+    private func installActiveMenuSurfaceWindowObserverAndFocus() {
+        installActiveMenuSurfaceWindowObserver()
+        focusActiveMenuSurfaceWindow()
     }
-    
-    private func installPopoverWindowObserver() {
-        removeObserver(&popoverWindowResignKeyObserver)
-        guard let popoverWindow = popover.contentViewController?.view.window else {
+
+    private func installActiveMenuSurfaceWindowObserver() {
+        removeObserver(&activeMenuSurfaceWindowResignKeyObserver)
+        guard let activeMenuSurfaceWindow = windowProvider() else {
             return
         }
-        
-        popoverWindowResignKeyObserver = NotificationCenter.default.addObserver(
+
+        activeMenuSurfaceWindowResignKeyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
-            object: popoverWindow,
+            object: activeMenuSurfaceWindow,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -117,59 +120,59 @@ final class PopoverDismissMonitor {
             }
         }
     }
-    
+
     private nonisolated func scheduleDismiss() {
         Task { @MainActor [weak self] in
             self?.dismiss()
         }
     }
-    
+
     private func scheduleDismissForActivationChange() {
         guard !suppressesActivationDismiss else {
             return
         }
-        
+
         scheduleDismiss()
     }
-    
+
     private func dismiss() {
-        guard popover.isShown else {
+        guard isPresented() else {
             return
         }
-        
+
         onDismiss?()
     }
-    
+
     private func dismissIfDifferentApplication(processIdentifier: pid_t?) {
         guard !suppressesActivationDismiss else {
             return
         }
-        
+
         if let processIdentifier, processIdentifier == NSRunningApplication.current.processIdentifier {
             return
         }
-        
+
         dismiss()
     }
-    
-    private func focusPopoverWindow() {
-        guard popover.isShown,
-              let popoverWindow = popover.contentViewController?.view.window else {
+
+    private func focusActiveMenuSurfaceWindow() {
+        guard isPresented(),
+              let activeMenuSurfaceWindow = windowProvider() else {
             return
         }
-        
-        popoverWindow.orderFrontRegardless()
+
+        activeMenuSurfaceWindow.orderFrontRegardless()
         NSRunningApplication.current.activate(options: [])
-        popoverWindow.makeKeyAndOrderFront(nil)
+        activeMenuSurfaceWindow.makeKeyAndOrderFront(nil)
     }
-    
+
     private func removeEventMonitor(_ monitor: inout Any?) {
         if let currentMonitor = monitor {
             NSEvent.removeMonitor(currentMonitor)
             monitor = nil
         }
     }
-    
+
     private func removeObserver(
         _ observer: inout NSObjectProtocol?,
         center: NotificationCenter = .default
@@ -179,31 +182,31 @@ final class PopoverDismissMonitor {
             observer = nil
         }
     }
-    
+
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
-        guard popover.isShown, event.type == .keyDown else {
+        guard isPresented(), event.type == .keyDown else {
             return false
         }
-        
+
         if event.keyCode == Metrics.escapeKeyCode {
             dismiss()
             return true
         }
-        
+
         if isCommandShortcut(event, keyCode: Metrics.tabKeyCode) {
             dismiss()
         } else if isCommandShortcut(event, keyCode: Metrics.spaceKeyCode) {
             suppressNextActivationDismiss()
         }
-        
+
         return false
     }
-    
+
     private func isCommandShortcut(_ event: NSEvent, keyCode: UInt16) -> Bool {
         let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         return modifierFlags.contains(.command) && event.keyCode == keyCode
     }
-    
+
     private func suppressNextActivationDismiss() {
         suppressActivationDismissTask?.cancel()
         suppressesActivationDismiss = true
@@ -212,32 +215,32 @@ final class PopoverDismissMonitor {
             guard let self, !Task.isCancelled else {
                 return
             }
-            
+
             self.suppressesActivationDismiss = false
             self.suppressActivationDismissTask = nil
         }
     }
-    
+
     private func dismissIfNeeded(for event: NSEvent) {
-        guard popover.isShown, isMouseDismissEvent(event) else {
+        guard isPresented(), isMouseDismissEvent(event) else {
             return
         }
-        
+
         dismissIfNeeded(at: screenPoint(for: event))
     }
-    
+
     private func dismissIfNeeded(at screenPoint: NSPoint) {
-        guard popover.isShown else {
+        guard isPresented() else {
             return
         }
-        
-        if isScreenPointInsidePopover(screenPoint) || isScreenPointInsideStatusButton(screenPoint) {
+
+        if isScreenPointInsideActiveMenuSurface(screenPoint) || isScreenPointInsideStatusButton(screenPoint) {
             return
         }
-        
+
         dismiss()
     }
-    
+
     private func isMouseDismissEvent(_ event: NSEvent) -> Bool {
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
@@ -246,61 +249,61 @@ final class PopoverDismissMonitor {
             return false
         }
     }
-    
-    private func restabilizePopoverChromeAfterEvent() {
+
+    private func restabilizeActiveMenuSurfaceChromeAfterEvent() {
         Task { @MainActor [weak self] in
             await Task.yield()
-            guard let self, self.popover.isShown else {
+            guard let self, self.isPresented() else {
                 return
             }
-            
-            self.stabilizePopoverChromeAppearance()
+
+            self.stabilizeActiveMenuSurfaceChromeAppearance()
         }
     }
-    
-    private func stabilizePopoverChromeAppearance() {
-        guard let rootView = popover.contentViewController?.view.window?.contentView else {
+
+    private func stabilizeActiveMenuSurfaceChromeAppearance() {
+        guard let rootView = windowProvider()?.contentView else {
             return
         }
-        
-        // NSPopover 会在点击后重新强调 NSVisualEffectView, 这里固定为 inactive 避免背景明暗跳变
+
+        // AppKit 会在点击后重新强调 NSVisualEffectView, 这里固定为 inactive 避免背景明暗跳变
         stabilizeVisualEffectViews(in: rootView)
     }
-    
+
     private func stabilizeVisualEffectViews(in view: NSView) {
         if let visualEffectView = view as? NSVisualEffectView {
             visualEffectView.state = .inactive
             visualEffectView.isEmphasized = false
         }
-        
+
         for subview in view.subviews {
             stabilizeVisualEffectViews(in: subview)
         }
     }
-    
+
     private func screenPoint(for event: NSEvent) -> NSPoint {
         event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
     }
-    
-    private func isScreenPointInsidePopover(_ screenPoint: NSPoint) -> Bool {
-        guard let popoverWindow = popover.contentViewController?.view.window else {
+
+    private func isScreenPointInsideActiveMenuSurface(_ screenPoint: NSPoint) -> Bool {
+        guard let activeMenuSurfaceWindow = windowProvider() else {
             return false
         }
-        
-        return popoverWindow.frame.contains(screenPoint)
+
+        return activeMenuSurfaceWindow.frame.contains(screenPoint)
     }
-    
+
     private func isScreenPointInsideStatusButton(_ screenPoint: NSPoint) -> Bool {
         guard let button = statusButtonProvider(),
               let buttonWindow = button.window else {
             return false
         }
-        
+
         let buttonRectInWindow = button.convert(button.bounds, to: nil)
         let buttonScreenRect = buttonWindow.convertToScreen(buttonRectInWindow)
         return buttonScreenRect.contains(screenPoint)
     }
-    
+
     private enum Metrics {
         static let mouseDismissEventMask: NSEvent.EventTypeMask = [
             .leftMouseDown,

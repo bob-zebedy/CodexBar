@@ -8,7 +8,7 @@ extension Color {
     // 某些自定义 View 需要具体 Color, 不能直接使用 .primary/.secondary 这类 ShapeStyle
     static let codexLabel = Color(nsColor: .labelColor)
     static let codexSecondaryLabel = Color(nsColor: .secondaryLabelColor)
-    
+
     init(hex: Int) {
         self.init(
             red: Double((hex >> 16) & 0xFF) / 255.0,
@@ -33,7 +33,7 @@ extension View {
             isOuterSurface: isOuterSurface
         )
     }
-    
+
     func liquidGlassSurface(
         cornerRadii: RectangleCornerRadii,
         isOuterSurface: Bool = false
@@ -45,13 +45,13 @@ extension View {
             )
         }
     }
-    
+
     func liquidGlassCapsule(tint: Color) -> some View {
         background {
             LiquidGlassCapsule(tint: tint)
         }
     }
-    
+
     // 数据为缓存回退(本轮刷新失败)时弱化显示
     func markStale(_ isStale: Bool) -> some View {
         opacity(isStale ? 0.55 : 1)
@@ -81,27 +81,27 @@ private struct LiquidGlassSurface: View {
     let cornerRadii: RectangleCornerRadii
     let isOuterSurface: Bool
     @Environment(\.colorScheme) private var colorScheme
-    
+
     var body: some View {
         let shape = UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous)
-        
+
         ZStack {
             shape
                 .fill(baseFill)
-            
+
             shape
                 .fill(highlightFill)
                 .blendMode(.plusLighter)
-            
+
             LiquidGlassFrostedTexture(isOuterSurface: isOuterSurface)
                 .clipShape(shape)
-            
+
             shape
                 .strokeBorder(
                     borderColor,
                     lineWidth: isOuterSurface ? 1.0 : 0.8
                 )
-            
+
             shape
                 .strokeBorder(rimHighlightColor, lineWidth: rimLineWidth)
                 .shadow(
@@ -116,7 +116,7 @@ private struct LiquidGlassSurface: View {
                     x: 0,
                     y: isOuterSurface ? 0.6 : 1.0
                 )
-            
+
             LiquidGlassSpecular(cornerRadii: cornerRadii)
                 .opacity(isOuterSurface ? 0.82 : 0.64)
         }
@@ -139,63 +139,63 @@ private struct LiquidGlassSurface: View {
             y: isOuterSurface ? 0 : 2
         )
     }
-    
+
     private var baseFill: Color {
         baseColor.opacity(0.6)
     }
-    
+
     private var highlightFill: Color {
         .white.opacity(isOuterSurface ? 0.12 : 0.14)
     }
-    
+
     private var borderColor: Color {
         .white.opacity(isOuterSurface ? 0.34 : 0.28)
     }
-    
+
     private var rimHighlightColor: Color {
         .white.opacity(isOuterSurface ? 0.36 : 0.50)
     }
-    
+
     private var rimLightShadowColor: Color {
         .white.opacity(colorScheme == .dark ? 0.05 : 0.20)
     }
-    
+
     private var rimDarkShadowColor: Color {
         .black.opacity(colorScheme == .dark ? 0.28 : 0.12)
     }
-    
+
     private var rimLineWidth: CGFloat {
         isOuterSurface ? 0.8 : 1.1
     }
-    
+
     private var baseColor: Color {
         if colorScheme == .dark {
             return isOuterSurface
             ? Color(red: 0.07, green: 0.08, blue: 0.095)
             : Color(red: 0.16, green: 0.18, blue: 0.20)
         }
-        
+
         return isOuterSurface
         ? Color(red: 0.97, green: 0.985, blue: 1.0)
         : Color.white
     }
-    
+
     private var raisedHighlightShadowColor: Color {
         if colorScheme == .dark {
             return .white.opacity(0.08)
         }
-        
+
         return .white.opacity(0.46)
     }
-    
+
     private var ambientShadowColor: Color {
         if isOuterSurface {
             return .black.opacity(0.16)
         }
-        
+
         return .black.opacity(colorScheme == .dark ? 0.34 : 0.18)
     }
-    
+
     private var contactShadowColor: Color {
         .black.opacity(colorScheme == .dark ? 0.20 : 0.08)
     }
@@ -204,7 +204,7 @@ private struct LiquidGlassSurface: View {
 private struct LiquidGlassFrostedTexture: View {
     let isOuterSurface: Bool
     @Environment(\.colorScheme) private var colorScheme
-    
+
     var body: some View {
         Canvas(opaque: false, rendersAsynchronously: true) { context, size in
             let step: CGFloat = isOuterSurface ? 4 : 3
@@ -212,7 +212,7 @@ private struct LiquidGlassFrostedTexture: View {
             let rows = max(Int((size.height / step).rounded(.up)), 0)
             let baseOpacity = colorScheme == .dark ? 0.035 : 0.045
             let outerScale = isOuterSurface ? 0.75 : 1
-            
+
             for row in 0..<rows {
                 for column in 0..<columns {
                     let sample = Self.noise(column: column, row: row)
@@ -231,14 +231,14 @@ private struct LiquidGlassFrostedTexture: View {
                         width: 1,
                         height: 1
                     )
-                    
+
                     context.fill(Path(rect), with: .color(color))
                 }
             }
         }
         .allowsHitTesting(false)
     }
-    
+
     private nonisolated static func noise(column: Int, row: Int) -> Double {
         var value = UInt64(column) &* 0x9E3779B185EBCA87
         value ^= UInt64(row) &* 0xC2B2AE3D27D4EB4F
@@ -254,7 +254,7 @@ private struct LiquidGlassFrostedTexture: View {
 private struct LiquidGlassCapsule: View {
     let tint: Color
     @Environment(\.colorScheme) private var colorScheme
-    
+
     var body: some View {
         Capsule(style: .continuous)
             .fill(baseFill)
@@ -282,7 +282,7 @@ private struct LiquidGlassCapsule: View {
                     .clipShape(Capsule(style: .continuous))
             }
     }
-    
+
     private var baseFill: LinearGradient {
         LinearGradient(
             colors: [
@@ -293,7 +293,7 @@ private struct LiquidGlassCapsule: View {
             endPoint: .bottomTrailing
         )
     }
-    
+
     private var baseColor: Color {
         colorScheme == .dark
         ? Color(red: 0.16, green: 0.18, blue: 0.20)
@@ -303,7 +303,7 @@ private struct LiquidGlassCapsule: View {
 
 private struct LiquidGlassSpecular: View {
     let cornerRadii: RectangleCornerRadii
-    
+
     var body: some View {
         UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous)
             .strokeBorder(
