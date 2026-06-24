@@ -7,26 +7,26 @@ nonisolated enum CodexFetchOutcome {
     case initializationFailed
 }
 
-private enum ConnectionResolution {
+private nonisolated enum ConnectionResolution {
     case ready(connection: AppServerConnection, reused: Bool)
     case notLoggedIn
     case initializationFailed
 }
 
 // 单接口读取结果按后续动作分类: 跳过、刷新认证、重建连接
-private enum ReadResult<Value> {
+private nonisolated enum ReadResult<Value> {
     case value(Value)
     case skipped(ReadSkipReason)
     case authRequired
     case broken
 }
 
-private enum ReadSkipReason {
+private nonisolated enum ReadSkipReason {
     case requestFailed
     case methodUnsupported
 }
 
-private enum FetchFailure: Error {
+private nonisolated enum FetchFailure: Error {
     case notLoggedIn
     case needsRebuild
 }
@@ -76,14 +76,12 @@ private nonisolated extension ReadResult {
 }
 
 /// 维持一条 codex app-server stdio 会话, 复用失败后按需重建
-final nonisolated class CodexStatusService: @unchecked Sendable {
+actor CodexStatusService {
     private static let requestTimeout: TimeInterval = 20
     // 定期回收连接, 让后台升级后的 codex 二进制有机会生效
     private static let connectionMaxAge: TimeInterval = 1 * 60 * 60
     private static let environment = CodexCLIResolver.environment
 
-    // connection 只在这个队列上访问
-    private let queue = DispatchQueue(label: "CodexBar.app-server", qos: .utility)
     private var connection: AppServerConnection?
     private var supplementalDataCache = SupplementalDataCache()
 
@@ -96,64 +94,34 @@ final nonisolated class CodexStatusService: @unchecked Sendable {
         _ = Self.ignoreBrokenPipeSignal
     }
 
-    deinit {
-        connection?.session.close()
-    }
-
     func fetchOutcome() async -> CodexFetchOutcome {
-        await withCheckedContinuation { continuation in
-            queue.async {
-                continuation.resume(returning: self.resolveOutcomeOnQueue(allowRebuild: true))
-            }
-        }
+        resolveOutcome(allowRebuild: true)
     }
 
     func currentConnectionInfo() async -> CodexCLIConnectionInfo? {
-        await withCheckedContinuation { continuation in
-            queue.async {
-                continuation.resume(returning: self.currentConnectionInfoOnQueue())
-            }
-        }
+        currentConnectionInfoSnapshot()
     }
 
     func readCodexConfig() async throws -> CodexConfigReadResponse {
-        try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                do {
-                    let connection = try self.readyConnectionOnQueue()
-                    let response = try connection.session.request(
-                        "config/read",
-                        params: ["includeLayers": false],
-                        as: CodexConfigReadResponse.self
-                    )
-                    continuation.resume(returning: response)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        let connection = try readyConnection()
+        return try connection.session.request(
+            "config/read",
+            params: ["includeLayers": false],
+            as: CodexConfigReadResponse.self
+        )
     }
 
     func listCodexHooks(cwds: [String]) async throws -> CodexHooksListResponse {
-        try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                do {
-                    let connection = try self.readyConnectionOnQueue()
-                    let response = try connection.session.request(
-                        "hooks/list",
-                        params: ["cwds": cwds],
-                        as: CodexHooksListResponse.self
-                    )
-                    continuation.resume(returning: response)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        let connection = try readyConnection()
+        return try connection.session.request(
+            "hooks/list",
+            params: ["cwds": cwds],
+            as: CodexHooksListResponse.self
+        )
     }
 
     /// 复用连接出现传输故障时只重建重试一次, 避免故障状态下反复拉起进程
-    private func resolveOutcomeOnQueue(allowRebuild: Bool) -> CodexFetchOutcome {
+    private func resolveOutcome(allowRebuild: Bool) -> CodexFetchOutcome {
         switch ensureConnection() {
         case .notLoggedIn:
             return .notLoggedIn
@@ -170,7 +138,7 @@ final nonisolated class CodexStatusService: @unchecked Sendable {
             } catch FetchFailure.needsRebuild {
                 teardownConnection()
                 if reused, allowRebuild {
-                    return resolveOutcomeOnQueue(allowRebuild: false)
+                    return resolveOutcome(allowRebuild: false)
                 }
                 return .initializationFailed
             } catch {
@@ -180,7 +148,7 @@ final nonisolated class CodexStatusService: @unchecked Sendable {
         }
     }
 
-    private func readyConnectionOnQueue() throws -> AppServerConnection {
+    private func readyConnection() throws -> AppServerConnection {
         switch ensureConnection() {
         case let .ready(connection, _):
             return connection
@@ -203,7 +171,7 @@ final nonisolated class CodexStatusService: @unchecked Sendable {
         do {
             command = try CodexCLIResolver.resolveAppServerCommand(environment: Self.environment)
         } catch {
-            RequestLogStore.shared.recordFailure(message: error.localizedDescription)
+            RequestLogStorage.shared.recordFailure(message: error.localizedDescription)
             return .initializationFailed
         }
 
@@ -220,11 +188,11 @@ final nonisolated class CodexStatusService: @unchecked Sendable {
     }
 
     private func teardownConnection() {
-        connection?.session.close()
+        connection?.close()
         connection = nil
     }
 
-    private func currentConnectionInfoOnQueue() -> CodexCLIConnectionInfo? {
+    private func currentConnectionInfoSnapshot() -> CodexCLIConnectionInfo? {
         guard let connection, connection.session.process.isRunning else {
             return nil
         }
@@ -395,7 +363,7 @@ final nonisolated class CodexStatusService: @unchecked Sendable {
         do {
             try process.run()
         } catch {
-            RequestLogStore.shared.recordFailure(message: "app-server 启动失败: \(error.localizedDescription)")
+            RequestLogStorage.shared.recordFailure(message: "app-server 启动失败: \(error.localizedDescription)")
             return .initializationFailed
         }
         let openedAt = Date()
@@ -479,6 +447,7 @@ private final nonisolated class AppServerConnection {
     let session: AppServerSession
     let commandInfo: CodexCLIConnectionInfo
     var accountResponse: AccountReadResponse
+    private var isClosed = false
 
     var openedAt: Date {
         commandInfo.openedAt
@@ -492,6 +461,19 @@ private final nonisolated class AppServerConnection {
         self.session = session
         self.accountResponse = accountResponse
         self.commandInfo = commandInfo
+    }
+
+    deinit {
+        close()
+    }
+
+    func close() {
+        guard !isClosed else {
+            return
+        }
+
+        isClosed = true
+        session.close()
     }
 }
 

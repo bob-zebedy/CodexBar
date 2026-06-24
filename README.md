@@ -55,7 +55,7 @@ CodexBar 可以在设置中开启「启用 Codex Hook」
 每个事件都会追加一个 `command` 类型的 Hook，命令形如:
 
 ```bash
-'/Applications/CodexBar.app/Contents/MacOS/CodexBar'
+'/Applications/CodexBar.app/Contents/MacOS/CodexBar' --hook-event
 ```
 
 开启后，用量热力图会包含今天；鼠标悬停到任意一天时，弹窗会在 token 数之外展示当天的会话总数、对话轮次、子智能体、工具调用、权限请求和上下文压缩次数。关闭 Hook 时，弹窗只展示日期和 token 数；如果 app-server 尚未返回当天 token 数据，热力图不会额外占位展示今天。
@@ -66,13 +66,15 @@ CodexBar 只会追加或移除 command 中包含当前 CodexBar 可执行路径�
 
 ## 从源码构建
 
+项目使用 Swift 6、SwiftUI + AppKit + MVVM，依赖 Sparkle (SwiftPM)。
+
 ```bash
 git clone git@github.com:bob-zebedy/CodexBar.git
 cd CodexBar
 xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build
 ```
 
-也可以直接用 Xcode 打开 `CodexBar.xcodeproj` 运行。项目使用 SwiftUI + MVVM 依赖 Sparkle (SwiftPM)
+也可以直接用 Xcode 打开 `CodexBar.xcodeproj` 运行。
 
 ## 源码结构
 
@@ -81,7 +83,7 @@ Swift 源码按职责放在 `CodexBar/` 下的子目录中:
 - `App/`: 应用入口
 - `Controllers/`: 菜单栏、菜单面板和独立窗口控制器
 - `Models/`: account、quota、usage、工作流统计、共享日期网格和错误分类模型
-- `Services/`: app-server 会话、Codex CLI 解析、版本探测、Hook 设置、工作流统计、开机自启和 Sparkle 更新
+- `Services/`: actor 隔离的 app-server 会话、Codex CLI 解析、版本探测、Hook 设置、工作流统计、日志存储、开机自启和 Sparkle 更新
 - `Views/`: 菜单面板、设置窗口、日志窗口和共享 Liquid Glass 样式
 
 更详细的启动、刷新、Hook 统计、设置、日志、更新和发布流程见 [开发文档](Docs/DevelopmentGuide.md)。

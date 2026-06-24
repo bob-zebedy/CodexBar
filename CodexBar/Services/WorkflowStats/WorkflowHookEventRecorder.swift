@@ -2,13 +2,18 @@ import Darwin
 import Foundation
 
 nonisolated enum WorkflowHookEventRecorder {
+    static let hookArgument = "--hook-event"
+
     static func handleIfRequested() -> Bool {
+        guard CommandLine.arguments.contains(hookArgument) else {
+            return false
+        }
+
         let payload = stdinPayload()
 
         guard let eventName = payload.string(for: "hook_event_name") else {
-            // 如果 Codex 已经通过 stdin 传了内容但事件名缺失, 吞掉本次 Hook
-            // 避免 Hook 子进程继续启动完整菜单栏 App
-            return payload.hasInput
+            // 显式 Hook 模式下吞掉无效输入, 避免 Hook 子进程继续启动完整菜单栏 App
+            return true
         }
 
         try? record(payload: payload, eventName: eventName)
@@ -70,26 +75,25 @@ nonisolated enum WorkflowHookEventRecorder {
 
     private static func stdinPayload() -> WorkflowHookPayload {
         guard isatty(STDIN_FILENO) == 0 else {
-            return WorkflowHookPayload(values: [:], hasInput: false)
+            return WorkflowHookPayload(values: [:])
         }
 
         let data = FileHandle.standardInput.readDataToEndOfFile()
         guard !data.isEmpty else {
-            return WorkflowHookPayload(values: [:], hasInput: false)
+            return WorkflowHookPayload(values: [:])
         }
 
         guard let object = try? JSONSerialization.jsonObject(with: data),
               let values = object as? [String: Any] else {
-            return WorkflowHookPayload(values: [:], hasInput: true)
+            return WorkflowHookPayload(values: [:])
         }
 
-        return WorkflowHookPayload(values: values, hasInput: true)
+        return WorkflowHookPayload(values: values)
     }
 }
 
 private nonisolated struct WorkflowHookPayload {
     let values: [String: Any]
-    let hasInput: Bool
 
     func string(for key: String) -> String? {
         Self.normalizedString(values[key])
@@ -130,14 +134,14 @@ private nonisolated struct WorkflowHookPayload {
             return nil
         }
 
-        if let date = ISO8601DateFormatter.codexFractional.date(from: trimmedString) {
+        if let date = CodexDateFormat.iso8601FractionalDate(from: trimmedString) {
             return date
         }
 
-        if let date = DateFormatter.codexLocalTimestamp.date(from: trimmedString) {
+        if let date = CodexDateFormat.localTimestampDate(from: trimmedString) {
             return date
         }
 
-        return ISO8601DateFormatter.codexInternetDateTime.date(from: trimmedString)
+        return CodexDateFormat.iso8601InternetDateTimeDate(from: trimmedString)
     }
 }

@@ -27,7 +27,7 @@ nonisolated struct CodexUsageSnapshot: Equatable {
     let dailyBuckets: [DailyUsageBucket]
 
     func tokenCount(on date: Date) -> Int? {
-        let startDate = DateFormatter.codexDay.string(from: date)
+        let startDate = CodexDateFormat.dayString(from: date)
         return tokensByDate[startDate]
     }
 
@@ -41,7 +41,7 @@ nonisolated struct CodexUsageSnapshot: Equatable {
         )
         .map { date in
             date.map {
-                let startDate = DateFormatter.codexDay.string(from: $0)
+                let startDate = CodexDateFormat.dayString(from: $0)
                 return DailyUsageBucket(
                     startDate: startDate,
                     tokens: tokenCountsByDate[startDate] ?? 0

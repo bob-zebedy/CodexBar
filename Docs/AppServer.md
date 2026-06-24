@@ -89,6 +89,8 @@ Invalid request: unknown variant
 - 全新连接初始化失败直接返回「初始化失败」，不重复完整握手。
 - 关闭会话时先停止 stdout/stderr reader 并关闭 stdin，然后对 app-server 进程执行有界退出: 先 `terminate()` 等待 1 秒，仍未退出再 `SIGKILL` 并等待 0.5 秒；被强制结束或仍未退出时写入请求日志。
 
+`CodexStatusService` 是 actor，app-server 连接、补充数据缓存和重建策略都在 actor 隔离内串行访问。stdout 的 `JSONLineReader` 和 stderr 的 `PipeDrain` 共用底层 `PipeReadBuffer`，把 `FileHandle`、`DispatchSourceRead` 和 semaphore 这些非 Sendable IO 细节集中在唯一的受控边界内；读事件运行在 `CodexBar.pipe-read` 的 `.userInitiated` 队列上。
+
 ## UI 状态
 
 `CodexLoadState` 只有四种:
@@ -111,9 +113,10 @@ UI 只展示「未登录」和「初始化失败」两类特殊状态；具体�
 
 日志规则:
 
+- 后台请求路径写入 `RequestLogStorage.shared`，日志窗口通过 `@MainActor RequestLogStore.shared` 订阅 storage 快照。
 - 带 id 的 JSON-RPC 请求先记录为进行，响应或错误到达后回填到同一条。
 - `initialized` 这类无 id 请求记录为空响应。
-- 日志容量上限 500 条，请求 payload 预览上限 4000 字符；响应和错误详情不按长度截断。
+- 日志容量上限 500 条，`RequestLogEntry` 完整保存 request/detail；日志窗口列表和行内展开只渲染单行短预览，非空请求/响应标题行提供完整预览和复制，预览视图对 JSON 做格式化和高亮。
 - 合法 JSON 通过 `JSONSerialization` 重新序列化，使用 `.sortedKeys` 和 `.withoutEscapingSlashes`。
 - 非 JSON 错误消息保持原样。
 - 不要把子进程 stderr 直接展示给用户。

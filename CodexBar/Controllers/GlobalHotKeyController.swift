@@ -3,17 +3,11 @@ import Foundation
 
 final class GlobalHotKeyController {
     private let onPressed: @MainActor () -> Void
-    private var eventHandler: EventHandlerUPP?
-    private nonisolated(unsafe) var eventHandlerRef: EventHandlerRef?
-    private nonisolated(unsafe) var hotKeyRef: EventHotKeyRef?
+    private var registration: GlobalHotKeyRegistration?
     private var nextHotKeyID: UInt32 = 1
 
     init(onPressed: @escaping @MainActor () -> Void) {
         self.onPressed = onPressed
-    }
-
-    deinit {
-        Self.removeRegistration(hotKeyRef: hotKeyRef, eventHandlerRef: eventHandlerRef)
     }
 
     func install(shortcut: GlobalHotKeyShortcut) -> Bool {
@@ -49,16 +43,18 @@ final class GlobalHotKeyController {
 
         guard status == noErr else {
             if let installedHandlerRef {
-                RemoveEventHandler(installedHandlerRef)
+                GlobalHotKeyRegistration.remove(hotKeyRef: nil, eventHandlerRef: installedHandlerRef)
             }
             return false
         }
 
         clearCurrentRegistration()
 
-        eventHandler = newEventHandler
-        eventHandlerRef = installedHandlerRef
-        hotKeyRef = registeredHotKeyRef
+        registration = GlobalHotKeyRegistration(
+            eventHandler: newEventHandler,
+            eventHandlerRef: installedHandlerRef,
+            hotKeyRef: registeredHotKeyRef
+        )
         nextHotKeyID &+= 1
         return true
     }
@@ -68,10 +64,8 @@ final class GlobalHotKeyController {
     }
 
     private func clearCurrentRegistration() {
-        Self.removeRegistration(hotKeyRef: hotKeyRef, eventHandlerRef: eventHandlerRef)
-        hotKeyRef = nil
-        eventHandlerRef = nil
-        eventHandler = nil
+        registration?.invalidate()
+        registration = nil
     }
 
     private func handleHotKeyPressed() {
@@ -94,7 +88,41 @@ final class GlobalHotKeyController {
         }
     }
 
-    private nonisolated static func removeRegistration(
+    private static let hotKeySignature: OSType = {
+        let scalars = Array("CDBR".unicodeScalars)
+        return scalars.reduce(UInt32(0)) { result, scalar in
+            (result << 8) + scalar.value
+        }
+    }()
+}
+
+private final nonisolated class GlobalHotKeyRegistration {
+    private var eventHandler: EventHandlerUPP?
+    private var eventHandlerRef: EventHandlerRef?
+    private var hotKeyRef: EventHotKeyRef?
+
+    init(
+        eventHandler: EventHandlerUPP,
+        eventHandlerRef: EventHandlerRef?,
+        hotKeyRef: EventHotKeyRef?
+    ) {
+        self.eventHandler = eventHandler
+        self.eventHandlerRef = eventHandlerRef
+        self.hotKeyRef = hotKeyRef
+    }
+
+    deinit {
+        invalidate()
+    }
+
+    func invalidate() {
+        Self.remove(hotKeyRef: hotKeyRef, eventHandlerRef: eventHandlerRef)
+        hotKeyRef = nil
+        eventHandlerRef = nil
+        eventHandler = nil
+    }
+
+    static func remove(
         hotKeyRef: EventHotKeyRef?,
         eventHandlerRef: EventHandlerRef?
     ) {
@@ -106,11 +134,4 @@ final class GlobalHotKeyController {
             RemoveEventHandler(eventHandlerRef)
         }
     }
-
-    private static let hotKeySignature: OSType = {
-        let scalars = Array("CDBR".unicodeScalars)
-        return scalars.reduce(UInt32(0)) { result, scalar in
-            (result << 8) + scalar.value
-        }
-    }()
 }

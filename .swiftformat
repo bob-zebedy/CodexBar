@@ -49,8 +49,5 @@
 --void-type Void
 --some-any true
 
-# 保持格式化结果可预期, 不自动重排源码结构
---disable markTypes,organizeDeclarations,sortDeclarations,trailingClosures,enumNamespaces,preferForLoop
-
-# 多行 guard 大括号不换行
+# 大括号不换行
 --disable wrapMultilineStatementBraces

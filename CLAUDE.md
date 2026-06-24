@@ -24,12 +24,12 @@ xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination generic/pla
 - app-server 与版本探测**必须使用真实用户 `HOME`/`USER`/`LOGNAME`**，不能回退到 Xcode sandbox/container 的 home。
 - 工程使用 `PBXFileSystemSynchronizedRootGroup`：新增/删除 `CodexBar/` 下的 Swift 文件**通常无需改 `project.pbxproj`**；只有依赖、target/build settings、资源归属变更才动工程文件。仅 `Resources/Info.plist` 在同步组里被排除。
 - 源码按目录分层：`App/` `Controllers/` `Models/` `Services/` `Views/`。新文件放入对应子目录，不要丢回 `CodexBar/` 根层。
-- `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`：未标注的类型会被推断为 MainActor 隔离。UI 层保持 `@MainActor`；**DTO、模型、服务辅助类型、静态工具必须显式 `nonisolated`**，否则 main actor 隔离会泄漏进同步的服务代码。
+- `SWIFT_VERSION = 6.0`，并开启 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`：未标注的类型会被推断为 MainActor 隔离。UI 层保持 `@MainActor`；**DTO、模型、服务辅助类型、静态工具必须显式 `nonisolated`**，否则 main actor 隔离会泄漏进同步的服务代码。
 - 最低 macOS 15.0；不要为 15 以下添加 SF Symbols 或 SwiftUI API 的 fallback。
 
 ## 架构（两条独立数据流）
 
-应用是 `LSUIElement` 菜单栏程序（无 Dock 图标、无主窗口），入口 `CodexBarApp` 在启动时先分流：若标准输入中有 Codex Hook payload 且顶层 `hook_event_name` 有效，则走 `WorkflowHookEventRecorder` 记录一条 Hook 事件并立即退出，否则正常起 UI。
+应用是 `LSUIElement` 菜单栏程序（无 Dock 图标、无主窗口），入口 `CodexBarApp` 在启动时先分流：若启动参数包含 `--hook-event`，则走 `WorkflowHookEventRecorder` 尝试记录 Hook 事件并立即退出；否则正常起 UI。
 
 **1. 状态/额度流**（实时数据）
 
@@ -42,27 +42,27 @@ CodexStatusService (JSON-RPC over `codex app-server --listen stdio://`)
 
 - app-server 启动命令统一由 `CodexCLIResolver.resolveAppServerCommand()` 解析（优先全局 `codex`，否则回退 Codex.app 内置 CLI），**不要绕过 resolver**。
 - 握手与读取顺序、超时/重连、token 刷新、stale 缓存等约束见 `Docs/AppServer.md` 与 `AGENTS.md` 的「app-server 合约」。
-- 错误处理哲学：UI 只暴露 `notLoggedIn` / `initializationFailed` 两类特殊状态；所有具体请求/启动/超时/解析错误进 `RequestLogStore.shared`（容量 500、请求 payload 预览 4000 字符、响应和错误详情不截断），不直接展示子进程 stderr。
+- 错误处理哲学：UI 只暴露 `notLoggedIn` / `initializationFailed` 两类特殊状态；所有具体请求/启动/超时/解析错误进 `RequestLogStorage.shared`（容量 500，完整保存 request/detail），日志窗口通过 `@MainActor RequestLogStore.shared` 订阅快照，列表/行内只展示单行短预览，非空请求/响应标题行提供完整预览和复制，预览视图会格式化并高亮 JSON，不直接展示子进程 stderr。
 
 **2. Codex Hook 工作流统计流**（本机统计）
 
 ```
-WorkflowHookEventRecorder (stdin hook_event_name 子进程)
+WorkflowHookEventRecorder (--hook-event stdin hook_event_name 子进程)
   → WorkflowStatsStorage (events/YYYY-MM-DD.jsonl / daily.jsonl，~/Library/Application Support/CodexBar/HookEvents/)
   → WorkflowStatsService → WorkflowStatsViewModel
   → UsageSummaryView / UsageHeatmap (统计只在热力图侧边详情面板中展示)
 ```
 
-- Hook 命令只写入当前 CodexBar 可执行文件路径，事件名来自 Codex 传入的 stdin payload 顶层 `hook_event_name`。
+- Hook 命令写入当前 CodexBar 可执行文件路径和 `--hook-event` 参数，事件名来自 Codex 传入的 stdin payload 顶层 `hook_event_name`。
 - 开启 Hook 前必须通过当前 app-server 会话调用 `config/read`，如果全局配置禁用了 Hook，则不写入 `hooks.json`，并在 Hook 选项下方提示。
 - 开启 Hook 写入后必须通过当前 app-server 会话调用 `hooks/list` 验证 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`warnings` 和 `errors`；未信任时提示用户去 Codex `/hooks` 信任。
-- 设置开关只能追加/移除 `command` 包含当前 CodexBar 可执行路径的 Hook 处理器，绝不破坏其他用户 Hook。若用户自定义 Hook 命令也包含当前可执行路径，会被视为当前 CodexBar 处理器。
+- 设置开关只能追加/移除 `command` 同时包含当前 CodexBar 可执行路径和 `--hook-event` 参数的 Hook 处理器，绝不破坏其他用户 Hook。若用户自定义 Hook 命令也同时包含当前可执行路径和 `--hook-event` 参数，会被视为当前 CodexBar 处理器。
 - Hook 写入可能由多个 Codex 进程并发触发，追加 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json` 必须经 `stats.lock` + `flock` 加锁；`daily.jsonl` 由主 App 刷新维护流程写回。
 - 字段兼容、保留策略、统计口径见 `Docs/CodexHook.md`。
 
 ## 并发分工
 
-服务层对外暴露 async API，内部各用串行 `DispatchQueue` 管理 `Process`/`Pipe`/连接：`CodexBar.app-server`、`CodexBar.codex-version`（全局+内置版本并发探测后收集）、`CodexBar.workflow-stats`。`RequestLogStore` 可后台写入、用锁保护、通知切回主线程。
+服务层对外暴露 async API，主要共享状态由 actor 隔离：`CodexStatusService` 管理 app-server 连接和缓存，`CodexCLIVersionService` 用 `async let` 并发探测全局/内置版本，`WorkflowStatsService` 串行维护本机统计。`RequestLogStorage` 可后台同步写入并用 `OSAllocatedUnfairLock` 保护，`RequestLogStore` 只在 MainActor 发布 SwiftUI 快照。`PipeReadBuffer` 是底层 `FileHandle` / `DispatchSourceRead` / semaphore 的唯一 `@unchecked Sendable` 边界。
 
 ## 外部依赖与更新
 

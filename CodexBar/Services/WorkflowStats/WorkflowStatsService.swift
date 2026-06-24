@@ -2,8 +2,7 @@ import Combine
 import Darwin
 import Foundation
 
-final nonisolated class WorkflowStatsService: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "CodexBar.workflow-stats", qos: .utility)
+actor WorkflowStatsService {
     private let eventsDirectoryURL: URL
     private let dailyLogURL: URL
     private static let eventReadChunkSize = 64 * 1024
@@ -16,27 +15,19 @@ final nonisolated class WorkflowStatsService: @unchecked Sendable {
         self.dailyLogURL = dailyLogURL
     }
 
-    func loadSnapshot(performMaintenance: Bool = false) async -> WorkflowStatsSnapshot {
-        await withCheckedContinuation { continuation in
-            queue.async {
-                continuation.resume(returning: self.loadSnapshotOnQueue(performMaintenance: performMaintenance))
-            }
-        }
-    }
-
-    private func loadSnapshotOnQueue(performMaintenance: Bool) -> WorkflowStatsSnapshot {
+    func loadSnapshot(performMaintenance: Bool = false) -> WorkflowStatsSnapshot {
         if performMaintenance {
-            performMaintenanceIfNeededOnQueue()
+            performMaintenanceIfNeeded()
         }
 
-        if let aggregates = loadDailyAggregatesOnQueue(), !aggregates.isEmpty {
+        if let aggregates = loadDailyAggregates(), !aggregates.isEmpty {
             return WorkflowStatsSnapshot(dailyAggregates: aggregates)
         }
 
         return .empty
     }
 
-    private func loadDailyAggregatesOnQueue() -> [WorkflowDailyAggregate]? {
+    private func loadDailyAggregates() -> [WorkflowDailyAggregate]? {
         guard let data = try? Data(contentsOf: dailyLogURL), !data.isEmpty else {
             return nil
         }
@@ -49,9 +40,9 @@ final nonisolated class WorkflowStatsService: @unchecked Sendable {
         return WorkflowDailyAggregate.normalized(aggregates: aggregates)
     }
 
-    private func performMaintenanceIfNeededOnQueue() {
+    private func performMaintenanceIfNeeded() {
         do {
-            let tasks = try prepareMaintenanceTasksOnQueue()
+            let tasks = try prepareMaintenanceTasks()
             guard !tasks.isEmpty else {
                 return
             }
@@ -61,19 +52,19 @@ final nonisolated class WorkflowStatsService: @unchecked Sendable {
                     let result = try buildDailyAggregate(for: task)
                     try commit(result)
                 } catch {
-                    markDirtyOnQueue(task.dateKey)
+                    markDirty(task.dateKey)
                 }
             }
 
-            try pruneExpiredEventFilesOnQueue()
+            try pruneExpiredEventFiles()
         } catch {
             return
         }
     }
 
-    private func prepareMaintenanceTasksOnQueue() throws -> [WorkflowStatsMaintenanceTask] {
-        let eventDateKeys = eventDateKeysOnQueue()
-        let dailyDecodeResult = loadDailyAggregatesWithFailuresOnQueue()
+    private func prepareMaintenanceTasks() throws -> [WorkflowStatsMaintenanceTask] {
+        let eventDateKeys = eventDateKeys()
+        let dailyDecodeResult = loadDailyAggregatesWithFailures()
 
         return try WorkflowStatsStorage.withExclusiveLock {
             var state = WorkflowStatsStorage.loadMaintenanceState()
@@ -235,7 +226,7 @@ final nonisolated class WorkflowStatsService: @unchecked Sendable {
         WorkflowStatsStorage.fileSize(at: eventLogURL(for: dateKey))
     }
 
-    private func loadDailyAggregatesWithFailuresOnQueue() -> JSONLinesDecodeResult<WorkflowDailyAggregate> {
+    private func loadDailyAggregatesWithFailures() -> JSONLinesDecodeResult<WorkflowDailyAggregate> {
         guard let data = try? Data(contentsOf: dailyLogURL), !data.isEmpty else {
             return JSONLinesDecodeResult(values: [], failedLineCount: 0)
         }
@@ -243,7 +234,7 @@ final nonisolated class WorkflowStatsService: @unchecked Sendable {
         return JSONLines.decodeWithFailures(from: data)
     }
 
-    private func eventDateKeysOnQueue() -> [String] {
+    private func eventDateKeys() -> [String] {
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: eventsDirectoryURL,
             includingPropertiesForKeys: nil
@@ -385,7 +376,7 @@ final nonisolated class WorkflowStatsService: @unchecked Sendable {
             withIntermediateDirectories: true
         )
 
-        var aggregates = loadDailyAggregatesOnQueue() ?? []
+        var aggregates = loadDailyAggregates() ?? []
         upsert(aggregate, into: &aggregates)
         aggregates = WorkflowDailyAggregate.normalized(aggregates: aggregates)
         let data = try WorkflowDailyAggregate.encodeJSONLines(aggregates)
@@ -428,7 +419,7 @@ final nonisolated class WorkflowStatsService: @unchecked Sendable {
         }
     }
 
-    private func markDirtyOnQueue(_ dateKey: String) {
+    private func markDirty(_ dateKey: String) {
         try? WorkflowStatsStorage.withExclusiveLock {
             var state = WorkflowStatsStorage.loadMaintenanceState()
             state.markDirty(dateKey)
@@ -436,10 +427,10 @@ final nonisolated class WorkflowStatsService: @unchecked Sendable {
         }
     }
 
-    private func pruneExpiredEventFilesOnQueue() throws {
+    private func pruneExpiredEventFiles() throws {
         let cutoffDate = WorkflowStatsStorage.retentionCutoffDate()
-        let expiredDateKeys = eventDateKeysOnQueue().filter { dateKey in
-            guard let date = DateFormatter.codexDay.date(from: dateKey) else {
+        let expiredDateKeys = eventDateKeys().filter { dateKey in
+            guard let date = CodexDateFormat.dayDate(from: dateKey) else {
                 return false
             }
 
@@ -462,7 +453,7 @@ final nonisolated class WorkflowStatsService: @unchecked Sendable {
     }
 
     private func keepsIdentifiers(for dateKey: String) -> Bool {
-        guard let date = DateFormatter.codexDay.date(from: dateKey) else {
+        guard let date = CodexDateFormat.dayDate(from: dateKey) else {
             return true
         }
 
@@ -588,11 +579,11 @@ nonisolated enum WorkflowStatsStorage {
     }
 
     static func dateKey(for date: Date) -> String {
-        DateFormatter.codexDay.string(from: date)
+        CodexDateFormat.dayString(from: date)
     }
 
     static func isValidDateKey(_ dateKey: String) -> Bool {
-        DateFormatter.codexDay.date(from: dateKey) != nil
+        CodexDateFormat.dayDate(from: dateKey) != nil
     }
 }
 
@@ -710,10 +701,15 @@ final class WorkflowStatsViewModel: ObservableObject {
 
     private let service: WorkflowStatsService
     private var isRefreshing = false
+    private let refreshCoordinator = RefreshTaskCoordinator()
     private var lastRefreshedAt: Date?
 
     init(service: WorkflowStatsService = WorkflowStatsService()) {
         self.service = service
+    }
+
+    deinit {
+        refreshCoordinator.cancel()
     }
 
     func refreshIfNeeded(performMaintenance: Bool = false) {
@@ -725,16 +721,31 @@ final class WorkflowStatsViewModel: ObservableObject {
     }
 
     func refresh(performMaintenance: Bool = false) {
-        guard !isRefreshing else {
+        if isRefreshing, !performMaintenance {
             return
         }
 
         isRefreshing = true
 
-        Task {
-            snapshot = await service.loadSnapshot(performMaintenance: performMaintenance)
+        refreshCoordinator.start { [weak self] generation in
+            guard let self else {
+                return
+            }
+
+            defer {
+                self.refreshCoordinator.finish(generation) {
+                    self.isRefreshing = false
+                }
+            }
+
+            let snapshot = await service.loadSnapshot(performMaintenance: performMaintenance)
+
+            guard refreshCoordinator.canCommit(generation) else {
+                return
+            }
+
+            self.snapshot = snapshot
             lastRefreshedAt = Date()
-            isRefreshing = false
         }
     }
 }

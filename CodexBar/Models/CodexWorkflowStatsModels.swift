@@ -115,12 +115,12 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     }
 
     private static func date(from string: String) -> Date? {
-        DateFormatter.codexLocalTimestamp.date(from: string)
+        CodexDateFormat.localTimestampDate(from: string)
     }
 
     func jsonLineData() throws -> Data {
         let fields = try [
-            WorkflowStatsJSON.field("timestamp", DateFormatter.codexLocalTimestamp.string(from: timestamp)),
+            WorkflowStatsJSON.field("timestamp", CodexDateFormat.localTimestampString(from: timestamp)),
             WorkflowStatsJSON.field("event", name),
             WorkflowStatsJSON.field("model", modelName),
             WorkflowStatsJSON.field("permission", permissionMode),
@@ -201,7 +201,7 @@ nonisolated struct WorkflowStatsSnapshot: Equatable {
         )
         .map { date in
             date.map {
-                let startDate = DateFormatter.codexDay.string(from: $0)
+                let startDate = CodexDateFormat.dayString(from: $0)
                 return statsByDate[startDate] ?? WorkflowDailyStats.empty(startDate: startDate)
             }
         }
@@ -429,7 +429,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     }
 
     private static func date(from string: String) -> Date? {
-        DateFormatter.codexDay.date(from: string)
+        CodexDateFormat.dayDate(from: string)
     }
 
     private enum CodingKeys: String, CodingKey {

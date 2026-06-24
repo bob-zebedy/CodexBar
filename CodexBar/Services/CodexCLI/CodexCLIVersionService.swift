@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import os
 
 nonisolated struct CodexCLIVersionSnapshot: Equatable {
     let global: CodexCLIVersionItem
@@ -100,8 +101,7 @@ nonisolated struct CodexCLIVersionDisplay: Equatable {
     }
 }
 
-final nonisolated class CodexCLIVersionService: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "CodexBar.codex-version", qos: .utility)
+actor CodexCLIVersionService {
     private let timeout: TimeInterval
     private static let pipeDrainTimeout: TimeInterval = 0.25
     private static let maxPipeOutputBytes = 64 * 1024
@@ -111,63 +111,46 @@ final nonisolated class CodexCLIVersionService: @unchecked Sendable {
     }
 
     func fetchSnapshot() async -> CodexCLIVersionSnapshot {
-        await withCheckedContinuation { continuation in
-            queue.async {
-                continuation.resume(returning: Self.fetchSnapshotOnQueue(timeout: self.timeout))
-            }
-        }
+        await Self.fetchSnapshot(timeout: timeout)
     }
 
-    private static func fetchSnapshotOnQueue(timeout: TimeInterval) -> CodexCLIVersionSnapshot {
+    private static func fetchSnapshot(timeout: TimeInterval) async -> CodexCLIVersionSnapshot {
         let environment = CodexCLIResolver.environment
         let installations = CodexCLIResolver.resolveInstallations(environment: environment)
 
-        // 两个安装源互不依赖, 先并发启动再收集, 避免两个超时串行叠加
-        let globalProbe = startProbe(
+        // 两个安装源互不依赖, 并发探测避免两个超时串行叠加
+        async let global = probeVersion(
             source: .global,
             path: installations.globalPath,
             environment: environment,
             timeout: timeout
         )
-        let bundledProbe = startProbe(
+        async let bundled = probeVersion(
             source: .bundled,
             path: installations.bundledPath,
             environment: environment,
             timeout: timeout
         )
+        let (globalItem, bundledItem) = await (global, bundled)
 
         return CodexCLIVersionSnapshot(
-            global: finishProbe(globalProbe),
-            bundled: finishProbe(bundledProbe),
+            global: globalItem,
+            bundled: bundledItem,
             refreshedAt: Date()
         )
     }
 
-    private struct RunningProbe {
-        let source: CodexCLIExecutableSource
-        let path: String
-        let process: Process
-        let outputCollector: PipeCollector
-        let errorCollector: PipeCollector
-        let finished: DispatchSemaphore
-        let deadline: Date
-    }
-
-    private enum ProbeOutcome {
-        case resolved(CodexCLIVersionItem)
-        case running(RunningProbe)
-    }
-
-    private static func startProbe(
+    private static func probeVersion(
         source: CodexCLIExecutableSource,
         path: String?,
         environment: [String: String],
         timeout: TimeInterval
-    ) -> ProbeOutcome {
+    ) async -> CodexCLIVersionItem {
         guard let path else {
-            return .resolved(CodexCLIVersionItem(source: source))
+            return CodexCLIVersionItem(source: source)
         }
 
+        let deadline = Date().addingTimeInterval(timeout)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = ["--version"]
@@ -175,81 +158,79 @@ final nonisolated class CodexCLIVersionService: @unchecked Sendable {
 
         let standardOutput = Pipe()
         let standardError = Pipe()
-        let outputCollector = PipeCollector(
+        let outputCollector = PipeReadBuffer(
             fileHandle: standardOutput.fileHandleForReading,
             maxBytes: Self.maxPipeOutputBytes
         )
-        let errorCollector = PipeCollector(
+        let errorCollector = PipeReadBuffer(
             fileHandle: standardError.fileHandleForReading,
             maxBytes: Self.maxPipeOutputBytes
         )
-        let finished = DispatchSemaphore(value: 0)
+        let exitWaiter = ProcessExitWaiter()
 
         process.standardOutput = standardOutput
         process.standardError = standardError
-        process.terminationHandler = { _ in finished.signal() }
+        process.terminationHandler = { _ in
+            exitWaiter.finish(true)
+        }
 
         do {
             try process.run()
         } catch {
-            return .resolved(CodexCLIVersionItem(source: source, path: path, errorMessage: "启动失败"))
+            process.terminationHandler = nil
+            stopCollectors(outputCollector: outputCollector, errorCollector: errorCollector)
+            return CodexCLIVersionItem(source: source, path: path, errorMessage: "启动失败")
+        }
+        defer {
+            process.terminationHandler = nil
         }
 
-        return .running(RunningProbe(
+        guard await exitWaiter.wait(timeout: max(0, deadline.timeIntervalSinceNow)) else {
+            terminateTimedOutProbe(
+                process: process,
+                outputCollector: outputCollector,
+                errorCollector: errorCollector
+            )
+            return CodexCLIVersionItem(source: source, path: path, errorMessage: "读取超时")
+        }
+
+        let output = collectedText(from: outputCollector, deadline: deadline)
+        let errorOutput = collectedText(from: errorCollector, deadline: deadline)
+
+        guard process.terminationStatus == 0 else {
+            return CodexCLIVersionItem(source: source, path: path, errorMessage: "读取失败")
+        }
+
+        guard let version = firstLine(in: output) ?? firstLine(in: errorOutput) else {
+            return CodexCLIVersionItem(source: source, path: path, errorMessage: "版本未知")
+        }
+
+        return CodexCLIVersionItem(
             source: source,
             path: path,
-            process: process,
-            outputCollector: outputCollector,
-            errorCollector: errorCollector,
-            finished: finished,
-            deadline: Date().addingTimeInterval(timeout)
-        ))
+            version: CodexCLIVersionReader.displayVersion(from: version)
+        )
     }
 
-    private static func finishProbe(_ outcome: ProbeOutcome) -> CodexCLIVersionItem {
-        switch outcome {
-        case let .resolved(item):
-            return item
-        case let .running(probe):
-            guard probe.finished.wait(timeout: .now() + max(0, probe.deadline.timeIntervalSinceNow)) == .success else {
-                terminateTimedOutProbe(probe)
-                return CodexCLIVersionItem(source: probe.source, path: probe.path, errorMessage: "读取超时")
-            }
-
-            let output = collectedText(from: probe.outputCollector, deadline: probe.deadline)
-            let errorOutput = collectedText(from: probe.errorCollector, deadline: probe.deadline)
-
-            guard probe.process.terminationStatus == 0 else {
-                return CodexCLIVersionItem(source: probe.source, path: probe.path, errorMessage: "读取失败")
-            }
-
-            guard let version = firstLine(in: output) ?? firstLine(in: errorOutput) else {
-                return CodexCLIVersionItem(source: probe.source, path: probe.path, errorMessage: "版本未知")
-            }
-
-            return CodexCLIVersionItem(
-                source: probe.source,
-                path: probe.path,
-                version: CodexCLIVersionReader.displayVersion(from: version)
-            )
-        }
-    }
-
-    private static func terminateTimedOutProbe(_ probe: RunningProbe) {
+    private static func terminateTimedOutProbe(
+        process: Process,
+        outputCollector: PipeReadBuffer,
+        errorCollector: PipeReadBuffer
+    ) {
         _ = ProcessTermination.terminate(
-            probe.process,
+            process,
             gracefulTimeout: 0.2,
             killTimeout: 0.2
         )
-        stopCollectors(for: probe)
+        stopCollectors(outputCollector: outputCollector, errorCollector: errorCollector)
     }
 
-    private static func stopCollectors(for probe: RunningProbe) {
-        _ = probe.outputCollector.stopAndRead()
-        _ = probe.errorCollector.stopAndRead()
+    private static func stopCollectors(outputCollector: PipeReadBuffer, errorCollector: PipeReadBuffer) {
+        _ = outputCollector.stopAndRead()
+        _ = errorCollector.stopAndRead()
     }
 
-    private static func collectedText(from collector: PipeCollector, deadline: Date) -> String {
+    private static func collectedText(from collector: PipeReadBuffer, deadline: Date) -> String {
         let drainTimeout = min(Self.pipeDrainTimeout, max(0, deadline.timeIntervalSinceNow))
         _ = collector.waitUntilClosed(timeout: drainTimeout)
         return String(bytes: collector.stopAndRead(), encoding: .utf8) ?? ""
@@ -263,70 +244,61 @@ final nonisolated class CodexCLIVersionService: @unchecked Sendable {
     }
 }
 
-private final nonisolated class PipeCollector: @unchecked Sendable {
-    private let lock = NSLock()
-    private let closedSemaphore = DispatchSemaphore(value: 0)
-    private let fileHandle: FileHandle
-    private let maxBytes: Int
-    private var data = Data()
-    private var isClosed = false
+private final nonisolated class ProcessExitWaiter: Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<Bool, Never>?
+        var result: Bool?
+    }
 
-    init(fileHandle: FileHandle, maxBytes: Int) {
-        self.fileHandle = fileHandle
-        self.maxBytes = max(maxBytes, 0)
-        fileHandle.readabilityHandler = { [weak self] handle in
-            let availableData = handle.availableData
-            guard !availableData.isEmpty else {
-                handle.readabilityHandler = nil
-                self?.markClosed()
-                return
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func wait(timeout: TimeInterval) async -> Bool {
+        await withTaskCancellationHandler {
+            let timeoutTask = Task { [weak self] in
+                do {
+                    try await Task.sleep(for: .seconds(max(0, timeout)))
+                } catch {
+                    return
+                }
+
+                self?.finish(false)
+            }
+            defer {
+                timeoutTask.cancel()
             }
 
-            self?.append(availableData)
+            return await withCheckedContinuation { continuation in
+                let immediateResult: Bool? = state.withLock {
+                    if let result = $0.result {
+                        return result
+                    }
+
+                    $0.continuation = continuation
+                    return nil
+                }
+
+                if let immediateResult {
+                    continuation.resume(returning: immediateResult)
+                }
+            }
+        } onCancel: {
+            finish(false)
         }
     }
 
-    func waitUntilClosed(timeout: TimeInterval) -> Bool {
-        lock.lock()
-        let closed = isClosed
-        lock.unlock()
+    func finish(_ result: Bool) {
+        let continuation: CheckedContinuation<Bool, Never>? = state.withLock {
+            guard $0.result == nil else {
+                return nil
+            }
 
-        guard !closed else {
-            return true
+            $0.result = result
+            let continuation = $0.continuation
+            $0.continuation = nil
+            return continuation
         }
 
-        return closedSemaphore.wait(timeout: .now() + max(0, timeout)) == .success
-    }
-
-    func stopAndRead() -> Data {
-        fileHandle.readabilityHandler = nil
-        try? fileHandle.close()
-
-        lock.lock()
-        let snapshot = data
-        isClosed = true
-        lock.unlock()
-        closedSemaphore.signal()
-
-        return snapshot
-    }
-
-    private func append(_ chunk: Data) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        guard data.count < maxBytes else {
-            return
-        }
-
-        data.append(chunk.prefix(maxBytes - data.count))
-    }
-
-    private func markClosed() {
-        lock.lock()
-        isClosed = true
-        lock.unlock()
-        closedSemaphore.signal()
+        continuation?.resume(returning: result)
     }
 }
 
@@ -348,14 +320,14 @@ final class CodexCLIVersionViewModel: ObservableObject {
     private static let refreshThrottle: TimeInterval = 60
 
     private let service: CodexCLIVersionService
-    private var refreshTask: Task<Void, Never>?
+    private let refreshCoordinator = RefreshTaskCoordinator()
 
     init(service: CodexCLIVersionService = CodexCLIVersionService()) {
         self.service = service
     }
 
     deinit {
-        refreshTask?.cancel()
+        refreshCoordinator.cancel()
     }
 
     func refresh() {
@@ -365,13 +337,24 @@ final class CodexCLIVersionViewModel: ObservableObject {
         }
         isRefreshing = true
 
-        refreshTask = Task {
+        refreshCoordinator.start { [weak self] generation in
+            guard let self else {
+                return
+            }
+
+            defer {
+                self.refreshCoordinator.finish(generation) {
+                    self.isRefreshing = false
+                }
+            }
+
             let snapshot = await service.fetchSnapshot()
 
-            guard !Task.isCancelled else { return }
+            guard refreshCoordinator.canCommit(generation) else {
+                return
+            }
 
             self.snapshot = snapshot
-            self.isRefreshing = false
         }
     }
 }

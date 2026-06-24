@@ -47,9 +47,9 @@ final nonisolated class AppServerSession {
             case .alreadyExited, .terminated:
                 break
             case .killed:
-                RequestLogStore.shared.recordFailure(message: "app-server 退出超时, 已强制结束")
+                RequestLogStorage.shared.recordFailure(message: "app-server 退出超时, 已强制结束")
             case .stillRunning:
-                RequestLogStore.shared.recordFailure(message: "app-server 退出超时, 可能仍在后台运行")
+                RequestLogStorage.shared.recordFailure(message: "app-server 退出超时, 可能仍在后台运行")
             }
         }
     }
@@ -58,9 +58,9 @@ final nonisolated class AppServerSession {
         let encoded = try encodeMessage(method: method, id: nil, params: params)
 
         try writeEncoded(encoded) {
-            RequestLogStore.shared.recordFailure(method: method, message: Self.writeFailureMessage)
+            RequestLogStorage.shared.recordFailure(method: method, message: Self.writeFailureMessage)
         }
-        RequestLogStore.shared.recordRequestWithEmptyResponse(method: method, payload: encoded.text)
+        RequestLogStorage.shared.recordRequestWithEmptyResponse(method: method, payload: encoded.text)
     }
 
     func request<Response: Decodable>(
@@ -102,10 +102,10 @@ final nonisolated class AppServerSession {
         let id = nextId
         nextId += 1
         let encoded = try encodeMessage(method: method, id: id, params: params)
-        let token = RequestLogStore.shared.beginRequest(method: method, payload: encoded.text)
+        let token = RequestLogStorage.shared.beginRequest(method: method, payload: encoded.text)
 
         try writeEncoded(encoded) {
-            RequestLogStore.shared.failRequest(token, message: Self.writeFailureMessage)
+            RequestLogStorage.shared.failRequest(token, message: Self.writeFailureMessage)
         }
 
         return try waitForResponse(id: id, token: token, decode: type)
@@ -171,7 +171,7 @@ final nonisolated class AppServerSession {
             }
 
             let result = try decodeResponse(line, as: type, token: token, decoder: decoder)
-            RequestLogStore.shared.finishRequest(token, response: line.text)
+            RequestLogStorage.shared.finishRequest(token, response: line.text)
             return result
         }
 
@@ -221,7 +221,7 @@ final nonisolated class AppServerSession {
     }
 
     private func failRequest(_ token: UUID, message: String, error: CodexStatusError) throws -> Never {
-        RequestLogStore.shared.failRequest(token, message: message)
+        RequestLogStorage.shared.failRequest(token, message: message)
         throw error
     }
 }

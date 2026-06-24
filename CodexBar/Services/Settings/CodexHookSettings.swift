@@ -178,6 +178,13 @@ private extension CodexHookSettings {
     typealias JSONObject = [String: Any]
     typealias JSONArray = [Any]
 
+    static let hooksKey = "hooks"
+    static let hookTypeKey = "type"
+    static let hookCommandKey = "command"
+    static let hookTimeoutKey = "timeout"
+    static let hookCommandType = "command"
+    static let hookTimeout = 5
+
     enum HookConfigError: LocalizedError {
         case invalidFormat
         case hooksGloballyDisabled
@@ -279,7 +286,7 @@ private extension CodexHookSettings {
     }
 
     static func containsAnyCodexBarHook(in config: JSONObject, executablePath: String) -> Bool {
-        guard let hooks = config["hooks"] as? JSONObject else {
+        guard let hooks = config[hooksKey] as? JSONObject else {
             return false
         }
 
@@ -300,25 +307,19 @@ private extension CodexHookSettings {
         for event in CodexHookEvent.allCases {
             var groups = try eventGroups(named: event.configName, from: hooks)
             groups.append([
-                "hooks": [
-                    [
-                        "type": "command",
-                        "command": hookCommand(executablePath: executablePath),
-                        "timeout": 5
-                    ]
-                ]
+                hooksKey: [codexBarHookHandler(executablePath: executablePath)]
             ])
             hooks[event.configName] = groups
         }
 
-        config["hooks"] = hooks
+        config[hooksKey] = hooks
     }
 
     static func removeCodexBarHooks(
         from config: inout JSONObject,
         executablePath: String
     ) throws {
-        guard config["hooks"] != nil else {
+        guard config[hooksKey] != nil else {
             return
         }
 
@@ -343,7 +344,7 @@ private extension CodexHookSettings {
             }
         }
 
-        config["hooks"] = hooks
+        config[hooksKey] = hooks
     }
 
     static func validationMessage(
@@ -352,7 +353,7 @@ private extension CodexHookSettings {
         hooksURL: URL
     ) -> String? {
         guard !response.data.isEmpty else {
-            return "hooks/list 没有返回任何结果"
+            return "Codex 没有返回任何结果"
         }
 
         let entries = response.data
@@ -418,7 +419,7 @@ private extension CodexHookSettings {
     }
 
     static func hooksObject(from config: JSONObject) throws -> JSONObject {
-        guard let value = config["hooks"] else {
+        guard let value = config[hooksKey] else {
             return [:]
         }
 
@@ -445,13 +446,9 @@ private extension CodexHookSettings {
         _ group: Any,
         executablePath: String
     ) -> Bool {
-        guard let handlers = handlers(from: group) else {
-            return false
-        }
-
-        return handlers.contains {
+        handlers(from: group)?.contains {
             isCurrentCodexBarHandler($0, executablePath: executablePath)
-        }
+        } ?? false
     }
 
     static func groupRemovingCodexBarHandlers(
@@ -470,7 +467,7 @@ private extension CodexHookSettings {
             return nil
         }
 
-        groupObject["hooks"] = filteredHandlers
+        groupObject[hooksKey] = filteredHandlers
         return groupObject
     }
 
@@ -479,7 +476,7 @@ private extension CodexHookSettings {
             return nil
         }
 
-        return group["hooks"] as? JSONArray
+        return group[hooksKey] as? JSONArray
     }
 
     static func isCurrentCodexBarHandler(
@@ -496,20 +493,30 @@ private extension CodexHookSettings {
     /// 仅当 handler 是 type == "command" 时返回其 command 字符串, 否则 nil
     private static func commandIfCommandHandler(_ handler: Any) -> String? {
         guard let handler = handler as? JSONObject,
-              handler["type"] as? String == "command",
-              let command = handler["command"] as? String else {
+              handler[hookTypeKey] as? String == hookCommandType,
+              let command = handler[hookCommandKey] as? String else {
             return nil
         }
 
         return command
     }
 
+    static func codexBarHookHandler(executablePath: String) -> JSONObject {
+        [
+            hookTypeKey: hookCommandType,
+            hookCommandKey: hookCommand(executablePath: executablePath),
+            hookTimeoutKey: hookTimeout
+        ]
+    }
+
     static func hookCommand(executablePath: String) -> String {
-        shellQuoted(executablePath)
+        "\(shellQuoted(executablePath)) \(WorkflowHookEventRecorder.hookArgument)"
     }
 
     static func isCodexBarCommand(_ command: String, executablePath: String) -> Bool {
-        command.contains(hookCommand(executablePath: executablePath))
+        command.contains(shellQuoted(executablePath))
+            && command.split(whereSeparator: \.isWhitespace)
+            .contains(Substring(WorkflowHookEventRecorder.hookArgument))
     }
 
     static func shellQuoted(_ value: String) -> String {

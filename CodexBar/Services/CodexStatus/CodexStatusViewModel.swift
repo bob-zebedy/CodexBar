@@ -44,6 +44,7 @@ final class CodexStatusViewModel: ObservableObject {
 
     private let service: CodexStatusService
     private var autoRefreshTask: Task<Void, Never>?
+    private let refreshCoordinator = RefreshTaskCoordinator()
 
     init(service: CodexStatusService = CodexStatusService()) {
         self.service = service
@@ -51,6 +52,7 @@ final class CodexStatusViewModel: ObservableObject {
 
     deinit {
         autoRefreshTask?.cancel()
+        refreshCoordinator.cancel()
     }
 
     func refreshIfNeeded() {
@@ -87,22 +89,38 @@ final class CodexStatusViewModel: ObservableObject {
 
         isRefreshing = true
 
-        Task {
-            switch await service.fetchOutcome() {
-            case let .data(snapshot):
-                self.snapshot = snapshot
-                self.loadState = .loaded
-            case .notLoggedIn:
-                self.snapshot = nil
-                self.loadState = .notLoggedIn
-            case .initializationFailed:
-                self.snapshot = nil
-                self.loadState = .initializationFailed
+        refreshCoordinator.start { [weak self] generation in
+            guard let self else {
+                return
             }
 
-            self.codexConnectionInfo = await service.currentConnectionInfo()
-            self.autoRefreshCountdownStartedAt = Date()
-            self.isRefreshing = false
+            defer {
+                self.refreshCoordinator.finish(generation) {
+                    self.isRefreshing = false
+                }
+            }
+
+            let outcome = await service.fetchOutcome()
+            let connectionInfo = await service.currentConnectionInfo()
+
+            guard refreshCoordinator.canCommit(generation) else {
+                return
+            }
+
+            switch outcome {
+            case let .data(snapshot):
+                self.snapshot = snapshot
+                loadState = .loaded
+            case .notLoggedIn:
+                snapshot = nil
+                loadState = .notLoggedIn
+            case .initializationFailed:
+                snapshot = nil
+                loadState = .initializationFailed
+            }
+
+            codexConnectionInfo = connectionInfo
+            autoRefreshCountdownStartedAt = Date()
         }
     }
 

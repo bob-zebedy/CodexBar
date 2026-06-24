@@ -64,7 +64,7 @@ git status --short
 - 平台: SwiftUI + AppKit + MVVM, 最低 macOS 15.0。
 - 应用形态: `LSUIElement` 菜单栏应用, 无 Dock 图标、无主窗口。
 - 外部依赖: Sparkle(SwiftPM)。
-- 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 2.4.5`, `CURRENT_PROJECT_VERSION = 21`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`。
+- 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 3.1.1`, `CURRENT_PROJECT_VERSION = 25`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, `SWIFT_VERSION = 6.0`。
 - App Sandbox 必须保持关闭(`ENABLE_APP_SANDBOX = NO`), 因为应用要启动本机 Codex CLI/APP 内置 CLI, 并读取真实 macOS 用户的 Codex 登录状态。
 - 工程使用 `PBXFileSystemSynchronizedRootGroup`; 新增或删除 `CodexBar/` 下 Swift 文件通常无需改 `project.pbxproj`。只有依赖、target/build settings 或资源归属变更才改 Xcode 工程文件。
 - Swift 源码按目录组织: `App/`、`Controllers/`、`Models/`、`Services/`、`Views/`。不要把新 Swift 文件直接放回 `CodexBar/` 根层。
@@ -81,7 +81,7 @@ CodexStatusService(JSON-RPC app-server)
   -> CodexStatusMenuView / AppSettingsView / LogView
 
 Codex Hook
-  -> WorkflowHookEventRecorder(stdin hook_event_name)
+  -> WorkflowHookEventRecorder(--hook-event stdin hook_event_name)
   -> WorkflowStatsStorage(events/YYYY-MM-DD.jsonl / daily.jsonl)
   -> WorkflowStatsService
   -> WorkflowStatsViewModel
@@ -109,8 +109,8 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 ## Codex Hook 合约
 
 - 详细设计见 [Docs/CodexHook.md](Docs/CodexHook.md)。
-- 设置开关只能追加或移除 command 包含当前 CodexBar 可执行路径的 Hook 处理器, 不能破坏其他用户 Hook。
-- Hook 命令写入当前 CodexBar 可执行文件路径; Hook 事件名来自 Codex 传入的 stdin payload 顶层 `hook_event_name`。
+- 设置开关只能追加或移除 command 同时包含当前 CodexBar 可执行路径和 `--hook-event` 参数的 Hook 处理器, 不能破坏其他用户 Hook。
+- Hook 命令写入当前 CodexBar 可执行文件路径和 `--hook-event` 参数; Hook 事件名来自 Codex 传入的 stdin payload 顶层 `hook_event_name`。
 - Hook 数据只保存在 `~/Library/Application Support/CodexBar/HookEvents/`。
 - Hook 写入可能并发触发, 追加 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json` 时必须通过 `stats.lock` 加锁。
 
@@ -150,12 +150,13 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 工程开启 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`; 未显式标注的类型会推断为 MainActor 隔离。
 
 - UI 层保持 `@MainActor`: app delegate、status item controller、window controllers、view models、settings/updater。
-- 服务层对外暴露 async API, 内部用串行 queue 管理 `Process`、`Pipe` 和连接状态。
+- 服务层对外暴露 async API, 共享可变状态优先由 actor 隔离。
 - 非 UI 类型、DTO、模型、服务辅助类型和静态工具需要显式 `nonisolated`, 避免 main actor 隔离泄漏到同步服务代码。
-- `CodexStatusService` 使用 `CodexBar.app-server` 队列。
-- `CodexCLIVersionService` 使用 `CodexBar.codex-version` 队列, 全局和内置版本探测先并发启动再收集。
-- `RequestLogStore` 可从后台队列写入, storage 用锁保护, SwiftUI 通知切回主线程发送。
-- `WorkflowStatsService` 使用 `CodexBar.workflow-stats` 队列读取快照。
+- `CodexStatusService` 是 actor, 负责 app-server 连接、缓存和重建。
+- `CodexCLIVersionService` 是 actor, 全局和内置版本探测用 `async let` 并发启动; 子进程输出通过 `PipeReadBuffer` 收集。
+- `WorkflowStatsService` 是 actor, 串行维护和读取 workflow stats 快照。
+- `RequestLogStorage` 可从后台同步写入, 用 `OSAllocatedUnfairLock` 保护; `@MainActor RequestLogStore` 只负责发布 SwiftUI 快照。
+- `PipeReadBuffer` 是底层 `FileHandle`、`DispatchSourceRead` 和 semaphore 的唯一 `@unchecked Sendable` 边界, 读队列 `CodexBar.pipe-read` 使用 `.userInitiated` QoS。
 - Hook 写入可能由多个 Codex 进程并发触发, 必须通过 `stats.lock` 和 `flock` 保护 `events/YYYY-MM-DD.jsonl` 和 `maintenance.json` 的一致性; `daily.jsonl` 由主 App 刷新维护流程写回。
 
 ## UI 约束
@@ -210,8 +211,8 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 日志窗口:
 
 - 通过右键菜单「日志」打开。
-- 日志窗口应持续显示全局 `RequestLogStore.shared` 中的记录, 不因窗口关闭丢失。
-- 详情文本必须可选择; 请求 payload 预览由存储层截断到 4000 字符, 响应和错误详情不按长度截断。
+- 日志窗口应持续显示全局 `RequestLogStorage.shared` 中的记录, 通过 `@MainActor RequestLogStore.shared` 发布到 SwiftUI, 不因窗口关闭丢失。
+- `RequestLogEntry` 保存完整 request/detail; 列表摘要和行内展开只显示单行短预览, 非空请求/响应标题行提供预览和复制完整内容; 预览视图对 JSON 做格式化和高亮。
 
 ## Sparkle 更新
 
@@ -263,8 +264,8 @@ fix: 修复 Codex 状态刷新
 
 Tag:
 
-- tag 名格式 `v{MARKETING_VERSION}`, 例如 `v2.4.5`。
-- 使用附注 tag: `git tag -a v2.4.5 -m "Release v2.4.5"`。
+- tag 名格式 `v{MARKETING_VERSION}`, 例如 `v3.1.1`。
+- 使用附注 tag: `git tag -a v3.1.1 -m "Release v3.1.1"`。
 
 ## 最终检查
 

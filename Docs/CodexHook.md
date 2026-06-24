@@ -17,15 +17,15 @@
 CodexBar 处理器的识别条件:
 
 - `type` 是 `command`
-- `command` 必须包含当前 App 可执行文件路径生成的 shell 命令, 例如 `'<当前 CodexBar 可执行文件路径>'`
+- `command` 必须包含当前 App 可执行文件路径生成的 shell 命令和 `--hook-event` 参数, 例如 `'<当前 CodexBar 可执行文件路径>' --hook-event`
 
-也就是说，如果用户手写的 Hook 命令同样包含当前 CodexBar 可执行文件路径，也会被当作当前 CodexBar 处理器移除；不包含当前路径的用户 Hook 会保留。
+也就是说，如果用户手写的 Hook 命令同样包含当前 CodexBar 可执行文件路径和 `--hook-event` 参数，也会被当作当前 CodexBar 处理器移除；不同时包含当前路径和 `--hook-event` 的用户 Hook 会保留。
 
 检测是否已开启时，只要任意 CodexBar 事件存在当前 App 路径对应的处理器，开关就保持开启；如果缺少部分事件，`hooks/list` 验证会在 Hook 选项下方显示 `CodexBar Hook 已不完整`。
 
 开启写入成功后会复用同一条 app-server 会话调用 `hooks/list` 做有效性检查:
 
-- `command`: 必须包含 CodexBar 当前可执行文件路径生成的命令。
+- `command`: 必须包含 CodexBar 当前可执行文件路径生成的命令和 `--hook-event` 参数。
 - `eventName`: 必须覆盖全部 CodexBar 事件；`hooks/list` 返回值使用 `sessionStart` 这类 lower camel 名称，CodexBar 会与写入的 `SessionStart` 配置名做映射。
 - `enabled`: 必须为 `true`，否则提示 Codex 已禁用这些 Hook。
 - `sourcePath`: 必须指向全局 `~/.codex/hooks.json`。
@@ -60,12 +60,12 @@ SubagentStop
 命令格式:
 
 ```bash
-'/Applications/CodexBar.app/Contents/MacOS/CodexBar'
+'/Applications/CodexBar.app/Contents/MacOS/CodexBar' --hook-event
 ```
 
-Hook timeout 为 5 秒。App 启动最早阶段会调用 `WorkflowHookEventRecorder.handleIfRequested()`，如果识别到 Hook 输入，只记录数据并立即退出正常 App 启动流程。
+Hook timeout 为 5 秒。App 启动最早阶段会调用 `WorkflowHookEventRecorder.handleIfRequested()`，只有启动参数包含 `--hook-event` 时才读取 stdin；如果识别到 Hook 输入，只记录数据并立即退出正常 App 启动流程。
 
-Hook 子进程通过 stdin payload 顶层 `hook_event_name` 判断事件名。
+Hook 子进程通过 `--hook-event` 参数进入记录模式, 再通过 stdin payload 顶层 `hook_event_name` 判断事件名。
 
 ## Payload 解析
 
@@ -81,7 +81,7 @@ Hook stdin 会尝试解析为 Codex 官方 JSON 对象，只读取顶层字段�
 - 会话: `session_id`
 - 轮次: `turn_id`
 
-事件名来自 payload 顶层 `hook_event_name`。没有事件名且 stdin 没有输入时按普通 App 启动；stdin 有输入但事件名缺失时吞掉本次 Hook，避免 Hook 子进程继续启动完整菜单栏 App。事件时间优先读取 payload 顶层 `timestamp`，解析后按本机时区写成 `yyyy-MM-dd HH:mm:ss.SSS`；如果 `timestamp` 缺失或无法解析，记录当前时间作为兜底。同一个事件时间也会按本机时区格式化为 `yyyy-MM-dd` 的 date key，用于选择 `events/YYYY-MM-DD.jsonl` 文件。每行按固定顺序写入 `timestamp`、`event`、`model`、`permission`、`session`、`turn`、`tool`、`cwd`；缺失值写为 `null`。
+事件名来自 payload 顶层 `hook_event_name`。没有 `--hook-event` 参数时按普通 App 启动；有 `--hook-event` 参数但 stdin 为空、不是 JSON 或事件名缺失时吞掉本次 Hook，避免 Hook 子进程继续启动完整菜单栏 App。事件时间优先读取 payload 顶层 `timestamp`，解析后按本机时区写成 `yyyy-MM-dd HH:mm:ss.SSS`；如果 `timestamp` 缺失或无法解析，记录当前时间作为兜底。同一个事件时间也会按本机时区格式化为 `yyyy-MM-dd` 的 date key，用于选择 `events/YYYY-MM-DD.jsonl` 文件。日期和时间解析统一走 `CodexDateFormat`，其中高频的 `yyyy-MM-dd` key 由本机 Gregorian 日历组件生成和校验，不暴露可变 `DateFormatter` 实例。每行按固定顺序写入 `timestamp`、`event`、`model`、`permission`、`session`、`turn`、`tool`、`cwd`；缺失值写为 `null`。
 
 事件名统计时会去掉 `_` 和 `-` 并转小写，因此 `PreToolUse`、`pre_tool_use`、`pre-tool-use` 会归为同一个事件。
 
@@ -135,7 +135,7 @@ Hook 可能由多个 Codex 进程并发触发。`WorkflowHookEventRecorder` 会�
 
 Hook 写入路径不更新 `daily.jsonl`，也不执行重建或清理旧文件，避免在 Hook timeout 内持锁执行重活。
 
-`WorkflowStatsService` 只在现有自动刷新或手动刷新触发工作流统计刷新时检查 `maintenance.json`。打开菜单面板时只读取现有 `daily.jsonl`。如果没有 `pending` 或 `dirty`，服务不会执行维护。
+`WorkflowStatsService` 是 actor，只在现有自动刷新或手动刷新触发工作流统计刷新时检查 `maintenance.json`。打开菜单面板时只读取现有 `daily.jsonl`。如果没有 `pending` 或 `dirty`，服务不会执行维护。
 
 维护时优先处理 `dirty`，从对应日期文件第一行开始流式重建当天聚合；再处理 `pending`，从 `days[date].offset` 开始流式读取新增事件并合并到已有当天聚合。每条坏行会被跳过并计入 `days[date].corrupt`。处理完成后先在 `stats.lock` 外原子写回 `daily.jsonl`，再短暂持有 `stats.lock` 更新 `maintenance.json`，避免主 App 写 daily 时阻塞 Hook 追加事件。
 

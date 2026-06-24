@@ -36,7 +36,7 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
         return merge(
             tokenDays: tokenDays,
             workflowDays: workflowDays,
-            todayString: DateFormatter.codexDay.string(from: today),
+            todayString: CodexDateFormat.dayString(from: today),
             todayTokenCount: todayTokenCount
         )
     }

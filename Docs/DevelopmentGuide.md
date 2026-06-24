@@ -17,7 +17,7 @@ App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 C
 - App Sandbox 保持关闭, 因为需要启动本机 `codex`, 读取真实用户 Codex 登录状态, 并写入用户级 Hook 配置
 - 除 Sparkle 检查和下载更新外, App 自身不发起网络请求
 - 账号, 额度, token 用量和 Hook 工作流统计都只在本机处理, 不发送给第三方
-- Swift 工程开启 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, 服务和模型中需要被后台队列同步访问的类型显式使用 `nonisolated`
+- Swift 工程使用 Swift 6 并开启 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, UI 默认 MainActor 隔离；服务共享状态优先用 actor 管理, DTO、模型、同步辅助类型和静态工具需要显式使用 `nonisolated`
 
 源码目录职责:
 
@@ -36,13 +36,13 @@ App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 C
 两条主数据链路:
 
 - Codex app-server 链路: `CodexStatusService` 启动或复用本机 app-server, 生成 `CodexQuotaSnapshot`, 由 `CodexStatusViewModel` 发布给菜单栏 UI
-- Codex Hook 链路: Codex 进程触发 Hook 命令, CodexBar 从 stdin payload 读取 `hook_event_name` 并快速写入 JSONL; 主 App 后续维护聚合并生成 `WorkflowStatsSnapshot`
+- Codex Hook 链路: Codex 进程触发带 `--hook-event` 参数的 Hook 命令, CodexBar 从 stdin payload 读取 `hook_event_name` 并快速写入 JSONL; 主 App 后续维护聚合并生成 `WorkflowStatsSnapshot`
 
 ## 3. 启动流程
 
 入口在 `CodexBar/App/CodexBarApp.swift`
 
-`CodexBarApp.init()` 最先调用 `WorkflowHookEventRecorder.handleIfRequested()`, 用于区分普通 App 启动和 Hook 子进程启动
+`CodexBarApp.init()` 最先调用 `WorkflowHookEventRecorder.handleIfRequested()`, 用 `--hook-event` 参数区分普通 App 启动和 Hook 子进程启动
 
 ```mermaid
 sequenceDiagram
@@ -153,6 +153,7 @@ Command-Space 不直接关闭菜单面板, 只短暂抑制 600 ms 内的 active 
 - 刷新间隔是 60 秒
 - `refreshIfNeeded()` 会比较 `autoRefreshCountdownStartedAt`, 避免菜单面板打开和自动刷新同时触发重复请求
 - `refresh()` 通过 `isRefreshing` 防重入
+- 刷新任务通过 `RefreshTaskCoordinator` 管理, 保证只有最后一次有效刷新能回写 UI 状态
 
 下面的时序图展示刷新, app-server 握手, 额度与用量读取, 以及常见错误后的重试或降级
 
@@ -167,7 +168,7 @@ sequenceDiagram
     participant Log as 请求日志
 
     UI->>State: 请求刷新账号, 额度和用量
-    State->>State: 进入串行队列并检查连接是否可复用
+    State->>State: 进入 actor 隔离区并检查连接是否可复用
 
     alt 没有可复用连接
         State->>Finder: 查找全局 Codex 或 App 内置 Codex
@@ -277,7 +278,7 @@ sequenceDiagram
 
 `CodexStatusService` 的连接策略:
 
-- 所有连接状态只在 `CodexBar.app-server` 串行队列上访问
+- `CodexStatusService` 是 actor, app-server 连接、缓存和重建状态都在 actor 隔离内访问
 - 请求超时是 20 秒
 - 连接最大复用时间是 1 小时, 超过后重建, 便于后台升级后的 `codex` 二进制生效
 - 忽略 `SIGPIPE`, 断管由 `write` 抛错后走连接重建
@@ -319,7 +320,7 @@ codex app-server --listen stdio://
 
 `AppServerSession` 负责 JSON-RPC 读写:
 
-- 每个带 id 的请求先写入 `RequestLogStore.beginRequest`
+- 每个带 id 的请求先写入 `RequestLogStorage.beginRequest`
 - 请求 JSON 使用 sorted keys 和不转义斜杠序列化
 - 写入 stdin 时追加换行
 - `JSONLineReader` 从 stdout 读取按行 JSON, 只处理 id 匹配的响应, 其他行忽略
@@ -327,6 +328,7 @@ codex app-server --listen stdio://
 - 响应不能解析成期望类型时归为 `.invalidServerResponse`
 - `initialized` 是无 id 通知, 不等待响应, 但记录为"请求"
 - `PipeDrain` 只 drain stderr, 不把子进程 stderr 展示给用户
+- `JSONLineReader` 和 `PipeDrain` 底层都使用 `PipeReadBuffer`, 把 `FileHandle`、`DispatchSourceRead` 和 semaphore 的非 Sendable IO 边界集中管理
 
 请求错误分类:
 
@@ -337,14 +339,18 @@ codex app-server --listen stdio://
 | 非认证业务错误               | `AppServerSession` 先重试同请求一次, 仍失败后不阻断整轮刷新       |
 | 连接断开, 超时, 响应解析失败 | 视为传输故障, 外层重建连接                                        |
 
-`RequestLogStore` 是常驻全局日志:
+`RequestLogStorage` 是常驻全局日志存储:
 
 - 容量上限 500 条
-- 请求 payload 预览上限 4000 字符
-- 响应和错误详情不按长度截断
+- `RequestLogEntry` 完整保存 request/detail
+- 列表摘要和行内展开只使用 `RequestLogEntry` 生成的单行短预览
+- 非空请求和响应标题行提供完整预览和复制; 预览视图对 JSON 做格式化和高亮
 - 合法 JSON 会稳定化显示, 非 JSON 错误消息保持原样
-- storage 用 `NSLock` 保护, SwiftUI 通知切回主线程发送
+- storage 用 `OSAllocatedUnfairLock` 保护, 后台请求路径可以同步写入并立即拿到请求 token
+- 写入后通过 `Task { @MainActor ... }` 刷新 `RequestLogStore.shared`
 - 日志窗口关闭不会清空日志
+
+`RequestLogStore` 是 `@MainActor ObservableObject` 外壳, 只负责把 storage 快照发布给 SwiftUI, 清空操作也委托给 `RequestLogStorage`
 
 日志状态标签:
 
@@ -368,22 +374,22 @@ codex app-server --listen stdio://
 
 app-server 与状态刷新错误:
 
-| 错误来源                                     | 检测位置                                     | 用户可见状态                             | 日志或存储                                   | 重试或降级                                                        |
-| -------------------------------------------- | -------------------------------------------- | ---------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- |
-| 找不到全局 Codex CLI 和 Codex APP 内置 CLI   | `CodexCLIResolver.resolveAppServerCommand()` | `初始化失败`                             | `RequestLogStore.recordFailure` 记录可读错误 | 不启动 app-server, 下轮刷新重新解析                               |
-| app-server 进程启动失败                      | `Process.run()`                              | `初始化失败`                             | 记录"app-server 启动失败"                    | 不复用本次进程, 下轮刷新重试                                      |
-| `initialize` 或首次 `account/read` 失败      | `CodexStatusService.openConnection`          | `初始化失败`                             | 对应 JSON-RPC 请求进入日志                   | 关闭本次 session, 不重复完整握手                                  |
-| 首次 `account/read` 返回 `account == nil`    | `CodexStatusService.openConnection`          | `未登录`                                 | 请求响应进入日志                             | 关闭本次 session, 不生成 snapshot                                 |
-| 复用连接刷新 account 后返回 `account == nil` | `CodexStatusService.fetchData`               | `未登录`                                 | 请求响应进入日志                             | 清空 supplemental cache, teardown connection                      |
-| JSON-RPC 认证失败                            | `CodexStatusError.isAuthenticationRequired`  | 取决于刷新后结果                         | 失败响应进入日志                             | 同一轮最多 `account/read(refreshToken:true)` 一次, 然后重试原读取 |
-| refresh token 后仍认证失败                   | `ReadResult.resultAfterAuthAttempt`          | `未登录`                                 | 失败响应进入日志                             | 清空 cache, teardown connection                                   |
-| unsupported method                           | `CodexStatusError.isUnsupportedMethod`       | 对应区域可能显示无数据                   | 失败响应进入日志                             | 当前 session 记住 method, 后续跳过, 不复用旧缓存                  |
-| 非认证业务错误                               | `CodexStatusError.isRetriableServerError`    | 通常不改变整体状态                       | 失败响应进入日志                             | 同请求立即重试一次, 仍失败则 supplemental 读取按失败处理          |
-| rate limits 读取失败                         | `CodexStatusService.cachedRead`              | 有旧缓存时区域半透明, 无旧缓存时无额度区 | 失败进入日志                                 | 同账号旧缓存复用并标记 `isRateLimitsStale`                        |
-| usage 读取失败                               | `CodexStatusService.cachedRead`              | 有旧缓存时区域半透明, 无旧缓存时无用量区 | 失败进入日志                                 | 同账号旧缓存复用并标记 `isUsageStale`                             |
-| 连接断开, 请求超时, 响应解析失败             | `CodexStatusError.isTransportFailure`        | 复用连接重建失败后为 `初始化失败`        | 请求标记为错误                               | 复用连接只重建重试一次, 新连接失败不再重试                        |
-| app-server 关闭超时                          | `AppServerSession.close()`                   | 不直接改变 UI                            | 记录强制结束或仍在后台运行                   | 先 terminate 等 1 秒, 再 SIGKILL 等 0.5 秒                        |
-| snapshot 无可信 quota 和 usage               | `CodexQuotaSnapshot.hasTrustedData`          | 菜单栏切换错误图标                       | 不新增日志                                   | 仍可展示 stale 数据或无数据面板                                   |
+| 错误来源                                     | 检测位置                                     | 用户可见状态                             | 日志或存储                                     | 重试或降级                                                        |
+| -------------------------------------------- | -------------------------------------------- | ---------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------- |
+| 找不到全局 Codex CLI 和 Codex APP 内置 CLI   | `CodexCLIResolver.resolveAppServerCommand()` | `初始化失败`                             | `RequestLogStorage.recordFailure` 记录可读错误 | 不启动 app-server, 下轮刷新重新解析                               |
+| app-server 进程启动失败                      | `Process.run()`                              | `初始化失败`                             | 记录"app-server 启动失败"                      | 不复用本次进程, 下轮刷新重试                                      |
+| `initialize` 或首次 `account/read` 失败      | `CodexStatusService.openConnection`          | `初始化失败`                             | 对应 JSON-RPC 请求进入日志                     | 关闭本次 session, 不重复完整握手                                  |
+| 首次 `account/read` 返回 `account == nil`    | `CodexStatusService.openConnection`          | `未登录`                                 | 请求响应进入日志                               | 关闭本次 session, 不生成 snapshot                                 |
+| 复用连接刷新 account 后返回 `account == nil` | `CodexStatusService.fetchData`               | `未登录`                                 | 请求响应进入日志                               | 清空 supplemental cache, teardown connection                      |
+| JSON-RPC 认证失败                            | `CodexStatusError.isAuthenticationRequired`  | 取决于刷新后结果                         | 失败响应进入日志                               | 同一轮最多 `account/read(refreshToken:true)` 一次, 然后重试原读取 |
+| refresh token 后仍认证失败                   | `ReadResult.resultAfterAuthAttempt`          | `未登录`                                 | 失败响应进入日志                               | 清空 cache, teardown connection                                   |
+| unsupported method                           | `CodexStatusError.isUnsupportedMethod`       | 对应区域可能显示无数据                   | 失败响应进入日志                               | 当前 session 记住 method, 后续跳过, 不复用旧缓存                  |
+| 非认证业务错误                               | `CodexStatusError.isRetriableServerError`    | 通常不改变整体状态                       | 失败响应进入日志                               | 同请求立即重试一次, 仍失败则 supplemental 读取按失败处理          |
+| rate limits 读取失败                         | `CodexStatusService.cachedRead`              | 有旧缓存时区域半透明, 无旧缓存时无额度区 | 失败进入日志                                   | 同账号旧缓存复用并标记 `isRateLimitsStale`                        |
+| usage 读取失败                               | `CodexStatusService.cachedRead`              | 有旧缓存时区域半透明, 无旧缓存时无用量区 | 失败进入日志                                   | 同账号旧缓存复用并标记 `isUsageStale`                             |
+| 连接断开, 请求超时, 响应解析失败             | `CodexStatusError.isTransportFailure`        | 复用连接重建失败后为 `初始化失败`        | 请求标记为错误                                 | 复用连接只重建重试一次, 新连接失败不再重试                        |
+| app-server 关闭超时                          | `AppServerSession.close()`                   | 不直接改变 UI                            | 记录强制结束或仍在后台运行                     | 先 terminate 等 1 秒, 再 SIGKILL 等 0.5 秒                        |
+| snapshot 无可信 quota 和 usage               | `CodexQuotaSnapshot.hasTrustedData`          | 菜单栏切换错误图标                       | 不新增日志                                     | 仍可展示 stale 数据或无数据面板                                   |
 
 日志错误处理:
 
@@ -395,8 +401,8 @@ app-server 与状态刷新错误:
 | `initialized` 无 id 通知 | 记录为"请求", 不等待响应             |
 | 进程级错误没有 method    | 日志行直接预览错误文本               |
 | 合法 JSON 内容           | 重新序列化为稳定顺序并保留未转义斜杠 |
-| 超长请求 payload         | 请求预览截断到 4000 字符             |
-| 超长响应或错误详情       | 不按长度截断                         |
+| 请求 payload             | 存完整内容, UI 行内只渲染单行短预览  |
+| 响应或错误详情           | 存完整内容, 通过预览视图查看或复制   |
 
 设置, Hook 和更新错误:
 
@@ -413,9 +419,9 @@ app-server 与状态刷新错误:
 | 快捷键注册冲突                   | `StatusItemController.applyGlobalHotKey`                           | 快捷键行内显示占用提示                       | 恢复上一个已注册快捷键                           |
 | Hook 子进程 payload 不是 JSON    | `WorkflowHookEventRecorder.stdinPayload`                           | 无 UI 提示                                   | 吞掉本次 Hook, 避免启动完整菜单栏 App            |
 | Hook 子进程写入失败              | `WorkflowHookEventRecorder.handleIfRequested`                      | 无 UI 提示                                   | `try? record` 吞掉错误并正常退出, 避免阻断 Codex |
-| `daily.jsonl` 缺失, 空文件或坏行 | `WorkflowStatsService.prepareMaintenanceTasksOnQueue`              | 热力图详情面板可能暂时显示 0                 | 标记 dirty, 后续从 events 文件重建               |
+| `daily.jsonl` 缺失, 空文件或坏行 | `WorkflowStatsService.prepareMaintenanceTasks`                     | 热力图详情面板可能暂时显示 0                 | 标记 dirty, 后续从 events 文件重建               |
 | events 文件变小或 offset 不一致  | `WorkflowStatsService.reconcileEventFiles`                         | 热力图详情面板可能暂时显示旧聚合             | 标记 dirty, 从头重建当天聚合                     |
-| 单个维护任务失败                 | `WorkflowStatsService.performMaintenanceIfNeededOnQueue`           | 使用已有 daily 或空 snapshot                 | 对应日期标记 dirty                               |
+| 单个维护任务失败                 | `WorkflowStatsService.performMaintenanceIfNeeded`                  | 使用已有 daily 或空 snapshot                 | 对应日期标记 dirty                               |
 | Sparkle 配置缺失                 | `AppUpdater.init`                                                  | 更新开关禁用, 操作显示"未配置更新资源"       | 不创建 updater controller                        |
 | 手动检查没有更新                 | `updaterDidNotFindUpdate`                                          | 显示"没有可用更新"                           | 1 秒后自动清理状态                               |
 | 手动检查失败                     | `didAbortWithError`                                                | 显示"检查更新失败"                           | 不展示底层错误细节                               |
@@ -664,7 +670,7 @@ sequenceDiagram
 每个处理器形如:
 
 ```bash
-'<当前 CodexBar 可执行文件路径>'
+'<当前 CodexBar 可执行文件路径>' --hook-event
 ```
 
 Hook 事件定义集中在 `CodexHookEvent`:
@@ -677,14 +683,14 @@ Hook 事件定义集中在 `CodexHookEvent`:
 
 - handler 是 JSON 对象
 - `type == "command"`
-- `command` 包含当前 App 可执行路径生成的 shell 命令
+- `command` 同时包含当前 App 可执行路径生成的 shell 命令和 `--hook-event` 参数
 
 这意味着:
 
 - 用户已有 Hook 会被保留
 - 其他 App Hook 会被保留
 - 同一事件下其他处理器会被保留
-- 如果用户自定义 Hook 命令中也包含当前 CodexBar 可执行路径, 会被当作当前 CodexBar 处理器删除
+- 如果用户自定义 Hook 命令中也同时包含当前 CodexBar 可执行路径和 `--hook-event` 参数, 会被当作当前 CodexBar 处理器删除
 
 检测是否已开启时, 只要任意 CodexBar 事件存在当前 App 路径对应的 handler, 开关就保持开启。缺少部分事件时, `hooks/list` 验证会在 Hook 选项下方显示"CodexBar Hook 已不完整"。
 
@@ -753,10 +759,11 @@ Hook 数据目录:
 
 - `refreshIfNeeded(performMaintenance: false)` 至少间隔 5 秒
 - `performMaintenance: true` 时跳过 5 秒节流, 直接刷新
+- 如果普通读取尚未结束, 带维护的刷新会通过 `RefreshTaskCoordinator` 取消旧任务, 确保旧结果不会回写
 - 打开菜单面板时如果 Hook 开启, 只读取现有 `daily.jsonl`, 不维护
 - app-server 自动刷新倒计时重置时, 如果 Hook 开启, 触发一次带维护的 workflow stats 刷新
 
-维护流程在 `WorkflowStatsService` 的 `CodexBar.workflow-stats` 串行队列执行
+维护流程在 `WorkflowStatsService` actor 内串行执行
 
 ```mermaid
 flowchart TD
@@ -857,11 +864,12 @@ App 再次成为 active 时, 也会刷新 Codex 版本区, 并在已安装 Hook 
 
 `CodexCLIVersionService` 的版本探测:
 
-- 在 `CodexBar.codex-version` 串行队列执行
+- `CodexCLIVersionService` 是 actor, 对外提供 async 快照 API
 - 先解析安装源
-- 全局和内置版本探测先并发启动, 再收集结果, 避免两个 5 秒超时串行叠加
+- 全局和内置版本探测用 `async let` 并发启动, 再收集结果, 避免两个 5 秒超时串行叠加
 - 每个探测运行 `codex --version`
-- stdout 和 stderr 都收集, 最多各 64 KiB
+- stdout 和 stderr 都通过 `PipeReadBuffer` 收集, 最多各 64 KiB
+- 进程结束由 `ProcessExitWaiter` 用 continuation 异步等待, Task 取消或超时都会恢复等待方
 - 进程超时时先 terminate, 再 SIGKILL
 - 第一行中第一个以数字开头的 token 作为显示版本
 
@@ -918,12 +926,13 @@ App 再次成为 active 时, 也会刷新 Codex 版本区, 并在已安装 Hook 
 - 空状态显示"暂无日志"
 - 有日志时使用 `ScrollView + LazyVStack`, 最新日志在前
 - 每行默认显示时间, 状态标签, method 或无 method 记录的详情预览
-- 点击行展开请求和响应或错误详情
+- 点击行展开请求和响应或错误详情; 展开正文限制为单行预览, 非空内容通过标题行的预览和复制查看或复制完整内容
+- 预览视图使用可滚动代码视图, 对 JSON 做格式化和高亮
 - 详情文本开启 `.textSelection(.enabled)`
 
-日志只记录经过 `RequestLogStore` 的请求和错误
+日志只记录经过 `RequestLogStorage` 的请求和错误；`RequestLogStore` 只负责把这些记录发布给 SwiftUI
 
-为了保护隐私, 不直接展示 app-server stderr 或 Codex auth 文件内容。app-server 响应和错误详情会完整保留在日志窗口中, 不按长度截断。
+为了保护隐私, 不直接展示 app-server stderr 或 Codex auth 文件内容。app-server 请求、响应和错误详情会完整保留在 `RequestLogEntry` 中, UI 默认只渲染预览以避免大文本拖慢日志窗口。
 
 ## 17. 发布脚本流程
 
@@ -952,28 +961,29 @@ App 再次成为 active 时, 也会刷新 Codex 版本区, 并在已安装 Hook 
 
 主要并发边界:
 
-| 模块                              | 并发策略                                          |
-| --------------------------------- | ------------------------------------------------- |
-| UI, 控制器, ViewModel, 设置, 更新 | `@MainActor`                                      |
-| `CodexStatusService`              | `DispatchQueue(label: "CodexBar.app-server")`     |
-| `CodexCLIVersionService`          | `DispatchQueue(label: "CodexBar.codex-version")`  |
-| `WorkflowStatsService`            | `DispatchQueue(label: "CodexBar.workflow-stats")` |
-| `RequestLogStore`                 | `NSLock` 保护 storage, 主线程发送 SwiftUI 通知    |
-| Hook 写入                         | `stats.lock` + `flock(LOCK_EX)`                   |
-| app-server stdout                 | `JSONLineReader` 使用锁和 semaphore               |
-| 版本探测输出                      | `PipeCollector` 使用锁和 semaphore                |
+| 模块                              | 并发策略                                                                 |
+| --------------------------------- | ------------------------------------------------------------------------ |
+| UI, 控制器, ViewModel, 设置, 更新 | `@MainActor`                                                             |
+| `CodexStatusService`              | actor 隔离 app-server 连接、缓存和重建状态                               |
+| `CodexCLIVersionService`          | actor + `async let` 并发探测版本                                         |
+| `WorkflowStatsService`            | actor 串行维护 daily 聚合和快照读取                                      |
+| `RequestLogStorage`               | `OSAllocatedUnfairLock` 保护后台同步写入                                 |
+| `RequestLogStore`                 | `@MainActor ObservableObject` 发布日志快照                               |
+| Hook 写入                         | `stats.lock` + `flock(LOCK_EX)`                                          |
+| app-server stdout/stderr          | `JSONLineReader` / `PipeDrain` 复用 `PipeReadBuffer`                     |
+| 版本探测输出                      | `PipeReadBuffer` 收集 stdout/stderr, 进程退出由 `ProcessExitWaiter` 等待 |
 
 文件写入安全:
 
 - Hook 子进程只在锁内追加当天 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json`
 - 主 App 维护 `daily.jsonl` 时, 先锁外原子写 daily, 再短暂持锁提交维护状态, 减少阻塞 Hook 写入
 - `maintenance.json` 和 `daily.jsonl` 使用 atomic write
-- 设置 Hook 时通过当前 app-server 会话先读 `config/read`, 未全局禁用时 pretty printed 写回 `~/.codex/hooks.json`, 只移除 command 包含当前 App 可执行路径的 handler, 写入后再用 `hooks/list` 验证有效状态
+- 设置 Hook 时通过当前 app-server 会话先读 `config/read`, 未全局禁用时 pretty printed 写回 `~/.codex/hooks.json`, 只移除 command 同时包含当前 App 可执行路径和 `--hook-event` 参数的 handler, 写入后再用 `hooks/list` 验证有效状态
 
 隐私和敏感信息边界:
 
 - 不展示 app-server stderr
 - 不读取或展示 Codex auth 文件内容
 - 不把原始敏感 RPC 响应写入文档或测试夹具
-- 日志请求 payload 预览截断到 4000 字符; 响应和错误详情不按长度截断
+- 日志完整保存 request/detail, UI 默认只渲染单行预览; 完整内容通过标题行预览或复制查看
 - Hook 统计只保存在用户 Application Support 的 CodexBar 目录
