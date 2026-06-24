@@ -466,7 +466,7 @@ private struct LogCodePreviewView: NSViewRepresentable {
         )
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
-        textView.autoresizingMask = [.width]
+        textView.autoresizingMask = []
         textView.textContainer?.containerSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
@@ -483,6 +483,25 @@ private struct LogCodePreviewView: NSViewRepresentable {
         }
 
         textView.textStorage?.setAttributedString(attributedText)
+        updateDocumentSize(for: textView, in: scrollView)
+    }
+
+    private func updateDocumentSize(for textView: NSTextView, in scrollView: NSScrollView) {
+        guard let layoutManager = textView.layoutManager,
+              let textContainer = textView.textContainer else {
+            return
+        }
+
+        layoutManager.ensureLayout(for: textContainer)
+        let usedRect = layoutManager.usedRect(for: textContainer)
+        let inset = textView.textContainerInset
+        let minimumSize = scrollView.contentSize
+        let fittedSize = NSSize(
+            width: max(ceil(usedRect.maxX + inset.width * 2), minimumSize.width),
+            height: max(ceil(usedRect.maxY + inset.height * 2), minimumSize.height)
+        )
+
+        textView.setFrameSize(fittedSize)
     }
 }
 
