@@ -97,3 +97,11 @@ CodexBar 只与本机 Codex app-server 进程通信。账号信息、额度数�
 ## 许可证
 
 本项目采用 [GNU General Public License v3.0](LICENSE)
+
+## 群组
+
+加入 Telegram 群组
+
+<p align="center">
+  <img src="Images/telegram-group.jpg" width="532">
+</p>
