@@ -1,5 +1,6 @@
 import AppKit
 
+/// 菜单面板关闭监听器, 汇总本地/全局鼠标, 键盘和应用激活变化
 @MainActor
 final class MenuSurfaceDismissMonitor {
     private let isPresented: () -> Bool
@@ -208,6 +209,8 @@ final class MenuSurfaceDismissMonitor {
     }
 
     private func suppressNextActivationDismiss() {
+        // Command-Space 会切换系统搜索焦点
+        // 需要短暂抑制失活关闭避免误关面板
         suppressActivationDismissTask?.cancel()
         suppressesActivationDismiss = true
         suppressActivationDismissTask = Task { @MainActor [weak self] in
@@ -238,6 +241,7 @@ final class MenuSurfaceDismissMonitor {
             return
         }
 
+        // 只有真正点到菜单和状态按钮之外才关闭
         dismiss()
     }
 
@@ -266,7 +270,8 @@ final class MenuSurfaceDismissMonitor {
             return
         }
 
-        // AppKit 会在点击后重新强调 NSVisualEffectView, 这里固定为 inactive 避免背景明暗跳变
+        // AppKit 会在点击后重新强调 NSVisualEffectView
+        // 这里固定为 inactive 避免背景明暗跳变
         stabilizeVisualEffectViews(in: rootView)
     }
 

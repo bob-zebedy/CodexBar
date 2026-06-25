@@ -1,5 +1,6 @@
 import Foundation
 
+/// 集中管理 CodexBar 数据文件和 app-server 响应里使用的日期格式
 nonisolated enum CodexDateFormat {
     /// yyyy-MM-dd, 作为热力图与按日聚合统一的稳定日期键
     static func dayString(from date: Date) -> String {
@@ -43,7 +44,7 @@ nonisolated enum CodexDateFormat {
         return date
     }
 
-    /// yyyy-MM-dd HH:mm:ss.SSS, Hook 原始事件写入本机时间字符串
+    /// yyyy-MM-dd HH: mm: ss.SSS, Hook 原始事件写入本机时间字符串
     static func localTimestampString(from date: Date) -> String {
         localTimestampFormatter().string(from: date)
     }

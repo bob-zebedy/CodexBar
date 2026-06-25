@@ -1,5 +1,6 @@
 import Foundation
 
+/// 热力图单元格模型, 合并 app-server token 数据和本地 Hook 工作流统计
 nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     let startDate: String
     let tokenCount: Int?
@@ -21,6 +22,8 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
         today: Date
     ) -> [UsageHeatmapDay?] {
         let todayTokenCount = usage.tokenCount(on: today)
+        // Hook 开启时当天工作流统计可见
+        // Hook 关闭时只在 token bucket 已返回时展示今天
         let endingDaysAgo = showsWorkflowStats || todayTokenCount != nil ? 0 : 1
         let tokenDays = usage.recentWeekGrid(
             columnCount: columnCount,

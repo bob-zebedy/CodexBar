@@ -1,5 +1,7 @@
 import Foundation
 
+/// 对 app-server stdio JSON-RPC 的薄封装
+/// 负责日志记录, 超时和 unsupported 方法缓存
 final nonisolated class AppServerSession {
     let process: Process
 
@@ -72,6 +74,7 @@ final nonisolated class AppServerSession {
             throw CodexStatusError.unsupportedMethod
         }
 
+        // app-server 偶发业务错误可重试一次; 传输错误由上层重建连接
         do {
             return try performRequestRememberingUnsupported(method, params: params, as: type)
         } catch let error as CodexStatusError where error.isRetriableServerError {
@@ -160,6 +163,7 @@ final nonisolated class AppServerSession {
         let deadline = Date().addingTimeInterval(timeout)
         let decoder = JSONDecoder()
 
+        // stdout 可能混有无关日志行, 只消费 id 匹配的 JSON-RPC 响应
         while Date() < deadline {
             guard let line = try nextResponseLine(
                 matching: id,
@@ -226,6 +230,7 @@ final nonisolated class AppServerSession {
     }
 }
 
+/// 先轻量读取 id, 避免把其他请求或日志行误当成本次响应
 private nonisolated struct RPCIDEnvelope: Decodable {
     let id: Int?
 }

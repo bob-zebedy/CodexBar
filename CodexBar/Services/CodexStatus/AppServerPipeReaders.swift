@@ -1,5 +1,6 @@
 import Foundation
 
+/// app-server stdout 行读取器, 只向会话层暴露完整非空行
 final nonisolated class JSONLineReader {
     private let buffer: PipeReadBuffer
 
@@ -20,6 +21,7 @@ final nonisolated class JSONLineReader {
     }
 }
 
+/// stderr 只需要及时 drain, 避免子进程因管道填满而阻塞
 final nonisolated class PipeDrain {
     private let buffer: PipeReadBuffer
 
@@ -32,8 +34,10 @@ final nonisolated class PipeDrain {
     }
 }
 
-/// 底层 pipe 读取桥接了 FileHandle、DispatchSourceRead 和 semaphore 这些非 Sendable 类型
-/// 对外 Sendable 边界只保留在这里, 可变状态全部经由 lock 保护, 读事件固定在 readQueue 上执行
+/// 底层 pipe 读取桥接了 FileHandle, DispatchSourceRead 和 semaphore
+/// 这些非 Sendable 类型
+/// 对外 Sendable 边界只保留在这里
+/// 可变状态全部经由 lock 保护, 读事件固定在 readQueue 上执行
 final nonisolated class PipeReadBuffer: @unchecked Sendable {
     private let lock = NSLock()
     private let lineSemaphore = DispatchSemaphore(value: 0)

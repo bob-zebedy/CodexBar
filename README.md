@@ -39,7 +39,7 @@ CodexBar 可以在设置中开启「启用 Codex Hook」
 
 开启后会在全局 `~/.codex/hooks.json` 中增加以下 Hook，用于接收 Codex 的会话、工具调用、权限请求、上下文压缩和子智能体事件。
 
-开启前会通过本机 Codex app-server 检查全局 `config.toml` 是否禁用了 Hook；如果已禁用，CodexBar 不会写入配置，并会在 Hook 选项下方提示。写入后还会用 `hooks/list` 确认 CodexBar 自己的 Hook 命令、事件、来源、启用状态、信任状态以及 Codex 返回的警告或错误。
+开启前会通过本机 Codex app-server 检查全局 `config.toml` 是否禁用了 Hook；如果已禁用，CodexBar 不会写入配置，并会在 Hook 选项下方提示。写入后还会用 `hooks/list` 确认 CodexBar 自己的 Hook 命令、事件、来源、启用状态、信任状态以及 Codex 返回的警告或错误；未信任或已修改时只会把当前 CodexBar Hook 的 key/hash 写入 `hooks.state` 后再次验证。
 
 - `SessionStart`: 记录一次 Codex 会话开始，用于统计会话总数
 - `UserPromptSubmit`: 记录用户提交提示词事件，保留为原始活动事件

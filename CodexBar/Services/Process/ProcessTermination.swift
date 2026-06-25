@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 
+/// 子进程关闭结果, 让调用方区分正常退出和强杀兜底
 nonisolated enum ProcessTerminationResult: Equatable {
     case alreadyExited
     case terminated
@@ -8,6 +9,7 @@ nonisolated enum ProcessTerminationResult: Equatable {
     case stillRunning
 }
 
+/// 先 terminate, 超时后 SIGKILL 的统一收口
 nonisolated enum ProcessTermination {
     private static let pollInterval: TimeInterval = 0.02
 

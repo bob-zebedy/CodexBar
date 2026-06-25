@@ -16,6 +16,7 @@ nonisolated enum CodexLoadState: Equatable {
     }
 }
 
+/// 菜单面板主状态模型, 将服务层结果转换为 SwiftUI 可发布状态
 @MainActor
 final class CodexStatusViewModel: ObservableObject {
     @Published private(set) var snapshot: CodexQuotaSnapshot?
@@ -71,6 +72,7 @@ final class CodexStatusViewModel: ObservableObject {
         autoRefreshTask = Task { [weak self] in
             self?.refreshIfNeeded()
 
+            // 每轮按剩余时间休眠, 手动刷新后倒计时会自然重新对齐
             while !Task.isCancelled {
                 let delay = self?.autoRefreshDelay ?? Self.refreshInterval
                 if await (try? Task.sleep(for: .seconds(delay))) == nil {
@@ -103,6 +105,7 @@ final class CodexStatusViewModel: ObservableObject {
             let outcome = await service.fetchOutcome()
             let connectionInfo = await service.currentConnectionInfo()
 
+            // 过期刷新结果直接丢弃, 避免慢请求覆盖后启动的新状态
             guard refreshCoordinator.canCommit(generation) else {
                 return
             }

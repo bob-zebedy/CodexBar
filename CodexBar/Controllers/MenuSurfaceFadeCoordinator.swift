@@ -1,5 +1,6 @@
 import AppKit
 
+/// 菜单面板淡入淡出的集中控制, 用 generation 丢弃过期动画完成回调
 @MainActor
 final class MenuSurfaceFadeCoordinator {
     private let contentViewProvider: () -> NSView?

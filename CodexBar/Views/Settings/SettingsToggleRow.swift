@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// 设置页通用开关行
 struct SettingsToggleRow: View {
     let icon: String
     let title: String

@@ -1,11 +1,13 @@
 import AppKit
 import SwiftUI
 
+/// app-server 交互日志窗口根视图
 struct LogView: View {
     @ObservedObject var store: RequestLogStore
 
     var body: some View {
         // 每轮渲染只取一次发布快照复用
+
         let entries = store.entries
         VStack(spacing: 0) {
             header(entries: entries)
@@ -74,6 +76,7 @@ struct LogView: View {
     }
 }
 
+/// 单条日志行, 摘要行可展开查看请求和响应预览
 private struct LogRow: View {
     let entry: RequestLogEntry
     @State private var isExpanded = false
@@ -148,7 +151,8 @@ private struct LogRow: View {
                     .font(.caption.weight(.medium).monospaced())
                     .foregroundStyle(.primary)
             } else if let detail = entry.detail {
-                // 无方法名的记录(信息/进程级错误)直接预览正文, 避免标签后留空
+                // 无方法名的记录 (信息/进程级错误) 直接预览正文
+                // 避免标签后留空
                 Text(RequestLogEntry.singleLinePreview(detail, limit: RequestLogEntry.summaryPreviewLength))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -230,12 +234,14 @@ private struct LogRow: View {
     }()
 }
 
+/// 预览弹窗数据源
 private struct FullLogTextItem: Identifiable {
     let id = UUID()
     let title: String
     let text: String
 }
 
+/// 复制/预览按钮的统一样式入口
 private struct LogHeaderActionButton: View {
     let title: String
     let systemImage: String
@@ -250,6 +256,7 @@ private struct LogHeaderActionButton: View {
     }
 }
 
+/// 统一收口剪贴板写入
 private enum LogClipboard {
     static func copy(_ text: String) {
         NSPasteboard.general.clearContents()
@@ -257,6 +264,7 @@ private enum LogClipboard {
     }
 }
 
+/// 完整请求/响应预览弹窗
 private struct FullLogTextView: View {
     let item: FullLogTextItem
     @Environment(\.dismiss) private var dismiss
@@ -316,11 +324,13 @@ private struct FullLogTextView: View {
     }
 }
 
+/// 日志预览文本, JSON 时会带基础语法高亮
 private struct LogCodePreview {
     let attributedText: NSAttributedString
     let language: String?
 }
 
+/// 将 JSON 格式化并做轻量 token 高亮, 非 JSON 保持纯文本
 private enum LogCodePreviewFormatter {
     private static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
     private static var baseAttributes: [NSAttributedString.Key: Any] {
@@ -441,6 +451,7 @@ private enum LogCodePreviewFormatter {
     }
 }
 
+/// AppKit 文本视图承载完整日志, 支持横向滚动
 private struct LogCodePreviewView: NSViewRepresentable {
     let attributedText: NSAttributedString
 

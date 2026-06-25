@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 
+/// 设置页的 Codex Hook 开关状态机, 同时管理 hooks.json 和 Codex 信任状态
 @MainActor
 final class CodexHookSettings: ObservableObject {
     @Published private(set) var isEnabled = false
@@ -64,24 +65,20 @@ final class CodexHookSettings: ObservableObject {
                 try ensureCurrentUpdate(generation)
             }
 
-            var config = try readConfigIfPresent()
-            try Self.removeCodexBarHooks(
-                from: &config,
-                executablePath: currentExecutablePath
-            )
-
-            if enabled {
-                try Self.installCodexBarHooks(
-                    in: &config,
-                    executablePath: currentExecutablePath
-                )
-            }
-
-            try write(config)
+            // 关闭前先通过 hooks/list 拿到 key
+            // hooks.json 删除后 app-server 就无法再反查这些 key
+            let cleanupPlan = try await hookTrustCleanupPlan(isDisabling: !enabled, generation: generation)
+            try writeCodexBarHookConfig(enabled: enabled)
             try ensureCurrentUpdate(generation)
             isEnabled = enabled
             if enabled {
                 await verifyInstalledHooksWithAppServer(generation: generation)
+            } else {
+                await cleanupCodexHookTrust(
+                    removing: cleanupPlan.keys,
+                    discoveryError: cleanupPlan.discoveryError,
+                    generation: generation
+                )
             }
         } catch is CancellationError {
             return
@@ -184,6 +181,23 @@ private extension CodexHookSettings {
     static let hookTimeoutKey = "timeout"
     static let hookCommandType = "command"
     static let hookTimeout = 5
+    static let configMergeStrategyReplace = "replace"
+    static let configMergeStrategyUpsert = "upsert"
+    static let hookTrustStateKeyPath = "hooks.state"
+    static let trustedHashKey = "trusted_hash"
+
+    struct CodexHookTrustEntry {
+        let key: String
+        let trustedHash: String
+    }
+
+    /// discoveryError 会在 Hook 已关闭后展示, 说明仅信任状态清理未完成
+    struct CodexHookTrustCleanupPlan {
+        let keys: Set<String>
+        let discoveryError: Error?
+
+        static let empty = Self(keys: [], discoveryError: nil)
+    }
 
     enum HookConfigError: LocalizedError {
         case invalidFormat
@@ -234,7 +248,18 @@ private extension CodexHookSettings {
     }
 
     func validateInstalledHooksWithAppServer() async throws {
-        let response = try await codexStatusService.listCodexHooks(cwds: [hooksListWorkingDirectory])
+        var response = try await codexStatusService.listCodexHooks(cwds: [hooksListWorkingDirectory])
+        // 只信任 command/sourcePath/event 都匹配当前 CodexBar 的 Hook
+        let entries = Self.hookTrustEntriesNeedingUpdate(
+            from: response,
+            executablePath: currentExecutablePath,
+            hooksURL: hooksURL
+        )
+        if !entries.isEmpty {
+            try await trustCodexBarHooks(entries)
+            response = try await codexStatusService.listCodexHooks(cwds: [hooksListWorkingDirectory])
+        }
+
         if let message = Self.validationMessage(
             from: response,
             executablePath: currentExecutablePath,
@@ -242,6 +267,120 @@ private extension CodexHookSettings {
         ) {
             throw HookConfigError.hookValidationFailed(message)
         }
+    }
+
+    func hookTrustCleanupPlan(isDisabling: Bool, generation: Int) async throws -> CodexHookTrustCleanupPlan {
+        guard isDisabling else {
+            return .empty
+        }
+
+        do {
+            let keys = try await codexBarHookTrustKeysFromAppServer()
+            try ensureCurrentUpdate(generation)
+            return .init(keys: keys, discoveryError: nil)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return .init(keys: [], discoveryError: error)
+        }
+    }
+
+    func writeCodexBarHookConfig(enabled: Bool) throws {
+        var config = try readConfigIfPresent()
+        try Self.removeCodexBarHooks(
+            from: &config,
+            executablePath: currentExecutablePath
+        )
+
+        if enabled {
+            try Self.installCodexBarHooks(
+                in: &config,
+                executablePath: currentExecutablePath
+            )
+        }
+
+        try write(config)
+    }
+
+    func codexBarHookTrustKeysFromAppServer() async throws -> Set<String> {
+        let response = try await codexStatusService.listCodexHooks(cwds: [hooksListWorkingDirectory])
+        return Self.codexBarHookTrustKeys(
+            from: response,
+            executablePath: currentExecutablePath,
+            hooksURL: hooksURL
+        )
+    }
+
+    func cleanupCodexHookTrust(
+        removing keys: Set<String>,
+        discoveryError: Error?,
+        generation: Int
+    ) async {
+        do {
+            try ensureCurrentUpdate(generation)
+            if !keys.isEmpty {
+                try await removeCodexBarHookTrust(keys)
+                try ensureCurrentUpdate(generation)
+            }
+
+            if let discoveryError {
+                errorMessage = "已关闭 Codex Hook, 清理信任状态失败: \(discoveryError.localizedDescription)"
+            } else {
+                errorMessage = nil
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard isCurrentUpdate(generation) else {
+                return
+            }
+
+            errorMessage = "已关闭 Codex Hook, 清理信任状态失败: \(error.localizedDescription)"
+        }
+    }
+
+    func trustCodexBarHooks(_ entries: [CodexHookTrustEntry]) async throws {
+        guard !entries.isEmpty else {
+            return
+        }
+
+        try await writeHookTrustState(
+            Self.hookTrustStateValue(from: entries),
+            mergeStrategy: Self.configMergeStrategyUpsert
+        )
+    }
+
+    func removeCodexBarHookTrust(_ keys: Set<String>) async throws {
+        guard !keys.isEmpty else {
+            return
+        }
+
+        let response = try await codexStatusService.readCodexConfig()
+        var state = response.hookTrustState
+        // 先读出现有 state 再 replace, 只删除 CodexBar key, 保留用户自己的信任项
+        for key in keys {
+            state.removeValue(forKey: key)
+        }
+
+        try await writeHookTrustState(
+            Self.hookTrustStateValue(from: state),
+            mergeStrategy: Self.configMergeStrategyReplace
+        )
+    }
+
+    func writeHookTrustState(
+        _ value: [String: [String: String]],
+        mergeStrategy: String
+    ) async throws {
+        _ = try await codexStatusService.writeCodexConfigBatch(
+            edits: [
+                .init(
+                    keyPath: Self.hookTrustStateKeyPath,
+                    value: value,
+                    mergeStrategy: mergeStrategy
+                )
+            ]
+        )
     }
 
     func readConfigIfPresent() throws -> JSONObject {
@@ -304,6 +443,7 @@ private extension CodexHookSettings {
     static func installCodexBarHooks(in config: inout JSONObject, executablePath: String) throws {
         var hooks = try hooksObject(from: config)
 
+        // 每个事件追加一个独立 group, 避免和用户已有 group 混写
         for event in CodexHookEvent.allCases {
             var groups = try eventGroups(named: event.configName, from: hooks)
             groups.append([
@@ -325,6 +465,7 @@ private extension CodexHookSettings {
 
         var hooks = try hooksObject(from: config)
 
+        // 仅移除 command 同时匹配当前可执行路径与 --hook-event 的 handler
         for (event, value) in hooks {
             guard let groups = value as? JSONArray else {
                 throw HookConfigError.invalidFormat
@@ -379,7 +520,7 @@ private extension CodexHookSettings {
 
             hasDisabledHook = hasDisabledHook || !hook.enabled
             hasUnexpectedSource = hasUnexpectedSource || normalizedPath(hook.sourcePath) != expectedSourcePath
-            hasUntrustedHook = hasUntrustedHook || hook.trustStatus == "untrusted" || hook.trustStatus == "modified"
+            hasUntrustedHook = hasUntrustedHook || hookNeedsTrustUpdate(hook)
         }
 
         if !errors.isEmpty {
@@ -404,6 +545,68 @@ private extension CodexHookSettings {
         return nil
     }
 
+    static func hookTrustEntriesNeedingUpdate(
+        from response: CodexHooksListResponse,
+        executablePath: String,
+        hooksURL: URL
+    ) -> [CodexHookTrustEntry] {
+        let hooks = response.data.flatMap(\.hooks)
+        let expectedSourcePath = normalizedPath(hooksURL.path)
+        var entries: [CodexHookTrustEntry] = []
+        var seenKeys = Set<String>()
+
+        for event in CodexHookEvent.allCases {
+            guard let hook = matchingHook(
+                for: event,
+                in: hooks,
+                executablePath: executablePath,
+                expectedSourcePath: expectedSourcePath
+            ),
+                isManagedCodexBarHook(
+                    hook,
+                    executablePath: executablePath,
+                    expectedSourcePath: expectedSourcePath
+                ),
+                hookNeedsTrustUpdate(hook),
+                let key = hook.key,
+                let trustedHash = hook.currentHash,
+                !key.isEmpty,
+                !trustedHash.isEmpty,
+                seenKeys.insert(key).inserted else {
+                continue
+            }
+
+            entries.append(.init(key: key, trustedHash: trustedHash))
+        }
+
+        return entries
+    }
+
+    static func codexBarHookTrustKeys(
+        from response: CodexHooksListResponse,
+        executablePath: String,
+        hooksURL: URL
+    ) -> Set<String> {
+        let expectedSourcePath = normalizedPath(hooksURL.path)
+        return Set(
+            response.data
+                .flatMap(\.hooks)
+                .compactMap { hook in
+                    guard isManagedCodexBarHook(
+                        hook,
+                        executablePath: executablePath,
+                        expectedSourcePath: expectedSourcePath
+                    ),
+                        let key = hook.key,
+                        !key.isEmpty else {
+                        return nil
+                    }
+
+                    return key
+                }
+        )
+    }
+
     static func matchingHook(
         for event: CodexHookEvent,
         in hooks: [CodexHookMetadata],
@@ -416,6 +619,51 @@ private extension CodexHookSettings {
         }
         return matchingHooks.first { normalizedPath($0.sourcePath) == expectedSourcePath }
             ?? matchingHooks.first
+    }
+
+    static func isManagedCodexBarHook(
+        _ hook: CodexHookMetadata,
+        executablePath: String,
+        expectedSourcePath: String
+    ) -> Bool {
+        guard let command = hook.command else {
+            return false
+        }
+
+        // 自动信任/清理必须同时匹配命令和 sourcePath, 防止误碰用户 Hook
+        return isCodexBarCommand(command, executablePath: executablePath)
+            && normalizedPath(hook.sourcePath) == expectedSourcePath
+    }
+
+    static func hookNeedsTrustUpdate(_ hook: CodexHookMetadata) -> Bool {
+        switch hook.trustStatus.lowercased() {
+        case "untrusted", "modified":
+            true
+        default:
+            false
+        }
+    }
+
+    static func hookTrustStateValue(from state: [String: String]) -> [String: [String: String]] {
+        var value: [String: [String: String]] = [:]
+        for key in state.keys.sorted() {
+            guard let trustedHash = state[key] else {
+                continue
+            }
+
+            value[key] = [trustedHashKey: trustedHash]
+        }
+
+        return value
+    }
+
+    static func hookTrustStateValue(from entries: [CodexHookTrustEntry]) -> [String: [String: String]] {
+        var state: [String: String] = [:]
+        for entry in entries {
+            state[entry.key] = entry.trustedHash
+        }
+
+        return hookTrustStateValue(from: state)
     }
 
     static func hooksObject(from config: JSONObject) throws -> JSONObject {
@@ -514,6 +762,7 @@ private extension CodexHookSettings {
     }
 
     static func isCodexBarCommand(_ command: String, executablePath: String) -> Bool {
+        // 使用 shell quoted 路径匹配当前 app, 再要求带有 Hook 子进程参数
         command.contains(shellQuoted(executablePath))
             && command.split(whereSeparator: \.isWhitespace)
             .contains(Substring(WorkflowHookEventRecorder.hookArgument))

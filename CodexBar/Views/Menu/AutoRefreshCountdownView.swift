@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// 仅在菜单面板可见时每秒刷新, 隐藏时保持静态圆环
 struct AutoRefreshCountdownTimeline: View {
     let startedAt: Date
     let interval: TimeInterval

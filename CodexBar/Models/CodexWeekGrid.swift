@@ -1,5 +1,6 @@
 import Foundation
 
+/// 共享的周历网格生成器, 固定按列为周, 行从周日开始排列
 nonisolated enum CodexWeekGrid {
     static let rowCount = 7
 

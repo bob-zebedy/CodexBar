@@ -1,5 +1,6 @@
 import Foundation
 
+/// Codex Hook 事件名的统一枚举, 负责在 hooks.json 与 app-server 命名间转换
 nonisolated enum CodexHookEvent: String, CaseIterable {
     case sessionStart = "SessionStart"
     case userPromptSubmit = "UserPromptSubmit"

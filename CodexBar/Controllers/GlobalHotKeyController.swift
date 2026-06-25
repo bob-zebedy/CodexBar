@@ -1,6 +1,7 @@
 import Carbon.HIToolbox
 import Foundation
 
+/// Carbon 全局快捷键注册器, 将系统回调桥接回 MainActor
 final class GlobalHotKeyController {
     private let onPressed: @MainActor () -> Void
     private var registration: GlobalHotKeyRegistration?
@@ -96,6 +97,7 @@ final class GlobalHotKeyController {
     }()
 }
 
+/// 负责在 deinit 或重新注册时释放 Carbon handler 和 hot key
 private final nonisolated class GlobalHotKeyRegistration {
     private var eventHandler: EventHandlerUPP?
     private var eventHandlerRef: EventHandlerRef?

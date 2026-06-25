@@ -1,5 +1,6 @@
 import Foundation
 
+/// 由 account/rateLimits/usage 三路 app-server 响应合成的菜单面板快照
 nonisolated struct CodexQuotaSnapshot: Equatable {
     let account: CodexAccount
     let planType: String?
@@ -30,6 +31,7 @@ nonisolated struct CodexQuotaSnapshot: Equatable {
     }
 }
 
+/// 单个额度类型的展示快照, 例如 codex 或其他 limit id
 nonisolated struct CodexQuotaLimitSnapshot: Equatable, Identifiable {
     let limitId: String
     let limitName: String?
@@ -58,6 +60,7 @@ private nonisolated extension String {
     }
 }
 
+/// primary/secondary 窗口的 UI 友好表示, 统一计算剩余额度百分比
 nonisolated struct QuotaWindow: Equatable, Identifiable {
     let id: String
     let windowDurationMins: Int?
@@ -86,22 +89,24 @@ nonisolated struct QuotaWindow: Equatable, Identifiable {
         }
 
         if minutes.isMultiple(of: 1440) {
-            return "\(minutes / 1440)D"
+            return "\(minutes / 1440)d"
         }
 
         if minutes.isMultiple(of: 60) {
-            return "\(minutes / 60)H"
+            return "\(minutes / 60)h"
         }
 
-        return "\(minutes)M"
+        return "\(minutes)m"
     }
 }
 
+/// app-server account/rateLimits 原始响应模型
 nonisolated struct AccountRateLimitsResponse: Decodable {
     let rateLimits: RateLimitSnapshot
     let rateLimitsByLimitId: [String: RateLimitSnapshot]?
 }
 
+/// app-server 返回的单个 limit, primary/secondary 可能独立缺失
 nonisolated struct RateLimitSnapshot: Decodable {
     let limitId: String?
     let limitName: String?
@@ -110,6 +115,7 @@ nonisolated struct RateLimitSnapshot: Decodable {
     let secondary: RateLimitWindow?
 }
 
+/// resetsAt 是 Unix 时间戳, 在模型层先转成 Date 方便 UI 格式化
 nonisolated struct RateLimitWindow: Decodable {
     let usedPercent: Int?
     let resetsAt: Int?
@@ -144,7 +150,9 @@ nonisolated extension CodexQuotaSnapshot {
             CodexUsageSnapshot(summary: $0.summary, dailyBuckets: $0.dailyUsageBuckets)
         }
 
-        // rateLimits/usage 可同时为空, 账户有效时仍生成快照给 UI 展示"暂无数据"
+        // rateLimits/usage 可同时为空
+        // 账户有效时仍生成快照给 UI 展示 `暂无数据`
+
         self.init(
             account: account,
             planType: rateLimitsResponse?.rateLimits.planType,

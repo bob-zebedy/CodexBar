@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// 菜单面板内共享的固定尺寸, 保持各分区对齐
 enum MenuMetrics {
     static let panelPadding: CGFloat = 10
     static let panelCornerRadius: CGFloat = 8
@@ -7,6 +8,7 @@ enum MenuMetrics {
     static let loadingVerticalPadding: CGFloat = 16
 }
 
+/// 已登录状态的账号行, 邮箱可双击模糊, 头像可双击刷新
 struct AccountCard: View {
     let title: String
     let isEmail: Bool
@@ -73,6 +75,7 @@ struct AccountCard: View {
     ]
 }
 
+/// 未登录或初始化失败时的账号行, 不展示底层错误细节
 struct StatusAccountCard: View {
     let loadState: CodexLoadState
     let isRefreshing: Bool
@@ -118,6 +121,7 @@ struct StatusAccountCard: View {
     }
 }
 
+/// 额度和用量均无数据时的统一占位面板
 struct EmptyDataPanel: View {
     var body: some View {
         Text("暂无数据")
@@ -129,6 +133,7 @@ struct EmptyDataPanel: View {
     }
 }
 
+/// 多个 limit 的额度区, 使用 stale 透明度标记缓存回退数据
 struct QuotaLimitsSection: View {
     let limits: [CodexQuotaLimitSnapshot]
     let isStale: Bool
@@ -165,6 +170,7 @@ struct QuotaLimitsSection: View {
     }
 }
 
+/// 底部更新时间行, 同时承载 Sparkle 被动更新提示
 struct UpdatedAtRow: View {
     let snapshot: CodexQuotaSnapshot
     let countdownStartedAt: Date

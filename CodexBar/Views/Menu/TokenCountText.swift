@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// token 数字展示组件, 负责 K/M/B 缩写和可选等宽保留
 struct TokenCountText: View {
     let tokens: Int
     var font: Font = .caption.monospacedDigit().weight(.semibold)
@@ -34,6 +35,7 @@ struct TokenCountText: View {
     }
 }
 
+/// 根据新旧数值方向选择 numericText 的滚动方向
 private struct NumericRollTransition: ViewModifier {
     let value: Double
     @State private var previous: Double?
@@ -60,6 +62,7 @@ extension View {
     }
 }
 
+/// 1K 以下显示完整整数, 1K 起使用 K/M/B
 private enum TokenCountFormatter {
     static func parts(from tokens: Int) -> TokenCountParts {
         switch tokens {

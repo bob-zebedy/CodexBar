@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import SwiftUI
 
+/// 应用入口; Hook 子进程模式会在初始化阶段记录事件并退出
 @main
 struct CodexBarApp: App {
     @NSApplicationDelegateAdaptor(CodexBarAppDelegate.self) private var appDelegate
@@ -25,7 +26,7 @@ nonisolated extension Bundle {
         object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     }
 
-    /// `v1.2.3` 形式的版本文案; 缺失时回退 `--`
+    /// ` v1.2.3` 形式的版本文案; 缺失时回退 `--`
     var displayVersionLabel: String {
         guard let version = shortVersionString else { return "--" }
         return "v\(version)"

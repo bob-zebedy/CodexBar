@@ -1,10 +1,12 @@
 import Foundation
 
+/// app-server account/usage 的原始响应, summary 和按日 bucket 分开使用
 nonisolated struct AccountUsageResponse: Decodable {
     let summary: UsageSummary
     let dailyUsageBuckets: [DailyUsageBucket]
 }
 
+/// token 区域展示的汇总指标
 nonisolated struct UsageSummary: Decodable, Equatable {
     let currentStreakDays: Int?
     let lifetimeTokens: Int
@@ -13,6 +15,7 @@ nonisolated struct UsageSummary: Decodable, Equatable {
     let peakDailyTokens: Int
 }
 
+/// 单日 token bucket, startDate 使用 yyyy-MM-dd 作为稳定键
 nonisolated struct DailyUsageBucket: Decodable, Equatable, Identifiable {
     let startDate: String
     let tokens: Int
@@ -22,6 +25,7 @@ nonisolated struct DailyUsageBucket: Decodable, Equatable, Identifiable {
     }
 }
 
+/// token 热力图使用的只读快照, 负责按日期聚合重复 bucket
 nonisolated struct CodexUsageSnapshot: Equatable {
     let summary: UsageSummary
     let dailyBuckets: [DailyUsageBucket]

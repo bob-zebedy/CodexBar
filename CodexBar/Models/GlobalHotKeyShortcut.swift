@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 
+/// 可持久化的 Carbon 快捷键模型, 同时负责录制结果的基础校验
 nonisolated struct GlobalHotKeyShortcut: Codable, Equatable {
     let keyCode: UInt32
     let modifiers: UInt32
@@ -63,6 +64,7 @@ nonisolated struct GlobalHotKeyShortcut: Codable, Equatable {
         [controlKey, optionKey, shiftKey, cmdKey].filter(hasModifier).count
     }
 
+    /// 避开 Command-Space 和 Command-Tab 等系统级组合
     private var isReservedSystemShortcut: Bool {
         hasModifier(cmdKey) && Self.reservedSystemKeyCodes.contains(keyCode)
     }

@@ -1,5 +1,6 @@
 import Foundation
 
+/// 写入 JSONL 时固定字段顺序, 便于人工排查和 diff
 private nonisolated enum WorkflowStatsJSON {
     static func lineData(_ fields: [String]) -> Data {
         let json = "{\(fields.joined(separator: ","))}"
@@ -32,6 +33,7 @@ private nonisolated enum WorkflowStatsJSON {
     }
 }
 
+/// hooks 进程落盘的最小事件模型, 对历史字段缺失保持宽容
 nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     let timestamp: Date
     let name: String
@@ -145,6 +147,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     }
 }
 
+/// 热力图详情面板直接消费的每日统计
 nonisolated struct WorkflowDailyStats: Equatable, Identifiable {
     let startDate: String
     let sessionCount: Int
@@ -171,6 +174,7 @@ nonisolated struct WorkflowDailyStats: Equatable, Identifiable {
     }
 }
 
+/// WorkflowStatsService 发布给 UI 的近端快照
 nonisolated struct WorkflowStatsSnapshot: Equatable {
     let generatedAt: Date
     let dailyStats: [WorkflowDailyStats]
@@ -208,6 +212,7 @@ nonisolated struct WorkflowStatsSnapshot: Equatable {
     }
 }
 
+/// 聚合时保留 Set 缓存, 避免同一会话或轮次重复计数
 nonisolated struct WorkflowDailyIdentifierCache {
     var sessionIds: Set<String>
     var turnIds: Set<String>
@@ -218,6 +223,7 @@ nonisolated struct WorkflowDailyIdentifierCache {
     }
 }
 
+/// daily.jsonl 中的持久化聚合行, 同时兼容保留 ID 和只保留计数两种形态
 nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     let date: String
     var eventCount: Int
@@ -329,7 +335,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         turnIds = nil
     }
 
-    // 会话/轮次最终值: 优先使用去重/压缩后的数量, 起止事件计数只作为缺失兜底
+    // 会话/轮次最终值: 优先使用去重/压缩后的数量
+    // 起止事件计数只作为缺失兜底
     private var resolvedSessionCount: Int {
         sessionCount ?? sessionIds?.count ?? sessionStartCount
     }

@@ -406,25 +406,26 @@ app-server 与状态刷新错误:
 
 设置, Hook 和更新错误:
 
-| 错误来源                         | 检测位置                                                           | 用户可见状态                                 | 重试或降级                                       |
-| -------------------------------- | ------------------------------------------------------------------ | -------------------------------------------- | ------------------------------------------------ |
-| 登录项注册或取消失败             | `LoginItemSettings.setEnabled`                                     | 设置窗口中部错误组显示"设置开机启动失败"     | 调用 `refresh()` 恢复实际状态                    |
-| `config/read` 请求失败           | `CodexHookSettings.setEnabled` / app-server `config/read`          | Hook 选项下方显示"设置 Codex Hook 失败"      | 不写 `hooks.json`, 调用 `refresh()` 恢复实际状态 |
-| Codex 全局配置禁用 Hook          | `CodexHookSettings.setEnabled` / app-server `config/read`          | Hook 开关保持关闭, Hook 选项下方显示禁用说明 | 不写 `hooks.json`                                |
-| `hooks.json` 读取失败或结构非法  | `CodexHookSettings.refresh`                                        | Hook 开关视为关闭, Hook 选项下方显示错误     | 不写配置                                         |
-| Hook 开关写入失败                | `CodexHookSettings.setEnabled`                                     | Hook 选项下方显示"设置 Codex Hook 失败"      | 调用 `refresh()` 恢复实际状态                    |
-| `hooks/list` 请求失败            | `CodexHookSettings.verifyInstalledHooks` / app-server `hooks/list` | Hook 选项下方显示"无法验证 Codex Hook"       | 保留已写入 Hook, 详细错误进入日志                |
-| Hook 写入后验证发现问题          | `CodexHookSettings.verifyInstalledHooks` / app-server `hooks/list` | Hook 选项下方显示最高优先级验证摘要          | 保留已写入 Hook, 详细响应进入日志                |
-| 快捷键无法识别或不符合规则       | `HotKeyRecorderRow` / `GlobalHotKeySettings.setShortcut`           | 快捷键行内显示红色错误                       | 用户清除后重新录制                               |
-| 快捷键注册冲突                   | `StatusItemController.applyGlobalHotKey`                           | 快捷键行内显示占用提示                       | 恢复上一个已注册快捷键                           |
-| Hook 子进程 payload 不是 JSON    | `WorkflowHookEventRecorder.stdinPayload`                           | 无 UI 提示                                   | 吞掉本次 Hook, 避免启动完整菜单栏 App            |
-| Hook 子进程写入失败              | `WorkflowHookEventRecorder.handleIfRequested`                      | 无 UI 提示                                   | `try? record` 吞掉错误并正常退出, 避免阻断 Codex |
-| `daily.jsonl` 缺失, 空文件或坏行 | `WorkflowStatsService.prepareMaintenanceTasks`                     | 热力图详情面板可能暂时显示 0                 | 标记 dirty, 后续从 events 文件重建               |
-| events 文件变小或 offset 不一致  | `WorkflowStatsService.reconcileEventFiles`                         | 热力图详情面板可能暂时显示旧聚合             | 标记 dirty, 从头重建当天聚合                     |
-| 单个维护任务失败                 | `WorkflowStatsService.performMaintenanceIfNeeded`                  | 使用已有 daily 或空 snapshot                 | 对应日期标记 dirty                               |
-| Sparkle 配置缺失                 | `AppUpdater.init`                                                  | 更新开关禁用, 操作显示"未配置更新资源"       | 不创建 updater controller                        |
-| 手动检查没有更新                 | `updaterDidNotFindUpdate`                                          | 显示"没有可用更新"                           | 1 秒后自动清理状态                               |
-| 手动检查失败                     | `didAbortWithError`                                                | 显示"检查更新失败"                           | 不展示底层错误细节                               |
+| 错误来源                         | 检测位置                                                                  | 用户可见状态                                 | 重试或降级                                       |
+| -------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------ |
+| 登录项注册或取消失败             | `LoginItemSettings.setEnabled`                                            | 设置窗口中部错误组显示"设置开机启动失败"     | 调用 `refresh()` 恢复实际状态                    |
+| `config/read` 请求失败           | `CodexHookSettings.setEnabled` / app-server `config/read`                 | Hook 选项下方显示"设置 Codex Hook 失败"      | 不写 `hooks.json`, 调用 `refresh()` 恢复实际状态 |
+| Codex 全局配置禁用 Hook          | `CodexHookSettings.setEnabled` / app-server `config/read`                 | Hook 开关保持关闭, Hook 选项下方显示禁用说明 | 不写 `hooks.json`                                |
+| `hooks.json` 读取失败或结构非法  | `CodexHookSettings.refresh`                                               | Hook 开关视为关闭, Hook 选项下方显示错误     | 不写配置                                         |
+| Hook 开关写入失败                | `CodexHookSettings.setEnabled`                                            | Hook 选项下方显示"设置 Codex Hook 失败"      | 调用 `refresh()` 恢复实际状态                    |
+| `hooks/list` 请求失败            | `CodexHookSettings.verifyInstalledHooks` / app-server `hooks/list`        | Hook 选项下方显示"无法验证 Codex Hook"       | 保留已写入 Hook, 详细错误进入日志                |
+| Hook 自动信任写入失败            | `CodexHookSettings.updateCodexHookTrust` / app-server `config/batchWrite` | Hook 选项下方显示"无法验证 Codex Hook"       | 保留已写入 Hook, 详细错误进入日志                |
+| Hook 写入后验证发现问题          | `CodexHookSettings.verifyInstalledHooks` / app-server `hooks/list`        | Hook 选项下方显示最高优先级验证摘要          | 保留已写入 Hook, 详细响应进入日志                |
+| 快捷键无法识别或不符合规则       | `HotKeyRecorderRow` / `GlobalHotKeySettings.setShortcut`                  | 快捷键行内显示红色错误                       | 用户清除后重新录制                               |
+| 快捷键注册冲突                   | `StatusItemController.applyGlobalHotKey`                                  | 快捷键行内显示占用提示                       | 恢复上一个已注册快捷键                           |
+| Hook 子进程 payload 不是 JSON    | `WorkflowHookEventRecorder.stdinPayload`                                  | 无 UI 提示                                   | 吞掉本次 Hook, 避免启动完整菜单栏 App            |
+| Hook 子进程写入失败              | `WorkflowHookEventRecorder.handleIfRequested`                             | 无 UI 提示                                   | `try? record` 吞掉错误并正常退出, 避免阻断 Codex |
+| `daily.jsonl` 缺失, 空文件或坏行 | `WorkflowStatsService.prepareMaintenanceTasks`                            | 热力图详情面板可能暂时显示 0                 | 标记 dirty, 后续从 events 文件重建               |
+| events 文件变小或 offset 不一致  | `WorkflowStatsService.reconcileEventFiles`                                | 热力图详情面板可能暂时显示旧聚合             | 标记 dirty, 从头重建当天聚合                     |
+| 单个维护任务失败                 | `WorkflowStatsService.performMaintenanceIfNeeded`                         | 使用已有 daily 或空 snapshot                 | 对应日期标记 dirty                               |
+| Sparkle 配置缺失                 | `AppUpdater.init`                                                         | 更新开关禁用, 操作显示"未配置更新资源"       | 不创建 updater controller                        |
+| 手动检查没有更新                 | `updaterDidNotFindUpdate`                                                 | 显示"没有可用更新"                           | 1 秒后自动清理状态                               |
+| 手动检查失败                     | `didAbortWithError`                                                       | 显示"检查更新失败"                           | 不展示底层错误细节                               |
 
 Codex 版本探测错误:
 
@@ -563,7 +564,7 @@ Hook 开启且当天没有 token bucket 时, 今天的 token 数显示 `--`。�
 ~/.codex/hooks.json
 ```
 
-开启前会复用 App 当前的 `CodexStatusService` app-server 会话调用 `config/read`, 如果有效配置中 `[features] hooks = false` 或兼容旧名 `codex_hooks = false`, 则不写入 Hook, 并在 Hook 选项下方提示。`config/read` 请求失败时同样不写入 Hook, 并显示"设置 Codex Hook 失败"。开启写入后会继续调用 `hooks/list`, 检查 Codex 实际识别到的 `command`, `eventName`, `enabled`, `sourcePath`, `trustStatus`, `warnings` 和 `errors`。`hooks/list` 请求失败或验证未通过不会回滚已写入 Hook, 只在 Hook 选项下方显示验证摘要。这些 app-server 请求和响应都会进入日志窗口。
+开启前会复用 App 当前的 `CodexStatusService` app-server 会话调用 `config/read`, 如果有效配置中 `[features] hooks = false` 或兼容旧名 `codex_hooks = false`, 则不写入 Hook, 并在 Hook 选项下方提示。`config/read` 请求失败时同样不写入 Hook, 并显示"设置 Codex Hook 失败"。开启写入后会继续调用 `hooks/list`, 检查 Codex 实际识别到的 `command`, `eventName`, `enabled`, `sourcePath`, `trustStatus`, `key`, `currentHash`, `warnings` 和 `errors`。如果 `trustStatus` 是 `untrusted` 或 `modified`, CodexBar 只对 `sourcePath` 指向全局 `~/.codex/hooks.json` 且 command 属于当前 CodexBar 的 Hook, 用 `config/batchWrite` 把对应 `trusted_hash` upsert 到 `hooks.state` 并重新 `hooks/list` 验证。`hooks/list`、自动信任写入或验证未通过不会回滚已写入 Hook, 只在 Hook 选项下方显示验证摘要。这些 app-server 请求和响应都会进入日志窗口。
 
 下面的时序图展示开启 Hook, Codex 触发事件, 本机写入, 后台维护, 以及常见错误后的处理
 
@@ -605,6 +606,9 @@ sequenceDiagram
                 Settings->>Server: hooks/list 验证 Codex 实际识别结果
                 alt hooks/list 请求失败
                     Server-->>Settings: 保留已写入 Hook, 显示无法验证
+                else Hook 未信任或已修改
+                    Settings->>Server: config/batchWrite upsert trusted_hash
+                    Settings->>Server: hooks/list 二次验证
                 else command, eventName, enabled, sourcePath, trustStatus, warnings 或 errors 异常
                     Server-->>Settings: Hook 选项下方显示验证说明
                 else 验证通过
@@ -833,19 +837,19 @@ App 再次成为 active 时, 也会刷新 Codex 版本区, 并在已安装 Hook 
 
 设置项:
 
-| 设置项          | 状态源                                                         | 写入行为                                                 |
-| --------------- | -------------------------------------------------------------- | -------------------------------------------------------- |
-| 开机自动启动    | `SMAppService.mainApp.status`                                  | `register()` / `unregister()`                            |
-| 自动检查更新    | Sparkle updater                                                | 设置 `automaticallyChecksForUpdates`                     |
-| 使用快捷键      | `GlobalHotKeySettings.shortcut`                                | 写入 `UserDefaults` 并注册 hot key                       |
-| 启用 Codex Hook | app-server `config/read` / `hooks/list`, `~/.codex/hooks.json` | 检查全局 Hook 开关后追加或移除当前 CodexBar command hook |
-| Codex 版本      | `CodexCLIVersionSnapshot` + 当前 app-server 握手信息           | 路径点击复制到剪贴板                                     |
-| CodexBar 版本   | Bundle + AppUpdater 状态                                       | 有更新状态时优先显示动态消息                             |
+| 设置项          | 状态源                                                                               | 写入行为                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| 开机自动启动    | `SMAppService.mainApp.status`                                                        | `register()` / `unregister()`                                                               |
+| 自动检查更新    | Sparkle updater                                                                      | 设置 `automaticallyChecksForUpdates`                                                        |
+| 使用快捷键      | `GlobalHotKeySettings.shortcut`                                                      | 写入 `UserDefaults` 并注册 hot key                                                          |
+| 启用 Codex Hook | app-server `config/read` / `hooks/list` / `config/batchWrite`, `~/.codex/hooks.json` | 检查全局 Hook 开关后追加或移除当前 CodexBar command hook, 并维护对应 `hooks.state` 信任状态 |
+| Codex 版本      | `CodexCLIVersionSnapshot` + 当前 app-server 握手信息                                 | 路径点击复制到剪贴板                                                                        |
+| CodexBar 版本   | Bundle + AppUpdater 状态                                                             | 有更新状态时优先显示动态消息                                                                |
 
 错误显示:
 
 - 开机启动失败显示在设置组与底部按钮组之间的独立错误组
-- Hook 设置失败, 全局禁用, `hooks/list` 未信任或验证异常显示在 Hook 选项下方
+- Hook 设置失败, 全局禁用, 自动信任写入失败或验证异常显示在 Hook 选项下方
 - 没有登录项错误时不渲染错误组
 - 快捷键无法识别, 规则不合法或注册冲突显示在快捷键行内
 - 更新检查状态显示在 CodexBar 版本行
@@ -978,7 +982,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区, 并在已安装 Hook 
 - Hook 子进程只在锁内追加当天 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json`
 - 主 App 维护 `daily.jsonl` 时, 先锁外原子写 daily, 再短暂持锁提交维护状态, 减少阻塞 Hook 写入
 - `maintenance.json` 和 `daily.jsonl` 使用 atomic write
-- 设置 Hook 时通过当前 app-server 会话先读 `config/read`, 未全局禁用时 pretty printed 写回 `~/.codex/hooks.json`, 只移除 command 同时包含当前 App 可执行路径和 `--hook-event` 参数的 handler, 写入后再用 `hooks/list` 验证有效状态
+- 设置 Hook 时通过当前 app-server 会话先读 `config/read`, 未全局禁用时 pretty printed 写回 `~/.codex/hooks.json`, 只移除 command 同时包含当前 App 可执行路径和 `--hook-event` 参数的 handler, 写入后再用 `hooks/list` 验证有效状态；未信任或已修改时, 仅把当前 CodexBar command 且来源为全局 `hooks.json` 的 `key/currentHash` 通过 `config/batchWrite` 写入 `hooks.state`
 
 隐私和敏感信息边界:
 

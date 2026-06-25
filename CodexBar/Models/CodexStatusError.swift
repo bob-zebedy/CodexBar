@@ -1,5 +1,6 @@
 import Foundation
 
+/// UI 和日志共用的 app-server 错误分类, 保留可重试/需重连判断
 nonisolated enum CodexStatusError: LocalizedError {
     case executableNotFound
     case serverTimeout
@@ -14,7 +15,7 @@ nonisolated enum CodexStatusError: LocalizedError {
         case .executableNotFound:
             "找不到 Codex CLI 或 Codex APP"
         case .serverTimeout:
-            "等待 Codex app-server 响应超时"
+            "Codex app-server 等待响应超时"
         case .serverConnectionClosed:
             "Codex app-server 连接已断开"
         case .invalidServerResponse:
@@ -51,7 +52,7 @@ nonisolated enum CodexStatusError: LocalizedError {
         return !isAuthenticationRequired && !isUnsupportedMethod
     }
 
-    /// 连接断开、超时、无法解析都需要重建 app-server 会话
+    /// 连接断开, 超时, 无法解析都需要重建 app-server 会话
     var isTransportFailure: Bool {
         switch self {
         case .serverConnectionClosed, .serverTimeout, .invalidServerResponse:

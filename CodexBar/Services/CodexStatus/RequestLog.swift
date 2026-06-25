@@ -2,7 +2,8 @@ import Combine
 import Foundation
 import os
 
-/// JSON-RPC 交互日志: 带 id 的请求先记录为进行, 响应或错误到达后回填到同一条
+/// JSON-RPC 交互日志: 带 id 的请求先记录为进行
+/// 响应或错误到达后回填到同一条
 /// `initialized` 这类无 id 请求没有响应可等, 单独记录为空响应
 nonisolated struct RequestLogEntry: Identifiable, Equatable {
     enum Kind {
@@ -166,7 +167,8 @@ final nonisolated class RequestLogStorage: Sendable {
         }
     }
 
-    /// 合法 JSON 重新序列化为稳定、未转义斜杠的日志文本; 非 JSON 错误消息保持原样
+    /// 合法 JSON 重新序列化为稳定, 未转义斜杠的日志文本
+    /// 非 JSON 错误消息保持原样
     private static func normalized(_ text: String) -> String {
         jsonNormalized(text) ?? text
     }

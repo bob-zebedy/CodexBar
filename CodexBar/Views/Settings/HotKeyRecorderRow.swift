@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
+/// 快捷键录制行, 隐藏 NSView 负责真正捕获 keyDown
 struct HotKeyRecorderRow: View {
     @ObservedObject var settings: GlobalHotKeySettings
     @State private var isRecording = false
@@ -160,6 +161,7 @@ struct HotKeyRecorderRow: View {
     }
 }
 
+/// SwiftUI 到 AppKit first responder 的桥接层
 private struct HotKeyCaptureView: NSViewRepresentable {
     @Binding var isRecording: Bool
     let onCapture: (NSEvent) -> Void
@@ -189,6 +191,7 @@ private struct HotKeyCaptureView: NSViewRepresentable {
     }
 }
 
+/// 捕获下一次按键并监听窗口关闭, 关闭时清理录制态
 private final class HotKeyCaptureNSView: NSView {
     var onCapture: ((NSEvent) -> Void)?
     var onCancel: (() -> Void)?

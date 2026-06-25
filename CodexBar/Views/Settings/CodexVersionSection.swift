@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+/// Codex CLI/APP 版本区, 同时展示磁盘版本和当前 app-server 运行版本
 struct CodexVersionSection: View {
     let snapshot: CodexCLIVersionSnapshot
     let connectionInfo: CodexCLIConnectionInfo?
@@ -114,6 +115,7 @@ struct CodexVersionSection: View {
     }
 }
 
+/// 路径复制后保持同一布局宽度, 避免 `已复制` 状态造成跳动
 private struct CopyablePathText: View {
     let path: String
     let isCopied: Bool

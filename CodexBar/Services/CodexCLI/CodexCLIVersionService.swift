@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import os
 
+/// 设置页版本区域的完整快照
 nonisolated struct CodexCLIVersionSnapshot: Equatable {
     let global: CodexCLIVersionItem
     let bundled: CodexCLIVersionItem
@@ -15,6 +16,7 @@ nonisolated struct CodexCLIVersionSnapshot: Equatable {
     )
 }
 
+/// 单个安装源的磁盘探测结果
 nonisolated struct CodexCLIVersionItem: Equatable, Identifiable {
     let source: CodexCLIExecutableSource
     let path: String?
@@ -53,12 +55,14 @@ nonisolated struct CodexCLIVersionDisplay: Equatable {
     let displayVersion: String
     let hasVersion: Bool
     let path: String?
-    /// 当前会话尚未重连到新安装版本时显示的新版本号
+    // 当前会话尚未重连到新安装版本时显示的新版本号
+
     let newerInstalledVersion: String?
 
     init(item: CodexCLIVersionItem, connection: CodexCLIConnectionInfo?) {
         let isCurrent = connection?.source == item.source
         // 当前来源优先显示正在运行的版本, 避免后台升级后误报已生效
+
         let runningVersion = isCurrent ? connection?.version : nil
         let version = runningVersion ?? item.version
 
@@ -101,6 +105,7 @@ nonisolated struct CodexCLIVersionDisplay: Equatable {
     }
 }
 
+/// 并发探测 Codex CLI 与 Codex APP 内置 CLI 的磁盘版本
 actor CodexCLIVersionService {
     private let timeout: TimeInterval
     private static let pipeDrainTimeout: TimeInterval = 0.25
@@ -244,6 +249,7 @@ actor CodexCLIVersionService {
     }
 }
 
+/// 将 Process.terminationHandler 桥接成可超时等待的 async 结果
 private final nonisolated class ProcessExitWaiter: Sendable {
     private struct State {
         var continuation: CheckedContinuation<Bool, Never>?
@@ -302,6 +308,7 @@ private final nonisolated class ProcessExitWaiter: Sendable {
     }
 }
 
+/// 从 ` codex --version` 的输出中提取用户可读版本号
 nonisolated enum CodexCLIVersionReader {
     static func displayVersion(from output: String) -> String {
         output
@@ -311,12 +318,14 @@ nonisolated enum CodexCLIVersionReader {
     }
 }
 
+/// 设置页持有的版本探测状态, 负责节流和丢弃过期刷新结果
 @MainActor
 final class CodexCLIVersionViewModel: ObservableObject {
     @Published private(set) var snapshot = CodexCLIVersionSnapshot.empty
     @Published private(set) var isRefreshing = false
 
-    /// onAppear 和 didBecomeActive 常连发, 版本探测需要节流以避免频繁启动子进程
+    /// onAppear 和 didBecomeActive 常连发
+    /// 版本探测需要节流以避免频繁启动子进程
     private static let refreshThrottle: TimeInterval = 60
 
     private let service: CodexCLIVersionService

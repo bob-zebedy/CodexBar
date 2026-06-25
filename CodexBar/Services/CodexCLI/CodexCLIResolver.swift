@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 
+/// CodexBar 支持全局 CLI 优先, 找不到时回退 Codex APP 内置 CLI
 nonisolated enum CodexCLIExecutableSource: String, Equatable {
     case global
     case bundled
@@ -13,20 +14,24 @@ nonisolated enum CodexCLIExecutableSource: String, Equatable {
     }
 }
 
+/// 启动 app-server 所需的可执行文件和固定 stdio 参数
 nonisolated struct AppServerCommand: Equatable {
     let source: CodexCLIExecutableSource
     let executablePath: String
     let arguments = ["app-server", "--listen", "stdio://"]
 }
 
+/// 当前已连接 app-server 的来源信息, 设置页用它标记`当前使用`
 nonisolated struct CodexCLIConnectionInfo: Equatable {
     let source: CodexCLIExecutableSource
     let executablePath: String
     // 来自 initialize 握手, 代表当前 app-server 进程真实运行的版本
+
     let version: String?
     let openedAt: Date
 }
 
+/// 一次 PATH 扫描得到的安装结果, 供启动和版本探测复用
 nonisolated struct CodexCLIInstallations: Equatable {
     let globalPath: String?
     let bundledPath: String?
@@ -46,6 +51,7 @@ nonisolated struct CodexCLIInstallations: Equatable {
     }
 }
 
+/// 解析真实用户环境下的 Codex 可执行文件, 避免使用 Xcode/container 的 HOME
 nonisolated enum CodexCLIResolver {
     static let bundledExecutablePath = "/Applications/Codex.app/Contents/Resources/codex"
     static let environment = appServerEnvironment()
@@ -85,6 +91,7 @@ nonisolated enum CodexCLIResolver {
         let homeDirectory = realUserHomeDirectory()
         let path = environment["PATH"] ?? ""
         // 菜单栏应用通常拿不到用户 shell PATH, 需要补上常见 CLI 安装目录
+
         let fallbackPaths = [
             "/opt/homebrew/bin",
             "/usr/local/bin",

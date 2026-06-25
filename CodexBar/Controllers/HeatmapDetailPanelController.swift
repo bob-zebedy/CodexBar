@@ -2,6 +2,7 @@ import AppKit
 import QuartzCore
 import SwiftUI
 
+/// 详情面板不接收焦点, 只作为菜单面板的跟随子窗口
 private final class DetailPanel: NSPanel {
     override var canBecomeKey: Bool {
         false
@@ -12,6 +13,7 @@ private final class DetailPanel: NSPanel {
     }
 }
 
+/// 热力图 hover 详情控制器, 负责左右贴边定位和抽屉式切换动画
 @MainActor
 final class HeatmapDetailPanelController {
     private var panel: NSPanel?
@@ -137,6 +139,8 @@ final class HeatmapDetailPanelController {
 
     private func updateVisiblePanel(_ request: PanelRequest, on panel: NSPanel) {
         if drawerTransition == .switchingSide {
+            // 切边动画过程中只保留最新请求
+            // 防止连续 hover 造成动画队列堆积
             pendingSideSwitchRequest = request
             return
         }
@@ -367,6 +371,7 @@ final class HeatmapDetailPanelController {
         showsWorkflowStats: Bool,
         preferredSide: UsageHeatmapDetailSide
     ) -> PanelPosition {
+        // 优先贴在请求侧, 空间不足时换边, 最后仍夹紧到屏幕可见区域
         let menuSurfaceFrame = contentScreenFrame(for: contentView, in: menuSurfaceWindow) ?? menuSurfaceWindow.frame
         let visibleFrame = (menuSurfaceWindow.screen ?? NSScreen.main)?.visibleFrame ?? menuSurfaceFrame
         let leftX = menuSurfaceFrame.minX - Metrics.panelGap - panelSize.width

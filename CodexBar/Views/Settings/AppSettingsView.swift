@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+/// 设置窗口根视图, 汇总启动项, 更新, Hook, 快捷键和版本信息
 struct AppSettingsView: View {
     @EnvironmentObject private var statusViewModel: CodexStatusViewModel
     @EnvironmentObject private var appUpdater: AppUpdater

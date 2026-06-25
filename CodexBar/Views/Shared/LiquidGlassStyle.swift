@@ -1,11 +1,14 @@
 import SwiftUI
 
+/// CodexBar 统一的短状态动画
 extension Animation {
     static let codexStatus = Animation.easeInOut(duration: 0.20)
 }
 
+/// 共享颜色和十六进制便捷初始化
 extension Color {
-    // 某些自定义 View 需要具体 Color, 不能直接使用 .primary/.secondary 这类 ShapeStyle
+    // 某些自定义 View 需要具体 Color
+    // 不能直接使用 .primary/.secondary 这类 ShapeStyle
     static let codexLabel = Color(nsColor: .labelColor)
     static let codexSecondaryLabel = Color(nsColor: .secondaryLabelColor)
 
@@ -18,6 +21,7 @@ extension Color {
     }
 }
 
+/// 自绘 Liquid Glass 背景和 stale 状态修饰
 extension View {
     func liquidGlassSurface(
         cornerRadius: CGFloat,
@@ -52,12 +56,13 @@ extension View {
         }
     }
 
-    /// 数据为缓存回退(本轮刷新失败)时弱化显示
+    /// 数据为缓存回退 (本轮刷新失败) 时弱化显示
     func markStale(_ isStale: Bool) -> some View {
         opacity(isStale ? 0.55 : 1)
     }
 }
 
+/// 分区之间的细分隔线, 与玻璃背景保持低对比
 struct LiquidGlassDivider: View {
     var body: some View {
         Rectangle()
@@ -77,6 +82,7 @@ struct LiquidGlassDivider: View {
     }
 }
 
+/// 自绘玻璃面板, 由底色, 高光, 纹理, 描边和阴影叠加组成
 private struct LiquidGlassSurface: View {
     let cornerRadii: RectangleCornerRadii
     let isOuterSurface: Bool
@@ -201,6 +207,7 @@ private struct LiquidGlassSurface: View {
     }
 }
 
+/// 稳定伪随机纹理, 不依赖运行时随机数以避免重绘闪烁
 private struct LiquidGlassFrostedTexture: View {
     let isOuterSurface: Bool
     @Environment(\.colorScheme) private var colorScheme
@@ -250,6 +257,7 @@ private struct LiquidGlassFrostedTexture: View {
     }
 }
 
+/// 小徽章背景, 用于计划名和当前运行状态
 private struct LiquidGlassCapsule: View {
     let tint: Color
     @Environment(\.colorScheme) private var colorScheme
@@ -300,6 +308,7 @@ private struct LiquidGlassCapsule: View {
     }
 }
 
+/// 面板边缘的高光描边
 private struct LiquidGlassSpecular: View {
     let cornerRadii: RectangleCornerRadii
 

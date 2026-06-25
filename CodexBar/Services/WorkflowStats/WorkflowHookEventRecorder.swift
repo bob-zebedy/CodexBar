@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 
+/// Hook 子进程入口: 读取 stdin payload, 写入本地 JSONL, 然后立即退出
 nonisolated enum WorkflowHookEventRecorder {
     static let hookArgument = "--hook-event"
 
@@ -12,7 +13,9 @@ nonisolated enum WorkflowHookEventRecorder {
         let payload = stdinPayload()
 
         guard let eventName = payload.string(for: "hook_event_name") else {
-            // 显式 Hook 模式下吞掉无效输入, 避免 Hook 子进程继续启动完整菜单栏 App
+            // 显式 Hook 模式下吞掉无效输入
+            // 避免 Hook 子进程继续启动完整菜单栏 App
+
             return true
         }
 
@@ -92,6 +95,7 @@ nonisolated enum WorkflowHookEventRecorder {
     }
 }
 
+/// Codex Hook payload 字段存在版本差异, 这里集中做宽松类型归一化
 private nonisolated struct WorkflowHookPayload {
     let values: [String: Any]
 

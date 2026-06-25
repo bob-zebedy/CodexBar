@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+/// 全局快捷键无法信任 status item 锚点时使用的无箭头菜单面板
 @MainActor
 final class FallbackPanelController {
     private let makeContentController: () -> NSHostingController<AnyView>

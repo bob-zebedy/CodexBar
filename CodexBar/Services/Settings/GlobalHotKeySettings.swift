@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 
+/// 全局快捷键偏好设置, 负责持久化和注册失败后的 UI 回滚
 @MainActor
 final class GlobalHotKeySettings: ObservableObject {
     @Published private(set) var shortcut: GlobalHotKeyShortcut?

@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import ServiceManagement
 
+/// 开机启动设置, 所有 ServiceManagement 错误只展示简短文案
 @MainActor
 final class LoginItemSettings: ObservableObject {
     @Published private(set) var isEnabled = false

@@ -1,11 +1,13 @@
 import Combine
 import SwiftUI
 
+/// 控制 TimelineView 是否 tick 的轻量状态, 由菜单面板显示/隐藏驱动
 @MainActor
 final class MenuSurfaceVisibilityState: ObservableObject {
     @Published var isVisible = false
 }
 
+/// 菜单栏弹出面板根视图, 只展示账号, 额度, token 和更新时间
 struct CodexStatusMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + MenuMetrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
 

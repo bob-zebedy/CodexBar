@@ -2,6 +2,7 @@ import Combine
 import Darwin
 import Foundation
 
+/// 从 Hook 原始事件维护每日聚合, 对外只发布 UI 需要的统计快照
 actor WorkflowStatsService {
     private let eventsDirectoryURL: URL
     private let dailyLogURL: URL
@@ -126,6 +127,8 @@ actor WorkflowStatsService {
     ) -> Bool {
         var changed = markDirty(eventDateKeys.filter { state.days[$0] == nil }, in: &state)
 
+        // 文件变小说明被外部截断, 必须全量重建
+        // 变大则从旧 offset 增量追上
         for (dateKey, day) in state.days {
             let actualSize = eventLogSize(for: dateKey)
             if actualSize < day.offset || day.offset != day.size {
@@ -300,6 +303,7 @@ actor WorkflowStatsService {
         var buffer = Data()
         var corrupt = 0
 
+        // 分块读取防止大日志一次性进内存, 但仍按完整 JSONL 行解码
         while remainingBytes > 0 {
             let readSize = min(Int(remainingBytes), Self.eventReadChunkSize)
             guard let chunk = try fileHandle.read(upToCount: readSize), !chunk.isEmpty else {
@@ -351,6 +355,8 @@ actor WorkflowStatsService {
             return
         }
 
+        // daily.jsonl 和 maintenance.json 分开写
+        // 每次提交前后都检查事件文件是否被并发追加
         try writeDailyAggregate(result.aggregate)
         try commitMaintenanceState(result)
     }
@@ -461,6 +467,7 @@ actor WorkflowStatsService {
     }
 }
 
+/// Hook 统计文件路径, 保留期和跨进程 flock 都集中在这里
 nonisolated enum WorkflowStatsStorage {
     private static let retentionDayCount = 210
     private static let identifierRetentionDayCount = 3
@@ -519,6 +526,7 @@ nonisolated enum WorkflowStatsStorage {
             try? lockHandle.close()
         }
 
+        // Hook 子进程和主 App 可能同时写统计文件, 必须使用进程级排他锁
         if flock(lockHandle.fileDescriptor, LOCK_EX) != 0 {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
@@ -587,6 +595,7 @@ nonisolated enum WorkflowStatsStorage {
     }
 }
 
+/// 记录单日事件文件已处理到的 offset, 支持后续增量维护
 nonisolated struct WorkflowStatsDayMaintenanceState: Codable, Equatable {
     var offset: UInt64
     var size: UInt64
@@ -599,6 +608,7 @@ nonisolated struct WorkflowStatsDayMaintenanceState: Codable, Equatable {
     }
 }
 
+/// maintenance.json 的全局状态, pending 表示可增量, dirty 表示需全量重建
 nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
     static let currentSchema = 2
 
@@ -678,6 +688,7 @@ nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
     }
 }
 
+// 单次维护任务: 从 startOffset 读到 size, 可基于已有聚合继续追加
 private nonisolated struct WorkflowStatsMaintenanceTask {
     let dateKey: String
     let startOffset: UInt64
@@ -686,6 +697,7 @@ private nonisolated struct WorkflowStatsMaintenanceTask {
     let existingCorrupt: Int
 }
 
+/// 维护任务的提交结果, corrupt 统计保留给后续诊断
 private nonisolated struct WorkflowStatsMaintenanceResult {
     let dateKey: String
     let aggregate: WorkflowDailyAggregate
@@ -693,6 +705,7 @@ private nonisolated struct WorkflowStatsMaintenanceResult {
     let corrupt: Int
 }
 
+/// UI 层的工作流统计状态, 节流普通刷新但允许维护刷新立即执行
 @MainActor
 final class WorkflowStatsViewModel: ObservableObject {
     @Published private(set) var snapshot = WorkflowStatsSnapshot.empty

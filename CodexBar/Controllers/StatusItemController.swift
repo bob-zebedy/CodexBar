@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 
+/// 应用级对象装配点, 持有共享服务和 ViewModel 生命周期
 @MainActor
 final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     private let codexStatusService = CodexStatusService()
@@ -30,6 +31,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// 菜单栏入口控制器, 统一管理状态图标, 菜单面板, 右键菜单和全局快捷键
 @MainActor
 private final class StatusItemController: NSObject {
     private let viewModel: CodexStatusViewModel
@@ -302,6 +304,8 @@ private final class StatusItemController: NSObject {
         _ button: NSStatusBarButton,
         on targetScreen: NSScreen?
     ) -> Bool {
+        // 全局快捷键打开时必须确认 status item 锚点真实可用
+        // 否则使用无箭头 fallback 面板
         guard let window = button.window,
               let screen = window.screen,
               !button.isHidden,
@@ -460,6 +464,8 @@ private final class StatusItemController: NSObject {
         }
 
         guard animated else {
+            // 关闭菜单面板时短暂禁止辅助窗口抢回 key
+            // 避免设置/日志窗口闪前
             suspendAuxiliaryWindowKeyFocus()
             completeMenuSurfaceClose(hidesDetailPanel: false)
             return
@@ -530,6 +536,7 @@ private final class StatusItemController: NSObject {
     }
 
     private func refreshWorkflowStatsIfHookEnabled(performMaintenance: Bool) {
+        // Hook 开关可能被外部 Codex 配置改动, 每次需要统计前都先读 hooks.json
         codexHookSettings.refresh()
         if codexHookSettings.isEnabled {
             workflowStatsViewModel.refreshIfNeeded(performMaintenance: performMaintenance)

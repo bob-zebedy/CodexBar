@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+/// hover 详情面板需要的完整上下文, 包括屏幕坐标和峰值 token
 nonisolated struct UsageHeatmapHoverContext: Equatable {
     let day: UsageHeatmapDay
     let showsWorkflowStats: Bool
@@ -15,12 +16,14 @@ nonisolated enum UsageHeatmapDetailSide: Equatable {
     case right
 }
 
+/// hover 单元格在热力图中的列/行位置, 用于吸附和详情定位
 nonisolated struct UsageHeatmapSelection: Equatable {
     let day: UsageHeatmapDay
     let column: Int
     let row: Int
 }
 
+/// token 摘要和近 30 周热力图的组合区
 struct UsageSummaryView: View {
     let usage: CodexUsageSnapshot
     let isStale: Bool
@@ -168,6 +171,7 @@ struct UsageSummaryView: View {
     }
 
     private var hoverContext: UsageHeatmapHoverContext? {
+        // 详情面板由控制器显示, SwiftUI 这里只负责传递屏幕坐标和数据
         hoverSelection.map {
             UsageHeatmapHoverContext(
                 day: $0.day,
@@ -229,6 +233,7 @@ struct UsageSummaryView: View {
     }
 }
 
+/// 近 30 周 token 热力图, hover 时把指针吸附到最近的有效日期格
 struct UsageHeatmap: View {
     let days: [UsageHeatmapDay?]
     let onScreenFrameChange: (CGRect?) -> Void
@@ -345,6 +350,7 @@ struct UsageHeatmap: View {
     }
 
     private func snappedSelection(at point: CGPoint) -> UsageHeatmapSelection? {
+        // 以格子中心为准吸附, 指针离中心过远时视为离开格子
         let column = Int(((point.x - Metrics.squareSize / 2) / Metrics.squarePitch).rounded())
         let row = Int(((point.y - Metrics.squareSize / 2) / Metrics.squarePitch).rounded())
 
@@ -428,6 +434,7 @@ extension UsageHeatmap {
     }
 }
 
+/// 单个热力图方块, 蓝色透明度表示当天 token 强度
 private struct UsageHeatmapSquare: View {
     let day: UsageHeatmapDay
     let percent: Double
@@ -470,6 +477,7 @@ private struct UsageHeatmapSquare: View {
     }
 }
 
+/// 通过 NSView 桥接读取热力图在屏幕坐标系中的 frame
 private struct HeatmapScreenFrameReader: NSViewRepresentable {
     let onChange: (CGRect?) -> Void
 
@@ -485,6 +493,7 @@ private struct HeatmapScreenFrameReader: NSViewRepresentable {
     }
 }
 
+/// 只在布局稳定后上报 frame, 避免 hover 期间反复触发无效定位
 @MainActor
 private final class HeatmapScreenFrameReportingView: NSView {
     var onChange: ((CGRect?) -> Void)?
@@ -502,7 +511,9 @@ private final class HeatmapScreenFrameReportingView: NSView {
     }
 
     func scheduleReport() {
-        // updateNSView 每次 hover 重渲染都会调到这里, 合并掉重复的待执行 report, 至多保留一个
+        // updateNSView 每次 hover 重渲染都会调到这里
+        // 合并掉重复的待执行 report, 至多保留一个
+
         guard !reportScheduled else {
             return
         }
@@ -537,6 +548,7 @@ private final class HeatmapScreenFrameReportingView: NSView {
     }
 }
 
+/// 热力图 hover 详情内容, Hook 开启时额外展示工作流统计
 struct UsageHeatmapDayDetailView: View {
     let context: UsageHeatmapHoverContext
     @Environment(\.colorScheme) private var colorScheme
@@ -839,6 +851,7 @@ struct UsageHeatmapDayDetailView: View {
     }
 }
 
+/// 日期拆成三段以获得更自然的数字滚动过渡
 private struct AnimatedDateText: View {
     let startDate: String
     let font: Font

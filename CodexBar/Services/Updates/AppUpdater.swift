@@ -3,6 +3,7 @@ import Combine
 import Sparkle
 import SwiftUI
 
+/// Sparkle 更新状态桥接层, 同时驱动设置窗和菜单面板的更新提示
 @MainActor
 final class AppUpdater: NSObject, ObservableObject {
     @Published private(set) var settingsStatusMessage: String?
@@ -23,7 +24,9 @@ final class AppUpdater: NSObject, ObservableObject {
     init(bundle: Bundle = .main) {
         super.init()
 
-        // 开发环境可能没有 Sparkle feed 或公钥, 此时保留设置 UI, 但禁用更新能力
+        // 开发环境可能没有 Sparkle feed 或公钥
+        // 此时保留设置 UI, 但禁用更新能力
+
         guard Self.hasUsableSparkleConfiguration(in: bundle) else {
             return
         }

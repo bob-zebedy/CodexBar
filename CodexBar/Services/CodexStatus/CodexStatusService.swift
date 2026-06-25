@@ -1,6 +1,6 @@
 import Foundation
 
-/// UI 只关心可展示数据、未登录、初始化失败; 更细的错误保留在交互日志中
+/// UI 只关心可展示数据, 未登录, 初始化失败; 更细的错误保留在交互日志中
 nonisolated enum CodexFetchOutcome {
     case data(CodexQuotaSnapshot)
     case notLoggedIn
@@ -13,7 +13,7 @@ private nonisolated enum ConnectionResolution {
     case initializationFailed
 }
 
-// 单接口读取结果按后续动作分类: 跳过、刷新认证、重建连接
+// 单接口读取结果按后续动作分类: 跳过, 刷新认证, 重建连接
 private nonisolated enum ReadResult<Value> {
     case value(Value)
     case skipped(ReadSkipReason)
@@ -36,6 +36,7 @@ private nonisolated struct CachedSupplementalRead<Value> {
     let isStale: Bool
 }
 
+/// 只缓存同一账号下的补充数据, 账号变化时整体丢弃避免串号
 private nonisolated struct SupplementalDataCache {
     var account: CodexAccount?
     var rateLimits: AccountRateLimitsResponse?
@@ -62,7 +63,8 @@ private nonisolated extension ReadResult {
         return nil
     }
 
-    /// 认证刷新后仍是 authRequired/broken 则上抛, 其余原样返回交给调用方按缓存策略处理
+    /// 认证刷新后仍是 authRequired/broken 则上抛
+    /// 其余原样返回交给调用方按缓存策略处理
     func resultAfterAuthAttempt() throws -> ReadResult<Value> {
         switch self {
         case .value, .skipped:
@@ -85,7 +87,8 @@ actor CodexStatusService {
     private var connection: AppServerConnection?
     private var supplementalDataCache = SupplementalDataCache()
 
-    /// app-server 退出后继续写管道会触发 SIGPIPE; 忽略信号, 让 write 抛错后走重建
+    /// app-server 退出后继续写管道会触发 SIGPIPE
+    /// 忽略信号, 让 write 抛错后走重建
     private static let ignoreBrokenPipeSignal: Void = {
         signal(SIGPIPE, SIG_IGN)
     }()
@@ -120,7 +123,21 @@ actor CodexStatusService {
         )
     }
 
-    /// 复用连接出现传输故障时只重建重试一次, 避免故障状态下反复拉起进程
+    /// Hook 自动信任和清理统一走批量写入, 让 Codex 负责刷新用户配置
+    func writeCodexConfigBatch(edits: [CodexConfigBatchEdit]) async throws -> CodexConfigWriteResponse {
+        let connection = try readyConnection()
+        return try connection.session.request(
+            "config/batchWrite",
+            params: [
+                "edits": edits.map(\.appServerObject),
+                "reloadUserConfig": true
+            ],
+            as: CodexConfigWriteResponse.self
+        )
+    }
+
+    /// 复用连接出现传输故障时只重建重试一次
+    /// 避免故障状态下反复拉起进程
     private func resolveOutcome(allowRebuild: Bool) -> CodexFetchOutcome {
         switch ensureConnection() {
         case .notLoggedIn:
@@ -200,7 +217,9 @@ actor CodexStatusService {
         return connection.commandInfo
     }
 
-    /// 额度与用量独立读取; 认证失败全程只刷新一次 token, 传输故障交给外层重建连接
+    /// 额度与用量独立读取
+    /// 认证失败全程只刷新一次 token
+    /// 传输故障交给外层重建连接
     private func fetchData(using connection: AppServerConnection, refreshAccountInfo: Bool) throws -> CodexQuotaSnapshot {
         var didRefresh = false
 
@@ -234,6 +253,7 @@ actor CodexStatusService {
         }
 
         // 新建连接已读过 account; 复用连接才刷新账户状态
+
         if refreshAccountInfo {
             let accountResult: ReadResult<AccountReadResponse> = try readResultWithAuthRefresh {
                 Self.read("account/read", params: ["refreshToken": false], using: connection, as: AccountReadResponse.self)
@@ -263,6 +283,7 @@ actor CodexStatusService {
         )
 
         // rateLimits/usage 都可为空, 只要账户有效就让 UI 展示"暂无数据"
+
         guard let snapshot = try? CodexQuotaSnapshot(
             accountResponse: connection.accountResponse,
             rateLimitsResponse: rateLimitsRead.value,
@@ -276,7 +297,9 @@ actor CodexStatusService {
         return snapshot
     }
 
-    /// 新值更新缓存; 本轮请求失败则回退到缓存并标记陈旧; 方法不支持/认证/断连一律视为无数据
+    /// 新值更新缓存
+    /// 本轮请求失败则回退到缓存并标记陈旧
+    /// 方法不支持/认证/断连一律视为无数据
     private func cachedRead<Value>(
         _ result: ReadResult<Value>,
         cache: inout Value?
@@ -315,6 +338,7 @@ actor CodexStatusService {
             return .skipped(.methodUnsupported)
         }
         // 重试后仍失败的非认证业务错误不阻断整轮刷新
+
         return error.isTransportFailure ? .broken : .skipped(.requestFailed)
     }
 
@@ -443,6 +467,7 @@ actor CodexStatusService {
     }
 }
 
+/// 持有 stdio 会话及初始化阶段读取到的账号/版本信息
 private final nonisolated class AppServerConnection {
     let session: AppServerSession
     let commandInfo: CodexCLIConnectionInfo

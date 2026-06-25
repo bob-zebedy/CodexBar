@@ -23,20 +23,22 @@ CodexBar 处理器的识别条件:
 
 检测是否已开启时，只要任意 CodexBar 事件存在当前 App 路径对应的处理器，开关就保持开启；如果缺少部分事件，`hooks/list` 验证会在 Hook 选项下方显示 `CodexBar Hook 已不完整`。
 
+关闭时会先通过 `hooks/list` 找出 `command` 属于当前 CodexBar 且来源为全局 `hooks.json` 的 Hook key；移除 `hooks.json` 中的处理器后，再通过 `config/read` + `config/batchWrite` 从 `hooks.state` 删除这些 key。清理失败不恢复已经关闭的 Hook，只在 Hook 选项下方提示清理信任状态失败。
+
 开启写入成功后会复用同一条 app-server 会话调用 `hooks/list` 做有效性检查:
 
 - `command`: 必须包含 CodexBar 当前可执行文件路径生成的命令和 `--hook-event` 参数。
 - `eventName`: 必须覆盖全部 CodexBar 事件；`hooks/list` 返回值使用 `sessionStart` 这类 lower camel 名称，CodexBar 会与写入的 `SessionStart` 配置名做映射。
 - `enabled`: 必须为 `true`，否则提示 Codex 已禁用这些 Hook。
 - `sourcePath`: 必须指向全局 `~/.codex/hooks.json`。
-- `trustStatus`: `untrusted` 或 `modified` 时提示用户在 Codex 中执行 `/hooks` 并信任 CodexBar。
+- `trustStatus`: `untrusted` 或 `modified` 时，仅对 `sourcePath` 指向全局 `~/.codex/hooks.json` 且 command 属于当前 CodexBar 的 Hook 读取 `key` 和 `currentHash`，通过 `config/batchWrite` upsert 到 `hooks.state` 的 `trusted_hash`，再重新 `hooks/list` 验证。
 - `warnings` / `errors`: 参与验证优先级判断；设置页只显示最高优先级问题，完整返回内容进入日志窗口。
 
-`config/read` 和 `hooks/list` 都通过 `AppServerSession.request` 调用，请求和响应会进入 CodexBar 日志窗口。
+`config/read`、`hooks/list` 和 `config/batchWrite` 都通过 `AppServerSession.request` 调用，请求和响应会进入 CodexBar 日志窗口。
 
 `config/read` 请求失败时，CodexBar 不写入 `hooks.json`，调用 `refresh()` 恢复本地实际状态，并在 Hook 选项下方显示 `设置 Codex Hook 失败: <错误>`。只有请求成功且明确读到全局禁用 Hook 时，才显示 `Codex 配置已禁用 Hook`。
 
-`hooks/list` 请求失败或验证发现问题时，CodexBar 不回滚已经写入的 Hook。请求失败时显示 `无法验证 Codex Hook: <错误>`；请求成功但验证未通过时只显示最高优先级的一条摘要。当前优先级为: 无返回结果、Codex 返回错误、Hook 被禁用、Hook 未被信任、事件不完整、来源异常、Codex 返回警告。
+`hooks/list`、自动信任写入或二次验证失败时，CodexBar 不回滚已经写入的 Hook。请求失败时显示 `无法验证 Codex Hook: <错误>`；请求成功但验证未通过时只显示最高优先级的一条摘要。当前优先级为: 无返回结果、Codex 返回错误、Hook 被禁用、Hook 未被信任、事件不完整、来源异常、Codex 返回警告。
 
 Hook 事件定义集中在 `CodexHookEvent`。`configName` 用于写入 `hooks.json`, `appServerName` 用于匹配 `hooks/list` 返回的 lower camel 事件名, `init(eventName:)` 用于把 events 中的 `hook_event_name` 归一化到同一组事件。
 

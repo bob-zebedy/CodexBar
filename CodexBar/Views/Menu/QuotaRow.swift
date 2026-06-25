@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// 单个额度窗口行, 布局宽度固定以避免不同文案撑宽菜单面板
 struct QuotaRow: View {
     let window: QuotaWindow
 
@@ -81,6 +82,7 @@ private extension QuotaRow {
     }()
 }
 
+/// 额度颜色按剩余百分比分档, 无数据时使用占位色
 private enum QuotaBarPalette {
     static func filledColor(for percent: Int?) -> Color {
         guard let percent else {
@@ -109,6 +111,7 @@ private enum QuotaBarPalette {
     private static let red = Color(hex: 0xEE3F3F)
 }
 
+/// 胶囊条, 与菜单面板宽度联动
 private struct SegmentedQuotaBar: View {
     let percent: Int?
 

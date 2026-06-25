@@ -1,5 +1,6 @@
 import Foundation
 
+/// app-server account/read 的账号信息, 只保留菜单面板需要展示的字段
 nonisolated struct CodexAccount: Decodable, Equatable {
     let type: String
     let email: String?
@@ -27,6 +28,7 @@ nonisolated struct CodexAccount: Decodable, Equatable {
     }
 }
 
+/// account/read 允许 account 为空, 由上层转换为`未登录`状态
 nonisolated struct AccountReadResponse: Decodable {
     let account: CodexAccount?
 }

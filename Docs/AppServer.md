@@ -51,8 +51,9 @@ codex app-server --listen stdio://
 - `account/read` 每轮复用连接时用 `refreshToken: false` 更新账户状态。
 - `account/rateLimits/read` 读取额度。
 - `account/usage/read` 读取 `summary.lifetimeTokens`、`summary.peakDailyTokens`、`dailyUsageBuckets`。
-- `config/read` 在开启 Codex Hook 前读取有效配置，用于判断 `[features] hooks = false` 或兼容旧名 `codex_hooks = false` 是否禁用了 Hook。
-- `hooks/list` 在写入 Hook 后或设置页刷新时验证 Codex 实际识别到的 Hook，检查 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`warnings` 和 `errors`。
+- `config/read` 在开启 Codex Hook 前读取有效配置，用于判断 `[features] hooks = false` 或兼容旧名 `codex_hooks = false` 是否禁用了 Hook；关闭清理时也读取 `hooks.state` 以保留其他 Hook 的信任状态。
+- `hooks/list` 在写入 Hook 后或设置页刷新时验证 Codex 实际识别到的 Hook，检查 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`key`、`currentHash`、`warnings` 和 `errors`。
+- `config/batchWrite` 只用于写回 `hooks.state`：开启后把 CodexBar Hook 的 `key/currentHash` upsert 成 `trusted_hash`，关闭时移除对应 key。
 
 认证失败时，同会话最多调用一次 `account/read(refreshToken:true)` 后重试原读取。
 

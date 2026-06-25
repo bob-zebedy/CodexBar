@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+/// 日志窗口控制器, 使用全局 RequestLogStore 保持关闭后日志不丢失
 @MainActor
 final class LogWindowController: HostingWindowController {
     private let store: RequestLogStore

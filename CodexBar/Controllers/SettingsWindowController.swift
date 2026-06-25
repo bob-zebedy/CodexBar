@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+/// 设置窗口控制器, 打开前刷新 Hook 状态并按内容自适应高度
 @MainActor
 final class SettingsWindowController: HostingWindowController {
     private let viewModel: CodexStatusViewModel
