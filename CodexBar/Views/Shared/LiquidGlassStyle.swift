@@ -264,47 +264,48 @@ private struct LiquidGlassCapsule: View {
 
     var body: some View {
         Capsule(style: .continuous)
-            .fill(baseFill)
-            .overlay {
-                Capsule(style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                .white.opacity(colorScheme == .dark ? 0.18 : 0.36),
-                                tint.opacity(colorScheme == .dark ? 0.16 : 0.12),
-                                .clear
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .blendMode(.plusLighter)
-            }
-            .overlay {
-                Capsule(style: .continuous)
-                    .strokeBorder(.white.opacity(colorScheme == .dark ? 0.22 : 0.34), lineWidth: 0.7)
-            }
+            .fill(fillColor)
             .overlay {
                 LiquidGlassFrostedTexture(isOuterSurface: false)
                     .clipShape(Capsule(style: .continuous))
+                    .opacity(0.55)
+            }
+            .overlay {
+                Capsule(style: .continuous)
+                    .strokeBorder(borderColor, lineWidth: 0.8)
+            }
+            .overlay {
+                Capsule(style: .continuous)
+                    .strokeBorder(innerRimColor, lineWidth: 0.45)
+                    .padding(0.8)
+            }
+            .overlay(alignment: .top) {
+                Capsule(style: .continuous)
+                    .fill(topHighlightColor)
+                    .frame(height: 1)
+                    .padding(.horizontal, 7)
+                    .padding(.top, 1.5)
             }
     }
 
-    private var baseFill: LinearGradient {
-        LinearGradient(
-            colors: [
-                baseColor.opacity(colorScheme == .dark ? 0.76 : 0.70),
-                baseColor.opacity(colorScheme == .dark ? 0.58 : 0.52)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+    private var fillColor: Color {
+        colorScheme == .dark
+            ? Color(red: 0.18, green: 0.20, blue: 0.22)
+            : Color(red: 0.94, green: 0.96, blue: 0.98)
     }
 
-    private var baseColor: Color {
+    private var borderColor: Color {
         colorScheme == .dark
-            ? Color(red: 0.16, green: 0.18, blue: 0.20)
-            : Color.white
+            ? tint.opacity(0.34)
+            : tint.opacity(0.26)
+    }
+
+    private var innerRimColor: Color {
+        .white.opacity(colorScheme == .dark ? 0.12 : 0.42)
+    }
+
+    private var topHighlightColor: Color {
+        .white.opacity(colorScheme == .dark ? 0.10 : 0.30)
     }
 }
 

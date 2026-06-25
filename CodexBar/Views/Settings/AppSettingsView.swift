@@ -1,14 +1,16 @@
 import AppKit
 import SwiftUI
 
-/// 设置窗口根视图, 汇总启动项, 更新, Hook, 快捷键和版本信息
+/// 设置窗口根视图, 汇总启动项、更新、Hook、跨设备同步、快捷键和版本信息
 struct AppSettingsView: View {
     @EnvironmentObject private var statusViewModel: CodexStatusViewModel
     @EnvironmentObject private var appUpdater: AppUpdater
     @StateObject private var loginItemSettings = LoginItemSettings()
     @StateObject private var codexVersions = CodexCLIVersionViewModel()
     @ObservedObject var codexHookSettings: CodexHookSettings
+    @ObservedObject var cloudSyncSettings: WorkflowSyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
+    let onICloudSyncChanged: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
@@ -18,6 +20,8 @@ struct AppSettingsView: View {
                 automaticUpdateCheckRow
                 LiquidGlassDivider()
                 codexHookRow
+                LiquidGlassDivider()
+                iCloudSyncRow
                 LiquidGlassDivider()
                 hotKeyRow
                 LiquidGlassDivider()
@@ -41,6 +45,11 @@ struct AppSettingsView: View {
         .animation(Metrics.statusAnimation, value: loginItemSettings.errorMessage)
         .animation(Metrics.statusAnimation, value: codexHookSettings.errorMessage)
         .animation(Metrics.statusAnimation, value: codexHookSettings.isUpdating)
+        .animation(Metrics.statusAnimation, value: codexHookSettings.isEnabled)
+        .animation(Metrics.statusAnimation, value: cloudSyncSettings.isEnabled)
+        .animation(Metrics.statusAnimation, value: cloudSyncSettings.isSyncing)
+        .animation(Metrics.statusAnimation, value: cloudSyncSettings.iCloudAvailability)
+        .animation(Metrics.statusAnimation, value: cloudSyncSettings.lastUploadAt)
         .padding(Metrics.padding)
         .frame(width: Metrics.windowWidth)
         .liquidGlassSurface(
@@ -54,11 +63,13 @@ struct AppSettingsView: View {
         )
         .onAppear {
             loginItemSettings.refresh()
+            cloudSyncSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
             refreshCodexVersionSection()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             codexHookSettings.refresh()
+            cloudSyncSettings.refresh()
             codexHookSettings.verifyInstalledHooks()
             refreshCodexVersionSection()
         }
@@ -118,18 +129,71 @@ private extension AppSettingsView {
             )
 
             if let message = codexHookSettings.errorMessage {
-                HStack(alignment: .top, spacing: 10) {
-                    Color.clear
-                        .frame(width: Metrics.iconWidth)
+                SettingsCaptionMessageRow(message: message)
+                    .transition(.opacity)
+            }
+        }
+    }
 
-                    Text(message)
+    var iCloudSyncRow: some View {
+        let state = iCloudSyncRowState
+        let lastUploadAtText = cloudSyncSettings.lastUploadAtText
+
+        return VStack(alignment: .leading, spacing: 4) {
+            SettingsToggleRow(
+                icon: "icloud",
+                title: "跨设备同步",
+                isOn: Binding(
+                    get: { state.isActive },
+                    set: { enabled in
+                        guard codexHookSettings.isEnabled, state.isICloudAvailable else {
+                            return
+                        }
+                        cloudSyncSettings.setEnabled(enabled)
+                        onICloudSyncChanged()
+                    }
+                ),
+                isEnabled: state.canToggle
+            )
+
+            if let message = cloudSyncSettings.unavailableMessage {
+                SettingsCaptionMessageRow(message: message)
+                    .transition(.opacity)
+            } else if state.shouldShowUploadStatus(lastUploadAtText: lastUploadAtText) {
+                SettingsIndentedRow {
+                    Text("最近上传")
                         .font(.caption)
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(.secondary)
+
+                    Spacer(minLength: 8)
+
+                    if cloudSyncSettings.isSyncing {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.7)
+                            .frame(width: 16, height: 16)
+                            .help("正在同步")
+                    } else if let lastUploadAtText {
+                        Text(lastUploadAtText)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .contentTransition(.opacity)
+                    }
                 }
                 .transition(.opacity)
             }
         }
+    }
+
+    var iCloudSyncRowState: ICloudSyncRowState {
+        ICloudSyncRowState(
+            isHookEnabled: codexHookSettings.isEnabled,
+            isHookUpdating: codexHookSettings.isUpdating,
+            isSyncEnabled: cloudSyncSettings.isEnabled,
+            isICloudAvailable: cloudSyncSettings.isICloudAvailable,
+            isSyncing: cloudSyncSettings.isSyncing
+        )
     }
 
     var versionRow: some View {
@@ -223,5 +287,25 @@ private extension AppSettingsView {
 
     var settingsErrorMessage: String? {
         loginItemSettings.errorMessage
+    }
+}
+
+private struct ICloudSyncRowState {
+    let isHookEnabled: Bool
+    let isHookUpdating: Bool
+    let isSyncEnabled: Bool
+    let isICloudAvailable: Bool
+    let isSyncing: Bool
+
+    var isActive: Bool {
+        isHookEnabled && isSyncEnabled && isICloudAvailable
+    }
+
+    var canToggle: Bool {
+        isHookEnabled && !isHookUpdating && isICloudAvailable
+    }
+
+    func shouldShowUploadStatus(lastUploadAtText: String?) -> Bool {
+        isActive && (isSyncing || lastUploadAtText != nil)
     }
 }

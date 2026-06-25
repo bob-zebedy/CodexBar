@@ -63,7 +63,7 @@ struct HotKeyRecorderRow: View {
             }
 
             if let message = settings.errorMessage {
-                errorMessageRow(message)
+                SettingsCaptionMessageRow(message: message)
             }
         }
         .onDisappear {
@@ -126,18 +126,6 @@ struct HotKeyRecorderRow: View {
 
         settings.setShortcut(shortcut)
         stopRecording()
-    }
-
-    private func errorMessageRow(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Color.clear
-                .frame(width: Metrics.iconWidth)
-
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.red)
-                .fixedSize(horizontal: false, vertical: true)
-        }
     }
 
     private func iconButton(

@@ -64,7 +64,7 @@ git status --short
 - 平台: SwiftUI + AppKit + MVVM, 最低 macOS 15.0。
 - 应用形态: `LSUIElement` 菜单栏应用, 无 Dock 图标、无主窗口。
 - 外部依赖: Sparkle(SwiftPM)。
-- 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 3.1.1`, `CURRENT_PROJECT_VERSION = 25`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, `SWIFT_VERSION = 6.0`。
+- 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 3.1.3`, `CURRENT_PROJECT_VERSION = 27`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, `SWIFT_VERSION = 6.0`。
 - App Sandbox 必须保持关闭(`ENABLE_APP_SANDBOX = NO`), 因为应用要启动本机 Codex CLI/APP 内置 CLI, 并读取真实 macOS 用户的 Codex 登录状态。
 - 工程使用 `PBXFileSystemSynchronizedRootGroup`; 新增或删除 `CodexBar/` 下 Swift 文件通常无需改 `project.pbxproj`。只有依赖、target/build settings 或资源归属变更才改 Xcode 工程文件。
 - Swift 源码按目录组织: `App/`、`Controllers/`、`Models/`、`Services/`、`Views/`。不要把新 Swift 文件直接放回 `CodexBar/` 根层。
@@ -84,6 +84,7 @@ Codex Hook
   -> WorkflowHookEventRecorder(--hook-event stdin hook_event_name)
   -> WorkflowStatsStorage(events/YYYY-MM-DD.jsonl / daily.jsonl)
   -> WorkflowStatsService
+  -> WorkflowSyncService(可选 CloudKit private database 同步)
   -> WorkflowStatsViewModel
   -> UsageSummaryView / UsageHeatmap
 ```
@@ -96,7 +97,7 @@ Codex Hook
 - `Services/`: app-server、Codex CLI、设置、Hook 统计、更新和日志服务。
 - `Views/`: 菜单面板、设置、日志和共享 Liquid Glass 样式。
 
-Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.md](Docs/CodexHook.md)。
+Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.md](Docs/CodexHook.md), 跨设备同步见 [Docs/CrossDeviceSync.md](Docs/CrossDeviceSync.md)。
 
 ## app-server 合约
 
@@ -111,7 +112,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - 详细设计见 [Docs/CodexHook.md](Docs/CodexHook.md)。
 - 设置开关只能追加或移除 command 同时包含当前 CodexBar 可执行路径和 `--hook-event` 参数的 Hook 处理器, 不能破坏其他用户 Hook。
 - Hook 命令写入当前 CodexBar 可执行文件路径和 `--hook-event` 参数; Hook 事件名来自 Codex 传入的 stdin payload 顶层 `hook_event_name`。
-- Hook 数据只保存在 `~/Library/Application Support/CodexBar/HookEvents/`。
+- Hook 原始事件和本机 daily 聚合保存在 `~/Library/Application Support/CodexBar/HookEvents/`; 用户开启「跨设备同步」后, 仅脱敏 daily 聚合副本会同步到当前 iCloud 账号的 CloudKit private database。
 - Hook 写入可能并发触发, 追加 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json` 时必须通过 `stats.lock` 加锁。
 
 ## UI 状态与日志
@@ -206,6 +207,8 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - 开启 Codex Hook 前必须通过当前 `CodexStatusService` app-server 会话调用 `config/read`, 如果 Codex 全局配置禁用了 Hook, 则不写入 `hooks.json`, 开启失败并在 Hook 选项下方提示。
 - 开启 Codex Hook 写入 `hooks.json` 后必须通过当前 app-server 会话调用 `hooks/list` 验证 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`warnings` 和 `errors`; 未信任时提示用户去 Codex `/hooks` 信任。
 - Codex Hook 开关下方只在必要时显示 Hook 相关错误; 不展示固定说明文案、启用状态或关闭状态文案。
+- 设置页包含「跨设备同步」开关; 仅在 Codex Hook 开启且 iCloud account status 为 available 时可操作。iCloud 不可用时开关禁用, 并在开关下方显示「iCloud 不可用」。
+- 「跨设备同步」开启后, 主 App 在工作流统计维护刷新中把脱敏 daily 聚合按日期稳定排序、每批最多 25 天、每轮最多 20 秒上传到 CloudKit; 已成功上传的日期立即写入本地 `state.json`, 剩余日期留给后续刷新继续。
 - 开机启动错误显示在设置组与底部按钮组之间的独立错误组; 无错误时不展示该组, 退出和检查更新按钮之间不展示错误文案。
 
 日志窗口:
@@ -228,9 +231,9 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 
 ## 认证、隐私与沙盒
 
-- CodexBar 只与本机 Codex app-server 通信; 账号、额度和 token 使用量不发往第三方服务。
-- Codex Hook 工作流统计只写入本机 `~/Library/Application Support/CodexBar/HookEvents/`, 不发往第三方服务。
-- 除 Sparkle appcast/DMG 下载外, 应用自身不做网络请求。
+- CodexBar 只通过本机 Codex app-server 读取账号、额度和 token 使用量; 这些数据不发往第三方服务。
+- Codex Hook 工作流统计默认只写入本机 `~/Library/Application Support/CodexBar/HookEvents/`; 用户开启「跨设备同步」后, CloudKit 只保存去掉 `sessionIds` / `turnIds` 的 daily 聚合副本, 不保存原始 Hook events。
+- 除 Sparkle appcast/DMG 下载, 以及用户显式开启「跨设备同步」后的 CloudKit private database 请求外, 应用自身不做网络请求。
 - App Sandbox 必须保持关闭。
 - app-server 和版本探测必须使用真实用户 home。
 - 不要把 Codex auth 文件、stderr、原始敏感 RPC 响应或用户路径之外的敏感信息写入 UI、文档或测试夹具。
@@ -264,8 +267,8 @@ fix: 修复 Codex 状态刷新
 
 Tag:
 
-- tag 名格式 `v{MARKETING_VERSION}`, 例如 `v3.1.1`。
-- 使用附注 tag: `git tag -a v3.1.1 -m "Release v3.1.1"`。
+- tag 名格式 `v{MARKETING_VERSION}`, 例如 `v3.1.3`。
+- 使用附注 tag: `git tag -a v3.1.3 -m "Release v3.1.3"`。
 
 ## 最终检查
 

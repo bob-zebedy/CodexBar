@@ -9,6 +9,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     lazy var viewModel = CodexStatusViewModel(service: codexStatusService)
     let workflowStatsViewModel = WorkflowStatsViewModel()
     lazy var codexHookSettings = CodexHookSettings(codexStatusService: codexStatusService)
+    let cloudSyncSettings = WorkflowSyncSettings()
     let globalHotKeySettings = GlobalHotKeySettings()
     let appUpdater = AppUpdater()
 
@@ -19,6 +20,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             viewModel: viewModel,
             workflowStatsViewModel: workflowStatsViewModel,
             codexHookSettings: codexHookSettings,
+            cloudSyncSettings: cloudSyncSettings,
             globalHotKeySettings: globalHotKeySettings,
             appUpdater: appUpdater
         )
@@ -37,6 +39,7 @@ private final class StatusItemController: NSObject {
     private let viewModel: CodexStatusViewModel
     private let workflowStatsViewModel: WorkflowStatsViewModel
     private let codexHookSettings: CodexHookSettings
+    private let cloudSyncSettings: WorkflowSyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -56,9 +59,12 @@ private final class StatusItemController: NSObject {
         viewModel: viewModel,
         appUpdater: appUpdater,
         codexHookSettings: codexHookSettings,
+        cloudSyncSettings: cloudSyncSettings,
         globalHotKeySettings: globalHotKeySettings
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
+    } onICloudSyncChanged: { [weak self] in
+        self?.workflowStatsViewModel.refresh(performMaintenance: true)
     }
 
     private lazy var logWindowController = LogWindowController { [weak self] in
@@ -98,12 +104,14 @@ private final class StatusItemController: NSObject {
         viewModel: CodexStatusViewModel,
         workflowStatsViewModel: WorkflowStatsViewModel,
         codexHookSettings: CodexHookSettings,
+        cloudSyncSettings: WorkflowSyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
         appUpdater: AppUpdater
     ) {
         self.viewModel = viewModel
         self.workflowStatsViewModel = workflowStatsViewModel
         self.codexHookSettings = codexHookSettings
+        self.cloudSyncSettings = cloudSyncSettings
         self.globalHotKeySettings = globalHotKeySettings
         self.appUpdater = appUpdater
         super.init()

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// hover 详情面板需要的完整上下文, 包括屏幕坐标和峰值 token
@@ -549,9 +550,22 @@ private final class HeatmapScreenFrameReportingView: NSView {
 }
 
 /// 热力图 hover 详情内容, Hook 开启时额外展示工作流统计
+@MainActor
+final class UsageHeatmapDayDetailModel: ObservableObject {
+    @Published var context: UsageHeatmapHoverContext
+
+    init(context: UsageHeatmapHoverContext) {
+        self.context = context
+    }
+}
+
 struct UsageHeatmapDayDetailView: View {
-    let context: UsageHeatmapHoverContext
+    @ObservedObject var model: UsageHeatmapDayDetailModel
     @Environment(\.colorScheme) private var colorScheme
+
+    private var context: UsageHeatmapHoverContext {
+        model.context
+    }
 
     var body: some View {
         let panelSize = Self.panelSize(showsWorkflowStats: context.showsWorkflowStats)
@@ -714,22 +728,29 @@ struct UsageHeatmapDayDetailView: View {
             .layoutPriority(1)
     }
 
-    @ViewBuilder
     private var tokenText: some View {
-        if let tokenCount = context.day.tokenCount {
-            TokenCountText(
-                tokens: tokenCount,
-                font: tokenFont,
-                reservedNumericWidth: Metrics.tokenMinimumWidth,
-                reservedUnitWidth: Metrics.tokenUnitWidth
-            )
-            .foregroundStyle(Color.codexLabel)
-        } else {
-            Text("--")
-                .font(tokenFont)
+        ZStack(alignment: .trailing) {
+            if let tokenCount = context.day.tokenCount {
+                TokenCountText(
+                    tokens: tokenCount,
+                    font: tokenFont,
+                    reservedNumericWidth: Metrics.tokenMinimumWidth,
+                    reservedUnitWidth: Metrics.tokenUnitWidth
+                )
                 .foregroundStyle(Color.codexLabel)
-                .contentTransition(.opacity)
+                .transition(.opacity)
+            } else {
+                Text("--")
+                    .font(tokenFont)
+                    .foregroundStyle(Color.codexLabel)
+                    .transition(.opacity)
+            }
         }
+        .frame(
+            width: Metrics.tokenMinimumWidth + Metrics.tokenUnitWidth,
+            alignment: .trailing
+        )
+        .animation(Metrics.statusAnimation, value: context.day.tokenCount == nil)
     }
 
     private var dateFont: Font {

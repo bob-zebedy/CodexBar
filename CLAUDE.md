@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> 本仓库已有一份详尽的 `AGENTS.md`，它是 app-server / Codex Hook / UI / 数据模型 / 发布 / Git 等各项合约的**权威来源**。本文件只做精炼导航，遇到具体行为约束请优先查 `AGENTS.md`、`Docs/AppServer.md` 与 `Docs/CodexHook.md`，不要凭记忆推断。
+> 本仓库已有一份详尽的 `AGENTS.md`，它是 app-server / Codex Hook / UI / 数据模型 / 发布 / Git 等各项合约的**权威来源**。本文件只做精炼导航，遇到具体行为约束请优先查 `AGENTS.md`、`Docs/AppServer.md`、`Docs/CodexHook.md` 与 `Docs/CrossDeviceSync.md`，不要凭记忆推断。
 
 ## 构建与验证
 
@@ -44,12 +44,12 @@ CodexStatusService (JSON-RPC over `codex app-server --listen stdio://`)
 - 握手与读取顺序、超时/重连、token 刷新、stale 缓存等约束见 `Docs/AppServer.md` 与 `AGENTS.md` 的「app-server 合约」。
 - 错误处理哲学：UI 只暴露 `notLoggedIn` / `initializationFailed` 两类特殊状态；所有具体请求/启动/超时/解析错误进 `RequestLogStorage.shared`（容量 500，完整保存 request/detail），日志窗口通过 `@MainActor RequestLogStore.shared` 订阅快照，列表/行内只展示单行短预览，非空请求/响应标题行提供完整预览和复制，预览视图会格式化并高亮 JSON，不直接展示子进程 stderr。
 
-**2. Codex Hook 工作流统计流**（本机统计）
+**2. Codex Hook 工作流统计流**（本机统计，可选 iCloud 脱敏同步）
 
 ```
 WorkflowHookEventRecorder (--hook-event stdin hook_event_name 子进程)
   → WorkflowStatsStorage (events/YYYY-MM-DD.jsonl / daily.jsonl，~/Library/Application Support/CodexBar/HookEvents/)
-  → WorkflowStatsService → WorkflowStatsViewModel
+  → WorkflowStatsService → WorkflowSyncService(可选 CloudKit private database) → WorkflowStatsViewModel
   → UsageSummaryView / UsageHeatmap (统计只在热力图侧边详情面板中展示)
 ```
 
@@ -58,7 +58,8 @@ WorkflowHookEventRecorder (--hook-event stdin hook_event_name 子进程)
 - 开启 Hook 写入后必须通过当前 app-server 会话调用 `hooks/list` 验证 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`warnings` 和 `errors`；未信任时提示用户去 Codex `/hooks` 信任。
 - 设置开关只能追加/移除 `command` 同时包含当前 CodexBar 可执行路径和 `--hook-event` 参数的 Hook 处理器，绝不破坏其他用户 Hook。若用户自定义 Hook 命令也同时包含当前可执行路径和 `--hook-event` 参数，会被视为当前 CodexBar 处理器。
 - Hook 写入可能由多个 Codex 进程并发触发，追加 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json` 必须经 `stats.lock` + `flock` 加锁；`daily.jsonl` 由主 App 刷新维护流程写回。
-- 字段兼容、保留策略、统计口径见 `Docs/CodexHook.md`。
+- iCloud 跨设备同步只上传去掉 `sessionIds` / `turnIds` 的 daily 聚合副本；iCloud 不可用时设置页禁用「跨设备同步」并显示「iCloud 不可用」。
+- 字段兼容、保留策略、统计口径见 `Docs/CodexHook.md`；跨设备同步完整链路见 `Docs/CrossDeviceSync.md`。
 
 ## 并发分工
 

@@ -161,6 +161,24 @@ nonisolated struct WorkflowDailyStats: Equatable, Identifiable {
         startDate
     }
 
+    init(
+        startDate: String,
+        sessionCount: Int,
+        turnCount: Int,
+        toolCallCount: Int,
+        permissionRequestCount: Int,
+        contextCompactionCount: Int,
+        subagentCount: Int
+    ) {
+        self.startDate = startDate
+        self.sessionCount = sessionCount
+        self.turnCount = turnCount
+        self.toolCallCount = toolCallCount
+        self.permissionRequestCount = permissionRequestCount
+        self.contextCompactionCount = contextCompactionCount
+        self.subagentCount = subagentCount
+    }
+
     static func empty(startDate: String) -> WorkflowDailyStats {
         WorkflowDailyStats(
             startDate: startDate,
@@ -170,6 +188,39 @@ nonisolated struct WorkflowDailyStats: Equatable, Identifiable {
             permissionRequestCount: 0,
             contextCompactionCount: 0,
             subagentCount: 0
+        )
+    }
+
+    init(
+        startDate: String,
+        sessionCount: Int,
+        turnCount: Int,
+        preToolUseCount: Int,
+        postToolUseCount: Int,
+        permissionRequestCount: Int,
+        preCompactCount: Int,
+        postCompactCount: Int,
+        subagentStartCount: Int,
+        subagentStopCount: Int
+    ) {
+        self.startDate = startDate
+        self.sessionCount = sessionCount
+        self.turnCount = turnCount
+        toolCallCount = max(preToolUseCount, postToolUseCount)
+        self.permissionRequestCount = permissionRequestCount
+        contextCompactionCount = max(preCompactCount, postCompactCount)
+        subagentCount = max(subagentStartCount, subagentStopCount)
+    }
+
+    func adding(_ other: WorkflowDailyStats) -> WorkflowDailyStats {
+        WorkflowDailyStats(
+            startDate: startDate,
+            sessionCount: sessionCount + other.sessionCount,
+            turnCount: turnCount + other.turnCount,
+            toolCallCount: toolCallCount + other.toolCallCount,
+            permissionRequestCount: permissionRequestCount + other.permissionRequestCount,
+            contextCompactionCount: contextCompactionCount + other.contextCompactionCount,
+            subagentCount: subagentCount + other.subagentCount
         )
     }
 }
@@ -193,6 +244,27 @@ nonisolated struct WorkflowStatsSnapshot: Equatable {
             .sorted { $0.startDate < $1.startDate }
     }
 
+    init(
+        localAggregates: [WorkflowDailyAggregate],
+        cloudRecords: [WorkflowCloudDailyRecord],
+        currentDeviceId: String?,
+        generatedAt: Date = Date()
+    ) {
+        self.generatedAt = generatedAt
+
+        var statsByDate = [String: WorkflowDailyStats]()
+        localAggregates
+            .map(\.stats)
+            .forEach { Self.merge($0, into: &statsByDate) }
+
+        cloudRecords
+            .filter { $0.deviceId != currentDeviceId }
+            .map(\.daily.stats)
+            .forEach { Self.merge($0, into: &statsByDate) }
+
+        dailyStats = statsByDate.values.sorted { $0.startDate < $1.startDate }
+    }
+
     func recentWeekGrid(columnCount: Int, endingDaysAgo: Int = 0, today: Date = Date()) -> [WorkflowDailyStats?] {
         let statsByDate = dailyStats.reduce(into: [String: WorkflowDailyStats]()) { result, stats in
             result[stats.startDate] = stats
@@ -208,6 +280,17 @@ nonisolated struct WorkflowStatsSnapshot: Equatable {
                 let startDate = CodexDateFormat.dayString(from: $0)
                 return statsByDate[startDate] ?? WorkflowDailyStats.empty(startDate: startDate)
             }
+        }
+    }
+
+    private static func merge(
+        _ stats: WorkflowDailyStats,
+        into statsByDate: inout [String: WorkflowDailyStats]
+    ) {
+        if let existing = statsByDate[stats.startDate] {
+            statsByDate[stats.startDate] = existing.adding(stats)
+        } else {
+            statsByDate[stats.startDate] = stats
         }
     }
 }
@@ -346,20 +429,17 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     }
 
     var stats: WorkflowDailyStats {
-        let sessionTotal = resolvedSessionCount
-        let turnTotal = resolvedTurnCount
-        let toolCallCount = max(preToolUseCount, postToolUseCount)
-        let contextCompactionCount = max(preCompactCount, postCompactCount)
-        let subagentCount = max(subagentStartCount, subagentStopCount)
-
-        return WorkflowDailyStats(
+        WorkflowDailyStats(
             startDate: date,
-            sessionCount: sessionTotal,
-            turnCount: turnTotal,
-            toolCallCount: toolCallCount,
+            sessionCount: resolvedSessionCount,
+            turnCount: resolvedTurnCount,
+            preToolUseCount: preToolUseCount,
+            postToolUseCount: postToolUseCount,
             permissionRequestCount: permissionRequestCount,
-            contextCompactionCount: contextCompactionCount,
-            subagentCount: subagentCount
+            preCompactCount: preCompactCount,
+            postCompactCount: postCompactCount,
+            subagentStartCount: subagentStartCount,
+            subagentStopCount: subagentStopCount
         )
     }
 
@@ -416,6 +496,41 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         return WorkflowStatsJSON.lineData(fields)
     }
 
+    var cloudAggregate: WorkflowCloudDailyAggregate {
+        WorkflowCloudDailyAggregate(
+            date: date,
+            eventCount: eventCount,
+            sessionStartCount: sessionStartCount,
+            stopCount: stopCount,
+            preToolUseCount: preToolUseCount,
+            postToolUseCount: postToolUseCount,
+            permissionRequestCount: permissionRequestCount,
+            preCompactCount: preCompactCount,
+            postCompactCount: postCompactCount,
+            subagentStartCount: subagentStartCount,
+            subagentStopCount: subagentStopCount,
+            sessionCount: cloudSessionCount,
+            turnCount: cloudTurnCount,
+            projectCounts: projectCounts
+        )
+    }
+
+    private var cloudSessionCount: Int? {
+        sessionCount ?? Self.nonEmptyIdentifierCount(sessionIds)
+    }
+
+    private var cloudTurnCount: Int? {
+        turnCount ?? Self.nonEmptyIdentifierCount(turnIds)
+    }
+
+    private static func nonEmptyIdentifierCount(_ identifiers: [String]?) -> Int? {
+        guard let identifiers, !identifiers.isEmpty else {
+            return nil
+        }
+
+        return Set(identifiers).count
+    }
+
     private static func append(
         _ identifier: String,
         to identifiers: inout [String]?,
@@ -456,5 +571,81 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         case projectCounts
         case sessionIds
         case turnIds
+    }
+}
+
+/// iCloud 中保存的脱敏每日聚合行: 对应 daily.jsonl 但不包含 sessionIds / turnIds
+nonisolated struct WorkflowCloudDailyAggregate: Codable, Equatable, Identifiable {
+    let date: String
+    var eventCount: Int
+    var sessionStartCount: Int
+    var stopCount: Int
+    var preToolUseCount: Int
+    var postToolUseCount: Int
+    var permissionRequestCount: Int
+    var preCompactCount: Int
+    var postCompactCount: Int
+    var subagentStartCount: Int
+    var subagentStopCount: Int
+    var sessionCount: Int?
+    var turnCount: Int?
+    var projectCounts: [String: Int]
+
+    var id: String {
+        date
+    }
+
+    var stats: WorkflowDailyStats {
+        WorkflowDailyStats(
+            startDate: date,
+            sessionCount: sessionCount ?? sessionStartCount,
+            turnCount: turnCount ?? stopCount,
+            preToolUseCount: preToolUseCount,
+            postToolUseCount: postToolUseCount,
+            permissionRequestCount: permissionRequestCount,
+            preCompactCount: preCompactCount,
+            postCompactCount: postCompactCount,
+            subagentStartCount: subagentStartCount,
+            subagentStopCount: subagentStopCount
+        )
+    }
+
+    func jsonLineData() throws -> Data {
+        let fields = try [
+            WorkflowStatsJSON.field("date", date),
+            WorkflowStatsJSON.field("eventCount", eventCount),
+            WorkflowStatsJSON.field("sessionStartCount", sessionStartCount),
+            WorkflowStatsJSON.field("stopCount", stopCount),
+            WorkflowStatsJSON.field("preToolUseCount", preToolUseCount),
+            WorkflowStatsJSON.field("postToolUseCount", postToolUseCount),
+            WorkflowStatsJSON.field("permissionRequestCount", permissionRequestCount),
+            WorkflowStatsJSON.field("preCompactCount", preCompactCount),
+            WorkflowStatsJSON.field("postCompactCount", postCompactCount),
+            WorkflowStatsJSON.field("subagentStartCount", subagentStartCount),
+            WorkflowStatsJSON.field("subagentStopCount", subagentStopCount),
+            WorkflowStatsJSON.field("sessionCount", sessionCount),
+            WorkflowStatsJSON.field("turnCount", turnCount),
+            WorkflowStatsJSON.field("projectCounts", projectCounts)
+        ]
+
+        return WorkflowStatsJSON.lineData(fields)
+    }
+}
+
+nonisolated struct WorkflowCloudDailyRecord: Codable, Equatable, Identifiable {
+    let deviceId: String
+    let daily: WorkflowCloudDailyAggregate
+    var updatedAt: Date?
+
+    var id: String {
+        Self.id(deviceId: deviceId, date: daily.date)
+    }
+
+    var date: String {
+        daily.date
+    }
+
+    static func id(deviceId: String, date: String) -> String {
+        "\(deviceId)|\(date)"
     }
 }

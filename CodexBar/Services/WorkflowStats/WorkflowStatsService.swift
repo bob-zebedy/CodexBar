@@ -6,26 +6,44 @@ import Foundation
 actor WorkflowStatsService {
     private let eventsDirectoryURL: URL
     private let dailyLogURL: URL
+    private let cloudSyncService: WorkflowSyncService
     private static let eventReadChunkSize = 64 * 1024
 
     init(
         eventsDirectoryURL: URL = WorkflowStatsStorage.eventsDirectoryURL(),
-        dailyLogURL: URL = WorkflowStatsStorage.dailyURL()
+        dailyLogURL: URL = WorkflowStatsStorage.dailyURL(),
+        cloudSyncService: WorkflowSyncService = WorkflowSyncService()
     ) {
         self.eventsDirectoryURL = eventsDirectoryURL
         self.dailyLogURL = dailyLogURL
+        self.cloudSyncService = cloudSyncService
     }
 
-    func loadSnapshot(performMaintenance: Bool = false) -> WorkflowStatsSnapshot {
+    func loadSnapshot(performMaintenance: Bool = false) async -> WorkflowStatsSnapshot {
+        var changedDates = Set<String>()
         if performMaintenance {
-            performMaintenanceIfNeeded()
+            changedDates = performMaintenanceIfNeeded()
         }
 
-        if let aggregates = loadDailyAggregates(), !aggregates.isEmpty {
-            return WorkflowStatsSnapshot(dailyAggregates: aggregates)
+        let aggregates = loadDailyAggregates() ?? []
+        let cloudSnapshot: WorkflowSyncSnapshot = if performMaintenance {
+            await cloudSyncService.synchronizeIfEnabled(
+                localAggregates: aggregates,
+                changedDates: changedDates
+            )
+        } else {
+            await cloudSyncService.snapshotFromCacheIfEnabled()
         }
 
-        return .empty
+        guard !aggregates.isEmpty || !cloudSnapshot.records.isEmpty else {
+            return .empty
+        }
+
+        return WorkflowStatsSnapshot(
+            localAggregates: aggregates,
+            cloudRecords: cloudSnapshot.records,
+            currentDeviceId: cloudSnapshot.currentDeviceId
+        )
     }
 
     private func loadDailyAggregates() -> [WorkflowDailyAggregate]? {
@@ -41,25 +59,29 @@ actor WorkflowStatsService {
         return WorkflowDailyAggregate.normalized(aggregates: aggregates)
     }
 
-    private func performMaintenanceIfNeeded() {
+    private func performMaintenanceIfNeeded() -> Set<String> {
+        let beforePayloads = cloudPayloadByDate()
+
         do {
             let tasks = try prepareMaintenanceTasks()
-            guard !tasks.isEmpty else {
-                return
-            }
-
-            for task in tasks {
-                do {
-                    let result = try buildDailyAggregate(for: task)
-                    try commit(result)
-                } catch {
-                    markDirty(task.dateKey)
-                }
-            }
-
+            perform(tasks)
+            try normalizeDailyAggregatesIfNeeded()
             try pruneExpiredEventFiles()
         } catch {
-            return
+            return []
+        }
+
+        return changedCloudPayloadDates(before: beforePayloads, after: cloudPayloadByDate())
+    }
+
+    private func perform(_ tasks: [WorkflowStatsMaintenanceTask]) {
+        for task in tasks {
+            do {
+                let result = try buildDailyAggregate(for: task)
+                try commit(result)
+            } catch {
+                markDirty(task.dateKey)
+            }
         }
     }
 
@@ -389,6 +411,49 @@ actor WorkflowStatsService {
         try data.write(to: dailyLogURL, options: .atomic)
     }
 
+    private func normalizeDailyAggregatesIfNeeded() throws {
+        guard let data = try? Data(contentsOf: dailyLogURL), !data.isEmpty else {
+            return
+        }
+
+        let decodeResult = JSONLines.decodeWithFailures(WorkflowDailyAggregate.self, from: data)
+        guard decodeResult.failedLineCount == 0 else {
+            return
+        }
+
+        let normalizedAggregates = WorkflowDailyAggregate.normalized(aggregates: decodeResult.values)
+        let normalizedData = try WorkflowDailyAggregate.encodeJSONLines(normalizedAggregates)
+        guard normalizedData != data else {
+            return
+        }
+
+        try FileManager.default.createDirectory(
+            at: dailyLogURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try normalizedData.write(to: dailyLogURL, options: .atomic)
+    }
+
+    private func cloudPayloadByDate() -> [String: String] {
+        loadDailyAggregatesWithFailures().values.reduce(into: [String: String]()) { result, aggregate in
+            guard let data = try? aggregate.cloudAggregate.jsonLineData() else {
+                return
+            }
+
+            result[aggregate.date] = data.base64EncodedString()
+        }
+    }
+
+    private func changedCloudPayloadDates(
+        before: [String: String],
+        after: [String: String]
+    ) -> Set<String> {
+        let allDates = Set(before.keys).union(after.keys)
+        return Set(allDates.filter {
+            before[$0] != after[$0]
+        })
+    }
+
     private func commitMaintenanceState(_ result: WorkflowStatsMaintenanceResult) throws {
         try WorkflowStatsStorage.withExclusiveLock {
             let currentSize = WorkflowStatsStorage.fileSize(at: eventLogURL(for: result.dateKey))
@@ -495,6 +560,11 @@ nonisolated enum WorkflowStatsStorage {
     static func maintenanceURL() -> URL {
         directoryURL()
             .appendingPathComponent("maintenance.json", isDirectory: false)
+    }
+
+    static func iCloudSyncDirectoryURL() -> URL {
+        directoryURL()
+            .appendingPathComponent("iCloudSync", isDirectory: true)
     }
 
     static func directoryURL() -> URL {

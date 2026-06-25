@@ -2,7 +2,7 @@
 
 本文面向继续开发 CodexBar 的维护者, 记录当前 App 的主要流程, 数据边界和模块协作方式
 
-更细的 app-server 协议见 [AppServer.md](AppServer.md), Codex Hook 统计口径见 [CodexHook.md](CodexHook.md)
+更细的 app-server 协议见 [AppServer.md](AppServer.md), Codex Hook 统计口径见 [CodexHook.md](CodexHook.md), 跨设备同步链路见 [CrossDeviceSync.md](CrossDeviceSync.md)
 
 ## 1. 应用定位与工程边界
 
@@ -15,8 +15,8 @@ App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 C
 - 应用形态是 `LSUIElement`, 不显示 Dock 图标, 不依赖主窗口
 - 最低系统版本是 macOS 15.0
 - App Sandbox 保持关闭, 因为需要启动本机 `codex`, 读取真实用户 Codex 登录状态, 并写入用户级 Hook 配置
-- 除 Sparkle 检查和下载更新外, App 自身不发起网络请求
-- 账号, 额度, token 用量和 Hook 工作流统计都只在本机处理, 不发送给第三方
+- 除 Sparkle 检查/下载更新, 以及用户显式开启「跨设备同步」后的 CloudKit private database 同步外, App 自身不发起网络请求
+- 账号, 额度和 token 用量只在本机处理, 不发送给第三方；Hook 工作流统计默认只在本机处理, 仅在用户开启「跨设备同步」后把脱敏 daily 聚合行同步到当前 iCloud 账号
 - Swift 工程使用 Swift 6 并开启 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, UI 默认 MainActor 隔离；服务共享状态优先用 actor 管理, DTO、模型、同步辅助类型和静态工具需要显式使用 `nonisolated`
 
 源码目录职责:
@@ -368,7 +368,7 @@ codex app-server --listen stdio://
 - 菜单面板只展示"未登录"和"初始化失败"两类特殊状态
 - 具体启动失败, 请求失败, 超时, 断连, 解析失败和业务错误进入日志窗口
 - 账户有效时, rate limits 和 usage 可以单独失败, 失败区域按缓存或无数据处理
-- 登录项和 Hook 写入错误显示在设置窗口中部的独立错误组
+- 登录项和 Hook 写入错误显示在设置窗口中部的独立错误组, iCloud 账号不可用显示在「跨设备同步」开关下方
 - 全局快捷键录制, 校验和注册错误显示在快捷键行内
 - Hook 子进程尽量快速退出, 事件记录失败不会阻断 Codex 自身流程
 
@@ -406,26 +406,28 @@ app-server 与状态刷新错误:
 
 设置, Hook 和更新错误:
 
-| 错误来源                         | 检测位置                                                                  | 用户可见状态                                 | 重试或降级                                       |
-| -------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------ |
-| 登录项注册或取消失败             | `LoginItemSettings.setEnabled`                                            | 设置窗口中部错误组显示"设置开机启动失败"     | 调用 `refresh()` 恢复实际状态                    |
-| `config/read` 请求失败           | `CodexHookSettings.setEnabled` / app-server `config/read`                 | Hook 选项下方显示"设置 Codex Hook 失败"      | 不写 `hooks.json`, 调用 `refresh()` 恢复实际状态 |
-| Codex 全局配置禁用 Hook          | `CodexHookSettings.setEnabled` / app-server `config/read`                 | Hook 开关保持关闭, Hook 选项下方显示禁用说明 | 不写 `hooks.json`                                |
-| `hooks.json` 读取失败或结构非法  | `CodexHookSettings.refresh`                                               | Hook 开关视为关闭, Hook 选项下方显示错误     | 不写配置                                         |
-| Hook 开关写入失败                | `CodexHookSettings.setEnabled`                                            | Hook 选项下方显示"设置 Codex Hook 失败"      | 调用 `refresh()` 恢复实际状态                    |
-| `hooks/list` 请求失败            | `CodexHookSettings.verifyInstalledHooks` / app-server `hooks/list`        | Hook 选项下方显示"无法验证 Codex Hook"       | 保留已写入 Hook, 详细错误进入日志                |
-| Hook 自动信任写入失败            | `CodexHookSettings.updateCodexHookTrust` / app-server `config/batchWrite` | Hook 选项下方显示"无法验证 Codex Hook"       | 保留已写入 Hook, 详细错误进入日志                |
-| Hook 写入后验证发现问题          | `CodexHookSettings.verifyInstalledHooks` / app-server `hooks/list`        | Hook 选项下方显示最高优先级验证摘要          | 保留已写入 Hook, 详细响应进入日志                |
-| 快捷键无法识别或不符合规则       | `HotKeyRecorderRow` / `GlobalHotKeySettings.setShortcut`                  | 快捷键行内显示红色错误                       | 用户清除后重新录制                               |
-| 快捷键注册冲突                   | `StatusItemController.applyGlobalHotKey`                                  | 快捷键行内显示占用提示                       | 恢复上一个已注册快捷键                           |
-| Hook 子进程 payload 不是 JSON    | `WorkflowHookEventRecorder.stdinPayload`                                  | 无 UI 提示                                   | 吞掉本次 Hook, 避免启动完整菜单栏 App            |
-| Hook 子进程写入失败              | `WorkflowHookEventRecorder.handleIfRequested`                             | 无 UI 提示                                   | `try? record` 吞掉错误并正常退出, 避免阻断 Codex |
-| `daily.jsonl` 缺失, 空文件或坏行 | `WorkflowStatsService.prepareMaintenanceTasks`                            | 热力图详情面板可能暂时显示 0                 | 标记 dirty, 后续从 events 文件重建               |
-| events 文件变小或 offset 不一致  | `WorkflowStatsService.reconcileEventFiles`                                | 热力图详情面板可能暂时显示旧聚合             | 标记 dirty, 从头重建当天聚合                     |
-| 单个维护任务失败                 | `WorkflowStatsService.performMaintenanceIfNeeded`                         | 使用已有 daily 或空 snapshot                 | 对应日期标记 dirty                               |
-| Sparkle 配置缺失                 | `AppUpdater.init`                                                         | 更新开关禁用, 操作显示"未配置更新资源"       | 不创建 updater controller                        |
-| 手动检查没有更新                 | `updaterDidNotFindUpdate`                                                 | 显示"没有可用更新"                           | 1 秒后自动清理状态                               |
-| 手动检查失败                     | `didAbortWithError`                                                       | 显示"检查更新失败"                           | 不展示底层错误细节                               |
+| 错误来源                         | 检测位置                                                                         | 用户可见状态                                 | 重试或降级                                       |
+| -------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------ |
+| 登录项注册或取消失败             | `LoginItemSettings.setEnabled`                                                   | 设置窗口中部错误组显示"设置开机启动失败"     | 调用 `refresh()` 恢复实际状态                    |
+| `config/read` 请求失败           | `CodexHookSettings.setEnabled` / app-server `config/read`                        | Hook 选项下方显示"设置 Codex Hook 失败"      | 不写 `hooks.json`, 调用 `refresh()` 恢复实际状态 |
+| Codex 全局配置禁用 Hook          | `CodexHookSettings.setEnabled` / app-server `config/read`                        | Hook 开关保持关闭, Hook 选项下方显示禁用说明 | 不写 `hooks.json`                                |
+| `hooks.json` 读取失败或结构非法  | `CodexHookSettings.refresh`                                                      | Hook 开关视为关闭, Hook 选项下方显示错误     | 不写配置                                         |
+| Hook 开关写入失败                | `CodexHookSettings.setEnabled`                                                   | Hook 选项下方显示"设置 Codex Hook 失败"      | 调用 `refresh()` 恢复实际状态                    |
+| `hooks/list` 请求失败            | `CodexHookSettings.verifyInstalledHooks` / app-server `hooks/list`               | Hook 选项下方显示"无法验证 Codex Hook"       | 保留已写入 Hook, 详细错误进入日志                |
+| Hook 自动信任写入失败            | `CodexHookSettings.updateCodexHookTrust` / app-server `config/batchWrite`        | Hook 选项下方显示"无法验证 Codex Hook"       | 保留已写入 Hook, 详细错误进入日志                |
+| Hook 写入后验证发现问题          | `CodexHookSettings.verifyInstalledHooks` / app-server `hooks/list`               | Hook 选项下方显示最高优先级验证摘要          | 保留已写入 Hook, 详细响应进入日志                |
+| iCloud 账号不可用                | `WorkflowSyncSettings.refreshICloudAvailability` / CloudKit account status | 跨设备同步开关禁用, 下方显示"iCloud 不可用"  | 不开启同步偏好写入                               |
+| CloudKit 同步上传或拉取失败      | `WorkflowSyncService.synchronizeIfEnabled`                                 | 暂无明确错误提示, 最近上传时间不更新         | 保存已有 state, 下次刷新继续重试                 |
+| 快捷键无法识别或不符合规则       | `HotKeyRecorderRow` / `GlobalHotKeySettings.setShortcut`                         | 快捷键行内显示红色错误                       | 用户清除后重新录制                               |
+| 快捷键注册冲突                   | `StatusItemController.applyGlobalHotKey`                                         | 快捷键行内显示占用提示                       | 恢复上一个已注册快捷键                           |
+| Hook 子进程 payload 不是 JSON    | `WorkflowHookEventRecorder.stdinPayload`                                         | 无 UI 提示                                   | 吞掉本次 Hook, 避免启动完整菜单栏 App            |
+| Hook 子进程写入失败              | `WorkflowHookEventRecorder.handleIfRequested`                                    | 无 UI 提示                                   | `try? record` 吞掉错误并正常退出, 避免阻断 Codex |
+| `daily.jsonl` 缺失, 空文件或坏行 | `WorkflowStatsService.prepareMaintenanceTasks`                                   | 热力图详情面板可能暂时显示 0                 | 标记 dirty, 后续从 events 文件重建               |
+| events 文件变小或 offset 不一致  | `WorkflowStatsService.reconcileEventFiles`                                       | 热力图详情面板可能暂时显示旧聚合             | 标记 dirty, 从头重建当天聚合                     |
+| 单个维护任务失败                 | `WorkflowStatsService.performMaintenanceIfNeeded`                                | 使用已有 daily 或空 snapshot                 | 对应日期标记 dirty                               |
+| Sparkle 配置缺失                 | `AppUpdater.init`                                                                | 更新开关禁用, 操作显示"未配置更新资源"       | 不创建 updater controller                        |
+| 手动检查没有更新                 | `updaterDidNotFindUpdate`                                                        | 显示"没有可用更新"                           | 1 秒后自动清理状态                               |
+| 手动检查失败                     | `didAbortWithError`                                                              | 显示"检查更新失败"                           | 不展示底层错误细节                               |
 
 Codex 版本探测错误:
 
@@ -798,8 +800,8 @@ flowchart TD
 
 - 事件名先去掉 `_` 和 `-`, 再转小写
 - `sessionStartCount`, `stopCount`, `preToolUseCount` 等按归一化事件名增加
-- 最近 7 天保留 `sessionIds` 和 `turnIds`, 用于继续去重
-- 7 天前把 ID 集合压缩为 `sessionCount` 和 `turnCount`, 随后移除 ID 列表
+- 最近 3 个本地自然日保留 `sessionIds` 和 `turnIds`, 用于继续去重
+- 3 天前把 ID 集合压缩为 `sessionCount` 和 `turnCount`, 随后移除 ID 列表
 - 最多保留最近 210 天数据
 - 210 天外的 `events/YYYY-MM-DD.jsonl` 在主 App 维护流程中删除
 - 坏 JSONL 行跳过并计入 `corrupt`, 不阻断整天聚合
@@ -815,6 +817,8 @@ UI 展示指标来自 `WorkflowDailyAggregate.stats`:
 | 权限请求   | `permissionRequestCount`                                |
 | 上下文压缩 | `max(preCompactCount, postCompactCount)`                |
 
+iCloud 同步只在 `performMaintenance: true` 的刷新中执行。`WorkflowSyncService` 先用本机 daily 聚合生成脱敏 `WorkflowCloudDailyAggregate`, 再按日期稳定排序候选项, 每批最多上传 25 天, 每轮最多使用 20 秒。每批成功后立即保存 `state.hashByDate` 和 `lastUploadAt`, 未完成的 backfill 留给后续自动刷新继续。没有 `cursor.data` 时先 query 全量 `CodexBarDailyAggregate` 回填 `cache.jsonl`; 有游标时优先拉 CloudKit 增量, 游标失效或增量失败时不写入日志窗口, 直接全量重建缓存。写入 `cache.jsonl` 前会过滤当前设备自己的记录, 只保留其他设备记录。增量路径先写 `cache.jsonl`, 成功后再写 `cursor.data`, 避免游标提前推进导致未落盘记录被跳过。
+
 ## 13. 设置窗口流程
 
 设置窗口由 `SettingsWindowController` 打开, 内容是 `AppSettingsView`
@@ -823,15 +827,17 @@ UI 展示指标来自 `WorkflowDailyAggregate.stats`:
 
 - `CodexHookSettings.refresh()`
 - `CodexHookSettings.verifyInstalledHooks()`
+- `WorkflowSyncSettings.refresh()`
 
 `AppSettingsView.onAppear` 时刷新:
 
 - `LoginItemSettings.refresh()`
+- `WorkflowSyncSettings.refresh()`
 - `AppUpdater.refreshAutomaticCheckSetting()`
 - `CodexCLIVersionViewModel.refresh()`
 - `CodexStatusViewModel.refreshCodexConnectionInfo()`
 
-App 再次成为 active 时, 也会刷新 Codex 版本区, 并在已安装 Hook 时重新运行 `hooks/list` 验证。
+App 再次成为 active 时, 也会刷新 Codex 版本区、iCloud 可用性, 并在已安装 Hook 时重新运行 `hooks/list` 验证。
 
 版本探测内部有 60 秒节流, 避免 `onAppear` 和 `didBecomeActive` 连续触发时重复启动子进程
 
@@ -843,6 +849,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区, 并在已安装 Hook 
 | 自动检查更新    | Sparkle updater                                                                      | 设置 `automaticallyChecksForUpdates`                                                        |
 | 使用快捷键      | `GlobalHotKeySettings.shortcut`                                                      | 写入 `UserDefaults` 并注册 hot key                                                          |
 | 启用 Codex Hook | app-server `config/read` / `hooks/list` / `config/batchWrite`, `~/.codex/hooks.json` | 检查全局 Hook 开关后追加或移除当前 CodexBar command hook, 并维护对应 `hooks.state` 信任状态 |
+| 跨设备同步      | `WorkflowSyncSettings` + CloudKit account status                               | Hook 开启且 iCloud 可用时写入 `UserDefaults`; 开启时标记 `needsBackfill`                    |
 | Codex 版本      | `CodexCLIVersionSnapshot` + 当前 app-server 握手信息                                 | 路径点击复制到剪贴板                                                                        |
 | CodexBar 版本   | Bundle + AppUpdater 状态                                                             | 有更新状态时优先显示动态消息                                                                |
 
@@ -850,6 +857,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区, 并在已安装 Hook 
 
 - 开机启动失败显示在设置组与底部按钮组之间的独立错误组
 - Hook 设置失败, 全局禁用, 自动信任写入失败或验证异常显示在 Hook 选项下方
+- iCloud 不可用时显示在跨设备同步开关下方
 - 没有登录项错误时不渲染错误组
 - 快捷键无法识别, 规则不合法或注册冲突显示在快捷键行内
 - 更新检查状态显示在 CodexBar 版本行
@@ -934,7 +942,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区, 并在已安装 Hook 
 - 预览视图使用可滚动代码视图, 对 JSON 做格式化和高亮
 - 详情文本开启 `.textSelection(.enabled)`
 
-日志只记录经过 `RequestLogStorage` 的请求和错误；`RequestLogStore` 只负责把这些记录发布给 SwiftUI
+日志窗口只记录 app-server 请求和 app-server 生命周期错误；`RequestLogStore` 只负责把这些记录发布给 SwiftUI。
 
 为了保护隐私, 不直接展示 app-server stderr 或 Codex auth 文件内容。app-server 请求、响应和错误详情会完整保留在 `RequestLogEntry` 中, UI 默认只渲染预览以避免大文本拖慢日志窗口。
 
@@ -990,4 +998,4 @@ App 再次成为 active 时, 也会刷新 Codex 版本区, 并在已安装 Hook 
 - 不读取或展示 Codex auth 文件内容
 - 不把原始敏感 RPC 响应写入文档或测试夹具
 - 日志完整保存 request/detail, UI 默认只渲染单行预览; 完整内容通过标题行预览或复制查看
-- Hook 统计只保存在用户 Application Support 的 CodexBar 目录
+- Hook 统计默认只保存在用户 Application Support 的 CodexBar 目录；开启「跨设备同步」后, CloudKit 只保存去掉 `sessionIds` / `turnIds` 的 daily 聚合副本, 不保存原始 Hook events

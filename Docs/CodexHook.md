@@ -149,6 +149,73 @@ CodexBar 最多保留最近 210 天数据。
 
 如果 `daily.jsonl` 缺失、为空、解析失败、缺少对应日期摘要，或者某天 events 文件状态和 `maintenance.json` 不一致，主 App 会把对应日期加入 `dirty` 并在刷新维护时按天重建。
 
+## iCloud 同步
+
+完整链路见 [CrossDeviceSync.md](CrossDeviceSync.md)。本节只保留和 Hook 统计直接相关的同步摘要。
+
+设置页「跨设备同步」由 `WorkflowSyncSettings` 管理。该开关只有在 Codex Hook 开启且 `CKContainer.default().accountStatus` 为 `available` 时可操作；iCloud 不可用时开关禁用，并在开关下方显示「iCloud 不可用」。关闭 Hook 后不会继续触发工作流统计同步。iCloud 同步使用 CloudKit private database，数据归属当前登录的 iCloud 账号，不跨 iCloud 账号迁移或合并。CodexBar 自己创建和维护的记录都保存在 custom zone `CodexBarZone`，不会写入 `_defaultZone`。
+
+CloudKit 中每个 iCloud 账号会保存一条账号级 salt:
+
+```text
+zoneName = CodexBarZone
+recordType = CodexBarSyncMetadata
+recordName = accountSalt
+salt = 32 bytes
+```
+
+设备 ID 只用于区分同一 iCloud 账号下的不同设备:
+
+```text
+deviceId = HMAC_SHA256(accountSalt, IOPlatformUUID)
+```
+
+CodexBar 不上传原始 `IOPlatformUUID`。同一台 Mac 在同一 iCloud 账号下重装 App 或系统后通常得到同一个 `deviceId`；切换 iCloud 账号后会进入另一个 CloudKit private database，并用该账号的 salt 派生另一个 `deviceId`。
+
+iCloud 同步上传的是 `daily.jsonl` 单日聚合行的内存副本，去掉:
+
+```text
+sessionIds, turnIds
+```
+
+其余字段保持原值同步，包括 `projectCounts`。如果本地仍保留 `sessionIds` / `turnIds`，上传副本会把去重后的 `sessionIds.count` / `turnIds.count` 写入 `sessionCount` / `turnCount`，但不会上传 ID 本身；只有既没有压缩后的 count、也没有本地 ID 时，这两个字段才可能为 `null`。脱敏只发生在上传副本上，不会写回本地 `daily.jsonl`，因此最近 3 天本地仍保留 `sessionIds` / `turnIds` 用于本机精确去重。
+
+每台设备每天一条记录:
+
+```text
+zoneName = CodexBarZone
+recordType = CodexBarDailyAggregate
+recordName = <deviceId>_<yyyy-MM-dd>
+```
+
+Hook 子进程不访问网络。主 App 在工作流统计维护刷新后对本次可能变化的日期生成脱敏 daily 副本，计算稳定 hash，并和本地同步状态比较。只有 hash 变化的日期才 upsert 到 CloudKit；上传成功后才更新本地 hash，失败则下次刷新继续重试。
+
+上传按日期稳定排序并分批执行。每轮同步最多处理 20 秒，每批最多 25 天；每批成功后立即把对应日期的 hash 和 `lastUploadAt` 写入 `state.json`。如果时间预算用完、任务被取消或本批 CloudKit 请求失败，本轮停止，剩余日期留给后续每分钟刷新继续。首次开启同步时设置 `needsBackfill`，只有本地所有日期的 hash 都已与 state 匹配后才清除 backfill 请求。
+
+本地 iCloud 同步状态保存在:
+
+```text
+~/Library/Application Support/CodexBar/HookEvents/iCloudSync/state.json
+~/Library/Application Support/CodexBar/HookEvents/iCloudSync/cache.jsonl
+~/Library/Application Support/CodexBar/HookEvents/iCloudSync/cursor.data
+```
+
+- `state.json`: 保存 `deviceId`、按日期记录的 `hashByDate`、`lastUploadAt` 和 `lastPrunedDate`。
+- `cache.jsonl`: 保存从 iCloud 拉到的其他设备脱敏 daily 记录，一行一条；不保存当前设备自己的云端副本。
+- `cursor.data`: 保存 CloudKit custom zone `CodexBarZone` 的 `CKServerChangeToken`，用于下次只拉取增量变化；没有游标时会 query 全量 `CodexBarDailyAggregate` 重建 `cache.jsonl`，随后建立新的游标基线；游标失效或增量拉取失败时会重新全量重建。
+
+接收 iCloud 变化时只更新 `cache.jsonl` 和 `cursor.data`，不直接发布新的 `WorkflowStatsSnapshot`，也不让面板立即跳数。缓存和游标按「先写 `cache.jsonl`，再写 `cursor.data`」提交；如果缓存写入失败，游标不会提前推进，下一轮会重新拉取同一批变化或全量回填。面板仍只在现有每分钟自动刷新或用户手动刷新时重新读取本地 `daily.jsonl` 与 iCloud 缓存。
+
+展示合并规则:
+
+```text
+最终展示 = 本机 daily.jsonl + iCloud 缓存中的其他设备记录
+```
+
+`cache.jsonl` 写入前必须过滤本机自己的 CloudKit 记录，否则本机会把本地 daily 和自己上传的云端副本重复相加。本机数据永远以本地 `daily.jsonl` 为准；云端只补其他设备。热力图详情的 6 个工作流指标按每台设备各自 daily 口径先生成展示值，再按日期相加；`projectCounts` 按项目名逐项相加。
+
+iCloud 也按最近 210 天保留。每天第一次工作流刷新时，当前设备会删除 `deviceId == 本机 deviceId` 且早于保留窗口的 CloudKit 记录；其他设备记录不由本机清理。展示侧始终忽略最近 210 天外的缓存记录。
+
 ## 统计口径
 
 `events/YYYY-MM-DD.jsonl` 是统计源。Hook 写入时已经按事件自身 `timestamp` 选择对应本地日期文件；重建或增量更新 `daily.jsonl` 时，维护流程按当前处理的文件日期生成当天聚合，再按每行的 `event` 名称归类。`event` 归类时会去掉 `_` 和 `-` 并转小写，例如 `PreToolUse`、`pre_tool_use`、`pre-tool-use` 都会归为 `pretooluse`。

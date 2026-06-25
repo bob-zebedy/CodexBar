@@ -1,30 +1,36 @@
 import AppKit
 import SwiftUI
 
-/// 设置窗口控制器, 打开前刷新 Hook 状态并按内容自适应高度
+/// 设置窗口控制器, 打开前刷新设置状态并按内容自适应高度
 @MainActor
 final class SettingsWindowController: HostingWindowController {
     private let viewModel: CodexStatusViewModel
     private let appUpdater: AppUpdater
     private let codexHookSettings: CodexHookSettings
+    private let cloudSyncSettings: WorkflowSyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
+    private let onICloudSyncChanged: () -> Void
 
     init(
         viewModel: CodexStatusViewModel,
         appUpdater: AppUpdater,
         codexHookSettings: CodexHookSettings,
+        cloudSyncSettings: WorkflowSyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
-        screenProvider: @escaping () -> NSScreen?
+        screenProvider: @escaping () -> NSScreen?,
+        onICloudSyncChanged: @escaping () -> Void
     ) {
         self.viewModel = viewModel
         self.appUpdater = appUpdater
         self.codexHookSettings = codexHookSettings
+        self.cloudSyncSettings = cloudSyncSettings
         self.globalHotKeySettings = globalHotKeySettings
+        self.onICloudSyncChanged = onICloudSyncChanged
         super.init(screenProvider: screenProvider)
     }
 
     override func open() {
-        refreshHookStatus()
+        refreshSettingsState()
         super.open()
     }
 
@@ -32,7 +38,9 @@ final class SettingsWindowController: HostingWindowController {
         let hostingController = NSHostingController(
             rootView: AppSettingsView(
                 codexHookSettings: codexHookSettings,
-                globalHotKeySettings: globalHotKeySettings
+                cloudSyncSettings: cloudSyncSettings,
+                globalHotKeySettings: globalHotKeySettings,
+                onICloudSyncChanged: onICloudSyncChanged
             )
             .environmentObject(viewModel)
             .environmentObject(appUpdater)
@@ -67,8 +75,9 @@ final class SettingsWindowController: HostingWindowController {
         static let minimumContentSize = NSSize(width: 420, height: 240)
     }
 
-    private func refreshHookStatus() {
+    private func refreshSettingsState() {
         codexHookSettings.refresh()
         codexHookSettings.verifyInstalledHooks()
+        cloudSyncSettings.refresh()
     }
 }

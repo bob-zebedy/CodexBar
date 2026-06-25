@@ -13,9 +13,10 @@ CodexBar 是一个轻量级 macOS 菜单栏应用。它直接连接本机 Codex 
 - **额度一目了然**: 分段电量条展示各时间窗口 (如 5 小时、7 天) 的剩余额度，附剩余百分比和重置时间
 - **用量热力图**: 展示近 30 周的每日 token 用量，鼠标悬停可查看单日明细
 - **详细统计**: 开启 Codex Hook 后，热力图会展示会话总数、对话轮次、子智能体调用次数、工具调用次数、权限请求次数和上下文压缩次数
+- **跨设备同步**: 开启 Codex Hook 后可选择把脱敏后的每日工作流聚合同步到当前 iCloud 账号
 - **自动刷新**: 每分钟后台刷新一次，弹窗未打开也保持最新；双击账号图标可手动刷新
 - **自动更新**: 内置 Sparkle 更新检查，新版本自动更新
-- **本地优先**: 只与本机 Codex app-server 进程通信，不向任何第三方服务发送账号、额度、token 或工作流统计数据
+- **本地优先**: 账号、额度和 token 用量只与本机 Codex app-server 通信；Hook 工作流统计默认只保存在本机，只有用户开启「跨设备同步」后才通过 CloudKit private database 同步脱敏每日聚合
 
 ## 安装
 
@@ -62,7 +63,7 @@ CodexBar 可以在设置中开启「启用 Codex Hook」
 
 CodexBar 只会追加或移除 command 中包含当前 CodexBar 可执行路径的 Hook，不会删除其他 Codex Hook。
 
-统计数据只保存在本机 `~/Library/Application Support/CodexBar/HookEvents/`，不会发送给任何个人或第三方服务。
+统计数据默认只保存在本机 `~/Library/Application Support/CodexBar/HookEvents/`。开启「跨设备同步」后，CodexBar 会通过 CloudKit private database 把去掉 `sessionIds` / `turnIds` 的每日聚合副本同步到当前 iCloud 账号；iCloud 不可用时该开关不可操作，并在设置页显示「iCloud 不可用」。
 
 ## 从源码构建
 
@@ -86,22 +87,14 @@ Swift 源码按职责放在 `CodexBar/` 下的子目录中:
 - `Services/`: actor 隔离的 app-server 会话、Codex CLI 解析、版本探测、Hook 设置、工作流统计、日志存储、开机自启和 Sparkle 更新
 - `Views/`: 菜单面板、设置窗口、日志窗口和共享 Liquid Glass 样式
 
-更详细的启动、刷新、Hook 统计、设置、日志、更新和发布流程见 [开发文档](Docs/DevelopmentGuide.md)。
+更详细的启动、刷新、Hook 统计、跨设备同步、设置、日志、更新和发布流程见 [开发文档](Docs/DevelopmentGuide.md) 与 [跨设备同步文档](Docs/CrossDeviceSync.md)。
 
 ## 隐私
 
-CodexBar 只与本机 Codex app-server 进程通信。账号信息、额度数据、token 用量和 Hook 工作流数据不会被收集或发送给任何个人或服务。
+CodexBar 只通过本机 Codex app-server 读取账号信息、额度数据和 token 用量，这些数据不会发送给第三方服务。Hook 工作流数据默认只保存在本机；用户显式开启「跨设备同步」后，CloudKit 仅保存脱敏后的每日聚合副本，不保存原始 Hook events、`sessionIds` 或 `turnIds`。
 
-只有检查和下载 App 更新时会产生额外网络请求，请求范围仅包含 [appcast](https://codexbar.zabrian.app/appcast.xml) 和 appcast 中对应的 DMG 下载地址。
+除用户开启「跨设备同步」后的 CloudKit 请求外，只有检查和下载 App 更新时会产生额外网络请求，请求范围仅包含 [appcast](https://codexbar.zabrian.app/appcast.xml) 和 appcast 中对应的 DMG 下载地址。
 
 ## 许可证
 
 本项目采用 [GNU General Public License v3.0](LICENSE)
-
-## 群组
-
-加入 Telegram 群组
-
-<p align="center">
-  <img src="Images/telegram-group.jpg" width="532">
-</p>
