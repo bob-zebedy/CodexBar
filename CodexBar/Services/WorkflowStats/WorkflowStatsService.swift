@@ -463,7 +463,7 @@ actor WorkflowStatsService {
 
 nonisolated enum WorkflowStatsStorage {
     private static let retentionDayCount = 210
-    private static let identifierRetentionDayCount = 7
+    private static let identifierRetentionDayCount = 3
 
     static func eventsDirectoryURL() -> URL {
         directoryURL()

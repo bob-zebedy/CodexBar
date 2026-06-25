@@ -311,7 +311,7 @@ private struct FullLogTextView: View {
             Divider()
 
             LogCodePreviewView(attributedText: preview.attributedText)
-                .frame(minWidth: 760, minHeight: 520)
+                .frame(minWidth: 860, minHeight: 600)
         }
     }
 }
