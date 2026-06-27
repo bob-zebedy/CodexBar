@@ -269,8 +269,8 @@ fix: 修复 Codex 状态刷新
 
 Tag:
 
-- tag 名格式 `v{MARKETING_VERSION}`, 例如 `v3.2.0`。
-- 使用附注 tag: `git tag -a v3.2.0 -m "Release v3.2.0"`。
+- tag 名格式 `v{MARKETING_VERSION}`
+- 使用附注 tag: `git tag -a v{MARKETING_VERSION} -m "Release v{MARKETING_VERSION}"`
 
 ## 最终检查
 

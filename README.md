@@ -129,4 +129,4 @@ Swift 源码按职责放在 `CodexBar/` 下:
 
 ## 许可证
 
-本项目采用 [GNU General Public License v3.0](LICENSE)。
+本项目采用 [GNU General Public License v3.0](LICENSE)
