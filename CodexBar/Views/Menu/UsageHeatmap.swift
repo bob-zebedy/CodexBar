@@ -5,7 +5,7 @@ import SwiftUI
 /// hover 详情面板需要的完整上下文, 包括屏幕坐标和峰值 token
 nonisolated struct UsageHeatmapHoverContext: Equatable {
     let day: UsageHeatmapDay
-    let showsWorkflowStats: Bool
+    let showsWorkflow: Bool
     let anchorScreenFrame: CGRect?
     let heatmapScreenFrame: CGRect?
     let preferredSide: UsageHeatmapDetailSide
@@ -28,7 +28,7 @@ nonisolated struct UsageHeatmapSelection: Equatable {
 struct UsageSummaryView: View {
     let usage: CodexUsageSnapshot
     let isStale: Bool
-    let showsWorkflowStats: Bool
+    let showsWorkflow: Bool
     let onHoverContextChange: (UsageHeatmapHoverContext?) -> Void
     private let days: [UsageHeatmapDay?]
     private let peakTokens: Int
@@ -37,20 +37,20 @@ struct UsageSummaryView: View {
 
     init(
         usage: CodexUsageSnapshot,
-        workflowStats: WorkflowStatsSnapshot,
-        showsWorkflowStats: Bool,
+        workflow: WorkflowSnapshot,
+        showsWorkflow: Bool,
         isStale: Bool = false,
         onHoverContextChange: @escaping (UsageHeatmapHoverContext?) -> Void = { _ in }
     ) {
         self.usage = usage
         self.isStale = isStale
-        self.showsWorkflowStats = showsWorkflowStats
+        self.showsWorkflow = showsWorkflow
         self.onHoverContextChange = onHoverContextChange
 
         let days = UsageHeatmapDay.grid(
             usage: usage,
-            workflowStats: workflowStats,
-            showsWorkflowStats: showsWorkflowStats,
+            workflow: workflow,
+            showsWorkflow: showsWorkflow,
             columnCount: UsageHeatmap.Metrics.columnCount,
             today: Date()
         )
@@ -176,7 +176,7 @@ struct UsageSummaryView: View {
         hoverSelection.map {
             UsageHeatmapHoverContext(
                 day: $0.day,
-                showsWorkflowStats: showsWorkflowStats,
+                showsWorkflow: showsWorkflow,
                 anchorScreenFrame: hoveredSquareScreenFrame(for: $0),
                 heatmapScreenFrame: heatmapGridScreenFrame,
                 preferredSide: UsageHeatmap.Metrics.preferredDetailSide(for: $0.column),
@@ -568,7 +568,7 @@ struct UsageHeatmapDayDetailView: View {
     }
 
     var body: some View {
-        let panelSize = Self.panelSize(showsWorkflowStats: context.showsWorkflowStats)
+        let panelSize = Self.panelSize(showsWorkflow: context.showsWorkflow)
 
         VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
             detailContent
@@ -597,15 +597,15 @@ struct UsageHeatmapDayDetailView: View {
         Metrics.cornerRadius
     }
 
-    static func panelSize(showsWorkflowStats: Bool) -> CGSize {
-        showsWorkflowStats
+    static func panelSize(showsWorkflow: Bool) -> CGSize {
+        showsWorkflow
             ? CGSize(width: Metrics.workflowPanelWidth, height: Metrics.workflowPanelHeight)
             : CGSize(width: Metrics.tokenPanelWidth, height: Metrics.tokenPanelHeight)
     }
 
     @ViewBuilder
     private var detailContent: some View {
-        if context.showsWorkflowStats {
+        if context.showsWorkflow {
             workflowContent
         } else {
             tokenOnlyContent
@@ -711,12 +711,12 @@ struct UsageHeatmapDayDetailView: View {
 
     private var workflowMetricRows: [WorkflowMetricRow] {
         [
-            WorkflowMetricRow(label: "会话总数", value: context.day.workflowStats.sessionCount, tint: .green),
-            WorkflowMetricRow(label: "对话轮次", value: context.day.workflowStats.turnCount, tint: .teal),
-            WorkflowMetricRow(label: "子智能体", value: context.day.workflowStats.subagentCount, tint: .indigo),
-            WorkflowMetricRow(label: "工具调用", value: context.day.workflowStats.toolCallCount, tint: .orange),
-            WorkflowMetricRow(label: "权限请求", value: context.day.workflowStats.permissionRequestCount, tint: .red),
-            WorkflowMetricRow(label: "上下文压缩", value: context.day.workflowStats.contextCompactionCount, tint: .purple)
+            WorkflowMetricRow(label: "会话总数", value: context.day.workflow.sessionCount, tint: .green),
+            WorkflowMetricRow(label: "对话轮次", value: context.day.workflow.turnCount, tint: .teal),
+            WorkflowMetricRow(label: "子智能体", value: context.day.workflow.subagentCount, tint: .indigo),
+            WorkflowMetricRow(label: "工具调用", value: context.day.workflow.toolCallCount, tint: .orange),
+            WorkflowMetricRow(label: "权限请求", value: context.day.workflow.permissionRequestCount, tint: .red),
+            WorkflowMetricRow(label: "上下文压缩", value: context.day.workflow.contextCompactionCount, tint: .purple)
         ]
     }
 

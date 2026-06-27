@@ -8,9 +8,9 @@ struct AppSettingsView: View {
     @StateObject private var loginItemSettings = LoginItemSettings()
     @StateObject private var codexVersions = CodexCLIVersionViewModel()
     @ObservedObject var codexHookSettings: CodexHookSettings
-    @ObservedObject var cloudSyncSettings: WorkflowSyncSettings
+    @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
-    let onICloudSyncChanged: () -> Void
+    let onSyncChanged: (Bool) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
@@ -21,7 +21,7 @@ struct AppSettingsView: View {
                 LiquidGlassDivider()
                 codexHookRow
                 LiquidGlassDivider()
-                iCloudSyncRow
+                syncRow
                 LiquidGlassDivider()
                 hotKeyRow
                 LiquidGlassDivider()
@@ -42,14 +42,6 @@ struct AppSettingsView: View {
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
         }
-        .animation(Metrics.statusAnimation, value: loginItemSettings.errorMessage)
-        .animation(Metrics.statusAnimation, value: codexHookSettings.errorMessage)
-        .animation(Metrics.statusAnimation, value: codexHookSettings.isUpdating)
-        .animation(Metrics.statusAnimation, value: codexHookSettings.isEnabled)
-        .animation(Metrics.statusAnimation, value: cloudSyncSettings.isEnabled)
-        .animation(Metrics.statusAnimation, value: cloudSyncSettings.isSyncing)
-        .animation(Metrics.statusAnimation, value: cloudSyncSettings.iCloudAvailability)
-        .animation(Metrics.statusAnimation, value: cloudSyncSettings.lastUploadAt)
         .padding(Metrics.padding)
         .frame(width: Metrics.windowWidth)
         .liquidGlassSurface(
@@ -63,13 +55,13 @@ struct AppSettingsView: View {
         )
         .onAppear {
             loginItemSettings.refresh()
-            cloudSyncSettings.refresh()
+            syncSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
             refreshCodexVersionSection()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             codexHookSettings.refresh()
-            cloudSyncSettings.refresh()
+            syncSettings.refresh()
             codexHookSettings.verifyInstalledHooks()
             refreshCodexVersionSection()
         }
@@ -130,14 +122,13 @@ private extension AppSettingsView {
 
             if let message = codexHookSettings.errorMessage {
                 SettingsCaptionMessageRow(message: message)
-                    .transition(.opacity)
             }
         }
     }
 
-    var iCloudSyncRow: some View {
-        let state = iCloudSyncRowState
-        let lastUploadAtText = cloudSyncSettings.lastUploadAtText
+    var syncRow: some View {
+        let state = syncRowState
+        let lastUploadAtText = syncSettings.lastUploadAtText
 
         return VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
@@ -146,19 +137,20 @@ private extension AppSettingsView {
                 isOn: Binding(
                     get: { state.isActive },
                     set: { enabled in
-                        guard codexHookSettings.isEnabled, state.isICloudAvailable else {
+                        guard codexHookSettings.isEnabled, state.isSyncAvailable else {
                             return
                         }
-                        cloudSyncSettings.setEnabled(enabled)
-                        onICloudSyncChanged()
+                        guard syncSettings.setEnabled(enabled) else {
+                            return
+                        }
+                        onSyncChanged(enabled)
                     }
                 ),
                 isEnabled: state.canToggle
             )
 
-            if let message = cloudSyncSettings.unavailableMessage {
+            if let message = syncSettings.unavailableMessage {
                 SettingsCaptionMessageRow(message: message)
-                    .transition(.opacity)
             } else if state.shouldShowUploadStatus(lastUploadAtText: lastUploadAtText) {
                 SettingsIndentedRow {
                     Text("最近上传")
@@ -167,7 +159,7 @@ private extension AppSettingsView {
 
                     Spacer(minLength: 8)
 
-                    if cloudSyncSettings.isSyncing {
+                    if syncSettings.isSyncing {
                         ProgressView()
                             .controlSize(.small)
                             .scaleEffect(0.7)
@@ -178,21 +170,19 @@ private extension AppSettingsView {
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
-                            .contentTransition(.opacity)
                     }
                 }
-                .transition(.opacity)
             }
         }
     }
 
-    var iCloudSyncRowState: ICloudSyncRowState {
-        ICloudSyncRowState(
+    var syncRowState: SyncRowState {
+        SyncRowState(
             isHookEnabled: codexHookSettings.isEnabled,
             isHookUpdating: codexHookSettings.isUpdating,
-            isSyncEnabled: cloudSyncSettings.isEnabled,
-            isICloudAvailable: cloudSyncSettings.isICloudAvailable,
-            isSyncing: cloudSyncSettings.isSyncing
+            isSyncEnabled: syncSettings.isEnabled,
+            isSyncAvailable: syncSettings.isSyncAvailable,
+            isSyncing: syncSettings.isSyncing
         )
     }
 
@@ -263,7 +253,6 @@ private extension AppSettingsView {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(Metrics.panelPadding)
                 .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
-                .transition(.opacity)
         }
     }
 
@@ -290,19 +279,19 @@ private extension AppSettingsView {
     }
 }
 
-private struct ICloudSyncRowState {
+private struct SyncRowState {
     let isHookEnabled: Bool
     let isHookUpdating: Bool
     let isSyncEnabled: Bool
-    let isICloudAvailable: Bool
+    let isSyncAvailable: Bool
     let isSyncing: Bool
 
     var isActive: Bool {
-        isHookEnabled && isSyncEnabled && isICloudAvailable
+        isHookEnabled && isSyncEnabled && isSyncAvailable
     }
 
     var canToggle: Bool {
-        isHookEnabled && !isHookUpdating && isICloudAvailable
+        isHookEnabled && !isHookUpdating && isSyncAvailable
     }
 
     func shouldShowUploadStatus(lastUploadAtText: String?) -> Bool {

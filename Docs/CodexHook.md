@@ -123,7 +123,7 @@ Hook 数据目录:
 
 `pending` 表示有新增事件等待整理的日期；`dirty` 表示需要从头重建 `daily.jsonl` 对应日期的日期；`offset` 是当天 events 文件已经处理到的字节位置；`size` 是上次处理完成时当天 events 文件大小；`corrupt` 是当天解析失败的 JSONL 行数。
 
-`WorkflowStatsStorage` 定义这些路径和保留策略。UI 读取时优先加载 `daily.jsonl`；原始事件文件不再作为 UI 临时快照回退源。
+`WorkflowStorage` 定义这些路径和保留策略。UI 读取时优先加载 `daily.jsonl`；原始事件文件不再作为 UI 临时快照回退源。
 
 旧版单文件 `HookEvents/events.jsonl` 不参与新版统计、迁移或清理。
 
@@ -137,7 +137,7 @@ Hook 可能由多个 Codex 进程并发触发。`WorkflowHookEventRecorder` 会�
 
 Hook 写入路径不更新 `daily.jsonl`，也不执行重建或清理旧文件，避免在 Hook timeout 内持锁执行重活。
 
-`WorkflowStatsService` 是 actor，只在现有自动刷新或手动刷新触发工作流统计刷新时检查 `maintenance.json`。打开菜单面板时只读取现有 `daily.jsonl`。如果没有 `pending` 或 `dirty`，服务不会执行维护。
+`WorkflowService` 是 actor，只在现有自动刷新或手动刷新触发工作流统计刷新时检查 `maintenance.json`。打开菜单面板时只读取现有 `daily.jsonl`。如果没有 `pending` 或 `dirty`，服务不会执行维护。
 
 维护时优先处理 `dirty`，从对应日期文件第一行开始流式重建当天聚合；再处理 `pending`，从 `days[date].offset` 开始流式读取新增事件并合并到已有当天聚合。每条坏行会被跳过并计入 `days[date].corrupt`。处理完成后先在 `stats.lock` 外原子写回 `daily.jsonl`，再短暂持有 `stats.lock` 更新 `maintenance.json`，避免主 App 写 daily 时阻塞 Hook 追加事件。
 
@@ -149,11 +149,11 @@ CodexBar 最多保留最近 210 天数据。
 
 如果 `daily.jsonl` 缺失、为空、解析失败、缺少对应日期摘要，或者某天 events 文件状态和 `maintenance.json` 不一致，主 App 会把对应日期加入 `dirty` 并在刷新维护时按天重建。
 
-## iCloud 同步
+## 跨设备同步
 
 完整链路见 [CrossDeviceSync.md](CrossDeviceSync.md)。本节只保留和 Hook 统计直接相关的同步摘要。
 
-设置页「跨设备同步」由 `WorkflowSyncSettings` 管理。该开关只有在 Codex Hook 开启且 `CKContainer.default().accountStatus` 为 `available` 时可操作；iCloud 不可用时开关禁用，并在开关下方显示「iCloud 不可用」。关闭 Hook 后不会继续触发工作流统计同步。iCloud 同步使用 CloudKit private database，数据归属当前登录的 iCloud 账号，不跨 iCloud 账号迁移或合并。CodexBar 自己创建和维护的记录都保存在 custom zone `CodexBarZone`，不会写入 `_defaultZone`。
+设置页「跨设备同步」由 `WorkflowSyncSettings` 管理。该开关只有在 Codex Hook 开启且 `CKContainer.default().accountStatus` 为 `available` 时可操作；账号不可用时开关禁用，并在开关下方显示「同步不可用」。关闭 Hook 后不会继续触发工作流统计同步。同步使用 CloudKit private database，数据归属当前登录的 iCloud 账号，不跨 iCloud 账号迁移或合并。CodexBar 自己创建和维护的记录都保存在 custom zone `CodexBarZone`，不会写入 `_defaultZone`。
 
 CloudKit 中每个 iCloud 账号会保存一条账号级 salt:
 
@@ -172,7 +172,7 @@ deviceId = HMAC_SHA256(accountSalt, IOPlatformUUID)
 
 CodexBar 不上传原始 `IOPlatformUUID`。同一台 Mac 在同一 iCloud 账号下重装 App 或系统后通常得到同一个 `deviceId`；切换 iCloud 账号后会进入另一个 CloudKit private database，并用该账号的 salt 派生另一个 `deviceId`。
 
-iCloud 同步上传的是 `daily.jsonl` 单日聚合行的内存副本，去掉:
+跨设备同步上传的是 `daily.jsonl` 单日聚合行的内存副本，去掉:
 
 ```text
 sessionIds, turnIds
@@ -192,29 +192,33 @@ Hook 子进程不访问网络。主 App 在工作流统计维护刷新后对本�
 
 上传按日期稳定排序并分批执行。每轮同步最多处理 20 秒，每批最多 25 天；每批成功后立即把对应日期的 hash 和 `lastUploadAt` 写入 `state.json`。如果时间预算用完、任务被取消或本批 CloudKit 请求失败，本轮停止，剩余日期留给后续每分钟刷新继续。首次开启同步时设置 `needsBackfill`，只有本地所有日期的 hash 都已与 state 匹配后才清除 backfill 请求。
 
-本地 iCloud 同步状态保存在:
+本地同步状态保存在:
 
 ```text
-~/Library/Application Support/CodexBar/HookEvents/iCloudSync/state.json
-~/Library/Application Support/CodexBar/HookEvents/iCloudSync/cache.jsonl
-~/Library/Application Support/CodexBar/HookEvents/iCloudSync/cursor.data
+~/Library/Application Support/CodexBar/HookEvents/Sync/state.json
+~/Library/Application Support/CodexBar/HookEvents/Sync/cache.jsonl
+~/Library/Application Support/CodexBar/HookEvents/Sync/cursor.data
 ```
 
 - `state.json`: 保存 `deviceId`、按日期记录的 `hashByDate`、`lastUploadAt` 和 `lastPrunedDate`。
 - `cache.jsonl`: 保存从 iCloud 拉到的其他设备脱敏 daily 记录，一行一条；不保存当前设备自己的云端副本。
 - `cursor.data`: 保存 CloudKit custom zone `CodexBarZone` 的 `CKServerChangeToken`，用于下次只拉取增量变化；没有游标时会 query 全量 `CodexBarDailyAggregate` 重建 `cache.jsonl`，随后建立新的游标基线；游标失效或增量拉取失败时会重新全量重建。
 
-接收 iCloud 变化时只更新 `cache.jsonl` 和 `cursor.data`，不直接发布新的 `WorkflowStatsSnapshot`，也不让面板立即跳数。缓存和游标按「先写 `cache.jsonl`，再写 `cursor.data`」提交；如果缓存写入失败，游标不会提前推进，下一轮会重新拉取同一批变化或全量回填。面板仍只在现有每分钟自动刷新或用户手动刷新时重新读取本地 `daily.jsonl` 与 iCloud 缓存。
+接收云端变化时只更新 `cache.jsonl` 和 `cursor.data`，不直接发布新的 `WorkflowSnapshot`，也不让面板立即跳数。缓存和游标按「先写 `cache.jsonl`，再写 `cursor.data`」提交；如果缓存写入失败，游标不会提前推进，下一轮会重新拉取同一批变化或全量回填。面板仍只在现有每分钟自动刷新或用户手动刷新时重新读取本地 `daily.jsonl` 与同步缓存。
 
 展示合并规则:
 
 ```text
-最终展示 = 本机 daily.jsonl + iCloud 缓存中的其他设备记录
+最终展示 = 本机 daily.jsonl + 同步缓存中的其他设备记录
 ```
 
-`cache.jsonl` 写入前必须过滤本机自己的 CloudKit 记录，否则本机会把本地 daily 和自己上传的云端副本重复相加。本机数据永远以本地 `daily.jsonl` 为准；云端只补其他设备。热力图详情的 6 个工作流指标按每台设备各自 daily 口径先生成展示值，再按日期相加；`projectCounts` 按项目名逐项相加。
+`cache.jsonl` 写入前必须过滤本机自己的 CloudKit 记录，否则本机会把本地 daily 和自己上传的云端副本重复相加。本机数据永远以本地 `daily.jsonl` 为准；同步缓存只补其他设备。热力图详情的 6 个工作流指标按每台设备各自 daily 口径先生成展示值，再按日期相加；`projectCounts` 按项目名逐项相加。
 
-iCloud 也按最近 210 天保留。每天第一次工作流刷新时，当前设备会删除 `deviceId == 本机 deviceId` 且早于保留窗口的 CloudKit 记录；其他设备记录不由本机清理。展示侧始终忽略最近 210 天外的缓存记录。
+CloudKit 也按最近 210 天保留。每天第一次工作流刷新时，当前设备会删除 `deviceId == 本机 deviceId` 且早于保留窗口的 CloudKit 记录；其他设备记录不由本机清理。展示侧始终忽略最近 210 天外的缓存记录。
+
+维护和同步请求由 `WorkflowSyncScheduler` 统一调度。菜单面板打开时只读取现有 `daily.jsonl` 和同步缓存；app-server 自动刷新倒计时重置、同步开关开启、Hook 重新开启或同步账号恢复可用时, 调度器合并维护/同步请求。同步中不会取消重启，冷却窗口内只保留一次待补跑请求，补跑前会重新校验 Hook、同步偏好和账号可用性。
+
+同步失败不会清空开启偏好，也不会把原始 CloudKit 错误直接展示给用户。`WorkflowSyncService` 会把错误归类为「网络不可用」「账号不可用」「服务暂时不可用」「同步失败，请稍后重试」，并通过同步结束通知交给 `WorkflowSyncSettings`。主面板更新时间行最右侧使用 `exclamationmark.icloud` 进入失败态，tooltip 展示归类后的短错误；设置页只保留「同步不可用」、同步中和最近上传时间。
 
 ## 统计口径
 
@@ -250,28 +254,28 @@ subagentStopCount, sessionCount, turnCount, projectCounts, sessionIds, turnIds
 
 逐字段统计口径如下:
 
-| `daily.jsonl` 字段       | 从 `events/YYYY-MM-DD.jsonl` 读取什么                | 写入 / 更新规则                                                                                                                                                                                                           | 页面关系                                               |
-| ------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `date`                   | `timestamp`                                          | Hook 写入时先把事件时间解析为绝对时间，再按当前本地时区格式化为 `yyyy-MM-dd` 选择日期文件。维护流程按当前处理的文件日期生成同名 `daily.jsonl` 行。早于最近 210 天保留窗口的日期不会进入聚合。                             | 热力图日期键；详情面板日期。                           |
-| `eventCount`             | 每条成功解码并保留下来的事件行                       | 每处理一条事件就 `+1`，发生在具体事件类型判断之前。因此 `UserPromptSubmit`、未知 `event`、`tool: null`、`session: null` 等行都会计入，只要 `timestamp` 和 `event` 可解析。                                                | 进入 `WorkflowDailyStats.eventCount`，当前页面不展示。 |
-| `sessionStartCount`      | `event`                                              | `event` 归一化后等于 `sessionstart` 时 `+1`。不要求 `session` 非空。                                                                                                                                                      | 作为「会话总数」兜底来源。                             |
-| `stopCount`              | `event`                                              | `event` 归一化后等于 `stop` 时 `+1`。不要求 `turn` 非空。                                                                                                                                                                 | 作为「对话轮次」兜底来源。                             |
-| `preToolUseCount`        | `event`                                              | `event` 归一化后等于 `pretooluse` 时 `+1`。不读取 `tool` 做过滤，`tool` 为 `null` 也计入。                                                                                                                                | 参与「工具调用」。                                     |
-| `postToolUseCount`       | `event`                                              | `event` 归一化后等于 `posttooluse` 时 `+1`。不读取 `tool` 做过滤，`tool` 为 `null` 也计入。                                                                                                                               | 参与「工具调用」。                                     |
-| `permissionRequestCount` | `event`                                              | `event` 归一化后等于 `permissionrequest` 时 `+1`。不读取 `permission` 字段做过滤，`permission` 只是记录当时的权限模式。                                                                                                   | 直接显示为「权限请求」。                               |
-| `preCompactCount`        | `event`                                              | `event` 归一化后等于 `precompact` 时 `+1`。                                                                                                                                                                               | 参与「上下文压缩」。                                   |
-| `postCompactCount`       | `event`                                              | `event` 归一化后等于 `postcompact` 时 `+1`。                                                                                                                                                                              | 参与「上下文压缩」。                                   |
-| `subagentStartCount`     | `event`                                              | `event` 归一化后等于 `subagentstart` 时 `+1`。                                                                                                                                                                            | 参与「子智能体」。                                     |
-| `subagentStopCount`      | `event`                                              | `event` 归一化后等于 `subagentstop` 时 `+1`。                                                                                                                                                                             | 参与「子智能体」。                                     |
-| `sessionIds`             | `session`                                            | 仅最近 3 个本地自然日保留。任意事件行只要 `session` 是非空字符串，就插入当天集合并去重、排序；不要求事件类型是 `SessionStart`。窗口外日期会被压缩为 `sessionCount` 并写成 `null`。                                        | 参与「会话总数」去重。                                 |
-| `turnIds`                | `turn`                                               | 仅最近 3 个本地自然日保留。任意事件行只要 `turn` 是非空字符串，就插入当天集合并去重、排序；不要求事件类型是 `Stop`。窗口外日期会被压缩为 `turnCount` 并写成 `null`。                                                      | 参与「对话轮次」去重。                                 |
-| `sessionCount`           | `sessionIds`、旧 `sessionCount`、`sessionStartCount` | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有 `sessionCount`，否则使用 `sessionIds.count`，再否则使用 `sessionStartCount`，然后移除 `sessionIds`。这样旧日期不用继续保存完整 ID，也能保留会话总数。 | 参与「会话总数」。                                     |
-| `turnCount`              | `turnIds`、旧 `turnCount`、`stopCount`               | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有 `turnCount`，否则使用 `turnIds.count`，再否则使用 `stopCount`，然后移除 `turnIds`。这样旧日期不用继续保存完整 ID，也能保留轮次总数。                  | 参与「对话轮次」。                                     |
-| `projectCounts`          | `cwd`                                                | 任意事件行只要 `cwd` 非空，就取标准化路径的最后一层目录名作为项目名并 `+1`；如果最后一层为空，回退使用完整路径字符串。统计的是事件数，不是会话数或工具调用数。未知事件也会计入。                                          | 用于计算 `mostActiveProject`，当前页面不展示。         |
+| `daily.jsonl` 字段       | 从 `events/YYYY-MM-DD.jsonl` 读取什么                | 写入 / 更新规则                                                                                                                                                                                                           | 页面关系                                                 |
+| ------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `date`                   | `timestamp`                                          | Hook 写入时先把事件时间解析为绝对时间，再按当前本地时区格式化为 `yyyy-MM-dd` 选择日期文件。维护流程按当前处理的文件日期生成同名 `daily.jsonl` 行。早于最近 210 天保留窗口的日期不会进入聚合。                             | 热力图日期键；详情面板日期。                             |
+| `eventCount`             | 每条成功解码并保留下来的事件行                       | 每处理一条事件就 `+1`，发生在具体事件类型判断之前。因此 `UserPromptSubmit`、未知 `event`、`tool: null`、`session: null` 等行都会计入，只要 `timestamp` 和 `event` 可解析。                                                | 进入 `WorkflowDailyMetrics.eventCount`，当前页面不展示。 |
+| `sessionStartCount`      | `event`                                              | `event` 归一化后等于 `sessionstart` 时 `+1`。不要求 `session` 非空。                                                                                                                                                      | 作为「会话总数」兜底来源。                               |
+| `stopCount`              | `event`                                              | `event` 归一化后等于 `stop` 时 `+1`。不要求 `turn` 非空。                                                                                                                                                                 | 作为「对话轮次」兜底来源。                               |
+| `preToolUseCount`        | `event`                                              | `event` 归一化后等于 `pretooluse` 时 `+1`。不读取 `tool` 做过滤，`tool` 为 `null` 也计入。                                                                                                                                | 参与「工具调用」。                                       |
+| `postToolUseCount`       | `event`                                              | `event` 归一化后等于 `posttooluse` 时 `+1`。不读取 `tool` 做过滤，`tool` 为 `null` 也计入。                                                                                                                               | 参与「工具调用」。                                       |
+| `permissionRequestCount` | `event`                                              | `event` 归一化后等于 `permissionrequest` 时 `+1`。不读取 `permission` 字段做过滤，`permission` 只是记录当时的权限模式。                                                                                                   | 直接显示为「权限请求」。                                 |
+| `preCompactCount`        | `event`                                              | `event` 归一化后等于 `precompact` 时 `+1`。                                                                                                                                                                               | 参与「上下文压缩」。                                     |
+| `postCompactCount`       | `event`                                              | `event` 归一化后等于 `postcompact` 时 `+1`。                                                                                                                                                                              | 参与「上下文压缩」。                                     |
+| `subagentStartCount`     | `event`                                              | `event` 归一化后等于 `subagentstart` 时 `+1`。                                                                                                                                                                            | 参与「子智能体」。                                       |
+| `subagentStopCount`      | `event`                                              | `event` 归一化后等于 `subagentstop` 时 `+1`。                                                                                                                                                                             | 参与「子智能体」。                                       |
+| `sessionIds`             | `session`                                            | 仅最近 3 个本地自然日保留。任意事件行只要 `session` 是非空字符串，就插入当天集合并去重、排序；不要求事件类型是 `SessionStart`。窗口外日期会被压缩为 `sessionCount` 并写成 `null`。                                        | 参与「会话总数」去重。                                   |
+| `turnIds`                | `turn`                                               | 仅最近 3 个本地自然日保留。任意事件行只要 `turn` 是非空字符串，就插入当天集合并去重、排序；不要求事件类型是 `Stop`。窗口外日期会被压缩为 `turnCount` 并写成 `null`。                                                      | 参与「对话轮次」去重。                                   |
+| `sessionCount`           | `sessionIds`、旧 `sessionCount`、`sessionStartCount` | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有 `sessionCount`，否则使用 `sessionIds.count`，再否则使用 `sessionStartCount`，然后移除 `sessionIds`。这样旧日期不用继续保存完整 ID，也能保留会话总数。 | 参与「会话总数」。                                       |
+| `turnCount`              | `turnIds`、旧 `turnCount`、`stopCount`               | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有 `turnCount`，否则使用 `turnIds.count`，再否则使用 `stopCount`，然后移除 `turnIds`。这样旧日期不用继续保存完整 ID，也能保留轮次总数。                  | 参与「对话轮次」。                                       |
+| `projectCounts`          | `cwd`                                                | 任意事件行只要 `cwd` 非空，就取标准化路径的最后一层目录名作为项目名并 `+1`；如果最后一层为空，回退使用完整路径字符串。统计的是事件数，不是会话数或工具调用数。未知事件也会计入。                                          | 用于计算 `mostActiveProject`，当前页面不展示。           |
 
 读取旧 `daily.jsonl` 时，缺失的数字字段按 `0` 处理，缺失的 `projectCounts` 按空字典处理，缺失的 `sessionIds` / `turnIds` / `sessionCount` / `turnCount` 保持为 `nil`。后续归一化会按当前保留策略补齐或压缩这些字段。
 
-UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyStats`:
+UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyMetrics`:
 
 | 页面展示名 | 生成规则                                                |
 | ---------- | ------------------------------------------------------- |
@@ -282,7 +286,7 @@ UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyStats`:
 | 权限请求   | `permissionRequestCount`                                |
 | 上下文压缩 | `max(preCompactCount, postCompactCount)`                |
 
-`mostActiveProject` 和 `eventCount` 会进入 `WorkflowDailyStats`，但当前页面没有展示。`UserPromptSubmit` 和未知事件不会增加上述 6 个页面指标，只会进入 `eventCount`，有 `cwd` 时也会进入 `projectCounts`。
+`mostActiveProject` 和 `eventCount` 会进入 `WorkflowDailyMetrics`，但当前页面没有展示。`UserPromptSubmit` 和未知事件不会增加上述 6 个页面指标，只会进入 `eventCount`，有 `cwd` 时也会进入 `projectCounts`。
 
 ## UI 展示
 

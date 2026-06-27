@@ -111,14 +111,14 @@ final class HeatmapDetailPanelController {
             attach(panel, to: menuSurfaceWindow)
         }
 
-        let panelSize = UsageHeatmapDayDetailView.panelSize(showsWorkflowStats: context.showsWorkflowStats)
+        let panelSize = UsageHeatmapDayDetailView.panelSize(showsWorkflow: context.showsWorkflow)
         let position = panelPosition(
             for: panelSize,
             relativeTo: menuSurfaceWindow,
             contentView: contentView,
             anchorScreenFrame: context.anchorScreenFrame,
             heatmapScreenFrame: context.heatmapScreenFrame,
-            showsWorkflowStats: context.showsWorkflowStats,
+            showsWorkflow: context.showsWorkflow,
             preferredSide: context.preferredSide
         )
         let request = PanelRequest(context: context, position: position)
@@ -275,7 +275,7 @@ final class HeatmapDetailPanelController {
         }
 
         let panel = DetailPanel(
-            contentRect: NSRect(origin: .zero, size: UsageHeatmapDayDetailView.panelSize(showsWorkflowStats: true)),
+            contentRect: NSRect(origin: .zero, size: UsageHeatmapDayDetailView.panelSize(showsWorkflow: true)),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -319,8 +319,6 @@ final class HeatmapDetailPanelController {
     }
 
     private func updateContent(_ context: UsageHeatmapHoverContext) {
-        let size = UsageHeatmapDayDetailView.panelSize(showsWorkflowStats: context.showsWorkflowStats)
-
         if let detailModel {
             withAnimation(Animation.codexStatus) {
                 detailModel.context = context
@@ -336,7 +334,6 @@ final class HeatmapDetailPanelController {
         }
 
         configurePanelLayers()
-        panel?.setContentSize(size)
     }
 
     private func configurePanelLayers() {
@@ -373,7 +370,7 @@ final class HeatmapDetailPanelController {
         contentView: NSView?,
         anchorScreenFrame: CGRect?,
         heatmapScreenFrame: CGRect?,
-        showsWorkflowStats: Bool,
+        showsWorkflow: Bool,
         preferredSide: UsageHeatmapDetailSide
     ) -> PanelPosition {
         // 优先贴在请求侧, 空间不足时换边, 最后仍夹紧到屏幕可见区域
@@ -408,7 +405,7 @@ final class HeatmapDetailPanelController {
                 visibleFrame: visibleFrame,
                 anchorScreenFrame: anchorScreenFrame,
                 heatmapScreenFrame: heatmapScreenFrame,
-                showsWorkflowStats: showsWorkflowStats
+                showsWorkflow: showsWorkflow
             ),
             width: panelSize.width,
             height: panelSize.height
@@ -431,9 +428,9 @@ final class HeatmapDetailPanelController {
         visibleFrame: CGRect,
         anchorScreenFrame: CGRect?,
         heatmapScreenFrame: CGRect?,
-        showsWorkflowStats: Bool
+        showsWorkflow: Bool
     ) -> CGFloat {
-        let proposedY: CGFloat = if showsWorkflowStats {
+        let proposedY: CGFloat = if showsWorkflow {
             menuSurfaceFrame.minY
         } else if let heatmapScreenFrame {
             heatmapScreenFrame.maxY - panelSize.height

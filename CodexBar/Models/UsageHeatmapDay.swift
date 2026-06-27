@@ -4,7 +4,7 @@ import Foundation
 nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     let startDate: String
     let tokenCount: Int?
-    let workflowStats: WorkflowDailyStats
+    let workflow: WorkflowDailyMetrics
 
     var id: String {
         startDate
@@ -16,21 +16,21 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
 
     static func grid(
         usage: CodexUsageSnapshot,
-        workflowStats: WorkflowStatsSnapshot,
-        showsWorkflowStats: Bool,
+        workflow: WorkflowSnapshot,
+        showsWorkflow: Bool,
         columnCount: Int,
         today: Date
     ) -> [UsageHeatmapDay?] {
         let todayTokenCount = usage.tokenCount(on: today)
         // Hook 开启时当天工作流统计可见
         // Hook 关闭时只在 token bucket 已返回时展示今天
-        let endingDaysAgo = showsWorkflowStats || todayTokenCount != nil ? 0 : 1
+        let endingDaysAgo = showsWorkflow || todayTokenCount != nil ? 0 : 1
         let tokenDays = usage.recentWeekGrid(
             columnCount: columnCount,
             endingDaysAgo: endingDaysAgo,
             today: today
         )
-        let workflowDays = workflowStats.recentWeekGrid(
+        let workflowDays = workflow.recentWeekGrid(
             columnCount: columnCount,
             endingDaysAgo: endingDaysAgo,
             today: today
@@ -46,7 +46,7 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
 
     private static func merge(
         tokenDays: [DailyUsageBucket?],
-        workflowDays: [WorkflowDailyStats?],
+        workflowDays: [WorkflowDailyMetrics?],
         todayString: String,
         todayTokenCount: Int?
     ) -> [UsageHeatmapDay?] {
@@ -58,7 +58,7 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
             return UsageHeatmapDay(
                 startDate: startDate,
                 tokenCount: startDate == todayString ? todayTokenCount : tokenDay?.tokens ?? 0,
-                workflowStats: workflowDay ?? .empty(startDate: startDate)
+                workflow: workflowDay ?? .empty(startDate: startDate)
             )
         }
     }

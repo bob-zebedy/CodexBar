@@ -7,9 +7,9 @@ import SwiftUI
 final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     private let codexStatusService = CodexStatusService()
     lazy var viewModel = CodexStatusViewModel(service: codexStatusService)
-    let workflowStatsViewModel = WorkflowStatsViewModel()
+    let workflowViewModel = WorkflowViewModel()
     lazy var codexHookSettings = CodexHookSettings(codexStatusService: codexStatusService)
-    let cloudSyncSettings = WorkflowSyncSettings()
+    let syncSettings = WorkflowSyncSettings()
     let globalHotKeySettings = GlobalHotKeySettings()
     let appUpdater = AppUpdater()
 
@@ -18,9 +18,9 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_: Notification) {
         let controller = StatusItemController(
             viewModel: viewModel,
-            workflowStatsViewModel: workflowStatsViewModel,
+            workflowViewModel: workflowViewModel,
             codexHookSettings: codexHookSettings,
-            cloudSyncSettings: cloudSyncSettings,
+            syncSettings: syncSettings,
             globalHotKeySettings: globalHotKeySettings,
             appUpdater: appUpdater
         )
@@ -37,9 +37,9 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 private final class StatusItemController: NSObject {
     private let viewModel: CodexStatusViewModel
-    private let workflowStatsViewModel: WorkflowStatsViewModel
+    private let workflowViewModel: WorkflowViewModel
     private let codexHookSettings: CodexHookSettings
-    private let cloudSyncSettings: WorkflowSyncSettings
+    private let syncSettings: WorkflowSyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -59,17 +59,24 @@ private final class StatusItemController: NSObject {
         viewModel: viewModel,
         appUpdater: appUpdater,
         codexHookSettings: codexHookSettings,
-        cloudSyncSettings: cloudSyncSettings,
+        syncSettings: syncSettings,
         globalHotKeySettings: globalHotKeySettings
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
-    } onICloudSyncChanged: { [weak self] in
-        self?.workflowStatsViewModel.refresh(performMaintenance: true)
+    } onSyncChanged: { [weak self] enabled in
+        self?.handleSyncChanged(enabled)
     }
 
     private lazy var logWindowController = LogWindowController { [weak self] in
         self?.statusItem.button?.window?.screen
     }
+
+    private lazy var workflowSyncScheduler = WorkflowSyncScheduler(
+        viewModel: workflowViewModel,
+        canSynchronize: { [weak self] in
+            self?.canSynchronizeWorkflow == true
+        }
+    )
 
     private lazy var menuSurfaceFadeCoordinator = MenuSurfaceFadeCoordinator(
         contentViewProvider: { [weak self] in
@@ -102,16 +109,16 @@ private final class StatusItemController: NSObject {
 
     init(
         viewModel: CodexStatusViewModel,
-        workflowStatsViewModel: WorkflowStatsViewModel,
+        workflowViewModel: WorkflowViewModel,
         codexHookSettings: CodexHookSettings,
-        cloudSyncSettings: WorkflowSyncSettings,
+        syncSettings: WorkflowSyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
         appUpdater: AppUpdater
     ) {
         self.viewModel = viewModel
-        self.workflowStatsViewModel = workflowStatsViewModel
+        self.workflowViewModel = workflowViewModel
         self.codexHookSettings = codexHookSettings
-        self.cloudSyncSettings = cloudSyncSettings
+        self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
         self.appUpdater = appUpdater
         super.init()
@@ -134,6 +141,8 @@ private final class StatusItemController: NSObject {
         configurePopover()
         observeGlobalHotKeySettings()
         observeViewModel()
+        observeWorkflowSyncState()
+        codexHookSettings.refresh()
         updateStatusImage()
         viewModel.startAutoRefresh()
     }
@@ -141,6 +150,7 @@ private final class StatusItemController: NSObject {
     func uninstall() {
         closeMenuSurface(animated: false)
         auxiliaryWindowFocusRestoreTask?.cancel()
+        workflowSyncScheduler.cancel()
         setAuxiliaryWindowKeyFocus(true)
         globalHotKeyController.uninstall()
         cancellables.removeAll()
@@ -170,8 +180,9 @@ private final class StatusItemController: NSObject {
     private func makeMenuHostingController(usesPreferredContentSize: Bool) -> NSHostingController<AnyView> {
         let rootView = CodexStatusMenuView(
             viewModel: viewModel,
-            workflowStatsViewModel: workflowStatsViewModel,
+            workflowViewModel: workflowViewModel,
             codexHookSettings: codexHookSettings,
+            syncSettings: syncSettings,
             menuSurfaceVisibility: menuSurfaceVisibility,
             onUsageHeatmapHoverChange: { [weak self] context in
                 self?.updateHeatmapDetailPanel(context)
@@ -204,7 +215,39 @@ private final class StatusItemController: NSObject {
                 guard let self else {
                     return
                 }
-                refreshWorkflowStatsIfHookEnabled(performMaintenance: true)
+                refreshWorkflowIfHookEnabled(performMaintenance: true)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func observeWorkflowSyncState() {
+        codexHookSettings.$isEnabled
+            .removeDuplicates()
+            .sink { [weak self] isEnabled in
+                guard let self else {
+                    return
+                }
+
+                if isEnabled {
+                    workflowSyncScheduler.requestSync()
+                } else {
+                    workflowSyncScheduler.clearPendingMaintenance()
+                }
+            }
+            .store(in: &cancellables)
+
+        syncSettings.$syncAvailability
+            .removeDuplicates()
+            .sink { [weak self] availability in
+                guard let self else {
+                    return
+                }
+
+                if availability.isAvailable {
+                    workflowSyncScheduler.requestSync()
+                } else {
+                    workflowSyncScheduler.clearPendingSync()
+                }
             }
             .store(in: &cancellables)
     }
@@ -374,7 +417,7 @@ private final class StatusItemController: NSObject {
 
     private func completeMenuSurfaceOpen() {
         menuSurfaceVisibility.isVisible = true
-        refreshWorkflowStatsIfHookEnabled(performMaintenance: false)
+        refreshWorkflowIfHookEnabled(performMaintenance: false)
         menuSurfaceDismissMonitor.install { [weak self] in
             self?.closeMenuSurface()
         }
@@ -543,12 +586,33 @@ private final class StatusItemController: NSObject {
         }
     }
 
-    private func refreshWorkflowStatsIfHookEnabled(performMaintenance: Bool) {
+    private func refreshWorkflowIfHookEnabled(performMaintenance: Bool) {
         // Hook 开关可能被外部 Codex 配置改动, 每次需要统计前都先读 hooks.json
         codexHookSettings.refresh()
-        if codexHookSettings.isEnabled {
-            workflowStatsViewModel.refreshIfNeeded(performMaintenance: performMaintenance)
+        guard codexHookSettings.isEnabled else {
+            workflowSyncScheduler.clearPendingMaintenance()
+            return
         }
+
+        if performMaintenance {
+            workflowSyncScheduler.requestMaintenance(allowsSync: true)
+        } else {
+            workflowViewModel.refreshIfNeeded()
+        }
+    }
+
+    private func handleSyncChanged(_ isEnabled: Bool) {
+        if isEnabled {
+            workflowSyncScheduler.requestSync()
+        } else {
+            workflowSyncScheduler.clearPendingSync()
+        }
+    }
+
+    private var canSynchronizeWorkflow: Bool {
+        codexHookSettings.isEnabled
+            && WorkflowSyncSettings.isEnabled()
+            && syncSettings.isSyncAvailable
     }
 
     private func updateHeatmapDetailPanel(_ context: UsageHeatmapHoverContext?) {

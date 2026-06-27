@@ -13,7 +13,7 @@ actor WorkflowSyncService {
     init(
         container: CKContainer = .default(),
         fileManager: FileManager = .default,
-        directoryURL: URL = WorkflowStatsStorage.iCloudSyncDirectoryURL()
+        directoryURL: URL = WorkflowStorage.syncDirectoryURL()
     ) {
         database = container.privateCloudDatabase
         self.fileManager = fileManager
@@ -37,9 +37,14 @@ actor WorkflowSyncService {
             return .disabled
         }
 
-        Self.postSyncNotification(.workflowStatsICloudSyncDidStart)
+        var didSucceed = false
+        var failureMessage: String?
+        Self.postSyncDidStart()
         defer {
-            Self.postSyncNotification(.workflowStatsICloudSyncDidFinish)
+            Self.postSyncDidFinish(
+                didSucceed: didSucceed,
+                failureMessage: failureMessage
+            )
         }
 
         var state = loadState()
@@ -49,7 +54,7 @@ actor WorkflowSyncService {
             let deviceId = try await resolveCurrentDeviceId()
             resetStateIfDeviceChanged(deviceId, state: &state)
 
-            let localByDate = Self.cloudAggregatesByDate(localAggregates)
+            let localByDate = Self.syncedAggregatesByDate(localAggregates)
             let forceBackfill = WorkflowSyncSettings.needsBackfill()
             try await uploadChangedAggregates(
                 localByDate: localByDate,
@@ -62,10 +67,12 @@ actor WorkflowSyncService {
                 WorkflowSyncSettings.clearBackfillRequest()
             }
 
-            try await refreshCacheFromCloud(currentDeviceId: deviceId)
+            try await refreshCacheFromRemote(currentDeviceId: deviceId)
             try await pruneCurrentDeviceRecordsIfNeeded(deviceId: deviceId, state: &state)
             try saveState(state)
+            didSucceed = true
         } catch {
+            failureMessage = WorkflowSyncFailureReason.classify(error).message
             try? saveState(state)
         }
 
@@ -86,16 +93,16 @@ actor WorkflowSyncService {
         try? fileManager.removeItem(at: cursorURL)
     }
 
-    private static func cloudAggregatesByDate(
+    private static func syncedAggregatesByDate(
         _ aggregates: [WorkflowDailyAggregate]
-    ) -> [String: WorkflowCloudDailyAggregate] {
-        aggregates.reduce(into: [String: WorkflowCloudDailyAggregate]()) { result, aggregate in
-            result[aggregate.date] = aggregate.cloudAggregate
+    ) -> [String: WorkflowSyncedDailyAggregate] {
+        aggregates.reduce(into: [String: WorkflowSyncedDailyAggregate]()) { result, aggregate in
+            result[aggregate.date] = aggregate.syncedAggregate
         }
     }
 
     private func backfillCompleted(
-        localByDate: [String: WorkflowCloudDailyAggregate],
+        localByDate: [String: WorkflowSyncedDailyAggregate],
         state: WorkflowSyncState
     ) -> Bool {
         localByDate.allSatisfy { date, aggregate in
@@ -114,12 +121,12 @@ actor WorkflowSyncService {
 }
 
 private extension WorkflowSyncService {
-    typealias PendingUpload = (date: String, aggregate: WorkflowCloudDailyAggregate, hash: String)
+    typealias PendingUpload = (date: String, aggregate: WorkflowSyncedDailyAggregate, hash: String)
     typealias PendingRecord = (upload: PendingUpload, recordID: CKRecord.ID)
     typealias UploadedHash = (date: String, hash: String)
 
     enum Metrics {
-        static let cloudSchemaVersion = 1
+        static let syncSchemaVersion = 1
         static let syncZoneName = "CodexBarZone"
         static let saltByteCount = 32
         static let recordFetchLimit = 200
@@ -177,7 +184,7 @@ private extension WorkflowSyncService {
     }
 
     func uploadChangedAggregates(
-        localByDate: [String: WorkflowCloudDailyAggregate],
+        localByDate: [String: WorkflowSyncedDailyAggregate],
         changedDates: Set<String>,
         forceBackfill: Bool,
         state: inout WorkflowSyncState
@@ -209,20 +216,14 @@ private extension WorkflowSyncService {
 
             let batchEnd = min(batchStart + Metrics.uploadBatchSize, pendingUploads.count)
             let batch = Array(pendingUploads[batchStart ..< batchEnd])
-            let uploadedBatch: [UploadedHash]
-
-            do {
-                uploadedBatch = try await uploadAggregateBatch(batch, deviceId: deviceId)
-            } catch {
-                break
-            }
+            let uploadedBatch = try await uploadAggregateBatch(batch, deviceId: deviceId)
 
             try applyUploadedHashes(uploadedBatch, to: &state)
         }
     }
 
     func uploadCandidateDates(
-        localByDate: [String: WorkflowCloudDailyAggregate],
+        localByDate: [String: WorkflowSyncedDailyAggregate],
         changedDates: Set<String>,
         forceBackfill: Bool,
         state: WorkflowSyncState
@@ -255,7 +256,7 @@ private extension WorkflowSyncService {
 
     func makePendingUploads(
         for candidateDates: Set<String>,
-        localByDate: [String: WorkflowCloudDailyAggregate],
+        localByDate: [String: WorkflowSyncedDailyAggregate],
         state: WorkflowSyncState
     ) throws -> [PendingUpload] {
         try candidateDates.compactMap { date in
@@ -314,9 +315,9 @@ private extension WorkflowSyncService {
         }
     }
 
-    func refreshCacheFromCloud(currentDeviceId: String) async throws {
+    func refreshCacheFromRemote(currentDeviceId: String) async throws {
         guard let token = try loadCursor() else {
-            try await rebuildCacheFromCloud(currentDeviceId: currentDeviceId)
+            try await rebuildCacheFromRemote(currentDeviceId: currentDeviceId)
             return
         }
 
@@ -327,13 +328,13 @@ private extension WorkflowSyncService {
                 currentDeviceId: currentDeviceId
             )
         } catch {
-            try await rebuildCacheFromCloud(currentDeviceId: currentDeviceId)
+            try await rebuildCacheFromRemote(currentDeviceId: currentDeviceId)
         }
     }
 
     func applyZoneChangesToCache(
         since initialToken: CKServerChangeToken?,
-        cachedRecords: [WorkflowCloudDailyRecord],
+        cachedRecords: [WorkflowSyncedDailyRecord],
         currentDeviceId: String
     ) async throws {
         var cacheByID = Self.recordsByID(
@@ -375,15 +376,15 @@ private extension WorkflowSyncService {
         }
     }
 
-    func rebuildCacheFromCloud(currentDeviceId: String) async throws {
-        let cloudRecords = try await fetchAllCloudDailyRecords()
-        let retainedRecords = Self.filteredRetained(records: cloudRecords, excluding: currentDeviceId)
+    func rebuildCacheFromRemote(currentDeviceId: String) async throws {
+        let syncedRecords = try await fetchAllRemoteDailyRecords()
+        let retainedRecords = Self.filteredRetained(records: syncedRecords, excluding: currentDeviceId)
         try saveCachedRecords(retainedRecords)
         await establishCursorBaseline(cachedRecords: retainedRecords, currentDeviceId: currentDeviceId)
     }
 
-    func fetchAllCloudDailyRecords() async throws -> [WorkflowCloudDailyRecord] {
-        var records = [WorkflowCloudDailyRecord]()
+    func fetchAllRemoteDailyRecords() async throws -> [WorkflowSyncedDailyRecord] {
+        var records = [WorkflowSyncedDailyRecord]()
         var queryCursor: CKQueryOperation.Cursor?
 
         let query = CKQuery(
@@ -401,7 +402,7 @@ private extension WorkflowSyncService {
             desiredKeys: nil,
             resultsLimit: Metrics.queryFetchLimit
         )
-        records.append(contentsOf: Self.cloudDailyRecords(from: firstPage.matchResults))
+        records.append(contentsOf: Self.remoteDailyRecords(from: firstPage.matchResults))
         queryCursor = firstPage.queryCursor
 
         while let cursor = queryCursor {
@@ -410,7 +411,7 @@ private extension WorkflowSyncService {
                 desiredKeys: nil,
                 resultsLimit: Metrics.queryFetchLimit
             )
-            records.append(contentsOf: Self.cloudDailyRecords(from: page.matchResults))
+            records.append(contentsOf: Self.remoteDailyRecords(from: page.matchResults))
             queryCursor = page.queryCursor
         }
 
@@ -418,7 +419,7 @@ private extension WorkflowSyncService {
     }
 
     func establishCursorBaseline(
-        cachedRecords: [WorkflowCloudDailyRecord],
+        cachedRecords: [WorkflowSyncedDailyRecord],
         currentDeviceId: String
     ) async {
         do {
@@ -435,11 +436,11 @@ private extension WorkflowSyncService {
     func mergeChangedRecords(
         _ modificationResults: Dictionary<CKRecord.ID, Result<CKDatabase.RecordZoneChange.Modification, Error>>.Values,
         currentDeviceId: String,
-        into cacheByID: inout [String: WorkflowCloudDailyRecord]
+        into cacheByID: inout [String: WorkflowSyncedDailyRecord]
     ) {
         for modificationResult in modificationResults {
             guard case let .success(modification) = modificationResult,
-                  let record = Self.cloudDailyRecord(from: modification.record) else {
+                  let record = Self.remoteDailyRecord(from: modification.record) else {
                 continue
             }
 
@@ -454,7 +455,7 @@ private extension WorkflowSyncService {
 
     func removeDeletedRecords(
         _ deletions: [CKDatabase.RecordZoneChange.Deletion],
-        from cacheByID: inout [String: WorkflowCloudDailyRecord]
+        from cacheByID: inout [String: WorkflowSyncedDailyRecord]
     ) {
         for deletion in deletions where deletion.recordType == RecordTypes.dailyAggregate {
             if let cacheID = cacheID(fromRecordName: deletion.recordID.recordName) {
@@ -467,12 +468,12 @@ private extension WorkflowSyncService {
         deviceId: String,
         state: inout WorkflowSyncState
     ) async throws {
-        let today = WorkflowStatsStorage.dateKey(for: Date())
+        let today = WorkflowStorage.dateKey(for: Date())
         guard state.lastPrunedDate != today else {
             return
         }
 
-        let cutoffKey = WorkflowStatsStorage.dateKey(for: WorkflowStatsStorage.retentionCutoffDate())
+        let cutoffKey = WorkflowStorage.dateKey(for: WorkflowStorage.retentionCutoffDate())
         let expiredDates = state.hashByDate.keys
             .filter { $0 < cutoffKey }
             .sorted()
@@ -530,7 +531,7 @@ private extension WorkflowSyncService {
         let salt = try Self.randomSalt()
         let record = CKRecord(recordType: RecordTypes.metadata, recordID: recordID)
         record[FieldKeys.salt] = salt as CKRecordValue
-        record[FieldKeys.schemaVersion] = Metrics.cloudSchemaVersion as CKRecordValue
+        record[FieldKeys.schemaVersion] = Metrics.syncSchemaVersion as CKRecordValue
 
         do {
             let saveResult = try await database.modifyRecords(
@@ -574,11 +575,11 @@ private extension WorkflowSyncService {
     }
 
     func apply(
-        _ aggregate: WorkflowCloudDailyAggregate,
+        _ aggregate: WorkflowSyncedDailyAggregate,
         deviceId: String,
         to record: CKRecord
     ) {
-        record[FieldKeys.schemaVersion] = Metrics.cloudSchemaVersion as CKRecordValue
+        record[FieldKeys.schemaVersion] = Metrics.syncSchemaVersion as CKRecordValue
         record[FieldKeys.deviceId] = deviceId as CKRecordValue
         record[FieldKeys.date] = aggregate.date as CKRecordValue
         record[FieldKeys.eventCount] = aggregate.eventCount as CKRecordValue
@@ -612,21 +613,58 @@ private extension WorkflowSyncService {
 
         let deviceId = String(recordName[..<separatorIndex])
         let date = String(recordName[recordName.index(after: separatorIndex)...])
-        guard WorkflowStatsStorage.isValidDateKey(date), !deviceId.isEmpty else {
+        guard WorkflowStorage.isValidDateKey(date), !deviceId.isEmpty else {
             return nil
         }
 
-        return WorkflowCloudDailyRecord.id(deviceId: deviceId, date: date)
+        return WorkflowSyncedDailyRecord.id(deviceId: deviceId, date: date)
     }
 
-    func hash(for aggregate: WorkflowCloudDailyAggregate) throws -> String {
+    func hash(for aggregate: WorkflowSyncedDailyAggregate) throws -> String {
         let digest = try SHA256.hash(data: aggregate.jsonLineData())
         return Self.hexString(Data(digest))
     }
 
-    nonisolated static func postSyncNotification(_ name: Notification.Name) {
+    nonisolated static func postSyncDidStart() {
+        postSyncNotification(.workflowSyncDidStart)
+    }
+
+    nonisolated static func postSyncDidFinish(
+        didSucceed: Bool,
+        failureMessage: String?
+    ) {
+        postSyncNotification(.workflowSyncDidFinish) {
+            finishNotificationUserInfo(
+                didSucceed: didSucceed,
+                failureMessage: failureMessage
+            )
+        }
+    }
+
+    @MainActor
+    static func finishNotificationUserInfo(
+        didSucceed: Bool,
+        failureMessage: String?
+    ) -> [String: Any] {
+        var userInfo: [String: Any] = [
+            WorkflowSyncNotificationKey.didSucceed: didSucceed
+        ]
+        if let failureMessage {
+            userInfo[WorkflowSyncNotificationKey.failureMessage] = failureMessage
+        }
+        return userInfo
+    }
+
+    nonisolated static func postSyncNotification(
+        _ name: Notification.Name,
+        userInfo: @escaping @MainActor () -> [String: Any]? = { nil }
+    ) {
         Task { @MainActor in
-            NotificationCenter.default.post(name: name, object: nil)
+            NotificationCenter.default.post(
+                name: name,
+                object: nil,
+                userInfo: userInfo()
+            )
         }
     }
 }
@@ -651,7 +689,7 @@ private extension WorkflowSyncService {
         try data.write(to: stateURL, options: .atomic)
     }
 
-    func loadCachedRecords() -> [WorkflowCloudDailyRecord] {
+    func loadCachedRecords() -> [WorkflowSyncedDailyRecord] {
         guard let data = try? Data(contentsOf: cacheURL), !data.isEmpty else {
             return []
         }
@@ -659,7 +697,7 @@ private extension WorkflowSyncService {
         return JSONLines.decode(from: data)
     }
 
-    func saveCachedRecords(_ records: [WorkflowCloudDailyRecord]) throws {
+    func saveCachedRecords(_ records: [WorkflowSyncedDailyRecord]) throws {
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
         let encoder = JSONEncoder()
@@ -700,27 +738,27 @@ private extension WorkflowSyncService {
 }
 
 private extension WorkflowSyncService {
-    static func cloudDailyRecords(
+    static func remoteDailyRecords(
         from matchResults: [(CKRecord.ID, Result<CKRecord, Error>)]
-    ) -> [WorkflowCloudDailyRecord] {
+    ) -> [WorkflowSyncedDailyRecord] {
         matchResults.compactMap { _, result in
             guard case let .success(record) = result else {
                 return nil
             }
 
-            return cloudDailyRecord(from: record)
+            return remoteDailyRecord(from: record)
         }
     }
 
-    static func cloudDailyRecord(from record: CKRecord) -> WorkflowCloudDailyRecord? {
+    static func remoteDailyRecord(from record: CKRecord) -> WorkflowSyncedDailyRecord? {
         guard record.recordType == RecordTypes.dailyAggregate,
               let deviceId = record[FieldKeys.deviceId] as? String,
               let date = record[FieldKeys.date] as? String,
-              WorkflowStatsStorage.isValidDateKey(date) else {
+              WorkflowStorage.isValidDateKey(date) else {
             return nil
         }
 
-        let aggregate = WorkflowCloudDailyAggregate(
+        let aggregate = WorkflowSyncedDailyAggregate(
             date: date,
             eventCount: intValue(record[FieldKeys.eventCount]),
             sessionStartCount: intValue(record[FieldKeys.sessionStartCount]),
@@ -737,7 +775,7 @@ private extension WorkflowSyncService {
             projectCounts: projectCounts(from: record[FieldKeys.projectCounts])
         )
 
-        return WorkflowCloudDailyRecord(
+        return WorkflowSyncedDailyRecord(
             deviceId: deviceId,
             daily: aggregate,
             updatedAt: record[FieldKeys.updatedAt] as? Date ?? record.modificationDate
@@ -755,10 +793,10 @@ private extension WorkflowSyncService {
     }
 
     static func filteredRetained(
-        records: [WorkflowCloudDailyRecord],
+        records: [WorkflowSyncedDailyRecord],
         excluding currentDeviceId: String? = nil
-    ) -> [WorkflowCloudDailyRecord] {
-        let cutoffKey = WorkflowStatsStorage.dateKey(for: WorkflowStatsStorage.retentionCutoffDate())
+    ) -> [WorkflowSyncedDailyRecord] {
+        let cutoffKey = WorkflowStorage.dateKey(for: WorkflowStorage.retentionCutoffDate())
         return records.filter { record in
             guard record.date >= cutoffKey else {
                 return false
@@ -769,11 +807,11 @@ private extension WorkflowSyncService {
     }
 
     static func recordsByID(
-        records: [WorkflowCloudDailyRecord],
+        records: [WorkflowSyncedDailyRecord],
         excluding currentDeviceId: String? = nil
-    ) -> [String: WorkflowCloudDailyRecord] {
+    ) -> [String: WorkflowSyncedDailyRecord] {
         filteredRetained(records: records, excluding: currentDeviceId)
-            .reduce(into: [String: WorkflowCloudDailyRecord]()) { result, record in
+            .reduce(into: [String: WorkflowSyncedDailyRecord]()) { result, record in
                 result[record.id] = record
             }
     }
@@ -858,7 +896,7 @@ private extension WorkflowSyncService {
 
 nonisolated struct WorkflowSyncSnapshot: Equatable {
     let currentDeviceId: String?
-    let records: [WorkflowCloudDailyRecord]
+    let records: [WorkflowSyncedDailyRecord]
 
     static let disabled = WorkflowSyncSnapshot(currentDeviceId: nil, records: [])
 }

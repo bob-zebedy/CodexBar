@@ -48,8 +48,8 @@ CodexStatusService (JSON-RPC over `codex app-server --listen stdio://`)
 
 ```
 WorkflowHookEventRecorder (--hook-event stdin hook_event_name 子进程)
-  → WorkflowStatsStorage (events/YYYY-MM-DD.jsonl / daily.jsonl，~/Library/Application Support/CodexBar/HookEvents/)
-  → WorkflowStatsService → WorkflowSyncService(可选 CloudKit private database) → WorkflowStatsViewModel
+  → WorkflowStorage (events/YYYY-MM-DD.jsonl / daily.jsonl，~/Library/Application Support/CodexBar/HookEvents/)
+  → WorkflowService → WorkflowSyncService(可选 CloudKit private database) → WorkflowViewModel
   → UsageSummaryView / UsageHeatmap (统计只在热力图侧边详情面板中展示)
 ```
 
@@ -63,7 +63,7 @@ WorkflowHookEventRecorder (--hook-event stdin hook_event_name 子进程)
 
 ## 并发分工
 
-服务层对外暴露 async API，主要共享状态由 actor 隔离：`CodexStatusService` 管理 app-server 连接和缓存，`CodexCLIVersionService` 用 `async let` 并发探测全局/内置版本，`WorkflowStatsService` 串行维护本机统计。`RequestLogStorage` 可后台同步写入并用 `OSAllocatedUnfairLock` 保护，`RequestLogStore` 只在 MainActor 发布 SwiftUI 快照。`PipeReadBuffer` 是底层 `FileHandle` / `DispatchSourceRead` / semaphore 的唯一 `@unchecked Sendable` 边界。
+服务层对外暴露 async API，主要共享状态由 actor 隔离：`CodexStatusService` 管理 app-server 连接和缓存，`CodexCLIVersionService` 用 `async let` 并发探测全局/内置版本，`WorkflowService`（actor）串行维护本机统计、`WorkflowStorage`（`nonisolated enum`，与服务同文件）封装 HookEvents 目录与 `stats.lock`。工作流维护/同步刷新的并发由 `WorkflowSyncScheduler`（MainActor，冷却合并 + `isRunning` 串行）单点裁判；`WorkflowViewModel` 不自判维护并发，只执行一次明确的维护刷新（quick-refresh 路径仍走自身 `isRefreshing` + `RefreshTaskCoordinator`，不经 scheduler）。`RequestLogStorage` 可后台同步写入并用 `OSAllocatedUnfairLock` 保护，`RequestLogStore` 只在 MainActor 发布 SwiftUI 快照。`PipeReadBuffer` 是底层 `FileHandle` / `DispatchSourceRead` / semaphore 的唯一 `@unchecked Sendable` 边界。
 
 ## 外部依赖与更新
 

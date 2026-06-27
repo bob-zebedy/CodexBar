@@ -3,46 +3,49 @@ import Darwin
 import Foundation
 
 /// 从 Hook 原始事件维护每日聚合, 对外只发布 UI 需要的统计快照
-actor WorkflowStatsService {
+actor WorkflowService {
     private let eventsDirectoryURL: URL
     private let dailyLogURL: URL
-    private let cloudSyncService: WorkflowSyncService
+    private let syncService: WorkflowSyncService
     private static let eventReadChunkSize = 64 * 1024
 
     init(
-        eventsDirectoryURL: URL = WorkflowStatsStorage.eventsDirectoryURL(),
-        dailyLogURL: URL = WorkflowStatsStorage.dailyURL(),
-        cloudSyncService: WorkflowSyncService = WorkflowSyncService()
+        eventsDirectoryURL: URL = WorkflowStorage.eventsDirectoryURL(),
+        dailyLogURL: URL = WorkflowStorage.dailyURL(),
+        syncService: WorkflowSyncService = WorkflowSyncService()
     ) {
         self.eventsDirectoryURL = eventsDirectoryURL
         self.dailyLogURL = dailyLogURL
-        self.cloudSyncService = cloudSyncService
+        self.syncService = syncService
     }
 
-    func loadSnapshot(performMaintenance: Bool = false) async -> WorkflowStatsSnapshot {
+    func loadSnapshot(
+        performMaintenance: Bool = false,
+        synchronize: Bool = false
+    ) async -> WorkflowSnapshot {
         var changedDates = Set<String>()
         if performMaintenance {
             changedDates = performMaintenanceIfNeeded()
         }
 
         let aggregates = loadDailyAggregates() ?? []
-        let cloudSnapshot: WorkflowSyncSnapshot = if performMaintenance {
-            await cloudSyncService.synchronizeIfEnabled(
+        let syncSnapshot: WorkflowSyncSnapshot = if synchronize {
+            await syncService.synchronizeIfEnabled(
                 localAggregates: aggregates,
                 changedDates: changedDates
             )
         } else {
-            await cloudSyncService.snapshotFromCacheIfEnabled()
+            await syncService.snapshotFromCacheIfEnabled()
         }
 
-        guard !aggregates.isEmpty || !cloudSnapshot.records.isEmpty else {
+        guard !aggregates.isEmpty || !syncSnapshot.records.isEmpty else {
             return .empty
         }
 
-        return WorkflowStatsSnapshot(
+        return WorkflowSnapshot(
             localAggregates: aggregates,
-            cloudRecords: cloudSnapshot.records,
-            currentDeviceId: cloudSnapshot.currentDeviceId
+            syncedRecords: syncSnapshot.records,
+            currentDeviceId: syncSnapshot.currentDeviceId
         )
     }
 
@@ -60,7 +63,7 @@ actor WorkflowStatsService {
     }
 
     private func performMaintenanceIfNeeded() -> Set<String> {
-        let beforePayloads = cloudPayloadByDate()
+        let beforePayloads = syncPayloadByDate()
 
         do {
             let tasks = try prepareMaintenanceTasks()
@@ -71,10 +74,10 @@ actor WorkflowStatsService {
             return []
         }
 
-        return changedCloudPayloadDates(before: beforePayloads, after: cloudPayloadByDate())
+        return changedSyncPayloadDates(before: beforePayloads, after: syncPayloadByDate())
     }
 
-    private func perform(_ tasks: [WorkflowStatsMaintenanceTask]) {
+    private func perform(_ tasks: [WorkflowMaintenanceTask]) {
         for task in tasks {
             do {
                 let result = try buildDailyAggregate(for: task)
@@ -85,12 +88,12 @@ actor WorkflowStatsService {
         }
     }
 
-    private func prepareMaintenanceTasks() throws -> [WorkflowStatsMaintenanceTask] {
+    private func prepareMaintenanceTasks() throws -> [WorkflowMaintenanceTask] {
         let eventDateKeys = eventDateKeys()
         let dailyDecodeResult = loadDailyAggregatesWithFailures()
 
-        return try WorkflowStatsStorage.withExclusiveLock {
-            var state = WorkflowStatsStorage.loadMaintenanceState()
+        return try WorkflowStorage.withExclusiveLock {
+            var state = WorkflowStorage.loadMaintenanceState()
             var changedState = state.normalize()
             let dailyByDate = dailyDecodeResult.values.reduce(into: [String: WorkflowDailyAggregate]()) { result, aggregate in
                 result[aggregate.date] = aggregate
@@ -112,7 +115,7 @@ actor WorkflowStatsService {
             )
 
             if changedState {
-                try WorkflowStatsStorage.saveMaintenanceState(state)
+                try WorkflowStorage.saveMaintenanceState(state)
             }
 
             return tasks
@@ -123,13 +126,13 @@ actor WorkflowStatsService {
         eventDateKeys: [String],
         dailyDecodeResult: JSONLinesDecodeResult<WorkflowDailyAggregate>,
         dailyByDate: [String: WorkflowDailyAggregate],
-        state: inout WorkflowStatsMaintenanceState
+        state: inout WorkflowMaintenanceState
     ) -> Bool {
         var changed = false
 
-        if state.schema != WorkflowStatsMaintenanceState.currentSchema {
+        if state.schema != WorkflowMaintenanceState.currentSchema {
             changed = markDirty(eventDateKeys, in: &state) || changed
-            state.schema = WorkflowStatsMaintenanceState.currentSchema
+            state.schema = WorkflowMaintenanceState.currentSchema
             changed = true
         }
 
@@ -145,7 +148,7 @@ actor WorkflowStatsService {
 
     private func reconcileEventFiles(
         eventDateKeys: [String],
-        state: inout WorkflowStatsMaintenanceState
+        state: inout WorkflowMaintenanceState
     ) -> Bool {
         var changed = markDirty(eventDateKeys.filter { state.days[$0] == nil }, in: &state)
 
@@ -168,15 +171,15 @@ actor WorkflowStatsService {
     }
 
     private func makeMaintenanceTasks(
-        state: inout WorkflowStatsMaintenanceState,
+        state: inout WorkflowMaintenanceState,
         dailyByDate: [String: WorkflowDailyAggregate],
         changedState: inout Bool
-    ) -> [WorkflowStatsMaintenanceTask] {
+    ) -> [WorkflowMaintenanceTask] {
         let dirty = Set(state.dirty)
         var tasks = state.dirty.map { dirtyTask(for: $0) }
 
         for dateKey in state.pending where !dirty.contains(dateKey) {
-            let day = state.days[dateKey] ?? WorkflowStatsDayMaintenanceState()
+            let day = state.days[dateKey] ?? WorkflowDayMaintenanceState()
             let size = eventLogSize(for: dateKey)
             guard size > day.offset else {
                 state.removePending(dateKey)
@@ -206,7 +209,7 @@ actor WorkflowStatsService {
 
     private func markDirty(
         _ dateKeys: [String],
-        in state: inout WorkflowStatsMaintenanceState
+        in state: inout WorkflowMaintenanceState
     ) -> Bool {
         let previousDirty = state.dirty
         let previousDays = state.days
@@ -218,8 +221,8 @@ actor WorkflowStatsService {
         return previousDirty != state.dirty || previousDays != state.days
     }
 
-    private func dirtyTask(for dateKey: String, size: UInt64? = nil) -> WorkflowStatsMaintenanceTask {
-        WorkflowStatsMaintenanceTask(
+    private func dirtyTask(for dateKey: String, size: UInt64? = nil) -> WorkflowMaintenanceTask {
+        WorkflowMaintenanceTask(
             dateKey: dateKey,
             startOffset: 0,
             size: size ?? eventLogSize(for: dateKey),
@@ -230,11 +233,11 @@ actor WorkflowStatsService {
 
     private func pendingTask(
         for dateKey: String,
-        day: WorkflowStatsDayMaintenanceState,
+        day: WorkflowDayMaintenanceState,
         size: UInt64,
         baseAggregate: WorkflowDailyAggregate
-    ) -> WorkflowStatsMaintenanceTask {
-        WorkflowStatsMaintenanceTask(
+    ) -> WorkflowMaintenanceTask {
+        WorkflowMaintenanceTask(
             dateKey: dateKey,
             startOffset: day.offset,
             size: size,
@@ -248,7 +251,7 @@ actor WorkflowStatsService {
     }
 
     private func eventLogSize(for dateKey: String) -> UInt64 {
-        WorkflowStatsStorage.fileSize(at: eventLogURL(for: dateKey))
+        WorkflowStorage.fileSize(at: eventLogURL(for: dateKey))
     }
 
     private func loadDailyAggregatesWithFailures() -> JSONLinesDecodeResult<WorkflowDailyAggregate> {
@@ -270,13 +273,13 @@ actor WorkflowStatsService {
         return contents
             .filter { $0.pathExtension == "jsonl" }
             .map { $0.deletingPathExtension().lastPathComponent }
-            .filter { WorkflowStatsStorage.isValidDateKey($0) }
+            .filter { WorkflowStorage.isValidDateKey($0) }
             .sorted()
     }
 
     private func buildDailyAggregate(
-        for task: WorkflowStatsMaintenanceTask
-    ) throws -> WorkflowStatsMaintenanceResult {
+        for task: WorkflowMaintenanceTask
+    ) throws -> WorkflowMaintenanceResult {
         var aggregate = task.baseAggregate ?? WorkflowDailyAggregate(date: task.dateKey)
         var corrupt = task.existingCorrupt
         var identifierCache = WorkflowDailyIdentifierCache(aggregate: aggregate)
@@ -295,7 +298,7 @@ actor WorkflowStatsService {
         }
 
         aggregate.compactIdentifiersIfNeeded(keepsIdentifiers: keepsIdentifiers)
-        return WorkflowStatsMaintenanceResult(
+        return WorkflowMaintenanceResult(
             dateKey: task.dateKey,
             aggregate: aggregate,
             size: task.size,
@@ -372,7 +375,7 @@ actor WorkflowStatsService {
         return 0
     }
 
-    private func commit(_ result: WorkflowStatsMaintenanceResult) throws {
+    private func commit(_ result: WorkflowMaintenanceResult) throws {
         guard try eventLogHasNotShrunk(for: result) else {
             return
         }
@@ -383,14 +386,14 @@ actor WorkflowStatsService {
         try commitMaintenanceState(result)
     }
 
-    private func eventLogHasNotShrunk(for result: WorkflowStatsMaintenanceResult) throws -> Bool {
-        try WorkflowStatsStorage.withExclusiveLock {
-            let currentSize = WorkflowStatsStorage.fileSize(at: eventLogURL(for: result.dateKey))
-            var state = WorkflowStatsStorage.loadMaintenanceState()
+    private func eventLogHasNotShrunk(for result: WorkflowMaintenanceResult) throws -> Bool {
+        try WorkflowStorage.withExclusiveLock {
+            let currentSize = WorkflowStorage.fileSize(at: eventLogURL(for: result.dateKey))
+            var state = WorkflowStorage.loadMaintenanceState()
 
             guard currentSize >= result.size else {
                 state.markDirty(result.dateKey)
-                try WorkflowStatsStorage.saveMaintenanceState(state)
+                try WorkflowStorage.saveMaintenanceState(state)
                 return false
             }
 
@@ -434,9 +437,9 @@ actor WorkflowStatsService {
         try normalizedData.write(to: dailyLogURL, options: .atomic)
     }
 
-    private func cloudPayloadByDate() -> [String: String] {
+    private func syncPayloadByDate() -> [String: String] {
         loadDailyAggregatesWithFailures().values.reduce(into: [String: String]()) { result, aggregate in
-            guard let data = try? aggregate.cloudAggregate.jsonLineData() else {
+            guard let data = try? aggregate.syncedAggregate.jsonLineData() else {
                 return
             }
 
@@ -444,7 +447,7 @@ actor WorkflowStatsService {
         }
     }
 
-    private func changedCloudPayloadDates(
+    private func changedSyncPayloadDates(
         before: [String: String],
         after: [String: String]
     ) -> Set<String> {
@@ -454,18 +457,18 @@ actor WorkflowStatsService {
         })
     }
 
-    private func commitMaintenanceState(_ result: WorkflowStatsMaintenanceResult) throws {
-        try WorkflowStatsStorage.withExclusiveLock {
-            let currentSize = WorkflowStatsStorage.fileSize(at: eventLogURL(for: result.dateKey))
-            var state = WorkflowStatsStorage.loadMaintenanceState()
+    private func commitMaintenanceState(_ result: WorkflowMaintenanceResult) throws {
+        try WorkflowStorage.withExclusiveLock {
+            let currentSize = WorkflowStorage.fileSize(at: eventLogURL(for: result.dateKey))
+            var state = WorkflowStorage.loadMaintenanceState()
 
             guard currentSize >= result.size else {
                 state.markDirty(result.dateKey)
-                try WorkflowStatsStorage.saveMaintenanceState(state)
+                try WorkflowStorage.saveMaintenanceState(state)
                 return
             }
 
-            state.days[result.dateKey] = WorkflowStatsDayMaintenanceState(
+            state.days[result.dateKey] = WorkflowDayMaintenanceState(
                 offset: result.size,
                 size: result.size,
                 corrupt: result.corrupt
@@ -478,7 +481,7 @@ actor WorkflowStatsService {
                 state.markPending(result.dateKey)
             }
 
-            try WorkflowStatsStorage.saveMaintenanceState(state)
+            try WorkflowStorage.saveMaintenanceState(state)
         }
     }
 
@@ -491,15 +494,15 @@ actor WorkflowStatsService {
     }
 
     private func markDirty(_ dateKey: String) {
-        try? WorkflowStatsStorage.withExclusiveLock {
-            var state = WorkflowStatsStorage.loadMaintenanceState()
+        try? WorkflowStorage.withExclusiveLock {
+            var state = WorkflowStorage.loadMaintenanceState()
             state.markDirty(dateKey)
-            try WorkflowStatsStorage.saveMaintenanceState(state)
+            try WorkflowStorage.saveMaintenanceState(state)
         }
     }
 
     private func pruneExpiredEventFiles() throws {
-        let cutoffDate = WorkflowStatsStorage.retentionCutoffDate()
+        let cutoffDate = WorkflowStorage.retentionCutoffDate()
         let expiredDateKeys = eventDateKeys().filter { dateKey in
             guard let date = CodexDateFormat.dayDate(from: dateKey) else {
                 return false
@@ -512,14 +515,14 @@ actor WorkflowStatsService {
             return
         }
 
-        try WorkflowStatsStorage.withExclusiveLock {
-            var state = WorkflowStatsStorage.loadMaintenanceState()
+        try WorkflowStorage.withExclusiveLock {
+            var state = WorkflowStorage.loadMaintenanceState()
             for dateKey in expiredDateKeys {
                 try? FileManager.default.removeItem(at: eventLogURL(for: dateKey))
                 state.remove(dateKey)
             }
 
-            try WorkflowStatsStorage.saveMaintenanceState(state)
+            try WorkflowStorage.saveMaintenanceState(state)
         }
     }
 
@@ -528,12 +531,12 @@ actor WorkflowStatsService {
             return true
         }
 
-        return date >= WorkflowStatsStorage.identifierRetentionCutoffDate()
+        return date >= WorkflowStorage.identifierRetentionCutoffDate()
     }
 }
 
 /// Hook 统计文件路径, 保留期和跨进程 flock 都集中在这里
-nonisolated enum WorkflowStatsStorage {
+nonisolated enum WorkflowStorage {
     private static let retentionDayCount = 210
     private static let identifierRetentionDayCount = 3
 
@@ -562,9 +565,22 @@ nonisolated enum WorkflowStatsStorage {
             .appendingPathComponent("maintenance.json", isDirectory: false)
     }
 
-    static func iCloudSyncDirectoryURL() -> URL {
-        directoryURL()
-            .appendingPathComponent("iCloudSync", isDirectory: true)
+    static func syncDirectoryURL() -> URL {
+        let currentURL = directoryURL()
+            .appendingPathComponent("Sync", isDirectory: true)
+        let legacyURL = directoryURL()
+            .appendingPathComponent(legacySyncDirectoryName, isDirectory: true)
+
+        if FileManager.default.fileExists(atPath: legacyURL.path),
+           !FileManager.default.fileExists(atPath: currentURL.path) {
+            return legacyURL
+        }
+
+        return currentURL
+    }
+
+    private static var legacySyncDirectoryName: String {
+        ["i", "Cloud", "Sync"].joined()
     }
 
     static func directoryURL() -> URL {
@@ -608,17 +624,17 @@ nonisolated enum WorkflowStatsStorage {
         return try work()
     }
 
-    static func loadMaintenanceState() -> WorkflowStatsMaintenanceState {
+    static func loadMaintenanceState() -> WorkflowMaintenanceState {
         let url = maintenanceURL()
         guard let data = try? Data(contentsOf: url), !data.isEmpty,
-              let state = try? JSONDecoder().decode(WorkflowStatsMaintenanceState.self, from: data) else {
-            return WorkflowStatsMaintenanceState()
+              let state = try? JSONDecoder().decode(WorkflowMaintenanceState.self, from: data) else {
+            return WorkflowMaintenanceState()
         }
 
         return state
     }
 
-    static func saveMaintenanceState(_ state: WorkflowStatsMaintenanceState) throws {
+    static func saveMaintenanceState(_ state: WorkflowMaintenanceState) throws {
         try FileManager.default.createDirectory(
             at: directoryURL(),
             withIntermediateDirectories: true
@@ -666,7 +682,7 @@ nonisolated enum WorkflowStatsStorage {
 }
 
 /// 记录单日事件文件已处理到的 offset, 支持后续增量维护
-nonisolated struct WorkflowStatsDayMaintenanceState: Codable, Equatable {
+nonisolated struct WorkflowDayMaintenanceState: Codable, Equatable {
     var offset: UInt64
     var size: UInt64
     var corrupt: Int
@@ -679,19 +695,19 @@ nonisolated struct WorkflowStatsDayMaintenanceState: Codable, Equatable {
 }
 
 /// maintenance.json 的全局状态, pending 表示可增量, dirty 表示需全量重建
-nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
+nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
     static let currentSchema = 2
 
     var schema: Int
     var pending: [String]
     var dirty: [String]
-    var days: [String: WorkflowStatsDayMaintenanceState]
+    var days: [String: WorkflowDayMaintenanceState]
 
     init(
         schema: Int = Self.currentSchema,
         pending: [String] = [],
         dirty: [String] = [],
-        days: [String: WorkflowStatsDayMaintenanceState] = [:]
+        days: [String: WorkflowDayMaintenanceState] = [:]
     ) {
         self.schema = schema
         self.pending = Self.normalizedDates(pending)
@@ -704,7 +720,7 @@ nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
         schema = try container.decodeIfPresent(Int.self, forKey: .schema) ?? Self.currentSchema
         pending = try Self.normalizedDates(container.decodeIfPresent([String].self, forKey: .pending) ?? [])
         dirty = try Self.normalizedDates(container.decodeIfPresent([String].self, forKey: .dirty) ?? [])
-        days = try container.decodeIfPresent([String: WorkflowStatsDayMaintenanceState].self, forKey: .days) ?? [:]
+        days = try container.decodeIfPresent([String: WorkflowDayMaintenanceState].self, forKey: .days) ?? [:]
     }
 
     mutating func markPending(_ dateKey: String) {
@@ -738,14 +754,14 @@ nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
 
         pending = Self.normalizedDates(pending)
         dirty = Self.normalizedDates(dirty)
-        days = days.filter { WorkflowStatsStorage.isValidDateKey($0.key) }
+        days = days.filter { WorkflowStorage.isValidDateKey($0.key) }
 
         return previousPending != pending || previousDirty != dirty || previousDays != days
     }
 
     private mutating func ensureDayState(for dateKey: String) {
         if days[dateKey] == nil {
-            days[dateKey] = WorkflowStatsDayMaintenanceState()
+            days[dateKey] = WorkflowDayMaintenanceState()
         }
     }
 
@@ -754,12 +770,12 @@ nonisolated struct WorkflowStatsMaintenanceState: Codable, Equatable {
     }
 
     private static func normalizedDates(_ dates: [String]) -> [String] {
-        Array(Set(dates.filter { WorkflowStatsStorage.isValidDateKey($0) })).sorted()
+        Array(Set(dates.filter { WorkflowStorage.isValidDateKey($0) })).sorted()
     }
 }
 
 // 单次维护任务: 从 startOffset 读到 size, 可基于已有聚合继续追加
-private nonisolated struct WorkflowStatsMaintenanceTask {
+private nonisolated struct WorkflowMaintenanceTask {
     let dateKey: String
     let startOffset: UInt64
     let size: UInt64
@@ -768,26 +784,26 @@ private nonisolated struct WorkflowStatsMaintenanceTask {
 }
 
 /// 维护任务的提交结果, corrupt 统计保留给后续诊断
-private nonisolated struct WorkflowStatsMaintenanceResult {
+private nonisolated struct WorkflowMaintenanceResult {
     let dateKey: String
     let aggregate: WorkflowDailyAggregate
     let size: UInt64
     let corrupt: Int
 }
 
-/// UI 层的工作流统计状态, 节流普通刷新但允许维护刷新立即执行
+/// UI 层的工作流状态, 节流普通刷新, 维护刷新由上层调度器合并
 @MainActor
-final class WorkflowStatsViewModel: ObservableObject {
-    @Published private(set) var snapshot = WorkflowStatsSnapshot.empty
+final class WorkflowViewModel: ObservableObject {
+    @Published private(set) var snapshot = WorkflowSnapshot.empty
 
     private static let minimumRefreshInterval: TimeInterval = 5
 
-    private let service: WorkflowStatsService
+    private let service: WorkflowService
     private var isRefreshing = false
     private let refreshCoordinator = RefreshTaskCoordinator()
     private var lastRefreshedAt: Date?
 
-    init(service: WorkflowStatsService = WorkflowStatsService()) {
+    init(service: WorkflowService = WorkflowService()) {
         self.service = service
     }
 
@@ -795,16 +811,16 @@ final class WorkflowStatsViewModel: ObservableObject {
         refreshCoordinator.cancel()
     }
 
-    func refreshIfNeeded(performMaintenance: Bool = false) {
-        guard performMaintenance || Date().timeIntervalSince(lastRefreshedAt ?? .distantPast) > Self.minimumRefreshInterval else {
+    func refreshIfNeeded() {
+        guard Date().timeIntervalSince(lastRefreshedAt ?? .distantPast) > Self.minimumRefreshInterval else {
             return
         }
 
-        refresh(performMaintenance: performMaintenance)
+        refresh()
     }
 
-    func refresh(performMaintenance: Bool = false) {
-        if isRefreshing, !performMaintenance {
+    func refresh() {
+        if isRefreshing {
             return
         }
 
@@ -821,7 +837,7 @@ final class WorkflowStatsViewModel: ObservableObject {
                 }
             }
 
-            let snapshot = await service.loadSnapshot(performMaintenance: performMaintenance)
+            let snapshot = await service.loadSnapshot()
 
             guard refreshCoordinator.canCommit(generation) else {
                 return
@@ -830,5 +846,22 @@ final class WorkflowStatsViewModel: ObservableObject {
             self.snapshot = snapshot
             lastRefreshedAt = Date()
         }
+    }
+
+    /// 由 WorkflowSyncScheduler 串行调度, 无需自行判断并发, 只执行一次明确的维护刷新
+    func refreshMaintenance(synchronize: Bool) async {
+        refreshCoordinator.cancel()
+        isRefreshing = true
+        defer {
+            isRefreshing = false
+        }
+
+        let snapshot = await service.loadSnapshot(
+            performMaintenance: true,
+            synchronize: synchronize
+        )
+
+        self.snapshot = snapshot
+        lastRefreshedAt = Date()
     }
 }

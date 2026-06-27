@@ -11,6 +11,9 @@ struct CodexBarApp: App {
         if WorkflowHookEventRecorder.handleIfRequested() {
             exit(EXIT_SUCCESS)
         }
+
+        // 缩短系统工具提示首次出现的延迟 (毫秒)
+        UserDefaults.standard.set(200, forKey: "NSInitialToolTipDelay")
     }
 
     var body: some Scene {

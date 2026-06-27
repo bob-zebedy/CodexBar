@@ -1,6 +1,6 @@
 # 跨设备同步
 
-本文档记录设置页「跨设备同步」的完整链路。当前实现只同步 Codex Hook 产生的工作流统计每日聚合，不是整个 App 的通用 iCloud 同步。
+本文档记录设置页「跨设备同步」的完整链路。当前实现只同步 Codex Hook 产生的工作流统计每日聚合，不是整个 App 的通用云同步。
 
 ## 同步范围
 
@@ -25,13 +25,15 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| `CodexBar/Services/Settings/WorkflowSyncSettings.swift` | 设置页状态、iCloud 可用性检查、UserDefaults 开关、最近上传时间、同步中通知 |
-| `CodexBar/Services/WorkflowStats/WorkflowSyncService.swift` | CloudKit 设备标识、上传、拉取、缓存、游标、清理过期记录 |
-| `CodexBar/Services/WorkflowStats/WorkflowStatsService.swift` | 在工作流统计维护刷新中调用同步服务，并把本机 daily 与 iCloud 缓存合并成快照 |
-| `CodexBar/Models/CodexWorkflowStatsModels.swift` | 本机聚合、云端脱敏聚合、云端缓存记录、最终 UI 快照的模型和合并规则 |
-| `CodexBar/Views/Settings/AppSettingsView.swift` | 设置页「跨设备同步」开关、`iCloud 不可用`、同步中和最近上传时间展示 |
-| `CodexBar/Controllers/SettingsWindowController.swift` | 打开设置窗口前刷新 Hook 和 iCloud 同步状态 |
-| `CodexBar/Controllers/StatusItemController.swift` | 自动刷新时触发维护同步；开关变化后立即触发一次维护刷新 |
+| `CodexBar/Services/Settings/WorkflowSyncSettings.swift` | 设置页状态、同步账号可用性检查、UserDefaults 开关、最近上传时间、同步中和失败通知 |
+| `CodexBar/Services/Workflow/WorkflowSyncScheduler.swift` | 维护/同步任务的唯一调度者, 合并本机维护、CloudKit 同步请求、冷却窗口和最终状态校验 |
+| `CodexBar/Services/Workflow/WorkflowSyncService.swift` | CloudKit 设备标识、上传、拉取、缓存、游标、清理过期记录 |
+| `CodexBar/Services/Workflow/WorkflowService.swift` | 维护本机 daily，并在调度器允许时调用同步服务，把本机 daily 与同步缓存合并成快照 |
+| `CodexBar/Models/CodexWorkflowModels.swift` | 本机聚合、云端脱敏聚合、云端缓存记录、最终 UI 快照的模型和合并规则 |
+| `CodexBar/Views/Menu/CodexStatusMenuSections.swift` | 主面板更新时间行的同步状态图标和失败 tooltip |
+| `CodexBar/Views/Settings/AppSettingsView.swift` | 设置页「跨设备同步」开关、`同步不可用`、同步中和最近上传时间展示 |
+| `CodexBar/Controllers/SettingsWindowController.swift` | 打开设置窗口前刷新 Hook 和同步状态 |
+| `CodexBar/Controllers/StatusItemController.swift` | 自动刷新时触发本机维护，并把同步开关、Hook 和同步可用性变化交给调度器 |
 
 ## 本地状态
 
@@ -44,10 +46,12 @@
 同步子目录:
 
 ```text
-iCloudSync/state.json
-iCloudSync/cache.jsonl
-iCloudSync/cursor.data
+Sync/state.json
+Sync/cache.jsonl
+Sync/cursor.data
 ```
+
+如果旧版 `HookEvents/iCloudSync/` 已存在且新的 `HookEvents/Sync/` 不存在，`WorkflowStorage.syncDirectoryURL()` 会继续使用旧目录，避免已有同步状态丢失；新写入默认使用 `Sync/`。
 
 各文件职责:
 
@@ -75,10 +79,10 @@ iCloudSync/cursor.data
 
 | Key | 含义 |
 | --- | --- |
-| `WorkflowiCloudSync.isEnabled` | 用户是否开启过跨设备同步 |
-| `WorkflowiCloudSync.needsBackfill` | 是否需要对本机现有 daily 数据做一次补传 |
+| `WorkflowSync.isEnabled` | 用户是否开启过跨设备同步 |
+| `WorkflowSync.needsBackfill` | 是否需要对本机现有 daily 数据做一次补传 |
 
-关闭跨设备同步只会把 `WorkflowiCloudSync.isEnabled` 写成 `false`，不会删除本地 `state.json`、`cache.jsonl`、`cursor.data`，也不会删除 CloudKit 中已有记录。
+关闭跨设备同步只会把 `WorkflowSync.isEnabled` 写成 `false`，不会删除本地 `state.json`、`cache.jsonl`、`cursor.data`，也不会删除 CloudKit 中已有记录。
 
 ## CloudKit 数据结构
 
@@ -146,10 +150,10 @@ deviceId = HMAC_SHA256(accountSalt, IOPlatformUUID)
 
 - Codex Hook 本地配置状态
 - `hooks/list` 验证结果
-- iCloud account status
+- CloudKit account status
 - 最近上传时间
 
-`AppSettingsView.onAppear` 和 App 再次变为 active 时也会刷新 iCloud 可用性。
+`AppSettingsView.onAppear` 和 App 再次变为 active 时也会刷新同步可用性。
 
 「跨设备同步」开关可操作的条件:
 
@@ -163,34 +167,43 @@ UI 状态:
 
 | 状态 | UI 表现 |
 | --- | --- |
-| iCloud 状态还在检查 | 开关不可操作，暂不显示错误 |
-| iCloud 可用但 Hook 关闭 | 开关不可操作 |
-| iCloud 不可用 | 开关不可操作，下方显示 `iCloud 不可用` |
-| Hook 开启且 iCloud 可用 | 开关可操作 |
+| 同步账号状态还在检查 | 开关不可操作，暂不显示错误 |
+| 同步账号可用但 Hook 关闭 | 开关不可操作 |
+| 同步账号不可用 | 开关不可操作，下方显示 `同步不可用` |
+| Hook 开启且同步账号可用 | 开关可操作 |
 | 同步中 | 开关下方显示 `最近上传` 和小型进度指示 |
 | 有成功上传记录 | 开关下方显示 `最近上传 yyyy-MM-dd HH:mm:ss` |
 
+主面板「数据更新时间」行最右侧始终显示同步状态图标:
+
+| 状态 | SF Symbol | tooltip |
+| --- | --- | --- |
+| 未开启同步 | `icloud.slash` | `同步未开启` |
+| 已开启且空闲 | `icloud` | `同步已开启` |
+| 已开启且正在同步 | `arrow.trianglehead.clockwise.icloud` | `正在同步` |
+| 已开启且最近一次同步失败 | `exclamationmark.icloud` | 归类后的短错误, 例如 `网络不可用` |
+
 开启时:
 
-1. `WorkflowSyncSettings.setEnabled(true)` 先确认 iCloud 可用。
-2. 写入 `WorkflowiCloudSync.isEnabled = true`。
-3. 写入 `WorkflowiCloudSync.needsBackfill = true`，要求后续同步补传本机已有 daily 数据。
-4. `StatusItemController` 立即触发 `workflowStatsViewModel.refresh(performMaintenance: true)`。
+1. `WorkflowSyncSettings.setEnabled(true)` 先确认同步账号可用。
+2. 写入 `WorkflowSync.isEnabled = true`。
+3. 写入 `WorkflowSync.needsBackfill = true`，要求后续同步补传本机已有 daily 数据。
+4. `StatusItemController` 请求一次 CloudKit 同步；如果当前空闲且不在冷却窗口内会立即执行，否则由调度器合并为待补跑同步。
 
 关闭时:
 
-1. 写入 `WorkflowiCloudSync.isEnabled = false`。
-2. 后续 `WorkflowSyncService` 直接返回 `.disabled`，不再访问 CloudKit。
+1. 写入 `WorkflowSync.isEnabled = false`。
+2. 清理调度器中的待同步请求，不新开 CloudKit 同步；已经开始的同步不取消，结束后按最终状态决定是否补跑。
 3. 本地同步状态、缓存和云端记录保留。
 
-关闭 Codex Hook 不会清空跨设备同步偏好；但因为工作流统计同步只在 Hook 开启时触发，所以 Hook 关闭期间不会继续同步。之后重新开启 Hook 时，如果跨设备同步偏好仍为 true 且 iCloud 可用，同步会恢复。
+关闭 Codex Hook 不会清空跨设备同步偏好；但因为工作流统计同步只在 Hook 开启时触发，所以 Hook 关闭期间不会继续同步。之后重新开启 Hook 时，如果跨设备同步偏好仍为 true 且同步账号可用，会通过调度器请求一次同步。
 
 ## 刷新时机
 
-跨设备同步只在工作流统计的维护刷新中执行。核心入口是:
+跨设备同步只在工作流统计的维护刷新中执行，但本机维护和 CloudKit 同步可以分开执行。核心入口是:
 
 ```text
-WorkflowStatsService.loadSnapshot(performMaintenance: true)
+WorkflowService.loadSnapshot(performMaintenance: true, synchronize: true)
 ```
 
 两类刷新行为不同:
@@ -198,14 +211,25 @@ WorkflowStatsService.loadSnapshot(performMaintenance: true)
 | 刷新类型 | 是否维护 local daily | 是否访问 CloudKit | 用途 |
 | --- | --- | --- | --- |
 | `performMaintenance: false` | 否 | 否，只读取 `cache.jsonl` | 打开菜单面板时快速展示现有数据 |
-| `performMaintenance: true` | 是 | 是 | 每分钟自动刷新、开关变化后的立即刷新 |
+| `performMaintenance: true, synchronize: false` | 是 | 否，只读取 `cache.jsonl` | 每分钟自动刷新中的本机统计维护 |
+| `performMaintenance: true, synchronize: true` | 是 | 是 | 调度器允许后的 CloudKit 同步 |
 
-触发维护刷新:
+触发 CloudKit 同步请求:
 
-- app-server 自动刷新倒计时重置时，如果 Codex Hook 已开启
-- 用户开启或关闭「跨设备同步」后立即触发一次
+- 用户开启「跨设备同步」
+- Codex Hook 重新开启，且跨设备同步偏好仍为 true
+- 同步账号从不可用变为可用，且 Hook 与跨设备同步都已开启
+- app-server 自动刷新倒计时重置时，如果 Hook、跨设备同步和同步账号都可用
 
 Hook 子进程不访问网络。它只把原始事件写入本机 `events/YYYY-MM-DD.jsonl` 并标记 `maintenance.json` 的 pending 日期。真正的 daily 重建和 CloudKit 同步都由主 App 的维护刷新完成。
+
+调度器规则:
+
+- 关闭同步、关闭 Hook 或同步账号不可用时，只清理待同步请求，不新开 CloudKit 同步
+- 同步正在执行时，新请求只标记为待补跑，不取消当前同步
+- 冷却窗口内的多次请求合并为一次待补跑同步
+- 补跑前重新校验 Hook 开启、`WorkflowSync.isEnabled == true` 且同步账号可用；最终状态不满足时丢弃待补跑请求
+- `WorkflowViewModel.refreshMaintenance(synchronize:)` 不再自行判断维护并发；维护/同步是否运行、是否排队和是否冷却只由 `WorkflowSyncScheduler` 管理。
 
 ## 同步主流程
 
@@ -232,15 +256,15 @@ flowchart TD
 同步服务会在开始和结束时发出通知:
 
 ```text
-CodexBar.workflowStatsICloudSyncDidStart
-CodexBar.workflowStatsICloudSyncDidFinish
+CodexBar.workflowSyncDidStart
+CodexBar.workflowSyncDidFinish
 ```
 
 设置页通过这两个通知更新 `isSyncing` 和 `lastUploadAt`。
 
 ## 上传数据如何脱敏
 
-本机 `daily.jsonl` 每行是 `WorkflowDailyAggregate`。上传前会转换成 `WorkflowCloudDailyAggregate`:
+本机 `daily.jsonl` 每行是 `WorkflowDailyAggregate`。上传前会转换成 `WorkflowSyncedDailyAggregate`:
 
 - 保留各类计数字段
 - 保留 `projectCounts`
@@ -298,7 +322,7 @@ CodexBar.workflowStatsICloudSyncDidFinish
 
 ## 拉取缓存和游标
 
-上传之后会更新本地 iCloud 缓存。`CodexBarDailyAggregate` 保存在 custom zone `CodexBarZone`, 因为 CloudKit 默认 zone 不支持 `getChanges`/zone change token。没有 `cursor.data` 时, App 会先 query 全量 `CodexBarDailyAggregate` 记录, 过滤掉当前设备自己的记录后回填 `cache.jsonl`, 然后从 `nil` 调用 CloudKit zone changes 补齐这段变化并保存新的 `cursor.data`; 有游标时优先拉取 custom zone 的增量变化:
+上传之后会更新本地同步缓存。`CodexBarDailyAggregate` 保存在 custom zone `CodexBarZone`, 因为 CloudKit 默认 zone 不支持 `getChanges`/zone change token。没有 `cursor.data` 时, App 会先 query 全量 `CodexBarDailyAggregate` 记录, 过滤掉当前设备自己的记录后回填 `cache.jsonl`, 然后从 `nil` 调用 CloudKit zone changes 补齐这段变化并保存新的 `cursor.data`; 有游标时优先拉取 custom zone 的增量变化:
 
 ```text
 database.recordZoneChanges(
@@ -311,7 +335,7 @@ database.recordZoneChanges(
 
 处理规则:
 
-- 修改记录: 只接受 `CodexBarDailyAggregate`，转换成 `WorkflowCloudDailyRecord` 后写入内存 cache；如果 `deviceId == 当前设备`, 从 cache 中移除并跳过
+- 修改记录: 只接受 `CodexBarDailyAggregate`，转换成 `WorkflowSyncedDailyRecord` 后写入内存 cache；如果 `deviceId == 当前设备`, 从 cache 中移除并跳过
 - 删除记录: 如果删除的是 `CodexBarDailyAggregate`，按 record name 解析出 `deviceId` 和 `date`，从 cache 中移除
 - `moreComing == true`: 继续用新的 change token 拉下一页
 - `changeTokenExpired` 或增量拉取失败: 不写入日志窗口，直接 query 全量 `CodexBarDailyAggregate` 重建 `cache.jsonl`
@@ -326,15 +350,15 @@ database.recordZoneChanges(
 
 ## 展示合并规则
 
-UI 展示使用 `WorkflowStatsSnapshot`。合并规则是:
+UI 展示使用 `WorkflowSnapshot`。合并规则是:
 
 ```text
-最终展示 = 本机 daily.jsonl + iCloud 缓存中的其他设备记录
+最终展示 = 本机 daily.jsonl + 同步缓存中的其他设备记录
 ```
 
 `cache.jsonl` 写入前会过滤当前设备自己的 CloudKit 记录，否则本机 daily 和自己上传到云端的副本会重复相加。
 
-同一天多设备数据相加时，会先把每台设备的 daily aggregate 转成 `WorkflowDailyStats`，再按日期求和:
+同一天多设备数据相加时，会先把每台设备的 daily aggregate 转成 `WorkflowDailyMetrics`，再按日期求和:
 
 ```text
 sessionCount += other.sessionCount
@@ -345,9 +369,9 @@ contextCompactionCount += other.contextCompactionCount
 subagentCount += other.subagentCount
 ```
 
-本机数据永远以本机 `daily.jsonl` 为准。iCloud 缓存只补其他设备的数据。
+本机数据永远以本机 `daily.jsonl` 为准。同步缓存只补其他设备的数据。
 
-CloudKit 拉取不会单独向 UI 推送新快照；只有当前这次 `WorkflowStatsService` 刷新最终提交结果时，菜单面板和热力图才会看到更新。非维护刷新只读取已有 `cache.jsonl`，不会主动联网。
+CloudKit 拉取不会单独向 UI 推送新快照；只有当前这次 `WorkflowService` 刷新最终提交结果时，菜单面板和热力图才会看到更新。非维护刷新只读取已有 `cache.jsonl`，不会主动联网。
 
 ## 保留和清理
 
@@ -374,8 +398,8 @@ date < retentionCutoffDate
 
 | 场景 | 当前行为 |
 | --- | --- |
-| iCloud 未登录或不可用 | 设置页禁用「跨设备同步」，显示 `iCloud 不可用` |
-| 用户尝试在 iCloud 不可用时开启 | `setEnabled(true)` 直接返回，不写入开启状态 |
+| iCloud 未登录或不可用 | 设置页禁用「跨设备同步」，显示 `同步不可用`; 如果用户已开启同步, 主面板失败 tooltip 显示 `账号不可用` 或兜底错误 |
+| 用户尝试在同步账号不可用时开启 | `setEnabled(true)` 直接返回，不写入开启状态 |
 | `CodexBarZone` 不存在 | 同步开始时创建 custom zone |
 | CloudKit 上传失败 | 本轮上传停止，已成功批次保留，失败日期下次刷新继续 |
 | CloudKit 增量拉取失败 | 不写入日志窗口，尝试全量重建缓存 |
@@ -385,6 +409,6 @@ date < retentionCutoffDate
 | `deviceId` 变化 | 重置本地同步 state/cache/cursor，按当前 iCloud 账号重新同步 |
 | `changeTokenExpired` | 不写入日志窗口，尝试全量重建缓存并建立新的 cursor |
 | `cache.jsonl` 写入失败 | 不保存新 cursor，下一轮重新拉取同一批变化 |
-| 同步失败 | 设置页没有单独错误文案，`最近上传` 不更新 |
+| 同步失败 | `WorkflowSyncService` 捕获错误并归类为 `网络不可用`、`账号不可用`、`服务暂时不可用` 或 `同步失败，请稍后重试`; 主面板显示 `exclamationmark.icloud` 和短 tooltip, 设置页停止同步中状态且 `最近上传` 不更新 |
 
-同步异常不会清空用户的开启偏好。只要 `WorkflowiCloudSync.isEnabled` 仍为 true、Codex Hook 开启且 iCloud 可用，后续维护刷新会继续重试。
+同步异常不会清空用户的开启偏好。只要 `WorkflowSync.isEnabled` 仍为 true、Codex Hook 开启且同步账号可用，后续调度器允许的同步会继续重试。

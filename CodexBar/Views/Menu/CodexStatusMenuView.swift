@@ -12,8 +12,9 @@ struct CodexStatusMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + MenuMetrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
 
     @ObservedObject var viewModel: CodexStatusViewModel
-    @ObservedObject var workflowStatsViewModel: WorkflowStatsViewModel
+    @ObservedObject var workflowViewModel: WorkflowViewModel
     @ObservedObject var codexHookSettings: CodexHookSettings
+    @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var menuSurfaceVisibility: MenuSurfaceVisibilityState
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
     @EnvironmentObject private var appUpdater: AppUpdater
@@ -26,6 +27,9 @@ struct CodexStatusMenuView: View {
         .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, isOuterSurface: true)
         .animation(Metrics.statusAnimation, value: viewModel.loadState)
         .animation(Metrics.statusAnimation, value: codexHookSettings.isEnabled)
+        .animation(Metrics.statusAnimation, value: syncSettings.isEnabled)
+        .animation(Metrics.statusAnimation, value: syncSettings.isSyncing)
+        .animation(Metrics.statusAnimation, value: syncSettings.hasSyncFailure)
     }
 }
 
@@ -74,8 +78,8 @@ private extension CodexStatusMenuView {
             if let usage = snapshot.usage {
                 UsageSummaryView(
                     usage: usage,
-                    workflowStats: workflowStatsViewModel.snapshot,
-                    showsWorkflowStats: codexHookSettings.isEnabled,
+                    workflow: workflowViewModel.snapshot,
+                    showsWorkflow: codexHookSettings.isEnabled,
                     isStale: snapshot.isUsageStale,
                     onHoverContextChange: onUsageHeatmapHoverChange
                 )
@@ -94,6 +98,7 @@ private extension CodexStatusMenuView {
             countdownStartedAt: viewModel.autoRefreshCountdownStartedAt ?? snapshot.generatedAt,
             countdownInterval: viewModel.autoRefreshInterval,
             isCountdownActive: menuSurfaceVisibility.isVisible,
+            syncDisplayState: WorkflowSyncDisplayState(settings: syncSettings),
             updateMessage: appUpdater.panelUpdateMessage,
             startUpdate: appUpdater.startUpdate
         )

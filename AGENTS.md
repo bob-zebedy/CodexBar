@@ -64,7 +64,7 @@ git status --short
 - 平台: SwiftUI + AppKit + MVVM, 最低 macOS 15.0。
 - 应用形态: `LSUIElement` 菜单栏应用, 无 Dock 图标、无主窗口。
 - 外部依赖: Sparkle(SwiftPM)。
-- 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 3.1.3`, `CURRENT_PROJECT_VERSION = 27`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, `SWIFT_VERSION = 6.0`。
+- 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 3.2.0`, `CURRENT_PROJECT_VERSION = 28`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, `SWIFT_VERSION = 6.0`。
 - App Sandbox 必须保持关闭(`ENABLE_APP_SANDBOX = NO`), 因为应用要启动本机 Codex CLI/APP 内置 CLI, 并读取真实 macOS 用户的 Codex 登录状态。
 - 工程使用 `PBXFileSystemSynchronizedRootGroup`; 新增或删除 `CodexBar/` 下 Swift 文件通常无需改 `project.pbxproj`。只有依赖、target/build settings 或资源归属变更才改 Xcode 工程文件。
 - Swift 源码按目录组织: `App/`、`Controllers/`、`Models/`、`Services/`、`Views/`。不要把新 Swift 文件直接放回 `CodexBar/` 根层。
@@ -82,10 +82,10 @@ CodexStatusService(JSON-RPC app-server)
 
 Codex Hook
   -> WorkflowHookEventRecorder(--hook-event stdin hook_event_name)
-  -> WorkflowStatsStorage(events/YYYY-MM-DD.jsonl / daily.jsonl)
-  -> WorkflowStatsService
+  -> WorkflowStorage(events/YYYY-MM-DD.jsonl / daily.jsonl)
+  -> WorkflowService
   -> WorkflowSyncService(可选 CloudKit private database 同步)
-  -> WorkflowStatsViewModel
+  -> WorkflowViewModel
   -> UsageSummaryView / UsageHeatmap
 ```
 
@@ -93,7 +93,7 @@ Codex Hook
 
 - `App/`: 入口和全局启动分支。
 - `Controllers/`: 菜单栏、菜单面板、设置窗口和日志窗口控制。
-- `Models/`: account、quota、usage、workflow stats、共享日期网格和错误模型。
+- `Models/`: account、quota、usage、workflow、共享日期网格和错误模型。
 - `Services/`: app-server、Codex CLI、设置、Hook 统计、更新和日志服务。
 - `Views/`: 菜单面板、设置、日志和共享 Liquid Glass 样式。
 
@@ -155,7 +155,8 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - 非 UI 类型、DTO、模型、服务辅助类型和静态工具需要显式 `nonisolated`, 避免 main actor 隔离泄漏到同步服务代码。
 - `CodexStatusService` 是 actor, 负责 app-server 连接、缓存和重建。
 - `CodexCLIVersionService` 是 actor, 全局和内置版本探测用 `async let` 并发启动; 子进程输出通过 `PipeReadBuffer` 收集。
-- `WorkflowStatsService` 是 actor, 串行维护和读取 workflow stats 快照。
+- `WorkflowService` 是 actor, 串行维护和读取 workflow 快照。
+- `WorkflowSyncScheduler` 是维护/同步任务的唯一调度者, 合并自动维护、同步开关、Hook 重新开启和同步可用性恢复触发的请求; `WorkflowViewModel.refreshMaintenance(synchronize:)` 只执行一次明确的维护刷新并发布快照。
 - `RequestLogStorage` 可从后台同步写入, 用 `OSAllocatedUnfairLock` 保护; `@MainActor RequestLogStore` 只负责发布 SwiftUI 快照。
 - `PipeReadBuffer` 是底层 `FileHandle`、`DispatchSourceRead` 和 semaphore 的唯一 `@unchecked Sendable` 边界, 读队列 `CodexBar.pipe-read` 使用 `.userInitiated` QoS。
 - Hook 写入可能由多个 Codex 进程并发触发, 必须通过 `stats.lock` 和 `flock` 保护 `events/YYYY-MM-DD.jsonl` 和 `maintenance.json` 的一致性; `daily.jsonl` 由主 App 刷新维护流程写回。
@@ -182,6 +183,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - `rateLimits` 或 `usage` 使用旧缓存时, 对应区域通过 `.markStale(true)` 降低透明度到 0.55, 不降低饱和度; 下一轮对应接口成功后恢复正常透明度。
 - 重置时间格式是 `MM-dd HH:mm`, 使用等宽数字, 在额度行最右侧对齐。
 - 更新时间行显示倒计时圆环、「数据更新时间」和 `HH:mm:ss`。
+- 更新时间行最右侧显示同步状态图标: 未开启为 `icloud.slash`, 已开启为空闲为 `icloud`, 正在同步为 `arrow.trianglehead.clockwise.icloud`, 同步失败为 `exclamationmark.icloud`; 失败态 tooltip 展示归类后的同步错误文案。
 - 倒计时只在菜单面板可见时用 `TimelineView` 每秒 tick; 普通 tick 不做连续动画, 仅刷新起点变化时播放恢复动画。
 - token 区域显示「单日峰值」和「全时累计」; `TokenCountText` 对 1K 以下显示完整整数, 1K 起显示 K/M/B。
 - token 区域还显示「当前连胜」、「最长连胜」和「最长任务」。
@@ -205,9 +207,9 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - 默认全局快捷键是 `⌘⇧W`; 快捷键录制至少需要两个修饰键, 不允许 Command-Space 或 Command-Tab; 注册冲突、无法识别和校验错误显示在快捷键行内。
 - 设置页包含「启用 Codex Hook」开关; 开启后会写入全局 Codex Hook 配置, 用于近 30 周数据展示更多本机统计数据。
 - 开启 Codex Hook 前必须通过当前 `CodexStatusService` app-server 会话调用 `config/read`, 如果 Codex 全局配置禁用了 Hook, 则不写入 `hooks.json`, 开启失败并在 Hook 选项下方提示。
-- 开启 Codex Hook 写入 `hooks.json` 后必须通过当前 app-server 会话调用 `hooks/list` 验证 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`warnings` 和 `errors`; 未信任时提示用户去 Codex `/hooks` 信任。
+- 开启 Codex Hook 写入 `hooks.json` 后必须通过当前 app-server 会话调用 `hooks/list` 验证 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`warnings` 和 `errors`; 未信任或已修改时, 只对来源为全局 `hooks.json` 且 command 属于当前 CodexBar 的 Hook 通过 `config/batchWrite` 自动写入 `hooks.state` 的 `trusted_hash`, 再重新验证。
 - Codex Hook 开关下方只在必要时显示 Hook 相关错误; 不展示固定说明文案、启用状态或关闭状态文案。
-- 设置页包含「跨设备同步」开关; 仅在 Codex Hook 开启且 iCloud account status 为 available 时可操作。iCloud 不可用时开关禁用, 并在开关下方显示「iCloud 不可用」。
+- 设置页包含「跨设备同步」开关; 仅在 Codex Hook 开启且 CloudKit account status 为 available 时可操作。同步账号不可用时开关禁用, 并在开关下方显示「同步不可用」。
 - 「跨设备同步」开启后, 主 App 在工作流统计维护刷新中把脱敏 daily 聚合按日期稳定排序、每批最多 25 天、每轮最多 20 秒上传到 CloudKit; 已成功上传的日期立即写入本地 `state.json`, 剩余日期留给后续刷新继续。
 - 开机启动错误显示在设置组与底部按钮组之间的独立错误组; 无错误时不展示该组, 退出和检查更新按钮之间不展示错误文案。
 
@@ -267,8 +269,8 @@ fix: 修复 Codex 状态刷新
 
 Tag:
 
-- tag 名格式 `v{MARKETING_VERSION}`, 例如 `v3.1.3`。
-- 使用附注 tag: `git tag -a v3.1.3 -m "Release v3.1.3"`。
+- tag 名格式 `v{MARKETING_VERSION}`, 例如 `v3.2.0`。
+- 使用附注 tag: `git tag -a v3.2.0 -m "Release v3.2.0"`。
 
 ## 最终检查
 

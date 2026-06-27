@@ -176,6 +176,7 @@ struct UpdatedAtRow: View {
     let countdownStartedAt: Date
     let countdownInterval: TimeInterval
     let isCountdownActive: Bool
+    let syncDisplayState: WorkflowSyncDisplayState
     let updateMessage: String?
     let startUpdate: () -> Void
 
@@ -211,8 +212,17 @@ struct UpdatedAtRow: View {
                     .transition(.opacity)
                     .onTapGesture(count: 2, perform: startUpdate)
             }
+
+            Image(systemName: syncDisplayState.symbolName)
+                .font(.caption2)
+                .foregroundStyle(syncDisplayState.tint)
+                .frame(width: Metrics.syncIconWidth)
+                .contentTransition(.opacity)
+                .help(syncDisplayState.helpText)
+                .accessibilityLabel(Text(syncDisplayState.helpText))
         }
         .animation(Metrics.statusAnimation, value: updateMessage)
+        .animation(Metrics.statusAnimation, value: syncDisplayState)
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -226,5 +236,60 @@ struct UpdatedAtRow: View {
 
     private enum Metrics {
         static let statusAnimation = Animation.codexStatus
+        static let syncIconWidth: CGFloat = 16
+    }
+}
+
+struct WorkflowSyncDisplayState: Equatable {
+    let symbolName: String
+    let tint: Color
+    let helpText: String
+
+    static func == (lhs: WorkflowSyncDisplayState, rhs: WorkflowSyncDisplayState) -> Bool {
+        lhs.symbolName == rhs.symbolName && lhs.helpText == rhs.helpText
+    }
+
+    init(settings: WorkflowSyncSettings) {
+        if !settings.isEnabled {
+            self = .disabled
+        } else if settings.isSyncing {
+            self = .syncing
+        } else if settings.hasSyncFailure {
+            self = .failed(message: settings.syncFailureMessage)
+        } else {
+            self = .enabled
+        }
+    }
+
+    private init(symbolName: String, tint: Color, helpText: String) {
+        self.symbolName = symbolName
+        self.tint = tint
+        self.helpText = helpText
+    }
+
+    private static let enabled = WorkflowSyncDisplayState(
+        symbolName: "icloud",
+        tint: .codexSecondaryLabel,
+        helpText: "同步已开启"
+    )
+
+    private static let disabled = WorkflowSyncDisplayState(
+        symbolName: "icloud.slash",
+        tint: .codexSecondaryLabel,
+        helpText: "同步未开启"
+    )
+
+    private static let syncing = WorkflowSyncDisplayState(
+        symbolName: "arrow.trianglehead.clockwise.icloud",
+        tint: .blue,
+        helpText: "正在同步"
+    )
+
+    private static func failed(message: String?) -> WorkflowSyncDisplayState {
+        WorkflowSyncDisplayState(
+            symbolName: "exclamationmark.icloud",
+            tint: .orange,
+            helpText: message ?? WorkflowSyncFailureReason.retryLater.message
+        )
     }
 }

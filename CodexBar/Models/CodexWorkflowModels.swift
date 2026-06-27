@@ -1,7 +1,7 @@
 import Foundation
 
 /// 写入 JSONL 时固定字段顺序, 便于人工排查和 diff
-private nonisolated enum WorkflowStatsJSON {
+private nonisolated enum WorkflowJSON {
     static func lineData(_ fields: [String]) -> Data {
         let json = "{\(fields.joined(separator: ","))}"
         return Data(json.utf8) + Data([0x0A])
@@ -26,7 +26,7 @@ private nonisolated enum WorkflowStatsJSON {
         guard let text = String(bytes: data, encoding: .utf8) else {
             throw EncodingError.invalidValue(
                 value,
-                .init(codingPath: [], debugDescription: "Encoded workflow stats JSON was not UTF-8")
+                .init(codingPath: [], debugDescription: "Encoded workflow JSON was not UTF-8")
             )
         }
         return text
@@ -122,17 +122,17 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
 
     func jsonLineData() throws -> Data {
         let fields = try [
-            WorkflowStatsJSON.field("timestamp", CodexDateFormat.localTimestampString(from: timestamp)),
-            WorkflowStatsJSON.field("event", name),
-            WorkflowStatsJSON.field("model", modelName),
-            WorkflowStatsJSON.field("permission", permissionMode),
-            WorkflowStatsJSON.field("session", sessionId),
-            WorkflowStatsJSON.field("turn", turnId),
-            WorkflowStatsJSON.field("tool", toolName),
-            WorkflowStatsJSON.field("cwd", directoryPath)
+            WorkflowJSON.field("timestamp", CodexDateFormat.localTimestampString(from: timestamp)),
+            WorkflowJSON.field("event", name),
+            WorkflowJSON.field("model", modelName),
+            WorkflowJSON.field("permission", permissionMode),
+            WorkflowJSON.field("session", sessionId),
+            WorkflowJSON.field("turn", turnId),
+            WorkflowJSON.field("tool", toolName),
+            WorkflowJSON.field("cwd", directoryPath)
         ]
 
-        return WorkflowStatsJSON.lineData(fields)
+        return WorkflowJSON.lineData(fields)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -148,7 +148,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
 }
 
 /// 热力图详情面板直接消费的每日统计
-nonisolated struct WorkflowDailyStats: Equatable, Identifiable {
+nonisolated struct WorkflowDailyMetrics: Equatable, Identifiable {
     let startDate: String
     let sessionCount: Int
     let turnCount: Int
@@ -179,8 +179,8 @@ nonisolated struct WorkflowDailyStats: Equatable, Identifiable {
         self.subagentCount = subagentCount
     }
 
-    static func empty(startDate: String) -> WorkflowDailyStats {
-        WorkflowDailyStats(
+    static func empty(startDate: String) -> WorkflowDailyMetrics {
+        WorkflowDailyMetrics(
             startDate: startDate,
             sessionCount: 0,
             turnCount: 0,
@@ -212,8 +212,8 @@ nonisolated struct WorkflowDailyStats: Equatable, Identifiable {
         subagentCount = max(subagentStartCount, subagentStopCount)
     }
 
-    func adding(_ other: WorkflowDailyStats) -> WorkflowDailyStats {
-        WorkflowDailyStats(
+    func adding(_ other: WorkflowDailyMetrics) -> WorkflowDailyMetrics {
+        WorkflowDailyMetrics(
             startDate: startDate,
             sessionCount: sessionCount + other.sessionCount,
             turnCount: turnCount + other.turnCount,
@@ -225,49 +225,49 @@ nonisolated struct WorkflowDailyStats: Equatable, Identifiable {
     }
 }
 
-/// WorkflowStatsService 发布给 UI 的近端快照
-nonisolated struct WorkflowStatsSnapshot: Equatable {
+/// WorkflowService 发布给 UI 的近端快照
+nonisolated struct WorkflowSnapshot: Equatable {
     let generatedAt: Date
-    let dailyStats: [WorkflowDailyStats]
+    let dailyMetrics: [WorkflowDailyMetrics]
 
-    static let empty = WorkflowStatsSnapshot(generatedAt: Date(), dailyStats: [])
+    static let empty = WorkflowSnapshot(generatedAt: Date(), dailyMetrics: [])
 
-    init(generatedAt: Date = Date(), dailyStats: [WorkflowDailyStats]) {
+    init(generatedAt: Date = Date(), dailyMetrics: [WorkflowDailyMetrics]) {
         self.generatedAt = generatedAt
-        self.dailyStats = dailyStats
+        self.dailyMetrics = dailyMetrics
     }
 
     init(dailyAggregates: [WorkflowDailyAggregate], generatedAt: Date = Date()) {
         self.generatedAt = generatedAt
-        dailyStats = dailyAggregates
-            .map(\.stats)
+        dailyMetrics = dailyAggregates
+            .map(\.metrics)
             .sorted { $0.startDate < $1.startDate }
     }
 
     init(
         localAggregates: [WorkflowDailyAggregate],
-        cloudRecords: [WorkflowCloudDailyRecord],
+        syncedRecords: [WorkflowSyncedDailyRecord],
         currentDeviceId: String?,
         generatedAt: Date = Date()
     ) {
         self.generatedAt = generatedAt
 
-        var statsByDate = [String: WorkflowDailyStats]()
+        var metricsByDate = [String: WorkflowDailyMetrics]()
         localAggregates
-            .map(\.stats)
-            .forEach { Self.merge($0, into: &statsByDate) }
+            .map(\.metrics)
+            .forEach { Self.merge($0, into: &metricsByDate) }
 
-        cloudRecords
+        syncedRecords
             .filter { $0.deviceId != currentDeviceId }
-            .map(\.daily.stats)
-            .forEach { Self.merge($0, into: &statsByDate) }
+            .map(\.daily.metrics)
+            .forEach { Self.merge($0, into: &metricsByDate) }
 
-        dailyStats = statsByDate.values.sorted { $0.startDate < $1.startDate }
+        dailyMetrics = metricsByDate.values.sorted { $0.startDate < $1.startDate }
     }
 
-    func recentWeekGrid(columnCount: Int, endingDaysAgo: Int = 0, today: Date = Date()) -> [WorkflowDailyStats?] {
-        let statsByDate = dailyStats.reduce(into: [String: WorkflowDailyStats]()) { result, stats in
-            result[stats.startDate] = stats
+    func recentWeekGrid(columnCount: Int, endingDaysAgo: Int = 0, today: Date = Date()) -> [WorkflowDailyMetrics?] {
+        let metricsByDate = dailyMetrics.reduce(into: [String: WorkflowDailyMetrics]()) { result, metrics in
+            result[metrics.startDate] = metrics
         }
 
         return CodexWeekGrid.dates(
@@ -278,19 +278,19 @@ nonisolated struct WorkflowStatsSnapshot: Equatable {
         .map { date in
             date.map {
                 let startDate = CodexDateFormat.dayString(from: $0)
-                return statsByDate[startDate] ?? WorkflowDailyStats.empty(startDate: startDate)
+                return metricsByDate[startDate] ?? WorkflowDailyMetrics.empty(startDate: startDate)
             }
         }
     }
 
     private static func merge(
-        _ stats: WorkflowDailyStats,
-        into statsByDate: inout [String: WorkflowDailyStats]
+        _ metrics: WorkflowDailyMetrics,
+        into metricsByDate: inout [String: WorkflowDailyMetrics]
     ) {
-        if let existing = statsByDate[stats.startDate] {
-            statsByDate[stats.startDate] = existing.adding(stats)
+        if let existing = metricsByDate[metrics.startDate] {
+            metricsByDate[metrics.startDate] = existing.adding(metrics)
         } else {
-            statsByDate[stats.startDate] = stats
+            metricsByDate[metrics.startDate] = metrics
         }
     }
 }
@@ -428,8 +428,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         turnCount ?? turnIds?.count ?? stopCount
     }
 
-    var stats: WorkflowDailyStats {
-        WorkflowDailyStats(
+    var metrics: WorkflowDailyMetrics {
+        WorkflowDailyMetrics(
             startDate: date,
             sessionCount: resolvedSessionCount,
             turnCount: resolvedTurnCount,
@@ -448,8 +448,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         today: Date = Date(),
         calendar: Calendar = .current
     ) -> [WorkflowDailyAggregate] {
-        let retentionCutoffDate = WorkflowStatsStorage.retentionCutoffDate(today: today, calendar: calendar)
-        let identifierCutoffDate = WorkflowStatsStorage.identifierRetentionCutoffDate(today: today, calendar: calendar)
+        let retentionCutoffDate = WorkflowStorage.retentionCutoffDate(today: today, calendar: calendar)
+        let identifierCutoffDate = WorkflowStorage.identifierRetentionCutoffDate(today: today, calendar: calendar)
 
         return aggregates.compactMap { aggregate in
             guard let date = Self.date(from: aggregate.date), date >= retentionCutoffDate else {
@@ -475,29 +475,29 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
 
     func jsonLineData() throws -> Data {
         let fields = try [
-            WorkflowStatsJSON.field("date", date),
-            WorkflowStatsJSON.field("eventCount", eventCount),
-            WorkflowStatsJSON.field("sessionStartCount", sessionStartCount),
-            WorkflowStatsJSON.field("stopCount", stopCount),
-            WorkflowStatsJSON.field("preToolUseCount", preToolUseCount),
-            WorkflowStatsJSON.field("postToolUseCount", postToolUseCount),
-            WorkflowStatsJSON.field("permissionRequestCount", permissionRequestCount),
-            WorkflowStatsJSON.field("preCompactCount", preCompactCount),
-            WorkflowStatsJSON.field("postCompactCount", postCompactCount),
-            WorkflowStatsJSON.field("subagentStartCount", subagentStartCount),
-            WorkflowStatsJSON.field("subagentStopCount", subagentStopCount),
-            WorkflowStatsJSON.field("sessionCount", sessionCount),
-            WorkflowStatsJSON.field("turnCount", turnCount),
-            WorkflowStatsJSON.field("projectCounts", projectCounts),
-            WorkflowStatsJSON.field("sessionIds", sessionIds),
-            WorkflowStatsJSON.field("turnIds", turnIds)
+            WorkflowJSON.field("date", date),
+            WorkflowJSON.field("eventCount", eventCount),
+            WorkflowJSON.field("sessionStartCount", sessionStartCount),
+            WorkflowJSON.field("stopCount", stopCount),
+            WorkflowJSON.field("preToolUseCount", preToolUseCount),
+            WorkflowJSON.field("postToolUseCount", postToolUseCount),
+            WorkflowJSON.field("permissionRequestCount", permissionRequestCount),
+            WorkflowJSON.field("preCompactCount", preCompactCount),
+            WorkflowJSON.field("postCompactCount", postCompactCount),
+            WorkflowJSON.field("subagentStartCount", subagentStartCount),
+            WorkflowJSON.field("subagentStopCount", subagentStopCount),
+            WorkflowJSON.field("sessionCount", sessionCount),
+            WorkflowJSON.field("turnCount", turnCount),
+            WorkflowJSON.field("projectCounts", projectCounts),
+            WorkflowJSON.field("sessionIds", sessionIds),
+            WorkflowJSON.field("turnIds", turnIds)
         ]
 
-        return WorkflowStatsJSON.lineData(fields)
+        return WorkflowJSON.lineData(fields)
     }
 
-    var cloudAggregate: WorkflowCloudDailyAggregate {
-        WorkflowCloudDailyAggregate(
+    var syncedAggregate: WorkflowSyncedDailyAggregate {
+        WorkflowSyncedDailyAggregate(
             date: date,
             eventCount: eventCount,
             sessionStartCount: sessionStartCount,
@@ -509,17 +509,17 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
             postCompactCount: postCompactCount,
             subagentStartCount: subagentStartCount,
             subagentStopCount: subagentStopCount,
-            sessionCount: cloudSessionCount,
-            turnCount: cloudTurnCount,
+            sessionCount: syncedSessionCount,
+            turnCount: syncedTurnCount,
             projectCounts: projectCounts
         )
     }
 
-    private var cloudSessionCount: Int? {
+    private var syncedSessionCount: Int? {
         sessionCount ?? Self.nonEmptyIdentifierCount(sessionIds)
     }
 
-    private var cloudTurnCount: Int? {
+    private var syncedTurnCount: Int? {
         turnCount ?? Self.nonEmptyIdentifierCount(turnIds)
     }
 
@@ -574,8 +574,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     }
 }
 
-/// iCloud 中保存的脱敏每日聚合行: 对应 daily.jsonl 但不包含 sessionIds / turnIds
-nonisolated struct WorkflowCloudDailyAggregate: Codable, Equatable, Identifiable {
+/// 同步存储中保存的脱敏每日聚合行: 对应 daily.jsonl 但不包含 sessionIds / turnIds
+nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiable {
     let date: String
     var eventCount: Int
     var sessionStartCount: Int
@@ -595,8 +595,8 @@ nonisolated struct WorkflowCloudDailyAggregate: Codable, Equatable, Identifiable
         date
     }
 
-    var stats: WorkflowDailyStats {
-        WorkflowDailyStats(
+    var metrics: WorkflowDailyMetrics {
+        WorkflowDailyMetrics(
             startDate: date,
             sessionCount: sessionCount ?? sessionStartCount,
             turnCount: turnCount ?? stopCount,
@@ -612,29 +612,29 @@ nonisolated struct WorkflowCloudDailyAggregate: Codable, Equatable, Identifiable
 
     func jsonLineData() throws -> Data {
         let fields = try [
-            WorkflowStatsJSON.field("date", date),
-            WorkflowStatsJSON.field("eventCount", eventCount),
-            WorkflowStatsJSON.field("sessionStartCount", sessionStartCount),
-            WorkflowStatsJSON.field("stopCount", stopCount),
-            WorkflowStatsJSON.field("preToolUseCount", preToolUseCount),
-            WorkflowStatsJSON.field("postToolUseCount", postToolUseCount),
-            WorkflowStatsJSON.field("permissionRequestCount", permissionRequestCount),
-            WorkflowStatsJSON.field("preCompactCount", preCompactCount),
-            WorkflowStatsJSON.field("postCompactCount", postCompactCount),
-            WorkflowStatsJSON.field("subagentStartCount", subagentStartCount),
-            WorkflowStatsJSON.field("subagentStopCount", subagentStopCount),
-            WorkflowStatsJSON.field("sessionCount", sessionCount),
-            WorkflowStatsJSON.field("turnCount", turnCount),
-            WorkflowStatsJSON.field("projectCounts", projectCounts)
+            WorkflowJSON.field("date", date),
+            WorkflowJSON.field("eventCount", eventCount),
+            WorkflowJSON.field("sessionStartCount", sessionStartCount),
+            WorkflowJSON.field("stopCount", stopCount),
+            WorkflowJSON.field("preToolUseCount", preToolUseCount),
+            WorkflowJSON.field("postToolUseCount", postToolUseCount),
+            WorkflowJSON.field("permissionRequestCount", permissionRequestCount),
+            WorkflowJSON.field("preCompactCount", preCompactCount),
+            WorkflowJSON.field("postCompactCount", postCompactCount),
+            WorkflowJSON.field("subagentStartCount", subagentStartCount),
+            WorkflowJSON.field("subagentStopCount", subagentStopCount),
+            WorkflowJSON.field("sessionCount", sessionCount),
+            WorkflowJSON.field("turnCount", turnCount),
+            WorkflowJSON.field("projectCounts", projectCounts)
         ]
 
-        return WorkflowStatsJSON.lineData(fields)
+        return WorkflowJSON.lineData(fields)
     }
 }
 
-nonisolated struct WorkflowCloudDailyRecord: Codable, Equatable, Identifiable {
+nonisolated struct WorkflowSyncedDailyRecord: Codable, Equatable, Identifiable {
     let deviceId: String
-    let daily: WorkflowCloudDailyAggregate
+    let daily: WorkflowSyncedDailyAggregate
     var updatedAt: Date?
 
     var id: String {

@@ -42,18 +42,18 @@ nonisolated enum WorkflowHookEventRecorder {
             turnId: turnId
         )
 
-        try recordStatsTransaction(event: event)
+        try recordWorkflowTransaction(event: event)
     }
 
-    private static func recordStatsTransaction(event: WorkflowHookEvent) throws {
-        try WorkflowStatsStorage.withExclusiveLock {
-            let dateKey = WorkflowStatsStorage.dateKey(for: event.timestamp)
-            let eventLogURL = WorkflowStatsStorage.eventLogURL(for: dateKey)
-            var maintenanceState = WorkflowStatsStorage.loadMaintenanceState()
+    private static func recordWorkflowTransaction(event: WorkflowHookEvent) throws {
+        try WorkflowStorage.withExclusiveLock {
+            let dateKey = WorkflowStorage.dateKey(for: event.timestamp)
+            let eventLogURL = WorkflowStorage.eventLogURL(for: dateKey)
+            var maintenanceState = WorkflowStorage.loadMaintenanceState()
 
             try append(event.jsonLineData(), to: eventLogURL)
             maintenanceState.markPending(dateKey)
-            try WorkflowStatsStorage.saveMaintenanceState(maintenanceState)
+            try WorkflowStorage.saveMaintenanceState(maintenanceState)
         }
     }
 

@@ -25,7 +25,7 @@ App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 C
 | ----------------------- | ----------------------------------------------------------------------- |
 | `CodexBar/App/`         | SwiftUI 入口和 AppDelegate 启动分支                                     |
 | `CodexBar/Controllers/` | 菜单栏, 菜单面板, 设置窗口, 日志窗口和窗口行为                          |
-| `CodexBar/Models/`      | account, quota, usage, workflow stats, 日期网格和错误模型               |
+| `CodexBar/Models/`      | account, quota, usage, workflow, 日期网格和错误模型                     |
 | `CodexBar/Services/`    | app-server, Codex CLI 解析, 版本探测, Hook 设置, 统计维护, 更新, 登录项 |
 | `CodexBar/Views/`       | 菜单面板, 设置窗口, 日志窗口和共享 Liquid Glass 样式                    |
 | `Docs/`                 | app-server, Hook 和开发文档                                             |
@@ -36,7 +36,7 @@ App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 C
 两条主数据链路:
 
 - Codex app-server 链路: `CodexStatusService` 启动或复用本机 app-server, 生成 `CodexQuotaSnapshot`, 由 `CodexStatusViewModel` 发布给菜单栏 UI
-- Codex Hook 链路: Codex 进程触发带 `--hook-event` 参数的 Hook 命令, CodexBar 从 stdin payload 读取 `hook_event_name` 并快速写入 JSONL; 主 App 后续维护聚合并生成 `WorkflowStatsSnapshot`
+- Codex Hook 链路: Codex 进程触发带 `--hook-event` 参数的 Hook 命令, CodexBar 从 stdin payload 读取 `hook_event_name` 并快速写入 JSONL; 主 App 后续维护聚合并生成 `WorkflowSnapshot`
 
 ## 3. 启动流程
 
@@ -66,11 +66,12 @@ sequenceDiagram
     end
 ```
 
-普通启动时, `CodexBarAppDelegate` 创建五个长期对象:
+普通启动时, `CodexBarAppDelegate` 创建六个长期对象:
 
 - `CodexStatusViewModel`: app-server 刷新状态
-- `WorkflowStatsViewModel`: Hook 工作流统计快照
+- `WorkflowViewModel`: Hook 工作流统计快照
 - `CodexHookSettings`: Hook 配置状态和写入操作
+- `WorkflowSyncSettings`: 跨设备同步偏好、账号可用性、同步中和失败状态
 - `GlobalHotKeySettings`: 全局快捷键配置和错误状态
 - `AppUpdater`: Sparkle 更新状态
 
@@ -79,8 +80,11 @@ sequenceDiagram
 - 配置菜单栏按钮图标, tooltip 和点击事件
 - 配置菜单面板的 SwiftUI 根视图
 - 订阅状态变化并切换菜单栏图标
+- 订阅 Hook、同步开关和同步可用性变化, 把维护/同步请求交给 `WorkflowSyncScheduler`
 - 订阅全局快捷键配置并安装或移除 Carbon hot key
 - 开始每 60 秒自动刷新
+
+启动时还会把系统 tooltip 首次出现延迟 `NSInitialToolTipDelay` 设置为 200 ms, 让主面板同步图标等短提示更快出现。
 
 App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall()`, 关闭菜单面板, 注销全局快捷键, 移除订阅并从系统状态栏移除 status item
 
@@ -117,7 +121,7 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 - 如果来自全局快捷键且当前状态需要打开菜单面板, 先用目标屏幕确认 status item 锚点可信; 不可信时改用同一屏幕顶部居中的 fallback `NSPanel`
 - 设置状态为 `opening`, 准备透明度淡入
 - 显示 `NSPopover` 或 fallback `NSPanel`, 把 `MenuSurfaceVisibilityState.isVisible` 设为 `true`
-- 调用 `refreshWorkflowStatsIfHookEnabled(performMaintenance: false)`, 只读取已有 `daily.jsonl`, 不做重维护
+- 调用 `refreshWorkflowIfHookEnabled(performMaintenance: false)`, 只读取已有 `daily.jsonl`, 不做重维护
 - 安装 `MenuSurfaceDismissMonitor`, 监听当前菜单面板 window 并只将当前菜单面板 window 置前和设为 key window
 - 执行 0.24 秒淡入
 - 延迟 160 ms 后调用 `viewModel.refreshIfNeeded()`
@@ -368,7 +372,7 @@ codex app-server --listen stdio://
 - 菜单面板只展示"未登录"和"初始化失败"两类特殊状态
 - 具体启动失败, 请求失败, 超时, 断连, 解析失败和业务错误进入日志窗口
 - 账户有效时, rate limits 和 usage 可以单独失败, 失败区域按缓存或无数据处理
-- 登录项和 Hook 写入错误显示在设置窗口中部的独立错误组, iCloud 账号不可用显示在「跨设备同步」开关下方
+- 登录项错误显示在设置窗口中部的独立错误组; Hook 写入/验证错误显示在 Hook 开关下方; 同步账号不可用显示在「跨设备同步」开关下方; 同步运行失败显示在主面板更新时间行同步图标 tooltip 中
 - 全局快捷键录制, 校验和注册错误显示在快捷键行内
 - Hook 子进程尽量快速退出, 事件记录失败不会阻断 Codex 自身流程
 
@@ -414,17 +418,17 @@ app-server 与状态刷新错误:
 | `hooks.json` 读取失败或结构非法  | `CodexHookSettings.refresh`                                                      | Hook 开关视为关闭, Hook 选项下方显示错误     | 不写配置                                         |
 | Hook 开关写入失败                | `CodexHookSettings.setEnabled`                                                   | Hook 选项下方显示"设置 Codex Hook 失败"      | 调用 `refresh()` 恢复实际状态                    |
 | `hooks/list` 请求失败            | `CodexHookSettings.verifyInstalledHooks` / app-server `hooks/list`               | Hook 选项下方显示"无法验证 Codex Hook"       | 保留已写入 Hook, 详细错误进入日志                |
-| Hook 自动信任写入失败            | `CodexHookSettings.updateCodexHookTrust` / app-server `config/batchWrite`        | Hook 选项下方显示"无法验证 Codex Hook"       | 保留已写入 Hook, 详细错误进入日志                |
+| Hook 自动信任写入失败            | `CodexHookSettings.trustCodexBarHooks` / app-server `config/batchWrite`          | Hook 选项下方显示"无法验证 Codex Hook"       | 保留已写入 Hook, 详细错误进入日志                |
 | Hook 写入后验证发现问题          | `CodexHookSettings.verifyInstalledHooks` / app-server `hooks/list`               | Hook 选项下方显示最高优先级验证摘要          | 保留已写入 Hook, 详细响应进入日志                |
-| iCloud 账号不可用                | `WorkflowSyncSettings.refreshICloudAvailability` / CloudKit account status | 跨设备同步开关禁用, 下方显示"iCloud 不可用"  | 不开启同步偏好写入                               |
-| CloudKit 同步上传或拉取失败      | `WorkflowSyncService.synchronizeIfEnabled`                                 | 暂无明确错误提示, 最近上传时间不更新         | 保存已有 state, 下次刷新继续重试                 |
+| 同步账号不可用                   | `WorkflowSyncSettings.refreshSyncAvailability` / CloudKit account status         | 跨设备同步开关禁用, 下方显示"同步不可用"; 已开启同步时主面板 tooltip 显示归类错误 | 不开启同步偏好写入                               |
+| CloudKit 同步上传或拉取失败      | `WorkflowSyncService.synchronizeIfEnabled`                                      | 主面板更新时间行显示 `exclamationmark.icloud`, tooltip 显示归类错误, 最近上传时间不更新 | 保存已有 state, 下次刷新继续重试                 |
 | 快捷键无法识别或不符合规则       | `HotKeyRecorderRow` / `GlobalHotKeySettings.setShortcut`                         | 快捷键行内显示红色错误                       | 用户清除后重新录制                               |
 | 快捷键注册冲突                   | `StatusItemController.applyGlobalHotKey`                                         | 快捷键行内显示占用提示                       | 恢复上一个已注册快捷键                           |
 | Hook 子进程 payload 不是 JSON    | `WorkflowHookEventRecorder.stdinPayload`                                         | 无 UI 提示                                   | 吞掉本次 Hook, 避免启动完整菜单栏 App            |
 | Hook 子进程写入失败              | `WorkflowHookEventRecorder.handleIfRequested`                                    | 无 UI 提示                                   | `try? record` 吞掉错误并正常退出, 避免阻断 Codex |
-| `daily.jsonl` 缺失, 空文件或坏行 | `WorkflowStatsService.prepareMaintenanceTasks`                                   | 热力图详情面板可能暂时显示 0                 | 标记 dirty, 后续从 events 文件重建               |
-| events 文件变小或 offset 不一致  | `WorkflowStatsService.reconcileEventFiles`                                       | 热力图详情面板可能暂时显示旧聚合             | 标记 dirty, 从头重建当天聚合                     |
-| 单个维护任务失败                 | `WorkflowStatsService.performMaintenanceIfNeeded`                                | 使用已有 daily 或空 snapshot                 | 对应日期标记 dirty                               |
+| `daily.jsonl` 缺失, 空文件或坏行 | `WorkflowService.prepareMaintenanceTasks`                                   | 热力图详情面板可能暂时显示 0                 | 标记 dirty, 后续从 events 文件重建               |
+| events 文件变小或 offset 不一致  | `WorkflowService.reconcileEventFiles`                                       | 热力图详情面板可能暂时显示旧聚合             | 标记 dirty, 从头重建当天聚合                     |
+| 单个维护任务失败                 | `WorkflowService.performMaintenanceIfNeeded`                                | 使用已有 daily 或空 snapshot                 | 对应日期标记 dirty                               |
 | Sparkle 配置缺失                 | `AppUpdater.init`                                                                | 更新开关禁用, 操作显示"未配置更新资源"       | 不创建 updater controller                        |
 | 手动检查没有更新                 | `updaterDidNotFindUpdate`                                                        | 显示"没有可用更新"                           | 1 秒后自动清理状态                               |
 | 手动检查失败                     | `didAbortWithError`                                                              | 显示"检查更新失败"                           | 不展示底层错误细节                               |
@@ -478,7 +482,7 @@ Codex 版本探测错误:
 - `CodexUsageSnapshot.recentWeekGrid` 使用 `CodexWeekGrid` 生成周日到周六排列的日期网格
 - 本轮 usage 请求失败但同账号有旧缓存时复用旧值, 并把 `isUsageStale` 设为 `true`
 
-热力图日期规则由 `UsageHeatmapDay.grid` 合并 token 和 workflow stats:
+热力图日期规则由 `UsageHeatmapDay.grid` 合并 token 和 workflow:
 
 - 固定 30 列 x 7 行
 - Hook 开启时包含今天
@@ -557,6 +561,8 @@ Hook 开启且当天没有 token bucket 时, 今天的 token 数显示 `--`。�
 - 菜单面板不可见时只渲染一次静态圆环
 - 普通 tick 不做连续动画, 只有刷新起点变化时播放 0.5 秒恢复动画
 - 如果 Sparkle 自动发现新版, 右侧显示 `panelUpdateMessage`, 双击该文本调用 `startUpdate()`
+- 最右侧显示同步状态图标: 未开启 `icloud.slash`, 已开启空闲 `icloud`, 正在同步 `arrow.trianglehead.clockwise.icloud`, 最近一次同步失败 `exclamationmark.icloud`
+- 同步失败 tooltip 不展示原始 CloudKit error, 只展示「网络不可用」「账号不可用」「服务暂时不可用」「同步失败，请稍后重试」这类归类文案
 
 ## 10. Codex Hook 开启后完整流程
 
@@ -623,10 +629,10 @@ sequenceDiagram
     opt Hook 已启用且 Codex 触发事件
         Codex->>HookApp: 执行 Hook 命令并传入事件内容
         HookApp->>HookApp: 解析事件名, 时间, 目录, 工具和会话字段
-        alt 标准输入为空或不是 JSON
-            HookApp->>HookApp: 使用当前时间和工作目录兜底
+        alt 标准输入为空, 不是 JSON 或缺少 hook_event_name
+            HookApp-->>Codex: 吞掉本次 Hook 并正常退出
         else 事件内容可解析
-            HookApp->>HookApp: 转成本机事件记录
+            HookApp->>HookApp: 转成本机事件记录, 缺失 timestamp/cwd 时使用兜底值
         end
 
         HookApp->>Store: 获取写入锁
@@ -759,17 +765,18 @@ Hook 数据目录:
 | `stats.lock`              | `flock` 锁文件                                   |
 | `maintenance.json`        | pending, dirty, offset, size, corrupt 等维护状态 |
 
-## 12. Workflow Stats 维护与聚合流程
+## 12. Workflow 维护与聚合流程
 
-`WorkflowStatsViewModel` 刷新规则:
+`WorkflowViewModel` 刷新规则:
 
-- `refreshIfNeeded(performMaintenance: false)` 至少间隔 5 秒
-- `performMaintenance: true` 时跳过 5 秒节流, 直接刷新
-- 如果普通读取尚未结束, 带维护的刷新会通过 `RefreshTaskCoordinator` 取消旧任务, 确保旧结果不会回写
-- 打开菜单面板时如果 Hook 开启, 只读取现有 `daily.jsonl`, 不维护
-- app-server 自动刷新倒计时重置时, 如果 Hook 开启, 触发一次带维护的 workflow stats 刷新
+- `refreshIfNeeded()` 只负责普通 UI 读取, 至少间隔 5 秒
+- 打开菜单面板时如果 Hook 开启, 只读取现有 `daily.jsonl` 和同步缓存, 不维护, 不联网
+- app-server 自动刷新倒计时重置时, 如果 Hook 开启, 通过 `WorkflowSyncScheduler.requestMaintenance(allowsSync: true)` 请求一次维护
+- 同步开关开启、Hook 重新开启或同步账号恢复可用时, 通过 `WorkflowSyncScheduler.requestSync()` 请求一次同步维护
+- `WorkflowSyncScheduler` 是维护/同步任务的唯一调度者, 负责运行中、待补跑、冷却窗口和最终状态校验
+- `WorkflowViewModel.refreshMaintenance(synchronize:)` 不自行判断维护并发, 只取消普通读取并执行一次明确的 `WorkflowService.loadSnapshot(performMaintenance: true, synchronize: ...)`
 
-维护流程在 `WorkflowStatsService` actor 内串行执行
+维护流程在 `WorkflowService` actor 内串行执行
 
 ```mermaid
 flowchart TD
@@ -806,7 +813,7 @@ flowchart TD
 - 210 天外的 `events/YYYY-MM-DD.jsonl` 在主 App 维护流程中删除
 - 坏 JSONL 行跳过并计入 `corrupt`, 不阻断整天聚合
 
-UI 展示指标来自 `WorkflowDailyAggregate.stats`:
+UI 展示指标来自 `WorkflowDailyAggregate.metrics`:
 
 | UI 字段    | 生成规则                                                |
 | ---------- | ------------------------------------------------------- |
@@ -817,7 +824,7 @@ UI 展示指标来自 `WorkflowDailyAggregate.stats`:
 | 权限请求   | `permissionRequestCount`                                |
 | 上下文压缩 | `max(preCompactCount, postCompactCount)`                |
 
-iCloud 同步只在 `performMaintenance: true` 的刷新中执行。`WorkflowSyncService` 先用本机 daily 聚合生成脱敏 `WorkflowCloudDailyAggregate`, 再按日期稳定排序候选项, 每批最多上传 25 天, 每轮最多使用 20 秒。每批成功后立即保存 `state.hashByDate` 和 `lastUploadAt`, 未完成的 backfill 留给后续自动刷新继续。没有 `cursor.data` 时先 query 全量 `CodexBarDailyAggregate` 回填 `cache.jsonl`; 有游标时优先拉 CloudKit 增量, 游标失效或增量失败时不写入日志窗口, 直接全量重建缓存。写入 `cache.jsonl` 前会过滤当前设备自己的记录, 只保留其他设备记录。增量路径先写 `cache.jsonl`, 成功后再写 `cursor.data`, 避免游标提前推进导致未落盘记录被跳过。
+跨设备同步只在 `performMaintenance: true, synchronize: true` 的刷新中执行。`WorkflowSyncScheduler` 会合并同步开关、Hook 重新开启、同步账号恢复可用和自动刷新产生的同步请求；同步中不取消重启, 冷却窗口内只保留一次待补跑请求, 补跑前重新校验 Hook 开启、跨设备同步偏好为 true 且同步账号可用。`WorkflowSyncService` 先用本机 daily 聚合生成脱敏 `WorkflowSyncedDailyAggregate`, 再按日期稳定排序候选项, 每批最多上传 25 天, 每轮最多使用 20 秒。每批成功后立即保存 `state.hashByDate` 和 `lastUploadAt`, 未完成的 backfill 留给后续自动刷新继续。没有 `cursor.data` 时先 query 全量 `CodexBarDailyAggregate` 回填 `cache.jsonl`; 有游标时优先拉 CloudKit 增量, 游标失效或增量失败时不写入日志窗口, 直接全量重建缓存。写入 `cache.jsonl` 前会过滤当前设备自己的记录, 只保留其他设备记录。增量路径先写 `cache.jsonl`, 成功后再写 `cursor.data`, 避免游标提前推进导致未落盘记录被跳过。同步失败会通过 `CodexBar.workflowSyncDidFinish` 通知发送 `didSucceed=false` 和归类后的 `failureMessage`, 主面板同步图标进入失败态。
 
 ## 13. 设置窗口流程
 
@@ -837,7 +844,7 @@ iCloud 同步只在 `performMaintenance: true` 的刷新中执行。`WorkflowSyn
 - `CodexCLIVersionViewModel.refresh()`
 - `CodexStatusViewModel.refreshCodexConnectionInfo()`
 
-App 再次成为 active 时, 也会刷新 Codex 版本区、iCloud 可用性, 并在已安装 Hook 时重新运行 `hooks/list` 验证。
+App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并在已安装 Hook 时重新运行 `hooks/list` 验证。
 
 版本探测内部有 60 秒节流, 避免 `onAppear` 和 `didBecomeActive` 连续触发时重复启动子进程
 
@@ -849,7 +856,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、iCloud 可用性, �
 | 自动检查更新    | Sparkle updater                                                                      | 设置 `automaticallyChecksForUpdates`                                                        |
 | 使用快捷键      | `GlobalHotKeySettings.shortcut`                                                      | 写入 `UserDefaults` 并注册 hot key                                                          |
 | 启用 Codex Hook | app-server `config/read` / `hooks/list` / `config/batchWrite`, `~/.codex/hooks.json` | 检查全局 Hook 开关后追加或移除当前 CodexBar command hook, 并维护对应 `hooks.state` 信任状态 |
-| 跨设备同步      | `WorkflowSyncSettings` + CloudKit account status                               | Hook 开启且 iCloud 可用时写入 `UserDefaults`; 开启时标记 `needsBackfill`                    |
+| 跨设备同步      | `WorkflowSyncSettings` + CloudKit account status + `WorkflowSyncScheduler` | Hook 开启且同步账号可用时写入 `UserDefaults`; 开启时标记 `needsBackfill` 并请求调度同步     |
 | Codex 版本      | `CodexCLIVersionSnapshot` + 当前 app-server 握手信息                                 | 路径点击复制到剪贴板                                                                        |
 | CodexBar 版本   | Bundle + AppUpdater 状态                                                             | 有更新状态时优先显示动态消息                                                                |
 
@@ -857,7 +864,8 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、iCloud 可用性, �
 
 - 开机启动失败显示在设置组与底部按钮组之间的独立错误组
 - Hook 设置失败, 全局禁用, 自动信任写入失败或验证异常显示在 Hook 选项下方
-- iCloud 不可用时显示在跨设备同步开关下方
+- 同步账号不可用时显示在跨设备同步开关下方
+- 同步运行失败不在设置页展示原始错误; 主面板同步图标 tooltip 显示归类后的短错误
 - 没有登录项错误时不渲染错误组
 - 快捷键无法识别, 规则不合法或注册冲突显示在快捷键行内
 - 更新检查状态显示在 CodexBar 版本行
@@ -978,7 +986,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、iCloud 可用性, �
 | UI, 控制器, ViewModel, 设置, 更新 | `@MainActor`                                                             |
 | `CodexStatusService`              | actor 隔离 app-server 连接、缓存和重建状态                               |
 | `CodexCLIVersionService`          | actor + `async let` 并发探测版本                                         |
-| `WorkflowStatsService`            | actor 串行维护 daily 聚合和快照读取                                      |
+| `WorkflowService`                 | actor 串行维护 daily 聚合和快照读取                                      |
 | `RequestLogStorage`               | `OSAllocatedUnfairLock` 保护后台同步写入                                 |
 | `RequestLogStore`                 | `@MainActor ObservableObject` 发布日志快照                               |
 | Hook 写入                         | `stats.lock` + `flock(LOCK_EX)`                                          |

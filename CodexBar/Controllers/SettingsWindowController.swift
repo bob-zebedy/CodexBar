@@ -7,25 +7,25 @@ final class SettingsWindowController: HostingWindowController {
     private let viewModel: CodexStatusViewModel
     private let appUpdater: AppUpdater
     private let codexHookSettings: CodexHookSettings
-    private let cloudSyncSettings: WorkflowSyncSettings
+    private let syncSettings: WorkflowSyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
-    private let onICloudSyncChanged: () -> Void
+    private let onSyncChanged: (Bool) -> Void
 
     init(
         viewModel: CodexStatusViewModel,
         appUpdater: AppUpdater,
         codexHookSettings: CodexHookSettings,
-        cloudSyncSettings: WorkflowSyncSettings,
+        syncSettings: WorkflowSyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
         screenProvider: @escaping () -> NSScreen?,
-        onICloudSyncChanged: @escaping () -> Void
+        onSyncChanged: @escaping (Bool) -> Void
     ) {
         self.viewModel = viewModel
         self.appUpdater = appUpdater
         self.codexHookSettings = codexHookSettings
-        self.cloudSyncSettings = cloudSyncSettings
+        self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
-        self.onICloudSyncChanged = onICloudSyncChanged
+        self.onSyncChanged = onSyncChanged
         super.init(screenProvider: screenProvider)
     }
 
@@ -38,9 +38,9 @@ final class SettingsWindowController: HostingWindowController {
         let hostingController = NSHostingController(
             rootView: AppSettingsView(
                 codexHookSettings: codexHookSettings,
-                cloudSyncSettings: cloudSyncSettings,
+                syncSettings: syncSettings,
                 globalHotKeySettings: globalHotKeySettings,
-                onICloudSyncChanged: onICloudSyncChanged
+                onSyncChanged: onSyncChanged
             )
             .environmentObject(viewModel)
             .environmentObject(appUpdater)
@@ -78,6 +78,6 @@ final class SettingsWindowController: HostingWindowController {
     private func refreshSettingsState() {
         codexHookSettings.refresh()
         codexHookSettings.verifyInstalledHooks()
-        cloudSyncSettings.refresh()
+        syncSettings.refresh()
     }
 }
