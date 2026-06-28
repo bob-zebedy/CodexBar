@@ -165,7 +165,6 @@ private final class StatusItemController: NSObject {
         button.target = self
         button.action = #selector(statusItemClicked(_:))
         button.imagePosition = .imageOnly
-        button.toolTip = "CodexBar"
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
 
