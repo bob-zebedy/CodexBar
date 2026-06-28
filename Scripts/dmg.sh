@@ -3,24 +3,35 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build}"
 
 APP_PATH="${1:-}"
 OUTPUT_PATH="${2:-}"
 
+if [[ "${BUILD_DIR}" != /* ]]; then
+    BUILD_DIR="${PROJECT_DIR}/${BUILD_DIR}"
+fi
+
 if [[ -z "${APP_PATH}" ]]; then
+    if [[ ! -d "${BUILD_DIR}" ]]; then
+        echo "error: build 目录不存在: ${BUILD_DIR}" >&2
+        echo "usage: Scripts/dmg.sh [App.app] [Output.dmg]" >&2
+        exit 1
+    fi
+
     apps=()
     while IFS= read -r app; do
         apps+=("${app}")
-    done < <(find "${PROJECT_DIR}" -maxdepth 1 -type d -name "*.app" | sort)
+    done < <(find "${BUILD_DIR}" -maxdepth 1 -type d -name "*.app" | sort)
 
     if [[ "${#apps[@]}" -eq 0 ]]; then
-        echo "error: 当前目录没有找到 .app" >&2
+        echo "error: build 目录没有找到 .app: ${BUILD_DIR}" >&2
         echo "usage: Scripts/dmg.sh [App.app] [Output.dmg]" >&2
         exit 1
     fi
 
     if [[ "${#apps[@]}" -gt 1 ]]; then
-        echo "error: 当前目录找到多个 .app, 请指定要打包的 app 路径: " >&2
+        echo "error: build 目录找到多个 .app, 请指定要打包的 app 路径: " >&2
         printf '  %s\n' "${apps[@]}" >&2
         exit 1
     fi
@@ -85,7 +96,7 @@ if [[ -z "${VERSION}" ]]; then
 fi
 
 if [[ -z "${OUTPUT_PATH}" ]]; then
-    OUTPUT_PATH="${PROJECT_DIR}/${APP_NAME}-v${VERSION}.dmg"
+    OUTPUT_PATH="${BUILD_DIR}/${APP_NAME}-v${VERSION}.dmg"
 elif [[ "${OUTPUT_PATH}" != /* ]]; then
     OUTPUT_PATH="${PROJECT_DIR}/${OUTPUT_PATH}"
 fi

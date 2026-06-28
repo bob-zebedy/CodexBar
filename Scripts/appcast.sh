@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build}"
 
 DMG_PATH="${1:-}"
 APPCAST_PATH="${APPCAST_PATH:-${PROJECT_DIR}/appcast.xml}"
@@ -14,11 +15,17 @@ SIGN_UPDATE="${SIGN_UPDATE:-}"
 XCODE_PROJECT="${XCODE_PROJECT:-}"
 XCODE_SCHEME="${XCODE_SCHEME:-CodexBar}"
 
+if [[ "${BUILD_DIR}" != /* ]]; then
+    BUILD_DIR="${PROJECT_DIR}/${BUILD_DIR}"
+fi
+
 usage() {
     cat >&2 <<USAGE
 usage: Scripts/appcast.sh [CodexBar-vX.Y.Z.dmg]
 
 Environment:
+  BUILD_DIR               Directory used for default DMG lookup.
+                           Defaults to build/.
   APPCAST_PATH            Path to appcast.xml. Defaults to appcast.xml.
   DOWNLOAD_BASE_URL       Base URL for DMG downloads.
                            Defaults to https://codexbar.zabrian.app/download.
@@ -61,18 +68,26 @@ read_build_setting() {
         '
 }
 
-# Print the single project-root entry matching a glob, or fail:
+# Print the single entry matching a glob in a directory, or fail:
 # $1 noun for "no X found" $2 find -type $3 -name glob
 # $4 noun for "multiple X found" $5 hint appended to the multiple-match error
-# Exits 1 when nothing matches, 2 when more than one matches (printing the list).
+# $6 directory to search. Exits 1 when nothing matches, 2 when more than one
+# matches (printing the list).
 find_single() {
+    local search_dir="$6"
     local items=()
+
+    if [[ ! -d "${search_dir}" ]]; then
+        echo "error: search directory not found: ${search_dir}" >&2
+        return 1
+    fi
+
     while IFS= read -r item; do
         items+=("${item}")
-    done < <(find "${PROJECT_DIR}" -maxdepth 1 -type "$2" -name "$3" | sort)
+    done < <(find "${search_dir}" -maxdepth 1 -type "$2" -name "$3" | sort)
 
     if [[ "${#items[@]}" -eq 0 ]]; then
-        echo "error: no $1 found in project root" >&2
+        echo "error: no $1 found in ${search_dir}" >&2
         return 1
     fi
 
@@ -91,7 +106,7 @@ if [[ "${DMG_PATH}" == "-h" || "${DMG_PATH}" == "--help" ]]; then
 fi
 
 if [[ -z "${DMG_PATH}" ]]; then
-    DMG_PATH="$(find_single DMG f '*.dmg' DMGs 'specify one explicitly:')" || {
+    DMG_PATH="$(find_single DMG f '*.dmg' DMGs 'specify one explicitly:' "${BUILD_DIR}")" || {
         [[ "$?" -eq 1 ]] && usage
         exit 1
     }
@@ -114,7 +129,7 @@ if [[ ! -f "${APPCAST_PATH}" ]]; then
 fi
 
 if [[ -z "${XCODE_PROJECT}" ]]; then
-    XCODE_PROJECT="$(find_single .xcodeproj d '*.xcodeproj' '.xcodeproj files' 'set XCODE_PROJECT')" || exit 1
+    XCODE_PROJECT="$(find_single .xcodeproj d '*.xcodeproj' '.xcodeproj files' 'set XCODE_PROJECT' "${PROJECT_DIR}")" || exit 1
 elif [[ "${XCODE_PROJECT}" != /* ]]; then
     XCODE_PROJECT="${PROJECT_DIR}/${XCODE_PROJECT}"
 fi
@@ -206,13 +221,13 @@ if [[ "${INCLUDE_RELEASE_NOTES}" != "0" ]]; then
 fi
 
 APPCAST_ITEM="        <item>
-            <title>${TITLE}</title>
-            <sparkle:version>${BUILD_VERSION}</sparkle:version>
-            <sparkle:shortVersionString>${SHORT_VERSION}</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>${MIN_SYSTEM_ESCAPED}</sparkle:minimumSystemVersion>
-            ${RELEASE_NOTES_XML}        <pubDate>${PUB_DATE}</pubDate>
-            <enclosure url=\"${DOWNLOAD_URL_ESCAPED}\" sparkle:edSignature=\"${ED_SIGNATURE_ESCAPED}\" length=\"${ARCHIVE_LENGTH}\" type=\"application/octet-stream\"/>
-        </item>"
+    <title>${TITLE}</title>
+    <sparkle:version>${BUILD_VERSION}</sparkle:version>
+    <sparkle:shortVersionString>${SHORT_VERSION}</sparkle:shortVersionString>
+    <sparkle:minimumSystemVersion>${MIN_SYSTEM_ESCAPED}</sparkle:minimumSystemVersion>
+    ${RELEASE_NOTES_XML}        <pubDate>${PUB_DATE}</pubDate>
+    <enclosure url=\"${DOWNLOAD_URL_ESCAPED}\" sparkle:edSignature=\"${ED_SIGNATURE_ESCAPED}\" length=\"${ARCHIVE_LENGTH}\" type=\"application/octet-stream\"/>
+</item>"
 
 echo "==> Updating appcast"
 APPCAST_ITEM="${APPCAST_ITEM}" APPCAST_VERSION="${BUILD_VERSION}" perl -0pi -e '

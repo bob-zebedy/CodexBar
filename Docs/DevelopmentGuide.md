@@ -447,6 +447,8 @@ Codex 版本探测错误:
 
 | 脚本                 | 失败条件                                                        | 行为                                   |
 | -------------------- | --------------------------------------------------------------- | -------------------------------------- |
+| `Scripts/build.sh`   | 找不到 Xcode 工程、签名命令、notary 凭据或导出 App              | `set -euo pipefail` 直接退出并打印错误 |
+| `Scripts/build.sh`   | archive、Developer ID 导出、notary、staple 或签名校验失败       | 退出, 不替换 build 中最终 App          |
 | `Scripts/dmg.sh`     | 找不到唯一 App, 版本号缺失, DMG 挂载失败, 缺少必要命令          | `set -euo pipefail` 直接退出并打印错误 |
 | `Scripts/appcast.sh` | 找不到 DMG, appcast, Xcode 工程, build setting 或 `sign_update` | 直接退出并打印错误                     |
 | `Scripts/appcast.sh` | 无法解析 `sparkle:edSignature`                                  | 打印 sign_update 原始输出并退出        |
@@ -965,18 +967,31 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 
 发布脚本位于 `Scripts/`, 修改后至少运行 shell 语法检查
 
+`Scripts/build.sh [options] [Output.app]`:
+
+- 使用 `xcodebuild archive` 生成 Release archive, 默认路径为 `build/CodexBar.xcarchive`
+- 构建参数统一使用命令行 options; 运行 `Scripts/build.sh --help` 查看完整参数
+- 每次运行前先清理 `build/` 目录, 只允许清理项目目录内的 build 路径或 `/private/tmp/` 下路径
+- 使用 `developer-id` export options 导出 App; 未传 `--export-options` 时临时生成
+- 默认通过 `-allowProvisioningUpdates` 允许自动签名补齐 provisioning, 可用 `--no-provisioning-updates` 关闭
+- notary 凭据优先使用 `--notary-profile`; 未设置时使用 `--apple-id`、`--notary-password` 和 `--team-id`; 如果两组参数同时提供, `--notary-profile` 生效, Apple ID 三件套会被忽略
+- 将导出的 App 压缩后提交 `xcrun notarytool submit --wait`, 成功后对 App 执行 `stapler staple` 和 `stapler validate`
+- 通过 `codesign --verify --deep --strict` 校验导出 App 和最终 App; 默认额外执行 `spctl --assess`
+- 成功后把最终 App 写入 `build/CodexBar.app` 或传入的 `Output.app`; notary 失败时不替换最终 App
+- 可用 `--skip-notarization` 只执行 archive/export/signature verify, 便于本地调试脚本
+
 `Scripts/dmg.sh [App.app] [Output.dmg]`:
 
-- 解析 App 路径, 未指定时从项目根查找唯一 `.app`
+- 解析 App 路径, 未指定时从 `build/` 查找唯一 `.app`
 - 读取 `MARKETING_VERSION`, 优先从 Xcode build settings 读取, 失败后回退 `project.pbxproj` 和 App `Info.plist`
 - 准备临时 staging 目录, 复制 `.app`, 挂载后通过 Finder 创建 `/Applications` alias
 - 创建可写 DMG
 - 挂载 DMG 并用 AppleScript 写 Finder icon view 布局
-- 压缩为最终 UDZO DMG
+- 压缩为最终 UDZO DMG; 未指定输出路径时写入 `build/CodexBar-vX.Y.Z.dmg`
 
 `Scripts/appcast.sh [CodexBar-vX.Y.Z.dmg]`:
 
-- 解析 DMG, appcast, 下载地址, release notes 地址和 Xcode 工程
+- 解析 DMG, appcast, 下载地址, release notes 地址和 Xcode 工程; 未指定 DMG 时从 `build/` 查找唯一 `.dmg`
 - 读取 Release 配置中的 `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION` 和 `PRODUCT_NAME`
 - 查找 Sparkle `sign_update`
 - 对 DMG 签名并解析 `sparkle:edSignature` 和长度
