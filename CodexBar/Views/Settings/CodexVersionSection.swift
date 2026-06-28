@@ -12,7 +12,7 @@ struct CodexVersionSection: View {
             HStack(spacing: 10) {
                 Image(systemName: "number.circle")
                     .frame(width: Metrics.iconWidth)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tint)
 
                 Text("Codex 版本")
 
@@ -41,7 +41,7 @@ struct CodexVersionSection: View {
         return HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
                 .frame(width: Metrics.iconWidth)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.tint)
 
             Text(item.source.displayName)
                 .foregroundStyle(.secondary)

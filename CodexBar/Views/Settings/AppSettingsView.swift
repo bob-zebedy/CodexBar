@@ -192,7 +192,7 @@ private extension AppSettingsView {
         return HStack(spacing: 10) {
             Image(systemName: "info.circle")
                 .frame(width: Metrics.iconWidth)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tint)
 
             Text("CodexBar 版本")
 
