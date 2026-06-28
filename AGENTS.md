@@ -131,6 +131,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - 优先读取 `rateLimitsByLimitId`; 为空时回退顶层 `rateLimits`。
 - 顶层 `rateLimits.limitId` 指向的主 limit 置顶, 缺省 `"codex"`。
 - 其余 limit 按 `limitName ?? limitId` 做 localized standard 排序, 再按 `limitId` 稳定排序。
+- `rateLimitResetCredits.availableCount` 读入 `resetCreditsAvailableCount`; 缺失时为 `nil`。
 - `primary` / `secondary` 合成 `[QuotaWindow]`; 没有窗口的 limit 被过滤。
 - `QuotaWindow.remainingPercent = clamp(100 - usedPercent, 0...100)`; 无 `usedPercent` 视为无数据。
 - `windowDurationMins` 标签: 整天 `ND`, 整小时 `NH`, 否则 `NM`, 缺失或非正数为「额度」。
@@ -177,18 +178,20 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - `LiquidGlassStyle.swift` 是自绘玻璃效果, 不是 macOS 原生 `.glassEffect`; 没有明确设计要求时不要切换。
 - 账号图标双击触发刷新。邮箱文本双击切换模糊。
 - 计划名是右侧加粗纯文字; `planBadgeTint(for:)` 优先级: enterprise -> team/business -> pro -> plus -> edu -> free -> 默认 cyan。
+- `resetCreditsAvailableCount` 有值时, 只在置顶主 limit 标题右侧显示 `重置 xN`。
 - 额度条展示剩余百分比, 固定为 50 个胶囊, 每个胶囊宽 `3.5`, 间距 `2`, 高 `12`; 颜色按 20% 一档: 红、橙、黄、薄荷、绿。
 - 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到额度条间距 `12`, 额度条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`; 不通过加宽菜单面板解决额度行溢出。
 - 无 quota 数据时显示 `--` / `暂无数据`, 并使用占位色。
 - `rateLimits` 或 `usage` 使用旧缓存时, 对应区域通过 `.markStale(true)` 降低透明度到 0.55, 不降低饱和度; 下一轮对应接口成功后恢复正常透明度。
 - 重置时间格式是 `MM-dd HH:mm`, 使用等宽数字, 在额度行最右侧对齐。
 - 更新时间行显示倒计时圆环、「数据更新时间」和 `HH:mm:ss`。
-- 更新时间行最右侧显示同步状态图标: 未开启为 `icloud.slash`, 已开启为空闲为 `icloud`, 正在同步为 `arrow.trianglehead.clockwise.icloud`, 同步失败为 `exclamationmark.icloud`; 失败态 tooltip 展示归类后的同步错误文案。
+- 更新时间行最右侧显示同步状态图标: 只有 Codex Hook 开启、跨设备同步偏好开启且同步账号可用时才进入 active 同步态; 非 active 同步统一为 `icloud.slash`, tooltip 为「同步未开启」; active 空闲为 `icloud`, tooltip 显示 `最近同步: yyyy-MM-dd HH:mm:ss`, 时间来源和设置页「最近同步」一致, 没有成功上传记录时显示「暂无同步记录」; active 同步中为 `arrow.trianglehead.clockwise.icloud`; active 同步失败为 `exclamationmark.icloud`, tooltip 展示归类后的同步错误文案。
 - 倒计时只在菜单面板可见时用 `TimelineView` 每秒 tick; 普通 tick 不做连续动画, 仅刷新起点变化时播放恢复动画。
 - token 区域显示「单日峰值」和「全时累计」; `TokenCountText` 对 1K 以下显示完整整数, 1K 起显示 K/M/B。
 - token 区域还显示「当前连胜」、「最长连胜」和「最长任务」。
 - 热力图是近 30 周、30 列 x 7 行、周日到周六排列; Codex Hook 开启时包含今天, Hook 关闭时仅在 app-server 已返回当天 token bucket 时包含今天。
 - 热力图 hover 使用 `HeatmapDetailPanelController` 展示侧边详情面板, 不是菜单面板内 tooltip; 面板作为菜单面板 child window, 不接收鼠标事件, 左右贴边展示并在屏幕可见区域内夹紧。
+- 详情面板内容更新时保留 `NSPanel` / `NSHostingController`, 但每次替换 `hostingController.rootView` 并同步 `setContentSize`; 不用常驻 `ObservableObject` model 推送 hover context, 避免 Hook 开关切换 token-only / workflow 布局后触发 AppKit 递归布局。
 - Hook 关闭时详情面板显示日期、token 数和「用量强度」分段条, 尺寸 `212 x 84`。
 - Hook 开启时详情面板首行左侧显示日期、右侧显示 token 数, 当天 token 数显示 `--`; 后续显示「用量强度」、「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」, 尺寸 `212 x 189`。
 - 「用量强度」前置圆点固定为蓝色, 不随用量强度变化。

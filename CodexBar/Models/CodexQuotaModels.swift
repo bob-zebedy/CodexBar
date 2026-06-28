@@ -4,6 +4,7 @@ import Foundation
 nonisolated struct CodexQuotaSnapshot: Equatable {
     let account: CodexAccount
     let planType: String?
+    let resetCreditsAvailableCount: Int?
     let generatedAt: Date
     let limits: [CodexQuotaLimitSnapshot]
     let usage: CodexUsageSnapshot?
@@ -104,6 +105,12 @@ nonisolated struct QuotaWindow: Equatable, Identifiable {
 nonisolated struct AccountRateLimitsResponse: Decodable {
     let rateLimits: RateLimitSnapshot
     let rateLimitsByLimitId: [String: RateLimitSnapshot]?
+    let rateLimitResetCredits: RateLimitResetCreditsSummary?
+}
+
+/// app-server 返回的可用额度重置次数
+nonisolated struct RateLimitResetCreditsSummary: Decodable {
+    let availableCount: Int
 }
 
 /// app-server 返回的单个 limit, primary/secondary 可能独立缺失
@@ -156,6 +163,7 @@ nonisolated extension CodexQuotaSnapshot {
         self.init(
             account: account,
             planType: rateLimitsResponse?.rateLimits.planType,
+            resetCreditsAvailableCount: rateLimitsResponse?.rateLimitResetCredits?.availableCount,
             generatedAt: generatedAt,
             limits: limits,
             usage: usage,

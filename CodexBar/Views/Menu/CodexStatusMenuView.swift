@@ -72,7 +72,11 @@ private extension CodexStatusMenuView {
             EmptyDataPanel()
         } else {
             if !snapshot.limits.isEmpty {
-                QuotaLimitsSection(limits: snapshot.limits, isStale: snapshot.isRateLimitsStale)
+                QuotaLimitsSection(
+                    limits: snapshot.limits,
+                    resetCreditsAvailableCount: snapshot.resetCreditsAvailableCount,
+                    isStale: snapshot.isRateLimitsStale
+                )
             }
 
             if let usage = snapshot.usage {
@@ -98,7 +102,10 @@ private extension CodexStatusMenuView {
             countdownStartedAt: viewModel.autoRefreshCountdownStartedAt ?? snapshot.generatedAt,
             countdownInterval: viewModel.autoRefreshInterval,
             isCountdownActive: menuSurfaceVisibility.isVisible,
-            syncDisplayState: WorkflowSyncDisplayState(settings: syncSettings),
+            syncDisplayState: WorkflowSyncDisplayState(
+                isHookEnabled: codexHookSettings.isEnabled,
+                settings: syncSettings
+            ),
             updateMessage: appUpdater.panelUpdateMessage,
             startUpdate: appUpdater.startUpdate
         )

@@ -18,7 +18,6 @@ private final class DetailPanel: NSPanel {
 final class HeatmapDetailPanelController {
     private var panel: NSPanel?
     private var hostingController: NSHostingController<UsageHeatmapDayDetailView>?
-    private var detailModel: UsageHeatmapDayDetailModel?
     private var hideTask: Task<Void, Never>?
     private var currentSide = UsageHeatmapDetailSide.left
     private var visibilityGeneration = 0
@@ -319,21 +318,20 @@ final class HeatmapDetailPanelController {
     }
 
     private func updateContent(_ context: UsageHeatmapHoverContext) {
-        if let detailModel {
-            withAnimation(Animation.codexStatus) {
-                detailModel.context = context
-            }
+        let rootView = UsageHeatmapDayDetailView(context: context)
+        let size = UsageHeatmapDayDetailView.panelSize(showsWorkflow: context.showsWorkflow)
+
+        if let hostingController {
+            hostingController.rootView = rootView
         } else {
-            let detailModel = UsageHeatmapDayDetailModel(context: context)
-            let rootView = UsageHeatmapDayDetailView(model: detailModel)
             let hostingController = NSHostingController(rootView: rootView)
             hostingController.sizingOptions = [.preferredContentSize]
             panel?.contentViewController = hostingController
             self.hostingController = hostingController
-            self.detailModel = detailModel
         }
 
         configurePanelLayers()
+        panel?.setContentSize(size)
     }
 
     private func configurePanelLayers() {

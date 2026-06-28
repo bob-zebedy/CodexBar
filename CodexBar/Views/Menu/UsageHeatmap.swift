@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import SwiftUI
 
 /// hover 详情面板需要的完整上下文, 包括屏幕坐标和峰值 token
@@ -549,48 +548,32 @@ private final class HeatmapScreenFrameReportingView: NSView {
     }
 }
 
-/// 热力图 hover 详情内容, Hook 开启时额外展示工作流统计
-@MainActor
-final class UsageHeatmapDayDetailModel: ObservableObject {
-    @Published var context: UsageHeatmapHoverContext
-
-    init(context: UsageHeatmapHoverContext) {
-        self.context = context
-    }
-}
-
 struct UsageHeatmapDayDetailView: View {
-    @ObservedObject var model: UsageHeatmapDayDetailModel
+    let context: UsageHeatmapHoverContext
     @Environment(\.colorScheme) private var colorScheme
-
-    private var context: UsageHeatmapHoverContext {
-        model.context
-    }
 
     var body: some View {
         let panelSize = Self.panelSize(showsWorkflow: context.showsWorkflow)
 
-        VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
-            detailContent
-        }
-        .padding(.horizontal, Metrics.horizontalPadding)
-        .padding(.vertical, Metrics.verticalPadding)
-        .frame(
-            width: panelSize.width,
-            height: panelSize.height,
-            alignment: .topLeading
-        )
-        .liquidGlassSurface(cornerRadius: Metrics.cornerRadius, isOuterSurface: true)
-        .background {
-            RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous)
-                .fill(panelBackingFill)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous)
-                .strokeBorder(panelBoundaryColor, lineWidth: Metrics.boundaryLineWidth)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous))
-        .animation(Metrics.statusAnimation, value: context)
+        detailContent
+            .padding(.horizontal, Metrics.horizontalPadding)
+            .padding(.vertical, Metrics.verticalPadding)
+            .frame(
+                width: panelSize.width,
+                height: panelSize.height,
+                alignment: .topLeading
+            )
+            .liquidGlassSurface(cornerRadius: Metrics.cornerRadius, isOuterSurface: true)
+            .background {
+                RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous)
+                    .fill(panelBackingFill)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous)
+                    .strokeBorder(panelBoundaryColor, lineWidth: Metrics.boundaryLineWidth)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous))
+            .animation(Metrics.statusAnimation, value: context)
     }
 
     static var panelCornerRadius: CGFloat {
@@ -614,12 +597,10 @@ struct UsageHeatmapDayDetailView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: Metrics.headerSpacing) {
-            VStack(alignment: .leading, spacing: 4) {
-                dateText
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .liquidGlassCapsule(tint: .accentColor)
-            }
+            dateText
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .liquidGlassCapsule(tint: .accentColor)
 
             Spacer(minLength: 8)
 

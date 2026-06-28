@@ -136,16 +136,17 @@ struct EmptyDataPanel: View {
 /// 多个 limit 的额度区, 使用 stale 透明度标记缓存回退数据
 struct QuotaLimitsSection: View {
     let limits: [CodexQuotaLimitSnapshot]
+    let resetCreditsAvailableCount: Int?
     let isStale: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(limits) { limit in
-                if limit.id != limits.first?.id {
+                if !isPrimaryLimit(limit) {
                     LiquidGlassDivider()
                 }
 
-                quotaLimitSection(limit)
+                quotaLimitSection(limit, showsResetCredits: isPrimaryLimit(limit))
             }
         }
         .markStale(isStale)
@@ -153,13 +154,25 @@ struct QuotaLimitsSection: View {
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
     }
 
-    private func quotaLimitSection(_ limit: CodexQuotaLimitSnapshot) -> some View {
+    private func quotaLimitSection(_ limit: CodexQuotaLimitSnapshot, showsResetCredits: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(limit.title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            HStack(spacing: 8) {
+                Text(limit.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer(minLength: 8)
+
+                if showsResetCredits, let resetCreditsText {
+                    Text(resetCreditsText)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+            }
 
             VStack(spacing: 8) {
                 ForEach(limit.windows) { window in
@@ -167,6 +180,18 @@ struct QuotaLimitsSection: View {
                 }
             }
         }
+    }
+
+    private var primaryLimitId: CodexQuotaLimitSnapshot.ID? {
+        limits.first?.id
+    }
+
+    private var resetCreditsText: String? {
+        resetCreditsAvailableCount.map { "重置 x\($0)" }
+    }
+
+    private func isPrimaryLimit(_ limit: CodexQuotaLimitSnapshot) -> Bool {
+        limit.id == primaryLimitId
     }
 }
 
@@ -249,15 +274,18 @@ struct WorkflowSyncDisplayState: Equatable {
         lhs.symbolName == rhs.symbolName && lhs.helpText == rhs.helpText
     }
 
-    init(settings: WorkflowSyncSettings) {
-        if !settings.isEnabled {
+    init(isHookEnabled: Bool, settings: WorkflowSyncSettings) {
+        guard isHookEnabled, settings.isEnabled, settings.isSyncAvailable else {
             self = .disabled
-        } else if settings.isSyncing {
+            return
+        }
+
+        if settings.isSyncing {
             self = .syncing
         } else if settings.hasSyncFailure {
             self = .failed(message: settings.syncFailureMessage)
         } else {
-            self = .enabled
+            self = .enabled(settings.lastUploadAtText)
         }
     }
 
@@ -267,11 +295,13 @@ struct WorkflowSyncDisplayState: Equatable {
         self.helpText = helpText
     }
 
-    private static let enabled = WorkflowSyncDisplayState(
-        symbolName: "icloud",
-        tint: .codexSecondaryLabel,
-        helpText: "同步已开启"
-    )
+    private static func enabled(_ lastSyncText: String?) -> WorkflowSyncDisplayState {
+        WorkflowSyncDisplayState(
+            symbolName: "icloud",
+            tint: .codexSecondaryLabel,
+            helpText: lastSyncText.map { "最近同步: \($0)" } ?? "暂无同步记录"
+        )
+    }
 
     private static let disabled = WorkflowSyncDisplayState(
         symbolName: "icloud.slash",

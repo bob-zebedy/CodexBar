@@ -49,11 +49,17 @@ codex app-server --listen stdio://
 同一会话后续读取:
 
 - `account/read` 每轮复用连接时用 `refreshToken: false` 更新账户状态。
-- `account/rateLimits/read` 读取额度。
+- `account/rateLimits/read` 读取额度, 包括可选的 `rateLimitResetCredits.availableCount`。
 - `account/usage/read` 读取 `summary.lifetimeTokens`、`summary.peakDailyTokens`、`dailyUsageBuckets`。
 - `config/read` 在开启 Codex Hook 前读取有效配置，用于判断 `[features] hooks = false` 或兼容旧名 `codex_hooks = false` 是否禁用了 Hook；关闭清理时也读取 `hooks.state` 以保留其他 Hook 的信任状态。
 - `hooks/list` 在写入 Hook 后或设置页刷新时验证 Codex 实际识别到的 Hook，检查 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`key`、`currentHash`、`warnings` 和 `errors`。
 - `config/batchWrite` 只用于写回 `hooks.state`：开启后把 CodexBar Hook 的 `key/currentHash` upsert 成 `trusted_hash`，关闭时移除对应 key。
+
+`account/rateLimits/read` 的额度模型约定:
+
+- `rateLimitsByLimitId` 优先于顶层 `rateLimits`; 为空时回退顶层 `rateLimits`。
+- 顶层 `rateLimits.limitId` 指向主 limit, 缺省为 `codex`。
+- `rateLimitResetCredits.availableCount` 是可用额度重置次数; 字段缺失时 UI 不显示重置次数。
 
 认证失败时，同会话最多调用一次 `account/read(refreshToken:true)` 后重试原读取。
 

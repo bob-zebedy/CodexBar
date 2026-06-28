@@ -23,17 +23,17 @@
 
 ## 代码入口
 
-| 文件 | 职责 |
-| --- | --- |
-| `CodexBar/Services/Settings/WorkflowSyncSettings.swift` | 设置页状态、同步账号可用性检查、UserDefaults 开关、最近上传时间、同步中和失败通知 |
+| 文件                                                     | 职责                                                                               |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `CodexBar/Services/Settings/WorkflowSyncSettings.swift`  | 设置页状态、同步账号可用性检查、UserDefaults 开关、最近同步时间、同步中和失败通知  |
 | `CodexBar/Services/Workflow/WorkflowSyncScheduler.swift` | 维护/同步任务的唯一调度者, 合并本机维护、CloudKit 同步请求、冷却窗口和最终状态校验 |
-| `CodexBar/Services/Workflow/WorkflowSyncService.swift` | CloudKit 设备标识、上传、拉取、缓存、游标、清理过期记录 |
-| `CodexBar/Services/Workflow/WorkflowService.swift` | 维护本机 daily，并在调度器允许时调用同步服务，把本机 daily 与同步缓存合并成快照 |
-| `CodexBar/Models/CodexWorkflowModels.swift` | 本机聚合、云端脱敏聚合、云端缓存记录、最终 UI 快照的模型和合并规则 |
-| `CodexBar/Views/Menu/CodexStatusMenuSections.swift` | 主面板更新时间行的同步状态图标和失败 tooltip |
-| `CodexBar/Views/Settings/AppSettingsView.swift` | 设置页「跨设备同步」开关、`同步不可用`、同步中和最近上传时间展示 |
-| `CodexBar/Controllers/SettingsWindowController.swift` | 打开设置窗口前刷新 Hook 和同步状态 |
-| `CodexBar/Controllers/StatusItemController.swift` | 自动刷新时触发本机维护，并把同步开关、Hook 和同步可用性变化交给调度器 |
+| `CodexBar/Services/Workflow/WorkflowSyncService.swift`   | CloudKit 设备标识、上传、拉取、缓存、游标、清理过期记录                            |
+| `CodexBar/Services/Workflow/WorkflowService.swift`       | 维护本机 daily，并在调度器允许时调用同步服务，把本机 daily 与同步缓存合并成快照    |
+| `CodexBar/Models/CodexWorkflowModels.swift`              | 本机聚合、云端脱敏聚合、云端缓存记录、最终 UI 快照的模型和合并规则                 |
+| `CodexBar/Views/Menu/CodexStatusMenuSections.swift`      | 主面板更新时间行的同步状态图标、最近同步时间和失败 tooltip                         |
+| `CodexBar/Views/Settings/AppSettingsView.swift`          | 设置页「跨设备同步」开关、`同步不可用`、同步中和最近同步时间展示                   |
+| `CodexBar/Controllers/SettingsWindowController.swift`    | 打开设置窗口前刷新 Hook 和同步状态                                                 |
+| `CodexBar/Controllers/StatusItemController.swift`        | 自动刷新时触发本机维护，并把同步开关、Hook 和同步可用性变化交给调度器              |
 
 ## 本地状态
 
@@ -55,11 +55,11 @@ Sync/cursor.data
 
 各文件职责:
 
-| 文件 | 内容 |
-| --- | --- |
-| `state.json` | 本机同步状态，包括 `deviceId`、每天上传过的 hash、`lastUploadAt`、`lastPrunedDate` |
-| `cache.jsonl` | 从 iCloud 拉取到的其他设备脱敏 daily 记录，一行一条；不保存当前设备自己的云端副本 |
-| `cursor.data` | CloudKit custom zone `CodexBarZone` 的 `CKServerChangeToken`，用于下次增量拉取 |
+| 文件          | 内容                                                                               |
+| ------------- | ---------------------------------------------------------------------------------- |
+| `state.json`  | 本机同步状态，包括 `deviceId`、每天上传过的 hash、`lastUploadAt`、`lastPrunedDate` |
+| `cache.jsonl` | 从 iCloud 拉取到的其他设备脱敏 daily 记录，一行一条；不保存当前设备自己的云端副本  |
+| `cursor.data` | CloudKit custom zone `CodexBarZone` 的 `CKServerChangeToken`，用于下次增量拉取     |
 
 `state.json` 的逻辑结构:
 
@@ -77,9 +77,9 @@ Sync/cursor.data
 
 设置开关存在 `UserDefaults`:
 
-| Key | 含义 |
-| --- | --- |
-| `WorkflowSync.isEnabled` | 用户是否开启过跨设备同步 |
+| Key                          | 含义                                    |
+| ---------------------------- | --------------------------------------- |
+| `WorkflowSync.isEnabled`     | 用户是否开启过跨设备同步                |
 | `WorkflowSync.needsBackfill` | 是否需要对本机现有 daily 数据做一次补传 |
 
 关闭跨设备同步只会把 `WorkflowSync.isEnabled` 写成 `false`，不会删除本地 `state.json`、`cache.jsonl`、`cursor.data`，也不会删除 CloudKit 中已有记录。
@@ -151,7 +151,7 @@ deviceId = HMAC_SHA256(accountSalt, IOPlatformUUID)
 - Codex Hook 本地配置状态
 - `hooks/list` 验证结果
 - CloudKit account status
-- 最近上传时间
+- 最近同步时间
 
 `AppSettingsView.onAppear` 和 App 再次变为 active 时也会刷新同步可用性。
 
@@ -165,23 +165,23 @@ CKContainer.default().accountStatus == .available
 
 UI 状态:
 
-| 状态 | UI 表现 |
-| --- | --- |
-| 同步账号状态还在检查 | 开关不可操作，暂不显示错误 |
-| 同步账号可用但 Hook 关闭 | 开关不可操作 |
-| 同步账号不可用 | 开关不可操作，下方显示 `同步不可用` |
-| Hook 开启且同步账号可用 | 开关可操作 |
-| 同步中 | 开关下方显示 `最近上传` 和小型进度指示 |
-| 有成功上传记录 | 开关下方显示 `最近上传 yyyy-MM-dd HH:mm:ss` |
+| 状态                     | UI 表现                                     |
+| ------------------------ | ------------------------------------------- |
+| 同步账号状态还在检查     | 开关不可操作，暂不显示错误                  |
+| 同步账号可用但 Hook 关闭 | 开关不可操作                                |
+| 同步账号不可用           | 开关不可操作，下方显示 `同步不可用`         |
+| Hook 开启且同步账号可用  | 开关可操作                                  |
+| 同步中                   | 开关下方显示 `最近同步` 和小型进度指示      |
+| 有成功上传记录           | 开关下方显示 `最近同步 yyyy-MM-dd HH:mm:ss` |
 
 主面板「数据更新时间」行最右侧始终显示同步状态图标:
 
-| 状态 | SF Symbol | tooltip |
-| --- | --- | --- |
-| 未开启同步 | `icloud.slash` | `同步未开启` |
-| 已开启且空闲 | `icloud` | `同步已开启` |
-| 已开启且正在同步 | `arrow.trianglehead.clockwise.icloud` | `正在同步` |
-| 已开启且最近一次同步失败 | `exclamationmark.icloud` | 归类后的短错误, 例如 `网络不可用` |
+| 状态                      | SF Symbol                             | tooltip                                                                                                           |
+| ------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 非 active 同步            | `icloud.slash`                        | `同步未开启`; 包括 Hook 关闭、同步偏好关闭、同步账号不可用或仍在检查                                              |
+| active 且空闲             | `icloud`                              | 有成功上传记录时为 `最近同步: yyyy-MM-dd HH:mm:ss`, 没有记录时为 `暂无同步记录`; 时间来源和设置页「最近同步」一致 |
+| active 且正在同步         | `arrow.trianglehead.clockwise.icloud` | `正在同步`                                                                                                        |
+| active 且最近一次同步失败 | `exclamationmark.icloud`              | 归类后的短错误, 例如 `网络不可用`                                                                                 |
 
 开启时:
 
@@ -208,11 +208,11 @@ WorkflowService.loadSnapshot(performMaintenance: true, synchronize: true)
 
 两类刷新行为不同:
 
-| 刷新类型 | 是否维护 local daily | 是否访问 CloudKit | 用途 |
-| --- | --- | --- | --- |
-| `performMaintenance: false` | 否 | 否，只读取 `cache.jsonl` | 打开菜单面板时快速展示现有数据 |
-| `performMaintenance: true, synchronize: false` | 是 | 否，只读取 `cache.jsonl` | 每分钟自动刷新中的本机统计维护 |
-| `performMaintenance: true, synchronize: true` | 是 | 是 | 调度器允许后的 CloudKit 同步 |
+| 刷新类型                                       | 是否维护 local daily | 是否访问 CloudKit        | 用途                           |
+| ---------------------------------------------- | -------------------- | ------------------------ | ------------------------------ |
+| `performMaintenance: false`                    | 否                   | 否，只读取 `cache.jsonl` | 打开菜单面板时快速展示现有数据 |
+| `performMaintenance: true, synchronize: false` | 是                   | 否，只读取 `cache.jsonl` | 每分钟自动刷新中的本机统计维护 |
+| `performMaintenance: true, synchronize: true`  | 是                   | 是                       | 调度器允许后的 CloudKit 同步   |
 
 触发 CloudKit 同步请求:
 
@@ -396,19 +396,19 @@ date < retentionCutoffDate
 
 失败处理以不中断工作流统计展示为目标。
 
-| 场景 | 当前行为 |
-| --- | --- |
-| iCloud 未登录或不可用 | 设置页禁用「跨设备同步」，显示 `同步不可用`; 如果用户已开启同步, 主面板失败 tooltip 显示 `账号不可用` 或兜底错误 |
-| 用户尝试在同步账号不可用时开启 | `setEnabled(true)` 直接返回，不写入开启状态 |
-| `CodexBarZone` 不存在 | 同步开始时创建 custom zone |
-| CloudKit 上传失败 | 本轮上传停止，已成功批次保留，失败日期下次刷新继续 |
-| CloudKit 增量拉取失败 | 不写入日志窗口，尝试全量重建缓存 |
-| CloudKit 全量重建失败 | 本轮同步失败，保存已有 state，保留已有 cache，后续刷新重试 |
-| 账号 salt 创建冲突 | 重新读取 CloudKit 中已有 salt |
-| 本地 state schema 不匹配 | 丢弃旧 state，按当前 schema 重新同步 |
-| `deviceId` 变化 | 重置本地同步 state/cache/cursor，按当前 iCloud 账号重新同步 |
-| `changeTokenExpired` | 不写入日志窗口，尝试全量重建缓存并建立新的 cursor |
-| `cache.jsonl` 写入失败 | 不保存新 cursor，下一轮重新拉取同一批变化 |
-| 同步失败 | `WorkflowSyncService` 捕获错误并归类为 `网络不可用`、`账号不可用`、`服务暂时不可用` 或 `同步失败，请稍后重试`; 主面板显示 `exclamationmark.icloud` 和短 tooltip, 设置页停止同步中状态且 `最近上传` 不更新 |
+| 场景                           | 当前行为                                                                                                                                                                                                  |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| iCloud 未登录或不可用          | 设置页禁用「跨设备同步」，显示 `同步不可用`; 主面板同步图标走非 active 同步态, 显示 `icloud.slash` 和「同步未开启」                                                                                       |
+| 用户尝试在同步账号不可用时开启 | `setEnabled(true)` 直接返回，不写入开启状态                                                                                                                                                               |
+| `CodexBarZone` 不存在          | 同步开始时创建 custom zone                                                                                                                                                                                |
+| CloudKit 上传失败              | 本轮上传停止，已成功批次保留，失败日期下次刷新继续                                                                                                                                                        |
+| CloudKit 增量拉取失败          | 不写入日志窗口，尝试全量重建缓存                                                                                                                                                                          |
+| CloudKit 全量重建失败          | 本轮同步失败，保存已有 state，保留已有 cache，后续刷新重试                                                                                                                                                |
+| 账号 salt 创建冲突             | 重新读取 CloudKit 中已有 salt                                                                                                                                                                             |
+| 本地 state schema 不匹配       | 丢弃旧 state，按当前 schema 重新同步                                                                                                                                                                      |
+| `deviceId` 变化                | 重置本地同步 state/cache/cursor，按当前 iCloud 账号重新同步                                                                                                                                               |
+| `changeTokenExpired`           | 不写入日志窗口，尝试全量重建缓存并建立新的 cursor                                                                                                                                                         |
+| `cache.jsonl` 写入失败         | 不保存新 cursor，下一轮重新拉取同一批变化                                                                                                                                                                 |
+| 同步失败                       | `WorkflowSyncService` 捕获错误并归类为 `网络不可用`、`账号不可用`、`服务暂时不可用` 或 `同步失败，请稍后重试`; 主面板显示 `exclamationmark.icloud` 和短 tooltip, 设置页停止同步中状态且 `最近同步` 不更新 |
 
 同步异常不会清空用户的开启偏好。只要 `WorkflowSync.isEnabled` 仍为 true、Codex Hook 开启且同步账号可用，后续调度器允许的同步会继续重试。

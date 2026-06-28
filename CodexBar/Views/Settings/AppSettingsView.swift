@@ -128,7 +128,7 @@ private extension AppSettingsView {
 
     var syncRow: some View {
         let state = syncRowState
-        let lastUploadAtText = syncSettings.lastUploadAtText
+        let lastSyncText = syncSettings.lastUploadAtText
 
         return VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
@@ -151,9 +151,9 @@ private extension AppSettingsView {
 
             if let message = syncSettings.unavailableMessage {
                 SettingsCaptionMessageRow(message: message)
-            } else if state.shouldShowUploadStatus(lastUploadAtText: lastUploadAtText) {
+            } else if state.shouldShowSyncStatus(lastSyncText: lastSyncText) {
                 SettingsIndentedRow {
-                    Text("最近上传")
+                    Text("最近同步")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -165,8 +165,8 @@ private extension AppSettingsView {
                             .scaleEffect(0.7)
                             .frame(width: 16, height: 16)
                             .help("正在同步")
-                    } else if let lastUploadAtText {
-                        Text(lastUploadAtText)
+                    } else if let lastSyncText {
+                        Text(lastSyncText)
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -294,7 +294,7 @@ private struct SyncRowState {
         isHookEnabled && !isHookUpdating && isSyncAvailable
     }
 
-    func shouldShowUploadStatus(lastUploadAtText: String?) -> Bool {
-        isActive && (isSyncing || lastUploadAtText != nil)
+    func shouldShowSyncStatus(lastSyncText: String?) -> Bool {
+        isActive && (isSyncing || lastSyncText != nil)
     }
 }

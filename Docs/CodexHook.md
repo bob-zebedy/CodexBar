@@ -218,7 +218,7 @@ CloudKit 也按最近 210 天保留。每天第一次工作流刷新时，当前
 
 维护和同步请求由 `WorkflowSyncScheduler` 统一调度。菜单面板打开时只读取现有 `daily.jsonl` 和同步缓存；app-server 自动刷新倒计时重置、同步开关开启、Hook 重新开启或同步账号恢复可用时, 调度器合并维护/同步请求。同步中不会取消重启，冷却窗口内只保留一次待补跑请求，补跑前会重新校验 Hook、同步偏好和账号可用性。
 
-同步失败不会清空开启偏好，也不会把原始 CloudKit 错误直接展示给用户。`WorkflowSyncService` 会把错误归类为「网络不可用」「账号不可用」「服务暂时不可用」「同步失败，请稍后重试」，并通过同步结束通知交给 `WorkflowSyncSettings`。主面板更新时间行最右侧使用 `exclamationmark.icloud` 进入失败态，tooltip 展示归类后的短错误；设置页只保留「同步不可用」、同步中和最近上传时间。
+同步失败不会清空开启偏好，也不会把原始 CloudKit 错误直接展示给用户。`WorkflowSyncService` 会把错误归类为「网络不可用」「账号不可用」「服务暂时不可用」「同步失败，请稍后重试」，并通过同步结束通知交给 `WorkflowSyncSettings`。主面板更新时间行最右侧的同步图标先按 Codex Hook、跨设备同步偏好和同步账号可用性判断 active 同步态；非 active 同步统一显示 `icloud.slash` 和「同步未开启」。只有 active 同步态才继续区分空闲、同步中和失败；空闲态 tooltip 展示 `最近同步: yyyy-MM-dd HH:mm:ss`, 时间来源和设置页「最近同步」一致，没有成功上传记录时显示「暂无同步记录」；失败态使用 `exclamationmark.icloud`, tooltip 展示归类后的短错误。设置页只保留「同步不可用」、同步中和最近同步时间。
 
 ## 统计口径
 
@@ -301,6 +301,7 @@ UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyMetrics`:
 - 最终位置会被夹在当前屏幕可见区域内, 屏幕边缘保留 `8` px
 - 与菜单面板之间保留 `4` px gap
 - 侧边切换使用抽屉动画: 收起 `0.12` 秒, 展开 `0.18` 秒
+- 内容更新保留 `NSPanel` / `NSHostingController`, 但每次替换 `hostingController.rootView` 并同步 `setContentSize`; 不使用常驻 `ObservableObject` model 复用 SwiftUI 布局树, 避免 Hook 开关切换详情面板高度后触发 AppKit 递归布局
 
 Codex Hook 关闭时:
 
