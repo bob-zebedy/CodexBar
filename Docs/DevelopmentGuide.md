@@ -15,7 +15,7 @@ App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 C
 - 应用形态是 `LSUIElement`, 不显示 Dock 图标, 不依赖主窗口
 - 最低系统版本是 macOS 15.0
 - App Sandbox 保持关闭, 因为需要启动本机 `codex`, 读取真实用户 Codex 登录状态, 并写入用户级 Hook 配置
-- 除 Sparkle 检查/下载更新, 以及用户显式开启「跨设备同步」后的 CloudKit private database 同步外, App 自身不发起网络请求
+- 除手动重置机会过期时间查询、Sparkle 检查/下载更新, 以及用户显式开启「跨设备同步」后的 CloudKit private database 同步外, App 自身不发起网络请求
 - 账号, 额度和 token 用量只在本机处理, 不发送给第三方；Hook 工作流统计默认只在本机处理, 仅在用户开启「跨设备同步」后把脱敏 daily 聚合行同步到当前 iCloud 账号
 - Swift 工程使用 Swift 6 并开启 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, UI 默认 MainActor 隔离；服务共享状态优先用 actor 管理, DTO、模型、同步辅助类型和静态工具需要显式使用 `nonisolated`
 
@@ -378,22 +378,23 @@ codex app-server --listen stdio://
 
 app-server 与状态刷新错误:
 
-| 错误来源                                     | 检测位置                                     | 用户可见状态                             | 日志或存储                                     | 重试或降级                                                        |
-| -------------------------------------------- | -------------------------------------------- | ---------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------- |
-| 找不到全局 Codex CLI 和 Codex APP 内置 CLI   | `CodexCLIResolver.resolveAppServerCommand()` | `初始化失败`                             | `RequestLogStorage.recordFailure` 记录可读错误 | 不启动 app-server, 下轮刷新重新解析                               |
-| app-server 进程启动失败                      | `Process.run()`                              | `初始化失败`                             | 记录"app-server 启动失败"                      | 不复用本次进程, 下轮刷新重试                                      |
-| `initialize` 或首次 `account/read` 失败      | `CodexStatusService.openConnection`          | `初始化失败`                             | 对应 JSON-RPC 请求进入日志                     | 关闭本次 session, 不重复完整握手                                  |
-| 首次 `account/read` 返回 `account == nil`    | `CodexStatusService.openConnection`          | `未登录`                                 | 请求响应进入日志                               | 关闭本次 session, 不生成 snapshot                                 |
-| 复用连接刷新 account 后返回 `account == nil` | `CodexStatusService.fetchData`               | `未登录`                                 | 请求响应进入日志                               | 清空 supplemental cache, teardown connection                      |
-| JSON-RPC 认证失败                            | `CodexStatusError.isAuthenticationRequired`  | 取决于刷新后结果                         | 失败响应进入日志                               | 同一轮最多 `account/read(refreshToken:true)` 一次, 然后重试原读取 |
-| refresh token 后仍认证失败                   | `ReadResult.resultAfterAuthAttempt`          | `未登录`                                 | 失败响应进入日志                               | 清空 cache, teardown connection                                   |
-| unsupported method                           | `CodexStatusError.isUnsupportedMethod`       | 对应区域可能显示无数据                   | 失败响应进入日志                               | 当前 session 记住 method, 后续跳过, 不复用旧缓存                  |
-| 非认证业务错误                               | `CodexStatusError.isRetriableServerError`    | 通常不改变整体状态                       | 失败响应进入日志                               | 同请求立即重试一次, 仍失败则 supplemental 读取按失败处理          |
-| rate limits 读取失败                         | `CodexStatusService.cachedRead`              | 有旧缓存时区域半透明, 无旧缓存时无额度区 | 失败进入日志                                   | 同账号旧缓存复用并标记 `isRateLimitsStale`                        |
-| usage 读取失败                               | `CodexStatusService.cachedRead`              | 有旧缓存时区域半透明, 无旧缓存时无用量区 | 失败进入日志                                   | 同账号旧缓存复用并标记 `isUsageStale`                             |
-| 连接断开, 请求超时, 响应解析失败             | `CodexStatusError.isTransportFailure`        | 复用连接重建失败后为 `初始化失败`        | 请求标记为错误                                 | 复用连接只重建重试一次, 新连接失败不再重试                        |
-| app-server 关闭超时                          | `AppServerSession.close()`                   | 不直接改变 UI                            | 记录强制结束或仍在后台运行                     | 先 terminate 等 1 秒, 再 SIGKILL 等 0.5 秒                        |
-| snapshot 无可信 quota 和 usage               | `CodexQuotaSnapshot.hasTrustedData`          | 菜单栏切换错误图标                       | 不新增日志                                     | 仍可展示 stale 数据或无数据面板                                   |
+| 错误来源                                     | 检测位置                                                                          | 用户可见状态                             | 日志或存储                                     | 重试或降级                                                        |
+| -------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------- |
+| 找不到全局 Codex CLI 和 Codex APP 内置 CLI   | `CodexCLIResolver.resolveAppServerCommand()`                                      | `初始化失败`                             | `RequestLogStorage.recordFailure` 记录可读错误 | 不启动 app-server, 下轮刷新重新解析                               |
+| app-server 进程启动失败                      | `Process.run()`                                                                   | `初始化失败`                             | 记录"app-server 启动失败"                      | 不复用本次进程, 下轮刷新重试                                      |
+| `initialize` 或首次 `account/read` 失败      | `CodexStatusService.openConnection`                                               | `初始化失败`                             | 对应 JSON-RPC 请求进入日志                     | 关闭本次 session, 不重复完整握手                                  |
+| 首次 `account/read` 返回 `account == nil`    | `CodexStatusService.openConnection`                                               | `未登录`                                 | 请求响应进入日志                               | 关闭本次 session, 不生成 snapshot                                 |
+| 复用连接刷新 account 后返回 `account == nil` | `CodexStatusService.fetchData`                                                    | `未登录`                                 | 请求响应进入日志                               | 清空 supplemental cache, teardown connection                      |
+| JSON-RPC 认证失败                            | `CodexStatusError.isAuthenticationRequired`                                       | 取决于刷新后结果                         | 失败响应进入日志                               | 同一轮最多 `account/read(refreshToken:true)` 一次, 然后重试原读取 |
+| refresh token 后仍认证失败                   | `ReadResult.resultAfterAuthAttempt`                                               | `未登录`                                 | 失败响应进入日志                               | 清空 cache, teardown connection                                   |
+| unsupported method                           | `CodexStatusError.isUnsupportedMethod`                                            | 对应区域可能显示无数据                   | 失败响应进入日志                               | 当前 session 记住 method, 后续跳过, 不复用旧缓存                  |
+| 非认证业务错误                               | `CodexStatusError.isRetriableServerError`                                         | 通常不改变整体状态                       | 失败响应进入日志                               | 同请求立即重试一次, 仍失败则 supplemental 读取按失败处理          |
+| rate limits 读取失败                         | `CodexStatusService.cachedRead`                                                   | 有旧缓存时区域半透明, 无旧缓存时无额度区 | 失败进入日志                                   | 同账号旧缓存复用并标记 `isRateLimitsStale`                        |
+| usage 读取失败                               | `CodexStatusService.cachedRead`                                                   | 有旧缓存时区域半透明, 无旧缓存时无用量区 | 失败进入日志                                   | 同账号旧缓存复用并标记 `isUsageStale`                             |
+| 重置机会过期时间请求失败                     | `CodexStatusService.fetchResetCreditExpirationDates` / `CodexResetCreditsService` | `重置 xN` 保留, 不显示过期时间 help text | 不展示错误, 不保存原始响应                     | 401/403 时复用本轮认证刷新预算重试, 其他失败静默降级为 `nil`      |
+| 连接断开, 请求超时, 响应解析失败             | `CodexStatusError.isTransportFailure`                                             | 复用连接重建失败后为 `初始化失败`        | 请求标记为错误                                 | 复用连接只重建重试一次, 新连接失败不再重试                        |
+| app-server 关闭超时                          | `AppServerSession.close()`                                                        | 不直接改变 UI                            | 记录强制结束或仍在后台运行                     | 先 terminate 等 1 秒, 再 SIGKILL 等 0.5 秒                        |
+| snapshot 无可信 quota 和 usage               | `CodexQuotaSnapshot.hasTrustedData`                                               | 菜单栏切换错误图标                       | 不新增日志                                     | 仍可展示 stale 数据或无数据面板                                   |
 
 日志错误处理:
 
@@ -472,6 +473,7 @@ Codex 版本探测错误:
 - 顶层 `rateLimits.limitId` 指向的主 limit 置顶, 缺省为 `codex`
 - 其他 limit 按 `limitName ?? limitId` localized standard 排序, 再按 `limitId` 稳定排序
 - `rateLimitResetCredits.availableCount` 写入 `resetCreditsAvailableCount`, 缺失时不展示重置次数
+- 如果 `resetCreditsAvailableCount > 0`, `CodexResetCreditsService` 会用真实用户 `CODEX_HOME/auth.json` 或 `HOME/.codex/auth.json` 中的 access token, 只读请求 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits`; 401/403 时复用本轮认证刷新预算, 尚未刷新过时通过当前 app-server 会话刷新一次 token 后重试。成功时将可用且未过期的 `credits[].expires_at` 按升序写入 `resetCreditExpirationDates`; 请求失败时为 `nil`
 - 每个 limit 的 `primary` 和 `secondary` 合成 `[QuotaWindow]`
 - 没有窗口的 limit 被过滤
 - `remainingPercent = clamp(100 - usedPercent, 0...100)`
@@ -530,7 +532,7 @@ flowchart TD
 额度区:
 
 - 多个 limit 间用 `LiquidGlassDivider` 分隔
-- 如果 `resetCreditsAvailableCount` 有值, 只在置顶主 limit 标题右侧显示 `重置 xN`
+- 如果 `resetCreditsAvailableCount` 有值, 只在置顶主 limit 标题右侧显示 `重置 xN`; 如果 `resetCreditExpirationDates` 非空, 鼠标悬停时通过 help text 按 `过期时间: yyyy-MM-dd HH:mm:ss [xN]` 逐行展示过期时间, 相同展示时间合并数量, 单个也显示 `x1`
 - 每个 quota window 展示标签, 50 个固定胶囊组成的电量条, 剩余百分比和重置时间
 - 胶囊宽度为 `3.5`, 间距为 `2`, 高度为 `12`
 - 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到电量条间距 `12`, 电量条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`
@@ -1025,7 +1027,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 隐私和敏感信息边界:
 
 - 不展示 app-server stderr
-- 不读取或展示 Codex auth 文件内容
+- 不展示 Codex OAuth token 或 `auth.json` 内容; 只用 access token 发起 `rate-limit-reset-credits` 只读请求, 丢弃原始响应, 只保留可用且未过期的过期时间数组
 - 不把原始敏感 RPC 响应写入文档或测试夹具
 - 日志完整保存 request/detail, UI 默认只渲染单行预览; 完整内容通过标题行预览或复制查看
 - Hook 统计默认只保存在用户 Application Support 的 CodexBar 目录；开启「跨设备同步」后, CloudKit 只保存去掉 `sessionIds` / `turnIds` 的 daily 聚合副本, 不保存原始 Hook events

@@ -49,7 +49,7 @@ codex app-server --listen stdio://
 同一会话后续读取:
 
 - `account/read` 每轮复用连接时用 `refreshToken: false` 更新账户状态。
-- `account/rateLimits/read` 读取额度, 包括可选的 `rateLimitResetCredits.availableCount`。
+- `account/rateLimits/read` 读取额度, 包括可选的 `rateLimitResetCredits.availableCount`。当可用重置次数大于 0 时, 主 App 会通过 `CodexResetCreditsService` 额外读取本机 Codex OAuth token, 只读请求 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 获取各重置机会的 `expires_at`; 这条请求不走 app-server 日志, 失败时只是不展示过期时间 tooltip。
 - `account/usage/read` 读取 `summary.lifetimeTokens`、`summary.peakDailyTokens`、`dailyUsageBuckets`。
 - `config/read` 在开启 Codex Hook 前读取有效配置，用于判断 `[features] hooks = false` 或兼容旧名 `codex_hooks = false` 是否禁用了 Hook；关闭清理时也读取 `hooks.state` 以保留其他 Hook 的信任状态。
 - `hooks/list` 在写入 Hook 后或设置页刷新时验证 Codex 实际识别到的 Hook，检查 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`key`、`currentHash`、`warnings` 和 `errors`。
@@ -60,6 +60,7 @@ codex app-server --listen stdio://
 - `rateLimitsByLimitId` 优先于顶层 `rateLimits`; 为空时回退顶层 `rateLimits`。
 - 顶层 `rateLimits.limitId` 指向主 limit, 缺省为 `codex`。
 - `rateLimitResetCredits.availableCount` 是可用额度重置次数; 字段缺失时 UI 不显示重置次数。
+- `rateLimitResetCredits.availableCount > 0` 时, `CodexResetCreditsService` 使用真实用户 `CODEX_HOME/auth.json` 或 `HOME/.codex/auth.json` 中的 access token 请求 ChatGPT backend, 超时为 4 秒。401/403 时复用本轮认证刷新预算调用一次 `account/read(refreshToken:true)` 后重试; 其他失败静默降级。成功响应只保留 `status == "available"` 且未过期 credit 的 `expires_at`, 按时间升序展示在 `重置 xN` 的 help text 中, 格式为 `过期时间: yyyy-MM-dd HH:mm:ss [xN]`; 相同展示时间合并数量, 单个也显示 `x1`。
 
 认证失败时，同会话最多调用一次 `account/read(refreshToken:true)` 后重试原读取。
 

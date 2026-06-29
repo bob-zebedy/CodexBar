@@ -98,7 +98,7 @@ actor CodexStatusService {
     }
 
     func fetchOutcome() async -> CodexFetchOutcome {
-        resolveOutcome(allowRebuild: true)
+        await resolveOutcome(allowRebuild: true)
     }
 
     func currentConnectionInfo() async -> CodexCLIConnectionInfo? {
@@ -138,7 +138,7 @@ actor CodexStatusService {
 
     /// 复用连接出现传输故障时只重建重试一次
     /// 避免故障状态下反复拉起进程
-    private func resolveOutcome(allowRebuild: Bool) -> CodexFetchOutcome {
+    private func resolveOutcome(allowRebuild: Bool) async -> CodexFetchOutcome {
         switch ensureConnection() {
         case .notLoggedIn:
             return .notLoggedIn
@@ -146,7 +146,7 @@ actor CodexStatusService {
             return .initializationFailed
         case let .ready(connection, reused):
             do {
-                let snapshot = try fetchData(using: connection, refreshAccountInfo: reused)
+                let snapshot = try await fetchData(using: connection, refreshAccountInfo: reused)
                 return .data(snapshot)
             } catch FetchFailure.notLoggedIn {
                 supplementalDataCache = SupplementalDataCache()
@@ -155,7 +155,7 @@ actor CodexStatusService {
             } catch FetchFailure.needsRebuild {
                 teardownConnection()
                 if reused, allowRebuild {
-                    return resolveOutcome(allowRebuild: false)
+                    return await resolveOutcome(allowRebuild: false)
                 }
                 return .initializationFailed
             } catch {
@@ -220,7 +220,7 @@ actor CodexStatusService {
     /// 额度与用量独立读取
     /// 认证失败全程只刷新一次 token
     /// 传输故障交给外层重建连接
-    private func fetchData(using connection: AppServerConnection, refreshAccountInfo: Bool) throws -> CodexQuotaSnapshot {
+    private func fetchData(using connection: AppServerConnection, refreshAccountInfo: Bool) async throws -> CodexQuotaSnapshot {
         var didRefresh = false
 
         func refreshTokenIfNeeded() throws {
@@ -282,11 +282,17 @@ actor CodexStatusService {
             cache: &supplementalDataCache.usage
         )
 
+        let resetCreditExpirationDates = await fetchResetCreditExpirationDates(
+            availableCount: rateLimitsRead.value?.rateLimitResetCredits?.availableCount,
+            refreshTokenIfNeeded: refreshTokenIfNeeded
+        )
+
         // rateLimits/usage 都可为空, 只要账户有效就让 UI 展示"暂无数据"
 
         guard let snapshot = try? CodexQuotaSnapshot(
             accountResponse: connection.accountResponse,
             rateLimitsResponse: rateLimitsRead.value,
+            resetCreditExpirationDates: resetCreditExpirationDates,
             usageResponse: usageRead.value,
             isRateLimitsStale: rateLimitsRead.isStale,
             isUsageStale: usageRead.isStale
@@ -295,6 +301,33 @@ actor CodexStatusService {
         }
 
         return snapshot
+    }
+
+    private func fetchResetCreditExpirationDates(
+        availableCount: Int?,
+        refreshTokenIfNeeded: () throws -> Void
+    ) async -> [Date]? {
+        guard let availableCount, availableCount > 0 else {
+            return nil
+        }
+
+        func fetchExpirationDates() async throws -> [Date] {
+            try await CodexResetCreditsService.fetchExpirationDates(environment: Self.environment)
+        }
+
+        do {
+            return try await fetchExpirationDates()
+        } catch CodexResetCreditsService.FetchError.unauthorized {
+            do {
+                try refreshTokenIfNeeded()
+            } catch {
+                return nil
+            }
+
+            return try? await fetchExpirationDates()
+        } catch {
+            return nil
+        }
     }
 
     /// 新值更新缓存

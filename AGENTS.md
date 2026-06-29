@@ -132,6 +132,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - 顶层 `rateLimits.limitId` 指向的主 limit 置顶, 缺省 `"codex"`。
 - 其余 limit 按 `limitName ?? limitId` 做 localized standard 排序, 再按 `limitId` 稳定排序。
 - `rateLimitResetCredits.availableCount` 读入 `resetCreditsAvailableCount`; 缺失时为 `nil`。
+- `resetCreditsAvailableCount > 0` 时, 主 App 可使用本机 Codex OAuth token 请求 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits`; 401/403 时复用本轮认证刷新预算重试; 只保留可用且未过期的 `credits[].expires_at` 到 `resetCreditExpirationDates`, 请求失败时为 `nil` 且 UI 不展示过期时间 help text。
 - `primary` / `secondary` 合成 `[QuotaWindow]`; 没有窗口的 limit 被过滤。
 - `QuotaWindow.remainingPercent = clamp(100 - usedPercent, 0...100)`; 无 `usedPercent` 视为无数据。
 - `windowDurationMins` 标签: 整天 `ND`, 整小时 `NH`, 否则 `NM`, 缺失或非正数为「额度」。
@@ -178,7 +179,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - `LiquidGlassStyle.swift` 是自绘玻璃效果, 不是 macOS 原生 `.glassEffect`; 没有明确设计要求时不要切换。
 - 账号图标双击触发刷新。邮箱文本双击切换模糊。
 - 计划名是右侧加粗纯文字; `planBadgeTint(for:)` 优先级: enterprise -> team/business -> pro -> plus -> edu -> free -> 默认 cyan。
-- `resetCreditsAvailableCount` 有值时, 只在置顶主 limit 标题右侧显示 `重置 xN`。
+- `resetCreditsAvailableCount` 有值时, 只在置顶主 limit 标题右侧显示 `重置 xN`; `resetCreditExpirationDates` 非空时, 鼠标悬停在该文本上通过 help text 按升序逐行展示 `过期时间: yyyy-MM-dd HH:mm:ss [xN]`, 相同展示时间合并数量, 单个也显示 `x1`。
 - 额度条展示剩余百分比, 固定为 50 个胶囊, 每个胶囊宽 `3.5`, 间距 `2`, 高 `12`; 颜色按 20% 一档: 红、橙、黄、薄荷、绿。
 - 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到额度条间距 `12`, 额度条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`; 不通过加宽菜单面板解决额度行溢出。
 - 无 quota 数据时显示 `--` / `暂无数据`, 并使用占位色。
@@ -236,9 +237,9 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 
 ## 认证、隐私与沙盒
 
-- CodexBar 只通过本机 Codex app-server 读取账号、额度和 token 使用量; 这些数据不发往第三方服务。
+- CodexBar 主要通过本机 Codex app-server 读取账号、额度和 token 使用量; 为展示手动重置机会过期时间, 可使用本机 Codex OAuth token 向 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 发起只读请求, 只保留可展示的过期时间数组。
 - Codex Hook 工作流统计默认只写入本机 `~/Library/Application Support/CodexBar/HookEvents/`; 用户开启「跨设备同步」后, CloudKit 只保存去掉 `sessionIds` / `turnIds` 的 daily 聚合副本, 不保存原始 Hook events。
-- 除 Sparkle appcast/DMG 下载, 以及用户显式开启「跨设备同步」后的 CloudKit private database 请求外, 应用自身不做网络请求。
+- 除手动重置机会过期时间查询、Sparkle appcast/DMG 下载, 以及用户显式开启「跨设备同步」后的 CloudKit private database 请求外, 应用自身不做网络请求。
 - App Sandbox 必须保持关闭。
 - app-server 和版本探测必须使用真实用户 home。
 - 不要把 Codex auth 文件、stderr、原始敏感 RPC 响应或用户路径之外的敏感信息写入 UI、文档或测试夹具。

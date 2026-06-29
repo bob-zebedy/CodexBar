@@ -32,7 +32,7 @@ CodexBar 是一个无 Dock 图标的 macOS 菜单栏应用。
 
 ### 额度与重置时间一眼可见
 
-额度区用分段电量条展示不同时间窗口的剩余额度，并显示剩余百分比和重置时间
+额度区用分段电量条展示不同时间窗口的剩余额度，并显示剩余百分比和重置时间。存在可用手动重置机会时，鼠标悬停在 `重置 xN` 上会显示各重置机会的过期时间和数量。
 
 ### 近 30 周 Token 热力图
 
@@ -88,7 +88,7 @@ CodexBar 使用 Sparkle 检查更新。安装后，新版本会通过内置更�
 
 ## 隐私
 
-CodexBar 默认只和本机 Codex app-server 通信，用于读取账号、额度和 Token 用量。这些数据不会发送到任何人或第三方服务。
+CodexBar 默认通过本机 Codex app-server 读取账号、额度和 Token 用量。若 app-server 返回可用手动重置机会，CodexBar 会使用本机 Codex OAuth token 向 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 发起只读请求，用于读取这些重置机会的过期时间；请求失败时不会展示过期时间，也不会保留原始响应。
 
 Codex Hook 工作流数据默认只保存在本机:
 
@@ -98,7 +98,7 @@ Codex Hook 工作流数据默认只保存在本机:
 
 只有在用户开启「跨设备同步」后，CodexBar 才会通过 `CloudKit private database` 同步每日使用详情数据; 同步的数据副本只包含各个事件数量，不包含事件具体的数据。
 
-除 Sparkle appcast / DMG 下载，以及用户开启跨设备同步后的 CloudKit 请求外，CodexBar 自身不发起其他网络请求。
+除上述重置机会过期时间查询、Sparkle appcast / DMG 下载，以及用户开启跨设备同步后的 CloudKit 请求外，CodexBar 自身不发起其他网络请求。
 
 ## 从源码构建
 

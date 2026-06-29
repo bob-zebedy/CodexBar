@@ -221,13 +221,13 @@ if [[ "${INCLUDE_RELEASE_NOTES}" != "0" ]]; then
 fi
 
 APPCAST_ITEM="        <item>
-    <title>${TITLE}</title>
-    <sparkle:version>${BUILD_VERSION}</sparkle:version>
-    <sparkle:shortVersionString>${SHORT_VERSION}</sparkle:shortVersionString>
-    <sparkle:minimumSystemVersion>${MIN_SYSTEM_ESCAPED}</sparkle:minimumSystemVersion>
-    ${RELEASE_NOTES_XML}        <pubDate>${PUB_DATE}</pubDate>
-    <enclosure url=\"${DOWNLOAD_URL_ESCAPED}\" sparkle:edSignature=\"${ED_SIGNATURE_ESCAPED}\" length=\"${ARCHIVE_LENGTH}\" type=\"application/octet-stream\"/>
-</item>"
+            <title>${TITLE}</title>
+            <sparkle:version>${BUILD_VERSION}</sparkle:version>
+            <sparkle:shortVersionString>${SHORT_VERSION}</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>${MIN_SYSTEM_ESCAPED}</sparkle:minimumSystemVersion>
+            ${RELEASE_NOTES_XML}        <pubDate>${PUB_DATE}</pubDate>
+            <enclosure url=\"${DOWNLOAD_URL_ESCAPED}\" sparkle:edSignature=\"${ED_SIGNATURE_ESCAPED}\" length=\"${ARCHIVE_LENGTH}\" type=\"application/octet-stream\"/>
+        </item>"
 
 echo "==> Updating appcast"
 APPCAST_ITEM="${APPCAST_ITEM}" APPCAST_VERSION="${BUILD_VERSION}" perl -0pi -e '

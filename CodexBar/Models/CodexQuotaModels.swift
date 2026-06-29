@@ -5,6 +5,7 @@ nonisolated struct CodexQuotaSnapshot: Equatable {
     let account: CodexAccount
     let planType: String?
     let resetCreditsAvailableCount: Int?
+    let resetCreditExpirationDates: [Date]?
     let generatedAt: Date
     let limits: [CodexQuotaLimitSnapshot]
     let usage: CodexUsageSnapshot?
@@ -138,6 +139,7 @@ nonisolated extension CodexQuotaSnapshot {
     init(
         accountResponse: AccountReadResponse,
         rateLimitsResponse: AccountRateLimitsResponse?,
+        resetCreditExpirationDates: [Date]? = nil,
         usageResponse: AccountUsageResponse? = nil,
         isRateLimitsStale: Bool = false,
         isUsageStale: Bool = false,
@@ -164,6 +166,7 @@ nonisolated extension CodexQuotaSnapshot {
             account: account,
             planType: rateLimitsResponse?.rateLimits.planType,
             resetCreditsAvailableCount: rateLimitsResponse?.rateLimitResetCredits?.availableCount,
+            resetCreditExpirationDates: resetCreditExpirationDates,
             generatedAt: generatedAt,
             limits: limits,
             usage: usage,

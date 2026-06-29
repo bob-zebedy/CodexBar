@@ -137,6 +137,7 @@ struct EmptyDataPanel: View {
 struct QuotaLimitsSection: View {
     let limits: [CodexQuotaLimitSnapshot]
     let resetCreditsAvailableCount: Int?
+    let resetCreditExpirationDates: [Date]?
     let isStale: Bool
 
     var body: some View {
@@ -166,11 +167,7 @@ struct QuotaLimitsSection: View {
                 Spacer(minLength: 8)
 
                 if showsResetCredits, let resetCreditsText {
-                    Text(resetCreditsText)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
+                    resetCreditsLabel(resetCreditsText)
                 }
             }
 
@@ -189,6 +186,55 @@ struct QuotaLimitsSection: View {
     private var resetCreditsText: String? {
         resetCreditsAvailableCount.map { "重置 x\($0)" }
     }
+
+    @ViewBuilder
+    private func resetCreditsLabel(_ text: String) -> some View {
+        let label = Text(text)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+
+        if let helpText = resetCreditsHelpText {
+            label.help(helpText)
+        } else {
+            label
+        }
+    }
+
+    private var resetCreditsHelpText: String? {
+        guard let resetCreditExpirationDates, !resetCreditExpirationDates.isEmpty else {
+            return nil
+        }
+
+        return groupedResetCreditExpirationLines(from: resetCreditExpirationDates)
+            .joined(separator: "\n")
+    }
+
+    private func groupedResetCreditExpirationLines(from dates: [Date]) -> [String] {
+        let expirationTexts = dates
+            .sorted()
+            .map { Self.resetCreditExpirationFormatter.string(from: $0) }
+
+        let groups = expirationTexts.reduce(into: [(expirationText: String, count: Int)]()) { groups, expirationText in
+            if let lastIndex = groups.indices.last, groups[lastIndex].expirationText == expirationText {
+                groups[lastIndex].count += 1
+            } else {
+                groups.append((expirationText: expirationText, count: 1))
+            }
+        }
+
+        return groups.map { group in
+            "过期时间: \(group.expirationText) [x\(group.count)]"
+        }
+    }
+
+    private static let resetCreditExpirationFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter
+    }()
 
     private func isPrimaryLimit(_ limit: CodexQuotaLimitSnapshot) -> Bool {
         limit.id == primaryLimitId
