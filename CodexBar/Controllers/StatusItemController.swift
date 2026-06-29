@@ -139,29 +139,26 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             return nil
         }
 
-        guard let progress else {
-            symbolImage.isTemplate = true
-            return symbolImage
-        }
-
-        let progressVisibility = clampedProgressVisibility(progressVisibility)
-        let progressImage = NSImage(size: Metrics.progressStatusImageSize, flipped: false) { _ in
+        let usesTemplateRendering = progress == nil
+        let resolvedProgressVisibility = clampedProgressVisibility(progressVisibility)
+        let statusImage = NSImage(size: Metrics.progressStatusImageSize, flipped: false) { _ in
             Self.drawStatusSymbol(
                 symbolImage,
                 in: Metrics.progressStatusSymbolRect,
-                isStale: progress.isStale
+                tint: usesTemplateRendering ? .black : .labelColor,
+                alpha: progress?.isStale == true ? Metrics.staleIconAlpha : 1
             )
-            Self.drawProgress(progress, visibility: progressVisibility)
+            if let progress {
+                Self.drawProgress(
+                    progress,
+                    visibility: resolvedProgressVisibility
+                )
+            }
             return true
         }
-        progressImage.isTemplate = false
-        progressImage.alignmentRect = NSRect(
-            x: 0,
-            y: symbolImage.alignmentRect.minY,
-            width: Metrics.progressStatusImageSize.width,
-            height: symbolImage.alignmentRect.height
-        )
-        return progressImage
+        statusImage.isTemplate = usesTemplateRendering
+        statusImage.alignmentRect = Self.statusImageAlignmentRect(for: symbolImage)
+        return statusImage
     }
 
     private static func makeStatusSymbolImage(_ symbolName: String) -> NSImage? {
@@ -177,12 +174,11 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private static func drawStatusSymbol(
         _ image: NSImage,
         in rect: NSRect,
-        isStale: Bool
+        tint: NSColor,
+        alpha: CGFloat
     ) {
         NSGraphicsContext.saveGraphicsState()
-        NSColor.labelColor
-            .withAlphaComponent(isStale ? Metrics.staleIconAlpha : 1)
-            .setFill()
+        tint.withAlphaComponent(alpha).setFill()
         rect.fill()
         image.draw(
             in: rect,
@@ -191,6 +187,15 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             fraction: 1
         )
         NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private static func statusImageAlignmentRect(for symbolImage: NSImage) -> NSRect {
+        NSRect(
+            x: 0,
+            y: symbolImage.alignmentRect.minY,
+            width: Metrics.progressStatusImageSize.width,
+            height: symbolImage.alignmentRect.height
+        )
     }
 
     private static func drawProgress(
@@ -1001,17 +1006,23 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         static let anchorScreenTolerance: CGFloat = 1
         static let progressStatusSymbolSize = NSSize(width: 24, height: 17)
         static let progressStatusExtraWidth: CGFloat = 3
+        static let progressStatusContentOffsetX: CGFloat = 1
         static let progressStatusImageSize = NSSize(
             width: progressStatusSymbolSize.width + progressStatusExtraWidth,
             height: progressStatusSymbolSize.height
         )
         static let progressStatusSymbolRect = NSRect(
-            x: progressStatusExtraWidth,
+            x: progressStatusExtraWidth + progressStatusContentOffsetX,
             y: 0,
             width: progressStatusSymbolSize.width,
             height: progressStatusSymbolSize.height
         )
-        static let progressTrackRect = NSRect(x: 0.5, y: 1, width: 2, height: 15)
+        static let progressTrackRect = NSRect(
+            x: 0.5 + progressStatusContentOffsetX,
+            y: 1,
+            width: 2,
+            height: 15
+        )
         static let progressTrackCornerRadius: CGFloat = 1
         static let progressTrackAlpha: CGFloat = 0.34
         static let staleIconAlpha: CGFloat = 0.75
