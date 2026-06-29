@@ -174,6 +174,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - 左键或全局快捷键切换菜单面板; 右键或 Control 点击显示「设置 / 日志 / 退出」。
 - 上下文菜单由 `NSStatusBarButton.performClick(nil)` 触发; 设置和日志菜单项 action 需要等 `NSMenuDelegate.menuDidClose(_:)` 确认菜单结束并清空 `statusItem.menu` 后再打开窗口, 避免键盘等效键在 `NSMenu` tracking 期间打开窗口导致无法激活到最前。
 - 全局快捷键打开菜单面板前必须短暂禁止设置窗口和日志窗口成为 key window, 避免已有设置/日志窗口被 App 激活一起带到前台; 随后校验当前 status item 锚点可信。锚点无 window、无有效 screen、按钮隐藏、bounds 为空、屏幕矩形异常, 或屏幕矩形没有落在目标屏幕范围内时, 使用无箭头 fallback `NSPanel` 在目标屏幕顶部居中打开。目标屏幕优先取鼠标所在屏幕, 找不到时取主屏幕。快捷键关闭已打开的菜单面板不受此校验影响。
+- 设置和日志辅助窗口为 `.normal` level, 打开时先恢复 key focus, 再 `orderFrontRegardless()`, `NSRunningApplication.current.activate(options: [])` 和 `makeKeyAndOrderFront(nil)` 一次性置前; 不改用 `NSApplication.shared.activate()`, 避免 LSUIElement App 首次懒创建窗口时无法稳定拉到最前。
 
 菜单面板:
 

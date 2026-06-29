@@ -149,7 +149,7 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 
 Command-Space 不直接关闭菜单面板, 只短暂抑制 600 ms 内的 active 变化关闭逻辑, 避免 Spotlight 或系统搜索抢焦点时误关弹窗。
 
-设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开对应入口时只移动和置前对应窗口。窗口 level 保持 `.normal`; 置前时先恢复 `AuxiliaryHostingWindow.allowsKeyFocus`, 再 `orderFrontRegardless()`, `NSApplication.shared.activate()` 和 `makeKeyAndOrderFront(nil)`, 只做一次性置前, 不持续置顶。
+设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开对应入口时只移动和置前对应窗口。窗口 level 保持 `.normal`; 置前时先恢复 `AuxiliaryHostingWindow.allowsKeyFocus`, 再 `orderFrontRegardless()`, `NSRunningApplication.current.activate(options: [])` 和 `makeKeyAndOrderFront(nil)`, 只做一次性置前, 不持续置顶。CodexBar 是 `LSUIElement` 菜单栏 App, 首次懒创建辅助窗口时需要通过当前运行中应用激活, 避免设置或日志窗口第一次打开时没有稳定拉到最前。
 
 设置窗口和日志窗口使用 `AuxiliaryHostingWindow`; 窗口可以成为 key window, 但不能成为 main window。关闭菜单面板期间会临时禁止成为 key window, 避免菜单面板收起时抢焦点。通过快捷键打开或关闭菜单面板时, 只激活并置前当前面板, 不主动置前已有的设置窗口或日志窗口。
 

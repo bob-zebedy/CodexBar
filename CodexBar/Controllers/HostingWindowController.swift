@@ -65,7 +65,7 @@ class HostingWindowController {
 
         (window as? AuxiliaryHostingWindow)?.allowsKeyFocus = true
         window.orderFrontRegardless()
-        NSApplication.shared.activate()
+        NSRunningApplication.current.activate(options: [])
         window.makeKeyAndOrderFront(nil)
     }
 
