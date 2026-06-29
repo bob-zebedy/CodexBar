@@ -7,9 +7,11 @@ struct AppSettingsView: View {
     @EnvironmentObject private var appUpdater: AppUpdater
     @StateObject private var loginItemSettings = LoginItemSettings()
     @StateObject private var codexVersions = CodexCLIVersionViewModel()
+    @State private var lastMenuBarQuotaWindowSelection: MenuBarQuotaSelection = .primary
     @ObservedObject var codexHookSettings: CodexHookSettings
     @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
+    @ObservedObject var menuBarQuotaSettings: MenuBarQuotaSettings
     let onSyncChanged: (Bool) -> Void
 
     var body: some View {
@@ -18,6 +20,8 @@ struct AppSettingsView: View {
                 launchAtLoginRow
                 LiquidGlassDivider()
                 automaticUpdateCheckRow
+                LiquidGlassDivider()
+                menuBarQuotaRow
                 LiquidGlassDivider()
                 codexHookRow
                 LiquidGlassDivider()
@@ -56,14 +60,19 @@ struct AppSettingsView: View {
         .onAppear {
             loginItemSettings.refresh()
             syncSettings.refresh()
+            refreshMenuBarQuotaSettings()
             appUpdater.refreshAutomaticCheckSetting()
             refreshCodexVersionSection()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             codexHookSettings.refresh()
             syncSettings.refresh()
+            refreshMenuBarQuotaSettings()
             codexHookSettings.verifyInstalledHooks()
             refreshCodexVersionSection()
+        }
+        .onChange(of: menuBarQuotaSettings.selection) { _, selection in
+            rememberMenuBarQuotaSelection(selection)
         }
     }
 }
@@ -78,6 +87,7 @@ private extension AppSettingsView {
         static let surfaceCornerRadius: CGFloat = 16
         static let panelCornerRadius: CGFloat = 10
         static let iconWidth: CGFloat = 18
+        static let menuBarQuotaPickerWidth: CGFloat = 72
         static let statusAnimation = Animation.codexStatus
     }
 
@@ -106,6 +116,114 @@ private extension AppSettingsView {
 
     var hotKeyRow: some View {
         HotKeyRecorderRow(settings: globalHotKeySettings)
+    }
+
+    var menuBarQuotaRow: some View {
+        let isEnabled = isMenuBarQuotaEnabled
+
+        return HStack(spacing: 10) {
+            Image(systemName: "gauge.with.dots.needle.50percent")
+                .frame(width: Metrics.iconWidth)
+                .foregroundStyle(.tint)
+
+            Text("菜单栏额度指示")
+
+            Spacer()
+
+            if isEnabled {
+                Picker(
+                    "额度窗口",
+                    selection: Binding(
+                        get: { activeMenuBarQuotaSelection },
+                        set: { setMenuBarQuotaWindowSelection($0) }
+                    )
+                ) {
+                    ForEach(menuBarQuotaWindowOptions) { option in
+                        Text(option.title).tag(option.selection)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                .frame(width: Metrics.menuBarQuotaPickerWidth)
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+
+            Toggle(
+                "菜单栏额度指示",
+                isOn: Binding(
+                    get: { isMenuBarQuotaEnabled },
+                    set: { setMenuBarQuotaEnabled($0) }
+                )
+            )
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+        }
+        .animation(Metrics.statusAnimation, value: isEnabled)
+    }
+
+    var menuBarQuotaWindowOptions: [MenuBarQuotaOption] {
+        var options = (statusViewModel.snapshot?.codexLimit?.windows ?? [])
+            .compactMap { window -> MenuBarQuotaOption? in
+                guard let selection = MenuBarQuotaSelection(windowId: window.id) else {
+                    return nil
+                }
+
+                return MenuBarQuotaOption(selection: selection, title: window.label)
+            }
+
+        let selectedWindow = activeMenuBarQuotaSelection
+        if !options.contains(where: { $0.selection == selectedWindow }) {
+            options.append(
+                MenuBarQuotaOption(
+                    selection: selectedWindow,
+                    title: selectedWindow.fallbackTitle
+                )
+            )
+        }
+
+        return options
+    }
+
+    var activeMenuBarQuotaSelection: MenuBarQuotaSelection {
+        let selection = menuBarQuotaSettings.selection
+        return selection == .off ? lastMenuBarQuotaWindowSelection : selection
+    }
+
+    var isMenuBarQuotaEnabled: Bool {
+        menuBarQuotaSettings.selection != .off
+    }
+
+    func setMenuBarQuotaWindowSelection(_ selection: MenuBarQuotaSelection) {
+        rememberMenuBarQuotaSelection(selection)
+        menuBarQuotaSettings.setSelection(selection)
+    }
+
+    func setMenuBarQuotaEnabled(_ enabled: Bool) {
+        if !enabled {
+            rememberMenuBarQuotaSelection(menuBarQuotaSettings.selection)
+            menuBarQuotaSettings.setSelection(.off)
+            return
+        }
+
+        setMenuBarQuotaWindowSelection(activeMenuBarQuotaSelection)
+    }
+
+    func refreshMenuBarQuotaSettings() {
+        menuBarQuotaSettings.refresh()
+        rememberMenuBarQuotaSelection()
+    }
+
+    func rememberMenuBarQuotaSelection(
+        _ selection: MenuBarQuotaSelection? = nil
+    ) {
+        let selection = selection ?? menuBarQuotaSettings.selection
+        guard selection != .off else {
+            return
+        }
+
+        lastMenuBarQuotaWindowSelection = selection
     }
 
     var codexHookRow: some View {
@@ -296,5 +414,14 @@ private struct SyncRowState {
 
     func shouldShowSyncStatus(lastSyncText: String?) -> Bool {
         isActive && (isSyncing || lastSyncText != nil)
+    }
+}
+
+private struct MenuBarQuotaOption: Identifiable {
+    let selection: MenuBarQuotaSelection
+    let title: String
+
+    var id: String {
+        selection.id
     }
 }

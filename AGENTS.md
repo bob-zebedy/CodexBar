@@ -130,6 +130,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - `isRateLimitsStale` / `isUsageStale` 标记额度或 token 区域是否来自同账号旧缓存; 本轮对应接口成功后重新生成 snapshot 并恢复为 `false`。
 - 优先读取 `rateLimitsByLimitId`; 为空时回退顶层 `rateLimits`。
 - 顶层 `rateLimits.limitId` 指向的主 limit 置顶, 缺省 `"codex"`。
+- `codexLimit` 返回 `limitId` 大小写不敏感等于 `"codex"` 的第一个 limit, 供菜单栏额度指示选择窗口使用。
 - 其余 limit 按 `limitName ?? limitId` 做 localized standard 排序, 再按 `limitId` 稳定排序。
 - `rateLimitResetCredits.availableCount` 读入 `resetCreditsAvailableCount`; 缺失时为 `nil`。
 - `resetCreditsAvailableCount > 0` 时, 主 App 可使用本机 Codex OAuth token 请求 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits`; 401/403 时复用本轮认证刷新预算重试; 只保留可用且未过期的 `credits[].expires_at` 到 `resetCreditExpirationDates`, 请求失败时为 `nil` 且 UI 不展示过期时间 help text。
@@ -169,8 +170,10 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 
 - 正常图标是 `person.fill.checkmark`, 错误图标是 `person.fill.xmark`。
 - 菜单栏不展示额度数字; 详情只在菜单面板中展示。
+- 设置页「菜单栏额度指示」使用独立开关控制启用状态; 开启后同一行显示额度窗口菜单, 选项来自当前账号 Codex limit 返回的窗口, 当前保留选择不在返回窗口中时用 fallback 标题追加到菜单。关闭开关时设置页保留最后一个非关闭窗口值参与菜单淡出, 避免过渡期间回退到默认窗口。关闭时菜单栏只展示原图标, 开启时将所选 Codex 窗口剩余额度进度条绘制在 `person.fill.checkmark` / `person.fill.xmark` 图标左侧, 以竖条形式作为单个菜单栏图像自动随状态刷新; 合成图尺寸为 `27 x 17`, 图标本体保持原始 `24 x 17`, 左侧竖条轨道为 `2 x 15`; 开启或关闭时竖条透明度做 0.18 秒过渡, 过渡期间合成图宽度和图标绘制坐标保持固定。
 - 左键或全局快捷键切换菜单面板; 右键或 Control 点击显示「设置 / 日志 / 退出」。
-- 全局快捷键打开菜单面板前必须校验当前 status item 锚点可信; 锚点无 window、无有效 screen、按钮隐藏、bounds 为空、屏幕矩形异常, 或屏幕矩形没有落在目标屏幕范围内时, 使用无箭头 fallback `NSPanel` 在目标屏幕顶部居中打开。目标屏幕优先取鼠标所在屏幕, 找不到时取主屏幕。快捷键关闭已打开的菜单面板不受此校验影响。
+- 上下文菜单由 `NSStatusBarButton.performClick(nil)` 触发; 设置和日志菜单项 action 需要等 `NSMenuDelegate.menuDidClose(_:)` 确认菜单结束并清空 `statusItem.menu` 后再打开窗口, 避免键盘等效键在 `NSMenu` tracking 期间打开窗口导致无法激活到最前。
+- 全局快捷键打开菜单面板前必须短暂禁止设置窗口和日志窗口成为 key window, 避免已有设置/日志窗口被 App 激活一起带到前台; 随后校验当前 status item 锚点可信。锚点无 window、无有效 screen、按钮隐藏、bounds 为空、屏幕矩形异常, 或屏幕矩形没有落在目标屏幕范围内时, 使用无箭头 fallback `NSPanel` 在目标屏幕顶部居中打开。目标屏幕优先取鼠标所在屏幕, 找不到时取主屏幕。快捷键关闭已打开的菜单面板不受此校验影响。
 
 菜单面板:
 
@@ -179,7 +182,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - `LiquidGlassStyle.swift` 是自绘玻璃效果, 不是 macOS 原生 `.glassEffect`; 没有明确设计要求时不要切换。
 - 账号图标双击触发刷新。邮箱文本双击切换模糊。
 - 计划名是右侧加粗纯文字; `planBadgeTint(for:)` 优先级: enterprise -> team/business -> pro -> plus -> edu -> free -> 默认 cyan。
-- `resetCreditsAvailableCount` 有值时, 只在置顶主 limit 标题右侧显示 `重置次数: N`; `resetCreditExpirationDates` 非空时, 鼠标悬停在该文本上通过 help text 按升序逐行展示 `过期时间: yyyy-MM-dd HH:mm:ss • 可用: N`, 相同展示时间合并数量, 单个显示 `可用: 1`。
+- `resetCreditsAvailableCount` 有值时, 只在置顶主 limit 标题右侧显示 `重置次数: N`; `resetCreditExpirationDates` 非空时, 鼠标悬停在该文本上通过 help text 按升序逐行展示 `过期: yyyy-MM-dd HH:mm:ss • 可用: N`, 相同展示时间合并数量, 单个显示 `可用: 1`。
 - 额度条展示剩余百分比, 固定为 50 个胶囊, 每个胶囊宽 `3.5`, 间距 `2`, 高 `12`; 颜色按 20% 一档: 红、橙、黄、薄荷、绿。
 - 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到额度条间距 `12`, 额度条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`; 不通过加宽菜单面板解决额度行溢出。
 - 无 quota 数据时显示 `--` / `暂无数据`, 并使用占位色。
@@ -202,7 +205,8 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 
 - 通过右键菜单「设置」打开独立 `AppSettingsView` 窗口。
 - 不要恢复为 Option 点击或菜单面板内设置区。
-- 设置页包含「使用快捷键」行、「CodexBar 版本」和「Codex 版本」区域。
+- 设置页包含「菜单栏额度指示」、「使用快捷键」行、「CodexBar 版本」和「Codex 版本」区域。
+- 设置窗口按 SwiftUI 内容自适应高度时必须校验 `fittingSize` 有限并夹紧到安全上限; 设置页 `onAppear` / `didBecomeActive` 中触发的设置刷新不得同步发布 `@Published` 变化。
 - `Codex CLI` 行图标用 `terminal`; `Codex APP` 行图标用 `app.badge`。
 - 当前运行来源显示「当前使用」。
 - 当前行优先展示 app-server 握手自报版本; 非当前行展示磁盘安装版本。

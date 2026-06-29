@@ -225,7 +225,7 @@ struct QuotaLimitsSection: View {
         }
 
         return groups.map { group in
-            "过期时间: \(group.expirationText) • 可用: \(group.count)"
+            "过期: \(group.expirationText) • 可用: \(group.count)"
         }
     }
 

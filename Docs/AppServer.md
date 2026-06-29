@@ -60,7 +60,7 @@ codex app-server --listen stdio://
 - `rateLimitsByLimitId` 优先于顶层 `rateLimits`; 为空时回退顶层 `rateLimits`。
 - 顶层 `rateLimits.limitId` 指向主 limit, 缺省为 `codex`。
 - `rateLimitResetCredits.availableCount` 是可用额度重置次数; 字段缺失时 UI 不显示重置次数。
-- `rateLimitResetCredits.availableCount > 0` 时, `CodexResetCreditsService` 使用真实用户 `CODEX_HOME/auth.json` 或 `HOME/.codex/auth.json` 中的 access token 请求 ChatGPT backend, 超时为 4 秒。401/403 时复用本轮认证刷新预算调用一次 `account/read(refreshToken:true)` 后重试; 其他失败静默降级。成功响应只保留 `status == "available"` 且未过期 credit 的 `expires_at`, 按时间升序展示在 `重置次数: N` 的 help text 中, 格式为 `过期时间: yyyy-MM-dd HH:mm:ss • 可用: N`; 相同展示时间合并数量, 单个显示 `可用: 1`。
+- `rateLimitResetCredits.availableCount > 0` 时, `CodexResetCreditsService` 使用真实用户 `CODEX_HOME/auth.json` 或 `HOME/.codex/auth.json` 中的 access token 请求 ChatGPT backend, 超时为 4 秒。401/403 时复用本轮认证刷新预算调用一次 `account/read(refreshToken:true)` 后重试; 其他失败静默降级。成功响应只保留 `status == "available"` 且未过期 credit 的 `expires_at`, 按时间升序展示在 `重置次数: N` 的 help text 中, 格式为 `过期: yyyy-MM-dd HH:mm:ss • 可用: N`; 相同展示时间合并数量, 单个显示 `可用: 1`。
 
 认证失败时，同会话最多调用一次 `account/read(refreshToken:true)` 后重试原读取。
 

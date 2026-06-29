@@ -77,7 +77,7 @@ sequenceDiagram
 
 `StatusItemController.install()` 负责:
 
-- 配置菜单栏按钮图标, tooltip 和点击事件
+- 配置菜单栏按钮图标、可选额度进度条和点击事件
 - 配置菜单面板的 SwiftUI 根视图
 - 订阅状态变化并切换菜单栏图标
 - 订阅 Hook、同步开关和同步可用性变化, 把维护/同步请求交给 `WorkflowSyncScheduler`
@@ -93,6 +93,8 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 菜单栏按钮由 `NSStatusBar.system.statusItem(withLength:)` 创建
 
 正常图标是 `person.fill.checkmark`, 错误图标是 `person.fill.xmark`
+
+设置页「菜单栏额度指示」默认关闭, 使用独立开关控制启用状态; 开启后在同一行显示额度窗口菜单, 可选择当前账号 Codex limit 返回的额度窗口, 当前保留选择不在返回窗口中时用 fallback 标题追加到菜单。关闭开关时, 设置页保留最后一个非关闭窗口值参与菜单淡出, 避免过渡期间回退到默认窗口。关闭时菜单栏只使用系统 template 图标; 开启后 `StatusItemController` 会把所选 Codex 窗口的剩余额度进度条绘制在图标左侧, 以竖条形式与 `person.fill.checkmark` / `person.fill.xmark` 合成为单个 `NSImage`, 并随 `CodexStatusViewModel` 自动刷新。合成图尺寸为 `27 x 17`, 图标本体保持原始 `24 x 17`, 左侧竖条轨道为 `2 x 15`。开启或关闭进度条时, `StatusItemController` 用逐帧重绘的方式对左侧竖条透明度做 0.18 秒过渡; 过渡期间合成图宽度和图标绘制坐标保持固定。
 
 错误图标触发条件:
 
@@ -111,14 +113,16 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 | 上下文菜单"日志" | 打开独立日志窗口 |
 | 上下文菜单"退出" | 终止 App         |
 
+上下文菜单由 `NSStatusBarButton.performClick(nil)` 触发。设置和日志菜单项的 action 可能在 `NSMenu` 仍处于 tracking 时被键盘等效键触发, 因此 `StatusItemController` 会先缓存打开请求, 等 `NSMenuDelegate.menuDidClose(_:)` 确认菜单结束、清空 `statusItem.menu` 后再真正打开辅助窗口, 确保鼠标点击和键盘等效键路径都能把目标窗口激活到最前面。
+
 全局快捷键由 `GlobalHotKeySettings` 和 `GlobalHotKeyController` 管理。没有用户设置时默认注册 `⌘⇧W`; 用户清除后不注册快捷键。注册冲突时恢复到上一个已注册快捷键, 并把错误显示在设置窗口的快捷键行内。
 
-通过全局快捷键打开菜单面板前, `StatusItemController` 会先用鼠标所在屏幕作为目标屏幕, 找不到时回退主屏幕, 再校验当前 `NSStatusBarButton` 锚点是否可信: 按钮必须有 window 和有效 screen、未隐藏且 bounds 非空, 换算后的屏幕矩形必须是有限尺寸, 宽高至少 1 px, 并且与目标屏幕范围相交。锚点可信时使用 `NSPopover` 挂在 status item 下方; 锚点不可信时使用无箭头 fallback `NSPanel`, 放在目标屏幕顶部居中位置。已打开时仍允许快捷键关闭当前面板。鼠标点击路径不做这层 fallback, 因为点击 sender 本身就是当前锚点。
+通过全局快捷键打开菜单面板前, `StatusItemController` 会先用鼠标所在屏幕作为目标屏幕, 找不到时回退主屏幕, 再校验当前 `NSStatusBarButton` 锚点是否可信: 按钮必须有 window 和有效 screen、未隐藏且 bounds 非空, 换算后的屏幕矩形必须是有限尺寸, 宽高至少 1 px, 并且与目标屏幕范围相交。锚点可信时使用 `NSPopover` 挂在 status item 下方; 锚点不可信时使用无箭头 fallback `NSPanel`, 放在目标屏幕顶部居中位置。快捷键打开主面板时会短暂禁止设置窗口和日志窗口成为 key window, 避免 App 激活时把已有的设置/日志窗口一起带到前台。已打开时仍允许快捷键关闭当前面板。鼠标点击路径不做这层 fallback, 因为点击 sender 本身就是当前锚点。
 
 打开菜单面板的顺序:
 
 - 取消正在等待的延迟刷新和淡入淡出任务
-- 如果来自全局快捷键且当前状态需要打开菜单面板, 先用目标屏幕确认 status item 锚点可信; 不可信时改用同一屏幕顶部居中的 fallback `NSPanel`
+- 如果来自全局快捷键且当前状态需要打开菜单面板, 先临时禁止设置窗口和日志窗口成为 key window, 再用目标屏幕确认 status item 锚点可信; 不可信时改用同一屏幕顶部居中的 fallback `NSPanel`
 - 设置状态为 `opening`, 准备透明度淡入
 - 显示 `NSPopover` 或 fallback `NSPanel`, 把 `MenuSurfaceVisibilityState.isVisible` 设为 `true`
 - 调用 `refreshWorkflowIfHookEnabled(performMaintenance: false)`, 只读取已有 `daily.jsonl`, 不做重维护
@@ -145,9 +149,9 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 
 Command-Space 不直接关闭菜单面板, 只短暂抑制 600 ms 内的 active 变化关闭逻辑, 避免 Spotlight 或系统搜索抢焦点时误关弹窗。
 
-设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开对应入口时只移动和置前对应窗口。
+设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开对应入口时只移动和置前对应窗口。窗口 level 保持 `.normal`; 置前时先恢复 `AuxiliaryHostingWindow.allowsKeyFocus`, 再 `orderFrontRegardless()`, `NSApplication.shared.activate()` 和 `makeKeyAndOrderFront(nil)`, 只做一次性置前, 不持续置顶。
 
-设置窗口和日志窗口使用 `AuxiliaryHostingWindow`; 窗口可以成为 key window, 但不能成为 main window。通过快捷键打开或关闭菜单面板时, 只激活并置前当前面板, 不主动置前已有的设置窗口或日志窗口。
+设置窗口和日志窗口使用 `AuxiliaryHostingWindow`; 窗口可以成为 key window, 但不能成为 main window。关闭菜单面板期间会临时禁止成为 key window, 避免菜单面板收起时抢焦点。通过快捷键打开或关闭菜单面板时, 只激活并置前当前面板, 不主动置前已有的设置窗口或日志窗口。
 
 ## 5. Codex 状态刷新流程
 
@@ -378,23 +382,23 @@ codex app-server --listen stdio://
 
 app-server 与状态刷新错误:
 
-| 错误来源                                     | 检测位置                                                                          | 用户可见状态                             | 日志或存储                                     | 重试或降级                                                        |
-| -------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------- |
-| 找不到全局 Codex CLI 和 Codex APP 内置 CLI   | `CodexCLIResolver.resolveAppServerCommand()`                                      | `初始化失败`                             | `RequestLogStorage.recordFailure` 记录可读错误 | 不启动 app-server, 下轮刷新重新解析                               |
-| app-server 进程启动失败                      | `Process.run()`                                                                   | `初始化失败`                             | 记录"app-server 启动失败"                      | 不复用本次进程, 下轮刷新重试                                      |
-| `initialize` 或首次 `account/read` 失败      | `CodexStatusService.openConnection`                                               | `初始化失败`                             | 对应 JSON-RPC 请求进入日志                     | 关闭本次 session, 不重复完整握手                                  |
-| 首次 `account/read` 返回 `account == nil`    | `CodexStatusService.openConnection`                                               | `未登录`                                 | 请求响应进入日志                               | 关闭本次 session, 不生成 snapshot                                 |
-| 复用连接刷新 account 后返回 `account == nil` | `CodexStatusService.fetchData`                                                    | `未登录`                                 | 请求响应进入日志                               | 清空 supplemental cache, teardown connection                      |
-| JSON-RPC 认证失败                            | `CodexStatusError.isAuthenticationRequired`                                       | 取决于刷新后结果                         | 失败响应进入日志                               | 同一轮最多 `account/read(refreshToken:true)` 一次, 然后重试原读取 |
-| refresh token 后仍认证失败                   | `ReadResult.resultAfterAuthAttempt`                                               | `未登录`                                 | 失败响应进入日志                               | 清空 cache, teardown connection                                   |
-| unsupported method                           | `CodexStatusError.isUnsupportedMethod`                                            | 对应区域可能显示无数据                   | 失败响应进入日志                               | 当前 session 记住 method, 后续跳过, 不复用旧缓存                  |
-| 非认证业务错误                               | `CodexStatusError.isRetriableServerError`                                         | 通常不改变整体状态                       | 失败响应进入日志                               | 同请求立即重试一次, 仍失败则 supplemental 读取按失败处理          |
-| rate limits 读取失败                         | `CodexStatusService.cachedRead`                                                   | 有旧缓存时区域半透明, 无旧缓存时无额度区 | 失败进入日志                                   | 同账号旧缓存复用并标记 `isRateLimitsStale`                        |
-| usage 读取失败                               | `CodexStatusService.cachedRead`                                                   | 有旧缓存时区域半透明, 无旧缓存时无用量区 | 失败进入日志                                   | 同账号旧缓存复用并标记 `isUsageStale`                             |
+| 错误来源                                     | 检测位置                                                                          | 用户可见状态                                 | 日志或存储                                     | 重试或降级                                                        |
+| -------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------- |
+| 找不到全局 Codex CLI 和 Codex APP 内置 CLI   | `CodexCLIResolver.resolveAppServerCommand()`                                      | `初始化失败`                                 | `RequestLogStorage.recordFailure` 记录可读错误 | 不启动 app-server, 下轮刷新重新解析                               |
+| app-server 进程启动失败                      | `Process.run()`                                                                   | `初始化失败`                                 | 记录"app-server 启动失败"                      | 不复用本次进程, 下轮刷新重试                                      |
+| `initialize` 或首次 `account/read` 失败      | `CodexStatusService.openConnection`                                               | `初始化失败`                                 | 对应 JSON-RPC 请求进入日志                     | 关闭本次 session, 不重复完整握手                                  |
+| 首次 `account/read` 返回 `account == nil`    | `CodexStatusService.openConnection`                                               | `未登录`                                     | 请求响应进入日志                               | 关闭本次 session, 不生成 snapshot                                 |
+| 复用连接刷新 account 后返回 `account == nil` | `CodexStatusService.fetchData`                                                    | `未登录`                                     | 请求响应进入日志                               | 清空 supplemental cache, teardown connection                      |
+| JSON-RPC 认证失败                            | `CodexStatusError.isAuthenticationRequired`                                       | 取决于刷新后结果                             | 失败响应进入日志                               | 同一轮最多 `account/read(refreshToken:true)` 一次, 然后重试原读取 |
+| refresh token 后仍认证失败                   | `ReadResult.resultAfterAuthAttempt`                                               | `未登录`                                     | 失败响应进入日志                               | 清空 cache, teardown connection                                   |
+| unsupported method                           | `CodexStatusError.isUnsupportedMethod`                                            | 对应区域可能显示无数据                       | 失败响应进入日志                               | 当前 session 记住 method, 后续跳过, 不复用旧缓存                  |
+| 非认证业务错误                               | `CodexStatusError.isRetriableServerError`                                         | 通常不改变整体状态                           | 失败响应进入日志                               | 同请求立即重试一次, 仍失败则 supplemental 读取按失败处理          |
+| rate limits 读取失败                         | `CodexStatusService.cachedRead`                                                   | 有旧缓存时区域半透明, 无旧缓存时无额度区     | 失败进入日志                                   | 同账号旧缓存复用并标记 `isRateLimitsStale`                        |
+| usage 读取失败                               | `CodexStatusService.cachedRead`                                                   | 有旧缓存时区域半透明, 无旧缓存时无用量区     | 失败进入日志                                   | 同账号旧缓存复用并标记 `isUsageStale`                             |
 | 重置机会过期时间请求失败                     | `CodexStatusService.fetchResetCreditExpirationDates` / `CodexResetCreditsService` | `重置次数: N` 保留, 不显示过期时间 help text | 不展示错误, 不保存原始响应                     | 401/403 时复用本轮认证刷新预算重试, 其他失败静默降级为 `nil`      |
-| 连接断开, 请求超时, 响应解析失败             | `CodexStatusError.isTransportFailure`                                             | 复用连接重建失败后为 `初始化失败`        | 请求标记为错误                                 | 复用连接只重建重试一次, 新连接失败不再重试                        |
-| app-server 关闭超时                          | `AppServerSession.close()`                                                        | 不直接改变 UI                            | 记录强制结束或仍在后台运行                     | 先 terminate 等 1 秒, 再 SIGKILL 等 0.5 秒                        |
-| snapshot 无可信 quota 和 usage               | `CodexQuotaSnapshot.hasTrustedData`                                               | 菜单栏切换错误图标                       | 不新增日志                                     | 仍可展示 stale 数据或无数据面板                                   |
+| 连接断开, 请求超时, 响应解析失败             | `CodexStatusError.isTransportFailure`                                             | 复用连接重建失败后为 `初始化失败`            | 请求标记为错误                                 | 复用连接只重建重试一次, 新连接失败不再重试                        |
+| app-server 关闭超时                          | `AppServerSession.close()`                                                        | 不直接改变 UI                                | 记录强制结束或仍在后台运行                     | 先 terminate 等 1 秒, 再 SIGKILL 等 0.5 秒                        |
+| snapshot 无可信 quota 和 usage               | `CodexQuotaSnapshot.hasTrustedData`                                               | 菜单栏切换错误图标                           | 不新增日志                                     | 仍可展示 stale 数据或无数据面板                                   |
 
 日志错误处理:
 
@@ -471,6 +475,7 @@ Codex 版本探测错误:
 
 - 优先读取 `rateLimitsByLimitId`, 为空时回退顶层 `rateLimits`
 - 顶层 `rateLimits.limitId` 指向的主 limit 置顶, 缺省为 `codex`
+- `codexLimit` 返回 `limitId` 大小写不敏感等于 `codex` 的第一个 limit, 供菜单栏额度指示读取可选窗口
 - 其他 limit 按 `limitName ?? limitId` localized standard 排序, 再按 `limitId` 稳定排序
 - `rateLimitResetCredits.availableCount` 写入 `resetCreditsAvailableCount`, 缺失时不展示重置次数
 - 如果 `resetCreditsAvailableCount > 0`, `CodexResetCreditsService` 会用真实用户 `CODEX_HOME/auth.json` 或 `HOME/.codex/auth.json` 中的 access token, 只读请求 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits`; 401/403 时复用本轮认证刷新预算, 尚未刷新过时通过当前 app-server 会话刷新一次 token 后重试。成功时将可用且未过期的 `credits[].expires_at` 按升序写入 `resetCreditExpirationDates`; 请求失败时为 `nil`
@@ -532,7 +537,7 @@ flowchart TD
 额度区:
 
 - 多个 limit 间用 `LiquidGlassDivider` 分隔
-- 如果 `resetCreditsAvailableCount` 有值, 只在置顶主 limit 标题右侧显示 `重置次数: N`; 如果 `resetCreditExpirationDates` 非空, 鼠标悬停时通过 help text 按 `过期时间: yyyy-MM-dd HH:mm:ss • 可用: N` 逐行展示过期时间, 相同展示时间合并数量, 单个显示 `可用: 1`
+- 如果 `resetCreditsAvailableCount` 有值, 只在置顶主 limit 标题右侧显示 `重置次数: N`; 如果 `resetCreditExpirationDates` 非空, 鼠标悬停时通过 help text 按 `过期: yyyy-MM-dd HH:mm:ss • 可用: N` 逐行展示过期时间, 相同展示时间合并数量, 单个显示 `可用: 1`
 - 每个 quota window 展示标签, 50 个固定胶囊组成的电量条, 剩余百分比和重置时间
 - 胶囊宽度为 `3.5`, 间距为 `2`, 高度为 `12`
 - 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到电量条间距 `12`, 电量条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`
@@ -846,11 +851,15 @@ UI 展示指标来自 `WorkflowDailyAggregate.metrics`:
 - `CodexHookSettings.refresh()`
 - `CodexHookSettings.verifyInstalledHooks()`
 - `WorkflowSyncSettings.refresh()`
+- `MenuBarQuotaSettings.refresh()`
+
+设置窗口按 SwiftUI 内容 `fittingSize` 自适应高度, 但必须校验尺寸有限且夹紧到当前屏幕可见区域内的安全上限, 避免 SwiftUI 初始化或状态刷新重入时给出异常尺寸导致空白大窗口。`MenuBarQuotaSettings.refresh()` 可能被设置页 `onAppear` 和 `didBecomeActive` 调用, 发布 `selection` 时需要延后到下一轮 MainActor, 避免在 SwiftUI view update 中同步发布造成未定义布局行为。
 
 `AppSettingsView.onAppear` 时刷新:
 
 - `LoginItemSettings.refresh()`
 - `WorkflowSyncSettings.refresh()`
+- `MenuBarQuotaSettings.refresh()`
 - `AppUpdater.refreshAutomaticCheckSetting()`
 - `CodexCLIVersionViewModel.refresh()`
 - `CodexStatusViewModel.refreshCodexConnectionInfo()`
@@ -861,15 +870,16 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 
 设置项:
 
-| 设置项          | 状态源                                                                               | 写入行为                                                                                    |
-| --------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| 开机自动启动    | `SMAppService.mainApp.status`                                                        | `register()` / `unregister()`                                                               |
-| 自动检查更新    | Sparkle updater                                                                      | 设置 `automaticallyChecksForUpdates`                                                        |
-| 使用快捷键      | `GlobalHotKeySettings.shortcut`                                                      | 写入 `UserDefaults` 并注册 hot key                                                          |
-| 启用 Codex Hook | app-server `config/read` / `hooks/list` / `config/batchWrite`, `~/.codex/hooks.json` | 检查全局 Hook 开关后追加或移除当前 CodexBar command hook, 并维护对应 `hooks.state` 信任状态 |
-| 跨设备同步      | `WorkflowSyncSettings` + CloudKit account status + `WorkflowSyncScheduler`           | Hook 开启且同步账号可用时写入 `UserDefaults`; 开启时标记 `needsBackfill` 并请求调度同步     |
-| Codex 版本      | `CodexCLIVersionSnapshot` + 当前 app-server 握手信息                                 | 路径点击复制到剪贴板                                                                        |
-| CodexBar 版本   | Bundle + AppUpdater 状态                                                             | 有更新状态时优先显示动态消息                                                                |
+| 设置项          | 状态源                                                                               | 写入行为                                                                                                                        |
+| --------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| 开机自动启动    | `SMAppService.mainApp.status`                                                        | `register()` / `unregister()`                                                                                                   |
+| 自动检查更新    | Sparkle updater                                                                      | 设置 `automaticallyChecksForUpdates`                                                                                            |
+| 菜单栏额度指示  | `MenuBarQuotaSettings.selection`                                                     | 开关写入 `.off` 或当前保留窗口, 窗口菜单写入所选窗口; 标签优先来自当前账号 Codex limit 返回的额度窗口, 缺失时使用 fallback 标题 |
+| 使用快捷键      | `GlobalHotKeySettings.shortcut`                                                      | 写入 `UserDefaults` 并注册 hot key                                                                                              |
+| 启用 Codex Hook | app-server `config/read` / `hooks/list` / `config/batchWrite`, `~/.codex/hooks.json` | 检查全局 Hook 开关后追加或移除当前 CodexBar command hook, 并维护对应 `hooks.state` 信任状态                                     |
+| 跨设备同步      | `WorkflowSyncSettings` + CloudKit account status + `WorkflowSyncScheduler`           | Hook 开启且同步账号可用时写入 `UserDefaults`; 开启时标记 `needsBackfill` 并请求调度同步                                         |
+| Codex 版本      | `CodexCLIVersionSnapshot` + 当前 app-server 握手信息                                 | 路径点击复制到剪贴板                                                                                                            |
+| CodexBar 版本   | Bundle + AppUpdater 状态                                                             | 有更新状态时优先显示动态消息                                                                                                    |
 
 错误显示:
 

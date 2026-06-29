@@ -11,6 +11,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     lazy var codexHookSettings = CodexHookSettings(codexStatusService: codexStatusService)
     let syncSettings = WorkflowSyncSettings()
     let globalHotKeySettings = GlobalHotKeySettings()
+    let menuBarQuotaSettings = MenuBarQuotaSettings()
     let appUpdater = AppUpdater()
 
     private var statusItemController: StatusItemController?
@@ -22,6 +23,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             codexHookSettings: codexHookSettings,
             syncSettings: syncSettings,
             globalHotKeySettings: globalHotKeySettings,
+            menuBarQuotaSettings: menuBarQuotaSettings,
             appUpdater: appUpdater
         )
         controller.install()
@@ -35,12 +37,13 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
 
 /// 菜单栏入口控制器, 统一管理状态图标, 菜单面板, 右键菜单和全局快捷键
 @MainActor
-private final class StatusItemController: NSObject {
+private final class StatusItemController: NSObject, NSMenuDelegate {
     private let viewModel: CodexStatusViewModel
     private let workflowViewModel: WorkflowViewModel
     private let codexHookSettings: CodexHookSettings
     private let syncSettings: WorkflowSyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
+    private let menuBarQuotaSettings: MenuBarQuotaSettings
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
@@ -60,7 +63,8 @@ private final class StatusItemController: NSObject {
         appUpdater: appUpdater,
         codexHookSettings: codexHookSettings,
         syncSettings: syncSettings,
-        globalHotKeySettings: globalHotKeySettings
+        globalHotKeySettings: globalHotKeySettings,
+        menuBarQuotaSettings: menuBarQuotaSettings
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
     } onSyncChanged: { [weak self] enabled in
@@ -100,12 +104,12 @@ private final class StatusItemController: NSObject {
     private var delayedStatusRefreshTask: Task<Void, Never>?
     private var menuSurfaceState = MenuSurfaceState.hidden
     private var cancellables = Set<AnyCancellable>()
-    private var isShowingErrorImage: Bool?
+    private var statusIconState: StatusIconState?
+    private var statusIconAnimationTask: Task<Void, Never>?
     private var registeredHotKeyShortcut: GlobalHotKeyShortcut?
     private var auxiliaryWindowFocusRestoreTask: Task<Void, Never>?
-
-    private static let normalImage = makeStatusImage("person.fill.checkmark")
-    private static let errorImage = makeStatusImage("person.fill.xmark")
+    private var activeStatusItemMenu: NSMenu?
+    private var pendingStatusItemMenuAction: (@MainActor () -> Void)?
 
     init(
         viewModel: CodexStatusViewModel,
@@ -113,6 +117,7 @@ private final class StatusItemController: NSObject {
         codexHookSettings: CodexHookSettings,
         syncSettings: WorkflowSyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
+        menuBarQuotaSettings: MenuBarQuotaSettings,
         appUpdater: AppUpdater
     ) {
         self.viewModel = viewModel
@@ -120,20 +125,177 @@ private final class StatusItemController: NSObject {
         self.codexHookSettings = codexHookSettings
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
+        self.menuBarQuotaSettings = menuBarQuotaSettings
         self.appUpdater = appUpdater
         super.init()
     }
 
-    private static func makeStatusImage(_ symbolName: String) -> NSImage? {
+    private static func makeStatusImage(
+        _ symbolName: String,
+        progress: StatusIconProgress? = nil,
+        progressVisibility: CGFloat = 1
+    ) -> NSImage? {
+        guard let symbolImage = makeStatusSymbolImage(symbolName) else {
+            return nil
+        }
+
+        guard let progress else {
+            symbolImage.isTemplate = true
+            return symbolImage
+        }
+
+        let progressVisibility = clampedProgressVisibility(progressVisibility)
+        let progressImage = NSImage(size: Metrics.progressStatusImageSize, flipped: false) { _ in
+            Self.drawStatusSymbol(
+                symbolImage,
+                in: Metrics.progressStatusSymbolRect,
+                isStale: progress.isStale
+            )
+            Self.drawProgress(progress, visibility: progressVisibility)
+            return true
+        }
+        progressImage.isTemplate = false
+        progressImage.alignmentRect = NSRect(
+            x: 0,
+            y: symbolImage.alignmentRect.minY,
+            width: Metrics.progressStatusImageSize.width,
+            height: symbolImage.alignmentRect.height
+        )
+        return progressImage
+    }
+
+    private static func makeStatusSymbolImage(_ symbolName: String) -> NSImage? {
         let configuration = NSImage.SymbolConfiguration(
             pointSize: 16,
             weight: .regular,
             scale: .medium
         )
-        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+        return NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(configuration)
-        image?.isTemplate = true
-        return image
+    }
+
+    private static func drawStatusSymbol(
+        _ image: NSImage,
+        in rect: NSRect,
+        isStale: Bool
+    ) {
+        NSGraphicsContext.saveGraphicsState()
+        NSColor.labelColor
+            .withAlphaComponent(isStale ? Metrics.staleIconAlpha : 1)
+            .setFill()
+        rect.fill()
+        image.draw(
+            in: rect,
+            from: .zero,
+            operation: .destinationIn,
+            fraction: 1
+        )
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private static func drawProgress(
+        _ progress: StatusIconProgress,
+        visibility: CGFloat
+    ) {
+        let visibility = clampedProgressVisibility(visibility)
+        guard visibility > 0 else {
+            return
+        }
+
+        let trackRect = Metrics.progressTrackRect
+        let cornerRadius = Metrics.progressTrackCornerRadius
+        let progressAlpha = (progress.isStale ? Metrics.staleProgressAlpha : 1) * visibility
+        NSColor.tertiaryLabelColor
+            .withAlphaComponent(Metrics.progressTrackAlpha * progressAlpha)
+            .setFill()
+        NSBezierPath(
+            roundedRect: trackRect,
+            xRadius: cornerRadius,
+            yRadius: cornerRadius
+        )
+        .fill()
+
+        let fillHeight = trackRect.height * CGFloat(progress.percent) / 100
+        guard fillHeight > 0 else {
+            return
+        }
+
+        let fillRect = NSRect(
+            x: trackRect.minX,
+            y: trackRect.minY,
+            width: trackRect.width,
+            height: fillHeight
+        )
+        quotaProgressColor(for: progress.percent)
+            .withAlphaComponent(progressAlpha)
+            .setFill()
+        NSBezierPath(
+            roundedRect: fillRect,
+            xRadius: cornerRadius,
+            yRadius: cornerRadius
+        )
+        .fill()
+    }
+
+    private static func clampedProgressVisibility(_ value: CGFloat) -> CGFloat {
+        min(max(value, 0), 1)
+    }
+
+    private static func easedProgressVisibility(_ value: CGFloat) -> CGFloat {
+        let value = clampedProgressVisibility(value)
+        return value * value * (3 - 2 * value)
+    }
+
+    private static func quotaProgressColor(for percent: Int) -> NSColor {
+        switch percent {
+        case 80...:
+            nsColor(hex: 0x16A085)
+        case 60 ..< 80:
+            nsColor(hex: 0x5DADE2)
+        case 40 ..< 60:
+            nsColor(hex: 0xF5B041)
+        case 20 ..< 40:
+            nsColor(hex: 0xFF7A59)
+        default:
+            nsColor(hex: 0xEE3F3F)
+        }
+    }
+
+    private static func nsColor(hex: Int) -> NSColor {
+        NSColor(
+            red: CGFloat((hex >> 16) & 0xFF) / 255.0,
+            green: CGFloat((hex >> 8) & 0xFF) / 255.0,
+            blue: CGFloat(hex & 0xFF) / 255.0,
+            alpha: 1
+        )
+    }
+
+    private struct StatusIconState: Equatable {
+        let usesErrorImage: Bool
+        let progress: StatusIconProgress?
+
+        var symbolName: String {
+            usesErrorImage ? Metrics.errorStatusSymbolName : Metrics.normalStatusSymbolName
+        }
+    }
+
+    private struct StatusIconProgress: Equatable {
+        let percent: Int
+        let isStale: Bool
+
+        init?(snapshot: CodexQuotaSnapshot?, selection: MenuBarQuotaSelection) {
+            guard let targetWindowId = selection.windowId,
+                  let snapshot,
+                  let window = snapshot.codexLimit?.windows.first(where: {
+                      $0.id == targetWindowId
+                  }),
+                  window.hasData else {
+                return nil
+            }
+
+            percent = window.remainingPercent
+            isStale = snapshot.isRateLimitsStale
+        }
     }
 
     func install() {
@@ -150,6 +312,7 @@ private final class StatusItemController: NSObject {
     func uninstall() {
         closeMenuSurface(animated: false)
         auxiliaryWindowFocusRestoreTask?.cancel()
+        statusIconAnimationTask?.cancel()
         workflowSyncScheduler.cancel()
         setAuxiliaryWindowKeyFocus(true)
         globalHotKeyController.uninstall()
@@ -165,6 +328,7 @@ private final class StatusItemController: NSObject {
         button.target = self
         button.action = #selector(statusItemClicked(_:))
         button.imagePosition = .imageOnly
+        button.imageScaling = .scaleNone
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
 
@@ -198,15 +362,22 @@ private final class StatusItemController: NSObject {
     }
 
     private func observeViewModel() {
-        Publishers.CombineLatest(viewModel.$loadState, viewModel.$snapshot)
-            .map { loadState, snapshot in
-                loadState.isError || snapshot?.hasTrustedData == false
-            }
-            .removeDuplicates()
-            .sink { [weak self] usesErrorImage in
-                self?.updateStatusImage(usesErrorImage: usesErrorImage)
-            }
-            .store(in: &cancellables)
+        Publishers.CombineLatest3(
+            viewModel.$loadState,
+            viewModel.$snapshot,
+            menuBarQuotaSettings.$selection
+        )
+        .map { loadState, snapshot, selection in
+            StatusIconState(
+                usesErrorImage: loadState.isError || snapshot?.hasTrustedData == false,
+                progress: StatusIconProgress(snapshot: snapshot, selection: selection)
+            )
+        }
+        .removeDuplicates()
+        .sink { [weak self] state in
+            self?.updateStatusImage(state)
+        }
+        .store(in: &cancellables)
 
         viewModel.$autoRefreshCountdownStartedAt
             .compactMap(\.self)
@@ -290,16 +461,104 @@ private final class StatusItemController: NSObject {
     }
 
     private func updateStatusImage() {
-        updateStatusImage(usesErrorImage: viewModel.usesErrorImage)
+        updateStatusImage(currentStatusIconState)
     }
 
-    private func updateStatusImage(usesErrorImage: Bool) {
-        guard usesErrorImage != isShowingErrorImage else {
+    private var currentStatusIconState: StatusIconState {
+        StatusIconState(
+            usesErrorImage: viewModel.usesErrorImage,
+            progress: StatusIconProgress(
+                snapshot: viewModel.snapshot,
+                selection: menuBarQuotaSettings.selection
+            )
+        )
+    }
+
+    private func updateStatusImage(_ state: StatusIconState) {
+        guard state != statusIconState else {
             return
         }
 
-        isShowingErrorImage = usesErrorImage
-        statusItem.button?.image = usesErrorImage ? Self.errorImage : Self.normalImage
+        let previousState = statusIconState
+        statusIconAnimationTask?.cancel()
+        statusIconState = state
+
+        guard let previousState else {
+            statusItem.button?.image = Self.makeStatusImage(state.symbolName, progress: state.progress)
+            return
+        }
+
+        if let animation = statusProgressAnimation(
+            from: previousState.progress,
+            to: state.progress
+        ) {
+            animateStatusProgress(
+                symbolName: state.symbolName,
+                progress: animation.progress,
+                finalState: state,
+                fromVisibility: animation.fromVisibility,
+                toVisibility: animation.toVisibility
+            )
+            return
+        }
+
+        statusItem.button?.image = Self.makeStatusImage(state.symbolName, progress: state.progress)
+    }
+
+    private func statusProgressAnimation(
+        from previousProgress: StatusIconProgress?,
+        to progress: StatusIconProgress?
+    ) -> (progress: StatusIconProgress, fromVisibility: CGFloat, toVisibility: CGFloat)? {
+        switch (previousProgress, progress) {
+        case (nil, let progress?):
+            (progress, 0, 1)
+        case (let progress?, nil):
+            (progress, 1, 0)
+        default:
+            nil
+        }
+    }
+
+    private func animateStatusProgress(
+        symbolName: String,
+        progress: StatusIconProgress,
+        finalState: StatusIconState,
+        fromVisibility: CGFloat,
+        toVisibility: CGFloat
+    ) {
+        statusIconAnimationTask = Task { @MainActor [weak self] in
+            for frame in 0 ... Metrics.statusIconProgressAnimationFrameCount {
+                guard let self,
+                      !Task.isCancelled,
+                      statusIconState == finalState else {
+                    return
+                }
+
+                let rawProgress = CGFloat(frame) / CGFloat(Metrics.statusIconProgressAnimationFrameCount)
+                let easedProgress = Self.easedProgressVisibility(rawProgress)
+                let visibility = fromVisibility + (toVisibility - fromVisibility) * easedProgress
+                statusItem.button?.image = Self.makeStatusImage(
+                    symbolName,
+                    progress: progress,
+                    progressVisibility: visibility
+                )
+
+                if frame < Metrics.statusIconProgressAnimationFrameCount {
+                    try? await Task.sleep(
+                        nanoseconds: Metrics.statusIconProgressAnimationFrameDelayNanoseconds
+                    )
+                }
+            }
+
+            guard let self,
+                  !Task.isCancelled,
+                  statusIconState == finalState else {
+                return
+            }
+
+            statusItem.button?.image = Self.makeStatusImage(symbolName, progress: finalState.progress)
+            statusIconAnimationTask = nil
+        }
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -335,8 +594,17 @@ private final class StatusItemController: NSObject {
 
     private func toggleMenuSurfaceFromHotKey() {
         let targetScreen = screenContainingMouse() ?? NSScreen.main
+        let opensMenuSurface = menuSurfaceState == .hidden || menuSurfaceState == .closing
+        if opensMenuSurface {
+            suspendAuxiliaryWindowKeyFocus()
+        }
+
         toggleMenuSurface {
             openMenuSurfaceFromHotKey(on: targetScreen)
+        }
+
+        if opensMenuSurface {
+            scheduleAuxiliaryWindowKeyFocusRestore()
         }
     }
 
@@ -434,9 +702,16 @@ private final class StatusItemController: NSObject {
     }
 
     private func presentStatusItemMenu(_ menu: NSMenu, relativeTo button: NSStatusBarButton) {
+        pendingStatusItemMenuAction = nil
+        activeStatusItemMenu = menu
+        menu.delegate = self
         statusItem.menu = menu
-        defer { statusItem.menu = nil }
         button.performClick(nil)
+        finishStatusItemMenuPresentation(menu)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        finishStatusItemMenuPresentation(menu)
     }
 
     private func makeContextMenu() -> NSMenu {
@@ -485,11 +760,55 @@ private final class StatusItemController: NSObject {
     }
 
     @objc private func openSettings() {
-        settingsWindowController.open()
+        openAuxiliaryWindow { [weak self] in
+            self?.settingsWindowController.open()
+        }
     }
 
     @objc private func openLog() {
-        logWindowController.open()
+        openAuxiliaryWindow { [weak self] in
+            self?.logWindowController.open()
+        }
+    }
+
+    private func openAuxiliaryWindow(_ open: @escaping @MainActor () -> Void) {
+        guard activeStatusItemMenu == nil else {
+            pendingStatusItemMenuAction = { [weak self] in
+                self?.openAuxiliaryWindow(open)
+            }
+            return
+        }
+
+        auxiliaryWindowFocusRestoreTask?.cancel()
+        auxiliaryWindowFocusRestoreTask = nil
+        setAuxiliaryWindowKeyFocus(true)
+        open()
+    }
+
+    private func runPendingStatusItemMenuAction() {
+        guard let pendingStatusItemMenuAction else {
+            return
+        }
+
+        self.pendingStatusItemMenuAction = nil
+        DispatchQueue.main.async {
+            pendingStatusItemMenuAction()
+        }
+    }
+
+    private func finishStatusItemMenuPresentation(_ menu: NSMenu) {
+        guard activeStatusItemMenu === menu else {
+            return
+        }
+
+        menu.delegate = nil
+        activeStatusItemMenu = nil
+
+        if statusItem.menu === menu {
+            statusItem.menu = nil
+        }
+
+        runPendingStatusItemMenuAction()
     }
 
     @objc private func quit() {
@@ -673,11 +992,37 @@ private final class StatusItemController: NSObject {
     }
 
     private enum Metrics {
+        static let normalStatusSymbolName = "person.fill.checkmark"
+        static let errorStatusSymbolName = "person.fill.xmark"
         static let fadeInDuration: TimeInterval = 0.24
         static let fadeOutDuration: TimeInterval = 0.18
         static let auxiliaryWindowKeyFocusRestoreDelayMilliseconds: UInt64 = 120
         static let minimumTrustedAnchorLength: CGFloat = 1
         static let anchorScreenTolerance: CGFloat = 1
+        static let progressStatusSymbolSize = NSSize(width: 24, height: 17)
+        static let progressStatusExtraWidth: CGFloat = 3
+        static let progressStatusImageSize = NSSize(
+            width: progressStatusSymbolSize.width + progressStatusExtraWidth,
+            height: progressStatusSymbolSize.height
+        )
+        static let progressStatusSymbolRect = NSRect(
+            x: progressStatusExtraWidth,
+            y: 0,
+            width: progressStatusSymbolSize.width,
+            height: progressStatusSymbolSize.height
+        )
+        static let progressTrackRect = NSRect(x: 0.5, y: 1, width: 2, height: 15)
+        static let progressTrackCornerRadius: CGFloat = 1
+        static let progressTrackAlpha: CGFloat = 0.34
+        static let staleIconAlpha: CGFloat = 0.75
+        static let staleProgressAlpha: CGFloat = 0.55
+        static let statusIconProgressAnimationDuration: TimeInterval = 0.18
+        static let statusIconProgressAnimationFrameCount = 10
+        static let statusIconProgressAnimationFrameDelayNanoseconds = UInt64(
+            statusIconProgressAnimationDuration
+                / Double(statusIconProgressAnimationFrameCount)
+                * 1000000000
+        )
     }
 
     private enum MenuSurfaceState {

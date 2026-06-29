@@ -24,6 +24,12 @@ nonisolated struct CodexQuotaSnapshot: Equatable {
         hasTrustedRateLimitsData || hasTrustedUsageData
     }
 
+    var codexLimit: CodexQuotaLimitSnapshot? {
+        limits.first {
+            $0.limitId.compare("codex", options: [.caseInsensitive]) == .orderedSame
+        }
+    }
+
     private var hasTrustedRateLimitsData: Bool {
         !limits.isEmpty && !isRateLimitsStale
     }
