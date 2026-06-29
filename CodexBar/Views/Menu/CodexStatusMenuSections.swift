@@ -184,7 +184,7 @@ struct QuotaLimitsSection: View {
     }
 
     private var resetCreditsText: String? {
-        resetCreditsAvailableCount.map { "重置 x\($0)" }
+        resetCreditsAvailableCount.map { "重置次数: \($0)" }
     }
 
     @ViewBuilder
@@ -225,7 +225,7 @@ struct QuotaLimitsSection: View {
         }
 
         return groups.map { group in
-            "过期时间: \(group.expirationText) [x\(group.count)]"
+            "过期时间: \(group.expirationText) • 可用: \(group.count)"
         }
     }
 

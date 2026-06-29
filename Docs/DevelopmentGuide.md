@@ -391,7 +391,7 @@ app-server 与状态刷新错误:
 | 非认证业务错误                               | `CodexStatusError.isRetriableServerError`                                         | 通常不改变整体状态                       | 失败响应进入日志                               | 同请求立即重试一次, 仍失败则 supplemental 读取按失败处理          |
 | rate limits 读取失败                         | `CodexStatusService.cachedRead`                                                   | 有旧缓存时区域半透明, 无旧缓存时无额度区 | 失败进入日志                                   | 同账号旧缓存复用并标记 `isRateLimitsStale`                        |
 | usage 读取失败                               | `CodexStatusService.cachedRead`                                                   | 有旧缓存时区域半透明, 无旧缓存时无用量区 | 失败进入日志                                   | 同账号旧缓存复用并标记 `isUsageStale`                             |
-| 重置机会过期时间请求失败                     | `CodexStatusService.fetchResetCreditExpirationDates` / `CodexResetCreditsService` | `重置 xN` 保留, 不显示过期时间 help text | 不展示错误, 不保存原始响应                     | 401/403 时复用本轮认证刷新预算重试, 其他失败静默降级为 `nil`      |
+| 重置机会过期时间请求失败                     | `CodexStatusService.fetchResetCreditExpirationDates` / `CodexResetCreditsService` | `重置次数: N` 保留, 不显示过期时间 help text | 不展示错误, 不保存原始响应                     | 401/403 时复用本轮认证刷新预算重试, 其他失败静默降级为 `nil`      |
 | 连接断开, 请求超时, 响应解析失败             | `CodexStatusError.isTransportFailure`                                             | 复用连接重建失败后为 `初始化失败`        | 请求标记为错误                                 | 复用连接只重建重试一次, 新连接失败不再重试                        |
 | app-server 关闭超时                          | `AppServerSession.close()`                                                        | 不直接改变 UI                            | 记录强制结束或仍在后台运行                     | 先 terminate 等 1 秒, 再 SIGKILL 等 0.5 秒                        |
 | snapshot 无可信 quota 和 usage               | `CodexQuotaSnapshot.hasTrustedData`                                               | 菜单栏切换错误图标                       | 不新增日志                                     | 仍可展示 stale 数据或无数据面板                                   |
@@ -532,7 +532,7 @@ flowchart TD
 额度区:
 
 - 多个 limit 间用 `LiquidGlassDivider` 分隔
-- 如果 `resetCreditsAvailableCount` 有值, 只在置顶主 limit 标题右侧显示 `重置 xN`; 如果 `resetCreditExpirationDates` 非空, 鼠标悬停时通过 help text 按 `过期时间: yyyy-MM-dd HH:mm:ss [xN]` 逐行展示过期时间, 相同展示时间合并数量, 单个也显示 `x1`
+- 如果 `resetCreditsAvailableCount` 有值, 只在置顶主 limit 标题右侧显示 `重置次数: N`; 如果 `resetCreditExpirationDates` 非空, 鼠标悬停时通过 help text 按 `过期时间: yyyy-MM-dd HH:mm:ss • 可用: N` 逐行展示过期时间, 相同展示时间合并数量, 单个显示 `可用: 1`
 - 每个 quota window 展示标签, 50 个固定胶囊组成的电量条, 剩余百分比和重置时间
 - 胶囊宽度为 `3.5`, 间距为 `2`, 高度为 `12`
 - 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到电量条间距 `12`, 电量条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`

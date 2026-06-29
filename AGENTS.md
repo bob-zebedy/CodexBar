@@ -179,7 +179,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - `LiquidGlassStyle.swift` 是自绘玻璃效果, 不是 macOS 原生 `.glassEffect`; 没有明确设计要求时不要切换。
 - 账号图标双击触发刷新。邮箱文本双击切换模糊。
 - 计划名是右侧加粗纯文字; `planBadgeTint(for:)` 优先级: enterprise -> team/business -> pro -> plus -> edu -> free -> 默认 cyan。
-- `resetCreditsAvailableCount` 有值时, 只在置顶主 limit 标题右侧显示 `重置 xN`; `resetCreditExpirationDates` 非空时, 鼠标悬停在该文本上通过 help text 按升序逐行展示 `过期时间: yyyy-MM-dd HH:mm:ss [xN]`, 相同展示时间合并数量, 单个也显示 `x1`。
+- `resetCreditsAvailableCount` 有值时, 只在置顶主 limit 标题右侧显示 `重置次数: N`; `resetCreditExpirationDates` 非空时, 鼠标悬停在该文本上通过 help text 按升序逐行展示 `过期时间: yyyy-MM-dd HH:mm:ss • 可用: N`, 相同展示时间合并数量, 单个显示 `可用: 1`。
 - 额度条展示剩余百分比, 固定为 50 个胶囊, 每个胶囊宽 `3.5`, 间距 `2`, 高 `12`; 颜色按 20% 一档: 红、橙、黄、薄荷、绿。
 - 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到额度条间距 `12`, 额度条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`; 不通过加宽菜单面板解决额度行溢出。
 - 无 quota 数据时显示 `--` / `暂无数据`, 并使用占位色。
