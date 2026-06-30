@@ -5,7 +5,7 @@
 CodexBar 在不打开 Codex CLI 或 Codex App 的情况下快速查看 Codex 账号状态、额度重置时间、Token 用量和本机使用情况统计。它连接本机 Codex app-server 获取账号与用量信息，也可以通过 Codex Hook 记录本机 Codex 事件，让菜单栏成为一个轻量、实时、的 Codex 仪表盘。
 
 <p align="center">
-  <img src="Images/record.gif" width="532">
+  <img src="Images/preview.gif" width="600">
 </p>
 
 ## 为什么需要 CodexBar
