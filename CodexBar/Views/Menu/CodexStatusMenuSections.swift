@@ -140,7 +140,7 @@ struct QuotaLimitsSection: View {
     let resetCreditExpirationDates: [Date]?
     let isStale: Bool
     let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
-    @State private var sectionScreenFrame: CGRect?
+    @State private var sectionFrameProvider = ScreenFrameProvider()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -156,9 +156,7 @@ struct QuotaLimitsSection: View {
         .padding(MenuMetrics.panelPadding)
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
         .background {
-            ScreenFrameReader { frame in
-                sectionScreenFrame = frame
-            }
+            ScreenFrameReader(provider: sectionFrameProvider)
         }
     }
 
@@ -195,7 +193,7 @@ struct QuotaLimitsSection: View {
             onResetCreditsTap(
                 ResetCreditsPanelContext(
                     expirationDates: resetCreditExpirationDates ?? [],
-                    alignmentScreenFrame: sectionScreenFrame,
+                    alignmentScreenFrame: sectionFrameProvider.currentScreenFrame(),
                     preferredSide: .right
                 )
             )

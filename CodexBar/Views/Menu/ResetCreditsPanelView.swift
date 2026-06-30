@@ -5,6 +5,31 @@ nonisolated struct ResetCreditsPanelContext: Equatable {
     let expirationDates: [Date]
     let alignmentScreenFrame: CGRect?
     let preferredSide: UsageHeatmapDetailSide
+    let maximumPanelHeight: CGFloat?
+
+    init(
+        expirationDates: [Date],
+        alignmentScreenFrame: CGRect?,
+        preferredSide: UsageHeatmapDetailSide,
+        maximumPanelHeight: CGFloat? = nil
+    ) {
+        self.expirationDates = expirationDates
+        self.alignmentScreenFrame = alignmentScreenFrame
+        self.preferredSide = preferredSide
+        self.maximumPanelHeight = maximumPanelHeight
+    }
+
+    func withPanelGeometry(
+        alignmentScreenFrame: CGRect?,
+        maximumPanelHeight: CGFloat?
+    ) -> Self {
+        Self(
+            expirationDates: expirationDates,
+            alignmentScreenFrame: alignmentScreenFrame,
+            preferredSide: preferredSide,
+            maximumPanelHeight: maximumPanelHeight
+        )
+    }
 }
 
 /// 重置次数侧边详情, 按过期时间从近到远展示
@@ -14,16 +39,21 @@ struct ResetCreditsPanelView: View {
 
     var body: some View {
         let groups = expirationGroups
-        let panelSize = Self.panelSize(forGroupCount: groups.count)
+        let panelSize = Self.panelSize(for: context)
 
         VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
             if groups.isEmpty {
                 emptyMessage
             } else {
                 ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
-                        ForEach(groups) { group in
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                             row(for: group)
+
+                            if index < groups.count - 1 {
+                                rowDivider
+                                    .padding(.vertical, Metrics.dividerVerticalPadding)
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -56,16 +86,22 @@ struct ResetCreditsPanelView: View {
     }
 
     static func panelSize(for context: ResetCreditsPanelContext) -> CGSize {
-        panelSize(forGroupCount: ResetCreditExpirationGroup.grouped(from: context.expirationDates).count)
+        panelSize(
+            forGroupCount: ResetCreditExpirationGroup.grouped(from: context.expirationDates).count,
+            maximumHeight: context.maximumPanelHeight
+        )
     }
 
-    private static func panelSize(forGroupCount rowCount: Int) -> CGSize {
+    private static func panelSize(forGroupCount rowCount: Int, maximumHeight: CGFloat? = nil) -> CGSize {
         let rowHeight = CGFloat(max(rowCount, 1)) * Metrics.rowHeight
         let rowSpacing = CGFloat(max(rowCount - 1, 0)) * Metrics.rowSpacing
         let rawHeight = Metrics.baseHeight + rowHeight + rowSpacing
+        let maximumPanelHeight = maximumHeight.map {
+            max($0, Metrics.minimumPanelHeight)
+        } ?? Metrics.fallbackMaximumPanelHeight
         return CGSize(
             width: Metrics.panelWidth,
-            height: min(max(rawHeight, Metrics.minimumPanelHeight), Metrics.maximumPanelHeight)
+            height: min(max(rawHeight, Metrics.minimumPanelHeight), maximumPanelHeight)
         )
     }
 
@@ -89,6 +125,25 @@ struct ResetCreditsPanelView: View {
         .fixedSize(horizontal: true, vertical: false)
         .frame(maxWidth: .infinity, alignment: .center)
         .frame(height: Metrics.rowHeight)
+    }
+
+    private var rowDivider: some View {
+        Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        .clear,
+                        .primary.opacity(0.18),
+                        .green.opacity(0.16),
+                        .primary.opacity(0.18),
+                        .clear
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .frame(height: Metrics.dividerHeight)
+            .padding(.horizontal, 2)
     }
 
     private func rowHeader(for group: ResetCreditExpirationGroup) -> some View {
@@ -144,10 +199,12 @@ struct ResetCreditsPanelView: View {
         static let horizontalPadding: CGFloat = 12
         static let panelWidth: CGFloat = expirationTextWidth + horizontalPadding * 2
         static let minimumPanelHeight: CGFloat = 62
-        static let maximumPanelHeight: CGFloat = 260
+        static let fallbackMaximumPanelHeight: CGFloat = 260
         static let baseHeight: CGFloat = verticalPadding * 2
         static let rowHeight: CGFloat = 42
         static let rowSpacing: CGFloat = 7
+        static let dividerHeight: CGFloat = 1
+        static let dividerVerticalPadding: CGFloat = (rowSpacing - dividerHeight) / 2
         static let verticalPadding: CGFloat = 10
         static let cornerRadius: CGFloat = 12
         static let boundaryLineWidth: CGFloat = 0.8

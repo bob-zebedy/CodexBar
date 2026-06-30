@@ -95,13 +95,25 @@ final class ResetCreditsPanelController {
         }
 
         let panel = ensurePanel()
-        let panelSize = ResetCreditsPanelView.panelSize(for: context)
+        let menuSurfaceFrame = contentScreenFrame(for: contentView, in: menuSurfaceWindow) ?? menuSurfaceWindow.frame
+        let alignmentScreenFrame = validAlignmentScreenFrame(
+            context.alignmentScreenFrame,
+            menuSurfaceFrame: menuSurfaceFrame
+        )
+        let resolvedContext = context.withPanelGeometry(
+            alignmentScreenFrame: alignmentScreenFrame,
+            maximumPanelHeight: panelMaximumHeight(
+                menuSurfaceFrame: menuSurfaceFrame,
+                alignmentScreenFrame: alignmentScreenFrame
+            )
+        )
+        let panelSize = ResetCreditsPanelView.panelSize(for: resolvedContext)
         let position = panelPosition(
             for: panelSize,
-            relativeTo: menuSurfaceWindow,
-            contentView: contentView,
-            alignmentScreenFrame: context.alignmentScreenFrame,
-            preferredSide: context.preferredSide
+            menuSurfaceFrame: menuSurfaceFrame,
+            visibleFrame: (menuSurfaceWindow.screen ?? NSScreen.main)?.visibleFrame ?? menuSurfaceFrame,
+            alignmentScreenFrame: resolvedContext.alignmentScreenFrame,
+            preferredSide: resolvedContext.preferredSide
         )
 
         panel.level = menuSurfaceWindow.level
@@ -110,7 +122,7 @@ final class ResetCreditsPanelController {
         }
 
         visibilityGeneration += 1
-        apply(context: context, panelSize: panelSize, position: position, to: panel)
+        apply(context: resolvedContext, panelSize: panelSize, position: position, to: panel)
         showPanelWithDrawerAnimation(panel, relativeTo: menuSurfaceWindow)
     }
 
@@ -231,13 +243,11 @@ final class ResetCreditsPanelController {
 
     private func panelPosition(
         for panelSize: CGSize,
-        relativeTo menuSurfaceWindow: NSWindow,
-        contentView: NSView?,
+        menuSurfaceFrame: CGRect,
+        visibleFrame: CGRect,
         alignmentScreenFrame: CGRect?,
         preferredSide: UsageHeatmapDetailSide
     ) -> PanelPosition {
-        let menuSurfaceFrame = contentScreenFrame(for: contentView, in: menuSurfaceWindow) ?? menuSurfaceWindow.frame
-        let visibleFrame = (menuSurfaceWindow.screen ?? NSScreen.main)?.visibleFrame ?? menuSurfaceFrame
         let leftX = menuSurfaceFrame.minX - Metrics.panelGap - panelSize.width
         let rightX = menuSurfaceFrame.maxX + Metrics.panelGap
         let horizontal = horizontalPlacement(
@@ -291,6 +301,52 @@ final class ResetCreditsPanelController {
         }
 
         return menuSurfaceFrame.midY - panelSize.height / 2
+    }
+
+    private func panelMaximumHeight(
+        menuSurfaceFrame: CGRect,
+        alignmentScreenFrame: CGRect?
+    ) -> CGFloat? {
+        guard let alignmentScreenFrame else {
+            return nil
+        }
+
+        let maximumHeight = alignmentScreenFrame.maxY - menuSurfaceFrame.minY
+        guard maximumHeight.isFinite, maximumHeight > 0 else {
+            return nil
+        }
+        return maximumHeight
+    }
+
+    private func validAlignmentScreenFrame(
+        _ alignmentScreenFrame: CGRect?,
+        menuSurfaceFrame: CGRect
+    ) -> CGRect? {
+        guard let alignmentScreenFrame = alignmentScreenFrame?.standardized,
+              isValidScreenFrame(alignmentScreenFrame) else {
+            return nil
+        }
+
+        let validationFrame = menuSurfaceFrame
+            .standardized
+            .insetBy(
+                dx: -Metrics.anchorValidationTolerance,
+                dy: -Metrics.anchorValidationTolerance
+            )
+        guard validationFrame.intersects(alignmentScreenFrame) else {
+            return nil
+        }
+
+        return alignmentScreenFrame
+    }
+
+    private func isValidScreenFrame(_ frame: CGRect) -> Bool {
+        frame.minX.isFinite
+            && frame.minY.isFinite
+            && frame.width.isFinite
+            && frame.height.isFinite
+            && frame.width > 0
+            && frame.height > 0
     }
 
     private func horizontalPlacement(
@@ -445,6 +501,7 @@ final class ResetCreditsPanelController {
     private enum Metrics {
         static let panelGap: CGFloat = 4
         static let screenPadding: CGFloat = 8
+        static let anchorValidationTolerance: CGFloat = 6
         static let drawerEnterDuration: TimeInterval = 0.18
         static let drawerExitDuration: TimeInterval = 0.12
         static let drawerOverscan: CGFloat = 1

@@ -545,7 +545,7 @@ flowchart TD
 额度区:
 
 - 多个 limit 间用 `LiquidGlassDivider` 分隔
-- 如果 `resetCreditsAvailableCount > 0`, 只在置顶主 limit 标题右侧显示 `重置次数: N`; 该控件是 plain button, 点击后通过重置次数侧边详情面板展示过期时间。`resetCreditExpirationDates` 非空时按 `yyyy-MM-dd HH:mm:ss` 升序逐行展示, 相同展示时间合并数量, 单个显示 `可用: 1`; 没有过期时间时显示「未知过期时间」
+- 如果 `resetCreditsAvailableCount > 0`, 只在置顶主 limit 标题右侧显示 `重置次数: N`; 该控件是 plain button, 点击后通过重置次数侧边详情面板展示过期时间。`resetCreditExpirationDates` 非空时按 `yyyy-MM-dd HH:mm:ss` 升序逐行展示, 相同展示时间合并数量, 单个显示 `可用: 1`, 多行之间显示渐变分隔线; 没有过期时间时显示「未知过期时间」
 - 每个 quota window 展示标签, 50 个固定胶囊组成的电量条, 剩余百分比和重置时间
 - 胶囊宽度为 `3.5`, 间距为 `2`, 高度为 `12`
 - 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到电量条间距 `12`, 电量条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`
@@ -553,15 +553,15 @@ flowchart TD
 - 无数据时百分比和重置时间显示 `--`, 电量条用占位色
 - stale 数据通过 `.markStale(true)` 降低透明度到 0.55
 
-`QuotaLimitsSection` 通过 `ScreenFrameReader` 记录额度区在屏幕坐标系中的 frame, 作为重置次数详情面板顶部对齐锚点。`ScreenFrameReader` 是通用 `NSViewRepresentable`, 同时服务额度区和热力图, 会在 SwiftUI 布局稳定后上报 frame 并去重, 避免重渲染期间反复触发无效定位。
+`QuotaLimitsSection` 通过 `ScreenFrameProvider` 持有额度区桥接 `NSView`, 点击「重置次数」时同步读取额度区在屏幕坐标系中的最新 frame, 作为重置次数详情面板顶部对齐锚点。`ScreenFrameReader` 是通用 `NSViewRepresentable`, 同时服务额度区和热力图, 会在 SwiftUI 布局稳定后上报 frame 并去重; `ScreenFrameProvider` 会记录最后有效 frame 兜底, 避免只依赖异步 SwiftUI 状态更新导致点击瞬间没有锚点。
 
 重置次数详情面板由 `ResetCreditsPanelController` 管理:
 
 - 面板是菜单面板的 borderless nonactivating child panel, 可接收鼠标事件但不能成为 key/main window
 - 默认显示在菜单面板右侧, 空间不足时尝试左侧, 最终夹紧到当前屏幕可见区域内并保留 `8` px 边距
-- 与菜单面板之间保留 `4` px gap; 纵向优先对齐额度区顶部, 没有锚点时居中对齐菜单面板
-- 内容宽 `147`, 高度按过期时间行数在 `62...260` 之间夹紧, 圆角为 `12`
-- 过期时间行高 `42`, 行间距 `7`, 横向 padding `12`, 纵向 padding `10`
+- 与菜单面板之间保留 `4` px gap; 纵向优先对齐额度区顶部, 锚点坐标异常或与当前菜单内容区域不相交时丢弃, 没有可用锚点时居中对齐菜单面板
+- 内容宽 `147`, 最小高度 `62`, 高度按过期时间行数和额度区顶部到菜单面板底部的可用空间夹紧; 没有可用锚点时最大高度回退为 `260`, 圆角为 `12`
+- 过期时间行高 `42`, 行间距 `7`; 有多行时行间使用 `1` px 渐变分隔线并通过上下 padding 保持 `7` px 总间距; 横向 padding `12`, 纵向 padding `10`
 - 展开使用 `0.18` 秒抽屉动画, 收起使用 `0.12` 秒抽屉动画
 - 与热力图详情面板互斥: 点击重置次数会隐藏热力图详情面板, hover 热力图会隐藏重置次数详情面板
 
