@@ -76,9 +76,15 @@ CodexBar 使用 Sparkle 检查更新。安装后，新版本会通过内置更�
 
 ## 安装
 
-### 下载
+### Homebrew
 
-从 [Releases](https://github.com/bob-zebedy/CodexBar/releases) 下载最新 DMG，打开后把 `CodexBar.app` 拖入 `/Applications`。
+```bash
+brew install --cask bob-zebedy/tap/codexbar
+```
+
+### 下载安装
+
+从 [Releases](https://github.com/bob-zebedy/CodexBar/releases) 下载最新 DMG，打开后把 `CodexBar.app` 拖入 `/Applications`
 
 后续版本会通过内置 Sparkle 自动更新推送。
 

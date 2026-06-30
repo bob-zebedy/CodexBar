@@ -639,28 +639,12 @@ struct UsageHeatmapDayDetailView: View {
     }
 
     private var tokenText: some View {
-        ZStack(alignment: .trailing) {
-            if let tokenCount = context.day.tokenCount {
-                TokenCountText(
-                    tokens: tokenCount,
-                    font: tokenFont,
-                    reservedNumericWidth: Metrics.tokenMinimumWidth,
-                    reservedUnitWidth: Metrics.tokenUnitWidth
-                )
-                .foregroundStyle(Color.codexLabel)
-                .transition(.opacity)
-            } else {
-                Text("--")
-                    .font(tokenFont)
-                    .foregroundStyle(Color.codexLabel)
-                    .transition(.opacity)
-            }
-        }
-        .frame(
-            width: Metrics.tokenMinimumWidth + Metrics.tokenUnitWidth,
-            alignment: .trailing
+        HeatmapTokenText(
+            tokenCount: context.day.tokenCount,
+            font: tokenFont,
+            numericWidth: Metrics.tokenMinimumWidth,
+            unitWidth: Metrics.tokenUnitWidth
         )
-        .animation(Metrics.statusAnimation, value: context.day.tokenCount == nil)
     }
 
     private var dateFont: Font {
@@ -779,6 +763,112 @@ struct UsageHeatmapDayDetailView: View {
         static let tokenIntensityStripWidth: CGFloat = 74
         static let tokenIntensityStripHeight: CGFloat = 5
         static let statusAnimation = Animation.codexStatus
+    }
+}
+
+/// token 详情在数字和 `--` 之间切换时只做淡入淡出, 数字之间仍保留滚动过渡
+private struct HeatmapTokenText: View {
+    let tokenCount: Int?
+    let font: Font
+    let numericWidth: CGFloat
+    let unitWidth: CGFloat
+
+    @State private var displayedTokenCount: Int?
+    @State private var isVisible = true
+    @State private var fadeTask: Task<Void, Never>?
+
+    init(
+        tokenCount: Int?,
+        font: Font,
+        numericWidth: CGFloat,
+        unitWidth: CGFloat
+    ) {
+        self.tokenCount = tokenCount
+        self.font = font
+        self.numericWidth = numericWidth
+        self.unitWidth = unitWidth
+        _displayedTokenCount = State(initialValue: tokenCount)
+    }
+
+    var body: some View {
+        content
+            .opacity(isVisible ? 1 : 0)
+            .frame(width: width, alignment: .trailing)
+            .onChange(of: tokenCount) { _, newTokenCount in
+                updateDisplayedTokenCount(newTokenCount)
+            }
+            .onDisappear {
+                fadeTask?.cancel()
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let displayedTokenCount {
+            TokenCountText(
+                tokens: displayedTokenCount,
+                font: font,
+                reservedNumericWidth: numericWidth,
+                reservedUnitWidth: unitWidth
+            )
+            .foregroundStyle(Color.codexLabel)
+        } else {
+            Text("--")
+                .font(font)
+                .foregroundStyle(Color.codexLabel)
+        }
+    }
+
+    private func updateDisplayedTokenCount(_ newTokenCount: Int?) {
+        fadeTask?.cancel()
+
+        if (displayedTokenCount == nil) == (newTokenCount == nil) {
+            updateTokenCountWithoutFade(newTokenCount)
+            return
+        }
+
+        fadeToTokenCount(newTokenCount)
+    }
+
+    private func updateTokenCountWithoutFade(_ newTokenCount: Int?) {
+        guard displayedTokenCount != newTokenCount || !isVisible else {
+            return
+        }
+
+        withAnimation(Metrics.numericAnimation) {
+            displayedTokenCount = newTokenCount
+            isVisible = true
+        }
+    }
+
+    private func fadeToTokenCount(_ newTokenCount: Int?) {
+        fadeTask = Task { @MainActor in
+            withAnimation(Metrics.fadeAnimation) {
+                isVisible = false
+            }
+
+            try? await Task.sleep(for: .milliseconds(Metrics.fadeDelayMilliseconds))
+            guard !Task.isCancelled else {
+                return
+            }
+
+            displayedTokenCount = newTokenCount
+            withAnimation(Metrics.fadeAnimation) {
+                isVisible = true
+            }
+
+            fadeTask = nil
+        }
+    }
+
+    private var width: CGFloat {
+        numericWidth + unitWidth
+    }
+
+    private enum Metrics {
+        static let fadeAnimation = Animation.easeInOut(duration: 0.12)
+        static let fadeDelayMilliseconds: UInt64 = 120
+        static let numericAnimation = Animation.codexStatus
     }
 }
 

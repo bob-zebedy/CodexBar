@@ -290,11 +290,20 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         var symbolName: String {
             usesErrorImage ? Metrics.errorStatusSymbolName : Metrics.normalStatusSymbolName
         }
+
+        var toolTip: String? {
+            progress?.toolTip
+        }
     }
 
     private struct StatusIconProgress: Equatable {
+        let label: String
         let percent: Int
         let isStale: Bool
+
+        var toolTip: String {
+            "\(label) 剩余 \(percent)%"
+        }
 
         init?(snapshot: CodexQuotaSnapshot?, selection: MenuBarQuotaSelection) {
             guard let targetWindowId = selection.windowId,
@@ -306,6 +315,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                 return nil
             }
 
+            label = window.label
             percent = window.remainingPercent
             isStale = snapshot.isRateLimitsStale
         }
@@ -475,10 +485,10 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func hotKeyConflictMessage(for shortcut: GlobalHotKeyShortcut) -> String {
         if shortcut == .default {
-            return "默认快捷键 \(shortcut.label) 已被占用，请重新设置"
+            return "默认快捷键 \(shortcut.label) 已被占用"
         }
 
-        return "快捷键已被占用，请重新设置"
+        return "快捷键已被占用"
     }
 
     private func updateStatusImage() {
@@ -496,6 +506,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func updateStatusImage(_ state: StatusIconState) {
+        statusItem.button?.toolTip = state.toolTip
+
         guard state != statusIconState else {
             return
         }

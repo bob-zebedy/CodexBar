@@ -13,7 +13,7 @@ struct CodexBarApp: App {
         }
 
         // 缩短系统工具提示首次出现的延迟 (毫秒)
-        UserDefaults.standard.set(200, forKey: "NSInitialToolTipDelay")
+        UserDefaults.standard.set(500, forKey: "NSInitialToolTipDelay")
     }
 
     var body: some Scene {
