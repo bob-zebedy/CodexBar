@@ -17,6 +17,7 @@ struct CodexStatusMenuView: View {
     @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var menuSurfaceVisibility: MenuSurfaceVisibilityState
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
+    let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
     @EnvironmentObject private var appUpdater: AppUpdater
 
     var body: some View {
@@ -76,7 +77,8 @@ private extension CodexStatusMenuView {
                     limits: snapshot.limits,
                     resetCreditsAvailableCount: snapshot.resetCreditsAvailableCount,
                     resetCreditExpirationDates: snapshot.resetCreditExpirationDates,
-                    isStale: snapshot.isRateLimitsStale
+                    isStale: snapshot.isRateLimitsStale,
+                    onResetCreditsTap: onResetCreditsTap
                 )
             }
 

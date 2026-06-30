@@ -17,9 +17,17 @@ struct CodexBarApp: App {
     }
 
     var body: some Scene {
-        // 菜单栏 UI 由 AppDelegate 驱动; 空 Settings scene 仅用于保留系统设置入口
+        // 菜单栏 UI 由 AppDelegate 驱动; 系统设置命令转交给自定义设置窗口
         Settings {
             EmptyView()
+        }
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("设置...") {
+                    appDelegate.openSettingsFromCommand()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
         }
     }
 }

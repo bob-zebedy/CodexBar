@@ -311,7 +311,7 @@ struct UsageHeatmap: View {
                 }
             }
             .background {
-                HeatmapScreenFrameReader(onChange: onScreenFrameChange)
+                ScreenFrameReader(onChange: onScreenFrameChange)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -474,77 +474,6 @@ private struct UsageHeatmapSquare: View {
         }
 
         return Color.blue.opacity(day.tokensForHeatmap > 0 ? 0.18 : 0.10)
-    }
-}
-
-/// 通过 NSView 桥接读取热力图在屏幕坐标系中的 frame
-private struct HeatmapScreenFrameReader: NSViewRepresentable {
-    let onChange: (CGRect?) -> Void
-
-    func makeNSView(context _: Context) -> HeatmapScreenFrameReportingView {
-        let view = HeatmapScreenFrameReportingView()
-        view.onChange = onChange
-        return view
-    }
-
-    func updateNSView(_ nsView: HeatmapScreenFrameReportingView, context _: Context) {
-        nsView.onChange = onChange
-        nsView.scheduleReport()
-    }
-}
-
-/// 只在布局稳定后上报 frame, 避免 hover 期间反复触发无效定位
-@MainActor
-private final class HeatmapScreenFrameReportingView: NSView {
-    var onChange: ((CGRect?) -> Void)?
-    private var lastReportedFrame: CGRect?
-    private var reportScheduled = false
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        scheduleReport()
-    }
-
-    override func layout() {
-        super.layout()
-        reportFrame()
-    }
-
-    func scheduleReport() {
-        // updateNSView 每次 hover 重渲染都会调到这里
-        // 合并掉重复的待执行 report, 至多保留一个
-
-        guard !reportScheduled else {
-            return
-        }
-        reportScheduled = true
-        Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self else {
-                return
-            }
-            reportScheduled = false
-            reportFrame()
-        }
-    }
-
-    private func reportFrame() {
-        guard let window else {
-            updateFrame(nil)
-            return
-        }
-
-        let frameInWindow = convert(bounds, to: nil)
-        updateFrame(window.convertToScreen(frameInWindow))
-    }
-
-    private func updateFrame(_ frame: CGRect?) {
-        guard frame != lastReportedFrame else {
-            return
-        }
-
-        lastReportedFrame = frame
-        onChange?(frame)
     }
 }
 

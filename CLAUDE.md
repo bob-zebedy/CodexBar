@@ -55,10 +55,10 @@ WorkflowHookEventRecorder (--hook-event stdin hook_event_name 子进程)
 
 - Hook 命令写入当前 CodexBar 可执行文件路径和 `--hook-event` 参数，事件名来自 Codex 传入的 stdin payload 顶层 `hook_event_name`。
 - 开启 Hook 前必须通过当前 app-server 会话调用 `config/read`，如果全局配置禁用了 Hook，则不写入 `hooks.json`，并在 Hook 选项下方提示。
-- 开启 Hook 写入后必须通过当前 app-server 会话调用 `hooks/list` 验证 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`warnings` 和 `errors`；未信任时提示用户去 Codex `/hooks` 信任。
+- 开启 Hook 写入后必须通过当前 app-server 会话调用 `hooks/list` 验证 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`warnings` 和 `errors`；未信任或已修改时, 只对来源为全局 `hooks.json` 且 command 属于当前 CodexBar 的 Hook 通过 `config/batchWrite` 自动写入 `hooks.state` 的 `trusted_hash`, 再重新验证。
 - 设置开关只能追加/移除 `command` 同时包含当前 CodexBar 可执行路径和 `--hook-event` 参数的 Hook 处理器，绝不破坏其他用户 Hook。若用户自定义 Hook 命令也同时包含当前可执行路径和 `--hook-event` 参数，会被视为当前 CodexBar 处理器。
 - Hook 写入可能由多个 Codex 进程并发触发，追加 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json` 必须经 `stats.lock` + `flock` 加锁；`daily.jsonl` 由主 App 刷新维护流程写回。
-- iCloud 跨设备同步只上传去掉 `sessionIds` / `turnIds` 的 daily 聚合副本；iCloud 不可用时设置页禁用「跨设备同步」并显示「iCloud 不可用」。
+- iCloud 跨设备同步只上传去掉 `sessionIds` / `turnIds` 的 daily 聚合副本；同步账号不可用时设置页禁用「跨设备同步」并显示「同步不可用」。
 - 字段兼容、保留策略、统计口径见 `Docs/CodexHook.md`；跨设备同步完整链路见 `Docs/CrossDeviceSync.md`。
 
 ## 并发分工

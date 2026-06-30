@@ -64,7 +64,7 @@ git status --short
 - 平台: SwiftUI + AppKit + MVVM, 最低 macOS 15.0。
 - 应用形态: `LSUIElement` 菜单栏应用, 无 Dock 图标、无主窗口。
 - 外部依赖: Sparkle(SwiftPM)。
-- 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 3.2.0`, `CURRENT_PROJECT_VERSION = 28`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, `SWIFT_VERSION = 6.0`。
+- 当前 build settings: `MACOSX_DEPLOYMENT_TARGET = 15.0`, `MARKETING_VERSION = 3.2.6`, `CURRENT_PROJECT_VERSION = 34`, `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, `SWIFT_VERSION = 6.0`。
 - App Sandbox 必须保持关闭(`ENABLE_APP_SANDBOX = NO`), 因为应用要启动本机 Codex CLI/APP 内置 CLI, 并读取真实 macOS 用户的 Codex 登录状态。
 - 工程使用 `PBXFileSystemSynchronizedRootGroup`; 新增或删除 `CodexBar/` 下 Swift 文件通常无需改 `project.pbxproj`。只有依赖、target/build settings 或资源归属变更才改 Xcode 工程文件。
 - Swift 源码按目录组织: `App/`、`Controllers/`、`Models/`、`Services/`、`Views/`。不要把新 Swift 文件直接放回 `CodexBar/` 根层。
@@ -133,7 +133,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - `codexLimit` 返回 `limitId` 大小写不敏感等于 `"codex"` 的第一个 limit, 供菜单栏额度指示选择窗口使用。
 - 其余 limit 按 `limitName ?? limitId` 做 localized standard 排序, 再按 `limitId` 稳定排序。
 - `rateLimitResetCredits.availableCount` 读入 `resetCreditsAvailableCount`; 缺失时为 `nil`。
-- `resetCreditsAvailableCount > 0` 时, 主 App 可使用本机 Codex OAuth token 请求 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits`; 401/403 时复用本轮认证刷新预算重试; 只保留可用且未过期的 `credits[].expires_at` 到 `resetCreditExpirationDates`, 请求失败时为 `nil` 且 UI 不展示过期时间 help text。
+- `resetCreditsAvailableCount > 0` 时, 主 App 可使用本机 Codex OAuth token 请求 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits`; 401/403 时复用本轮认证刷新预算重试; 只保留可用且未过期的 `credits[].expires_at` 到 `resetCreditExpirationDates`, 请求失败时为 `nil`, 重置次数侧边详情面板显示未知过期时间。
 - `primary` / `secondary` 合成 `[QuotaWindow]`; 没有窗口的 limit 被过滤。
 - `QuotaWindow.remainingPercent = clamp(100 - usedPercent, 0...100)`; 无 `usedPercent` 视为无数据。
 - `windowDurationMins` 标签: 整天 `ND`, 整小时 `NH`, 否则 `NM`, 缺失或非正数为「额度」。
@@ -170,9 +170,10 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 
 - 正常图标是 `person.fill.checkmark`, 错误图标是 `person.fill.xmark`。
 - 菜单栏不展示额度数字; 详情只在菜单面板中展示。
-- 设置页「菜单栏额度指示」使用独立开关控制启用状态; 开启后同一行显示额度窗口菜单, 选项来自当前账号 Codex limit 返回的窗口, 当前保留选择不在返回窗口中时用 fallback 标题追加到菜单。关闭开关时设置页保留最后一个非关闭窗口值参与菜单淡出, 避免过渡期间回退到默认窗口。关闭时菜单栏只展示原图标, 开启时将所选 Codex 窗口剩余额度进度条绘制在 `person.fill.checkmark` / `person.fill.xmark` 图标左侧, 以竖条形式作为单个菜单栏图像自动随状态刷新; 合成图尺寸为 `27 x 17`, 图标本体保持原始 `24 x 17`, 左侧竖条轨道为 `2 x 15`; 开启或关闭时竖条透明度做 0.18 秒过渡, 过渡期间合成图宽度和图标绘制坐标保持固定。
-- 左键或全局快捷键切换菜单面板; 右键或 Control 点击显示「设置 / 日志 / 退出」。
+- 设置页「菜单栏额度指示」默认开启, 使用独立开关控制启用状态; 缺失持久化选择时默认使用 `.primary`, 关闭时必须显式持久化 `.off`。开启后同一行显示额度窗口菜单, 选项来自当前账号 Codex limit 返回的窗口, 当前保留选择不在返回窗口中时用 fallback 标题追加到菜单。关闭开关时设置页保留最后一个非关闭窗口值参与菜单淡出, 避免过渡期间回退到默认窗口。关闭时菜单栏只展示原图标, 开启时将所选 Codex 窗口剩余额度进度条绘制在 `person.fill.checkmark` / `person.fill.xmark` 图标左侧, 以竖条形式作为单个菜单栏图像自动随状态刷新; 合成图尺寸为 `27 x 17`, 图标本体保持原始 `24 x 17`, 左侧竖条轨道为 `2 x 15`; 开启或关闭时竖条透明度做 0.18 秒过渡, 过渡期间合成图宽度和图标绘制坐标保持固定。
+- 左键或全局快捷键切换菜单面板; 右键或 Control 点击显示「设置 / 日志 / 退出」; 系统应用设置命令 `⌘,` 转交给自定义设置窗口。
 - 上下文菜单由 `NSStatusBarButton.performClick(nil)` 触发; 设置和日志菜单项 action 需要等 `NSMenuDelegate.menuDidClose(_:)` 确认菜单结束并清空 `statusItem.menu` 后再打开窗口, 避免键盘等效键在 `NSMenu` tracking 期间打开窗口导致无法激活到最前。
+- 菜单面板打开时按 `⌘L` 会立即关闭菜单面板并打开日志窗口; 只响应精确 Command-L, 不响应额外修饰键组合。
 - 全局快捷键打开菜单面板前必须短暂禁止设置窗口和日志窗口成为 key window, 避免已有设置/日志窗口被 App 激活一起带到前台; 随后校验当前 status item 锚点可信。锚点无 window、无有效 screen、按钮隐藏、bounds 为空、屏幕矩形异常, 或屏幕矩形没有落在目标屏幕范围内时, 使用无箭头 fallback `NSPanel` 在目标屏幕顶部居中打开。目标屏幕优先取鼠标所在屏幕, 找不到时取主屏幕。快捷键关闭已打开的菜单面板不受此校验影响。
 - 设置和日志辅助窗口为 `.normal` level, 打开时先恢复 key focus, 再 `orderFrontRegardless()`, `NSRunningApplication.current.activate(options: [])` 和 `makeKeyAndOrderFront(nil)` 一次性置前; 不改用 `NSApplication.shared.activate()`, 避免 LSUIElement App 首次懒创建窗口时无法稳定拉到最前。
 
@@ -183,7 +184,8 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - `LiquidGlassStyle.swift` 是自绘玻璃效果, 不是 macOS 原生 `.glassEffect`; 没有明确设计要求时不要切换。
 - 账号图标双击触发刷新。邮箱文本双击切换模糊。
 - 计划名是右侧加粗纯文字; `planBadgeTint(for:)` 优先级: enterprise -> team/business -> pro -> plus -> edu -> free -> 默认 cyan。
-- `resetCreditsAvailableCount` 有值时, 只在置顶主 limit 标题右侧显示 `重置次数: N`; `resetCreditExpirationDates` 非空时, 鼠标悬停在该文本上通过 help text 按升序逐行展示 `过期: yyyy-MM-dd HH:mm:ss • 可用: N`, 相同展示时间合并数量, 单个显示 `可用: 1`。
+- `resetCreditsAvailableCount > 0` 时, 只在置顶主 limit 标题右侧显示 `重置次数: N`; 该控件是 plain button, 点击后通过 `ResetCreditsPanelController` 切换重置次数侧边详情面板。面板按升序逐行展示 `yyyy-MM-dd HH:mm:ss` 和 `可用: N`, 相同展示时间合并数量, 单个显示 `可用: 1`; 没有过期时间时显示「未知过期时间」。
+- 重置次数侧边详情面板是菜单面板的 borderless nonactivating child panel, 可接收鼠标事件但不能成为 key/main window; 与菜单面板 gap 为 `4`, 屏幕边缘保留 `8` px, 内容宽 `147`, 最小高 `62`, 最大高 `260`, 圆角 `12`; 展开 `0.18` 秒、收起 `0.12` 秒。点击面板内部不关闭菜单面板, 点击外部关闭; 与热力图详情面板互斥, 任一面板显示时会立即隐藏另一面板。
 - 额度条展示剩余百分比, 固定为 50 个胶囊, 每个胶囊宽 `3.5`, 间距 `2`, 高 `12`; 颜色按 20% 一档: 红、橙、黄、薄荷、绿。
 - 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到额度条间距 `12`, 额度条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`; 不通过加宽菜单面板解决额度行溢出。
 - 无 quota 数据时显示 `--` / `暂无数据`, 并使用占位色。
@@ -195,7 +197,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - token 区域显示「单日峰值」和「全时累计」; `TokenCountText` 对 1K 以下显示完整整数, 1K 起显示 K/M/B。
 - token 区域还显示「当前连胜」、「最长连胜」和「最长任务」。
 - 热力图是近 30 周、30 列 x 7 行、周日到周六排列; Codex Hook 开启时包含今天, Hook 关闭时仅在 app-server 已返回当天 token bucket 时包含今天。
-- 热力图 hover 使用 `HeatmapDetailPanelController` 展示侧边详情面板, 不是菜单面板内 tooltip; 面板作为菜单面板 child window, 不接收鼠标事件, 左右贴边展示并在屏幕可见区域内夹紧。
+- 热力图 hover 使用 `HeatmapDetailPanelController` 展示侧边详情面板, 不是菜单面板内 tooltip; 面板作为菜单面板 child window, 不接收鼠标事件, 左右贴边展示并在屏幕可见区域内夹紧。热力图详情面板和重置次数详情面板都被 `MenuSurfaceDismissMonitor` 视为允许点击区域。
 - 详情面板内容更新时保留 `NSPanel` / `NSHostingController`, 但每次替换 `hostingController.rootView` 并同步 `setContentSize`; 不用常驻 `ObservableObject` model 推送 hover context, 避免 Hook 开关切换 token-only / workflow 布局后触发 AppKit 递归布局。
 - Hook 关闭时详情面板显示日期、token 数和「用量强度」分段条, 尺寸 `212 x 84`。
 - Hook 开启时详情面板首行左侧显示日期、右侧显示 token 数, 当天 token 数显示 `--`; 后续显示「用量强度」、「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」, 尺寸 `212 x 189`。
@@ -204,7 +206,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 
 设置窗口:
 
-- 通过右键菜单「设置」打开独立 `AppSettingsView` 窗口。
+- 通过右键菜单「设置」或系统应用设置命令 `⌘,` 打开独立 `AppSettingsView` 窗口。
 - 不要恢复为 Option 点击或菜单面板内设置区。
 - 设置页包含「菜单栏额度指示」、「使用快捷键」行、「CodexBar 版本」和「Codex 版本」区域。
 - 设置窗口按 SwiftUI 内容自适应高度时必须校验 `fittingSize` 有限并夹紧到安全上限; 设置页 `onAppear` / `didBecomeActive` 中触发的设置刷新不得同步发布 `@Published` 变化。

@@ -294,6 +294,8 @@ UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyMetrics`:
 
 热力图 hover 时不在菜单面板内绘制旧式 tooltip, 而是通过 `UsageHeatmapHoverContext` 通知 `HeatmapDetailPanelController` 展示侧边详情面板。指针会吸附到最近方块, 离开热力图后延迟 160 ms 清除选中状态。
 
+热力图详情面板和额度区的重置次数详情面板互斥。hover 热力图时会隐藏重置次数详情面板; 点击重置次数按钮时会立即隐藏热力图详情面板。
+
 详情面板是菜单面板的 borderless nonactivating child panel:
 
 - 不接收鼠标事件, 不抢走菜单面板 key window

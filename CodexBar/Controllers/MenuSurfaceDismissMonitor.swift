@@ -6,6 +6,7 @@ final class MenuSurfaceDismissMonitor {
     private let isPresented: () -> Bool
     private let windowProvider: () -> NSWindow?
     private let statusButtonProvider: () -> NSStatusBarButton?
+    private let isPointInExtraSurface: (NSPoint) -> Bool
     private var localEventMonitor: Any?
     private var globalMouseEventMonitor: Any?
     private var appResignActiveObserver: NSObjectProtocol?
@@ -15,20 +16,27 @@ final class MenuSurfaceDismissMonitor {
     private var suppressActivationDismissTask: Task<Void, Never>?
     private var suppressesActivationDismiss = false
     private var onDismiss: (() -> Void)?
+    private var onLogShortcut: (() -> Void)?
 
     init(
         isPresented: @escaping () -> Bool,
         windowProvider: @escaping () -> NSWindow?,
-        statusButtonProvider: @escaping () -> NSStatusBarButton?
+        statusButtonProvider: @escaping () -> NSStatusBarButton?,
+        isPointInExtraSurface: @escaping (NSPoint) -> Bool = { _ in false }
     ) {
         self.isPresented = isPresented
         self.windowProvider = windowProvider
         self.statusButtonProvider = statusButtonProvider
+        self.isPointInExtraSurface = isPointInExtraSurface
     }
 
-    func install(onDismiss: @escaping () -> Void) {
+    func install(
+        onDismiss: @escaping () -> Void,
+        onLogShortcut: (() -> Void)? = nil
+    ) {
         remove()
         self.onDismiss = onDismiss
+        self.onLogShortcut = onLogShortcut
 
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: Metrics.dismissEventMask) { [weak self] event in
             guard let self else {
@@ -88,6 +96,7 @@ final class MenuSurfaceDismissMonitor {
 
     func remove() {
         onDismiss = nil
+        onLogShortcut = nil
         deferredWindowFocusTask?.cancel()
         deferredWindowFocusTask = nil
         suppressActivationDismissTask?.cancel()
@@ -194,6 +203,11 @@ final class MenuSurfaceDismissMonitor {
             return true
         }
 
+        if isExactCommandShortcut(event, keyCode: Metrics.logKeyCode) {
+            onLogShortcut?()
+            return true
+        }
+
         if isCommandShortcut(event, keyCode: Metrics.tabKeyCode) {
             dismiss()
         } else if isCommandShortcut(event, keyCode: Metrics.spaceKeyCode) {
@@ -206,6 +220,11 @@ final class MenuSurfaceDismissMonitor {
     private func isCommandShortcut(_ event: NSEvent, keyCode: UInt16) -> Bool {
         let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         return modifierFlags.contains(.command) && event.keyCode == keyCode
+    }
+
+    private func isExactCommandShortcut(_ event: NSEvent, keyCode: UInt16) -> Bool {
+        let shortcutModifiers = event.modifierFlags.intersection(Metrics.shortcutModifierMask)
+        return shortcutModifiers == .command && event.keyCode == keyCode
     }
 
     private func suppressNextActivationDismiss() {
@@ -237,12 +256,18 @@ final class MenuSurfaceDismissMonitor {
             return
         }
 
-        if isScreenPointInsideActiveMenuSurface(screenPoint) || isScreenPointInsideStatusButton(screenPoint) {
+        if isPointAllowed(screenPoint) {
             return
         }
 
         // 只有真正点到菜单和状态按钮之外才关闭
         dismiss()
+    }
+
+    private func isPointAllowed(_ screenPoint: NSPoint) -> Bool {
+        isPointInMenuSurface(screenPoint)
+            || isPointInStatusButton(screenPoint)
+            || isPointInExtraSurface(screenPoint)
     }
 
     private func isMouseDismissEvent(_ event: NSEvent) -> Bool {
@@ -290,7 +315,7 @@ final class MenuSurfaceDismissMonitor {
         event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
     }
 
-    private func isScreenPointInsideActiveMenuSurface(_ screenPoint: NSPoint) -> Bool {
+    private func isPointInMenuSurface(_ screenPoint: NSPoint) -> Bool {
         guard let activeMenuSurfaceWindow = windowProvider() else {
             return false
         }
@@ -298,7 +323,7 @@ final class MenuSurfaceDismissMonitor {
         return activeMenuSurfaceWindow.frame.contains(screenPoint)
     }
 
-    private func isScreenPointInsideStatusButton(_ screenPoint: NSPoint) -> Bool {
+    private func isPointInStatusButton(_ screenPoint: NSPoint) -> Bool {
         guard let button = statusButtonProvider(),
               let buttonWindow = button.window else {
             return false
@@ -319,6 +344,13 @@ final class MenuSurfaceDismissMonitor {
         static let escapeKeyCode: UInt16 = 53
         static let tabKeyCode: UInt16 = 48
         static let spaceKeyCode: UInt16 = 49
+        static let logKeyCode: UInt16 = 37
+        static let shortcutModifierMask: NSEvent.ModifierFlags = [
+            .command,
+            .control,
+            .option,
+            .shift
+        ]
         static let activationDismissSuppressionMilliseconds: UInt64 = 600
     }
 }

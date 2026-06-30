@@ -139,6 +139,8 @@ struct QuotaLimitsSection: View {
     let resetCreditsAvailableCount: Int?
     let resetCreditExpirationDates: [Date]?
     let isStale: Bool
+    let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
+    @State private var sectionScreenFrame: CGRect?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -153,6 +155,11 @@ struct QuotaLimitsSection: View {
         .markStale(isStale)
         .padding(MenuMetrics.panelPadding)
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
+        .background {
+            ScreenFrameReader { frame in
+                sectionScreenFrame = frame
+            }
+        }
     }
 
     private func quotaLimitSection(_ limit: CodexQuotaLimitSnapshot, showsResetCredits: Bool) -> some View {
@@ -166,8 +173,8 @@ struct QuotaLimitsSection: View {
 
                 Spacer(minLength: 8)
 
-                if showsResetCredits, let resetCreditsText {
-                    resetCreditsLabel(resetCreditsText)
+                if showsResetCredits, let resetCreditsAvailableCount, resetCreditsAvailableCount > 0 {
+                    resetCreditsButton(count: resetCreditsAvailableCount)
                 }
             }
 
@@ -183,58 +190,27 @@ struct QuotaLimitsSection: View {
         limits.first?.id
     }
 
-    private var resetCreditsText: String? {
-        resetCreditsAvailableCount.map { "重置次数: \($0)" }
-    }
-
-    @ViewBuilder
-    private func resetCreditsLabel(_ text: String) -> some View {
-        let label = Text(text)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-
-        if let helpText = resetCreditsHelpText {
-            label.help(helpText)
-        } else {
-            label
+    private func resetCreditsButton(count: Int) -> some View {
+        Button {
+            onResetCreditsTap(
+                ResetCreditsPanelContext(
+                    expirationDates: resetCreditExpirationDates ?? [],
+                    alignmentScreenFrame: sectionScreenFrame,
+                    preferredSide: .right
+                )
+            )
+        } label: {
+            Text("重置次数: \(count)")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.green)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .liquidGlassCapsule(tint: .green)
         }
+        .buttonStyle(.plain)
     }
-
-    private var resetCreditsHelpText: String? {
-        guard let resetCreditExpirationDates, !resetCreditExpirationDates.isEmpty else {
-            return nil
-        }
-
-        return groupedResetCreditExpirationLines(from: resetCreditExpirationDates)
-            .joined(separator: "\n")
-    }
-
-    private func groupedResetCreditExpirationLines(from dates: [Date]) -> [String] {
-        let expirationTexts = dates
-            .sorted()
-            .map { Self.resetCreditExpirationFormatter.string(from: $0) }
-
-        let groups = expirationTexts.reduce(into: [(expirationText: String, count: Int)]()) { groups, expirationText in
-            if let lastIndex = groups.indices.last, groups[lastIndex].expirationText == expirationText {
-                groups[lastIndex].count += 1
-            } else {
-                groups.append((expirationText: expirationText, count: 1))
-            }
-        }
-
-        return groups.map { group in
-            "过期: \(group.expirationText) • 可用: \(group.count)"
-        }
-    }
-
-    private static let resetCreditExpirationFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter
-    }()
 
     private func isPrimaryLimit(_ limit: CodexQuotaLimitSnapshot) -> Bool {
         limit.id == primaryLimitId

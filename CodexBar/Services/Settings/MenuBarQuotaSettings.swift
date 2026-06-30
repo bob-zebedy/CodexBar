@@ -37,11 +37,7 @@ final class MenuBarQuotaSettings: ObservableObject {
     }
 
     private func saveSelection(_ selection: MenuBarQuotaSelection) {
-        if selection == .off {
-            defaults.removeObject(forKey: Self.selectionKey)
-        } else {
-            defaults.set(selection.rawValue, forKey: Self.selectionKey)
-        }
+        defaults.set(selection.rawValue, forKey: Self.selectionKey)
     }
 
     private func publishSelection(_ selection: MenuBarQuotaSelection) {
@@ -68,8 +64,8 @@ final class MenuBarQuotaSettings: ObservableObject {
 
     private static func loadSelection(from defaults: UserDefaults) -> MenuBarQuotaSelection {
         guard let rawValue = defaults.string(forKey: selectionKey),
-              let selection = MenuBarQuotaSelection(persistedValue: rawValue) else {
-            return .off
+              let selection = MenuBarQuotaSelection(rawValue: rawValue) else {
+            return .primary
         }
 
         return selection
@@ -85,17 +81,6 @@ nonisolated enum MenuBarQuotaSelection: String, CaseIterable, Identifiable {
 
     var id: String {
         rawValue
-    }
-
-    init?(persistedValue: String) {
-        switch persistedValue {
-        case "fiveHours":
-            self = .primary
-        case "sevenDays":
-            self = .secondary
-        default:
-            self.init(rawValue: persistedValue)
-        }
     }
 
     init?(windowId: String) {
@@ -114,9 +99,9 @@ nonisolated enum MenuBarQuotaSelection: String, CaseIterable, Identifiable {
         case .off:
             "关闭"
         case .primary:
-            "主额度"
+            "主要额度"
         case .secondary:
-            "次额度"
+            "次要额度"
         }
     }
 

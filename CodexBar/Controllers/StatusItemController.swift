@@ -33,6 +33,10 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_: Notification) {
         statusItemController?.uninstall()
     }
+
+    func openSettingsFromCommand() {
+        statusItemController?.openSettingsFromCommand()
+    }
 }
 
 /// 菜单栏入口控制器, 统一管理状态图标, 菜单面板, 右键菜单和全局快捷键
@@ -49,6 +53,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private let popover = NSPopover()
     private let menuSurfaceVisibility = MenuSurfaceVisibilityState()
     private let heatmapDetailPanelController = HeatmapDetailPanelController()
+    private let resetCreditsPanelController = ResetCreditsPanelController()
     private var activeMenuSurface = ActiveMenuSurface.none
     private lazy var globalHotKeyController = GlobalHotKeyController { [weak self] in
         self?.toggleMenuSurfaceFromHotKey()
@@ -99,6 +104,9 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         },
         statusButtonProvider: { [weak self] in
             self?.statusItem.button
+        },
+        isPointInExtraSurface: { [weak self] screenPoint in
+            self?.isPointInDetailPanel(screenPoint) == true
         }
     )
     private var delayedStatusRefreshTask: Task<Void, Never>?
@@ -325,6 +333,11 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         NSStatusBar.system.removeStatusItem(statusItem)
     }
 
+    func openSettingsFromCommand() {
+        closeMenuSurface(animated: false)
+        openSettings()
+    }
+
     private func configureStatusButton() {
         guard let button = statusItem.button else {
             return
@@ -354,6 +367,9 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             menuSurfaceVisibility: menuSurfaceVisibility,
             onUsageHeatmapHoverChange: { [weak self] context in
                 self?.updateHeatmapDetailPanel(context)
+            },
+            onResetCreditsTap: { [weak self] context in
+                self?.toggleResetCreditsPanel(context)
             }
         )
         .environmentObject(appUpdater)
@@ -690,9 +706,14 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private func completeMenuSurfaceOpen() {
         menuSurfaceVisibility.isVisible = true
         refreshWorkflowIfHookEnabled(performMaintenance: false)
-        menuSurfaceDismissMonitor.install { [weak self] in
-            self?.closeMenuSurface()
-        }
+        menuSurfaceDismissMonitor.install(
+            onDismiss: { [weak self] in
+                self?.closeMenuSurface()
+            },
+            onLogShortcut: { [weak self] in
+                self?.openLogFromShortcut()
+            }
+        )
 
         menuSurfaceFadeCoordinator.fadeIn(duration: Metrics.fadeInDuration) { [weak self] in
             self?.menuSurfaceState = .shown
@@ -776,6 +797,11 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
+    private func openLogFromShortcut() {
+        closeMenuSurface(animated: false)
+        openLog()
+    }
+
     private func openAuxiliaryWindow(_ open: @escaping @MainActor () -> Void) {
         guard activeStatusItemMenu == nil else {
             pendingStatusItemMenuAction = { [weak self] in
@@ -826,7 +852,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         cancelMenuSurfaceTasks()
-        heatmapDetailPanelController.hide(immediate: true, delayed: false)
+        hideSideDetailPanels()
         menuSurfaceDismissMonitor.remove()
         menuSurfaceVisibility.isVisible = false
 
@@ -860,7 +886,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private func completeMenuSurfaceClose(hidesDetailPanel: Bool = true) {
         cancelMenuSurfaceTasks()
         if hidesDetailPanel {
-            heatmapDetailPanelController.hide(immediate: true)
+            hideSideDetailPanels()
         }
         menuSurfaceDismissMonitor.remove()
 
@@ -871,6 +897,16 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         menuSurfaceState = .hidden
         activeMenuSurface = .none
         scheduleAuxiliaryWindowKeyFocusRestore()
+    }
+
+    private func hideSideDetailPanels() {
+        heatmapDetailPanelController.hide(immediate: true, delayed: false)
+        resetCreditsPanelController.hide(immediate: true)
+    }
+
+    private func isPointInDetailPanel(_ screenPoint: NSPoint) -> Bool {
+        heatmapDetailPanelController.containsScreenPoint(screenPoint)
+            || resetCreditsPanelController.containsScreenPoint(screenPoint)
     }
 
     private func suspendAuxiliaryWindowKeyFocus() {
@@ -946,7 +982,27 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             return
         }
 
+        if context != nil {
+            resetCreditsPanelController.hide(immediate: true)
+        }
+
         heatmapDetailPanelController.update(
+            context: context,
+            relativeTo: menuSurfaceWindow,
+            contentView: menuSurfaceContentView
+        )
+    }
+
+    private func toggleResetCreditsPanel(_ context: ResetCreditsPanelContext) {
+        guard isActiveMenuSurfaceVisible,
+              let menuSurfaceContentView = activeMenuSurfaceContentView,
+              let menuSurfaceWindow = activeMenuSurfaceWindow else {
+            resetCreditsPanelController.hide(immediate: true)
+            return
+        }
+
+        heatmapDetailPanelController.hide(immediate: true)
+        resetCreditsPanelController.toggle(
             context: context,
             relativeTo: menuSurfaceWindow,
             contentView: menuSurfaceContentView
