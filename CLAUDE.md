@@ -65,11 +65,13 @@ WorkflowHookEventRecorder (--hook-event stdin hook_event_name 子进程)
 
 服务层对外暴露 async API，主要共享状态由 actor 隔离：`CodexStatusService` 管理 app-server 连接和缓存，`CodexCLIVersionService` 用 `async let` 并发探测全局/内置版本，`WorkflowService`（actor）串行维护本机统计、`WorkflowStorage`（`nonisolated enum`，与服务同文件）封装 HookEvents 目录与 `stats.lock`。工作流维护/同步刷新的并发由 `WorkflowSyncScheduler`（MainActor，冷却合并 + `isRunning` 串行）单点裁判；`WorkflowViewModel` 不自判维护并发，只执行一次明确的维护刷新（quick-refresh 路径仍走自身 `isRefreshing` + `RefreshTaskCoordinator`，不经 scheduler）。`RequestLogStorage` 可后台同步写入并用 `OSAllocatedUnfairLock` 保护，`RequestLogStore` 只在 MainActor 发布 SwiftUI 快照。`PipeReadBuffer` 是底层 `FileHandle` / `DispatchSourceRead` / semaphore 的唯一 `@unchecked Sendable` 边界。
 
+热力图详情和重置次数详情的 nonactivating child panel、抽屉动画、child window 挂载、圆角 layer 和左右定位共用 `CodexBar/Controllers/SidePanelSupport.swift`；两个具体 controller 主要保留各自的触发、内容尺寸、锚点校验、状态编排和互斥状态。
+
 ## 外部依赖与更新
 
 - 唯一外部依赖：Sparkle（SwiftPM）。
 - `AppUpdater` 初始化先校验 `SUFeedURL` 与 `SUPublicEDKey`，缺失则不创建 updater 并提示「未配置更新资源」。当前 `SUFeedURL = https://codexbar.zabrian.app/appcast.xml`。
-- 发布：`Scripts/dmg.sh` 打 DMG、`Scripts/appcast.sh` 更新 `appcast.xml`（需 Sparkle `sign_update`）。tag、push、上传 DMG、改 appcast **均需用户明确同意**。
+- 发布：`Scripts/build.sh` 生成 Developer ID App, 成功后 `build/` 默认只保留最终 `.app`; `Scripts/dmg.sh` 打 DMG；`Scripts/appcast.sh` 更新 `appcast.xml`（需 Sparkle `sign_update`）。tag、push、上传 DMG、改 appcast **均需用户明确同意**。
 
 ## Git
 

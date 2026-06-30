@@ -29,6 +29,7 @@ usage: Scripts/build.sh [options] [Output.app]
 
 Builds a Release archive, exports a Developer ID app, submits it to Apple
 notarization, staples the ticket, and writes the final app to build/.
+After a successful build, build/ keeps only the final .app.
 
 Options:
   --project PATH                 Xcode project. Defaults to CodexBar.xcodeproj.
@@ -421,6 +422,35 @@ clean_build_dir() {
     mkdir -p "${BUILD_DIR}"
 }
 
+clean_intermediate_build_artifacts() {
+    local output_parent=""
+    local output_resolved=""
+    local entry=""
+    local entry_parent=""
+    local entry_resolved=""
+
+    output_parent="$(cd "$(dirname "${OUTPUT_APP_PATH}")" && pwd)"
+    output_resolved="${output_parent}/$(basename "${OUTPUT_APP_PATH}")"
+
+    echo "==> Cleaning intermediate build artifacts"
+    while IFS= read -r -d '' entry; do
+        entry_parent="$(cd "$(dirname "${entry}")" && pwd)"
+        entry_resolved="${entry_parent}/$(basename "${entry}")"
+
+        if [[ "${entry_resolved}" == "${output_resolved}" ]]; then
+            continue
+        fi
+
+        case "${output_resolved}" in
+            "${entry_resolved}"/*)
+                continue
+            ;;
+        esac
+
+        safe_remove_path "${entry_resolved}"
+    done < <(find "${BUILD_DIR}" -mindepth 1 -maxdepth 1 -print0)
+}
+
 write_export_options() {
     local path="$1"
 
@@ -640,6 +670,8 @@ if [[ "${SKIP_NOTARIZATION}" != "1" && "${SPCTL_ASSESS}" == "1" ]]; then
     echo "==> Assessing final app with Gatekeeper"
     spctl --assess --type execute --verbose=4 "${OUTPUT_APP_PATH}"
 fi
+
+clean_intermediate_build_artifacts
 
 echo "==> Built ${OUTPUT_APP_PATH}"
 echo "==> Next: Scripts/dmg.sh \"${OUTPUT_APP_PATH}\""

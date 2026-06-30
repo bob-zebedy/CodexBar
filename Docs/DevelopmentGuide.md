@@ -24,7 +24,7 @@ App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 C
 | 目录                    | 职责                                                                    |
 | ----------------------- | ----------------------------------------------------------------------- |
 | `CodexBar/App/`         | SwiftUI 入口和 AppDelegate 启动分支                                     |
-| `CodexBar/Controllers/` | 菜单栏, 菜单面板, 设置窗口, 日志窗口和窗口行为                          |
+| `CodexBar/Controllers/` | 菜单栏, 菜单面板, 侧边 child panel, 设置窗口, 日志窗口和窗口行为        |
 | `CodexBar/Models/`      | account, quota, usage, workflow, 日期网格和错误模型                     |
 | `CodexBar/Services/`    | app-server, Codex CLI 解析, 版本探测, Hook 设置, 统计维护, 更新, 登录项 |
 | `CodexBar/Views/`       | 菜单面板, 设置窗口, 日志窗口和共享 Liquid Glass 样式                    |
@@ -156,6 +156,8 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 Command-Space 不直接关闭菜单面板, 只短暂抑制 600 ms 内的 active 变化关闭逻辑, 避免 Spotlight 或系统搜索抢焦点时误关弹窗。
 
 热力图详情面板和重置次数详情面板都会通过 `containsScreenPoint(_:)` 告诉关闭监听器自己的屏幕区域, 因此点击这些 child panel 内部不会触发主菜单面板关闭。重置次数详情面板可接收鼠标事件用于滚动; 热力图详情面板不接收鼠标事件。
+
+两个侧边详情面板的共同行为集中在 `CodexBar/Controllers/SidePanelSupport.swift`: `NonactivatingSidePanel` 固定不能成为 key/main window, `SidePanelDrawerAnimator` 管理内容 view 的横向抽屉 transform, `SidePanelSupport` 管理 child window 挂载/移除、菜单面板 key window 恢复、圆角 layer 配置、屏幕 frame 换算、左右侧选择和坐标夹紧。`HeatmapDetailPanelController` 主要保留 hover 请求、侧边切换队列和 token/workflow 内容更新; `ResetCreditsPanelController` 主要保留重置次数内容、额度区锚点校验、最大高度和点击切换状态。
 
 设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开对应入口时只移动和置前对应窗口。窗口 level 保持 `.normal`; 置前时先恢复 `AuxiliaryHostingWindow.allowsKeyFocus`, 再 `orderFrontRegardless()`, `NSRunningApplication.current.activate(options: [])` 和 `makeKeyAndOrderFront(nil)`, 只做一次性置前, 不持续置顶。CodexBar 是 `LSUIElement` 菜单栏 App, 首次懒创建辅助窗口时需要通过当前运行中应用激活, 避免设置或日志窗口第一次打开时没有稳定拉到最前。
 
@@ -571,9 +573,9 @@ flowchart TD
 - token 文本由 `TokenCountText` 格式化, 1K 以下完整显示, 1K 起显示 K/M/B
 - 热力图方块强度按当天 token 相对当前 30 周峰值计算, 并用 `pow(percent, 0.62)` 调整视觉强度
 - hover 时通过 `UsageHeatmapHoverContext` 通知 `HeatmapDetailPanelController` 展示侧边详情面板
-- 指针会吸附到最近方块, 吸附动画 0.12 秒; 离开热力图后延迟 160 ms 清除选中状态
+- 指针会吸附到最近方块, 吸附动画 0.12 秒; 离开热力图后 `UsageHeatmap` 延迟 160 ms 清除选中状态, 控制器收到空 hover context 后默认再延迟 220 ms 执行侧边面板收起动画
 
-热力图详情面板是菜单面板的 borderless nonactivating child panel, 不接收鼠标事件, 按悬停列优先显示在菜单面板左侧或右侧; 左右空间不足时尝试另一侧, 最终在当前屏幕可见区域内保留 8 px 边距。侧边切换时先以 0.12 秒抽屉动画收起, 再以 0.18 秒展开。热力图详情面板和重置次数详情面板互斥, hover 热力图会立即隐藏重置次数详情面板。
+热力图详情面板是菜单面板的 borderless nonactivating child panel, 不接收鼠标事件, 按悬停列优先显示在菜单面板左侧或右侧; 左右空间不足时尝试另一侧, 最终在当前屏幕可见区域内保留 8 px 边距。侧边切换时先以 0.12 秒抽屉动画收起, 再以 0.18 秒展开。热力图详情面板和重置次数详情面板互斥, hover 热力图会立即隐藏重置次数详情面板。nonactivating panel、抽屉 transform、child window 挂载和圆角 layer 配置复用 `SidePanelSupport.swift`。
 
 `HeatmapDetailPanelController` 会复用同一个 `NSPanel` 和 `NSHostingController`, 但每次 hover 内容变化时必须替换 `hostingController.rootView` 并同步 `setContentSize`。不要用常驻 `ObservableObject` model 持续推送 `UsageHeatmapHoverContext`; Hook 开关会让详情面板在 `212 x 84` 和 `212 x 189` 两种布局之间切换, 复用同一棵 SwiftUI 布局树容易触发 AppKit constraint/layout 递归。相关回归路径是: 先 hover 出详情面板, 打开设置切换 Hook, 再回到主面板 hover 热力图。
 
@@ -1010,6 +1012,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 - 将导出的 App 压缩后提交 `xcrun notarytool submit --wait`, 成功后对 App 执行 `stapler staple` 和 `stapler validate`
 - 通过 `codesign --verify --deep --strict` 校验导出 App 和最终 App; 默认额外执行 `spctl --assess`
 - 成功后把最终 App 写入 `build/CodexBar.app` 或传入的 `Output.app`; notary 失败时不替换最终 App
+- 最终 App 校验通过后清理 `build/` 下的 archive、DerivedData 等中间产物, 默认只保留 `build/CodexBar.app`; 如果构建或 notary 失败, 保留中间产物便于排查
 - 可用 `--skip-notarization` 只执行 archive/export/signature verify, 便于本地调试脚本
 
 `Scripts/dmg.sh [App.app] [Output.dmg]`:

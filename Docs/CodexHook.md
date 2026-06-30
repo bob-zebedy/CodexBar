@@ -292,7 +292,7 @@ UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyMetrics`:
 
 用量热力图固定为近 30 周、30 列 x 7 行、周日到周六排列。`account/usage/read` 返回当天 `dailyUsageBuckets` 时, 热力图展示今天的小方块和对应 token 数; 没有当天 bucket 时再按 Hook 开关决定是否包含今天。
 
-热力图 hover 时不在菜单面板内绘制旧式 tooltip, 而是通过 `UsageHeatmapHoverContext` 通知 `HeatmapDetailPanelController` 展示侧边详情面板。指针会吸附到最近方块, 离开热力图后延迟 160 ms 清除选中状态。
+热力图 hover 时不在菜单面板内绘制旧式 tooltip, 而是通过 `UsageHeatmapHoverContext` 通知 `HeatmapDetailPanelController` 展示侧边详情面板。指针会吸附到最近方块, 离开热力图后 `UsageHeatmap` 延迟 160 ms 清除选中状态; 控制器收到空 hover context 后默认再延迟 220 ms 收起侧边详情面板, 菜单关闭或互斥面板切换时走立即隐藏。
 
 热力图详情面板和额度区的重置次数详情面板互斥。hover 热力图时会隐藏重置次数详情面板; 点击重置次数按钮时会立即隐藏热力图详情面板。
 
@@ -304,6 +304,7 @@ UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyMetrics`:
 - 与菜单面板之间保留 `4` px gap
 - 侧边切换使用抽屉动画: 收起 `0.12` 秒, 展开 `0.18` 秒
 - 内容更新保留 `NSPanel` / `NSHostingController`, 但每次替换 `hostingController.rootView` 并同步 `setContentSize`; 不使用常驻 `ObservableObject` model 复用 SwiftUI 布局树, 避免 Hook 开关切换详情面板高度后触发 AppKit 递归布局
+- nonactivating panel、抽屉动画、child window 挂载、圆角 layer 和左右定位的共用实现位于 `SidePanelSupport.swift`, 同时服务热力图详情面板和重置次数详情面板
 
 Codex Hook 关闭时:
 

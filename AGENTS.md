@@ -92,7 +92,7 @@ Codex Hook
 目录职责:
 
 - `App/`: 入口和全局启动分支。
-- `Controllers/`: 菜单栏、菜单面板、设置窗口和日志窗口控制。
+- `Controllers/`: 菜单栏、菜单面板、侧边 child panel、设置窗口和日志窗口控制。
 - `Models/`: account、quota、usage、workflow、共享日期网格和错误模型。
 - `Services/`: app-server、Codex CLI、设置、Hook 统计、更新和日志服务。
 - `Views/`: 菜单面板、设置、日志和共享 Liquid Glass 样式。
@@ -198,6 +198,7 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 - token 区域还显示「当前连胜」、「最长连胜」和「最长任务」。
 - 热力图是近 30 周、30 列 x 7 行、周日到周六排列; Codex Hook 开启时包含今天, Hook 关闭时仅在 app-server 已返回当天 token bucket 时包含今天。
 - 热力图 hover 使用 `HeatmapDetailPanelController` 展示侧边详情面板, 不是菜单面板内 tooltip; 面板作为菜单面板 child window, 不接收鼠标事件, 左右贴边展示并在屏幕可见区域内夹紧。热力图详情面板和重置次数详情面板都被 `MenuSurfaceDismissMonitor` 视为允许点击区域。
+- 热力图详情面板和重置次数详情面板共用 `SidePanelSupport.swift` 中的 `NonactivatingSidePanel`、`SidePanelDrawerAnimator` 和定位/挂载/layer 辅助逻辑; 修改 child panel attach/orderOut、抽屉动画、圆角 layer 或左右定位语义时必须同步检查两个控制器。
 - 详情面板内容更新时保留 `NSPanel` / `NSHostingController`, 但每次替换 `hostingController.rootView` 并同步 `setContentSize`; 不用常驻 `ObservableObject` model 推送 hover context, 避免 Hook 开关切换 token-only / workflow 布局后触发 AppKit 递归布局。
 - Hook 关闭时详情面板显示日期、token 数和「用量强度」分段条, 尺寸 `212 x 84`。
 - Hook 开启时详情面板首行左侧显示日期、右侧显示 token 数, 当天 token 数显示 `--`; 后续显示「用量强度」、「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」, 尺寸 `212 x 189`。
@@ -253,9 +254,10 @@ Hook 统计的配置、存储、保留策略和统计口径见 [Docs/CodexHook.m
 
 ## 发布脚本
 
+- `Scripts/build.sh [options] [Output.app]` 生成 Developer ID App, 默认输出 `build/CodexBar.app`; 成功校验最终 App 后清理 `build/` 下 archive、DerivedData 等中间产物, 默认只保留 `.app`; 构建、notary 或校验失败时保留中间产物便于排查。
 - `Scripts/dmg.sh [App.app] [Output.dmg]` 创建带 `/Applications` Finder alias 的 DMG, 会尝试写 Finder 布局。
 - `Scripts/appcast.sh [CodexBar-vX.Y.Z.dmg]` 更新 `appcast.xml`, 需要 Sparkle `sign_update`。
-- 改发布脚本后至少运行 `bash -n Scripts/dmg.sh` 和 `bash -n Scripts/appcast.sh`。
+- 改发布脚本后至少运行对应脚本的 `bash -n`; 改 DMG 或 appcast 脚本后还要运行 `bash -n Scripts/dmg.sh` 和 `bash -n Scripts/appcast.sh`。
 - 更新 appcast、tag、push、上传 DMG 都必须先得到用户明确同意。
 
 ## Git 规则

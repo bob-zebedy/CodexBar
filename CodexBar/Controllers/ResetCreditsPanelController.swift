@@ -2,22 +2,18 @@ import AppKit
 import QuartzCore
 import SwiftUI
 
-/// 重置次数详情面板不接收焦点, 只作为菜单面板的跟随子窗口
-private final class ResetCreditsPanel: NSPanel {
-    override var canBecomeKey: Bool {
-        false
-    }
-
-    override var canBecomeMain: Bool {
-        false
-    }
-}
-
 /// 重置次数详情控制器, 复用热力图详情的侧边抽屉动效
 @MainActor
 final class ResetCreditsPanelController {
     private var panel: NSPanel?
     private var hostingController: NSHostingController<ResetCreditsPanelView>?
+    private lazy var drawerAnimator = SidePanelDrawerAnimator(
+        contentViewProvider: { [weak self] in
+            self?.hostingController?.view
+        },
+        animationKey: Metrics.drawerTransformAnimationKey,
+        overscan: Metrics.drawerOverscan
+    )
     private var visibilityGeneration = 0
     private var currentSide = UsageHeatmapDetailSide.right
     private weak var menuSurfaceWindow: NSWindow?
@@ -59,15 +55,15 @@ final class ResetCreditsPanelController {
         }
 
         guard !immediate else {
-            resetDrawerVisualState(for: panel)
+            drawerAnimator.resetVisualState(for: panel)
             orderOut(panel)
             return
         }
 
         let generation = visibilityGeneration
         let side = currentSide
-        let hidden = drawerHiddenTranslation(for: side, panelWidth: panel.frame.width)
-        animateContentTranslation(
+        let hidden = drawerAnimator.hiddenTranslation(for: side, panelWidth: panel.frame.width)
+        drawerAnimator.animateTranslation(
             to: hidden,
             duration: Metrics.drawerExitDuration,
             timing: .easeIn
@@ -79,7 +75,7 @@ final class ResetCreditsPanelController {
                 }
 
                 orderOut(panel)
-                setContentTranslation(0)
+                drawerAnimator.setTranslation(0)
             }
         }
     }
@@ -95,7 +91,7 @@ final class ResetCreditsPanelController {
         }
 
         let panel = ensurePanel()
-        let menuSurfaceFrame = contentScreenFrame(for: contentView, in: menuSurfaceWindow) ?? menuSurfaceWindow.frame
+        let menuSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: menuSurfaceWindow) ?? menuSurfaceWindow.frame
         let alignmentScreenFrame = validAlignmentScreenFrame(
             context.alignmentScreenFrame,
             menuSurfaceFrame: menuSurfaceFrame
@@ -118,7 +114,7 @@ final class ResetCreditsPanelController {
 
         panel.level = menuSurfaceWindow.level
         defer {
-            restoreMenuSurfaceKeyWindow(menuSurfaceWindow)
+            SidePanelSupport.restoreMenuSurfaceKeyWindow(menuSurfaceWindow)
         }
 
         visibilityGeneration += 1
@@ -131,7 +127,7 @@ final class ResetCreditsPanelController {
             return panel
         }
 
-        let panel = ResetCreditsPanel(
+        let panel = NonactivatingSidePanel(
             contentRect: NSRect(
                 origin: .zero,
                 size: ResetCreditsPanelView.initialPanelSize
@@ -165,7 +161,11 @@ final class ResetCreditsPanelController {
             self.hostingController = hostingController
         }
 
-        configurePanelLayers()
+        SidePanelSupport.configureLayers(
+            hostingView: hostingController?.view,
+            contentView: panel?.contentView,
+            cornerRadius: ResetCreditsPanelView.panelCornerRadius
+        )
         panel?.setContentSize(size)
     }
 
@@ -183,62 +183,31 @@ final class ResetCreditsPanelController {
 
     private func showPanelWithDrawerAnimation(_ panel: NSPanel, relativeTo menuSurfaceWindow: NSWindow) {
         let generation = visibilityGeneration
-        let hidden = drawerHiddenTranslation(for: currentSide, panelWidth: panel.frame.width)
-        setContentTranslation(hidden)
+        let hidden = drawerAnimator.hiddenTranslation(for: currentSide, panelWidth: panel.frame.width)
+        drawerAnimator.setTranslation(hidden)
         panel.alphaValue = 0
         attach(panel, to: menuSurfaceWindow)
         panel.order(.above, relativeTo: menuSurfaceWindow.windowNumber)
-        animateContentTranslationAfterInitialLayout(
+        drawerAnimator.animateEntryAfterInitialLayout(
             from: hidden,
             panel: panel,
-            generation: generation
+            duration: Metrics.drawerEnterDuration,
+            isCurrent: { [weak self] in
+                self?.visibilityGeneration == generation
+            },
+            completion: { [weak self] in
+                self?.drawerAnimator.setTranslation(0)
+            }
         )
     }
 
     private func attach(_ panel: NSPanel, to parentWindow: NSWindow) {
         menuSurfaceWindow = parentWindow
-        guard panel.parent !== parentWindow else {
-            return
-        }
-
-        panel.parent?.removeChildWindow(panel)
-        parentWindow.addChildWindow(panel, ordered: .above)
+        SidePanelSupport.attach(panel, to: parentWindow)
     }
 
     private func orderOut(_ panel: NSPanel) {
-        let parentWindow = panel.parent ?? menuSurfaceWindow
-        panel.orderOut(nil)
-        parentWindow?.removeChildWindow(panel)
-        restoreMenuSurfaceKeyWindow(parentWindow)
-    }
-
-    private func restoreMenuSurfaceKeyWindow(_ menuSurfaceWindow: NSWindow?) {
-        guard NSApplication.shared.isActive else {
-            return
-        }
-
-        menuSurfaceWindow?.makeKey()
-    }
-
-    private func configurePanelLayers() {
-        if let hostingView = hostingController?.view {
-            configurePanelLayer(for: hostingView)
-        }
-
-        if let contentView = panel?.contentView {
-            configurePanelLayer(for: contentView)
-            if let frameView = contentView.superview {
-                configurePanelLayer(for: frameView)
-            }
-        }
-    }
-
-    private func configurePanelLayer(for view: NSView) {
-        view.wantsLayer = true
-        view.layer?.backgroundColor = NSColor.clear.cgColor
-        view.layer?.masksToBounds = true
-        view.layer?.cornerRadius = ResetCreditsPanelView.panelCornerRadius
-        view.layer?.cornerCurve = .continuous
+        SidePanelSupport.orderOut(panel, menuSurfaceWindow: menuSurfaceWindow)
     }
 
     private func panelPosition(
@@ -250,26 +219,26 @@ final class ResetCreditsPanelController {
     ) -> PanelPosition {
         let leftX = menuSurfaceFrame.minX - Metrics.panelGap - panelSize.width
         let rightX = menuSurfaceFrame.maxX + Metrics.panelGap
-        let horizontal = horizontalPlacement(
+        let horizontal = SidePanelSupport.horizontalPlacement(
             preferredSide: preferredSide,
-            left: HorizontalPlacement(
+            left: SidePanelHorizontalPlacement(
                 x: leftX,
                 side: .left,
                 isAvailable: leftX >= visibleFrame.minX + Metrics.screenPadding
             ),
-            right: HorizontalPlacement(
+            right: SidePanelHorizontalPlacement(
                 x: rightX,
                 side: .right,
                 isAvailable: rightX + panelSize.width <= visibleFrame.maxX - Metrics.screenPadding
             )
         )
 
-        let x = clamped(
+        let x = SidePanelSupport.clamped(
             horizontal.x,
             lower: visibleFrame.minX + Metrics.screenPadding,
             upper: visibleFrame.maxX - panelSize.width - Metrics.screenPadding
         )
-        let y = clamped(
+        let y = SidePanelSupport.clamped(
             proposedY(
                 for: panelSize,
                 menuSurfaceFrame: menuSurfaceFrame,
@@ -282,7 +251,7 @@ final class ResetCreditsPanelController {
 
         return PanelPosition(
             frame: frame,
-            side: actualSide(
+            side: SidePanelSupport.actualSide(
                 forX: x,
                 panelWidth: panelSize.width,
                 menuSurfaceFrame: menuSurfaceFrame,
@@ -349,155 +318,6 @@ final class ResetCreditsPanelController {
             && frame.height > 0
     }
 
-    private func horizontalPlacement(
-        preferredSide: UsageHeatmapDetailSide,
-        left: HorizontalPlacement,
-        right: HorizontalPlacement
-    ) -> HorizontalPlacement {
-        let primary = preferredSide == .left ? left : right
-        let fallback = preferredSide == .left ? right : left
-
-        if primary.isAvailable {
-            return primary
-        }
-        return fallback.isAvailable ? fallback : primary
-    }
-
-    private func actualSide(
-        forX x: CGFloat,
-        panelWidth: CGFloat,
-        menuSurfaceFrame: CGRect,
-        fallback: UsageHeatmapDetailSide
-    ) -> UsageHeatmapDetailSide {
-        if x + panelWidth <= menuSurfaceFrame.minX {
-            return .left
-        }
-        if x >= menuSurfaceFrame.maxX {
-            return .right
-        }
-        return fallback
-    }
-
-    private func drawerHiddenTranslation(for side: UsageHeatmapDetailSide, panelWidth: CGFloat) -> CGFloat {
-        let distance = panelWidth + Metrics.drawerOverscan
-        switch side {
-        case .left:
-            return distance
-        case .right:
-            return -distance
-        }
-    }
-
-    private func setContentTranslation(_ translationX: CGFloat) {
-        guard let layer = hostingController?.view.layer else {
-            return
-        }
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.removeAnimation(forKey: Metrics.drawerTransformAnimationKey)
-        layer.transform = CATransform3DMakeTranslation(translationX, 0, 0)
-        CATransaction.commit()
-    }
-
-    private func animateContentTranslation(
-        from fromTranslationX: CGFloat? = nil,
-        to translationX: CGFloat,
-        duration: TimeInterval,
-        timing: CAMediaTimingFunctionName,
-        completion: (() -> Void)? = nil
-    ) {
-        guard let layer = hostingController?.view.layer else {
-            completion?()
-            return
-        }
-
-        let targetTransform = CATransform3DMakeTranslation(translationX, 0, 0)
-        CATransaction.begin()
-        CATransaction.setCompletionBlock(completion)
-
-        let animation = CABasicAnimation(keyPath: "transform")
-        animation.fromValue = fromTranslationX.map { CATransform3DMakeTranslation($0, 0, 0) }
-            ?? layer.presentation()?.transform
-            ?? layer.transform
-        animation.toValue = targetTransform
-        animation.duration = duration
-        animation.timingFunction = CAMediaTimingFunction(name: timing)
-        layer.add(animation, forKey: Metrics.drawerTransformAnimationKey)
-        layer.transform = targetTransform
-
-        CATransaction.commit()
-    }
-
-    private func animateContentTranslationAfterInitialLayout(
-        from hiddenTranslationX: CGFloat,
-        panel: NSPanel,
-        generation: Int
-    ) {
-        panel.contentView?.layoutSubtreeIfNeeded()
-        panel.displayIfNeeded()
-        CATransaction.flush()
-
-        Task { @MainActor [weak self, weak panel] in
-            await Task.yield()
-            guard let self,
-                  let panel,
-                  panel.isVisible,
-                  generation == visibilityGeneration else {
-                return
-            }
-
-            setContentTranslation(hiddenTranslationX)
-            panel.contentView?.layoutSubtreeIfNeeded()
-            panel.displayIfNeeded()
-            CATransaction.flush()
-            panel.alphaValue = 1
-            animateContentTranslation(
-                from: hiddenTranslationX,
-                to: 0,
-                duration: Metrics.drawerEnterDuration,
-                timing: .easeOut
-            ) {
-                Task { @MainActor [weak self] in
-                    guard let self,
-                          generation == visibilityGeneration else {
-                        return
-                    }
-
-                    setContentTranslation(0)
-                }
-            }
-        }
-    }
-
-    private func resetDrawerVisualState(for panel: NSPanel) {
-        setContentTranslation(0)
-        panel.alphaValue = 1
-    }
-
-    private func contentScreenFrame(for contentView: NSView?, in window: NSWindow) -> CGRect? {
-        guard let contentView else {
-            return nil
-        }
-
-        contentView.layoutSubtreeIfNeeded()
-        let frameInWindow = contentView.convert(contentView.bounds, to: nil)
-        let screenFrame = window.convertToScreen(frameInWindow)
-        guard screenFrame.width > 0, screenFrame.height > 0 else {
-            return nil
-        }
-
-        return screenFrame
-    }
-
-    private func clamped(_ value: CGFloat, lower: CGFloat, upper: CGFloat) -> CGFloat {
-        guard lower <= upper else {
-            return lower
-        }
-
-        return min(max(value, lower), upper)
-    }
-
     private enum Metrics {
         static let panelGap: CGFloat = 4
         static let screenPadding: CGFloat = 8
@@ -511,11 +331,5 @@ final class ResetCreditsPanelController {
     private struct PanelPosition {
         let frame: NSRect
         let side: UsageHeatmapDetailSide
-    }
-
-    private struct HorizontalPlacement {
-        let x: CGFloat
-        let side: UsageHeatmapDetailSide
-        let isAvailable: Bool
     }
 }
