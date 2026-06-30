@@ -97,11 +97,11 @@ nonisolated enum MenuBarQuotaSelection: String, CaseIterable, Identifiable {
     var fallbackTitle: String {
         switch self {
         case .off:
-            "关闭"
+            "off"
         case .primary:
-            "主要额度"
+            "primary"
         case .secondary:
-            "次要额度"
+            "secondary"
         }
     }
 
