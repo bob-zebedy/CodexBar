@@ -17,9 +17,9 @@ nonisolated enum CodexStatusError: LocalizedError {
         case .serverTimeout:
             "Codex app-server 等待响应超时"
         case .serverConnectionClosed:
-            "Codex app-server 连接已断开"
+            "Codex app-server 连接已经断开"
         case .invalidServerResponse:
-            "Codex app-server 返回无法解析"
+            "Codex app-server 无法解析响应"
         case let .serverError(message):
             message
         case .unsupportedMethod:
