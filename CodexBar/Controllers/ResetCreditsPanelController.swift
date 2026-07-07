@@ -15,6 +15,7 @@ final class ResetCreditsPanelController {
         overscan: Metrics.drawerOverscan
     )
     private var visibilityGeneration = 0
+    private var isExitAnimationRunning = false
     private var currentSide = UsageHeatmapDetailSide.right
     private weak var menuSurfaceWindow: NSWindow?
 
@@ -48,20 +49,34 @@ final class ResetCreditsPanelController {
     }
 
     func hide(immediate: Bool = false) {
-        visibilityGeneration += 1
-
         guard let panel, panel.isVisible else {
             return
         }
 
-        guard !immediate else {
-            drawerAnimator.resetVisualState(for: panel)
-            orderOut(panel)
+        if immediate {
+            visibilityGeneration += 1
+            hideImmediately(panel)
             return
         }
 
+        guard !isExitAnimationRunning else {
+            return
+        }
+
+        hideWithAnimation(panel)
+    }
+
+    private func hideImmediately(_ panel: NSPanel) {
+        drawerAnimator.resetVisualState(for: panel)
+        isExitAnimationRunning = false
+        orderOut(panel)
+    }
+
+    private func hideWithAnimation(_ panel: NSPanel) {
+        visibilityGeneration += 1
         let generation = visibilityGeneration
         let side = currentSide
+        isExitAnimationRunning = true
         let hidden = drawerAnimator.hiddenTranslation(for: side, panelWidth: panel.frame.width)
         drawerAnimator.animateTranslation(
             to: hidden,
@@ -76,6 +91,7 @@ final class ResetCreditsPanelController {
 
                 orderOut(panel)
                 drawerAnimator.setTranslation(0)
+                isExitAnimationRunning = false
             }
         }
     }
@@ -118,6 +134,7 @@ final class ResetCreditsPanelController {
         }
 
         visibilityGeneration += 1
+        isExitAnimationRunning = false
         apply(context: resolvedContext, panelSize: panelSize, position: position, to: panel)
         showPanelWithDrawerAnimation(panel, relativeTo: menuSurfaceWindow)
     }

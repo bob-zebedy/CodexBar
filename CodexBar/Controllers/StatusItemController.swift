@@ -995,7 +995,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         if context != nil {
-            resetCreditsPanelController.hide(immediate: true)
+            resetCreditsPanelController.hide()
         }
 
         heatmapDetailPanelController.update(
