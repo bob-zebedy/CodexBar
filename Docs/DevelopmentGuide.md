@@ -95,7 +95,7 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 
 正常图标是 `person.fill.checkmark`, 错误图标是 `person.fill.xmark`
 
-设置页「菜单栏额度指示」默认开启, 使用独立开关控制启用状态; 缺失持久化选择时默认使用 `.primary`, 关闭时显式持久化 `.off`。开启后在同一行显示额度窗口菜单, 可选择当前账号 Codex limit 返回的额度窗口, 当前保留选择不在返回窗口中时用 fallback 标题追加到菜单。关闭开关时, 设置页保留最后一个非关闭窗口值参与菜单淡出, 避免过渡期间回退到默认窗口。关闭时菜单栏只使用系统 template 图标; 开启后 `StatusItemController` 会把所选 Codex 窗口的剩余额度进度条绘制在图标左侧, 以竖条形式与 `person.fill.checkmark` / `person.fill.xmark` 合成为单个 `NSImage`, 并随 `CodexStatusViewModel` 自动刷新。合成图尺寸为 `27 x 17`, 图标本体保持原始 `24 x 17`, 左侧竖条轨道为 `2 x 15`。开启或关闭进度条时, `StatusItemController` 用逐帧重绘的方式对左侧竖条透明度做 0.18 秒过渡; 过渡期间合成图宽度和图标绘制坐标保持固定。
+设置页「菜单栏额度指示」默认开启, 使用独立开关控制启用状态; 缺失持久化选择时默认使用 `.primary`, 关闭时显式持久化 `.off`。开启后在同一行显示额度窗口菜单, 可选择当前账号 Codex limit 返回的额度窗口, 当前保留选择不在返回窗口中时用 fallback 标题追加到菜单。最后一次非关闭的窗口选择由 `MenuBarQuotaSettings` 以 `MenuBarQuota.lastWindowSelection` 键随偏好持久化: 关闭开关时它继续参与菜单淡出避免过渡期间回退, 重新开启时（含重开设置窗口或重启应用后）恢复该选择, 无记录时回退 `.primary`。关闭时菜单栏只使用系统 template 图标; 开启后 `StatusItemController` 会把所选 Codex 窗口的剩余额度进度条绘制在图标左侧, 以竖条形式与 `person.fill.checkmark` / `person.fill.xmark` 合成为单个 `NSImage`, 并随 `CodexStatusViewModel` 自动刷新。合成图尺寸为 `27 x 17`, 图标本体保持原始 `24 x 17`, 左侧竖条轨道为 `2 x 15`。开启或关闭进度条时, `StatusItemController` 用逐帧重绘的方式对左侧竖条透明度做 0.18 秒过渡; 过渡期间合成图宽度和图标绘制坐标保持固定。
 
 错误图标触发条件:
 
@@ -157,7 +157,7 @@ Command-Space 不直接关闭菜单面板, 只短暂抑制 600 ms 内的 active 
 
 热力图详情面板和重置次数详情面板都会通过 `containsScreenPoint(_:)` 告诉关闭监听器自己的屏幕区域, 因此点击这些 child panel 内部不会触发主菜单面板关闭。重置次数详情面板可接收鼠标事件用于滚动; 热力图详情面板不接收鼠标事件。
 
-两个侧边详情面板的共同行为集中在 `CodexBar/Controllers/SidePanelSupport.swift`: `NonactivatingSidePanel` 固定不能成为 key/main window, `SidePanelDrawerAnimator` 管理内容 view 的横向抽屉 transform, `SidePanelSupport` 管理 child window 挂载/移除、菜单面板 key window 恢复、圆角 layer 配置、屏幕 frame 换算、左右侧选择和坐标夹紧。`HeatmapDetailPanelController` 主要保留 hover 请求、侧边切换队列和 token/workflow 内容更新; `ResetCreditsPanelController` 主要保留重置次数内容、额度区锚点校验、最大高度和点击切换状态。
+两个侧边详情面板的共同行为集中在 `CodexBar/Controllers/SidePanelSupport.swift`: `NonactivatingSidePanel` 固定不能成为 key/main window, `SidePanelDrawerAnimator` 管理内容 view 的横向抽屉 transform, `SidePanelSupport` 提供 panel 工厂（`makePanel`, 仅 `ignoresMouseEvents` 与初始尺寸由调用方决定）、完整定位入口（`position`, 内含左右侧选择、坐标夹紧与 `SidePanelPosition` 组装, 纵向由调用方传入期望位置）、共享几何/抽屉动画常量（`SidePanelSupport.Metrics`）, 以及 child window 挂载/移除、菜单面板 key window 恢复、圆角 layer 配置和屏幕 frame 换算。`HeatmapDetailPanelController` 主要保留 hover 请求、Y 轴策略、侧边切换队列和 token/workflow 内容更新; `ResetCreditsPanelController` 主要保留重置次数内容、额度区锚点校验、最大高度和点击切换状态。两个面板视图的玻璃底/背板/描边/圆角裁剪皮肤共用 `LiquidGlassStyle.swift` 的 `sidePanelChrome(cornerRadius:)`。
 
 设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开对应入口时只移动和置前对应窗口。窗口 level 保持 `.normal`; 置前时先恢复 `AuxiliaryHostingWindow.allowsKeyFocus`, 再 `orderFrontRegardless()`, `NSRunningApplication.current.activate(options: [])` 和 `makeKeyAndOrderFront(nil)`, 只做一次性置前, 不持续置顶。CodexBar 是 `LSUIElement` 菜单栏 App, 首次懒创建辅助窗口时需要通过当前运行中应用激活, 避免设置或日志窗口第一次打开时没有稳定拉到最前。
 
@@ -610,6 +610,8 @@ Hook 开启且当天没有 token bucket 时, 今天的 token 数显示 `--`。�
 ~/.codex/hooks.json
 ```
 
+该路径由 `CodexCLIResolver.codexHomeDirectory()` 统一解析: 优先环境变量 `CODEX_HOME`, 否则回退真实用户 `HOME` 下的 `.codex`, 与 `CodexResetCreditsService` 读取 `auth.json` 的口径一致。
+
 开启前会复用 App 当前的 `CodexStatusService` app-server 会话调用 `config/read`, 如果有效配置中 `[features] hooks = false` 或兼容旧名 `codex_hooks = false`, 则不写入 Hook, 并在 Hook 选项下方提示。`config/read` 请求失败时同样不写入 Hook, 并显示"设置 Codex Hook 失败"。开启写入后会继续调用 `hooks/list`, 检查 Codex 实际识别到的 `command`, `eventName`, `enabled`, `sourcePath`, `trustStatus`, `key`, `currentHash`, `warnings` 和 `errors`。如果 `trustStatus` 是 `untrusted` 或 `modified`, CodexBar 只对 `sourcePath` 指向全局 `~/.codex/hooks.json` 且 command 属于当前 CodexBar 的 Hook, 用 `config/batchWrite` 把对应 `trusted_hash` upsert 到 `hooks.state` 并重新 `hooks/list` 验证。`hooks/list`、自动信任写入或验证未通过不会回滚已写入 Hook, 只在 Hook 选项下方显示验证摘要。这些 app-server 请求和响应都会进入日志窗口。
 
 下面的时序图展示开启 Hook, Codex 触发事件, 本机写入, 后台维护, 以及常见错误后的处理
@@ -862,7 +864,7 @@ UI 展示指标来自 `WorkflowDailyAggregate.metrics`:
 | 权限请求   | `permissionRequestCount`                                |
 | 上下文压缩 | `max(preCompactCount, postCompactCount)`                |
 
-跨设备同步只在 `performMaintenance: true, synchronize: true` 的刷新中执行。`WorkflowSyncScheduler` 会合并同步开关、Hook 重新开启、同步账号恢复可用和自动刷新产生的同步请求；同步中不取消重启, 冷却窗口内只保留一次待补跑请求, 补跑前重新校验 Hook 开启、跨设备同步偏好为 true 且同步账号可用。`WorkflowSyncService` 先用本机 daily 聚合生成脱敏 `WorkflowSyncedDailyAggregate`, 再按日期稳定排序候选项, 每批最多上传 25 天, 每轮最多使用 20 秒。每批成功后立即保存 `state.hashByDate` 和 `lastUploadAt`, 未完成的 backfill 留给后续自动刷新继续。没有 `cursor.data` 时先 query 全量 `CodexBarDailyAggregate` 回填 `cache.jsonl`; 有游标时优先拉 CloudKit 增量, 游标失效或增量失败时不写入日志窗口, 直接全量重建缓存。写入 `cache.jsonl` 前会过滤当前设备自己的记录, 只保留其他设备记录。增量路径先写 `cache.jsonl`, 成功后再写 `cursor.data`, 避免游标提前推进导致未落盘记录被跳过。同步失败会通过 `CodexBar.workflowSyncDidFinish` 通知发送 `didSucceed=false` 和归类后的 `failureMessage`, 主面板同步图标进入失败态。
+跨设备同步只在 `performMaintenance: true, synchronize: true` 的刷新中执行。`WorkflowSyncScheduler` 会合并同步开关、Hook 重新开启、同步账号恢复可用和自动刷新产生的同步请求；同步中不取消重启, 冷却窗口内只保留一次待补跑请求, 补跑前重新校验 Hook 开启、跨设备同步偏好为 true 且同步账号可用。`WorkflowSyncService` 先用本机 daily 聚合生成脱敏 `WorkflowSyncedDailyAggregate`, 再按日期稳定排序候选项, 每批最多上传 25 天, 每轮最多使用 20 秒。zone 存在性确认和 account salt 首次成功后在 actor 内跨轮缓存, 任一轮同步失败时作废, 下一轮重新确认（覆盖 iCloud 账号切换）。每批成功后立即保存 `state.hashByDate` 和 `lastUploadAt`, 未完成的 backfill 留给后续自动刷新继续。没有 `cursor.data` 时先 query 全量 `CodexBarDailyAggregate` 回填 `cache.jsonl`; 有游标时优先拉 CloudKit 增量, 游标失效或增量失败时不写入日志窗口, 直接全量重建缓存。写入 `cache.jsonl` 前会过滤当前设备自己的记录, 只保留其他设备记录。增量路径先写 `cache.jsonl`, 成功后再写 `cursor.data`, 避免游标提前推进导致未落盘记录被跳过。同步失败会通过 `CodexBar.workflowSyncDidFinish` 通知发送 `didSucceed=false` 和归类后的 `failureMessage`, 主面板同步图标进入失败态。
 
 ## 13. 设置窗口流程
 
@@ -896,7 +898,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 | --------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | 开机自动启动    | `SMAppService.mainApp.status`                                                        | `register()` / `unregister()`                                                                                                   |
 | 自动检查更新    | Sparkle updater                                                                      | 设置 `automaticallyChecksForUpdates`                                                                                            |
-| 菜单栏额度指示  | `MenuBarQuotaSettings.selection`                                                     | 开关写入 `.off` 或当前保留窗口, 窗口菜单写入所选窗口; 标签优先来自当前账号 Codex limit 返回的额度窗口, 缺失时使用 fallback 标题 |
+| 菜单栏额度指示  | `MenuBarQuotaSettings.selection` / `MenuBarQuota.lastWindowSelection`                | 开关写入 `.off` 或恢复持久化的上次窗口选择, 窗口菜单写入所选窗口并同步记住; 标签优先来自当前账号 Codex limit 返回的额度窗口, 缺失时使用 fallback 标题 |
 | 使用快捷键      | `GlobalHotKeySettings.shortcut`                                                      | 写入 `UserDefaults` 并注册 hot key                                                                                              |
 | 启用 Codex Hook | app-server `config/read` / `hooks/list` / `config/batchWrite`, `~/.codex/hooks.json` | 检查全局 Hook 开关后追加或移除当前 CodexBar command hook, 并维护对应 `hooks.state` 信任状态                                     |
 | 跨设备同步      | `WorkflowSyncSettings` + CloudKit account status + `WorkflowSyncScheduler`           | Hook 开启且同步账号可用时写入 `UserDefaults`; 开启时标记 `needsBackfill` 并请求调度同步                                         |
@@ -1052,7 +1054,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 
 文件写入安全:
 
-- Hook 子进程只在锁内追加当天 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json`
+- Hook 子进程只在锁内追加当天 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json`, pending 状态无变化时跳过重写
 - 主 App 维护 `daily.jsonl` 时, 先锁外原子写 daily, 再短暂持锁提交维护状态, 减少阻塞 Hook 写入
 - `maintenance.json` 和 `daily.jsonl` 使用 atomic write
 - 设置 Hook 时通过当前 app-server 会话先读 `config/read`, 未全局禁用时 pretty printed 写回 `~/.codex/hooks.json`, 只移除 command 同时包含当前 App 可执行路径和 `--hook-event` 参数的 handler, 写入后再用 `hooks/list` 验证有效状态；未信任或已修改时, 仅把当前 CodexBar command 且来源为全局 `hooks.json` 的 `key/currentHash` 通过 `config/batchWrite` 写入 `hooks.state`

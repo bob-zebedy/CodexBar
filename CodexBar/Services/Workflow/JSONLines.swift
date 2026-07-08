@@ -2,6 +2,14 @@ import Foundation
 
 /// 简单 JSONL 工具, 读取时跳过坏行以保护历史统计可用性
 nonisolated enum JSONLines {
+    /// 落盘 JSON 统一的稳定输出配置, 保证文件可 diff 且格式一致
+    /// 配置后不再修改, encode 可重入, 可跨并发域缓存共享
+    static let stableEncoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return encoder
+    }()
+
     /// 按行解码 JSONL: 切分换行, trim, 跳过空行与解码失败的行
     static func decode<T: Decodable>(_ type: T.Type = T.self, from data: Data) -> [T] {
         decodeWithFailures(type, from: data).values

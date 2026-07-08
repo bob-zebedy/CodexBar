@@ -224,9 +224,7 @@ private extension CodexHookSettings {
     }
 
     nonisolated static func defaultHooksURL() -> URL {
-        FileManager.default
-            .homeDirectoryForCurrentUser
-            .appendingPathComponent(".codex", isDirectory: true)
+        CodexCLIResolver.codexHomeDirectory()
             .appendingPathComponent("hooks.json")
     }
 
@@ -645,25 +643,13 @@ private extension CodexHookSettings {
     }
 
     static func hookTrustStateValue(from state: [String: String]) -> [String: [String: String]] {
-        var value: [String: [String: String]] = [:]
-        for key in state.keys.sorted() {
-            guard let trustedHash = state[key] else {
-                continue
-            }
-
-            value[key] = [trustedHashKey: trustedHash]
-        }
-
-        return value
+        state.mapValues { [trustedHashKey: $0] }
     }
 
     static func hookTrustStateValue(from entries: [CodexHookTrustEntry]) -> [String: [String: String]] {
-        var state: [String: String] = [:]
-        for entry in entries {
-            state[entry.key] = entry.trustedHash
+        entries.reduce(into: [:]) { value, entry in
+            value[entry.key] = [trustedHashKey: entry.trustedHash]
         }
-
-        return hookTrustStateValue(from: state)
     }
 
     static func hooksObject(from config: JSONObject) throws -> JSONObject {

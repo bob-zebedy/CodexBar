@@ -131,6 +131,81 @@ final class SidePanelDrawerAnimator {
 
 @MainActor
 enum SidePanelSupport {
+    /// 两个侧边详情面板共用的几何与抽屉动画常量
+    enum Metrics {
+        static let panelGap: CGFloat = 4
+        static let screenPadding: CGFloat = 8
+        static let drawerEnterDuration: TimeInterval = 0.18
+        static let drawerExitDuration: TimeInterval = 0.12
+        static let drawerOverscan: CGFloat = 1
+    }
+
+    static func makePanel(initialSize: CGSize, ignoresMouseEvents: Bool) -> NSPanel {
+        let panel = NonactivatingSidePanel(
+            contentRect: NSRect(origin: .zero, size: initialSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.backgroundColor = .clear
+        panel.collectionBehavior = [.transient, .canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
+        panel.ignoresMouseEvents = ignoresMouseEvents
+        panel.isFloatingPanel = true
+        panel.isOpaque = false
+        panel.isReleasedWhenClosed = false
+        panel.animationBehavior = .none
+        return panel
+    }
+
+    /// 水平方向优先贴在请求侧, 空间不足时换边, 最后夹紧到屏幕可见区域
+    /// 纵向由调用方给出期望位置, 这里统一夹紧
+    static func position(
+        panelSize: CGSize,
+        menuSurfaceFrame: CGRect,
+        visibleFrame: CGRect,
+        preferredSide: UsageHeatmapDetailSide,
+        proposedY: CGFloat
+    ) -> SidePanelPosition {
+        let leftX = menuSurfaceFrame.minX - Metrics.panelGap - panelSize.width
+        let rightX = menuSurfaceFrame.maxX + Metrics.panelGap
+        let horizontal = horizontalPlacement(
+            preferredSide: preferredSide,
+            left: SidePanelHorizontalPlacement(
+                x: leftX,
+                side: .left,
+                isAvailable: leftX >= visibleFrame.minX + Metrics.screenPadding
+            ),
+            right: SidePanelHorizontalPlacement(
+                x: rightX,
+                side: .right,
+                isAvailable: rightX + panelSize.width <= visibleFrame.maxX - Metrics.screenPadding
+            )
+        )
+
+        let x = clamped(
+            horizontal.x,
+            lower: visibleFrame.minX + Metrics.screenPadding,
+            upper: visibleFrame.maxX - panelSize.width - Metrics.screenPadding
+        )
+        let y = clamped(
+            proposedY,
+            lower: max(visibleFrame.minY + Metrics.screenPadding, menuSurfaceFrame.minY),
+            upper: visibleFrame.maxY - panelSize.height - Metrics.screenPadding
+        )
+
+        return SidePanelPosition(
+            frame: NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height),
+            side: actualSide(
+                forX: x,
+                panelWidth: panelSize.width,
+                menuSurfaceFrame: menuSurfaceFrame,
+                fallback: horizontal.side
+            )
+        )
+    }
+
     static func attach(_ panel: NSPanel, to parentWindow: NSWindow) {
         guard panel.parent !== parentWindow else {
             return
@@ -187,7 +262,7 @@ enum SidePanelSupport {
         return screenFrame
     }
 
-    static func clamped(_ value: CGFloat, lower: CGFloat, upper: CGFloat) -> CGFloat {
+    private static func clamped(_ value: CGFloat, lower: CGFloat, upper: CGFloat) -> CGFloat {
         guard lower <= upper else {
             return lower
         }
@@ -195,7 +270,7 @@ enum SidePanelSupport {
         return min(max(value, lower), upper)
     }
 
-    static func horizontalPlacement(
+    private static func horizontalPlacement(
         preferredSide: UsageHeatmapDetailSide,
         left: SidePanelHorizontalPlacement,
         right: SidePanelHorizontalPlacement
@@ -209,7 +284,7 @@ enum SidePanelSupport {
         return fallback.isAvailable ? fallback : primary
     }
 
-    static func actualSide(
+    private static func actualSide(
         forX x: CGFloat,
         panelWidth: CGFloat,
         menuSurfaceFrame: CGRect,
@@ -237,4 +312,9 @@ nonisolated struct SidePanelHorizontalPlacement {
     let x: CGFloat
     let side: UsageHeatmapDetailSide
     let isAvailable: Bool
+}
+
+nonisolated struct SidePanelPosition {
+    let frame: NSRect
+    let side: UsageHeatmapDetailSide
 }

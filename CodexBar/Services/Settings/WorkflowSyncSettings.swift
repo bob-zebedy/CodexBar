@@ -60,6 +60,11 @@ final class WorkflowSyncSettings: ObservableObject {
         syncAvailability.isAvailable
     }
 
+    /// 「同步是否实际生效」的唯一判定: Hook 已启用且同步开关打开且 iCloud 可用
+    func isEffectivelyActive(isHookEnabled: Bool) -> Bool {
+        isHookEnabled && isEnabled && isSyncAvailable
+    }
+
     var unavailableMessage: String? {
         syncAvailability.isUnavailable ? "同步不可用" : nil
     }
@@ -68,7 +73,7 @@ final class WorkflowSyncSettings: ObservableObject {
         guard let lastUploadAt else {
             return nil
         }
-        return Self.lastUploadAtFormatter.string(from: lastUploadAt)
+        return CodexDateFormat.localDisplayString(from: lastUploadAt)
     }
 
     nonisolated static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
@@ -181,28 +186,11 @@ final class WorkflowSyncSettings: ObservableObject {
     }
 
     private nonisolated static func loadLastUploadAt() -> Date? {
-        let stateURL = WorkflowStorage.syncDirectoryURL()
-            .appendingPathComponent("state.json", isDirectory: false)
-        guard let data = try? Data(contentsOf: stateURL), !data.isEmpty,
-              let state = try? JSONDecoder().decode(LocalSyncState.self, from: data) else {
-            return nil
-        }
-        return state.lastUploadAt
+        WorkflowSyncService.loadLastUploadAt()
     }
-
-    private static let lastUploadAtFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter
-    }()
 
     private nonisolated static let enabledKey = "WorkflowSync.isEnabled"
     private nonisolated static let needsBackfillKey = "WorkflowSync.needsBackfill"
-
-    private nonisolated struct LocalSyncState: Decodable {
-        let lastUploadAt: Date?
-    }
 }
 
 nonisolated enum WorkflowSyncAvailability: Equatable {

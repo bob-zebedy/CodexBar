@@ -64,16 +64,7 @@ struct ResetCreditsPanelView: View {
         .padding(.horizontal, Metrics.horizontalPadding)
         .padding(.vertical, Metrics.verticalPadding)
         .frame(width: panelSize.width, height: panelSize.height, alignment: .topLeading)
-        .liquidGlassSurface(cornerRadius: Metrics.cornerRadius, isOuterSurface: true)
-        .background {
-            RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous)
-                .fill(panelBackingFill)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous)
-                .strokeBorder(panelBoundaryColor, lineWidth: Metrics.boundaryLineWidth)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous))
+        .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
         .animation(Metrics.statusAnimation, value: context)
     }
 
@@ -183,17 +174,6 @@ struct ResetCreditsPanelView: View {
             .liquidGlassCapsule(tint: .green)
     }
 
-    private var panelBackingFill: Color {
-        Color(nsColor: .windowBackgroundColor)
-            .opacity(colorScheme == .dark ? 0.90 : 0.86)
-    }
-
-    private var panelBoundaryColor: Color {
-        colorScheme == .dark
-            ? .white.opacity(0.18)
-            : .black.opacity(0.14)
-    }
-
     private enum Metrics {
         static let expirationTextWidth: CGFloat = 123
         static let horizontalPadding: CGFloat = 12
@@ -207,7 +187,6 @@ struct ResetCreditsPanelView: View {
         static let dividerVerticalPadding: CGFloat = (rowSpacing - dividerHeight) / 2
         static let verticalPadding: CGFloat = 10
         static let cornerRadius: CGFloat = 12
-        static let boundaryLineWidth: CGFloat = 0.8
         static let statusAnimation = Animation.codexStatus
     }
 }
@@ -222,7 +201,7 @@ private struct ResetCreditExpirationGroup: Identifiable, Equatable {
 
     static func grouped(from dates: [Date]) -> [Self] {
         dates.sorted().reduce(into: [Self]()) { groups, date in
-            let expirationText = expirationFormatter.string(from: date)
+            let expirationText = CodexDateFormat.localDisplayString(from: date)
 
             if let lastIndex = groups.indices.last, groups[lastIndex].expirationText == expirationText {
                 groups[lastIndex].count += 1
@@ -231,11 +210,4 @@ private struct ResetCreditExpirationGroup: Identifiable, Equatable {
             }
         }
     }
-
-    private static let expirationFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        return formatter
-    }()
 }

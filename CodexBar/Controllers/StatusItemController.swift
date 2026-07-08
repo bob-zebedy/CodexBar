@@ -239,7 +239,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             width: trackRect.width,
             height: fillHeight
         )
-        quotaProgressColor(for: progress.percent)
+        QuotaPalette.nsColor(for: progress.percent)
             .withAlphaComponent(progressAlpha)
             .setFill()
         NSBezierPath(
@@ -257,30 +257,6 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private static func easedProgressVisibility(_ value: CGFloat) -> CGFloat {
         let value = clampedProgressVisibility(value)
         return value * value * (3 - 2 * value)
-    }
-
-    private static func quotaProgressColor(for percent: Int) -> NSColor {
-        switch percent {
-        case 80...:
-            nsColor(hex: 0x16A085)
-        case 60 ..< 80:
-            nsColor(hex: 0x5DADE2)
-        case 40 ..< 60:
-            nsColor(hex: 0xF5B041)
-        case 20 ..< 40:
-            nsColor(hex: 0xFF7A59)
-        default:
-            nsColor(hex: 0xEE3F3F)
-        }
-    }
-
-    private static func nsColor(hex: Int) -> NSColor {
-        NSColor(
-            red: CGFloat((hex >> 16) & 0xFF) / 255.0,
-            green: CGFloat((hex >> 8) & 0xFF) / 255.0,
-            blue: CGFloat(hex & 0xFF) / 255.0,
-            alpha: 1
-        )
     }
 
     private struct StatusIconState: Equatable {
@@ -325,10 +301,10 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         configureStatusButton()
         configurePopover()
         observeGlobalHotKeySettings()
+        // 订阅时 CombineLatest 会同步发出当前值, 初始图标由订阅路径统一渲染
         observeViewModel()
         observeWorkflowSyncState()
         codexHookSettings.refresh()
-        updateStatusImage()
         viewModel.startAutoRefresh()
     }
 
@@ -491,20 +467,6 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         return "快捷键已被占用"
     }
 
-    private func updateStatusImage() {
-        updateStatusImage(currentStatusIconState)
-    }
-
-    private var currentStatusIconState: StatusIconState {
-        StatusIconState(
-            usesErrorImage: viewModel.usesErrorImage,
-            progress: StatusIconProgress(
-                snapshot: viewModel.snapshot,
-                selection: menuBarQuotaSettings.selection
-            )
-        )
-    }
-
     private func updateStatusImage(_ state: StatusIconState) {
         statusItem.button?.toolTip = state.toolTip
 
@@ -626,7 +588,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func toggleMenuSurfaceFromHotKey() {
-        let targetScreen = screenContainingMouse() ?? NSScreen.main
+        let targetScreen = NSScreen.containingMouse() ?? NSScreen.main
         let opensMenuSurface = menuSurfaceState == .hidden || menuSurfaceState == .closing
         if opensMenuSurface {
             suspendAuxiliaryWindowKeyFocus()
@@ -666,7 +628,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
         let buttonRectInWindow = button.convert(button.bounds, to: nil)
         let buttonScreenRect = window.convertToScreen(buttonRectInWindow)
-        guard buttonScreenRect.hasFiniteGeometry,
+        guard buttonScreenRect.isValidScreenRect,
               buttonScreenRect.width >= Metrics.minimumTrustedAnchorLength,
               buttonScreenRect.height >= Metrics.minimumTrustedAnchorLength else {
             return false
@@ -677,13 +639,6 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             dy: -Metrics.anchorScreenTolerance
         )
         return trustedScreenFrame.intersects(buttonScreenRect)
-    }
-
-    private func screenContainingMouse() -> NSScreen? {
-        let mouseLocation = NSEvent.mouseLocation
-        return NSScreen.screens.first { screen in
-            screen.frame.contains(mouseLocation)
-        }
     }
 
     private func cancelMenuSurfaceTasks() {
@@ -912,7 +867,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func hideSideDetailPanels() {
-        heatmapDetailPanelController.hide(immediate: true, delayed: false)
+        heatmapDetailPanelController.hide(immediate: true)
         resetCreditsPanelController.hide(immediate: true)
     }
 
@@ -981,9 +936,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private var canSynchronizeWorkflow: Bool {
-        codexHookSettings.isEnabled
-            && WorkflowSyncSettings.isEnabled()
-            && syncSettings.isSyncAvailable
+        syncSettings.isEffectivelyActive(isHookEnabled: codexHookSettings.isEnabled)
     }
 
     private func updateHeatmapDetailPanel(_ context: UsageHeatmapHoverContext?) {
@@ -1115,14 +1068,5 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         case none
         case popover
         case fallbackPanel
-    }
-}
-
-private extension CGRect {
-    var hasFiniteGeometry: Bool {
-        origin.x.isFinite &&
-            origin.y.isFinite &&
-            size.width.isFinite &&
-            size.height.isFinite
     }
 }

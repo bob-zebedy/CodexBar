@@ -12,7 +12,7 @@ extension Color {
     static let codexLabel = Color(nsColor: .labelColor)
     static let codexSecondaryLabel = Color(nsColor: .secondaryLabelColor)
 
-    init(hex: Int) {
+    nonisolated init(hex: Int) {
         self.init(
             red: Double((hex >> 16) & 0xFF) / 255.0,
             green: Double((hex >> 8) & 0xFF) / 255.0,
@@ -59,6 +59,41 @@ extension View {
     /// 数据为缓存回退 (本轮刷新失败) 时弱化显示
     func markStale(_ isStale: Bool) -> some View {
         opacity(isStale ? 0.55 : 1)
+    }
+
+    /// 侧边详情面板统一的外观: 玻璃底 + 背板填充 + 边界描边 + 圆角裁剪
+    func sidePanelChrome(cornerRadius: CGFloat) -> some View {
+        modifier(SidePanelChrome(cornerRadius: cornerRadius))
+    }
+}
+
+private struct SidePanelChrome: ViewModifier {
+    let cornerRadius: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content
+            .liquidGlassSurface(cornerRadius: cornerRadius, isOuterSurface: true)
+            .background {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(backingFill)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(boundaryColor, lineWidth: 0.8)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+    }
+
+    private var backingFill: Color {
+        Color(nsColor: .windowBackgroundColor)
+            .opacity(colorScheme == .dark ? 0.90 : 0.86)
+    }
+
+    private var boundaryColor: Color {
+        colorScheme == .dark
+            ? .white.opacity(0.18)
+            : .black.opacity(0.14)
     }
 }
 

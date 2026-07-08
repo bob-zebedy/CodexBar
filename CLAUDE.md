@@ -2,79 +2,121 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> 本仓库已有一份详尽的 `AGENTS.md`，它是 app-server / Codex Hook / UI / 数据模型 / 发布 / Git 等各项合约的**权威来源**。本文件只做精炼导航，遇到具体行为约束请优先查 `AGENTS.md`、`Docs/AppServer.md`、`Docs/CodexHook.md` 与 `Docs/CrossDeviceSync.md`，不要凭记忆推断。
+## 项目概述
 
-## 构建与验证
+CodexBar 是一个 macOS 菜单栏应用 (`LSUIElement`, 无 Dock 图标)，用于展示本机 Codex 的账号状态、额度、Token 用量和工作流统计。技术栈: Swift 6 + SwiftUI + AppKit + MVVM，唯一外部依赖是 Sparkle (SwiftPM)。最低系统版本 macOS 15.0，App Sandbox 保持关闭（需要启动本机 `codex` 进程并写入用户级 Hook 配置）。
 
-涉及 Swift/Xcode 工程、资源、build setting、Info.plist、SwiftPM、脚本或 UI 行为的改动后必须运行构建，要求无 error 和 warning：
+## 常用命令
 
 ```bash
-xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination generic/platform=macOS -derivedDataPath /tmp/CodexBarDerivedData build
+# 构建（唯一 scheme 是 CodexBar，无测试 target）
+xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build
+
+# 格式化（配置在 .swiftformat，Swift 6 语言模式、4 空格缩进）
+swiftformat .
+
+# Lint（配置在 .swiftlint.yml，只检查 CodexBar/ 目录）
+swiftlint
+
+# 发布脚本
+Scripts/build.sh    # archive + Developer ID 导出 + notarize
+Scripts/dmg.sh      # 打包 DMG
+Scripts/appcast.sh  # 签名并更新 Sparkle appcast
 ```
 
-- 没有测试 target；不存在单测可跑，验证以构建通过为准。
-- `Metadata extraction skipped. No AppIntents.framework dependency found.` 是预期 warning，不算项目代码 warning。
-- SourceKit 对跨文件类型偶有误报（新建文件时尤其明显），以 `xcodebuild` 结果为准，不要据此回退正确改动。
-- 纯文档改动只需 `git diff --check`。
-- 发布脚本改动后至少 `bash -n Scripts/dmg.sh` / `bash -n Scripts/appcast.sh`。
+本仓库没有测试 target；验证改动依靠构建通过 + 实际运行。
 
-## 工程约定（影响如何改代码，非显而易见）
+## Git 规则
 
-- **App Sandbox 必须保持关闭**（`ENABLE_APP_SANDBOX = NO`）：应用要启动本机 Codex CLI 并读取真实用户的 Codex 登录状态。
-- app-server 与版本探测**必须使用真实用户 `HOME`/`USER`/`LOGNAME`**，不能回退到 Xcode sandbox/container 的 home。
-- 工程使用 `PBXFileSystemSynchronizedRootGroup`：新增/删除 `CodexBar/` 下的 Swift 文件**通常无需改 `project.pbxproj`**；只有依赖、target/build settings、资源归属变更才动工程文件。仅 `Resources/Info.plist` 在同步组里被排除。
-- 源码按目录分层：`App/` `Controllers/` `Models/` `Services/` `Views/`。新文件放入对应子目录，不要丢回 `CodexBar/` 根层。
-- `SWIFT_VERSION = 6.0`，并开启 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`：未标注的类型会被推断为 MainActor 隔离。UI 层保持 `@MainActor`；**DTO、模型、服务辅助类型、静态工具必须显式 `nonisolated`**，否则 main actor 隔离会泄漏进同步的服务代码。
-- 最低 macOS 15.0；不要为 15 以下添加 SF Symbols 或 SwiftUI API 的 fallback。
+基本约束:
 
-## 架构（两条独立数据流）
+- 不要主动 push，除非用户明确要求。
+- 不要回滚、覆盖或丢弃不是你产生的未提交改动。
+- 被要求提交时，**禁止**顺带修改任何文件内容：不做格式化、不做清理、不补文档，只把当前已有改动原样提交。
 
-应用是 `LSUIElement` 菜单栏程序（无 Dock 图标、无主窗口），入口 `CodexBarApp` 在启动时先分流：若启动参数包含 `--hook-event`，则走 `WorkflowHookEventRecorder` 尝试记录 Hook 事件并立即退出；否则正常起 UI。
+Commit message 格式: Conventional Commits 前缀 + 中文标题，需要 body 时空一行后写 4 空格缩进的 bullet。
 
-**1. 状态/额度流**（实时数据）
+- 标题格式 `<type>: <中文描述>`，不加句号；常用 type: `feat`、`fix`、`chore`、`refactor`、`docs`。
+- 功能、修复、发布类提交必须写 body；简单文档或杂项改动可只写标题行。
+- body 中多条 bullet 连续排列，bullet 之间不空行。
+- 用命令行提交时，完整 body 放在同一个 `-m` 参数里或用 `git commit -F` 传文件，不要为每条 bullet 单独 `-m`。
 
-```
-CodexStatusService (JSON-RPC over `codex app-server --listen stdio://`)
-  → CodexStatusViewModel (@MainActor 发布 CodexLoadState / CodexQuotaSnapshot)
-  → StatusItemController (菜单栏图标、popover、设置/日志窗口入口)
-  → CodexStatusMenuView / AppSettingsView / LogView
+示例:
+
+```text
+fix: 修复 Codex 状态刷新
+
+    - 合并设置页 onAppear 和 didBecomeActive 的重复版本探测
+    - 保留当前运行版本与磁盘安装版本不一致时的更新提示
 ```
 
-- app-server 启动命令统一由 `CodexCLIResolver.resolveAppServerCommand()` 解析（优先全局 `codex`，否则回退 Codex.app 内置 CLI），**不要绕过 resolver**。
-- 握手与读取顺序、超时/重连、token 刷新、stale 缓存等约束见 `Docs/AppServer.md` 与 `AGENTS.md` 的「app-server 合约」。
-- 错误处理哲学：UI 只暴露 `notLoggedIn` / `initializationFailed` 两类特殊状态；所有具体请求/启动/超时/解析错误进 `RequestLogStorage.shared`（容量 500，完整保存 request/detail），日志窗口通过 `@MainActor RequestLogStore.shared` 订阅快照，列表/行内只展示单行短预览，非空请求/响应标题行提供完整预览和复制，预览视图会格式化并高亮 JSON，不直接展示子进程 stderr。
+Tag:
 
-**2. Codex Hook 工作流统计流**（本机统计，可选 iCloud 脱敏同步）
+- tag 名格式 `v{MARKETING_VERSION}`（版本号从 Xcode build settings 读取）。
+- 使用附注 tag: `git tag -a v{MARKETING_VERSION} -m "Release v{MARKETING_VERSION}"`。
 
-```
-WorkflowHookEventRecorder (--hook-event stdin hook_event_name 子进程)
-  → WorkflowStorage (events/YYYY-MM-DD.jsonl / daily.jsonl，~/Library/Application Support/CodexBar/HookEvents/)
-  → WorkflowService → WorkflowSyncService(可选 CloudKit private database) → WorkflowViewModel
-  → UsageSummaryView / UsageHeatmap (统计只在热力图侧边详情面板中展示)
-```
+## 架构总览
 
-- Hook 命令写入当前 CodexBar 可执行文件路径和 `--hook-event` 参数，事件名来自 Codex 传入的 stdin payload 顶层 `hook_event_name`。
-- 开启 Hook 前必须通过当前 app-server 会话调用 `config/read`，如果全局配置禁用了 Hook，则不写入 `hooks.json`，并在 Hook 选项下方提示。
-- 开启 Hook 写入后必须通过当前 app-server 会话调用 `hooks/list` 验证 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`warnings` 和 `errors`；未信任或已修改时, 只对来源为全局 `hooks.json` 且 command 属于当前 CodexBar 的 Hook 通过 `config/batchWrite` 自动写入 `hooks.state` 的 `trusted_hash`, 再重新验证。
-- 设置开关只能追加/移除 `command` 同时包含当前 CodexBar 可执行路径和 `--hook-event` 参数的 Hook 处理器，绝不破坏其他用户 Hook。若用户自定义 Hook 命令也同时包含当前可执行路径和 `--hook-event` 参数，会被视为当前 CodexBar 处理器。
-- Hook 写入可能由多个 Codex 进程并发触发，追加 `events/YYYY-MM-DD.jsonl` 并更新 `maintenance.json` 必须经 `stats.lock` + `flock` 加锁；`daily.jsonl` 由主 App 刷新维护流程写回。
-- iCloud 跨设备同步只上传去掉 `sessionIds` / `turnIds` 的 daily 聚合副本；同步账号不可用时设置页禁用「跨设备同步」并显示「同步不可用」。
-- 字段兼容、保留策略、统计口径见 `Docs/CodexHook.md`；跨设备同步完整链路见 `Docs/CrossDeviceSync.md`。
+详细流程（含时序图、错误处理矩阵、UI 尺寸常量）见 `Docs/DevelopmentGuide.md`，这是最权威的参考。协议细节见 `Docs/AppServer.md`（app-server JSON-RPC 合约）、`Docs/CodexHook.md`（Hook 统计口径）、`Docs/CrossDeviceSync.md`（CloudKit 同步链路）。
 
-## 并发分工
+### 启动分流（关键设计）
 
-服务层对外暴露 async API，主要共享状态由 actor 隔离：`CodexStatusService` 管理 app-server 连接和缓存，`CodexCLIVersionService` 用 `async let` 并发探测全局/内置版本，`WorkflowService`（actor）串行维护本机统计、`WorkflowStorage`（`nonisolated enum`，与服务同文件）封装 HookEvents 目录与 `stats.lock`。工作流维护/同步刷新的并发由 `WorkflowSyncScheduler`（MainActor，冷却合并 + `isRunning` 串行）单点裁判；`WorkflowViewModel` 不自判维护并发，只执行一次明确的维护刷新（quick-refresh 路径仍走自身 `isRefreshing` + `RefreshTaskCoordinator`，不经 scheduler）。`RequestLogStorage` 可后台同步写入并用 `OSAllocatedUnfairLock` 保护，`RequestLogStore` 只在 MainActor 发布 SwiftUI 快照。`PipeReadBuffer` 是底层 `FileHandle` / `DispatchSourceRead` / semaphore 的唯一 `@unchecked Sendable` 边界。
+入口 `CodexBar/App/CodexBarApp.swift` 的 `init()` 最先调用 `WorkflowHookEventRecorder.handleIfRequested()`：
 
-热力图详情和重置次数详情的 nonactivating child panel、抽屉动画、child window 挂载、圆角 layer 和左右定位共用 `CodexBar/Controllers/SidePanelSupport.swift`；两个具体 controller 主要保留各自的触发、内容尺寸、锚点校验、状态编排和互斥状态。
+- 带 `--hook-event` 参数启动 → Hook 子进程模式：从 stdin 读 JSON payload，在 `flock` 锁内追加一行 JSONL 后立即退出，绝不初始化菜单栏 UI。写入失败静默吞掉，不阻断 Codex。
+- 普通启动 → `CodexBarAppDelegate` 创建长期对象（`CodexStatusViewModel`、`WorkflowViewModel`、各 Settings、`AppUpdater`），由 `StatusItemController.install()` 装配菜单栏。
 
-## 外部依赖与更新
+### 两条主数据链路
 
-- 唯一外部依赖：Sparkle（SwiftPM）。
-- `AppUpdater` 初始化先校验 `SUFeedURL` 与 `SUPublicEDKey`，缺失则不创建 updater 并提示「未配置更新资源」。当前 `SUFeedURL = https://codexbar.zabrian.app/appcast.xml`。
-- 发布：`Scripts/build.sh` 生成 Developer ID App, 成功后 `build/` 默认只保留最终 `.app`; `Scripts/dmg.sh` 打 DMG；`Scripts/appcast.sh` 更新 `appcast.xml`（需 Sparkle `sign_update`）。tag、push、上传 DMG、改 appcast **均需用户明确同意**。
+1. **app-server 链路**：`CodexStatusService`（actor）通过 `CodexCLIResolver` 解析出 `codex` 可执行文件（PATH 全局优先，回退 Codex.app 内置），启动 `codex app-server --listen stdio://`，用 `AppServerSession` 做 stdio JSON-RPC，合成 `CodexQuotaSnapshot` 交给 `CodexStatusViewModel` 发布。刷新间隔 60 秒，请求超时 20 秒，连接最长复用 1 小时。
+2. **Hook 链路**：Hook 子进程写入 `~/Library/Application Support/CodexBar/HookEvents/events/YYYY-MM-DD.jsonl`；主 App 的 `WorkflowService`（actor）串行做增量聚合，产出 `daily.jsonl` 和 `WorkflowSnapshot` 供热力图详情面板展示。可选的跨设备同步由 `WorkflowSyncScheduler`（唯一调度者）+ `WorkflowSyncService` 走 CloudKit private database，只上传脱敏的 daily 聚合。
 
-## Git
+### 并发与隔离
 
-- 不主动 push；不回滚/覆盖非自己产生的未提交改动；提交时只提交当前代码、不附带额外改动。
-- 提交信息：Conventional Commits 前缀 + 中文标题（`<type>: <描述>`，无句号），功能/修复/发布类需写 body（空行后 4 空格缩进 bullet，bullet 间不空行，整段 body 放进同一个 `-m` 或用 `git commit -F`）。type 常用 `feat`/`fix`/`chore`/`refactor`/`docs`。
-- tag 格式 `v{MARKETING_VERSION}`，使用附注 tag。
+工程开启 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`：所有类型默认 MainActor 隔离。因此：
+
+- UI、控制器、ViewModel、设置、更新类直接依赖默认 MainActor，不需要额外标注
+- 服务共享状态用 actor 管理（`CodexStatusService`、`WorkflowService`、`CodexCLIVersionService`）
+- DTO、模型、同步辅助类型和静态工具必须显式标注 `nonisolated`
+- 后台同步写入用锁：`RequestLogStorage` 用 `OSAllocatedUnfairLock`，Hook 写入用 `stats.lock` + `flock`
+- 非 Sendable 的管道 IO 集中在 `PipeReadBuffer`（`JSONLineReader` / `PipeDrain` 复用它）
+
+### 错误处理原则
+
+- 菜单面板只暴露三种结果（`CodexFetchOutcome`）：有数据、未登录、初始化失败；启动失败/超时/断连/解析失败等细节全部只进请求日志窗口（`RequestLogStorage`，上限 500 条）
+- 账号有效时 rate limits 和 usage 允许单独失败：复用同账号旧缓存并标记 stale（UI 半透明），无缓存则该区域不显示
+- Hook 子进程任何失败都静默退出，优先保证不拖慢 Codex
+
+### 菜单面板与侧边面板
+
+- 菜单面板是 `NSPopover`（status item 锚点不可信时回退屏幕顶部居中的 `NSPanel`），关闭逻辑由 `MenuSurfaceDismissMonitor` 统一管理
+- 两个侧边详情面板（热力图详情、重置次数）是菜单面板的 borderless nonactivating child panel，公共行为集中在 `Controllers/SidePanelSupport.swift`（panel 工厂、定位夹紧、抽屉动画、child window 挂载），玻璃皮肤共用 `Views/Shared/LiquidGlassStyle.swift`
+- ⚠️ `HeatmapDetailPanelController` 每次 hover 内容变化必须替换 `hostingController.rootView` 并同步 `setContentSize`，不要用常驻 ObservableObject 推送 hover context——Hook 开关切换会导致面板在两种尺寸间变化，复用同一棵 SwiftUI 布局树会触发 AppKit layout 递归
+
+### 修改 Hook 配置的约束
+
+`~/.codex/hooks.json` 的读写在 `CodexHookSettings`：只识别并移除 command 同时包含「当前 CodexBar 可执行路径 + `--hook-event`」的 handler，必须保留用户已有 Hook、其他 App 的 Hook 和同事件下的其他 handler。写入前需通过 app-server `config/read` 确认全局未禁用 Hook，写入后用 `hooks/list` 验证。
+
+## 隐私与数据边界
+
+改动涉及网络或日志时必须遵守：
+
+- App 只发起四类网络请求：本机 app-server stdio 通信（不算网络）、重置机会过期时间只读查询（`chatgpt.com/backend-api/wham/rate-limit-reset-credits`）、Sparkle 更新、用户显式开启后的 CloudKit 同步
+- 不展示 app-server stderr；不展示或记录 Codex OAuth token / `auth.json` 内容
+- 不把原始敏感 RPC 响应写进文档或测试夹具
+- CloudKit 只同步去掉 `sessionIds` / `turnIds` 的 daily 聚合，不同步原始 Hook events、账号、额度或 Token 用量
+
+## 目录职责
+
+| 目录                    | 职责                                                           |
+| ----------------------- | -------------------------------------------------------------- |
+| `CodexBar/App/`         | SwiftUI 入口和启动分流                                         |
+| `CodexBar/Controllers/` | 菜单栏、菜单面板、侧边 child panel、设置/日志窗口控制器        |
+| `CodexBar/Models/`      | account、quota、usage、workflow、日期网格和错误模型            |
+| `CodexBar/Services/`    | app-server、Codex CLI 解析、Hook、统计维护、同步、更新、登录项 |
+| `CodexBar/Views/`       | 菜单面板、设置窗口、日志窗口和共享 Liquid Glass 样式           |
+| `Scripts/`              | 构建、DMG 和 appcast 发布脚本                                  |
+
+## 文档同步
+
+改动涉及流程、错误处理、UI 常量或数据边界时，同步更新 `Docs/DevelopmentGuide.md` 中对应章节；协议或统计口径变化时更新 `Docs/AppServer.md` / `Docs/CodexHook.md` / `Docs/CrossDeviceSync.md`。

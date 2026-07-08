@@ -38,8 +38,12 @@ nonisolated struct CodexCLIInstallations: Equatable {
 
     // 与启动优先级一致: 全局优先, 回退内置
     var activeSource: CodexCLIExecutableSource? {
-        if globalPath != nil { return .global }
-        if bundledPath != nil { return .bundled }
+        if globalPath != nil {
+            return .global
+        }
+        if bundledPath != nil {
+            return .bundled
+        }
         return nil
     }
 
@@ -68,6 +72,26 @@ nonisolated enum CodexCLIResolver {
         }
 
         return AppServerCommand(source: source, executablePath: path)
+    }
+
+    /// Codex 配置目录: 优先 CODEX_HOME, 回退真实用户 HOME 下的 .codex
+    /// auth.json / hooks.json 等配置文件统一从这里解析
+    static func codexHomeDirectory(environment: [String: String] = environment) -> URL {
+        if let codexHome = nonEmptyEnvironmentValue("CODEX_HOME", in: environment) {
+            return URL(fileURLWithPath: codexHome, isDirectory: true)
+        }
+
+        let home = nonEmptyEnvironmentValue("HOME", in: environment) ?? NSHomeDirectory()
+        return URL(fileURLWithPath: home, isDirectory: true)
+            .appendingPathComponent(".codex", isDirectory: true)
+    }
+
+    private static func nonEmptyEnvironmentValue(
+        _ key: String,
+        in environment: [String: String]
+    ) -> String? {
+        let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value?.isEmpty == false ? value : nil
     }
 
     static func resolveInstallations(environment: [String: String] = environment) -> CodexCLIInstallations {

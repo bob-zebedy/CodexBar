@@ -10,6 +10,8 @@
 ~/.codex/hooks.json
 ```
 
+Codex 配置目录统一由 `CodexCLIResolver.codexHomeDirectory()` 解析: 优先环境变量 `CODEX_HOME`，否则回退真实用户 `HOME` 下的 `.codex`。`hooks.json` 与 `CodexResetCreditsService` 读取的 `auth.json` 使用同一口径。
+
 开启前会先复用 App 当前的 Codex app-server 会话调用 `config/read`。如果有效配置中 `[features] hooks = false`，或兼容旧名 `codex_hooks = false`，CodexBar 不写入 `hooks.json`，并在 Hook 选项下方显示全局禁用说明。
 
 开启和关闭都会先移除 `command` 包含当前 App 可执行文件路径的 CodexBar hook。开启时随后按当前 App 路径安装 hook。用户自定义 Hook、其他 App Hook 和同事件下的其他处理器必须保留。
@@ -133,7 +135,7 @@ Hook 可能由多个 Codex 进程并发触发。`WorkflowHookEventRecorder` 会�
 
 1. 解析事件时间并格式化为本机时间戳与 date key
 2. 追加当前事件到 `events/YYYY-MM-DD.jsonl`
-3. 将 date key 加入 `maintenance.json` 的 `pending`
+3. 将 date key 加入 `maintenance.json` 的 `pending`；如果当天已在 `pending` 且已有日期状态记录（稳态下的绝大多数事件），跳过 `maintenance.json` 重写
 
 Hook 写入路径不更新 `daily.jsonl`，也不执行重建或清理旧文件，避免在 Hook timeout 内持锁执行重活。
 

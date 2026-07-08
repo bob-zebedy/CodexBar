@@ -295,7 +295,7 @@ struct WorkflowSyncDisplayState: Equatable {
     }
 
     init(isHookEnabled: Bool, settings: WorkflowSyncSettings) {
-        guard isHookEnabled, settings.isEnabled, settings.isSyncAvailable else {
+        guard settings.isEffectivelyActive(isHookEnabled: isHookEnabled) else {
             self = .disabled
             return
         }

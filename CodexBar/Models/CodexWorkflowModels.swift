@@ -20,9 +20,7 @@ private nonisolated enum WorkflowJSON {
     }
 
     static func value(_ value: some Encodable) throws -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(value)
+        let data = try JSONLines.stableEncoder.encode(value)
         guard let text = String(bytes: data, encoding: .utf8) else {
             throw EncodingError.invalidValue(
                 value,
@@ -227,31 +225,19 @@ nonisolated struct WorkflowDailyMetrics: Equatable, Identifiable {
 
 /// WorkflowService 发布给 UI 的近端快照
 nonisolated struct WorkflowSnapshot: Equatable {
-    let generatedAt: Date
     let dailyMetrics: [WorkflowDailyMetrics]
 
-    static let empty = WorkflowSnapshot(generatedAt: Date(), dailyMetrics: [])
+    static let empty = WorkflowSnapshot(dailyMetrics: [])
 
-    init(generatedAt: Date = Date(), dailyMetrics: [WorkflowDailyMetrics]) {
-        self.generatedAt = generatedAt
+    init(dailyMetrics: [WorkflowDailyMetrics]) {
         self.dailyMetrics = dailyMetrics
-    }
-
-    init(dailyAggregates: [WorkflowDailyAggregate], generatedAt: Date = Date()) {
-        self.generatedAt = generatedAt
-        dailyMetrics = dailyAggregates
-            .map(\.metrics)
-            .sorted { $0.startDate < $1.startDate }
     }
 
     init(
         localAggregates: [WorkflowDailyAggregate],
         syncedRecords: [WorkflowSyncedDailyRecord],
-        currentDeviceId: String?,
-        generatedAt: Date = Date()
+        currentDeviceId: String?
     ) {
-        self.generatedAt = generatedAt
-
         var metricsByDate = [String: WorkflowDailyMetrics]()
         localAggregates
             .map(\.metrics)

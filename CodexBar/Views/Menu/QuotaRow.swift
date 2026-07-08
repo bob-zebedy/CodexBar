@@ -82,33 +82,17 @@ private extension QuotaRow {
     }()
 }
 
-/// 额度颜色按剩余百分比分档, 无数据时使用占位色
+/// 分档色值来自共享的 QuotaPalette, 无数据时使用占位色
 private enum QuotaBarPalette {
     static func filledColor(for percent: Int?) -> Color {
         guard let percent else {
             return placeholderColor
         }
 
-        switch percent {
-        case 80...:
-            return green
-        case 60 ..< 80:
-            return teal
-        case 40 ..< 60:
-            return yellow
-        case 20 ..< 40:
-            return orange
-        default:
-            return red
-        }
+        return QuotaPalette.color(for: percent)
     }
 
     static let placeholderColor = Color(hex: 0xE5E7EB)
-    private static let green = Color(hex: 0x16A085)
-    private static let teal = Color(hex: 0x5DADE2)
-    private static let yellow = Color(hex: 0xF5B041)
-    private static let orange = Color(hex: 0xFF7A59)
-    private static let red = Color(hex: 0xEE3F3F)
 }
 
 /// 胶囊条, 与菜单面板宽度联动

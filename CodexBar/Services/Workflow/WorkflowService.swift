@@ -25,7 +25,10 @@ actor WorkflowService {
     ) async -> WorkflowSnapshot {
         var changedDates = Set<String>()
         if performMaintenance {
-            changedDates = performMaintenanceIfNeeded()
+            // changedDates 只在实际执行 iCloud 同步时被消费, 其余场景跳过 payload 比对
+            changedDates = performMaintenanceIfNeeded(
+                computesChangedDates: synchronize && WorkflowSyncSettings.isEnabled()
+            )
         }
 
         let aggregates = loadDailyAggregates() ?? []
@@ -62,8 +65,8 @@ actor WorkflowService {
         return WorkflowDailyAggregate.normalized(aggregates: aggregates)
     }
 
-    private func performMaintenanceIfNeeded() -> Set<String> {
-        let beforePayloads = syncPayloadByDate()
+    private func performMaintenanceIfNeeded(computesChangedDates: Bool) -> Set<String> {
+        let beforePayloads = computesChangedDates ? syncPayloadByDate() : [:]
 
         do {
             let tasks = try prepareMaintenanceTasks()
@@ -71,6 +74,10 @@ actor WorkflowService {
             try normalizeDailyAggregatesIfNeeded()
             try pruneExpiredEventFiles()
         } catch {
+            return []
+        }
+
+        guard computesChangedDates else {
             return []
         }
 
@@ -131,17 +138,17 @@ actor WorkflowService {
         var changed = false
 
         if state.schema != WorkflowMaintenanceState.currentSchema {
-            changed = markDirty(eventDateKeys, in: &state) || changed
+            changed = state.markDirty(contentsOf: eventDateKeys) || changed
             state.schema = WorkflowMaintenanceState.currentSchema
             changed = true
         }
 
         if dailyDecodeResult.failedLineCount > 0 || (dailyDecodeResult.values.isEmpty && !eventDateKeys.isEmpty) {
-            changed = markDirty(eventDateKeys, in: &state) || changed
+            changed = state.markDirty(contentsOf: eventDateKeys) || changed
         }
 
-        changed = markDirty(eventDateKeys.filter { dailyByDate[$0] == nil }, in: &state) || changed
-        changed = markDirty(state.pending.filter { dailyByDate[$0] == nil }, in: &state) || changed
+        changed = state.markDirty(contentsOf: eventDateKeys.filter { dailyByDate[$0] == nil }) || changed
+        changed = state.markDirty(contentsOf: state.pending.filter { dailyByDate[$0] == nil }) || changed
 
         return changed
     }
@@ -150,7 +157,7 @@ actor WorkflowService {
         eventDateKeys: [String],
         state: inout WorkflowMaintenanceState
     ) -> Bool {
-        var changed = markDirty(eventDateKeys.filter { state.days[$0] == nil }, in: &state)
+        var changed = state.markDirty(contentsOf: eventDateKeys.filter { state.days[$0] == nil })
 
         // 文件变小说明被外部截断, 必须全量重建
         // 变大则从旧 offset 增量追上
@@ -205,20 +212,6 @@ actor WorkflowService {
         }
 
         return tasks
-    }
-
-    private func markDirty(
-        _ dateKeys: [String],
-        in state: inout WorkflowMaintenanceState
-    ) -> Bool {
-        let previousDirty = state.dirty
-        let previousDays = state.days
-
-        for dateKey in dateKeys {
-            state.markDirty(dateKey)
-        }
-
-        return previousDirty != state.dirty || previousDays != state.days
     }
 
     private func dirtyTask(for dateKey: String, size: UInt64? = nil) -> WorkflowMaintenanceTask {
@@ -388,17 +381,24 @@ actor WorkflowService {
 
     private func eventLogHasNotShrunk(for result: WorkflowMaintenanceResult) throws -> Bool {
         try WorkflowStorage.withExclusiveLock {
-            let currentSize = WorkflowStorage.fileSize(at: eventLogURL(for: result.dateKey))
             var state = WorkflowStorage.loadMaintenanceState()
-
-            guard currentSize >= result.size else {
-                state.markDirty(result.dateKey)
-                try WorkflowStorage.saveMaintenanceState(state)
-                return false
-            }
-
-            return true
+            return try eventLogSizeIfNotShrunk(for: result, state: &state) != nil
         }
+    }
+
+    /// 锁内校验事件文件未被外部截断; 已收缩时标脏并落盘, 返回 nil
+    private func eventLogSizeIfNotShrunk(
+        for result: WorkflowMaintenanceResult,
+        state: inout WorkflowMaintenanceState
+    ) throws -> UInt64? {
+        let currentSize = WorkflowStorage.fileSize(at: eventLogURL(for: result.dateKey))
+        guard currentSize >= result.size else {
+            state.markDirty(result.dateKey)
+            try WorkflowStorage.saveMaintenanceState(state)
+            return nil
+        }
+
+        return currentSize
     }
 
     private func writeDailyAggregate(_ aggregate: WorkflowDailyAggregate) throws {
@@ -459,12 +459,9 @@ actor WorkflowService {
 
     private func commitMaintenanceState(_ result: WorkflowMaintenanceResult) throws {
         try WorkflowStorage.withExclusiveLock {
-            let currentSize = WorkflowStorage.fileSize(at: eventLogURL(for: result.dateKey))
             var state = WorkflowStorage.loadMaintenanceState()
 
-            guard currentSize >= result.size else {
-                state.markDirty(result.dateKey)
-                try WorkflowStorage.saveMaintenanceState(state)
+            guard let currentSize = try eventLogSizeIfNotShrunk(for: result, state: &state) else {
                 return
             }
 
@@ -640,9 +637,7 @@ nonisolated enum WorkflowStorage {
             withIntermediateDirectories: true
         )
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(state)
+        let data = try JSONLines.stableEncoder.encode(state)
         try data.write(to: maintenanceURL(), options: .atomic)
     }
 
@@ -723,14 +718,38 @@ nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
         days = try container.decodeIfPresent([String: WorkflowDayMaintenanceState].self, forKey: .days) ?? [:]
     }
 
-    mutating func markPending(_ dateKey: String) {
-        pending = Self.inserting(dateKey, into: pending)
+    /// 返回状态是否有实际变化, 便于调用方跳过无谓的落盘
+    @discardableResult
+    mutating func markPending(_ dateKey: String) -> Bool {
+        let newPending = Self.inserting(dateKey, into: pending)
+        let changed = newPending != pending || days[dateKey] == nil
+        pending = newPending
         ensureDayState(for: dateKey)
+        return changed
     }
 
-    mutating func markDirty(_ dateKey: String) {
-        dirty = Self.inserting(dateKey, into: dirty)
-        ensureDayState(for: dateKey)
+    @discardableResult
+    mutating func markDirty(_ dateKey: String) -> Bool {
+        markDirty(contentsOf: [dateKey])
+    }
+
+    /// 批量标脏一次性归一化, 避免逐个插入的重复排序与校验
+    @discardableResult
+    mutating func markDirty(contentsOf dateKeys: [String]) -> Bool {
+        guard !dateKeys.isEmpty else {
+            return false
+        }
+
+        let newDirty = Self.normalizedDates(dirty + dateKeys)
+        var changed = newDirty != dirty
+        dirty = newDirty
+
+        for dateKey in dateKeys where days[dateKey] == nil {
+            days[dateKey] = WorkflowDayMaintenanceState()
+            changed = true
+        }
+
+        return changed
     }
 
     mutating func removePending(_ dateKey: String) {

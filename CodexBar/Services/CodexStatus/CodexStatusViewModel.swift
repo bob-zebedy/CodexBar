@@ -25,18 +25,6 @@ final class CodexStatusViewModel: ObservableObject {
     @Published private(set) var codexConnectionInfo: CodexCLIConnectionInfo?
     @Published private(set) var autoRefreshCountdownStartedAt: Date?
 
-    var hasError: Bool {
-        loadState.isError
-    }
-
-    var hasUntrustedData: Bool {
-        snapshot?.hasTrustedData == false
-    }
-
-    var usesErrorImage: Bool {
-        hasError || hasUntrustedData
-    }
-
     var autoRefreshInterval: TimeInterval {
         Self.refreshInterval
     }

@@ -64,8 +64,7 @@ nonisolated enum CodexResetCreditsService {
     private static func decodeISO8601Date(from decoder: Decoder) throws -> Date {
         let container = try decoder.singleValueContainer()
         let raw = try container.decode(String.self)
-        if let date = CodexDateFormat.iso8601FractionalDate(from: raw)
-            ?? CodexDateFormat.iso8601InternetDateTimeDate(from: raw) {
+        if let date = CodexDateFormat.iso8601Date(from: raw) {
             return date
         }
 
@@ -107,23 +106,8 @@ private nonisolated extension CodexResetCreditsService {
         }
 
         private static func authFileURL(environment: [String: String]) -> URL {
-            if let codexHome = nonEmptyEnvironmentValue("CODEX_HOME", in: environment) {
-                return URL(fileURLWithPath: codexHome).appendingPathComponent("auth.json")
-            }
-
-            let home = nonEmptyEnvironmentValue("HOME", in: environment) ?? NSHomeDirectory()
-            let homeURL = URL(fileURLWithPath: home)
-            return homeURL
-                .appendingPathComponent(".codex")
+            CodexCLIResolver.codexHomeDirectory(environment: environment)
                 .appendingPathComponent("auth.json")
-        }
-
-        private static func nonEmptyEnvironmentValue(
-            _ key: String,
-            in environment: [String: String]
-        ) -> String? {
-            let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return value?.isEmpty == false ? value : nil
         }
     }
 

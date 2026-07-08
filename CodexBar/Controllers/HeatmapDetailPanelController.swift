@@ -12,7 +12,7 @@ final class HeatmapDetailPanelController {
             self?.hostingController?.view
         },
         animationKey: Metrics.drawerTransformAnimationKey,
-        overscan: Metrics.drawerOverscan
+        overscan: SidePanelSupport.Metrics.drawerOverscan
     )
     private var hideTask: Task<Void, Never>?
     private var currentSide = UsageHeatmapDetailSide.left
@@ -47,7 +47,7 @@ final class HeatmapDetailPanelController {
         show(context: context, relativeTo: menuSurfaceWindow, contentView: contentView)
     }
 
-    func hide(immediate: Bool = false, delayed: Bool = true) {
+    func hide(immediate: Bool = false) {
         cancelHideTask()
         visibilityGeneration += 1
         drawerTransition = .idle
@@ -67,9 +67,7 @@ final class HeatmapDetailPanelController {
         let generation = visibilityGeneration
         let side = currentSide
         hideTask = Task { @MainActor [weak self] in
-            if delayed {
-                try? await Task.sleep(for: .milliseconds(Metrics.hideDelayMilliseconds))
-            }
+            try? await Task.sleep(for: .milliseconds(Metrics.hideDelayMilliseconds))
 
             guard let self,
                   !Task.isCancelled,
@@ -83,7 +81,7 @@ final class HeatmapDetailPanelController {
             let hidden = drawerAnimator.hiddenTranslation(for: side, panelWidth: panel.frame.width)
             drawerAnimator.animateTranslation(
                 to: hidden,
-                duration: Metrics.drawerExitDuration,
+                duration: SidePanelSupport.Metrics.drawerExitDuration,
                 timing: .easeIn
             ) {
                 Task { @MainActor [weak self] in
@@ -165,7 +163,7 @@ final class HeatmapDetailPanelController {
             return
         case .exiting:
             drawerTransition = .idle
-            drawerAnimator.animateTranslation(to: 0, duration: Metrics.drawerEnterDuration, timing: .easeOut)
+            drawerAnimator.animateTranslation(to: 0, duration: SidePanelSupport.Metrics.drawerEnterDuration, timing: .easeOut)
         case .idle, .switchingSide:
             drawerTransition = .idle
             drawerAnimator.resetVisualState(for: panel)
@@ -183,7 +181,7 @@ final class HeatmapDetailPanelController {
         drawerAnimator.animateEntryAfterInitialLayout(
             from: hidden,
             panel: panel,
-            duration: Metrics.drawerEnterDuration,
+            duration: SidePanelSupport.Metrics.drawerEnterDuration,
             isCurrent: { [weak self] in
                 self?.visibilityGeneration == generation
             },
@@ -211,7 +209,7 @@ final class HeatmapDetailPanelController {
         let hidden = drawerAnimator.hiddenTranslation(for: sourceSide, panelWidth: panel.frame.width)
         drawerAnimator.animateTranslation(
             to: hidden,
-            duration: Metrics.drawerExitDuration,
+            duration: SidePanelSupport.Metrics.drawerExitDuration,
             timing: .easeIn
         ) {
             Task { @MainActor [weak self] in
@@ -241,7 +239,7 @@ final class HeatmapDetailPanelController {
         drawerAnimator.animateTranslation(
             from: hidden,
             to: 0,
-            duration: Metrics.drawerEnterDuration,
+            duration: SidePanelSupport.Metrics.drawerEnterDuration,
             timing: .easeOut
         ) {
             Task { @MainActor [weak self] in
@@ -288,21 +286,10 @@ final class HeatmapDetailPanelController {
             return panel
         }
 
-        let panel = NonactivatingSidePanel(
-            contentRect: NSRect(origin: .zero, size: UsageHeatmapDayDetailView.panelSize(showsWorkflow: true)),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+        let panel = SidePanelSupport.makePanel(
+            initialSize: UsageHeatmapDayDetailView.panelSize(showsWorkflow: true),
+            ignoresMouseEvents: true
         )
-        panel.backgroundColor = .clear
-        panel.collectionBehavior = [.transient, .canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
-        panel.ignoresMouseEvents = true
-        panel.isFloatingPanel = true
-        panel.isOpaque = false
-        panel.isReleasedWhenClosed = false
-        panel.animationBehavior = .none
         self.panel = panel
         return panel
     }
@@ -352,65 +339,33 @@ final class HeatmapDetailPanelController {
         heatmapScreenFrame: CGRect?,
         showsWorkflow: Bool,
         preferredSide: UsageHeatmapDetailSide
-    ) -> PanelPosition {
-        // 优先贴在请求侧, 空间不足时换边, 最后仍夹紧到屏幕可见区域
+    ) -> SidePanelPosition {
         let menuSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: menuSurfaceWindow) ?? menuSurfaceWindow.frame
         let visibleFrame = (menuSurfaceWindow.screen ?? NSScreen.main)?.visibleFrame ?? menuSurfaceFrame
-        let leftX = menuSurfaceFrame.minX - Metrics.panelGap - panelSize.width
-        let rightX = menuSurfaceFrame.maxX + Metrics.panelGap
-        let horizontal = SidePanelSupport.horizontalPlacement(
-            preferredSide: preferredSide,
-            left: SidePanelHorizontalPlacement(
-                x: leftX,
-                side: .left,
-                isAvailable: leftX >= visibleFrame.minX + Metrics.screenPadding
-            ),
-            right: SidePanelHorizontalPlacement(
-                x: rightX,
-                side: .right,
-                isAvailable: rightX + panelSize.width <= visibleFrame.maxX - Metrics.screenPadding
-            )
-        )
 
-        let x = SidePanelSupport.clamped(
-            horizontal.x,
-            lower: visibleFrame.minX + Metrics.screenPadding,
-            upper: visibleFrame.maxX - panelSize.width - Metrics.screenPadding
-        )
-        let frame = NSRect(
-            x: x,
-            y: panelY(
+        return SidePanelSupport.position(
+            panelSize: panelSize,
+            menuSurfaceFrame: menuSurfaceFrame,
+            visibleFrame: visibleFrame,
+            preferredSide: preferredSide,
+            proposedY: proposedY(
                 for: panelSize,
                 menuSurfaceFrame: menuSurfaceFrame,
-                visibleFrame: visibleFrame,
                 anchorScreenFrame: anchorScreenFrame,
                 heatmapScreenFrame: heatmapScreenFrame,
                 showsWorkflow: showsWorkflow
-            ),
-            width: panelSize.width,
-            height: panelSize.height
-        )
-
-        return PanelPosition(
-            frame: frame,
-            side: SidePanelSupport.actualSide(
-                forX: x,
-                panelWidth: panelSize.width,
-                menuSurfaceFrame: menuSurfaceFrame,
-                fallback: horizontal.side
             )
         )
     }
 
-    private func panelY(
+    private func proposedY(
         for panelSize: CGSize,
         menuSurfaceFrame: CGRect,
-        visibleFrame: CGRect,
         anchorScreenFrame: CGRect?,
         heatmapScreenFrame: CGRect?,
         showsWorkflow: Bool
     ) -> CGFloat {
-        let proposedY: CGFloat = if showsWorkflow {
+        if showsWorkflow {
             menuSurfaceFrame.minY
         } else if let heatmapScreenFrame {
             heatmapScreenFrame.maxY - panelSize.height
@@ -419,12 +374,6 @@ final class HeatmapDetailPanelController {
         } else {
             menuSurfaceFrame.midY - panelSize.height / 2
         }
-
-        return SidePanelSupport.clamped(
-            proposedY,
-            lower: max(visibleFrame.minY + Metrics.screenPadding, menuSurfaceFrame.minY),
-            upper: visibleFrame.maxY - panelSize.height - Metrics.screenPadding
-        )
     }
 
     private func cancelHideTask() {
@@ -433,12 +382,7 @@ final class HeatmapDetailPanelController {
     }
 
     private enum Metrics {
-        static let panelGap: CGFloat = 4
-        static let screenPadding: CGFloat = 8
         static let hideDelayMilliseconds: UInt64 = 220
-        static let drawerEnterDuration: TimeInterval = 0.18
-        static let drawerExitDuration: TimeInterval = 0.12
-        static let drawerOverscan: CGFloat = 1
         static let drawerTransformAnimationKey = "CodexBar.heatmapDetailDrawerTransform"
     }
 
@@ -449,13 +393,8 @@ final class HeatmapDetailPanelController {
         case switchingSide
     }
 
-    private struct PanelPosition {
-        let frame: NSRect
-        let side: UsageHeatmapDetailSide
-    }
-
     private struct PanelRequest {
         let context: UsageHeatmapHoverContext
-        let position: PanelPosition
+        let position: SidePanelPosition
     }
 }

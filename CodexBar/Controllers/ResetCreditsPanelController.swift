@@ -12,7 +12,7 @@ final class ResetCreditsPanelController {
             self?.hostingController?.view
         },
         animationKey: Metrics.drawerTransformAnimationKey,
-        overscan: Metrics.drawerOverscan
+        overscan: SidePanelSupport.Metrics.drawerOverscan
     )
     private var visibilityGeneration = 0
     private var isExitAnimationRunning = false
@@ -80,7 +80,7 @@ final class ResetCreditsPanelController {
         let hidden = drawerAnimator.hiddenTranslation(for: side, panelWidth: panel.frame.width)
         drawerAnimator.animateTranslation(
             to: hidden,
-            duration: Metrics.drawerExitDuration,
+            duration: SidePanelSupport.Metrics.drawerExitDuration,
             timing: .easeIn
         ) {
             Task { @MainActor [weak self] in
@@ -144,24 +144,10 @@ final class ResetCreditsPanelController {
             return panel
         }
 
-        let panel = NonactivatingSidePanel(
-            contentRect: NSRect(
-                origin: .zero,
-                size: ResetCreditsPanelView.initialPanelSize
-            ),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+        let panel = SidePanelSupport.makePanel(
+            initialSize: ResetCreditsPanelView.initialPanelSize,
+            ignoresMouseEvents: false
         )
-        panel.backgroundColor = .clear
-        panel.collectionBehavior = [.transient, .canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
-        panel.ignoresMouseEvents = false
-        panel.isFloatingPanel = true
-        panel.isOpaque = false
-        panel.isReleasedWhenClosed = false
-        panel.animationBehavior = .none
         self.panel = panel
         return panel
     }
@@ -189,7 +175,7 @@ final class ResetCreditsPanelController {
     private func apply(
         context: ResetCreditsPanelContext,
         panelSize: CGSize,
-        position: PanelPosition,
+        position: SidePanelPosition,
         to panel: NSPanel
     ) {
         updateContent(context, size: panelSize)
@@ -208,7 +194,7 @@ final class ResetCreditsPanelController {
         drawerAnimator.animateEntryAfterInitialLayout(
             from: hidden,
             panel: panel,
-            duration: Metrics.drawerEnterDuration,
+            duration: SidePanelSupport.Metrics.drawerEnterDuration,
             isCurrent: { [weak self] in
                 self?.visibilityGeneration == generation
             },
@@ -233,46 +219,16 @@ final class ResetCreditsPanelController {
         visibleFrame: CGRect,
         alignmentScreenFrame: CGRect?,
         preferredSide: UsageHeatmapDetailSide
-    ) -> PanelPosition {
-        let leftX = menuSurfaceFrame.minX - Metrics.panelGap - panelSize.width
-        let rightX = menuSurfaceFrame.maxX + Metrics.panelGap
-        let horizontal = SidePanelSupport.horizontalPlacement(
+    ) -> SidePanelPosition {
+        SidePanelSupport.position(
+            panelSize: panelSize,
+            menuSurfaceFrame: menuSurfaceFrame,
+            visibleFrame: visibleFrame,
             preferredSide: preferredSide,
-            left: SidePanelHorizontalPlacement(
-                x: leftX,
-                side: .left,
-                isAvailable: leftX >= visibleFrame.minX + Metrics.screenPadding
-            ),
-            right: SidePanelHorizontalPlacement(
-                x: rightX,
-                side: .right,
-                isAvailable: rightX + panelSize.width <= visibleFrame.maxX - Metrics.screenPadding
-            )
-        )
-
-        let x = SidePanelSupport.clamped(
-            horizontal.x,
-            lower: visibleFrame.minX + Metrics.screenPadding,
-            upper: visibleFrame.maxX - panelSize.width - Metrics.screenPadding
-        )
-        let y = SidePanelSupport.clamped(
-            proposedY(
+            proposedY: proposedY(
                 for: panelSize,
                 menuSurfaceFrame: menuSurfaceFrame,
                 alignmentScreenFrame: alignmentScreenFrame
-            ),
-            lower: max(visibleFrame.minY + Metrics.screenPadding, menuSurfaceFrame.minY),
-            upper: visibleFrame.maxY - panelSize.height - Metrics.screenPadding
-        )
-        let frame = NSRect(x: x, y: y, width: panelSize.width, height: panelSize.height)
-
-        return PanelPosition(
-            frame: frame,
-            side: SidePanelSupport.actualSide(
-                forX: x,
-                panelWidth: panelSize.width,
-                menuSurfaceFrame: menuSurfaceFrame,
-                fallback: horizontal.side
             )
         )
     }
@@ -309,7 +265,7 @@ final class ResetCreditsPanelController {
         menuSurfaceFrame: CGRect
     ) -> CGRect? {
         guard let alignmentScreenFrame = alignmentScreenFrame?.standardized,
-              isValidScreenFrame(alignmentScreenFrame) else {
+              alignmentScreenFrame.isValidScreenRect else {
             return nil
         }
 
@@ -326,27 +282,8 @@ final class ResetCreditsPanelController {
         return alignmentScreenFrame
     }
 
-    private func isValidScreenFrame(_ frame: CGRect) -> Bool {
-        frame.minX.isFinite
-            && frame.minY.isFinite
-            && frame.width.isFinite
-            && frame.height.isFinite
-            && frame.width > 0
-            && frame.height > 0
-    }
-
     private enum Metrics {
-        static let panelGap: CGFloat = 4
-        static let screenPadding: CGFloat = 8
         static let anchorValidationTolerance: CGFloat = 6
-        static let drawerEnterDuration: TimeInterval = 0.18
-        static let drawerExitDuration: TimeInterval = 0.12
-        static let drawerOverscan: CGFloat = 1
         static let drawerTransformAnimationKey = "CodexBar.resetCreditsDrawerTransform"
-    }
-
-    private struct PanelPosition {
-        let frame: NSRect
-        let side: UsageHeatmapDetailSide
     }
 }

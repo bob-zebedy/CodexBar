@@ -221,7 +221,7 @@ WorkflowService.loadSnapshot(performMaintenance: true, synchronize: true)
 - 同步账号从不可用变为可用，且 Hook 与跨设备同步都已开启
 - app-server 自动刷新倒计时重置时，如果 Hook、跨设备同步和同步账号都可用
 
-Hook 子进程不访问网络。它只把原始事件写入本机 `events/YYYY-MM-DD.jsonl` 并标记 `maintenance.json` 的 pending 日期。真正的 daily 重建和 CloudKit 同步都由主 App 的维护刷新完成。
+Hook 子进程不访问网络。它只把原始事件写入本机 `events/YYYY-MM-DD.jsonl` 并标记 `maintenance.json` 的 pending 日期（当天已 pending 时跳过重写）。真正的 daily 重建和 CloudKit 同步都由主 App 的维护刷新完成。
 
 调度器规则:
 
@@ -252,6 +252,8 @@ flowchart TD
     M --> N["清理本设备过期云端记录"]
     N --> O["保存 state 并合并快照"]
 ```
+
+「确保 CodexBarZone 存在」和「读取或创建 accountSalt」首次成功后会在 `WorkflowSyncService` actor 内跨轮缓存，后续每轮同步直接复用，不再重复往返 CloudKit。任何一轮同步失败都会作废这两项缓存：iCloud 账号切换必然伴随请求报错，因此下一轮会重新确认 zone、按新账号取 salt，并经 deviceId 变化检测重置本地同步状态。
 
 同步服务会在开始和结束时发出通知:
 
@@ -285,6 +287,8 @@ CodexBar.workflowSyncDidFinish
   + state.hashByDate 中还没有记录的本机日期
   + needsBackfill 为 true 时的全部本机日期
 ```
+
+「本轮维护后内容发生变化的日期」通过对比维护前后的脱敏同步 payload 得出；只有本轮会实际执行同步（`synchronize: true` 且 `WorkflowSync.isEnabled == true`）时才会计算，其余维护刷新跳过这两次全量对比。
 
 对每个候选日期:
 

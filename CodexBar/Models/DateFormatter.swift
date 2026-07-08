@@ -46,49 +46,46 @@ nonisolated enum CodexDateFormat {
 
     /// yyyy-MM-dd HH: mm: ss.SSS, Hook 原始事件写入本机时间字符串
     static func localTimestampString(from date: Date) -> String {
-        localTimestampFormatter().string(from: date)
+        localTimestampFormatter.string(from: date)
     }
 
     static func localTimestampDate(from string: String) -> Date? {
-        localTimestampFormatter().date(from: string)
+        localTimestampFormatter.date(from: string)
     }
 
-    /// 带小数秒的 ISO8601, 用于读取 Hook payload 中的原始时间戳
-    static func iso8601FractionalDate(from string: String) -> Date? {
-        iso8601FractionalFormatter().date(from: string)
+    /// yyyy-MM-dd HH: mm: ss, 设置页与重置次数详情统一的本地时间展示
+    static func localDisplayString(from date: Date) -> String {
+        localDisplayFormatter.string(from: date)
     }
 
-    /// 不带小数秒的 ISO8601 兜底解析器
-    static func iso8601InternetDateTimeDate(from string: String) -> Date? {
-        iso8601InternetDateTimeFormatter().date(from: string)
+    /// ISO8601 internet date-time, 带或不带小数秒均可解析
+    static func iso8601Date(from string: String) -> Date? {
+        try? Date(string, strategy: .iso8601)
     }
 
-    private static var localGregorianCalendar: Calendar {
+    private static let localGregorianCalendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale(identifier: "en_US_POSIX")
         calendar.timeZone = .autoupdatingCurrent
         return calendar
-    }
+    }()
 
-    private static func localTimestampFormatter() -> DateFormatter {
+    /// 以下格式器配置后不再修改; DateFormatter/ISO8601DateFormatter
+    /// 在 macOS 10.9+ 线程安全, 可跨并发域缓存共享
+    private static let localTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = .autoupdatingCurrent
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
         return formatter
-    }
+    }()
 
-    private static func iso8601FractionalFormatter() -> ISO8601DateFormatter {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    private static let localDisplayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter
-    }
-
-    private static func iso8601InternetDateTimeFormatter() -> ISO8601DateFormatter {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }
+    }()
 
     private static func padded(_ value: Int, toLength length: Int) -> String {
         let text = String(value)

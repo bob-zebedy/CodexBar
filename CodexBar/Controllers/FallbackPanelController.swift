@@ -88,7 +88,7 @@ final class FallbackPanelController {
     }
 
     private func frame(for panelSize: NSSize, on preferredScreen: NSScreen?) -> NSRect {
-        guard let screen = preferredScreen ?? mouseScreen() ?? NSScreen.main else {
+        guard let screen = preferredScreen ?? NSScreen.containingMouse() ?? NSScreen.main else {
             return NSRect(origin: .zero, size: panelSize)
         }
 
@@ -99,13 +99,6 @@ final class FallbackPanelController {
             width: panelSize.width,
             height: panelSize.height
         )
-    }
-
-    private func mouseScreen() -> NSScreen? {
-        let mouseLocation = NSEvent.mouseLocation
-        return NSScreen.screens.first { screen in
-            screen.frame.contains(mouseLocation)
-        }
     }
 
     private enum Metrics {

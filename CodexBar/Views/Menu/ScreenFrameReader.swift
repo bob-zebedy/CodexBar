@@ -63,19 +63,10 @@ final class ScreenFrameProvider {
         view.layoutSubtreeIfNeeded()
         let frameInWindow = view.convert(view.bounds, to: nil)
         let screenFrame = window.convertToScreen(frameInWindow).standardized
-        guard isValidScreenFrame(screenFrame) else {
+        guard screenFrame.isValidScreenRect else {
             return nil
         }
         return screenFrame
-    }
-
-    private static func isValidScreenFrame(_ frame: CGRect) -> Bool {
-        frame.minX.isFinite
-            && frame.minY.isFinite
-            && frame.width.isFinite
-            && frame.height.isFinite
-            && frame.width > 0
-            && frame.height > 0
     }
 }
 

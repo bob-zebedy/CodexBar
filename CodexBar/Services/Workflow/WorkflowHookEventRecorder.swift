@@ -52,8 +52,11 @@ nonisolated enum WorkflowHookEventRecorder {
             var maintenanceState = WorkflowStorage.loadMaintenanceState()
 
             try append(event.jsonLineData(), to: eventLogURL)
-            maintenanceState.markPending(dateKey)
-            try WorkflowStorage.saveMaintenanceState(maintenanceState)
+
+            // 稳态下当天早已 pending, 跳过无变化的全量重写以缩短持锁时间
+            if maintenanceState.markPending(dateKey) {
+                try WorkflowStorage.saveMaintenanceState(maintenanceState)
+            }
         }
     }
 
@@ -138,14 +141,10 @@ private nonisolated struct WorkflowHookPayload {
             return nil
         }
 
-        if let date = CodexDateFormat.iso8601FractionalDate(from: trimmedString) {
+        if let date = CodexDateFormat.iso8601Date(from: trimmedString) {
             return date
         }
 
-        if let date = CodexDateFormat.localTimestampDate(from: trimmedString) {
-            return date
-        }
-
-        return CodexDateFormat.iso8601InternetDateTimeDate(from: trimmedString)
+        return CodexDateFormat.localTimestampDate(from: trimmedString)
     }
 }

@@ -10,6 +10,11 @@ actor WorkflowSyncService {
     private let fileManager: FileManager
     private let directoryURL: URL
 
+    // zone 存在性和 account salt 首次确认后跨轮缓存, 省掉每轮同步的两次固定往返
+    // 任一轮同步失败时作废: iCloud 账号切换必然伴随请求报错, 下一轮会重新确认
+    private var isSyncZoneConfirmed = false
+    private var cachedAccountSalt: Data?
+
     init(
         container: CKContainer = .default(),
         fileManager: FileManager = .default,
@@ -39,9 +44,10 @@ actor WorkflowSyncService {
 
         var didSucceed = false
         var failureMessage: String?
-        Self.postSyncDidStart()
+        Self.postSyncNotification(.workflowSyncDidStart)
         defer {
-            Self.postSyncDidFinish(
+            Self.postSyncNotification(
+                .workflowSyncDidFinish,
                 didSucceed: didSucceed,
                 failureMessage: failureMessage
             )
@@ -72,6 +78,7 @@ actor WorkflowSyncService {
             try saveState(state)
             didSucceed = true
         } catch {
+            invalidateAccountScopedCaches()
             failureMessage = WorkflowSyncFailureReason.classify(error).message
             try? saveState(state)
         }
@@ -514,12 +521,19 @@ private extension WorkflowSyncService {
     }
 
     func accountSalt() async throws -> Data {
-        let recordID = accountSaltRecordID
-        if let salt = try await fetchAccountSalt(recordID) {
-            return salt
+        if let cachedAccountSalt {
+            return cachedAccountSalt
         }
 
-        return try await createAccountSalt(recordID)
+        let recordID = accountSaltRecordID
+        let salt: Data = if let fetched = try await fetchAccountSalt(recordID) {
+            fetched
+        } else {
+            try await createAccountSalt(recordID)
+        }
+
+        cachedAccountSalt = salt
+        return salt
     }
 
     func fetchAccountSalt(_ recordID: CKRecord.ID) async throws -> Data? {
@@ -553,16 +567,25 @@ private extension WorkflowSyncService {
     }
 
     func ensureSyncZoneExists() async throws {
-        guard try await syncZoneExists() == false else {
+        guard !isSyncZoneConfirmed else {
             return
         }
 
-        let zone = CKRecordZone(zoneID: syncZoneID)
-        let result = try await database.modifyRecordZones(saving: [zone], deleting: [])
+        if try await syncZoneExists() == false {
+            let zone = CKRecordZone(zoneID: syncZoneID)
+            let result = try await database.modifyRecordZones(saving: [zone], deleting: [])
 
-        if case let .failure(error) = result.saveResults[syncZoneID] {
-            throw error
+            if case let .failure(error) = result.saveResults[syncZoneID] {
+                throw error
+            }
         }
+
+        isSyncZoneConfirmed = true
+    }
+
+    func invalidateAccountScopedCaches() {
+        isSyncZoneConfirmed = false
+        cachedAccountSalt = nil
     }
 
     func syncZoneExists() async throws -> Bool {
@@ -625,53 +648,45 @@ private extension WorkflowSyncService {
         return Self.hexString(Data(digest))
     }
 
-    nonisolated static func postSyncDidStart() {
-        postSyncNotification(.workflowSyncDidStart)
-    }
-
-    nonisolated static func postSyncDidFinish(
-        didSucceed: Bool,
-        failureMessage: String?
-    ) {
-        postSyncNotification(.workflowSyncDidFinish) {
-            finishNotificationUserInfo(
-                didSucceed: didSucceed,
-                failureMessage: failureMessage
-            )
-        }
-    }
-
-    @MainActor
-    static func finishNotificationUserInfo(
-        didSucceed: Bool,
-        failureMessage: String?
-    ) -> [String: Any] {
-        var userInfo: [String: Any] = [
-            WorkflowSyncNotificationKey.didSucceed: didSucceed
-        ]
-        if let failureMessage {
-            userInfo[WorkflowSyncNotificationKey.failureMessage] = failureMessage
-        }
-        return userInfo
-    }
-
     nonisolated static func postSyncNotification(
         _ name: Notification.Name,
-        userInfo: @escaping @MainActor () -> [String: Any]? = { nil }
+        didSucceed: Bool? = nil,
+        failureMessage: String? = nil
     ) {
         Task { @MainActor in
+            var userInfo = [String: Any]()
+            if let didSucceed {
+                userInfo[WorkflowSyncNotificationKey.didSucceed] = didSucceed
+            }
+            if let failureMessage {
+                userInfo[WorkflowSyncNotificationKey.failureMessage] = failureMessage
+            }
+
             NotificationCenter.default.post(
                 name: name,
                 object: nil,
-                userInfo: userInfo()
+                userInfo: userInfo.isEmpty ? nil : userInfo
             )
         }
     }
 }
 
+extension WorkflowSyncService {
+    /// 设置页读取最近上传时间, 与内部 loadState 使用同一 schema 校验口径
+    nonisolated static func loadLastUploadAt() -> Date? {
+        let stateURL = WorkflowStorage.syncDirectoryURL()
+            .appendingPathComponent("state.json", isDirectory: false)
+        return loadState(at: stateURL).lastUploadAt
+    }
+}
+
 private extension WorkflowSyncService {
     func loadState() -> WorkflowSyncState {
-        guard let data = try? Data(contentsOf: stateURL), !data.isEmpty,
+        Self.loadState(at: stateURL)
+    }
+
+    nonisolated static func loadState(at url: URL) -> WorkflowSyncState {
+        guard let data = try? Data(contentsOf: url), !data.isEmpty,
               let state = try? JSONDecoder().decode(WorkflowSyncState.self, from: data) else {
             return WorkflowSyncState()
         }
@@ -683,9 +698,7 @@ private extension WorkflowSyncService {
 
     func saveState(_ state: WorkflowSyncState) throws {
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let data = try encoder.encode(state)
+        let data = try JSONLines.stableEncoder.encode(state)
         try data.write(to: stateURL, options: .atomic)
     }
 
@@ -700,8 +713,7 @@ private extension WorkflowSyncService {
     func saveCachedRecords(_ records: [WorkflowSyncedDailyRecord]) throws {
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let encoder = JSONLines.stableEncoder
         let data = try records
             .sorted { lhs, rhs in
                 if lhs.deviceId == rhs.deviceId {
@@ -850,9 +862,7 @@ private extension WorkflowSyncService {
     }
 
     static func projectCountsData(_ counts: [String: Int]) -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return (try? encoder.encode(counts)) ?? Data("{}".utf8)
+        (try? JSONLines.stableEncoder.encode(counts)) ?? Data("{}".utf8)
     }
 
     static func randomSalt() throws -> Data {

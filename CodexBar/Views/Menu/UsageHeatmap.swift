@@ -492,16 +492,7 @@ struct UsageHeatmapDayDetailView: View {
                 height: panelSize.height,
                 alignment: .topLeading
             )
-            .liquidGlassSurface(cornerRadius: Metrics.cornerRadius, isOuterSurface: true)
-            .background {
-                RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous)
-                    .fill(panelBackingFill)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous)
-                    .strokeBorder(panelBoundaryColor, lineWidth: Metrics.boundaryLineWidth)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: Metrics.cornerRadius, style: .continuous))
+            .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
             .animation(Metrics.statusAnimation, value: context)
     }
 
@@ -717,17 +708,6 @@ struct UsageHeatmapDayDetailView: View {
             .lineLimit(1)
     }
 
-    private var panelBackingFill: Color {
-        Color(nsColor: .windowBackgroundColor)
-            .opacity(colorScheme == .dark ? 0.90 : 0.86)
-    }
-
-    private var panelBoundaryColor: Color {
-        colorScheme == .dark
-            ? .white.opacity(0.18)
-            : .black.opacity(0.14)
-    }
-
     private struct WorkflowMetricRow: Identifiable {
         let label: String
         let value: Int
@@ -748,7 +728,6 @@ struct UsageHeatmapDayDetailView: View {
         static let horizontalPadding: CGFloat = 12
         static let verticalPadding: CGFloat = 10
         static let cornerRadius: CGFloat = 12
-        static let boundaryLineWidth: CGFloat = 0.8
         static let tokenMinimumWidth: CGFloat = 38
         static let tokenUnitWidth: CGFloat = 14
         static let metricSpacing: CGFloat = 5

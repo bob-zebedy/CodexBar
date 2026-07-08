@@ -7,7 +7,6 @@ struct AppSettingsView: View {
     @EnvironmentObject private var appUpdater: AppUpdater
     @StateObject private var loginItemSettings = LoginItemSettings()
     @StateObject private var codexVersions = CodexCLIVersionViewModel()
-    @State private var lastMenuBarQuotaWindowSelection: MenuBarQuotaSelection = .primary
     @ObservedObject var codexHookSettings: CodexHookSettings
     @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
@@ -60,19 +59,16 @@ struct AppSettingsView: View {
         .onAppear {
             loginItemSettings.refresh()
             syncSettings.refresh()
-            refreshMenuBarQuotaSettings()
+            menuBarQuotaSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
             refreshCodexVersionSection()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             codexHookSettings.refresh()
             syncSettings.refresh()
-            refreshMenuBarQuotaSettings()
+            menuBarQuotaSettings.refresh()
             codexHookSettings.verifyInstalledHooks()
             refreshCodexVersionSection()
-        }
-        .onChange(of: menuBarQuotaSettings.selection) { _, selection in
-            rememberMenuBarQuotaSelection(selection)
         }
     }
 }
@@ -134,8 +130,8 @@ private extension AppSettingsView {
                 Picker(
                     "额度窗口",
                     selection: Binding(
-                        get: { activeMenuBarQuotaSelection },
-                        set: { setMenuBarQuotaWindowSelection($0) }
+                        get: { menuBarQuotaSettings.activeWindowSelection },
+                        set: { menuBarQuotaSettings.setSelection($0) }
                     )
                 ) {
                     ForEach(menuBarQuotaWindowOptions) { option in
@@ -153,7 +149,7 @@ private extension AppSettingsView {
                 "菜单栏额度指示",
                 isOn: Binding(
                     get: { isMenuBarQuotaEnabled },
-                    set: { setMenuBarQuotaEnabled($0) }
+                    set: { menuBarQuotaSettings.setEnabled($0) }
                 )
             )
             .labelsHidden()
@@ -173,7 +169,7 @@ private extension AppSettingsView {
                 return MenuBarQuotaOption(selection: selection, title: window.label)
             }
 
-        let selectedWindow = activeMenuBarQuotaSelection
+        let selectedWindow = menuBarQuotaSettings.activeWindowSelection
         if !options.contains(where: { $0.selection == selectedWindow }) {
             options.append(
                 MenuBarQuotaOption(
@@ -186,44 +182,8 @@ private extension AppSettingsView {
         return options
     }
 
-    var activeMenuBarQuotaSelection: MenuBarQuotaSelection {
-        let selection = menuBarQuotaSettings.selection
-        return selection == .off ? lastMenuBarQuotaWindowSelection : selection
-    }
-
     var isMenuBarQuotaEnabled: Bool {
         menuBarQuotaSettings.selection != .off
-    }
-
-    func setMenuBarQuotaWindowSelection(_ selection: MenuBarQuotaSelection) {
-        rememberMenuBarQuotaSelection(selection)
-        menuBarQuotaSettings.setSelection(selection)
-    }
-
-    func setMenuBarQuotaEnabled(_ enabled: Bool) {
-        if !enabled {
-            rememberMenuBarQuotaSelection(menuBarQuotaSettings.selection)
-            menuBarQuotaSettings.setSelection(.off)
-            return
-        }
-
-        setMenuBarQuotaWindowSelection(activeMenuBarQuotaSelection)
-    }
-
-    func refreshMenuBarQuotaSettings() {
-        menuBarQuotaSettings.refresh()
-        rememberMenuBarQuotaSelection()
-    }
-
-    func rememberMenuBarQuotaSelection(
-        _ selection: MenuBarQuotaSelection? = nil
-    ) {
-        let selection = selection ?? menuBarQuotaSettings.selection
-        guard selection != .off else {
-            return
-        }
-
-        lastMenuBarQuotaWindowSelection = selection
     }
 
     var codexHookRow: some View {
@@ -255,9 +215,6 @@ private extension AppSettingsView {
                 isOn: Binding(
                     get: { state.isActive },
                     set: { enabled in
-                        guard codexHookSettings.isEnabled, state.isSyncAvailable else {
-                            return
-                        }
                         guard syncSettings.setEnabled(enabled) else {
                             return
                         }
@@ -363,7 +320,7 @@ private extension AppSettingsView {
 
     @ViewBuilder
     var settingsErrorPanel: some View {
-        if let message = settingsErrorMessage {
+        if let message = loginItemSettings.errorMessage {
             Text(message)
                 .font(.caption)
                 .foregroundStyle(.red)
@@ -390,10 +347,6 @@ private extension AppSettingsView {
         }
         .foregroundStyle(.red)
         .keyboardShortcut("q")
-    }
-
-    var settingsErrorMessage: String? {
-        loginItemSettings.errorMessage
     }
 }
 
