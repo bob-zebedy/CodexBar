@@ -460,7 +460,7 @@ final class CodexNotificationService: NSObject {
     private nonisolated static let creditExpiryReminderDays = [7, 6, 5, 4, 3, 2, 1]
     private nonisolated static let creditExpiryLeadTime: TimeInterval = 7 * day
     private static let taskHapticPulseCount = 10
-    private static let taskHapticPulseInterval = Duration.milliseconds(150)
+    private static let taskHapticPulseInterval = Duration.milliseconds(100)
     private static let sentKeysLimit = 300
     private static let sentKeysKey = "Notification.sentKeys"
     private static let pendingResetRemindersKey = "Notification.pendingResetReminders"

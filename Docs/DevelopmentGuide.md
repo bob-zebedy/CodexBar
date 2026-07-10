@@ -1105,7 +1105,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 
 额度和重置机会通知的已发送去重键持久化在 UserDefaults (`Notification.sentKeys`, 上限 300 条滚动淘汰), 账号维度包含在键中, 切换账号自动隔离。任务等待去重只保留在当前进程内。bootstrap 会恢复 App 启动前滚动 24 小时内的任务状态，但永远不发布 transition，因此不会补发历史权限通知、完成通知或触觉反馈；重新开启通知也不会回放旧事件。
 
-「任务触觉反馈」使用 `Notification.taskHapticEnabled` 持久化，缺失时默认开启。等待批准和任意任务完成 transition 都启动一段触觉反馈任务：每 150 ms 请求一次 `.levelChange`，连续 10 次；新 transition 会取消并重启当前序列，开关关闭后会在下一脉冲前停止。触觉反馈不受长任务阈值与系统通知授权影响；App 内「系统通知」总开关关闭时不触发。`NSHapticFeedbackManager.defaultPerformer` 会按当前输入设备、辅助功能与系统偏好决定是否实际反馈及震感强弱。
+「任务触觉反馈」使用 `Notification.taskHapticEnabled` 持久化，缺失时默认开启。等待批准和任意任务完成 transition 都启动一段触觉反馈任务：每 100 ms 请求一次 `.levelChange`，连续 10 次；新 transition 会取消并重启当前序列，开关关闭后会在下一脉冲前停止。触觉反馈不受长任务阈值与系统通知授权影响；App 内「系统通知」总开关关闭时不触发。`NSHapticFeedbackManager.defaultPerformer` 会按当前输入设备、辅助功能与系统偏好决定是否实际反馈及震感强弱。
 
 通知错误处理 (延续"细节不打扰用户"原则, 不写入请求日志窗口):
 
