@@ -12,9 +12,11 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     let syncSettings = WorkflowSyncSettings()
     let globalHotKeySettings = GlobalHotKeySettings()
     let menuBarQuotaSettings = MenuBarQuotaSettings()
+    let notificationSettings = NotificationSettings()
     let appUpdater = AppUpdater()
 
     private var statusItemController: StatusItemController?
+    private var notificationService: CodexNotificationService?
 
     func applicationDidFinishLaunching(_: Notification) {
         let controller = StatusItemController(
@@ -24,10 +26,21 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             syncSettings: syncSettings,
             globalHotKeySettings: globalHotKeySettings,
             menuBarQuotaSettings: menuBarQuotaSettings,
+            notificationSettings: notificationSettings,
             appUpdater: appUpdater
         )
         controller.install()
         statusItemController = controller
+
+        let notificationService = CodexNotificationService(
+            settings: notificationSettings,
+            statusViewModel: viewModel,
+            codexHookSettings: codexHookSettings
+        ) { [weak controller] in
+            controller?.openMenuSurfaceFromNotification()
+        }
+        notificationService.start()
+        self.notificationService = notificationService
     }
 
     func applicationWillTerminate(_: Notification) {
@@ -48,6 +61,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private let syncSettings: WorkflowSyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
     private let menuBarQuotaSettings: MenuBarQuotaSettings
+    private let notificationSettings: NotificationSettings
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
@@ -69,7 +83,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         codexHookSettings: codexHookSettings,
         syncSettings: syncSettings,
         globalHotKeySettings: globalHotKeySettings,
-        menuBarQuotaSettings: menuBarQuotaSettings
+        menuBarQuotaSettings: menuBarQuotaSettings,
+        notificationSettings: notificationSettings
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
     } onSyncChanged: { [weak self] enabled in
@@ -126,6 +141,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         syncSettings: WorkflowSyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
         menuBarQuotaSettings: MenuBarQuotaSettings,
+        notificationSettings: NotificationSettings,
         appUpdater: AppUpdater
     ) {
         self.viewModel = viewModel
@@ -134,6 +150,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
         self.menuBarQuotaSettings = menuBarQuotaSettings
+        self.notificationSettings = notificationSettings
         self.appUpdater = appUpdater
         super.init()
     }
@@ -322,6 +339,15 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     func openSettingsFromCommand() {
         closeMenuSurface(animated: false)
         openSettings()
+    }
+
+    /// 通知点击回调: 面板未展示时按快捷键路径打开(含 fallback 面板兜底)
+    func openMenuSurfaceFromNotification() {
+        guard menuSurfaceWillOpenOnToggle else {
+            return
+        }
+
+        toggleMenuSurfaceFromHotKey()
     }
 
     private func configureStatusButton() {
@@ -587,9 +613,14 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
+    /// toggle 将走「打开」分支的状态谓词, 与 toggleMenuSurface 的分支口径一致
+    private var menuSurfaceWillOpenOnToggle: Bool {
+        menuSurfaceState == .hidden || menuSurfaceState == .closing
+    }
+
     private func toggleMenuSurfaceFromHotKey() {
         let targetScreen = NSScreen.containingMouse() ?? NSScreen.main
-        let opensMenuSurface = menuSurfaceState == .hidden || menuSurfaceState == .closing
+        let opensMenuSurface = menuSurfaceWillOpenOnToggle
         if opensMenuSurface {
             suspendAuxiliaryWindowKeyFocus()
         }

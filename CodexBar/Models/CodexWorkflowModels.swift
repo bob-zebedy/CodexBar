@@ -154,9 +154,19 @@ nonisolated struct WorkflowDailyMetrics: Equatable, Identifiable {
     let permissionRequestCount: Int
     let contextCompactionCount: Int
     let subagentCount: Int
+    let modelCounts: [String: Int]
 
     var id: String {
         startDate
+    }
+
+    var mostUsedModel: String? {
+        modelCounts
+            .filter { $0.value > 0 }
+            .sorted { lhs, rhs in
+                lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value
+            }
+            .first?.key
     }
 
     init(
@@ -166,7 +176,8 @@ nonisolated struct WorkflowDailyMetrics: Equatable, Identifiable {
         toolCallCount: Int,
         permissionRequestCount: Int,
         contextCompactionCount: Int,
-        subagentCount: Int
+        subagentCount: Int,
+        modelCounts: [String: Int] = [:]
     ) {
         self.startDate = startDate
         self.sessionCount = sessionCount
@@ -175,6 +186,7 @@ nonisolated struct WorkflowDailyMetrics: Equatable, Identifiable {
         self.permissionRequestCount = permissionRequestCount
         self.contextCompactionCount = contextCompactionCount
         self.subagentCount = subagentCount
+        self.modelCounts = modelCounts
     }
 
     static func empty(startDate: String) -> WorkflowDailyMetrics {
@@ -199,7 +211,8 @@ nonisolated struct WorkflowDailyMetrics: Equatable, Identifiable {
         preCompactCount: Int,
         postCompactCount: Int,
         subagentStartCount: Int,
-        subagentStopCount: Int
+        subagentStopCount: Int,
+        modelCounts: [String: Int]
     ) {
         self.startDate = startDate
         self.sessionCount = sessionCount
@@ -208,6 +221,7 @@ nonisolated struct WorkflowDailyMetrics: Equatable, Identifiable {
         self.permissionRequestCount = permissionRequestCount
         contextCompactionCount = max(preCompactCount, postCompactCount)
         subagentCount = max(subagentStartCount, subagentStopCount)
+        self.modelCounts = modelCounts
     }
 
     func adding(_ other: WorkflowDailyMetrics) -> WorkflowDailyMetrics {
@@ -218,8 +232,18 @@ nonisolated struct WorkflowDailyMetrics: Equatable, Identifiable {
             toolCallCount: toolCallCount + other.toolCallCount,
             permissionRequestCount: permissionRequestCount + other.permissionRequestCount,
             contextCompactionCount: contextCompactionCount + other.contextCompactionCount,
-            subagentCount: subagentCount + other.subagentCount
+            subagentCount: subagentCount + other.subagentCount,
+            modelCounts: Self.mergedCounts(modelCounts, other.modelCounts)
         )
+    }
+
+    private static func mergedCounts(
+        _ lhs: [String: Int],
+        _ rhs: [String: Int]
+    ) -> [String: Int] {
+        rhs.reduce(into: lhs) { result, item in
+            result[item.key, default: 0] += item.value
+        }
     }
 }
 
@@ -308,6 +332,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     var sessionCount: Int?
     var turnCount: Int?
     var projectCounts: [String: Int]
+    var modelCounts: [String: Int]
     var sessionIds: [String]?
     var turnIds: [String]?
 
@@ -330,6 +355,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         sessionCount = nil
         turnCount = nil
         projectCounts = [:]
+        modelCounts = [:]
         sessionIds = []
         turnIds = []
     }
@@ -350,6 +376,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         sessionCount = try container.decodeIfPresent(Int.self, forKey: .sessionCount)
         turnCount = try container.decodeIfPresent(Int.self, forKey: .turnCount)
         projectCounts = try container.decodeIfPresent([String: Int].self, forKey: .projectCounts) ?? [:]
+        modelCounts = try container.decodeIfPresent([String: Int].self, forKey: .modelCounts) ?? [:]
         sessionIds = try container.decodeIfPresent([String].self, forKey: .sessionIds)
         turnIds = try container.decodeIfPresent([String].self, forKey: .turnIds)
     }
@@ -389,6 +416,10 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         if let projectDisplayName = event.projectDisplayName {
             projectCounts[projectDisplayName, default: 0] += 1
         }
+
+        if let modelName = event.modelName {
+            modelCounts[modelName, default: 0] += 1
+        }
     }
 
     mutating func compactIdentifiersIfNeeded(keepsIdentifiers: Bool) {
@@ -425,7 +456,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
             preCompactCount: preCompactCount,
             postCompactCount: postCompactCount,
             subagentStartCount: subagentStartCount,
-            subagentStopCount: subagentStopCount
+            subagentStopCount: subagentStopCount,
+            modelCounts: modelCounts
         )
     }
 
@@ -475,6 +507,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
             WorkflowJSON.field("sessionCount", sessionCount),
             WorkflowJSON.field("turnCount", turnCount),
             WorkflowJSON.field("projectCounts", projectCounts),
+            WorkflowJSON.field("modelCounts", modelCounts),
             WorkflowJSON.field("sessionIds", sessionIds),
             WorkflowJSON.field("turnIds", turnIds)
         ]
@@ -497,7 +530,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
             subagentStopCount: subagentStopCount,
             sessionCount: syncedSessionCount,
             turnCount: syncedTurnCount,
-            projectCounts: projectCounts
+            projectCounts: projectCounts,
+            modelCounts: modelCounts
         )
     }
 
@@ -555,6 +589,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         case sessionCount
         case turnCount
         case projectCounts
+        case modelCounts
         case sessionIds
         case turnIds
     }
@@ -576,6 +611,7 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiabl
     var sessionCount: Int?
     var turnCount: Int?
     var projectCounts: [String: Int]
+    var modelCounts: [String: Int]?
 
     var id: String {
         date
@@ -592,7 +628,8 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiabl
             preCompactCount: preCompactCount,
             postCompactCount: postCompactCount,
             subagentStartCount: subagentStartCount,
-            subagentStopCount: subagentStopCount
+            subagentStopCount: subagentStopCount,
+            modelCounts: modelCounts ?? [:]
         )
     }
 
@@ -611,7 +648,8 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiabl
             WorkflowJSON.field("subagentStopCount", subagentStopCount),
             WorkflowJSON.field("sessionCount", sessionCount),
             WorkflowJSON.field("turnCount", turnCount),
-            WorkflowJSON.field("projectCounts", projectCounts)
+            WorkflowJSON.field("projectCounts", projectCounts),
+            WorkflowJSON.field("modelCounts", modelCounts)
         ]
 
         return WorkflowJSON.lineData(fields)

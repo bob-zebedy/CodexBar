@@ -11,7 +11,11 @@ struct AppSettingsView: View {
     @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
     @ObservedObject var menuBarQuotaSettings: MenuBarQuotaSettings
+    @ObservedObject var notificationSettings: NotificationSettings
     let onSyncChanged: (Bool) -> Void
+    let onNotificationOptionsAction: (NotificationOptionsPanelAction) -> Void
+    @State private var notificationRowFrame: CGRect?
+    @State private var shouldOpenNotificationOptionsAfterAuthorization = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
@@ -25,6 +29,8 @@ struct AppSettingsView: View {
                 codexHookRow
                 LiquidGlassDivider()
                 syncRow
+                LiquidGlassDivider()
+                notificationRow
                 LiquidGlassDivider()
                 hotKeyRow
                 LiquidGlassDivider()
@@ -62,6 +68,7 @@ struct AppSettingsView: View {
             menuBarQuotaSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
             refreshCodexVersionSection()
+            notificationSettings.refreshAuthorizationStatus()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             codexHookSettings.refresh()
@@ -69,6 +76,7 @@ struct AppSettingsView: View {
             menuBarQuotaSettings.refresh()
             codexHookSettings.verifyInstalledHooks()
             refreshCodexVersionSection()
+            notificationSettings.refreshAuthorizationStatus()
         }
     }
 }
@@ -83,6 +91,7 @@ private extension AppSettingsView {
         static let surfaceCornerRadius: CGFloat = 16
         static let panelCornerRadius: CGFloat = 10
         static let iconWidth: CGFloat = 18
+        static let notificationOptionsButtonSize: CGFloat = 22
         static let menuBarQuotaPickerWidth: CGFloat = 72
         static let statusAnimation = Animation.codexStatus
     }
@@ -259,6 +268,103 @@ private extension AppSettingsView {
             isSyncAvailable: syncSettings.isSyncAvailable,
             isSyncing: syncSettings.isSyncing
         )
+    }
+
+    /// 主开关行保留在设置窗口内, 子选项在右侧子面板中展开
+    var notificationRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                Image(systemName: "bell.badge")
+                    .frame(width: Metrics.iconWidth)
+                    .foregroundStyle(.tint)
+
+                Text("系统通知")
+
+                Spacer()
+
+                Button {
+                    onNotificationOptionsAction(.toggle(alignmentScreenFrame: notificationRowFrame))
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                }
+                .buttonStyle(.plain)
+                .controlSize(.small)
+                .foregroundStyle(.tint)
+                .frame(
+                    width: Metrics.notificationOptionsButtonSize,
+                    height: Metrics.notificationOptionsButtonSize
+                )
+                .opacity(notificationSettings.canShowOptions ? 1 : 0)
+                .disabled(!notificationSettings.canShowOptions)
+                .accessibilityHidden(!notificationSettings.canShowOptions)
+                .help("通知选项")
+                .animation(Metrics.statusAnimation, value: notificationSettings.canShowOptions)
+
+                Toggle(
+                    "系统通知",
+                    isOn: Binding(
+                        get: { notificationSettings.isEnabled },
+                        set: { setNotificationsEnabled($0) }
+                    )
+                )
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+            }
+            .background(
+                ScreenFrameReader { frame in
+                    notificationRowFrame = frame
+                }
+            )
+
+            if notificationSettings.isEnabled, notificationSettings.isAuthorizationDenied {
+                notificationDeniedRows
+                    .transition(.identity)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
+            }
+        }
+        .onChange(of: notificationSettings.canShowOptions) { _, canShowOptions in
+            guard canShowOptions else {
+                onNotificationOptionsAction(.close)
+                return
+            }
+
+            if shouldOpenNotificationOptionsAfterAuthorization {
+                shouldOpenNotificationOptionsAfterAuthorization = false
+                onNotificationOptionsAction(.open(alignmentScreenFrame: notificationRowFrame))
+            }
+        }
+        .onChange(of: notificationSettings.isAuthorizationDenied) { _, isDenied in
+            if isDenied {
+                shouldOpenNotificationOptionsAfterAuthorization = false
+                onNotificationOptionsAction(.close)
+            }
+        }
+    }
+
+    func setNotificationsEnabled(_ enabled: Bool) {
+        notificationSettings.setEnabled(enabled)
+        if enabled, notificationSettings.canShowOptions {
+            shouldOpenNotificationOptionsAfterAuthorization = false
+            onNotificationOptionsAction(.open(alignmentScreenFrame: notificationRowFrame))
+        } else {
+            shouldOpenNotificationOptionsAfterAuthorization = enabled
+                && !notificationSettings.isAuthorizationDenied
+            onNotificationOptionsAction(.close)
+        }
+    }
+
+    @ViewBuilder
+    var notificationDeniedRows: some View {
+        SettingsCaptionMessageRow(message: "系统通知权限未开启, 请在系统设置中允许 CodexBar 发送通知")
+        SettingsIndentedRow {
+            Button("打开系统设置") {
+                notificationSettings.openSystemNotificationSettings()
+            }
+            .controlSize(.small)
+        }
     }
 
     var versionRow: some View {

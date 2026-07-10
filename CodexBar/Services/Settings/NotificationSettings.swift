@@ -1,0 +1,198 @@
+import AppKit
+import Combine
+import Foundation
+import UserNotifications
+
+/// 通知偏好: 总开关、五类子开关、两个阈值和系统授权状态镜像
+/// 授权请求/查询集中在这里, 判定与发送在 CodexNotificationService
+@MainActor
+final class NotificationSettings: ObservableObject {
+    @Published private(set) var isEnabled: Bool
+    @Published private(set) var isLowQuotaEnabled: Bool
+    @Published private(set) var isQuotaResetEnabled: Bool
+    @Published private(set) var isLongTaskEnabled: Bool
+    @Published private(set) var isTaskWaitingEnabled: Bool
+    @Published private(set) var isCreditExpiryEnabled: Bool
+    @Published private(set) var lowQuotaThresholdPercent: Int
+    @Published private(set) var longTaskThresholdSeconds: Int
+    @Published private(set) var authorizationStatus: UNAuthorizationStatus = .notDetermined
+
+    /// 系统授权被拒时设置页展示引导, 通知服务停发
+    var isAuthorizationDenied: Bool {
+        authorizationStatus == .denied
+    }
+
+    /// 总开关开启且授权未被拒时才允许发送
+    var canDeliver: Bool {
+        isEnabled && !isAuthorizationDenied
+    }
+
+    /// 子选项面板仅在总开关开启且授权已明确通过时可展示
+    var canShowOptions: Bool {
+        isEnabled && authorizationStatus != .notDetermined && authorizationStatus != .denied
+    }
+
+    static let lowQuotaThresholdOptions = [5, 10, 25]
+    static let longTaskThresholdOptions = [30, 60, 120, 300]
+
+    private let defaults: UserDefaults
+    private var authorizationTask: Task<Void, Never>?
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        isEnabled = defaults.bool(forKey: Self.enabledKey)
+        isLowQuotaEnabled = Self.bool(from: defaults, key: Self.lowQuotaEnabledKey, defaultValue: true)
+        isQuotaResetEnabled = Self.bool(from: defaults, key: Self.quotaResetEnabledKey, defaultValue: true)
+        isLongTaskEnabled = Self.bool(from: defaults, key: Self.longTaskEnabledKey, defaultValue: true)
+        isTaskWaitingEnabled = Self.bool(from: defaults, key: Self.taskWaitingEnabledKey, defaultValue: true)
+        isCreditExpiryEnabled = Self.bool(from: defaults, key: Self.creditExpiryEnabledKey, defaultValue: true)
+        lowQuotaThresholdPercent = Self.option(
+            defaults.object(forKey: Self.lowQuotaThresholdKey) as? Int,
+            in: Self.lowQuotaThresholdOptions,
+            defaultValue: 10
+        )
+        longTaskThresholdSeconds = Self.option(
+            defaults.object(forKey: Self.longTaskThresholdKey) as? Int,
+            in: Self.longTaskThresholdOptions,
+            defaultValue: 60
+        )
+    }
+
+    deinit {
+        authorizationTask?.cancel()
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        guard enabled != isEnabled else {
+            return
+        }
+
+        isEnabled = enabled
+        defaults.set(enabled, forKey: Self.enabledKey)
+        if enabled {
+            requestAuthorization()
+        }
+    }
+
+    func setLowQuotaEnabled(_ enabled: Bool) {
+        setBool(enabled, current: &isLowQuotaEnabled, key: Self.lowQuotaEnabledKey)
+    }
+
+    func setQuotaResetEnabled(_ enabled: Bool) {
+        setBool(enabled, current: &isQuotaResetEnabled, key: Self.quotaResetEnabledKey)
+    }
+
+    func setLongTaskEnabled(_ enabled: Bool) {
+        setBool(enabled, current: &isLongTaskEnabled, key: Self.longTaskEnabledKey)
+    }
+
+    func setTaskWaitingEnabled(_ enabled: Bool) {
+        setBool(enabled, current: &isTaskWaitingEnabled, key: Self.taskWaitingEnabledKey)
+    }
+
+    func setCreditExpiryEnabled(_ enabled: Bool) {
+        setBool(enabled, current: &isCreditExpiryEnabled, key: Self.creditExpiryEnabledKey)
+    }
+
+    func setLowQuotaThresholdPercent(_ percent: Int) {
+        guard Self.lowQuotaThresholdOptions.contains(percent),
+              percent != lowQuotaThresholdPercent else {
+            return
+        }
+
+        lowQuotaThresholdPercent = percent
+        defaults.set(percent, forKey: Self.lowQuotaThresholdKey)
+    }
+
+    func setLongTaskThresholdSeconds(_ seconds: Int) {
+        guard Self.longTaskThresholdOptions.contains(seconds),
+              seconds != longTaskThresholdSeconds else {
+            return
+        }
+
+        longTaskThresholdSeconds = seconds
+        defaults.set(seconds, forKey: Self.longTaskThresholdKey)
+    }
+
+    /// 用户可能在系统设置里改过权限, 回到 App 时需要重新读取
+    func refreshAuthorizationStatus() {
+        authorizationTask?.cancel()
+        authorizationTask = Task { @MainActor [weak self] in
+            let status = await UNUserNotificationCenter.current()
+                .notificationSettings().authorizationStatus
+            guard let self, !Task.isCancelled else {
+                return
+            }
+
+            // 开关已开但用户从未回应过系统弹窗 (如开启后立即退出): 补一次请求, 避免静默丢通知
+            if status == .notDetermined, isEnabled {
+                requestAuthorization()
+                return
+            }
+
+            authorizationStatus = status
+        }
+    }
+
+    /// 引导用户到系统设置的 CodexBar 通知面板
+    func openSystemNotificationSettings() {
+        let candidates = [
+            Bundle.main.bundleIdentifier.flatMap {
+                URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\($0)")
+            },
+            URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")
+        ]
+        for url in candidates.compactMap(\.self) where NSWorkspace.shared.open(url) {
+            return
+        }
+    }
+
+    private func requestAuthorization() {
+        authorizationTask?.cancel()
+        authorizationTask = Task { @MainActor [weak self] in
+            _ = try? await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound])
+            let status = await UNUserNotificationCenter.current()
+                .notificationSettings().authorizationStatus
+            guard let self, !Task.isCancelled else {
+                return
+            }
+
+            authorizationStatus = status
+        }
+    }
+
+    private func setBool(_ value: Bool, current: inout Bool, key: String) {
+        guard value != current else {
+            return
+        }
+
+        current = value
+        defaults.set(value, forKey: key)
+    }
+
+    private static func bool(from defaults: UserDefaults, key: String, defaultValue: Bool) -> Bool {
+        guard defaults.object(forKey: key) != nil else {
+            return defaultValue
+        }
+
+        return defaults.bool(forKey: key)
+    }
+
+    private static func option(_ value: Int?, in options: [Int], defaultValue: Int) -> Int {
+        guard let value, options.contains(value) else {
+            return defaultValue
+        }
+
+        return value
+    }
+
+    private static let enabledKey = "Notification.enabled"
+    private static let lowQuotaEnabledKey = "Notification.lowQuotaEnabled"
+    private static let quotaResetEnabledKey = "Notification.quotaResetEnabled"
+    private static let longTaskEnabledKey = "Notification.longTaskEnabled"
+    private static let taskWaitingEnabledKey = "Notification.taskWaitingEnabled"
+    private static let creditExpiryEnabledKey = "Notification.creditExpiryEnabled"
+    private static let lowQuotaThresholdKey = "Notification.lowQuotaThresholdPercent"
+    private static let longTaskThresholdKey = "Notification.longTaskThresholdSeconds"
+}

@@ -101,7 +101,7 @@ Hook 数据目录:
 
 文件职责:
 
-- `events/YYYY-MM-DD.jsonl`: 按本机日期拆分的原始 Hook 事件日志
+- `events/YYYY-MM-DD.jsonl`: 按本机日期拆分的原始 Hook 事件日志；开启「系统通知」的任务完成或任务等待提醒后，主 App 会以只读方式轮询 tail 当日 events 文件的新增行，用 `UserPromptSubmit` / `Stop` 判定长任务完成、用 `PermissionRequest` 判定等待批准；该读取不修改文件、不参与统计维护，统计口径不变。
 - `daily.jsonl`: 每日聚合结果，UI 优先读取它
 - `stats.lock`: 并发写入锁文件，只用于 `flock`
 - `maintenance.json`: 记录待整理日期、需要重建日期和每个日期的处理进度
@@ -110,7 +110,7 @@ Hook 数据目录:
 
 ```json
 {
-    "schema": 2,
+    "schema": 3,
     "pending": ["2026-06-21"],
     "dirty": [],
     "days": {
@@ -180,7 +180,7 @@ CodexBar 不上传原始 `IOPlatformUUID`。同一台 Mac 在同一 iCloud 账�
 sessionIds, turnIds
 ```
 
-其余字段保持原值同步，包括 `projectCounts`。如果本地仍保留 `sessionIds` / `turnIds`，上传副本会把去重后的 `sessionIds.count` / `turnIds.count` 写入 `sessionCount` / `turnCount`，但不会上传 ID 本身；只有既没有压缩后的 count、也没有本地 ID 时，这两个字段才可能为 `null`。脱敏只发生在上传副本上，不会写回本地 `daily.jsonl`，因此最近 3 天本地仍保留 `sessionIds` / `turnIds` 用于本机精确去重。
+其余字段保持原值同步，包括 `projectCounts` 和 `modelCounts`。如果本地仍保留 `sessionIds` / `turnIds`，上传副本会把去重后的 `sessionIds.count` / `turnIds.count` 写入 `sessionCount` / `turnCount`，但不会上传 ID 本身；只有既没有压缩后的 count、也没有本地 ID 时，这两个字段才可能为 `null`。脱敏只发生在上传副本上，不会写回本地 `daily.jsonl`，因此最近 3 天本地仍保留 `sessionIds` / `turnIds` 用于本机精确去重。
 
 每台设备每天一条记录:
 
@@ -214,7 +214,7 @@ Hook 子进程不访问网络。主 App 在工作流统计维护刷新后对本�
 最终展示 = 本机 daily.jsonl + 同步缓存中的其他设备记录
 ```
 
-`cache.jsonl` 写入前必须过滤本机自己的 CloudKit 记录，否则本机会把本地 daily 和自己上传的云端副本重复相加。本机数据永远以本地 `daily.jsonl` 为准；同步缓存只补其他设备。热力图详情的 6 个工作流指标按每台设备各自 daily 口径先生成展示值，再按日期相加；`projectCounts` 按项目名逐项相加。
+`cache.jsonl` 写入前必须过滤本机自己的 CloudKit 记录，否则本机会把本地 daily 和自己上传的云端副本重复相加。本机数据永远以本地 `daily.jsonl` 为准；同步缓存只补其他设备。热力图详情的 6 个计数指标按每台设备各自 daily 口径先生成展示值，再按日期相加；`projectCounts` 和 `modelCounts` 分别按项目名、模型名逐项相加，最后从合并后的模型计数中选出「最热模型」。
 
 CloudKit 也按最近 210 天保留。每天第一次工作流刷新时，当前设备会删除 `deviceId == 本机 deviceId` 且早于保留窗口的 CloudKit 记录；其他设备记录不由本机清理。展示侧始终忽略最近 210 天外的缓存记录。
 
@@ -231,10 +231,10 @@ CloudKit 也按最近 210 天保留。每天第一次工作流刷新时，当前
 ```text
 date, eventCount, sessionStartCount, stopCount, preToolUseCount, postToolUseCount,
 permissionRequestCount, preCompactCount, postCompactCount, subagentStartCount,
-subagentStopCount, sessionCount, turnCount, projectCounts, sessionIds, turnIds
+subagentStopCount, sessionCount, turnCount, projectCounts, modelCounts, sessionIds, turnIds
 ```
 
-其中 `sessionIds` / `turnIds` / `sessionCount` / `turnCount` 没有值时写为 `null`，`projectCounts` 内部项目名按稳定顺序写出。
+其中 `sessionIds` / `turnIds` / `sessionCount` / `turnCount` 没有值时写为 `null`，`projectCounts` 和 `modelCounts` 内部键按稳定顺序写出。
 
 能参与统计的事件行必须至少满足:
 
@@ -253,6 +253,7 @@ subagentStopCount, sessionCount, turnCount, projectCounts, sessionIds, turnIds
 | 工具调用   | `event` 归一化为 `pretooluse` 的行会增加 `preToolUseCount`；归一化为 `posttooluse` 的行会增加 `postToolUseCount`。`tool` 可以是具体工具名，也可以是 `null`。   | `SessionStart` 这类非工具事件，即使 `tool` 是 `null` 或存在也不会计入；坏行。 | `max(preToolUseCount, postToolUseCount)`                               |
 | 权限请求   | `event` 归一化为 `permissionrequest` 的行。                                                                                                                    | `permission` 字段本身不会触发计数；只有事件名是 `PermissionRequest` 才计入。  | `permissionRequestCount`                                               |
 | 上下文压缩 | `event` 归一化为 `precompact` 或 `postcompact` 的行。                                                                                                          | 其他事件名；坏行。                                                            | `max(preCompactCount, postCompactCount)`                               |
+| 最热模型   | 任意带非空 `model` 的有效事件行。                                                                                                                              | `model` 为 `null` 或空字符串；坏行。                                          | 按模型名累计事件数，取最高值；并列时按模型名升序取第一个               |
 
 逐字段统计口径如下:
 
@@ -274,8 +275,9 @@ subagentStopCount, sessionCount, turnCount, projectCounts, sessionIds, turnIds
 | `sessionCount`           | `sessionIds`、旧 `sessionCount`、`sessionStartCount` | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有 `sessionCount`，否则使用 `sessionIds.count`，再否则使用 `sessionStartCount`，然后移除 `sessionIds`。这样旧日期不用继续保存完整 ID，也能保留会话总数。 | 参与「会话总数」。                                       |
 | `turnCount`              | `turnIds`、旧 `turnCount`、`stopCount`               | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有 `turnCount`，否则使用 `turnIds.count`，再否则使用 `stopCount`，然后移除 `turnIds`。这样旧日期不用继续保存完整 ID，也能保留轮次总数。                  | 参与「对话轮次」。                                       |
 | `projectCounts`          | `cwd`                                                | 任意事件行只要 `cwd` 非空，就取标准化路径的最后一层目录名作为项目名并 `+1`；如果最后一层为空，回退使用完整路径字符串。统计的是事件数，不是会话数或工具调用数。未知事件也会计入。                                          | 用于计算 `mostActiveProject`，当前页面不展示。           |
+| `modelCounts`            | `model`                                              | 任意事件行只要 `model` 非空，就按原始模型名 `+1`。统计的是带模型字段的事件数，不是 token 数；未知事件也会计入。                                                                                                          | 合并后用于计算并展示「最热模型」。                       |
 
-读取旧 `daily.jsonl` 时，缺失的数字字段按 `0` 处理，缺失的 `projectCounts` 按空字典处理，缺失的 `sessionIds` / `turnIds` / `sessionCount` / `turnCount` 保持为 `nil`。后续归一化会按当前保留策略补齐或压缩这些字段。
+读取旧 `daily.jsonl` 时，缺失的数字字段按 `0` 处理，缺失的 `projectCounts` / `modelCounts` 按空字典处理，缺失的 `sessionIds` / `turnIds` / `sessionCount` / `turnCount` 保持为 `nil`。维护 schema 升级到 `3` 后会把保留窗口内已有事件日期标记为 dirty，从原始事件重建模型计数；后续归一化仍按当前保留策略补齐或压缩 ID 字段。
 
 UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyMetrics`:
 
@@ -287,8 +289,9 @@ UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyMetrics`:
 | 工具调用   | `max(preToolUseCount, postToolUseCount)`                |
 | 权限请求   | `permissionRequestCount`                                |
 | 上下文压缩 | `max(preCompactCount, postCompactCount)`                |
+| 最热模型   | 合并 `modelCounts` 后取计数最高的模型；并列时按名称升序 |
 
-`mostActiveProject` 和 `eventCount` 会进入 `WorkflowDailyMetrics`，但当前页面没有展示。`UserPromptSubmit` 和未知事件不会增加上述 6 个页面指标，只会进入 `eventCount`，有 `cwd` 时也会进入 `projectCounts`。
+`eventCount` 和 `projectCounts` 保留在 daily 聚合中，但当前页面不展示。`UserPromptSubmit` 和未知事件不会增加上述 6 个计数指标，只会进入 `eventCount`；有 `cwd` 时进入 `projectCounts`，有 `model` 时进入 `modelCounts`。
 
 ## UI 展示
 
@@ -324,8 +327,8 @@ Codex Hook 开启时:
 - 没有当天 token bucket 时, 今天的 token 数显示为 `--`
 - 详情面板首行左侧显示日期、右侧显示 token 数
 - 第二行显示「用量强度」分段条
-- 后续逐行显示「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」
-- 详情面板固定为 `212 x 189`
+- 后续逐行显示「最热模型」、「会话总数」、「对话轮次」、「子智能体」、「工具调用」、「权限请求」、「上下文压缩」
+- 详情面板固定为 `212 x 208`
 - 详情面板横向 padding 为 `12`, 纵向 padding 为 `10`, 圆角为 `12`
 - 日期使用 `.caption2.monospacedDigit()`, token 数使用 `14pt` 等宽数字并加粗
 - 工作流统计行整体使用 `11pt`; 左侧标签固定宽度 `72`, 标签和值之间 spacing 为 `6`

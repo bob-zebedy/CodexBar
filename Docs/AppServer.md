@@ -13,8 +13,8 @@ codex app-server --listen stdio://
 必须通过 `CodexCLIResolver.resolveAppServerCommand()` 解析:
 
 - 优先 PATH 中的全局 `codex`。
-- 如果 PATH 中的 `codex` 等价于 `/Applications/Codex.app/Contents/Resources/codex`，当作内置 Codex APP CLI，不当作全局 CLI。
-- 全局 CLI 不存在时回退 Codex APP 内置 CLI。
+- 如果 PATH 中的 `codex` 等价于 APP 内置路径，当作内置 CLI，不当作全局 CLI。
+- 全局 CLI 不存在时依次检查 `/Applications/ChatGPT.app/Contents/Resources/codex` 和 `/Applications/Codex.app/Contents/Resources/codex`。
 - 两者都不存在时返回 `CodexStatusError.executableNotFound`，UI 归为「初始化失败」，日志记录具体错误。
 
 不要绕过 `CodexCLIResolver` 直接启动 app-server。

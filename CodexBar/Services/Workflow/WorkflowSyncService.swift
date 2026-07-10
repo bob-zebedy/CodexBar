@@ -133,7 +133,7 @@ private extension WorkflowSyncService {
     typealias UploadedHash = (date: String, hash: String)
 
     enum Metrics {
-        static let syncSchemaVersion = 1
+        static let syncSchemaVersion = 2
         static let syncZoneName = "CodexBarZone"
         static let saltByteCount = 32
         static let recordFetchLimit = 200
@@ -165,6 +165,7 @@ private extension WorkflowSyncService {
         static let sessionCount = "sessionCount"
         static let turnCount = "turnCount"
         static let projectCounts = "projectCounts"
+        static let modelCounts = "modelCounts"
         static let updatedAt = "updatedAt"
     }
 
@@ -617,7 +618,8 @@ private extension WorkflowSyncService {
         record[FieldKeys.subagentStopCount] = aggregate.subagentStopCount as CKRecordValue
         record[FieldKeys.sessionCount] = aggregate.sessionCount as CKRecordValue?
         record[FieldKeys.turnCount] = aggregate.turnCount as CKRecordValue?
-        record[FieldKeys.projectCounts] = Self.projectCountsData(aggregate.projectCounts) as CKRecordValue
+        record[FieldKeys.projectCounts] = Self.countsData(aggregate.projectCounts) as CKRecordValue
+        record[FieldKeys.modelCounts] = Self.countsData(aggregate.modelCounts ?? [:]) as CKRecordValue
         record[FieldKeys.updatedAt] = Date() as CKRecordValue
     }
 
@@ -784,7 +786,8 @@ private extension WorkflowSyncService {
             subagentStopCount: intValue(record[FieldKeys.subagentStopCount]),
             sessionCount: optionalIntValue(record[FieldKeys.sessionCount]),
             turnCount: optionalIntValue(record[FieldKeys.turnCount]),
-            projectCounts: projectCounts(from: record[FieldKeys.projectCounts])
+            projectCounts: counts(from: record[FieldKeys.projectCounts]),
+            modelCounts: counts(from: record[FieldKeys.modelCounts])
         )
 
         return WorkflowSyncedDailyRecord(
@@ -853,7 +856,7 @@ private extension WorkflowSyncService {
         return nil
     }
 
-    static func projectCounts(from value: CKRecordValue?) -> [String: Int] {
+    static func counts(from value: CKRecordValue?) -> [String: Int] {
         guard let data = value as? Data,
               let counts = try? JSONDecoder().decode([String: Int].self, from: data) else {
             return [:]
@@ -861,7 +864,7 @@ private extension WorkflowSyncService {
         return counts
     }
 
-    static func projectCountsData(_ counts: [String: Int]) -> Data {
+    static func countsData(_ counts: [String: Int]) -> Data {
         (try? JSONLines.stableEncoder.encode(counts)) ?? Data("{}".utf8)
     }
 
@@ -912,7 +915,7 @@ nonisolated struct WorkflowSyncSnapshot: Equatable {
 }
 
 private nonisolated struct WorkflowSyncState: Codable, Equatable {
-    static let currentSchema = 1
+    static let currentSchema = 2
 
     var schema: Int
     var deviceId: String?

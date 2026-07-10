@@ -8,7 +8,7 @@
 
 - `daily.jsonl` 中每一天的工作流统计聚合副本
 - 会话总数、对话轮次、子智能体、工具调用、权限请求、上下文压缩等计数字段
-- `eventCount` 和 `projectCounts`
+- `eventCount`、`projectCounts` 和 `modelCounts`
 
 不会同步:
 
@@ -65,7 +65,7 @@ Sync/cursor.data
 
 ```json
 {
-    "schema": 1,
+    "schema": 2,
     "deviceId": "<当前设备在当前 iCloud 账号下的匿名设备 ID>",
     "hashByDate": {
         "2026-06-25": "<脱敏 daily 聚合的 SHA256>"
@@ -121,10 +121,13 @@ fields:
   sessionCount: Int?
   turnCount: Int?
   projectCounts: Data(JSON object)
+  modelCounts: Data(JSON object)
   updatedAt: Date
 ```
 
 `projectCounts` 会保留本机聚合中的项目显示名。项目显示名通常是 `cwd` 的最后一层目录名；如果路径最后一层为空，代码会回退到完整路径字符串。
+
+`modelCounts` 会保留 Hook 事件中的模型名及其当天事件计数，用于跨设备合并后计算热力图详情的「最热模型」；不会包含 prompt、response 或原始事件内容。
 
 ## 设备标识
 
@@ -140,7 +143,7 @@ deviceId = HMAC_SHA256(accountSalt, IOPlatformUUID)
 - 同一台 Mac 切换 iCloud 账号后会得到不同的 `deviceId`
 - CloudKit 中不会保存原始 `IOPlatformUUID`
 
-如果本地 `state.json` 的 `schema` 和当前代码不一致，服务会丢弃旧同步状态。下一轮同步会按当前设备重新写入 `state.json`，清空旧 `cache.jsonl` / `cursor.data`，再从 `CodexBarZone` 重建缓存。当前调试阶段 iCloud sync state schema 保持为 `1`。
+如果本地 `state.json` 的 `schema` 和当前代码不一致，服务会丢弃旧同步状态。下一轮同步会按当前设备重新写入 `state.json`，清空旧 `cache.jsonl` / `cursor.data`，再从 `CodexBarZone` 重建缓存。当前 iCloud sync state schema 为 `2`。
 
 如果本地 `state.json` 中的 `deviceId` 和当前解析出的 `deviceId` 不一致，说明 iCloud 账号或账号级 salt 已变化。此时同步服务会重置本地同步状态，清空 `cache.jsonl`，并删除 `cursor.data`，然后按新账号重新同步。
 
@@ -270,6 +273,7 @@ CodexBar.workflowSyncDidFinish
 
 - 保留各类计数字段
 - 保留 `projectCounts`
+- 保留 `modelCounts`
 - 不包含 `sessionIds`
 - 不包含 `turnIds`
 - 如果本机还有 `sessionIds`，会把去重数量写入 `sessionCount`

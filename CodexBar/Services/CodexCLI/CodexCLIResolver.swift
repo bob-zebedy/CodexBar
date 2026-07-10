@@ -57,7 +57,10 @@ nonisolated struct CodexCLIInstallations: Equatable {
 
 /// 解析真实用户环境下的 Codex 可执行文件, 避免使用 Xcode/container 的 HOME
 nonisolated enum CodexCLIResolver {
-    static let bundledExecutablePath = "/Applications/Codex.app/Contents/Resources/codex"
+    static let bundledExecutablePaths = [
+        "/Applications/ChatGPT.app/Contents/Resources/codex",
+        "/Applications/Codex.app/Contents/Resources/codex"
+    ]
     static let environment = appServerEnvironment()
 
     static func resolveAppServerCommand(environment: [String: String] = environment) throws -> AppServerCommand {
@@ -96,13 +99,13 @@ nonisolated enum CodexCLIResolver {
 
     static func resolveInstallations(environment: [String: String] = environment) -> CodexCLIInstallations {
         let cliPath = findExecutable(named: "codex", environment: environment)
-        let cliIsBundled = cliPath.map { pathsAreEquivalent($0, bundledExecutablePath) } ?? false
+        let cliIsBundled = cliPath.map { path in
+            bundledExecutablePaths.contains { pathsAreEquivalent(path, $0) }
+        } ?? false
 
-        let bundledPath: String? = if FileManager.default.isExecutableFile(atPath: bundledExecutablePath) {
-            bundledExecutablePath
-        } else {
-            cliIsBundled ? cliPath : nil
-        }
+        let bundledPath = bundledExecutablePaths.first {
+            FileManager.default.isExecutableFile(atPath: $0)
+        } ?? (cliIsBundled ? cliPath : nil)
 
         return CodexCLIInstallations(
             globalPath: cliIsBundled ? nil : cliPath,

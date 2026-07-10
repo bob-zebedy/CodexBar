@@ -10,7 +10,12 @@ final class SettingsWindowController: HostingWindowController {
     private let syncSettings: WorkflowSyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
     private let menuBarQuotaSettings: MenuBarQuotaSettings
+    private let notificationSettings: NotificationSettings
     private let onSyncChanged: (Bool) -> Void
+    private lazy var notificationOptionsPanelController = NotificationOptionsPanelController(
+        notificationSettings: notificationSettings,
+        codexHookSettings: codexHookSettings
+    )
 
     init(
         viewModel: CodexStatusViewModel,
@@ -19,6 +24,7 @@ final class SettingsWindowController: HostingWindowController {
         syncSettings: WorkflowSyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
         menuBarQuotaSettings: MenuBarQuotaSettings,
+        notificationSettings: NotificationSettings,
         screenProvider: @escaping () -> NSScreen?,
         onSyncChanged: @escaping (Bool) -> Void
     ) {
@@ -28,6 +34,7 @@ final class SettingsWindowController: HostingWindowController {
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
         self.menuBarQuotaSettings = menuBarQuotaSettings
+        self.notificationSettings = notificationSettings
         self.onSyncChanged = onSyncChanged
         super.init(screenProvider: screenProvider)
     }
@@ -44,7 +51,11 @@ final class SettingsWindowController: HostingWindowController {
                 syncSettings: syncSettings,
                 globalHotKeySettings: globalHotKeySettings,
                 menuBarQuotaSettings: menuBarQuotaSettings,
-                onSyncChanged: onSyncChanged
+                notificationSettings: notificationSettings,
+                onSyncChanged: onSyncChanged,
+                onNotificationOptionsAction: { [weak self] action in
+                    self?.handleNotificationOptionsAction(action)
+                }
             )
             .environmentObject(viewModel)
             .environmentObject(appUpdater)
@@ -80,6 +91,25 @@ final class SettingsWindowController: HostingWindowController {
         codexHookSettings.verifyInstalledHooks()
         syncSettings.refresh()
         menuBarQuotaSettings.refresh()
+    }
+
+    private func handleNotificationOptionsAction(_ action: NotificationOptionsPanelAction) {
+        switch action {
+        case let .toggle(alignmentFrame):
+            notificationOptionsPanelController.toggle(
+                alignmentScreenFrame: alignmentFrame,
+                relativeTo: window,
+                contentView: window?.contentViewController?.view
+            )
+        case let .open(alignmentFrame):
+            notificationOptionsPanelController.show(
+                alignmentScreenFrame: alignmentFrame,
+                relativeTo: window,
+                contentView: window?.contentViewController?.view
+            )
+        case .close:
+            notificationOptionsPanelController.hide()
+        }
     }
 
     private func maximumContentSize(for window: NSWindow) -> NSSize {

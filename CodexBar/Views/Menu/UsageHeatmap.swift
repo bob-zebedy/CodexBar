@@ -538,6 +538,7 @@ struct UsageHeatmapDayDetailView: View {
 
             VStack(alignment: .leading, spacing: Metrics.metricSpacing) {
                 tokenIntensityMetricRow
+                mostUsedModelMetricRow
 
                 ForEach(workflowMetricRows) { row in
                     metricRow(row)
@@ -580,6 +581,17 @@ struct UsageHeatmapDayDetailView: View {
             tokenIntensityStrip
                 .frame(width: Metrics.tokenIntensityStripWidth)
                 .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    private var mostUsedModelMetricRow: some View {
+        metricRowLayout {
+            metricDot(tint: .cyan)
+            Text("最热模型")
+                .foregroundStyle(.secondary)
+                .frame(width: Metrics.metricLabelWidth, alignment: .leading)
+
+            fittingModelValue(context.day.workflow.mostUsedModel ?? "--")
         }
     }
 
@@ -687,6 +699,19 @@ struct UsageHeatmapDayDetailView: View {
     }
 
     private func fittingMetricValue(_ value: String, comparison: Double) -> some View {
+        fittingValueContent(value)
+            .numericRollTransition(value: comparison)
+            .layoutPriority(1)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func fittingModelValue(_ value: String) -> some View {
+        fittingValueContent(value)
+            .layoutPriority(1)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func fittingValueContent(_ value: String) -> some View {
         ViewThatFits(in: .horizontal) {
             metricValueText(value)
                 .fixedSize(horizontal: true, vertical: false)
@@ -695,9 +720,6 @@ struct UsageHeatmapDayDetailView: View {
                 .minimumScaleFactor(Metrics.metricValueMinimumScale)
                 .allowsTightening(true)
         }
-        .numericRollTransition(value: comparison)
-        .layoutPriority(1)
-        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     private func metricValueText(_ value: String) -> some View {
@@ -720,7 +742,7 @@ struct UsageHeatmapDayDetailView: View {
 
     private enum Metrics {
         static let workflowPanelWidth: CGFloat = 212
-        static let workflowPanelHeight: CGFloat = 189
+        static let workflowPanelHeight: CGFloat = 208
         static let tokenPanelWidth: CGFloat = 212
         static let tokenPanelHeight: CGFloat = 84
         static let sectionSpacing: CGFloat = 8

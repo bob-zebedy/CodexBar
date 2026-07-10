@@ -13,6 +13,18 @@ final class NonactivatingSidePanel: NSPanel {
     }
 }
 
+/// 可获得键盘焦点的无边框面板, 用于含交互控件的子面板和 fallback 面板
+@MainActor
+final class KeyableBorderlessPanel: NSPanel {
+    override var canBecomeKey: Bool {
+        true
+    }
+
+    override var canBecomeMain: Bool {
+        false
+    }
+}
+
 @MainActor
 final class SidePanelDrawerAnimator {
     private let contentViewProvider: @MainActor () -> NSView?
@@ -129,24 +141,145 @@ final class SidePanelDrawerAnimator {
     }
 }
 
+/// 重置次数 / 通知子选项两类「一次性展开」抽屉面板共用的显隐状态机:
+/// 负责 generation 竞态防护、入退场动画和 child window 挂载/卸载
+/// (热力图详情面板因带切边与延迟隐藏, 状态机不同, 不走这里)
+@MainActor
+final class SidePanelDrawerPresenter {
+    private let makesKey: Bool
+    private let drawerAnimator: SidePanelDrawerAnimator
+    private weak var panel: NSPanel?
+    private var visibilityGeneration = 0
+    private var isExitAnimationRunning = false
+    private var currentSide = UsageHeatmapDetailSide.right
+    private weak var parentWindow: NSWindow?
+
+    init(
+        animationKey: String,
+        makesKey: Bool = false,
+        contentViewProvider: @escaping @MainActor () -> NSView?
+    ) {
+        self.makesKey = makesKey
+        drawerAnimator = SidePanelDrawerAnimator(
+            contentViewProvider: contentViewProvider,
+            animationKey: animationKey,
+            overscan: SidePanelSupport.Metrics.drawerOverscan
+        )
+    }
+
+    var isVisible: Bool {
+        panel?.isVisible == true
+    }
+
+    /// 内容更新由调用方在 present 之前完成
+    func present(_ panel: NSPanel, at position: SidePanelPosition, relativeTo parentWindow: NSWindow) {
+        self.panel = panel
+        visibilityGeneration += 1
+        isExitAnimationRunning = false
+        panel.setFrame(position.frame, display: true)
+        panel.alphaValue = 1
+        currentSide = position.side
+
+        let generation = visibilityGeneration
+        let hidden = drawerAnimator.hiddenTranslation(for: currentSide, panelWidth: panel.frame.width)
+        drawerAnimator.setTranslation(hidden)
+        panel.alphaValue = 0
+        self.parentWindow = parentWindow
+        SidePanelSupport.attach(panel, to: parentWindow)
+        panel.order(.above, relativeTo: parentWindow.windowNumber)
+        if makesKey {
+            panel.makeKey()
+        }
+        drawerAnimator.animateEntryAfterInitialLayout(
+            from: hidden,
+            panel: panel,
+            duration: SidePanelSupport.Metrics.drawerEnterDuration,
+            isCurrent: { [weak self] in
+                self?.visibilityGeneration == generation
+            },
+            completion: { [weak self] in
+                self?.drawerAnimator.setTranslation(0)
+            }
+        )
+    }
+
+    func hide(immediate: Bool = false) {
+        guard let panel, panel.isVisible else {
+            return
+        }
+
+        if immediate {
+            visibilityGeneration += 1
+            drawerAnimator.resetVisualState(for: panel)
+            isExitAnimationRunning = false
+            orderOut(panel)
+            return
+        }
+
+        guard !isExitAnimationRunning else {
+            return
+        }
+
+        visibilityGeneration += 1
+        let generation = visibilityGeneration
+        let side = currentSide
+        isExitAnimationRunning = true
+        let hidden = drawerAnimator.hiddenTranslation(for: side, panelWidth: panel.frame.width)
+        drawerAnimator.animateTranslation(
+            to: hidden,
+            duration: SidePanelSupport.Metrics.drawerExitDuration,
+            timing: .easeIn
+        ) {
+            Task { @MainActor [weak self] in
+                guard let self,
+                      generation == visibilityGeneration else {
+                    return
+                }
+
+                orderOut(panel)
+                drawerAnimator.setTranslation(0)
+                isExitAnimationRunning = false
+            }
+        }
+    }
+
+    private func orderOut(_ panel: NSPanel) {
+        SidePanelSupport.orderOut(panel, menuSurfaceWindow: parentWindow)
+    }
+}
+
 @MainActor
 enum SidePanelSupport {
-    /// 两个侧边详情面板共用的几何与抽屉动画常量
+    /// 侧边面板共用的几何与抽屉动画常量
     enum Metrics {
         static let panelGap: CGFloat = 4
         static let screenPadding: CGFloat = 8
         static let drawerEnterDuration: TimeInterval = 0.18
         static let drawerExitDuration: TimeInterval = 0.12
         static let drawerOverscan: CGFloat = 1
+        static let anchorValidationTolerance: CGFloat = 6
     }
 
-    static func makePanel(initialSize: CGSize, ignoresMouseEvents: Bool) -> NSPanel {
-        let panel = NonactivatingSidePanel(
-            contentRect: NSRect(origin: .zero, size: initialSize),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
+    /// keyable 决定面板能否成为 key window: 交互面板需要焦点, 详情面板保持 nonactivating
+    static func makePanel(
+        initialSize: CGSize,
+        ignoresMouseEvents: Bool,
+        keyable: Bool = false
+    ) -> NSPanel {
+        let contentRect = NSRect(origin: .zero, size: initialSize)
+        let panel: NSPanel = keyable
+            ? KeyableBorderlessPanel(
+                contentRect: contentRect,
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            : NonactivatingSidePanel(
+                contentRect: contentRect,
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered,
+                defer: false
+            )
         panel.backgroundColor = .clear
         panel.collectionBehavior = [.transient, .canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hasShadow = true
@@ -245,6 +378,42 @@ enum SidePanelSupport {
                 configureLayer(for: frameView, cornerRadius: cornerRadius)
             }
         }
+    }
+
+    /// 面板顶边对齐锚点行顶边, 锚点无效时回退宿主内容区垂直居中
+    static func alignedProposedY(
+        panelSize: CGSize,
+        menuSurfaceFrame: CGRect,
+        alignmentScreenFrame: CGRect?
+    ) -> CGFloat {
+        guard let alignmentScreenFrame else {
+            return menuSurfaceFrame.midY - panelSize.height / 2
+        }
+
+        return alignmentScreenFrame.maxY - panelSize.height
+    }
+
+    /// 锚点必须落在宿主内容区容差范围内才可信, 否则丢弃并走回退定位
+    static func validatedAlignmentScreenFrame(
+        _ alignmentScreenFrame: CGRect?,
+        menuSurfaceFrame: CGRect
+    ) -> CGRect? {
+        guard let alignmentScreenFrame = alignmentScreenFrame?.standardized,
+              alignmentScreenFrame.isValidScreenRect else {
+            return nil
+        }
+
+        let validationFrame = menuSurfaceFrame
+            .standardized
+            .insetBy(
+                dx: -Metrics.anchorValidationTolerance,
+                dy: -Metrics.anchorValidationTolerance
+            )
+        guard validationFrame.intersects(alignmentScreenFrame) else {
+            return nil
+        }
+
+        return alignmentScreenFrame
     }
 
     static func contentScreenFrame(for contentView: NSView?, in window: NSWindow) -> CGRect? {

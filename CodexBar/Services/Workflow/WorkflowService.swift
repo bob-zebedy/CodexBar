@@ -691,7 +691,7 @@ nonisolated struct WorkflowDayMaintenanceState: Codable, Equatable {
 
 /// maintenance.json 的全局状态, pending 表示可增量, dirty 表示需全量重建
 nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
-    static let currentSchema = 2
+    static let currentSchema = 3
 
     var schema: Int
     var pending: [String]

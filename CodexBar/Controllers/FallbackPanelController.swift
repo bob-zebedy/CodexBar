@@ -5,7 +5,7 @@ import SwiftUI
 @MainActor
 final class FallbackPanelController {
     private let makeContentController: () -> NSHostingController<AnyView>
-    private var panel: FallbackStatusPanel?
+    private var panel: KeyableBorderlessPanel?
 
     init(makeContentController: @escaping () -> NSHostingController<AnyView>) {
         self.makeContentController = makeContentController
@@ -43,12 +43,12 @@ final class FallbackPanelController {
         panel?.orderOut(nil)
     }
 
-    private func makePanelIfNeeded() -> FallbackStatusPanel {
+    private func makePanelIfNeeded() -> KeyableBorderlessPanel {
         if let panel {
             return panel
         }
 
-        let panel = FallbackStatusPanel(
+        let panel = KeyableBorderlessPanel(
             contentRect: NSRect(origin: .zero, size: Metrics.fallbackSize),
             styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
@@ -107,15 +107,5 @@ final class FallbackPanelController {
             height: 420
         )
         static let topInset: CGFloat = 8
-    }
-}
-
-private final class FallbackStatusPanel: NSPanel {
-    override var canBecomeKey: Bool {
-        true
-    }
-
-    override var canBecomeMain: Bool {
-        false
     }
 }
