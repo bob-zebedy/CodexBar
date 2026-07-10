@@ -163,10 +163,11 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
     }
 
-    /// tint 为 nil 时使用模板渲染，由系统按菜单栏外观着色。
+    /// 无状态点和额度条时使用模板渲染，由系统按菜单栏外观着色。
     private static func makeStatusImage(
         _ symbolName: String,
-        tint: NSColor?,
+        indicatorTint: NSColor? = nil,
+        indicatorVisibility: CGFloat = 1,
         progress: StatusIconProgress? = nil,
         progressVisibility: CGFloat = 1
     ) -> NSImage? {
@@ -174,23 +175,29 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             return nil
         }
 
-        let resolvedProgressVisibility = clampedProgressVisibility(progressVisibility)
+        let usesTemplateRendering = indicatorTint == nil && progress == nil
         let statusImage = NSImage(size: Metrics.progressStatusImageSize, flipped: false) { _ in
             Self.drawStatusSymbol(
                 symbolImage,
                 in: Metrics.progressStatusSymbolRect,
-                tint: tint ?? .black,
+                tint: usesTemplateRendering ? .black : .labelColor,
                 alpha: progress?.isStale == true ? Metrics.staleIconAlpha : 1
             )
             if let progress {
                 Self.drawProgress(
                     progress,
-                    visibility: resolvedProgressVisibility
+                    visibility: progressVisibility
+                )
+            }
+            if let indicatorTint {
+                Self.drawStatusIndicator(
+                    tint: indicatorTint,
+                    visibility: indicatorVisibility
                 )
             }
             return true
         }
-        statusImage.isTemplate = tint == nil
+        statusImage.isTemplate = usesTemplateRendering
         statusImage.alignmentRect = Self.statusImageAlignmentRect(for: symbolImage)
         return statusImage
     }
@@ -223,6 +230,19 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         NSGraphicsContext.restoreGraphicsState()
     }
 
+    private static func drawStatusIndicator(
+        tint: NSColor,
+        visibility: CGFloat
+    ) {
+        let visibility = clampedVisibility(visibility)
+        guard visibility > 0 else {
+            return
+        }
+
+        tint.withAlphaComponent(visibility).setFill()
+        NSBezierPath(ovalIn: Metrics.statusIndicatorRect).fill()
+    }
+
     private static func statusImageAlignmentRect(for symbolImage: NSImage) -> NSRect {
         NSRect(
             x: 0,
@@ -236,7 +256,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         _ progress: StatusIconProgress,
         visibility: CGFloat
     ) {
-        let visibility = clampedProgressVisibility(visibility)
+        let visibility = clampedVisibility(visibility)
         guard visibility > 0 else {
             return
         }
@@ -276,12 +296,12 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         .fill()
     }
 
-    private static func clampedProgressVisibility(_ value: CGFloat) -> CGFloat {
+    private static func clampedVisibility(_ value: CGFloat) -> CGFloat {
         min(max(value, 0), 1)
     }
 
-    private static func easedProgressVisibility(_ value: CGFloat) -> CGFloat {
-        let value = clampedProgressVisibility(value)
+    private static func easedVisibility(_ value: CGFloat) -> CGFloat {
+        let value = clampedVisibility(value)
         return value * value * (3 - 2 * value)
     }
 
@@ -294,31 +314,22 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             usesErrorImage ? Metrics.errorStatusSymbolName : Metrics.normalStatusSymbolName
         }
 
-        var tint: StatusIconTint {
-            guard !usesErrorImage else {
-                return .red
-            }
-
+        var indicator: ActivityIndicator? {
             switch activity.primaryActivity {
             case .waiting:
-                return .orange
+                .waiting
             case .running:
-                return .blue
+                .running
             case .completed(_, highlighted: true):
-                return .green
+                .completed
             case .completed, .idle:
-                return .label
+                nil
             }
-        }
-
-        /// nil 表示模板渲染，由系统按菜单栏外观着色。
-        var renderTint: NSColor? {
-            tint == .label && progress == nil ? nil : tint.color
         }
 
         /// 只包含影响图像像素的字段；tooltip 文本变化不应触发重绘。
         var renderState: StatusIconRenderState {
-            StatusIconRenderState(symbolName: symbolName, tint: tint, progress: progress)
+            StatusIconRenderState(symbolName: symbolName, indicator: indicator, progress: progress)
         }
 
         var hasLiveDuration: Bool {
@@ -382,24 +393,20 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     /// 状态图标中影响像素的渲染子状态，用于跳过 tooltip-only 变化引发的重绘。
     private struct StatusIconRenderState: Equatable {
         let symbolName: String
-        let tint: StatusIconTint
+        let indicator: ActivityIndicator?
         let progress: StatusIconProgress?
     }
 
-    private enum StatusIconTint: Equatable {
-        case label
-        case blue
-        case orange
-        case green
-        case red
+    private enum ActivityIndicator: Equatable {
+        case waiting
+        case running
+        case completed
 
         var color: NSColor {
             switch self {
-            case .label: .labelColor
-            case .blue: .systemBlue
-            case .orange: .systemOrange
-            case .green: .systemGreen
-            case .red: .systemRed
+            case .waiting: .systemOrange
+            case .running: .systemBlue
+            case .completed: .systemGreen
             }
         }
     }
@@ -637,7 +644,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         statusIconAnimationTask?.cancel()
 
         let progressVisibilityChanged = (previousState.progress == nil) != (state.progress == nil)
-        if previousState.tint != state.tint || progressVisibilityChanged {
+        if previousState.indicator != state.indicator || progressVisibilityChanged {
             animateStatusImage(from: previousState, to: state)
             return
         }
@@ -648,41 +655,47 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private func renderStatusImage(_ state: StatusIconState) {
         statusItem.button?.image = Self.makeStatusImage(
             state.symbolName,
-            tint: state.renderTint,
+            indicatorTint: state.indicator?.color,
             progress: state.progress
         )
     }
 
     private func animateStatusImage(from previousState: StatusIconState, to finalState: StatusIconState) {
         let renderedProgress = finalState.progress ?? previousState.progress
-        let fromVisibility: CGFloat = previousState.progress == nil ? 0 : 1
-        let toVisibility: CGFloat = finalState.progress == nil ? 0 : 1
+        let fromProgressVisibility: CGFloat = previousState.progress == nil ? 0 : 1
+        let toProgressVisibility: CGFloat = finalState.progress == nil ? 0 : 1
+        let fromIndicatorVisibility: CGFloat = previousState.indicator == nil ? 0 : 1
+        let toIndicatorVisibility: CGFloat = finalState.indicator == nil ? 0 : 1
 
         statusIconAnimationTask = Task { @MainActor [weak self] in
-            for frame in 0 ... Metrics.statusIconProgressAnimationFrameCount {
+            for frame in 0 ... Metrics.statusIconAnimationFrameCount {
                 guard let self,
                       !Task.isCancelled,
                       statusIconState?.renderState == finalState.renderState else {
                     return
                 }
 
-                let rawProgress = CGFloat(frame) / CGFloat(Metrics.statusIconProgressAnimationFrameCount)
-                let easedProgress = Self.easedProgressVisibility(rawProgress)
-                let visibility = fromVisibility + (toVisibility - fromVisibility) * easedProgress
+                let rawProgress = CGFloat(frame) / CGFloat(Metrics.statusIconAnimationFrameCount)
+                let easedProgress = Self.easedVisibility(rawProgress)
+                let progressVisibility = fromProgressVisibility
+                    + (toProgressVisibility - fromProgressVisibility) * easedProgress
+                let indicatorVisibility = fromIndicatorVisibility
+                    + (toIndicatorVisibility - fromIndicatorVisibility) * easedProgress
                 statusItem.button?.image = Self.makeStatusImage(
                     finalState.symbolName,
-                    tint: Self.interpolatedStatusTint(
-                        from: previousState.tint.color,
-                        to: finalState.tint.color,
+                    indicatorTint: Self.interpolatedIndicatorTint(
+                        from: previousState.indicator,
+                        to: finalState.indicator,
                         progress: easedProgress
                     ),
+                    indicatorVisibility: indicatorVisibility,
                     progress: renderedProgress,
-                    progressVisibility: visibility
+                    progressVisibility: progressVisibility
                 )
 
-                if frame < Metrics.statusIconProgressAnimationFrameCount {
+                if frame < Metrics.statusIconAnimationFrameCount {
                     try? await Task.sleep(
-                        nanoseconds: Metrics.statusIconProgressAnimationFrameDelayNanoseconds
+                        nanoseconds: Metrics.statusIconAnimationFrameDelayNanoseconds
                     )
                 }
             }
@@ -719,14 +732,21 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    private static func interpolatedStatusTint(
-        from source: NSColor,
-        to destination: NSColor,
+    private static func interpolatedIndicatorTint(
+        from source: ActivityIndicator?,
+        to destination: ActivityIndicator?,
         progress: CGFloat
-    ) -> NSColor {
-        let progress = clampedProgressVisibility(progress)
-        return source.blended(withFraction: progress, of: destination)
-            ?? (progress < 0.5 ? source : destination)
+    ) -> NSColor? {
+        switch (source, destination) {
+        case let (source?, destination?):
+            let progress = clampedVisibility(progress)
+            return source.color.blended(withFraction: progress, of: destination.color)
+                ?? (progress < 0.5 ? source.color : destination.color)
+        case let (indicator?, nil), let (nil, indicator?):
+            return indicator.color
+        case (nil, nil):
+            return nil
+        }
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -1224,13 +1244,14 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         )
         static let progressTrackCornerRadius: CGFloat = 1
         static let progressTrackAlpha: CGFloat = 0.34
+        static let statusIndicatorRect = NSRect(x: 21.5, y: 1, width: 5, height: 5)
         static let staleIconAlpha: CGFloat = 0.75
         static let staleProgressAlpha: CGFloat = 0.55
-        static let statusIconProgressAnimationDuration: TimeInterval = 0.18
-        static let statusIconProgressAnimationFrameCount = 10
-        static let statusIconProgressAnimationFrameDelayNanoseconds = UInt64(
-            statusIconProgressAnimationDuration
-                / Double(statusIconProgressAnimationFrameCount)
+        static let statusIconAnimationDuration: TimeInterval = 0.18
+        static let statusIconAnimationFrameCount = 10
+        static let statusIconAnimationFrameDelayNanoseconds = UInt64(
+            statusIconAnimationDuration
+                / Double(statusIconAnimationFrameCount)
                 * 1000000000
         )
     }

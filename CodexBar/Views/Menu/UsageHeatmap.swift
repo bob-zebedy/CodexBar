@@ -627,7 +627,7 @@ struct UsageHeatmapDayDetailView: View {
             WorkflowMetricRow(label: "会话总数", value: context.day.workflow.sessionCount, tint: .green),
             WorkflowMetricRow(label: "对话轮次", value: context.day.workflow.turnCount, tint: .teal),
             WorkflowMetricRow(label: "子智能体", value: context.day.workflow.subagentCount, tint: .indigo),
-            WorkflowMetricRow(label: "工具调用", value: context.day.workflow.toolCallCount, tint: .orange),
+            WorkflowMetricRow(label: "调用工具", value: context.day.workflow.toolCallCount, tint: .orange),
             WorkflowMetricRow(label: "权限请求", value: context.day.workflow.permissionRequestCount, tint: .red),
             WorkflowMetricRow(label: "上下文压缩", value: context.day.workflow.contextCompactionCount, tint: .purple)
         ]

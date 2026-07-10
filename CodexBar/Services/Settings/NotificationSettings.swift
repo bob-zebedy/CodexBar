@@ -3,8 +3,8 @@ import Combine
 import Foundation
 import UserNotifications
 
-/// 通知偏好: 总开关、五类子开关、两个阈值和系统授权状态镜像
-/// 授权请求/查询集中在这里, 判定与发送在 CodexNotificationService
+/// 通知偏好: 总开关、五类通知子开关、任务触觉开关、两个阈值和系统授权状态镜像
+/// 授权请求/查询集中在这里, 通知与触觉反馈判定在 CodexNotificationService
 @MainActor
 final class NotificationSettings: ObservableObject {
     @Published private(set) var isEnabled: Bool
@@ -12,6 +12,7 @@ final class NotificationSettings: ObservableObject {
     @Published private(set) var isQuotaResetEnabled: Bool
     @Published private(set) var isLongTaskEnabled: Bool
     @Published private(set) var isTaskWaitingEnabled: Bool
+    @Published private(set) var isTaskHapticEnabled: Bool
     @Published private(set) var isCreditExpiryEnabled: Bool
     @Published private(set) var lowQuotaThresholdPercent: Int
     @Published private(set) var longTaskThresholdSeconds: Int
@@ -25,6 +26,11 @@ final class NotificationSettings: ObservableObject {
     /// 总开关开启且授权未被拒时才允许发送
     var canDeliver: Bool {
         isEnabled && !isAuthorizationDenied
+    }
+
+    /// 触觉反馈不依赖系统通知授权，但服从 App 内通知总开关。
+    var canPerformTaskHapticFeedback: Bool {
+        isEnabled && isTaskHapticEnabled
     }
 
     /// 子选项面板仅在总开关开启且授权已明确通过时可展示
@@ -45,6 +51,7 @@ final class NotificationSettings: ObservableObject {
         isQuotaResetEnabled = Self.bool(from: defaults, key: Self.quotaResetEnabledKey, defaultValue: true)
         isLongTaskEnabled = Self.bool(from: defaults, key: Self.longTaskEnabledKey, defaultValue: true)
         isTaskWaitingEnabled = Self.bool(from: defaults, key: Self.taskWaitingEnabledKey, defaultValue: true)
+        isTaskHapticEnabled = Self.bool(from: defaults, key: Self.taskHapticEnabledKey, defaultValue: true)
         isCreditExpiryEnabled = Self.bool(from: defaults, key: Self.creditExpiryEnabledKey, defaultValue: true)
         lowQuotaThresholdPercent = Self.option(
             defaults.object(forKey: Self.lowQuotaThresholdKey) as? Int,
@@ -88,6 +95,10 @@ final class NotificationSettings: ObservableObject {
 
     func setTaskWaitingEnabled(_ enabled: Bool) {
         setBool(enabled, current: &isTaskWaitingEnabled, key: Self.taskWaitingEnabledKey)
+    }
+
+    func setTaskHapticEnabled(_ enabled: Bool) {
+        setBool(enabled, current: &isTaskHapticEnabled, key: Self.taskHapticEnabledKey)
     }
 
     func setCreditExpiryEnabled(_ enabled: Bool) {
@@ -192,6 +203,7 @@ final class NotificationSettings: ObservableObject {
     private static let quotaResetEnabledKey = "Notification.quotaResetEnabled"
     private static let longTaskEnabledKey = "Notification.longTaskEnabled"
     private static let taskWaitingEnabledKey = "Notification.taskWaitingEnabled"
+    private static let taskHapticEnabledKey = "Notification.taskHapticEnabled"
     private static let creditExpiryEnabledKey = "Notification.creditExpiryEnabled"
     private static let lowQuotaThresholdKey = "Notification.lowQuotaThresholdPercent"
     private static let longTaskThresholdKey = "Notification.longTaskThresholdSeconds"

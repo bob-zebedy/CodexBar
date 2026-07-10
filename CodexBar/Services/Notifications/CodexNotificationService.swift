@@ -3,7 +3,7 @@ import Combine
 import Foundation
 import UserNotifications
 
-/// 集中式通知服务: 订阅额度与实时活动，负责阈值判定、去重、重置调度与本地通知发送。
+/// 集中式提醒服务: 订阅额度与实时活动，负责触觉反馈、阈值判定、去重、重置调度与本地通知发送。
 @MainActor
 final class CodexNotificationService: NSObject {
     private let settings: NotificationSettings
@@ -13,6 +13,7 @@ final class CodexNotificationService: NSObject {
     private nonisolated let openMenuSurface: @MainActor @Sendable () -> Void
 
     private var cancellables = Set<AnyCancellable>()
+    private var taskHapticFeedbackTask: Task<Void, Never>?
     private let resetReminderScheduler = ReminderCheckScheduler()
     private let creditExpiryReminderScheduler = ReminderCheckScheduler()
     private var latestQuotaSnapshot: CodexQuotaSnapshot?
@@ -78,9 +79,11 @@ final class CodexNotificationService: NSObject {
             .store(in: &cancellables)
     }
 
-    // MARK: - Hook 任务通知
+    // MARK: - Hook 任务提醒
 
     private func handleActivityTransition(_ transition: CodexActivityTransition) {
+        performTaskHapticFeedbackIfEnabled()
+
         guard settings.canDeliver else {
             return
         }
@@ -98,6 +101,30 @@ final class CodexNotificationService: NSObject {
                 return
             }
             send(.taskCompleted(project: completion.projectName, duration: duration))
+        }
+    }
+
+    private func performTaskHapticFeedbackIfEnabled() {
+        guard settings.canPerformTaskHapticFeedback else {
+            return
+        }
+
+        taskHapticFeedbackTask?.cancel()
+        taskHapticFeedbackTask = Task { @MainActor [weak self] in
+            for pulse in 0 ..< Self.taskHapticPulseCount {
+                guard let self,
+                      !Task.isCancelled,
+                      settings.canPerformTaskHapticFeedback else {
+                    return
+                }
+
+                NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+                if pulse < Self.taskHapticPulseCount - 1 {
+                    try? await Task.sleep(for: Self.taskHapticPulseInterval)
+                }
+            }
+
+            self?.taskHapticFeedbackTask = nil
         }
     }
 
@@ -178,12 +205,11 @@ final class CodexNotificationService: NSObject {
         let previous = lastRemainingPercents[stateKey]
         lastRemainingPercents[stateKey] = window.remainingPercent
 
-        guard let resetsAt = window.resetsAt,
-              window.remainingPercent <= settings.lowQuotaThresholdPercent else {
+        guard let resetsAt = window.resetsAt else {
             return
         }
 
-        // 记录本周期曾跌破阈值, 供重置完成提醒做门槛; 与低阈值子开关无关
+        // 每个可信额度窗口都登记本周期重置提醒, 不依赖低额度阈值或子开关
         rememberPendingResetReminder(
             accountKey: accountKey,
             limitId: limit.limitId,
@@ -191,7 +217,8 @@ final class CodexNotificationService: NSObject {
             resetsAt: resetsAt
         )
 
-        guard settings.isLowQuotaEnabled else {
+        guard window.remainingPercent <= settings.lowQuotaThresholdPercent,
+              settings.isLowQuotaEnabled else {
             return
         }
 
@@ -432,6 +459,8 @@ final class CodexNotificationService: NSObject {
     private nonisolated static let day: TimeInterval = 24 * 3600
     private nonisolated static let creditExpiryReminderDays = [7, 6, 5, 4, 3, 2, 1]
     private nonisolated static let creditExpiryLeadTime: TimeInterval = 7 * day
+    private static let taskHapticPulseCount = 10
+    private static let taskHapticPulseInterval = Duration.milliseconds(150)
     private static let sentKeysLimit = 300
     private static let sentKeysKey = "Notification.sentKeys"
     private static let pendingResetRemindersKey = "Notification.pendingResetReminders"
@@ -455,7 +484,7 @@ nonisolated struct CodexNotificationContent: Equatable {
     static func quotaReset(windowLabel: String) -> CodexNotificationContent {
         CodexNotificationContent(
             title: "Codex 额度重置",
-            body: "\(windowLabel) 窗口额度已重置"
+            body: "\(windowLabel) 窗口额度即将重置"
         )
     }
 
@@ -535,7 +564,7 @@ private final class ReminderCheckScheduler {
     }
 }
 
-/// 本周期曾跌破阈值的窗口, 等待 resetsAt 到达后发送恢复提醒
+/// 已知下次重置时间的额度窗口, 在 resetsAt 到达时发送提醒
 private nonisolated struct PendingQuotaResetReminder: Codable, Equatable {
     let accountKey: String
     let limitId: String

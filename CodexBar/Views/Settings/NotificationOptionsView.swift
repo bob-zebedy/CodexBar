@@ -12,6 +12,7 @@ struct NotificationOptionsView: View {
             quotaResetRow
             longTaskRow
             taskWaitingRow
+            taskHapticRow
             creditExpiryRow
         }
         .padding(.horizontal, Metrics.horizontalPadding)
@@ -25,11 +26,12 @@ struct NotificationOptionsView: View {
     }
 
     static var initialPanelSize: CGSize {
-        CGSize(
+        let rowCount = CGFloat(Metrics.optionRowCount)
+        return CGSize(
             width: Metrics.panelWidth,
             height: Metrics.verticalPadding * 2
-                + Metrics.rowHeight * 5
-                + Metrics.rowSpacing * 4
+                + Metrics.rowHeight * rowCount
+                + Metrics.rowSpacing * (rowCount - 1)
         )
     }
 
@@ -109,6 +111,20 @@ struct NotificationOptionsView: View {
         )
     }
 
+    /// Hook 未开启时显示为关闭并置灰, 不修改持久化的 isTaskHapticEnabled
+    private var taskHapticRow: some View {
+        let isDisplayedOn = codexHookSettings.isEnabled && notificationSettings.isTaskHapticEnabled
+
+        return optionRow(
+            title: "任务触觉反馈",
+            isOn: Binding(
+                get: { isDisplayedOn },
+                set: { notificationSettings.setTaskHapticEnabled($0) }
+            ),
+            isEnabled: codexHookSettings.isEnabled
+        )
+    }
+
     private var creditExpiryRow: some View {
         optionRow(
             title: "重置次数临期通知",
@@ -178,6 +194,7 @@ struct NotificationOptionsView: View {
         static let panelWidth: CGFloat = 300
         static let horizontalPadding: CGFloat = 12
         static let verticalPadding: CGFloat = 10
+        static let optionRowCount = 6
         static let rowSpacing: CGFloat = 7
         static let rowHeight: CGFloat = 22
         static let pickerWidth: CGFloat = 72

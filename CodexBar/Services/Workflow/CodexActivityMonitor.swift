@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import Foundation
 
-/// 从本机 Hook JSONL 维护进程内实时任务状态，是菜单栏、活动卡片和通知的唯一任务状态来源。
+/// 从本机 Hook JSONL 维护进程内实时任务状态，是菜单栏、活动卡片、通知和触觉反馈的唯一任务状态来源。
 @MainActor
 final class CodexActivityMonitor: ObservableObject {
     @Published private(set) var snapshot = CodexActivitySnapshot.empty

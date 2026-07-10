@@ -128,7 +128,7 @@ struct CodexActivityCard: View {
         case .toolStarted:
             task.toolName.map { "调用工具 \($0)" } ?? "调用工具"
         case .toolFinished:
-            task.toolName.map { "工具调用 \($0) 完成" } ?? "工具调用完成"
+            task.toolName.map { "调用工具 \($0) 完成" } ?? "调用工具完成"
         case .compactionStarted:
             "压缩上下文"
         case .compactionFinished:
