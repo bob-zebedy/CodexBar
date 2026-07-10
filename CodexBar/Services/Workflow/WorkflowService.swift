@@ -256,18 +256,7 @@ actor WorkflowService {
     }
 
     private func eventDateKeys() -> [String] {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: eventsDirectoryURL,
-            includingPropertiesForKeys: nil
-        ) else {
-            return []
-        }
-
-        return contents
-            .filter { $0.pathExtension == "jsonl" }
-            .map { $0.deletingPathExtension().lastPathComponent }
-            .filter { WorkflowStorage.isValidDateKey($0) }
-            .sorted()
+        WorkflowStorage.eventLogDateKeys(in: eventsDirectoryURL)
     }
 
     private func buildDailyAggregate(
@@ -648,6 +637,35 @@ nonisolated enum WorkflowStorage {
         }
 
         return fileSize.uint64Value
+    }
+
+    /// 单次 stat 同时返回大小与 inode 标识, 文件缺失或不可读时为 nil
+    static func fileStat(at url: URL) -> (size: UInt64, identifier: UInt64?)? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+            return nil
+        }
+
+        return (
+            size: (attributes[.size] as? NSNumber)?.uint64Value ?? 0,
+            identifier: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+        )
+    }
+
+    /// 枚举目录中文件名为合法日期键的 .jsonl 事件日志, 返回升序日期键
+    static func eventLogDateKeys(in directoryURL: URL = eventsDirectoryURL()) -> [String] {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return contents
+            .filter { $0.pathExtension == "jsonl" }
+            .map { $0.deletingPathExtension().lastPathComponent }
+            .filter { isValidDateKey($0) }
+            .sorted()
     }
 
     static func retentionCutoffDate(today: Date = Date(), calendar: Calendar = .current) -> Date {

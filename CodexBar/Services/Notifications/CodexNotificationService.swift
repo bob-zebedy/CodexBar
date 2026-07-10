@@ -3,13 +3,12 @@ import Combine
 import Foundation
 import UserNotifications
 
-/// 集中式通知服务: 订阅额度快照, 负责阈值判定、去重、重置调度与本地通知发送
-/// 任务完成和等待批准通知的 Hook 事件接入见 handleHookEvents
+/// 集中式通知服务: 订阅额度与实时活动，负责阈值判定、去重、重置调度与本地通知发送。
 @MainActor
 final class CodexNotificationService: NSObject {
     private let settings: NotificationSettings
     private let statusViewModel: CodexStatusViewModel
-    private let codexHookSettings: CodexHookSettings
+    private let activityMonitor: CodexActivityMonitor
     private let defaults: UserDefaults
     private nonisolated let openMenuSurface: @MainActor @Sendable () -> Void
 
@@ -25,23 +24,16 @@ final class CodexNotificationService: NSObject {
     /// 阈值穿越判定的会话内上一帧剩余比例, key 为 account|limitId|windowId
     private var lastRemainingPercents: [String: Int] = [:]
 
-    private var tailReader: HookEventTailReader?
-
-    /// 起点事件配对表: 优先 session|turn 精确配对, 回退 session 最近一条
-    private var promptTimesByTurn: [String: Date] = [:]
-    private var promptTimesBySession: [String: Date] = [:]
-    private var taskWaitingNotificationTimesByKey: [String: Date] = [:]
-
     init(
         settings: NotificationSettings,
         statusViewModel: CodexStatusViewModel,
-        codexHookSettings: CodexHookSettings,
+        activityMonitor: CodexActivityMonitor,
         defaults: UserDefaults = .standard,
         openMenuSurface: @escaping @MainActor @Sendable () -> Void
     ) {
         self.settings = settings
         self.statusViewModel = statusViewModel
-        self.codexHookSettings = codexHookSettings
+        self.activityMonitor = activityMonitor
         self.defaults = defaults
         self.openMenuSurface = openMenuSurface
         pendingResetReminders = Self.loadPendingResetReminders(from: defaults)
@@ -79,136 +71,33 @@ final class CodexNotificationService: NSObject {
             }
             .store(in: &cancellables)
 
-        // 两类 Hook 通知任一开启, 且总开关、授权和 Hook 状态满足时运行 tail
-        Publishers.CombineLatest(
-            Publishers.CombineLatest4(
-                settings.$isEnabled,
-                settings.$isLongTaskEnabled,
-                settings.$isTaskWaitingEnabled,
-                settings.$authorizationStatus
-            ),
-            codexHookSettings.$isEnabled
-        )
-        .map { notificationState, hook in
-            let (enabled, longTask, taskWaiting, authorizationStatus) = notificationState
-            return enabled
-                && (longTask || taskWaiting)
-                && authorizationStatus != .denied
-                && hook
-        }
-        .removeDuplicates()
-        .sink { [weak self] shouldRun in
-            self?.setTailReaderActive(shouldRun)
-        }
-        .store(in: &cancellables)
-
-        // 等待批准通知仍在运行 tail 时, 关闭任务完成通知也要立即丢弃未完成的计时配对
-        settings.$isLongTaskEnabled
-            .removeDuplicates()
-            .sink { [weak self] enabled in
-                guard !enabled else {
-                    return
-                }
-                self?.promptTimesByTurn.removeAll()
-                self?.promptTimesBySession.removeAll()
+        activityMonitor.transitionPublisher
+            .sink { [weak self] transition in
+                self?.handleActivityTransition(transition)
             }
             .store(in: &cancellables)
     }
 
     // MARK: - Hook 任务通知
 
-    private func setTailReaderActive(_ active: Bool) {
-        if active {
-            guard tailReader == nil else {
+    private func handleActivityTransition(_ transition: CodexActivityTransition) {
+        guard settings.canDeliver else {
+            return
+        }
+
+        switch transition {
+        case let .waitingApproval(task):
+            guard settings.isTaskWaitingEnabled else {
                 return
             }
-
-            let reader = HookEventTailReader { [weak self] events in
-                self?.handleHookEvents(events)
+            send(.taskWaiting(project: task.projectName, toolName: task.toolName))
+        case let .completed(completion):
+            guard settings.isLongTaskEnabled,
+                  let duration = completion.duration,
+                  duration >= TimeInterval(settings.longTaskThresholdSeconds) else {
+                return
             }
-            reader.start()
-            tailReader = reader
-            return
-        }
-
-        tailReader?.stop()
-        tailReader = nil
-        promptTimesByTurn.removeAll()
-        promptTimesBySession.removeAll()
-        taskWaitingNotificationTimesByKey.removeAll()
-    }
-
-    private func handleHookEvents(_ events: [WorkflowHookEvent]) {
-        for event in events {
-            switch event.hookEvent {
-            case .userPromptSubmit:
-                guard settings.isLongTaskEnabled,
-                      let sessionId = event.sessionId else {
-                    continue
-                }
-                promptTimesBySession[sessionId] = event.timestamp
-                if let turnId = event.turnId {
-                    promptTimesByTurn[Self.hookTurnKey(sessionId: sessionId, turnId: turnId)] = event.timestamp
-                }
-            case .stop:
-                guard settings.isLongTaskEnabled,
-                      let sessionId = event.sessionId else {
-                    continue
-                }
-                notifyLongTaskIfNeeded(stopEvent: event, sessionId: sessionId)
-            case .permissionRequest:
-                notifyTaskWaitingIfNeeded(event)
-            default:
-                continue
-            }
-        }
-
-        pruneHookNotificationState()
-    }
-
-    private func notifyTaskWaitingIfNeeded(_ event: WorkflowHookEvent) {
-        guard settings.isTaskWaitingEnabled else {
-            return
-        }
-
-        let key = Self.taskWaitingNotificationKey(for: event)
-        guard taskWaitingNotificationTimesByKey[key] == nil else {
-            return
-        }
-        taskWaitingNotificationTimesByKey[key] = event.timestamp
-
-        send(.taskWaiting(project: event.projectDisplayName, toolName: event.toolName))
-    }
-
-    private func notifyLongTaskIfNeeded(stopEvent event: WorkflowHookEvent, sessionId: String) {
-        let turnStart = event.turnId.flatMap {
-            promptTimesByTurn.removeValue(
-                forKey: Self.hookTurnKey(sessionId: sessionId, turnId: $0)
-            )
-        }
-        let start = turnStart ?? promptTimesBySession[sessionId]
-
-        // 一条 Stop 只配对一次, 防止后续无提交的 Stop 重复计时
-        promptTimesBySession.removeValue(forKey: sessionId)
-
-        guard let start else {
-            return
-        }
-
-        let duration = event.timestamp.timeIntervalSince(start)
-        guard duration >= TimeInterval(settings.longTaskThresholdSeconds) else {
-            return
-        }
-
-        send(.taskCompleted(project: event.projectDisplayName, duration: duration))
-    }
-
-    private func pruneHookNotificationState() {
-        let cutoff = Date().addingTimeInterval(-Self.promptRetention)
-        promptTimesBySession = promptTimesBySession.filter { $0.value > cutoff }
-        promptTimesByTurn = promptTimesByTurn.filter { $0.value > cutoff }
-        taskWaitingNotificationTimesByKey = taskWaitingNotificationTimesByKey.filter {
-            $0.value > cutoff
+            send(.taskCompleted(project: completion.projectName, duration: duration))
         }
     }
 
@@ -510,26 +399,12 @@ final class CodexNotificationService: NSObject {
         Int(date.timeIntervalSince1970)
     }
 
-    private nonisolated static func hookTurnKey(sessionId: String, turnId: String) -> String {
-        "\(sessionId)|\(turnId)"
-    }
-
     private nonisolated static func quotaWindowStateKey(
         accountKey: String,
         limitId: String,
         windowId: String
     ) -> String {
         "\(accountKey)|\(limitId)|\(windowId)"
-    }
-
-    private nonisolated static func taskWaitingNotificationKey(for event: WorkflowHookEvent) -> String {
-        let milliseconds = Int64((event.timestamp.timeIntervalSince1970 * 1000).rounded())
-        return [
-            String(milliseconds),
-            event.sessionId ?? "",
-            event.turnId ?? "",
-            event.toolName ?? ""
-        ].joined(separator: "|")
     }
 
     private nonisolated static func creditExpiryReminderDates(for expirationDate: Date) -> [Date] {
@@ -557,7 +432,6 @@ final class CodexNotificationService: NSObject {
     private nonisolated static let day: TimeInterval = 24 * 3600
     private nonisolated static let creditExpiryReminderDays = [7, 6, 5, 4, 3, 2, 1]
     private nonisolated static let creditExpiryLeadTime: TimeInterval = 7 * day
-    private static let promptRetention: TimeInterval = 24 * 3600
     private static let sentKeysLimit = 300
     private static let sentKeysKey = "Notification.sentKeys"
     private static let pendingResetRemindersKey = "Notification.pendingResetReminders"
@@ -589,7 +463,7 @@ nonisolated struct CodexNotificationContent: Equatable {
         let projectText = project.map { "「\($0)」" } ?? "Codex"
         return CodexNotificationContent(
             title: "Codex 任务完成",
-            body: "\(projectText) 任务完成, 耗时 \(durationText(duration))"
+            body: "\(projectText) 任务完成, 耗时 \(CodexActivityDurationFormat.text(for: duration))"
         )
     }
 
@@ -607,21 +481,6 @@ nonisolated struct CodexNotificationContent: Equatable {
             title: "重置次数即将过期",
             body: "有 \(count) 个重置次数将于 \(CodexDateFormat.localDisplayString(from: expirationDate)) 过期"
         )
-    }
-
-    private static func durationText(_ interval: TimeInterval) -> String {
-        let totalSeconds = Int(interval.rounded())
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        if minutes >= 60 {
-            return "\(minutes / 60) 小时 \(minutes % 60) 分"
-        }
-
-        if minutes > 0 {
-            return "\(minutes) 分 \(seconds) 秒"
-        }
-
-        return "\(seconds) 秒"
     }
 }
 

@@ -14,6 +14,7 @@ struct CodexStatusMenuView: View {
     @ObservedObject var viewModel: CodexStatusViewModel
     @ObservedObject var workflowViewModel: WorkflowViewModel
     @ObservedObject var codexHookSettings: CodexHookSettings
+    @ObservedObject var activityMonitor: CodexActivityMonitor
     @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var menuSurfaceVisibility: MenuSurfaceVisibilityState
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
@@ -55,6 +56,8 @@ private extension CodexStatusMenuView {
                 onRefresh: viewModel.refresh
             )
 
+            activityCard
+
             dataSection(snapshot)
         } else {
             // 仅展示未登录 / 初始化失败两种特殊状态, 其余错误只进日志
@@ -63,7 +66,18 @@ private extension CodexStatusMenuView {
                 isRefreshing: viewModel.isRefreshing,
                 onRefresh: viewModel.refresh
             )
+            activityCard
             EmptyDataPanel()
+        }
+    }
+
+    @ViewBuilder
+    var activityCard: some View {
+        if codexHookSettings.isEnabled {
+            CodexActivityCard(
+                snapshot: activityMonitor.snapshot,
+                isTimelineActive: menuSurfaceVisibility.isVisible
+            )
         }
     }
 

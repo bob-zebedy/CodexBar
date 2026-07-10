@@ -32,7 +32,7 @@ private nonisolated enum WorkflowJSON {
 }
 
 /// hooks 进程落盘的最小事件模型, 对历史字段缺失保持宽容
-nonisolated struct WorkflowHookEvent: Decodable, Equatable {
+nonisolated struct WorkflowHookEvent: Decodable, Equatable, Sendable {
     let timestamp: Date
     let name: String
     let directoryPath: String?

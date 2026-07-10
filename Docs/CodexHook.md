@@ -14,18 +14,18 @@ Codex 配置目录统一由 `CodexCLIResolver.codexHomeDirectory()` 解析: 优�
 
 开启前会先复用 App 当前的 Codex app-server 会话调用 `config/read`。如果有效配置中 `[features] hooks = false`，或兼容旧名 `codex_hooks = false`，CodexBar 不写入 `hooks.json`，并在 Hook 选项下方显示全局禁用说明。
 
-开启和关闭都会先移除 `command` 包含当前 App 可执行文件路径的 CodexBar hook。开启时随后按当前 App 路径安装 hook。用户自定义 Hook、其他 App Hook 和同事件下的其他处理器必须保留。
+开启和关闭都会先移除 `command` 包含当前 App 可执行文件路径的 CodexBar Hook。开启时随后按当前 App 路径安装 Hook。用户自定义 Hook、其他 App Hook 和同事件下的其他 Hook 必须保留。
 
-CodexBar 处理器的识别条件:
+CodexBar Hook 的识别条件:
 
 - `type` 是 `command`
 - `command` 必须包含当前 App 可执行文件路径生成的 shell 命令和 `--hook-event` 参数, 例如 `'<当前 CodexBar 可执行文件路径>' --hook-event`
 
-也就是说，如果用户手写的 Hook 命令同样包含当前 CodexBar 可执行文件路径和 `--hook-event` 参数，也会被当作当前 CodexBar 处理器移除；不同时包含当前路径和 `--hook-event` 的用户 Hook 会保留。
+也就是说，如果用户手写的 Hook 命令同样包含当前 CodexBar 可执行文件路径和 `--hook-event` 参数，也会被当作当前 CodexBar Hook 移除；不同时包含当前路径和 `--hook-event` 的用户 Hook 会保留。
 
-检测是否已开启时，只要任意 CodexBar 事件存在当前 App 路径对应的处理器，开关就保持开启；如果缺少部分事件，`hooks/list` 验证会在 Hook 选项下方显示 `CodexBar Hook 已不完整`。
+检测是否已开启时，只要任意 CodexBar 事件存在当前 App 路径对应的 Hook，开关就保持开启；如果缺少部分事件，`hooks/list` 验证会在 Hook 选项下方显示 `CodexBar Hook 已不完整`。
 
-关闭时会先通过 `hooks/list` 找出 `command` 属于当前 CodexBar 且来源为全局 `hooks.json` 的 Hook key；移除 `hooks.json` 中的处理器后，再通过 `config/read` + `config/batchWrite` 从 `hooks.state` 删除这些 key。清理失败不恢复已经关闭的 Hook，只在 Hook 选项下方提示清理信任状态失败。
+关闭时会先通过 `hooks/list` 找出 `command` 属于当前 CodexBar 且来源为全局 `hooks.json` 的 Hook key；移除 `hooks.json` 中的 Hook 后，再通过 `config/read` + `config/batchWrite` 从 `hooks.state` 删除这些 key。清理失败不恢复已经关闭的 Hook，只在 Hook 选项下方提示清理信任状态失败。
 
 开启写入成功后会复用同一条 app-server 会话调用 `hooks/list` 做有效性检查:
 
@@ -89,7 +89,7 @@ Hook stdin 会尝试解析为 Codex 官方 JSON 对象，只读取顶层字段�
 
 事件名统计时会去掉 `_` 和 `-` 并转小写，因此 `PreToolUse`、`pre_tool_use`、`pre-tool-use` 会归为同一个事件。
 
-常用项目名称只取目录最后一层，不过当前 popup 不展示该字段。
+常用项目名称只取目录最后一层；实时活动卡片会展示该名称，完整路径不会进入 UI。
 
 ## 本机存储
 
@@ -101,7 +101,7 @@ Hook 数据目录:
 
 文件职责:
 
-- `events/YYYY-MM-DD.jsonl`: 按本机日期拆分的原始 Hook 事件日志；开启「系统通知」的任务完成或任务等待提醒后，主 App 会以只读方式轮询 tail 当日 events 文件的新增行，用 `UserPromptSubmit` / `Stop` 判定长任务完成、用 `PermissionRequest` 判定等待批准；该读取不修改文件、不参与统计维护，统计口径不变。
+- `events/YYYY-MM-DD.jsonl`: 按本机日期拆分的原始 Hook 事件日志；Hook 开启期间主 App 会以只读方式 tail 当日文件，为菜单栏、活动卡片和任务通知维护统一的进程内实时状态；该读取不修改文件、不参与统计维护，统计口径不变。
 - `daily.jsonl`: 每日聚合结果，UI 优先读取它
 - `stats.lock`: 并发写入锁文件，只用于 `flock`
 - `maintenance.json`: 记录待整理日期、需要重建日期和每个日期的处理进度
@@ -128,6 +128,35 @@ Hook 数据目录:
 `WorkflowStorage` 定义这些路径和保留策略。UI 读取时优先加载 `daily.jsonl`；原始事件文件不再作为 UI 临时快照回退源。
 
 旧版单文件 `HookEvents/events.jsonl` 不参与新版统计、迁移或清理。
+
+## 实时活动状态
+
+`CodexActivityMonitor` 是 `@MainActor ObservableObject` 长期对象。Hook 开启时它启动 `HookEventTailReader`，关闭时停止读取并清空状态；通知总开关和任务通知子开关只控制是否发送通知，不控制监测器生命周期。实时状态只保存在内存，不写入新的历史文件，也不增加 CloudKit 字段或网络请求。
+
+`HookEventTailReader` 是独立 actor，文件 I/O 和 JSON 解码不占用 MainActor。读取分为两类批次：
+
+- `bootstrap`：App 启动、当前活动事件文件被截断或替换时，按 512 KB 分块流式读取滚动 24 小时涉及的日期文件，并按事件时间过滤窗口之外的数据。每次尝试开始时清空恢复态，成功后只发布一次最终快照，整个 bootstrap 不发布通知 transition。读取前记录各文件 inode 和 size；当前文件只读到当时最后一个完整换行，后续新增字节由 live 消费。文件边界变化时最多重试三次，连续失败则再次清空恢复态并跳过当前已有字节，避免把历史事件误当 live 通知。
+- bootstrap 结束后，monitor 对由工具或权限事件恢复、但缺少起点的精确 session + turn，向 reader 发起一次定向查找：在更早日期文件中按 session + turn 查找 `UserPromptSubmit`，最多额外读取 8 MB；找到后只回填 `startedAt`，不改变当前状态、最近事件或活动时间。达到上限仍找不到时保留任务，但不展示精确总耗时。
+- `live`：之后每 2 秒读取当天新增的完整行。末尾半行留到下次读取；跨零点时先读完旧文件尾部，再从新日期文件头开始。每个成功处理的分块都会推进到最后一个完整换行的 offset；后续分块读取失败时只重试尚未处理的部分。旧文件截断或替换触发 bootstrap 时，由 bootstrap 保留新日期的正确 offset，外层不会再从头按 live 重放；临时读取失败则保留旧日期并在下一轮重试。bootstrap、定时轮询和 Mac 唤醒补读共用串行入口；读取期间到达的请求只合并为一次待补读，并在当前读取结束后执行，避免 actor 在 `await` 处重入而重复消费同一 offset。monitor 为每一代 reader 分配 generation，快速开关 Hook 后迟到的旧批次会被丢弃。
+
+Codex Hook 事件可能缺少起点、结束或中断信号。`CodexSessionLifecycleReader` 会补充读取本机 Codex session rollout：
+
+- 只检查 monitor 内仍有运行或等待任务、并且同时具有 session ID 和 turn ID 的活跃项，不持续扫描所有历史会话。
+- 优先在 `~/.codex/sessions/YYYY/MM/DD/` 和 `~/.codex/archived_sessions/` 按 session ID 定位对应 rollout；这些便宜目录允许每 10 秒重试。resume 的旧 session 找不到时，每个活跃生命周期只递归 `sessions` 一次并保留负缓存；session 重新活跃、缓存文件消失或 Mac 唤醒时重置递归资格。
+- 初次从文件末尾最多读取 512 KB，之后每 2 秒按 byte offset 增量读取，保留半行并检测截断或替换。只解出顶层 `type`、`payload.type`、`payload.turn_id`、`started_at`、`completed_at` 和 `duration_ms`；不提取、保存或展示提示词、回复、推理或工具内容。
+- `event_msg / task_started` 只为缺少 Hook Prompt 起点的精确 turn 回填开始时间；`task_complete` 补齐缺失的 Hook `Stop`，使用 `completed_at` 和 `duration_ms` 生成完成状态。初始恢复只更新状态而不回放通知；运行期间新收到的 `task_complete` 可发布一次完成 transition，后到的 Hook `Stop` 会被去重。定时轮询和唤醒/恢复触发的即时查询都绑定启动时的 reader generation，并在跨 actor 等待前后校验，旧 generation 的迟到 rollout 结果不会写入新状态。
+- `event_msg / turn_aborted` 静默移除对应任务，不生成完成记录、绿色状态或通知。文件不存在、无法读取、格式变化或缺少精确 ID 时保留原 Hook 状态，最终仍由后续 prompt、Stop、Hook 关闭或 24 小时过期兜底。
+
+任务状态机规则：
+
+- 任务键优先使用 `session + turn`，缺少 turn 时使用 session；两者都缺少时按项目名归入匿名任务。匿名任务以及缺少起点的恢复任务不展示精确总耗时。
+- `UserPromptSubmit` 创建运行任务；同一 session 收到新 prompt 时，旧 turn 即使缺少 Stop 也视为已中断并从运行状态移除，但不生成完成记录或通知。工具、上下文压缩和子智能体事件更新已有任务并解除等待，同时记录最近事件供活动卡片实时展示。工具和权限事件缺少起点时可以恢复顶层状态，子智能体事件不会单独创建顶层任务。
+- `PermissionRequest` 进入等待批准；重复的等待事件不重复发布等待 transition。live 读取一次可能包含多个事件，monitor 会在整批应用后按任务键合并等待候选：最终仍在等待时使用最终快照发布一次，已经恢复运行、完成或移除时不发布过期等待 transition；完成候选保持事件顺序，并按 completion ID 防止同批重复发布。
+- Hook `Stop` 或 rollout `task_complete` 结束任务并产生最近完成记录，两者在进程内按精确任务键和 session 回退键去重，保留第一次确认的完成及精确耗时且不重复发布 transition。后到的重复完成不会覆盖首次确认结果，也不会缩短 24 小时去重窗口。期间迟到的工具、压缩或权限事件不会恢复已完成任务，只有时间晚于完成记录的新 `UserPromptSubmit` 可以开始下一段生命周期。rollout `turn_aborted` 只静默移除中断任务。“完成”只表示该 turn 已结束，不表示任务成功。
+- 精确 turn 匹配失败时，回退同 session 最近活动任务，再回退同项目匿名任务。
+- UI 优先展示最近等待任务，其次最近运行任务，最后最近完成任务，同时保留运行与等待数量。运行卡片第一行组合项目与模型，第二行展示运行时间及最近的请求/工具/压缩/子智能体事件，其他任务数量以右侧 `+N` 徽标展示。菜单栏完成绿色保留 20 秒，最近完成卡片保留 5 分钟，24 小时没有新事件的活动自动过期。
+
+跨日时仍在内存中的运行任务会继续保留；重启 App 后由滚动 24 小时 bootstrap 恢复近期活动，并为更早开始的精确 turn 定向回填起点。任务会一直保留到收到 Hook `Stop` 或 rollout `task_complete`、检测到 `turn_aborted`、同 session 新 prompt 将其淘汰、Hook 被关闭或连续 24 小时没有新事件。完成高亮、完成卡片、完成去重键和活动过期共用按最近到期时刻创建的单次清理任务，不运行常驻清理计时器；读取完成键时还会惰性淘汰已经超过 24 小时的记录，避免系统休眠或计时任务稍晚唤醒时误拦第一条新事件。
 
 ## 写入事务
 
@@ -275,7 +304,7 @@ subagentStopCount, sessionCount, turnCount, projectCounts, modelCounts, sessionI
 | `sessionCount`           | `sessionIds`、旧 `sessionCount`、`sessionStartCount` | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有 `sessionCount`，否则使用 `sessionIds.count`，再否则使用 `sessionStartCount`，然后移除 `sessionIds`。这样旧日期不用继续保存完整 ID，也能保留会话总数。 | 参与「会话总数」。                                       |
 | `turnCount`              | `turnIds`、旧 `turnCount`、`stopCount`               | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有 `turnCount`，否则使用 `turnIds.count`，再否则使用 `stopCount`，然后移除 `turnIds`。这样旧日期不用继续保存完整 ID，也能保留轮次总数。                  | 参与「对话轮次」。                                       |
 | `projectCounts`          | `cwd`                                                | 任意事件行只要 `cwd` 非空，就取标准化路径的最后一层目录名作为项目名并 `+1`；如果最后一层为空，回退使用完整路径字符串。统计的是事件数，不是会话数或工具调用数。未知事件也会计入。                                          | 用于计算 `mostActiveProject`，当前页面不展示。           |
-| `modelCounts`            | `model`                                              | 任意事件行只要 `model` 非空，就按原始模型名 `+1`。统计的是带模型字段的事件数，不是 token 数；未知事件也会计入。                                                                                                          | 合并后用于计算并展示「最热模型」。                       |
+| `modelCounts`            | `model`                                              | 任意事件行只要 `model` 非空，就按原始模型名 `+1`。统计的是带模型字段的事件数，不是 token 数；未知事件也会计入。                                                                                                           | 合并后用于计算并展示「最热模型」。                       |
 
 读取旧 `daily.jsonl` 时，缺失的数字字段按 `0` 处理，缺失的 `projectCounts` / `modelCounts` 按空字典处理，缺失的 `sessionIds` / `turnIds` / `sessionCount` / `turnCount` 保持为 `nil`。维护 schema 升级到 `3` 后会把保留窗口内已有事件日期标记为 dirty，从原始事件重建模型计数；后续归一化仍按当前保留策略补齐或压缩 ID 字段。
 

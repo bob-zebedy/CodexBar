@@ -97,7 +97,7 @@ Scripts/appcast.sh
 ## Hook、同步与数据文件
 
 - Hook 子进程入口在 `CodexBarApp.init()` 中最先调用 `WorkflowHookEventRecorder.handleIfRequested()`；Hook 模式要快速读取 stdin 并退出，不进入普通 App 启动流程。
-- CodexBar 只追加或移除属于当前 CodexBar 可执行文件的 Hook 处理器，不应删除用户已有的其他 Codex Hook。
+- CodexBar 只追加或移除属于当前 CodexBar 可执行文件的 Hook，不应删除用户已有的其他 Codex Hook。
 - 本机 Hook 事件默认写入：
 
 ```text
