@@ -909,7 +909,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 | 开机自动启动    | `SMAppService.mainApp.status`                                                        | `register()` / `unregister()`                                                                                                                         |
 | 自动检查更新    | Sparkle updater                                                                      | 设置 `automaticallyChecksForUpdates`                                                                                                                  |
 | 菜单栏额度指示  | `MenuBarQuotaSettings.selection` / `MenuBarQuota.lastWindowSelection`                | 开关写入 `.off` 或恢复持久化的上次窗口选择, 窗口菜单写入所选窗口并同步记住; 标签优先来自当前账号 Codex limit 返回的额度窗口, 缺失时使用 fallback 标题 |
-| 系统通知        | `NotificationSettings` + `UNUserNotificationCenter`                                  | 总开关、五类通知子开关、任务触觉开关与阈值写入 `UserDefaults`; 首次开启时请求系统通知授权                                                              |
+| 系统通知        | `NotificationSettings` + `UNUserNotificationCenter`                                  | 总开关、五类通知子开关、任务触觉开关与阈值写入 `UserDefaults`; 首次开启时请求系统通知授权                                                             |
 | 使用快捷键      | `GlobalHotKeySettings.shortcut`                                                      | 写入 `UserDefaults` 并注册 hot key                                                                                                                    |
 | 启用 Codex Hook | app-server `config/read` / `hooks/list` / `config/batchWrite`, `~/.codex/hooks.json` | 检查全局 Hook 开关后追加或移除当前 CodexBar command hook, 并维护对应 `hooks.state` 信任状态                                                           |
 | 跨设备同步      | `WorkflowSyncSettings` + CloudKit account status + `WorkflowSyncScheduler`           | Hook 开启且同步账号可用时写入 `UserDefaults`; 开启时标记 `needsBackfill` 并请求调度同步                                                               |
@@ -1084,7 +1084,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 通知与触觉反馈判定在 `CodexBar/Services/Notifications/`, 偏好类随其他设置类放在 `CodexBar/Services/Settings/`:
 
 - `NotificationSettings` (`Services/Settings/`): 总开关、五类通知子开关、任务触觉开关、低额度阈值 (5%/10%/25%, 默认 10%) 和长任务时长 (30s/1m/2m/5m, 默认 1m), 持久化到 UserDefaults; 负责系统授权请求、被拒状态镜像和设置页选项面板可展示状态
-- `CodexNotificationService`: 集中判定、去重、调度与发送; 由 `CodexBarAppDelegate` 创建, 订阅 `CodexStatusViewModel.$snapshot`、`CodexActivityMonitor` live transition 与 `NSWorkspace.didWakeNotification`; 五类正式通知共用 `CodexNotificationContent` 文案工厂，等待与完成 transition 还会按偏好请求 AppKit `.levelChange` 触觉反馈
+- `CodexNotificationService`: 集中判定、去重、调度与发送; 由 `CodexBarAppDelegate` 创建, 订阅 `CodexStatusViewModel.$snapshot`、`CodexActivityMonitor` live transition 与 `NSWorkspace.didWakeNotification`; 五类正式通知共用 `CodexNotificationContent` 文案工厂，系统提交失败时重试一次，等待与完成 transition 还会按偏好请求 AppKit `.levelChange` 触觉反馈
 - `CodexActivityMonitor`: Hook 开启期间始终运行并维护并发任务；向 UI 发布快照，向提醒服务发布 live transition。单个 live 批次先完整应用事件，再按任务键合并等待候选；只有批次结束后仍处于等待的任务会使用最终快照发布一次等待 transition，完成候选保持顺序并按 completion ID 做批内去重。通知与触觉开关不会停止活动监测
 - `HookEventTailReader` (`Services/Workflow/`): 后台 actor；bootstrap 以 512 KB 为单次分块流式读取滚动 24 小时事件，并用 start/events/end 三阶段恢复状态。当前文件用 inode + 完整行 offset 固定 bootstrap/live 边界；bootstrap 结束后 monitor 再发起一次定向回溯，为缺少起点的精确 turn 向旧日期文件最多回读 8 MB。之后每 2 秒 tail 当日增量，保留半行、跨日先读旧文件尾部；live 每成功处理一个分块就推进到最后完整行 offset，后续分块失败只重试未处理部分。旧文件异常触发 bootstrap 时保留 bootstrap 设置的新日期 offset，临时读取失败则保留旧日期等待下轮重试。bootstrap、定时轮询和 Mac 唤醒补读共用串行入口，读取期间到达的请求合并为当前读取结束后的一次补读；monitor generation 会丢弃停用 reader 的迟到批次
 - `CodexSessionLifecycleReader`: 后台 actor，只为 monitor 当前的精确 session + turn 定位对应 rollout；便宜目录每 10 秒重试，每个活跃生命周期最多递归 `sessions` 一次并保留负缓存，缓存文件移动、session 重新活跃或 Mac 唤醒时重置。rollout 初次最多读取末尾 512 KB，之后按 offset 增量读取；`task_started` 回填缺失起点，`task_complete` 补齐结束和精确耗时，`turn_aborted` 由 monitor 静默移除任务，读取失败时不改变 Hook 状态。轮询和即时 lifecycle 查询都绑定 reader generation，跨 actor 返回后仍会复核，旧查询不能落入新 reader 状态
@@ -1095,29 +1095,30 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 
 五类通知的触发与去重:
 
-| 通知         | 触发                                                                                               | 去重键                                     |
-| ------------ | -------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| 额度低阈值   | 非 stale 快照中窗口剩余比例穿越到 ≤ 阈值; 阈值或子开关变化时用当前快照立即重评估                   | `low\|账号\|limitId\|windowId\|resetsAt`   |
-| 额度即将重置 | 可信额度窗口具有 `resetsAt`，在该时间发送“即将重置”通知；不要求本周期曾跌破低额度阈值，补发时效为一个窗口周期 | `reset\|账号\|limitId\|windowId\|resetsAt` |
-| 长任务完成   | monitor 的 live Hook `Stop` 或 rollout `task_complete` transition 具有精确耗时且耗时 ≥ 阈值        | 状态机按精确任务键对两种完成信号去重       |
-| 任务等待批准 | monitor 的 live 批次结束后任务最终仍处于 `waitingApproval`                                         | 同批次按任务键合并，最终快照只发布一次     |
-| 重置机会临期 | 过期时间距今 ≤ 7 天, 并在过期前 7/6/5/4/3/2/1 天各提醒一次; 正文使用本地时间 `yyyy-MM-dd HH:mm:ss` | `credit\|账号\|过期时间\|提醒档位`         |
+| 通知         | 触发                                                                                                                                               | 去重键                                      |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| 额度低阈值   | 非 stale 快照中窗口剩余比例穿越到 ≤ 阈值; 阈值或子开关变化时用当前快照立即重评估                                                                   | `low\|账号\|limitId\|windowId\|resetsAt`    |
+| 额度已重置   | 同一账号下每个 limit 的 primary/secondary 窗口独立观察；可信快照中消耗曾大于 0%，之后更新为 0% 时立即发送以面板 `limit.title` 和窗口周期命名的通知 | 进程内按 `账号\|limitId\|windowId` 状态转换 |
+| 长任务完成   | monitor 的 live Hook `Stop` 或 rollout `task_complete` transition 具有精确耗时且耗时 ≥ 阈值                                                        | 状态机按精确任务键对两种完成信号去重        |
+| 任务等待批准 | monitor 的 live 批次结束后任务最终仍处于 `waitingApproval`                                                                                         | 同批次按任务键合并，最终快照只发布一次      |
+| 重置机会临期 | 过期时间距今 ≤ 7 天, 并在过期前 7/6/5/4/3/2/1 天各提醒一次; 正文使用本地时间 `yyyy-MM-dd HH:mm:ss`                                                 | `credit\|账号\|过期时间\|提醒档位`          |
 
-额度和重置机会通知的已发送去重键持久化在 UserDefaults (`Notification.sentKeys`, 上限 300 条滚动淘汰), 账号维度包含在键中, 切换账号自动隔离。任务等待去重只保留在当前进程内。bootstrap 会恢复 App 启动前滚动 24 小时内的任务状态，但永远不发布 transition，因此不会补发历史权限通知、完成通知或触觉反馈；重新开启通知也不会回放旧事件。
+额度低阈值和重置机会通知只在系统成功接收后才把已发送去重键持久化到 UserDefaults (`Notification.sentKeys`, 上限 300 条滚动淘汰), 账号维度包含在键中, 切换账号自动隔离。通知服务初始化时会移除旧版预测式额度重置留下的 `reset|` 去重键和 pending reminder 数据，保留有效的 `low|` / `credit|` 键。额度重置与任务等待状态只保留在当前进程内，不按预测时间调度或补发；可信额度快照即使在总开关关闭或授权不可用时也会继续消费重置状态转换但不发送，并移除当前快照中已经消失的窗口，整个快照变为空时清空全部待重置窗口。bootstrap 会恢复 App 启动前滚动 24 小时内的任务状态，但永远不发布 transition，因此不会补发历史权限通知、完成通知或触觉反馈；重新开启通知也不会回放旧事件。
 
 「任务触觉反馈」使用 `Notification.taskHapticEnabled` 持久化，缺失时默认开启。等待批准和任意任务完成 transition 都启动一段触觉反馈任务：每 100 ms 请求一次 `.levelChange`，连续 10 次；新 transition 会取消并重启当前序列，开关关闭后会在下一脉冲前停止。触觉反馈不受长任务阈值与系统通知授权影响；App 内「系统通知」总开关关闭时不触发。`NSHapticFeedbackManager.defaultPerformer` 会按当前输入设备、辅助功能与系统偏好决定是否实际反馈及震感强弱。
 
 通知错误处理 (延续"细节不打扰用户"原则, 不写入请求日志窗口):
 
-| 场景                         | 行为                                                            |
-| ---------------------------- | --------------------------------------------------------------- |
-| 系统授权被拒                 | 服务静默不发, 设置页显示引导与"打开系统设置"按钮                |
-| 当日事件文件临时读取失败     | 提交已处理完整行的 offset，下轮只重试剩余部分                   |
-| Hook 或 rollout 单行解码失败 | 跳过坏行并继续处理同批其他完整行，不写入请求日志                |
-| 跨日旧文件临时读取失败       | 暂不切换日期，下一轮继续读取旧尾部；bootstrap 接管时不重放 live |
-| rollout 文件不存在或读取失败 | 保留 Hook 推导的任务状态，不猜测任务已经中断                    |
-| 休眠错过 resetsAt            | 唤醒时补检, 超过一个窗口周期的恢复提醒直接丢弃                  |
-| Hook 关闭                    | monitor 停止 tail 并清空实时状态                                |
-| 通知总开关或任务通知关闭     | 阻止对应通知；总开关关闭时也阻止触觉反馈，monitor 与菜单栏活动状态继续更新 |
+| 场景                           | 行为                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| 系统授权未决定或被拒           | 未决定时等待用户选择，被拒时静默不发并在设置页显示引导                   |
+| 当日事件文件临时读取失败       | 提交已处理完整行的 offset，下轮只重试剩余部分                            |
+| Hook 或 rollout 单行解码失败   | 跳过坏行并继续处理同批其他完整行，不写入请求日志                         |
+| 跨日旧文件临时读取失败         | 暂不切换日期，下一轮继续读取旧尾部；bootstrap 接管时不重放 live          |
+| rollout 文件不存在或读取失败   | 保留 Hook 推导的任务状态，不猜测任务已经中断                             |
+| 额度快照为空、stale 或窗口消失 | 空快照清空全部待重置窗口；stale 快照不参与转换；可信快照移除已消失窗口   |
+| 系统通知提交失败               | 自动重试一次；最终失败不写去重键，额度通知在后续可信快照中重试；账号或窗口生命周期已变化时丢弃迟到的重置失败回调 |
+| Hook 关闭                      | monitor 停止 tail 并清空实时状态                                         |
+| 通知总开关或任务通知关闭       | 阻止对应通知；额度重置状态仍继续推进但不补发，总开关关闭时也阻止触觉反馈 |
 
 通知点击通过 `UNUserNotificationCenterDelegate` 回调 `StatusItemController.openMenuSurfaceFromNotification()`, 复用全局快捷键的打开路径 (含 fallback 面板兜底)。

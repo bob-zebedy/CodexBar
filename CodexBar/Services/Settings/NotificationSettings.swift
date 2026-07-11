@@ -23,9 +23,20 @@ final class NotificationSettings: ObservableObject {
         authorizationStatus == .denied
     }
 
-    /// 总开关开启且授权未被拒时才允许发送
+    /// 总开关开启且系统已明确允许时才发送, 未决定或未知状态都按不可发送处理。
     var canDeliver: Bool {
-        isEnabled && !isAuthorizationDenied
+        guard isEnabled else {
+            return false
+        }
+
+        switch authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .notDetermined, .denied:
+            return false
+        @unknown default:
+            return false
+        }
     }
 
     /// 触觉反馈不依赖系统通知授权，但服从 App 内通知总开关。
@@ -35,7 +46,7 @@ final class NotificationSettings: ObservableObject {
 
     /// 子选项面板仅在总开关开启且授权已明确通过时可展示
     var canShowOptions: Bool {
-        isEnabled && authorizationStatus != .notDetermined && authorizationStatus != .denied
+        canDeliver
     }
 
     static let lowQuotaThresholdOptions = [5, 10, 25]

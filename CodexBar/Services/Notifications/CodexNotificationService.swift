@@ -3,7 +3,7 @@ import Combine
 import Foundation
 import UserNotifications
 
-/// 集中式提醒服务: 订阅额度与实时活动，负责触觉反馈、阈值判定、去重、重置调度与本地通知发送。
+/// 集中式提醒服务: 订阅额度与实时活动，负责触觉反馈、阈值判定、去重、重置识别与本地通知发送。
 @MainActor
 final class CodexNotificationService: NSObject {
     private let settings: NotificationSettings
@@ -14,16 +14,18 @@ final class CodexNotificationService: NSObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var taskHapticFeedbackTask: Task<Void, Never>?
-    private let resetReminderScheduler = ReminderCheckScheduler()
     private let creditExpiryReminderScheduler = ReminderCheckScheduler()
     private var latestQuotaSnapshot: CodexQuotaSnapshot?
 
-    /// 待发送的重置完成提醒与已发送去重键的内存镜像, 变更时才写回 UserDefaults
-    private var pendingResetReminders: [PendingQuotaResetReminder]
+    /// 已发送去重键的内存镜像, 变更时才写回 UserDefaults
     private var sentDedupKeys: [String]
+    private var submittingDedupKeys = Set<String>()
 
     /// 阈值穿越判定的会话内上一帧剩余比例, key 为 account|limitId|windowId
     private var lastRemainingPercents: [String: Int] = [:]
+
+    /// 可信快照中每个额度窗口的重置观察状态；窗口消失后重现会获得新的生命周期标记。
+    private var quotaWindowResetObservations: [String: QuotaWindowResetObservation] = [:]
 
     init(
         settings: NotificationSettings,
@@ -37,8 +39,12 @@ final class CodexNotificationService: NSObject {
         self.activityMonitor = activityMonitor
         self.defaults = defaults
         self.openMenuSurface = openMenuSurface
-        pendingResetReminders = Self.loadPendingResetReminders(from: defaults)
-        sentDedupKeys = defaults.stringArray(forKey: Self.sentKeysKey) ?? []
+        let storedDedupKeys = defaults.stringArray(forKey: Self.sentKeysKey) ?? []
+        sentDedupKeys = storedDedupKeys.filter { !$0.hasPrefix(Self.legacyResetDedupKeyPrefix) }
+        if sentDedupKeys.count != storedDedupKeys.count {
+            defaults.set(sentDedupKeys, forKey: Self.sentKeysKey)
+        }
+        defaults.removeObject(forKey: Self.legacyPendingResetReminderKey)
         super.init()
     }
 
@@ -62,12 +68,11 @@ final class CodexNotificationService: NSObject {
         }
         .store(in: &cancellables)
 
-        // 休眠可能错过 resetsAt, 唤醒时补检
+        // 休眠可能错过重置次数的临期检查, 唤醒时补检
         NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didWakeNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.deliverDueResetReminders()
                 self?.deliverDueCreditExpiryReminders()
             }
             .store(in: &cancellables)
@@ -133,35 +138,54 @@ final class CodexNotificationService: NSObject {
     private func handleSnapshot(_ snapshot: CodexQuotaSnapshot?) {
         guard let snapshot else {
             latestQuotaSnapshot = nil
+            quotaWindowResetObservations.removeAll()
             scheduleNextCreditExpiryCheck(dates: [])
             return
         }
 
         latestQuotaSnapshot = snapshot
 
-        guard settings.canDeliver else {
-            scheduleNextCreditExpiryCheck(dates: [])
-            return
-        }
-
         // stale 快照是旧缓存, 不参与额度判定, 避免误报
         if !snapshot.isRateLimitsStale {
             processQuotaWindows(snapshot)
         }
 
+        guard settings.canDeliver else {
+            scheduleNextCreditExpiryCheck(dates: [])
+            return
+        }
+
         processCreditExpirations(snapshot)
-        deliverDueResetReminders()
     }
 
     private func processQuotaWindows(_ snapshot: CodexQuotaSnapshot) {
+        var observedWindowKeys = Set<String>()
+        forEachQuotaWindowWithData(in: snapshot) { window, limit, stateKey in
+            observedWindowKeys.insert(stateKey)
+            if quotaWindowResetObservations[stateKey] == nil {
+                quotaWindowResetObservations[stateKey] = QuotaWindowResetObservation()
+            }
+            processQuotaWindow(window, limit: limit, stateKey: stateKey)
+        }
+        quotaWindowResetObservations = quotaWindowResetObservations.filter {
+            observedWindowKeys.contains($0.key)
+        }
+    }
+
+    /// 枚举可信快照中有数据的额度窗口, 窗口过滤与 stateKey 口径的唯一定义处
+    private func forEachQuotaWindowWithData(
+        in snapshot: CodexQuotaSnapshot,
+        _ body: (QuotaWindow, CodexQuotaLimitSnapshot, String) -> Void
+    ) {
         let accountKey = Self.accountKey(for: snapshot)
         for limit in snapshot.limits {
             for window in limit.windows where window.hasData {
-                processQuotaWindow(
-                    window,
-                    limit: limit,
-                    accountKey: accountKey
+                let stateKey = Self.quotaWindowStateKey(
+                    accountKey: accountKey,
+                    limitId: limit.limitId,
+                    windowId: window.id
                 )
+                body(window, limit, stateKey)
             }
         }
     }
@@ -174,137 +198,98 @@ final class CodexNotificationService: NSObject {
             return
         }
 
-        resetQuotaObservation(for: snapshot)
+        resetLowQuotaObservation(for: snapshot)
         processQuotaWindows(snapshot)
     }
 
-    private func resetQuotaObservation(for snapshot: CodexQuotaSnapshot) {
-        let accountKey = Self.accountKey(for: snapshot)
-        for limit in snapshot.limits {
-            for window in limit.windows where window.hasData {
-                let stateKey = Self.quotaWindowStateKey(
-                    accountKey: accountKey,
-                    limitId: limit.limitId,
-                    windowId: window.id
-                )
-                lastRemainingPercents.removeValue(forKey: stateKey)
-            }
+    private func resetLowQuotaObservation(for snapshot: CodexQuotaSnapshot) {
+        forEachQuotaWindowWithData(in: snapshot) { _, _, stateKey in
+            lastRemainingPercents.removeValue(forKey: stateKey)
         }
     }
 
     private func processQuotaWindow(
         _ window: QuotaWindow,
         limit: CodexQuotaLimitSnapshot,
-        accountKey: String
+        stateKey: String
     ) {
-        let stateKey = Self.quotaWindowStateKey(
-            accountKey: accountKey,
-            limitId: limit.limitId,
-            windowId: window.id
-        )
-        let previous = lastRemainingPercents[stateKey]
-        lastRemainingPercents[stateKey] = window.remainingPercent
-
-        guard let resetsAt = window.resetsAt else {
+        guard let usedPercent = window.usedPercent else {
             return
         }
 
-        // 每个可信额度窗口都登记本周期重置提醒, 不依赖低额度阈值或子开关
-        rememberPendingResetReminder(
-            accountKey: accountKey,
-            limitId: limit.limitId,
-            window: window,
-            resetsAt: resetsAt
+        trackQuotaResetTransition(
+            stateKey: stateKey,
+            usedPercent: usedPercent,
+            limit: limit,
+            window: window
         )
 
-        guard window.remainingPercent <= settings.lowQuotaThresholdPercent,
+        guard settings.canDeliver else {
+            return
+        }
+
+        let previousRemainingPercent = lastRemainingPercents[stateKey]
+        lastRemainingPercents[stateKey] = window.remainingPercent
+
+        guard let resetsAt = window.resetsAt,
+              window.remainingPercent <= settings.lowQuotaThresholdPercent,
               settings.isLowQuotaEnabled else {
             return
         }
 
         // 穿越判定: 上一帧高于阈值才提醒; 会话内首次观察即低于也视为穿越
         // (App 可能在跌破后才启动), 持久化去重键保证每周期只发一次
-        if let previous, previous <= settings.lowQuotaThresholdPercent {
+        if let previousRemainingPercent,
+           previousRemainingPercent <= settings.lowQuotaThresholdPercent {
             return
         }
 
-        let dedupKey = "low|\(accountKey)|\(limit.limitId)|\(window.id)|\(Self.epoch(resetsAt))"
-        guard consumeDedupKey(dedupKey) else {
-            return
-        }
-
+        let dedupKey = "low|\(stateKey)|\(Self.epoch(resetsAt))"
         send(
             .lowQuota(
                 limitTitle: limit.title,
                 windowLabel: window.label,
                 thresholdPercent: settings.lowQuotaThresholdPercent
-            )
-        )
-    }
-
-    // MARK: - 重置完成提醒
-
-    private func rememberPendingResetReminder(
-        accountKey: String,
-        limitId: String,
-        window: QuotaWindow,
-        resetsAt: Date
-    ) {
-        let reminder = PendingQuotaResetReminder(
-            accountKey: accountKey,
-            limitId: limitId,
-            windowId: window.id,
-            windowLabel: window.label,
-            resetsAt: resetsAt,
-            windowDurationMins: window.windowDurationMins
-        )
-
-        guard !pendingResetReminders.contains(reminder), !hasSent(reminder.dedupKey) else {
-            return
+            ),
+            dedupKey: dedupKey
+        ) { [weak self] in
+            self?.lastRemainingPercents.removeValue(forKey: stateKey)
         }
-
-        pendingResetReminders.append(reminder)
-        persistPendingResetReminders()
     }
 
-    private func deliverDueResetReminders() {
-        let now = Date()
-        var remaining: [PendingQuotaResetReminder] = []
+    // MARK: - 额度重置提醒
 
-        for reminder in pendingResetReminders {
-            if reminder.resetsAt > now {
-                remaining.append(reminder)
-                continue
-            }
-
-            // 已到重置时刻: 超时效或已发过的直接丢弃
-            guard now < reminder.validUntil, !hasSent(reminder.dedupKey) else {
-                continue
-            }
-
-            // 开关或授权此刻关闭时保留, 时效内等下一次快照/唤醒重试
+    private func trackQuotaResetTransition(
+        stateKey: String,
+        usedPercent: Int,
+        limit: CodexQuotaLimitSnapshot,
+        window: QuotaWindow
+    ) {
+        if usedPercent > 0 {
+            quotaWindowResetObservations[stateKey]?.hasObservedConsumption = true
+        } else if usedPercent == 0,
+                  quotaWindowResetObservations[stateKey]?.hasObservedConsumption == true {
+            // 归零即消费待重置状态; 开关或授权此刻不可用时不保留补发。
+            quotaWindowResetObservations[stateKey]?.hasObservedConsumption = false
             guard settings.canDeliver,
                   settings.isQuotaResetEnabled,
-                  consumeDedupKey(reminder.dedupKey) else {
-                remaining.append(reminder)
-                continue
+                  let lifecycleToken = quotaWindowResetObservations[stateKey]?.lifecycleToken else {
+                return
             }
 
-            send(.quotaReset(windowLabel: reminder.windowLabel))
-        }
+            send(
+                .quotaReset(
+                    limitTitle: limit.title,
+                    windowLabel: window.label
+                )
+            ) { [weak self] in
+                guard let self,
+                      quotaWindowResetObservations[stateKey]?.lifecycleToken == lifecycleToken else {
+                    return
+                }
 
-        if remaining != pendingResetReminders {
-            pendingResetReminders = remaining
-            persistPendingResetReminders()
-        }
-        scheduleNextResetCheck()
-    }
-
-    private func scheduleNextResetCheck() {
-        let now = Date()
-        let nextDate = pendingResetReminders.map(\.resetsAt).filter { $0 > now }.min()
-        resetReminderScheduler.schedule(at: nextDate) { [weak self] in
-            self?.deliverDueResetReminders()
+                quotaWindowResetObservations[stateKey]?.hasObservedConsumption = true
+            }
         }
     }
 
@@ -331,11 +316,10 @@ final class CodexNotificationService: NSObject {
             }
 
             let dedupKey = "credit|\(accountKey)|\(epochSecond)|\(reminderDay)d"
-            guard consumeDedupKey(dedupKey) else {
-                continue
-            }
-
-            send(.creditExpiry(count: groupedDates.count, expirationDate: date))
+            send(
+                .creditExpiry(count: groupedDates.count, expirationDate: date),
+                dedupKey: dedupKey
+            )
         }
 
         scheduleNextCreditExpiryCheck(dates: dates)
@@ -363,48 +347,29 @@ final class CodexNotificationService: NSObject {
 
     // MARK: - 去重与持久化
 
-    /// 未发过则记录并返回 true; 已发过返回 false
-    private func consumeDedupKey(_ key: String) -> Bool {
-        guard !sentDedupKeys.contains(key) else {
-            return false
-        }
-
+    private func rememberSentDedupKey(_ key: String) {
         sentDedupKeys.append(key)
         if sentDedupKeys.count > Self.sentKeysLimit {
             sentDedupKeys.removeFirst(sentDedupKeys.count - Self.sentKeysLimit)
         }
 
         defaults.set(sentDedupKeys, forKey: Self.sentKeysKey)
-        return true
-    }
-
-    private func hasSent(_ key: String) -> Bool {
-        sentDedupKeys.contains(key)
-    }
-
-    private static func loadPendingResetReminders(from defaults: UserDefaults) -> [PendingQuotaResetReminder] {
-        guard let data = defaults.data(forKey: pendingResetRemindersKey),
-              let reminders = try? JSONDecoder().decode(
-                  [PendingQuotaResetReminder].self,
-                  from: data
-              ) else {
-            return []
-        }
-
-        return reminders
-    }
-
-    private func persistPendingResetReminders() {
-        guard let data = try? JSONEncoder().encode(pendingResetReminders) else {
-            return
-        }
-
-        defaults.set(data, forKey: Self.pendingResetRemindersKey)
     }
 
     // MARK: - 发送与文案
 
-    private func send(_ notification: CodexNotificationContent) {
+    private func send(
+        _ notification: CodexNotificationContent,
+        dedupKey: String? = nil,
+        onFailure: (() -> Void)? = nil
+    ) {
+        if let dedupKey {
+            guard !sentDedupKeys.contains(dedupKey),
+                  submittingDedupKeys.insert(dedupKey).inserted else {
+                return
+            }
+        }
+
         let content = UNMutableNotificationContent()
         content.title = notification.title
         content.body = notification.body
@@ -415,7 +380,31 @@ final class CodexNotificationService: NSObject {
             content: content,
             trigger: nil
         )
-        UNUserNotificationCenter.current().add(request)
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            defer {
+                if let dedupKey {
+                    submittingDedupKeys.remove(dedupKey)
+                }
+            }
+
+            for _ in 0 ... Self.notificationSubmissionRetryCount {
+                do {
+                    try await UNUserNotificationCenter.current().add(request)
+                    if let dedupKey {
+                        rememberSentDedupKey(dedupKey)
+                    }
+                    return
+                } catch {
+                    continue
+                }
+            }
+
+            onFailure?()
+        }
     }
 
     private nonisolated static func accountKey(for snapshot: CodexQuotaSnapshot) -> String {
@@ -461,9 +450,18 @@ final class CodexNotificationService: NSObject {
     private nonisolated static let creditExpiryLeadTime: TimeInterval = 7 * day
     private static let taskHapticPulseCount = 10
     private static let taskHapticPulseInterval = Duration.milliseconds(100)
+    private static let notificationSubmissionRetryCount = 1
     private static let sentKeysLimit = 300
     private static let sentKeysKey = "Notification.sentKeys"
-    private static let pendingResetRemindersKey = "Notification.pendingResetReminders"
+    private static let legacyResetDedupKeyPrefix = "reset|"
+    private static let legacyPendingResetReminderKey = "Notification.pendingResetReminders"
+
+    /// 单个额度窗口的重置观察状态: 记录大于 0 的消耗, 归零时消费并发送
+    private struct QuotaWindowResetObservation {
+        /// 窗口生命周期标记, 迟到的发送失败回调据此丢弃
+        let lifecycleToken = UUID()
+        var hasObservedConsumption = false
+    }
 }
 
 nonisolated struct CodexNotificationContent: Equatable {
@@ -481,10 +479,13 @@ nonisolated struct CodexNotificationContent: Equatable {
         )
     }
 
-    static func quotaReset(windowLabel: String) -> CodexNotificationContent {
+    static func quotaReset(
+        limitTitle: String,
+        windowLabel: String
+    ) -> CodexNotificationContent {
         CodexNotificationContent(
-            title: "Codex 额度重置",
-            body: "\(windowLabel) 窗口额度即将重置"
+            title: "额度已重置",
+            body: "\(limitTitle) \(windowLabel)"
         )
     }
 
@@ -516,12 +517,12 @@ nonisolated struct CodexNotificationContent: Equatable {
 // MARK: - UNUserNotificationCenterDelegate
 
 extension CodexNotificationService: UNUserNotificationCenterDelegate {
-    /// 菜单栏常驻应用处于前台时也要展示横幅
+    /// 菜单栏常驻应用处于前台时也要展示横幅并播放声音
     nonisolated func userNotificationCenter(
         _: UNUserNotificationCenter,
         willPresent _: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .list]
+        [.banner, .list, .sound]
     }
 
     nonisolated func userNotificationCenter(
@@ -561,24 +562,5 @@ private final class ReminderCheckScheduler {
             self?.armedDate = nil
             action()
         }
-    }
-}
-
-/// 已知下次重置时间的额度窗口, 在 resetsAt 到达时发送提醒
-private nonisolated struct PendingQuotaResetReminder: Codable, Equatable {
-    let accountKey: String
-    let limitId: String
-    let windowId: String
-    let windowLabel: String
-    let resetsAt: Date
-    let windowDurationMins: Int?
-
-    var dedupKey: String {
-        "reset|\(accountKey)|\(limitId)|\(windowId)|\(Int(resetsAt.timeIntervalSince1970))"
-    }
-
-    /// 补发时效: 超过一个窗口周期不再提醒, 周期未知按 24h
-    var validUntil: Date {
-        resetsAt.addingTimeInterval(TimeInterval((windowDurationMins ?? 1440) * 60))
     }
 }

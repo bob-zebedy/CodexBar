@@ -34,11 +34,13 @@ struct CodexActivityCard: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                Text(content.detail)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                if let detail = content.detail {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
 
             Spacer(minLength: 0)
@@ -74,10 +76,11 @@ struct CodexActivityCard: View {
                 otherTaskCount: otherTaskCount
             )
         case let .running(task):
-            var titles = [task.projectName ?? "Codex"]
+            var titles: [String] = []
             if let modelName = task.modelName {
                 titles.append(modelName)
             }
+            titles.append(task.projectName ?? "Codex")
 
             var details: [String] = []
             if task.showsPreciseDuration, let startedAt = task.startedAt {
@@ -111,7 +114,7 @@ struct CodexActivityCard: View {
                 symbolName: "waveform.path",
                 tint: .secondary,
                 title: "暂无 Codex 活动",
-                detail: "Codex Hook 正在监测",
+                detail: nil,
                 otherTaskCount: 0
             )
         }
@@ -162,6 +165,6 @@ private struct ActivityCardContent {
     let symbolName: String
     let tint: Color
     let title: String
-    let detail: String
+    let detail: String?
     let otherTaskCount: Int
 }
