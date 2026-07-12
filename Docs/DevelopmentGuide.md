@@ -98,11 +98,11 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 
 正常图标是 `person.fill.checkmark`, 错误图标是 `person.fill.xmark`
 
-小人右下角的状态点只表达 Hook 任务状态，按 `等待批准 > 运行中 > 刚完成 > 暂无活动` 取最高优先级：等待批准使用系统橙色，运行中使用系统蓝色，确认 turn 完成后 20 秒内使用系统绿色，空闲时不显示。小人本体始终使用系统前景色，账号异常继续由 `person.fill.xmark` 表达，不改变状态点颜色；空闲且没有额度竖条时保持 template 图像，有状态点或显示额度竖条时使用非 template 合成图。状态点与额度竖条分别绘制，颜色互不影响。
+小人右下角的状态点只表达 Hook 任务状态，按 `等待批准 > 运行中 > 刚完成 > 暂无活动` 取最高优先级：等待批准使用系统橙色，运行中使用系统蓝色，确认 turn 完成后 30 秒内使用系统绿色，空闲时不显示。小人本体始终使用系统前景色，账号异常继续由 `person.fill.xmark` 表达，不改变状态点颜色；空闲且没有额度竖条时保持 template 图像，有状态点或显示额度竖条时使用非 template 合成图。状态点与额度竖条分别绘制，颜色互不影响。
 
 设置页「菜单栏额度指示」默认开启, 使用独立开关控制启用状态; 缺失持久化选择时默认使用 `.primary`, 关闭时显式持久化 `.off`。开启后在同一行显示额度窗口菜单, 可选择当前账号 Codex limit 返回的额度窗口, 当前保留选择不在返回窗口中时用 fallback 标题追加到菜单。最后一次非关闭的窗口选择由 `MenuBarQuotaSettings` 以 `MenuBarQuota.lastWindowSelection` 键随偏好持久化: 关闭开关时它继续参与菜单淡出避免过渡期间回退, 重新开启时（含重开设置窗口或重启应用后）恢复该选择, 无记录时回退 `.primary`。开启后 `StatusItemController` 会把所选 Codex 窗口的剩余额度进度条绘制在图标左侧, 以竖条形式与 `person.fill.checkmark` / `person.fill.xmark` 合成为单个 `NSImage`, 并随 `CodexStatusViewModel` 自动刷新。合成图尺寸为 `27 x 17`, 图标本体保持原始 `24 x 17`, 左侧竖条轨道为 `2 x 15`, 状态点位于小人右下角。额度显隐或状态点变化时, `StatusItemController` 合并为同一个逐帧重绘任务，在 0.18 秒内同时插值竖条与状态点的透明度以及状态点颜色，避免两个动画任务竞争；过渡期间合成图宽度和绘制坐标保持固定。活动期间 tooltip 每分钟更新一次耗时并合并并发数量与额度，活动结束后取消刷新任务。
 
-Hook 开启时，账号卡片下方始终显示固定高度 `CodexActivityCard`；即使 app-server 异常进入空数据分支也不会隐藏。卡片按等待、运行、最近完成、空闲的顺序展示项目最后一级名称、模型或工具、耗时及其他任务数量。最近完成保留 5 分钟。耗时 `TimelineView` 只在 popover 或 fallback panel 可见时逐秒 tick。
+Hook 开启时，账号卡片下方始终显示固定高度 `CodexActivityCard`。主面板 `CodexQuotaSnapshot` 为 `nil` 时，卡片消费空活动快照并显示「暂无数据」，不开放任务中心；Monitor 仍在后台维护状态，主快照恢复后直接发布最新活动。卡片按等待、运行、最近完成、最近终止、空闲的顺序展示项目最后一级名称、模型或工具、耗时及其他任务数量；只有终止历史时使用灰色终止状态展示最近一项。存在活动任务、最近完成或最近终止记录时整张卡片成为无系统 label 状态变化的自定义 button：只有存在其他活动任务时才在右侧显示 `+N`，单任务不显示尾部附件，hover/选中反馈只作用于卡片描边。点击后由 `ActivityCenterPanelController` 展开并发任务中心，按等待、运行、最近完成和最近终止展示 `CodexActivitySnapshot` 的完整有序列表；等待和运行按最后活动时间倒序，完成和终止分别按结束时间倒序。任务及两类最近记录使用进程内 opaque UUID 供 SwiftUI diff，不向 UI 暴露 session/turn ID。最近完成和最近终止均保留 10 分钟，卡片与任务中心的耗时只在各自可见时逐秒 tick；已打开期间主快照变为 `nil` 时会立即收回任务中心。
 
 错误图标触发条件:
 
@@ -119,6 +119,7 @@ Hook 开启时，账号卡片下方始终显示固定高度 `CodexActivityCard`�
 | 全局快捷键       | 切换菜单面板     |
 | 系统 `⌘,`        | 打开独立设置窗口 |
 | 菜单面板内 `⌘L`  | 打开独立日志窗口 |
+| 点击活动卡片     | 切换并发任务中心 |
 | 上下文菜单"设置" | 打开独立设置窗口 |
 | 上下文菜单"日志" | 打开独立日志窗口 |
 | 上下文菜单"退出" | 终止 App         |
@@ -144,7 +145,7 @@ Hook 开启时，账号卡片下方始终显示固定高度 `CodexActivityCard`�
 
 关闭菜单面板的顺序:
 
-- 立即隐藏热力图详情面板和重置次数详情面板
+- 立即隐藏热力图详情面板、重置次数详情面板和并发任务中心
 - 移除本地和全局事件监听
 - 将 `isVisible` 设为 `false`, 让倒计时停止 `TimelineView` 每秒 tick
 - 临时禁止设置窗口和日志窗口成为 key window, 避免关闭菜单面板时 AppKit 把这些辅助窗口提到前面
@@ -162,9 +163,9 @@ Hook 开启时，账号卡片下方始终显示固定高度 `CodexActivityCard`�
 
 Command-Space 不直接关闭菜单面板, 只短暂抑制 600 ms 内的 active 变化关闭逻辑, 避免 Spotlight 或系统搜索抢焦点时误关弹窗。
 
-热力图详情面板和重置次数详情面板都会通过 `containsScreenPoint(_:)` 告诉关闭监听器自己的屏幕区域, 因此点击这些 child panel 内部不会触发主菜单面板关闭。重置次数详情面板可接收鼠标事件用于滚动; 热力图详情面板不接收鼠标事件。
+热力图详情面板、重置次数详情面板和并发任务中心都会通过 `containsScreenPoint(_:)` 告诉关闭监听器自己的屏幕区域, 因此点击这些 child panel 内部不会触发主菜单面板关闭。重置次数详情面板和并发任务中心可接收鼠标事件用于滚动; 热力图详情面板不接收鼠标事件。并发任务中心是点击后保持打开的面板；出现有效的热力图方块 hover context 时会自动收回任务中心并展示当天详情，点击重置次数也会显式切换并关闭任务中心。
 
-侧边面板的共同行为集中在 `CodexBar/Controllers/SidePanelSupport.swift`: `NonactivatingSidePanel` 固定不能成为 key/main window, `KeyableBorderlessPanel` 供需要键盘焦点的无边框面板（通知子选项面板、fallback 面板）共用, `SidePanelDrawerAnimator` 管理内容 view 的横向抽屉 transform, `SidePanelDrawerPresenter` 承载重置次数/通知子选项两类「一次性展开」面板共用的显隐状态机（generation 竞态防护、入退场动画、child window 挂载/卸载、可选 makeKey）, `SidePanelSupport` 提供 panel 工厂（`makePanel`, 由 `ignoresMouseEvents`、初始尺寸与 `keyable` 决定）、完整定位入口（`position`, 内含左右侧选择、坐标夹紧与 `SidePanelPosition` 组装, 纵向由调用方传入期望位置）、锚点行对齐与校验（`alignedProposedY` / `validatedAlignmentScreenFrame`, 容差 6 pt）、共享几何/抽屉动画常量（`SidePanelSupport.Metrics`）, 以及 child window 挂载/移除、菜单面板 key window 恢复、圆角 layer 配置和屏幕 frame 换算。`HeatmapDetailPanelController` 保留 hover 请求、Y 轴策略、侧边切换队列和 token/workflow 内容更新, 其切边/延迟隐藏状态机不走共享 presenter; `ResetCreditsPanelController` 主要保留重置次数内容、最大高度和点击切换状态。两个面板视图的玻璃底/背板/描边/圆角裁剪皮肤共用 `LiquidGlassStyle.swift` 的 `sidePanelChrome(cornerRadius:)`。
+侧边面板的共同行为集中在 `CodexBar/Controllers/SidePanelSupport.swift`: `NonactivatingSidePanel` 固定不能成为 key/main window, `KeyableBorderlessPanel` 供需要键盘焦点的无边框面板（通知子选项面板、fallback 面板）共用, `SidePanelDrawerAnimator` 管理内容 view 的横向抽屉 transform, `SidePanelDrawerPresenter` 承载重置次数、并发任务中心和通知子选项三类「一次性展开」面板共用的显隐状态机（generation 竞态防护、入退场动画、child window 挂载/卸载、可选 makeKey）, `SidePanelSupport` 提供 panel 工厂（`makePanel`, 由 `ignoresMouseEvents`、初始尺寸与 `keyable` 决定）、完整定位入口（`position`, 内含左右侧选择、坐标夹紧与 `SidePanelPosition` 组装, 纵向由调用方传入期望位置）、锚点行对齐与校验（`alignedProposedY` / `validatedAlignmentScreenFrame`, 容差 6 pt）、锚点感知的定位边界放宽（`anchorAwareVisibleFrame`, 宿主进入系统菜单栏保留区时只向上放宽到锚点行顶边）、共享几何/抽屉动画常量（`SidePanelSupport.Metrics`）, 以及 child window 挂载/移除、菜单面板 key window 恢复、圆角 layer 配置和屏幕 frame 换算。`HeatmapDetailPanelController` 保留 hover 请求、Y 轴策略、侧边切换队列和 token/workflow 内容更新, 其切边/延迟隐藏状态机不走共享 presenter; `ResetCreditsPanelController` 主要保留重置次数内容、最大高度和点击切换状态；`ActivityCenterPanelController` 使用常驻 Monitor 快照原地更新任务列表，只有显隐时播放抽屉动画，并在主面板进入系统菜单栏保留区时只向上放宽定位边界到活动卡片顶边。任务中心先按当前分区和条目数扩展高度，并在打开期间随快照变化重新布局；高度同时受屏幕可见高度和活动卡片顶边到主面板底边的距离限制，只有达到该上限后列表才内部滚动，因此顶边保持对齐且底边不会越过主面板。三个面板视图的玻璃底/背板/描边/圆角裁剪皮肤共用 `LiquidGlassStyle.swift` 的 `sidePanelChrome(cornerRadius:)`。
 
 设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开对应入口时只移动和置前对应窗口。窗口 level 保持 `.normal`; 置前时先恢复 `AuxiliaryHostingWindow.allowsKeyFocus`, 再 `orderFrontRegardless()`, `NSRunningApplication.current.activate(options: [])` 和 `makeKeyAndOrderFront(nil)`, 只做一次性置前, 不持续置顶。CodexBar 是 `LSUIElement` 菜单栏 App, 首次懒创建辅助窗口时需要通过当前运行中应用激活, 避免设置或日志窗口第一次打开时没有稳定拉到最前。
 
@@ -1077,7 +1078,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 - 不把原始敏感 RPC 响应写入文档或测试夹具
 - 日志完整保存 request/detail, UI 默认只渲染单行预览; 完整内容通过标题行预览或复制查看
 - Hook 统计默认只保存在用户 Application Support 的 CodexBar 目录；开启「跨设备同步」后, CloudKit 只保存去掉 `sessionIds` / `turnIds` 的 daily 聚合副本, 不保存原始 Hook events
-- 实时任务状态只保存在 `CodexActivityMonitor` 内存中，UI 只展示项目最后一级名称、模型、工具名与最近 Hook 事件类型；运行卡片第一行组合项目和模型，第二行组合运行时间与请求/工具/压缩/子智能体状态，其他任务数使用右侧 `+N` 徽标。不写历史文件、不上传 CloudKit，也不新增网络请求。`CodexSessionLifecycleReader` 只对活跃 session + turn 增量读取本机 rollout，提取事件类型、turn ID、起止时间和耗时，不提取、保存或展示提示词、回复、推理和工具内容
+- 实时任务状态只保存在 `CodexActivityMonitor` 内存中，UI 只展示项目最后一级名称、模型、工具名与最近 Hook 事件类型；运行卡片第一行组合项目和模型，第二行组合运行时间与请求/工具/压缩/子智能体状态，其他任务数使用右侧 `+N` 徽标。并发任务中心消费同一快照中的完整等待、运行、最近完成和最近终止列表，列表身份使用进程内 UUID，不展示或持久化 session/turn ID。不写历史文件、不上传 CloudKit，也不新增网络请求。`CodexSessionLifecycleReader` 只对活跃 session + turn 增量读取本机 rollout，提取事件类型、turn ID、起止时间和耗时，不提取、保存或展示提示词、回复、推理和工具内容
 
 ## 19. 通知与触觉提醒链路
 
@@ -1087,9 +1088,9 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 - `CodexNotificationService`: 集中判定、去重、调度与发送; 由 `CodexBarAppDelegate` 创建, 订阅 `CodexStatusViewModel.$snapshot`、`CodexActivityMonitor` live transition 与 `NSWorkspace.didWakeNotification`; 五类正式通知共用 `CodexNotificationContent` 文案工厂，系统提交失败时重试一次，等待与完成 transition 还会按偏好请求 AppKit `.levelChange` 触觉反馈
 - `CodexActivityMonitor`: Hook 开启期间始终运行并维护并发任务；向 UI 发布快照，向提醒服务发布 live transition。单个 live 批次先完整应用事件，再按任务键合并等待候选；只有批次结束后仍处于等待的任务会使用最终快照发布一次等待 transition，完成候选保持顺序并按 completion ID 做批内去重。通知与触觉开关不会停止活动监测
 - `HookEventTailReader` (`Services/Workflow/`): 后台 actor；bootstrap 以 512 KB 为单次分块流式读取滚动 24 小时事件，并用 start/events/end 三阶段恢复状态。当前文件用 inode + 完整行 offset 固定 bootstrap/live 边界；bootstrap 结束后 monitor 再发起一次定向回溯，为缺少起点的精确 turn 向旧日期文件最多回读 8 MB。之后每 2 秒 tail 当日增量，保留半行、跨日先读旧文件尾部；live 每成功处理一个分块就推进到最后完整行 offset，后续分块失败只重试未处理部分。旧文件异常触发 bootstrap 时保留 bootstrap 设置的新日期 offset，临时读取失败则保留旧日期等待下轮重试。bootstrap、定时轮询和 Mac 唤醒补读共用串行入口，读取期间到达的请求合并为当前读取结束后的一次补读；monitor generation 会丢弃停用 reader 的迟到批次
-- `CodexSessionLifecycleReader`: 后台 actor，只为 monitor 当前的精确 session + turn 定位对应 rollout；便宜目录每 10 秒重试，每个活跃生命周期最多递归 `sessions` 一次并保留负缓存，缓存文件移动、session 重新活跃或 Mac 唤醒时重置。rollout 初次最多读取末尾 512 KB，之后按 offset 增量读取；`task_started` 回填缺失起点，`task_complete` 补齐结束和精确耗时，`turn_aborted` 由 monitor 静默移除任务，读取失败时不改变 Hook 状态。轮询和即时 lifecycle 查询都绑定 reader generation，跨 actor 返回后仍会复核，旧查询不能落入新 reader 状态
+- `CodexSessionLifecycleReader`: 后台 actor，只为 monitor 当前活动或等待终态确认的精确 session + turn 定位对应 rollout；便宜目录每 10 秒重试，每个活跃生命周期最多递归 `sessions` 一次并保留负缓存，缓存文件移动、session 重新活跃或 Mac 唤醒时重置。rollout 初次最多读取末尾 512 KB，之后每 1 秒按 offset 增量读取；`task_started` 回填缺失起点，`task_complete` 补齐结束和精确耗时，`turn_aborted` 由 monitor 移除任务并生成灰色最近终止记录，读取失败时不改变 Hook 状态。轮询和即时 lifecycle 查询都绑定 reader generation，跨 actor 返回后仍会复核，旧查询不能落入新 reader 状态
 
-活动并发以 session 为边界：不同 session 可以同时运行；同一 session 的 turn 按顺序执行。收到新的 `UserPromptSubmit` 时，monitor 会移除该 session 中更早且缺少结束信号的 turn；rollout 收到 `turn_aborted` 时移除对应精确 turn。两种情况都视为中断而不是完成，因此不会触发绿色完成状态、长任务通知或完成触觉反馈。Hook `Stop` 与 rollout `task_complete` 均视为完成信号，先到者生效，后到者按任务键和 session 回退键去重 24 小时；重复完成不会覆盖首次确认结果，也不会缩短去重窗口或再次触发反馈。去重键独立参与最近 deadline 清理，读取时也会惰性移除过期值；迟到的非 Prompt 事件不会重新恢复已完成任务，时间晚于完成记录的新 Prompt 才能开始下一段生命周期。
+活动并发以 session 为边界：不同 session 可以同时运行；同一 session 的 turn 按顺序执行。收到新的 `UserPromptSubmit` 时，monitor 会让该 session 中更早且缺少结束信号的 turn 立即退出活动列表，但保留为等待终态确认任务并触发一次即时 rollout 查询；5 秒内收到 Hook `Stop`、rollout `task_complete` 或 `turn_aborted` 时按真实终态归类，到期仍无终态才生成灰色最近终止记录。已完成和已终止任务键分别保留 24 小时 tombstone，避免迟到事件恢复旧任务或误操作同 session 的新 turn。终止不会触发绿色完成状态、长任务通知或完成触觉反馈。Hook `Stop` 与 rollout `task_complete` 均视为完成信号，先到者生效，后到者按任务键和 session 回退键去重；重复完成不会覆盖首次确认结果，也不会缩短去重窗口或再次触发反馈。
 
 设置页交互: 「系统通知」主开关行保留在设置窗口内, 子选项 (五类通知子开关、任务触觉开关与两个阈值 Picker) 在主选项右侧的子面板中展开 (`NotificationOptionsPanelController`, 复用 SidePanelSupport 抽屉机制挂在设置窗口上, 内容用常驻 hosting controller + ObservableObject 驱动, 面板尺寸在 Hook 开/关两种状态下保持不变)。「任务等待通知」和「任务触觉反馈」依次排列在「任务完成通知」下方。主开关开启后仅在系统授权允许时展开, 首次授权场景会等待授权结果; 点击行内滑杆按钮可手动展开; 设置窗口 resign key/关闭、主开关关闭或授权变为被拒时自动收起。任务完成、任务等待与任务触觉子项在 Hook 未开启时显示为关闭并置灰, 不修改各自持久化偏好, Hook 重新开启后恢复用户原选择。授权被拒的引导文案与"打开系统设置"按钮仍内联显示在主开关行下方, 插入提示时不触发设置项纵向动画。
 
@@ -1109,16 +1110,16 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 
 通知错误处理 (延续"细节不打扰用户"原则, 不写入请求日志窗口):
 
-| 场景                           | 行为                                                                     |
-| ------------------------------ | ------------------------------------------------------------------------ |
-| 系统授权未决定或被拒           | 未决定时等待用户选择，被拒时静默不发并在设置页显示引导                   |
-| 当日事件文件临时读取失败       | 提交已处理完整行的 offset，下轮只重试剩余部分                            |
-| Hook 或 rollout 单行解码失败   | 跳过坏行并继续处理同批其他完整行，不写入请求日志                         |
-| 跨日旧文件临时读取失败         | 暂不切换日期，下一轮继续读取旧尾部；bootstrap 接管时不重放 live          |
-| rollout 文件不存在或读取失败   | 保留 Hook 推导的任务状态，不猜测任务已经中断                             |
-| 额度快照为空、stale 或窗口消失 | 空快照清空全部待重置窗口；stale 快照不参与转换；可信快照移除已消失窗口   |
+| 场景                           | 行为                                                                                                             |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| 系统授权未决定或被拒           | 未决定时等待用户选择，被拒时静默不发并在设置页显示引导                                                           |
+| 当日事件文件临时读取失败       | 提交已处理完整行的 offset，下轮只重试剩余部分                                                                    |
+| Hook 或 rollout 单行解码失败   | 跳过坏行并继续处理同批其他完整行，不写入请求日志                                                                 |
+| 跨日旧文件临时读取失败         | 暂不切换日期，下一轮继续读取旧尾部；bootstrap 接管时不重放 live                                                  |
+| rollout 文件不存在或读取失败   | 保留 Hook 推导的任务状态，不猜测任务已经中断                                                                     |
+| 额度快照为空、stale 或窗口消失 | 空快照清空全部待重置窗口；stale 快照不参与转换；可信快照移除已消失窗口                                           |
 | 系统通知提交失败               | 自动重试一次；最终失败不写去重键，额度通知在后续可信快照中重试；账号或窗口生命周期已变化时丢弃迟到的重置失败回调 |
-| Hook 关闭                      | monitor 停止 tail 并清空实时状态                                         |
-| 通知总开关或任务通知关闭       | 阻止对应通知；额度重置状态仍继续推进但不补发，总开关关闭时也阻止触觉反馈 |
+| Hook 关闭                      | monitor 停止 tail 并清空实时状态                                                                                 |
+| 通知总开关或任务通知关闭       | 阻止对应通知；额度重置状态仍继续推进但不补发，总开关关闭时也阻止触觉反馈                                         |
 
 通知点击通过 `UNUserNotificationCenterDelegate` 回调 `StatusItemController.openMenuSurfaceFromNotification()`, 复用全局快捷键的打开路径 (含 fallback 面板兜底)。

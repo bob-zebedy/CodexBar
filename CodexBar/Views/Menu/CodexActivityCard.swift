@@ -4,8 +4,34 @@ import SwiftUI
 struct CodexActivityCard: View {
     let snapshot: CodexActivitySnapshot
     let isTimelineActive: Bool
+    let showsUnavailableState: Bool
+    let isTaskCenterPresented: Bool
+    let onTaskCenterTap: (CGRect?) -> Void
+    @State private var frameProvider = ScreenFrameProvider()
+    @State private var isHovered = false
 
     var body: some View {
+        Group {
+            if snapshot.hasTaskCenterContent {
+                Button {
+                    onTaskCenterTap(frameProvider.currentScreenFrame())
+                } label: {
+                    timelineContent
+                }
+                .buttonStyle(ActivityCardButtonStyle())
+                .contentShape(Rectangle())
+            } else {
+                timelineContent
+            }
+        }
+        .background {
+            ScreenFrameReader(provider: frameProvider)
+        }
+        .onHover { isHovered = $0 }
+    }
+
+    @ViewBuilder
+    private var timelineContent: some View {
         if isTimelineActive, needsPerSecondUpdates {
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
                 card(now: timeline.date)
@@ -31,6 +57,7 @@ struct CodexActivityCard: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(content.title)
                     .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.codexLabel)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
@@ -53,21 +80,28 @@ struct CodexActivityCard: View {
                     .padding(.vertical, 3)
                     .background(.secondary.opacity(0.12), in: Capsule())
                     .help("另有 \(content.otherTaskCount) 个任务")
-                    .accessibilityLabel("另有 \(content.otherTaskCount) 个任务")
             }
         }
         .padding(.horizontal, MenuMetrics.panelPadding)
         .frame(maxWidth: .infinity, minHeight: Metrics.height, maxHeight: Metrics.height)
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
+        .overlay {
+            RoundedRectangle(cornerRadius: MenuMetrics.panelCornerRadius, style: .continuous)
+                .strokeBorder(
+                    isTaskCenterPresented
+                        ? Color.accentColor.opacity(0.55)
+                        : Color.primary.opacity(isHovered && snapshot.hasTaskCenterContent ? 0.14 : 0),
+                    lineWidth: 1
+                )
+                .animation(.codexStatus, value: isHovered)
+                .animation(.codexStatus, value: isTaskCenterPresented)
+        }
     }
 
     private func content(at now: Date) -> ActivityCardContent {
         switch snapshot.primaryActivity {
         case let .waiting(task):
-            let details = [
-                task.toolName ?? "等待下一步操作",
-                "已等待 \(CodexActivityDurationFormat.text(for: now.timeIntervalSince(task.stateChangedAt)))"
-            ]
+            let details = CodexActivityDisplayFormat.waitingDetailComponents(for: task, now: now)
             return ActivityCardContent(
                 symbolName: "hand.raised.fill",
                 tint: .orange,
@@ -82,13 +116,7 @@ struct CodexActivityCard: View {
             }
             titles.append(task.projectName ?? "Codex")
 
-            var details: [String] = []
-            if task.showsPreciseDuration, let startedAt = task.startedAt {
-                details.append("已运行 \(CodexActivityDurationFormat.text(for: now.timeIntervalSince(startedAt)))")
-            } else {
-                details.append("正在运行")
-            }
-            details.append(Self.eventText(for: task))
+            let details = CodexActivityDisplayFormat.runningDetailComponents(for: task, now: now)
             return ActivityCardContent(
                 symbolName: "bolt.fill",
                 tint: .blue,
@@ -97,11 +125,10 @@ struct CodexActivityCard: View {
                 otherTaskCount: otherTaskCount
             )
         case let .completed(completion, _):
-            var details: [String] = []
-            if let duration = completion.duration {
-                details.append("耗时 \(CodexActivityDurationFormat.text(for: duration))")
-            }
-            details.append(Self.completionRelativeText(completion.completedAt, now: now))
+            let details = CodexActivityDisplayFormat.historyDetailComponents(
+                duration: completion.duration,
+                relativeText: CodexActivityDisplayFormat.completionRelativeText(completion.completedAt, now: now)
+            )
             return ActivityCardContent(
                 symbolName: "checkmark.circle.fill",
                 tint: .green,
@@ -109,11 +136,23 @@ struct CodexActivityCard: View {
                 detail: details.joined(separator: " • "),
                 otherTaskCount: 0
             )
+        case let .terminated(termination):
+            let details = CodexActivityDisplayFormat.historyDetailComponents(
+                duration: termination.duration,
+                relativeText: CodexActivityDisplayFormat.terminationRelativeText(termination.terminatedAt, now: now)
+            )
+            return ActivityCardContent(
+                symbolName: "xmark.circle.fill",
+                tint: .secondary,
+                title: termination.projectName ?? "Codex 任务已终止",
+                detail: details.joined(separator: " • "),
+                otherTaskCount: 0
+            )
         case .idle:
             return ActivityCardContent(
                 symbolName: "waveform.path",
                 tint: .secondary,
-                title: "暂无 Codex 活动",
+                title: showsUnavailableState ? "暂无数据" : "暂无 Codex 活动",
                 detail: nil,
                 otherTaskCount: 0
             )
@@ -124,40 +163,15 @@ struct CodexActivityCard: View {
         max(0, snapshot.activeCount - 1)
     }
 
-    private static func eventText(for task: CodexActivityTaskSnapshot) -> String {
-        switch task.latestEvent {
-        case .promptSubmitted:
-            "正在思考"
-        case .toolStarted:
-            task.toolName.map { "调用工具 \($0)" } ?? "调用工具"
-        case .toolFinished:
-            task.toolName.map { "调用工具 \($0) 完成" } ?? "调用工具完成"
-        case .compactionStarted:
-            "压缩上下文"
-        case .compactionFinished:
-            "上下文压缩完成"
-        case .subagentStarted:
-            "启动子智能体"
-        case .subagentFinished:
-            "子智能体完成"
-        case .approvalRequested:
-            "等待批准"
-        }
-    }
-
-    private static func completionRelativeText(_ completedAt: Date, now: Date) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(completedAt)))
-        if seconds < 10 {
-            return "刚刚完成"
-        }
-        if seconds < 60 {
-            return "\(seconds) 秒前完成"
-        }
-        return "\(seconds / 60) 分钟前完成"
-    }
-
     private enum Metrics {
         static let height: CGFloat = 58
+    }
+}
+
+/// 卡片自行处理 hover/选中描边，按钮样式不再修改 label 的前景色或透明度。
+private struct ActivityCardButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
     }
 }
 

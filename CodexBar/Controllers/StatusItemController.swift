@@ -71,8 +71,13 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let menuSurfaceVisibility = MenuSurfaceVisibilityState()
+    private let activityCenterPresentationState = CodexActivityCenterPresentationState()
     private let heatmapDetailPanelController = HeatmapDetailPanelController()
     private let resetCreditsPanelController = ResetCreditsPanelController()
+    private lazy var activityCenterPanelController = ActivityCenterPanelController(
+        activityMonitor: activityMonitor,
+        presentationState: activityCenterPresentationState
+    )
     private var activeMenuSurface = ActiveMenuSurface.none
     private lazy var globalHotKeyController = GlobalHotKeyController { [weak self] in
         self?.toggleMenuSurfaceFromHotKey()
@@ -322,7 +327,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                 .running
             case .completed(_, highlighted: true):
                 .completed
-            case .completed, .idle:
+            case .completed, .terminated, .idle:
                 nil
             }
         }
@@ -384,7 +389,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                     text += " • 耗时 \(CodexActivityDurationFormat.text(for: duration))"
                 }
                 return text
-            case .completed, .idle:
+            case .completed, .terminated, .idle:
                 return nil
             }
         }
@@ -501,11 +506,15 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             activityMonitor: activityMonitor,
             syncSettings: syncSettings,
             menuSurfaceVisibility: menuSurfaceVisibility,
+            activityCenterPresentationState: activityCenterPresentationState,
             onUsageHeatmapHoverChange: { [weak self] context in
                 self?.updateHeatmapDetailPanel(context)
             },
             onResetCreditsTap: { [weak self] context in
                 self?.toggleResetCreditsPanel(context)
+            },
+            onActivityCenterTap: { [weak self] context in
+                self?.toggleActivityCenterPanel(context)
             }
         )
         .environmentObject(appUpdater)
@@ -547,6 +556,17 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                 refreshWorkflowIfHookEnabled(performMaintenance: true)
             }
             .store(in: &cancellables)
+
+        viewModel.$snapshot
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak self] isAvailable in
+                guard let self, !isAvailable else {
+                    return
+                }
+                activityCenterPanelController.hide(immediate: true)
+            }
+            .store(in: &cancellables)
     }
 
     private func observeWorkflowSyncState() {
@@ -561,6 +581,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                     workflowSyncScheduler.requestSync()
                 } else {
                     workflowSyncScheduler.clearPendingMaintenance()
+                    activityCenterPanelController.hide(immediate: true)
                 }
             }
             .store(in: &cancellables)
@@ -1064,14 +1085,22 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         scheduleAuxiliaryWindowKeyFocusRestore()
     }
 
-    private func hideSideDetailPanels() {
-        heatmapDetailPanelController.hide(immediate: true)
-        resetCreditsPanelController.hide(immediate: true)
+    /// 侧边面板互斥名册：新增面板只需要加入这里，显隐与点击区域判定即可覆盖。
+    private var sideDetailPanels: [MenuSideDetailPanel] {
+        [heatmapDetailPanelController, resetCreditsPanelController, activityCenterPanelController]
+    }
+
+    private func hideSideDetailPanels(
+        except kept: MenuSideDetailPanel? = nil,
+        immediate: Bool = true
+    ) {
+        for panel in sideDetailPanels where panel !== kept {
+            panel.hide(immediate: immediate)
+        }
     }
 
     private func isPointInDetailPanel(_ screenPoint: NSPoint) -> Bool {
-        heatmapDetailPanelController.containsScreenPoint(screenPoint)
-            || resetCreditsPanelController.containsScreenPoint(screenPoint)
+        sideDetailPanels.contains { $0.containsScreenPoint(screenPoint) }
     }
 
     private func suspendAuxiliaryWindowKeyFocus() {
@@ -1146,7 +1175,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         if context != nil {
-            resetCreditsPanelController.hide()
+            hideSideDetailPanels(except: heatmapDetailPanelController, immediate: false)
         }
 
         heatmapDetailPanelController.update(
@@ -1164,8 +1193,24 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             return
         }
 
-        heatmapDetailPanelController.hide(immediate: true)
+        hideSideDetailPanels(except: resetCreditsPanelController)
         resetCreditsPanelController.toggle(
+            context: context,
+            relativeTo: menuSurfaceWindow,
+            contentView: menuSurfaceContentView
+        )
+    }
+
+    private func toggleActivityCenterPanel(_ context: CodexActivityCenterPanelContext) {
+        guard isActiveMenuSurfaceVisible,
+              let menuSurfaceContentView = activeMenuSurfaceContentView,
+              let menuSurfaceWindow = activeMenuSurfaceWindow else {
+            activityCenterPanelController.hide(immediate: true)
+            return
+        }
+
+        hideSideDetailPanels(except: activityCenterPanelController)
+        activityCenterPanelController.toggle(
             context: context,
             relativeTo: menuSurfaceWindow,
             contentView: menuSurfaceContentView
@@ -1269,3 +1314,13 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         case fallbackPanel
     }
 }
+
+/// 菜单侧边面板的互斥名册接口；面板间互斥和点击区域判定统一走名册遍历。
+private protocol MenuSideDetailPanel: AnyObject {
+    func hide(immediate: Bool)
+    func containsScreenPoint(_ screenPoint: NSPoint) -> Bool
+}
+
+extension HeatmapDetailPanelController: MenuSideDetailPanel {}
+extension ResetCreditsPanelController: MenuSideDetailPanel {}
+extension ActivityCenterPanelController: MenuSideDetailPanel {}

@@ -17,8 +17,10 @@ struct CodexStatusMenuView: View {
     @ObservedObject var activityMonitor: CodexActivityMonitor
     @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var menuSurfaceVisibility: MenuSurfaceVisibilityState
+    @ObservedObject var activityCenterPresentationState: CodexActivityCenterPresentationState
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
     let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
+    let onActivityCenterTap: (CodexActivityCenterPanelContext) -> Void
     @EnvironmentObject private var appUpdater: AppUpdater
 
     var body: some View {
@@ -74,9 +76,20 @@ private extension CodexStatusMenuView {
     @ViewBuilder
     var activityCard: some View {
         if codexHookSettings.isEnabled {
+            let hasQuotaSnapshot = viewModel.snapshot != nil
             CodexActivityCard(
-                snapshot: activityMonitor.snapshot,
-                isTimelineActive: menuSurfaceVisibility.isVisible
+                snapshot: hasQuotaSnapshot ? activityMonitor.snapshot : .empty,
+                isTimelineActive: menuSurfaceVisibility.isVisible,
+                showsUnavailableState: !hasQuotaSnapshot,
+                isTaskCenterPresented: activityCenterPresentationState.isPresented,
+                onTaskCenterTap: { alignmentScreenFrame in
+                    onActivityCenterTap(
+                        CodexActivityCenterPanelContext(
+                            alignmentScreenFrame: alignmentScreenFrame,
+                            preferredSide: .right
+                        )
+                    )
+                }
             )
         }
     }

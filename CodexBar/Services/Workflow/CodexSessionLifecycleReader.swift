@@ -231,6 +231,7 @@ private nonisolated struct SessionFileCursor {
 }
 
 private nonisolated struct CodexSessionLifecycleEnvelope: Decodable {
+    let timestamp: String?
     let type: String
     let payload: CodexSessionLifecyclePayload?
 
@@ -257,7 +258,10 @@ private nonisolated struct CodexSessionLifecycleEnvelope: Decodable {
             }
             return SessionLifecycleEvent(turnId: turnId, change: .completed(at: completedAt, duration: duration))
         case "turn_aborted":
-            return SessionLifecycleEvent(turnId: turnId, change: .aborted)
+            return SessionLifecycleEvent(
+                turnId: turnId,
+                change: .aborted(at: timestamp.flatMap(CodexDateFormat.iso8601Date))
+            )
         default:
             return nil
         }
@@ -295,7 +299,7 @@ private nonisolated struct SessionLifecycleEvent {
 private nonisolated enum SessionLifecycleChange {
     case started(at: Date)
     case completed(at: Date, duration: TimeInterval?)
-    case aborted
+    case aborted(at: Date?)
 }
 
 private nonisolated struct SessionTurnLifecycle {
@@ -312,8 +316,8 @@ private nonisolated struct SessionTurnLifecycle {
             }
         case let .completed(at, duration):
             terminal = .completed(at: at, duration: duration)
-        case .aborted:
-            terminal = .aborted
+        case let .aborted(at):
+            terminal = .aborted(at: at)
         }
     }
 }
@@ -327,5 +331,5 @@ nonisolated struct CodexSessionTaskLifecycleState: Sendable {
 
 nonisolated enum CodexSessionTaskTerminalState: Sendable {
     case completed(at: Date, duration: TimeInterval?)
-    case aborted
+    case aborted(at: Date?)
 }

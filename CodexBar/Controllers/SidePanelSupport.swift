@@ -393,6 +393,32 @@ enum SidePanelSupport {
         return alignmentScreenFrame.maxY - panelSize.height
     }
 
+    /// 宿主菜单面板可能进入系统菜单栏保留区域; 面板定位只向上放宽到锚点行顶边,
+    /// 让两者顶边对齐, 同时继续沿用 visibleFrame 的左右边界和 Dock 下边界
+    static func anchorAwareVisibleFrame(
+        visibleFrame: CGRect,
+        screenFrame: CGRect?,
+        alignmentScreenFrame: CGRect?
+    ) -> CGRect {
+        guard let screenFrame, let alignmentScreenFrame else {
+            return visibleFrame
+        }
+
+        let permittedMaxY = min(
+            screenFrame.maxY,
+            max(
+                visibleFrame.maxY,
+                alignmentScreenFrame.maxY + Metrics.screenPadding
+            )
+        )
+        return CGRect(
+            x: visibleFrame.minX,
+            y: visibleFrame.minY,
+            width: visibleFrame.width,
+            height: permittedMaxY - visibleFrame.minY
+        )
+    }
+
     /// 锚点必须落在宿主内容区容差范围内才可信, 否则丢弃并走回退定位
     static func validatedAlignmentScreenFrame(
         _ alignmentScreenFrame: CGRect?,

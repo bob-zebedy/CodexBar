@@ -15,8 +15,11 @@ final class CodexActivityMonitor: ObservableObject {
     private let sessionLifecycleReader = CodexSessionLifecycleReader()
     private let transitionSubject = PassthroughSubject<CodexActivityTransition, Never>()
     private var tasks: [CodexActivityTaskKey: CodexActivityTask] = [:]
+    private var pendingTerminalTasks: [CodexActivityTaskKey: PendingTerminalTask] = [:]
     private var completions: [CodexActivityCompletion] = []
+    private var terminations: [CodexActivityTermination] = []
     private var recentlyCompletedTaskAt: [CodexActivityTaskKey: Date] = [:]
+    private var recentlyTerminatedTaskAt: [CodexActivityTaskKey: Date] = [:]
     private var tailReader: HookEventTailReader?
     private var tailReaderControlTask: Task<Void, Never>?
     private var tailReaderGeneration: UInt64 = 0
@@ -119,9 +122,7 @@ final class CodexActivityMonitor: ObservableObject {
         cleanupTask?.cancel()
         cleanupTask = nil
         cleanupDeadline = nil
-        tasks.removeAll()
-        completions.removeAll()
-        recentlyCompletedTaskAt.removeAll()
+        clearCollectedActivityState()
         isBootstrapping = false
         sessionTransitionNotBefore = nil
         snapshot = .empty
@@ -172,6 +173,7 @@ final class CodexActivityMonitor: ObservableObject {
             return
         }
         let references = tasks.values.compactMap(\.turnReference)
+            + pendingTerminalTasks.values.compactMap(\.task.turnReference)
         guard !references.isEmpty else {
             return
         }
@@ -188,13 +190,32 @@ final class CodexActivityMonitor: ObservableObject {
         var transitions: [CodexActivityTransition] = []
         for state in states {
             let key = CodexActivityTaskKey.turn(session: state.sessionId, turn: state.turnId)
+            if var pending = pendingTerminalTasks[key] {
+                if let startedAt = Self.backfilledStartedAt(for: pending.task, state: state) {
+                    pending.task.startedAt = startedAt
+                    pendingTerminalTasks[key] = pending
+                }
+
+                guard let terminal = state.terminal else {
+                    continue
+                }
+                pendingTerminalTasks.removeValue(forKey: key)
+                resolveTerminal(
+                    terminal,
+                    task: pending.task,
+                    key: key,
+                    abortFallback: pending.supersededAt,
+                    into: &transitions
+                )
+                didChange = true
+                continue
+            }
+
             guard var task = tasks[key] else {
                 continue
             }
 
-            if task.startedAt == nil,
-               let startedAt = state.startedAt,
-               startedAt <= task.lastActivityAt.addingTimeInterval(1) {
+            if let startedAt = Self.backfilledStartedAt(for: task, state: state) {
                 task.startedAt = startedAt
                 tasks[key] = task
                 didChange = true
@@ -203,31 +224,19 @@ final class CodexActivityMonitor: ObservableObject {
             guard let terminal = state.terminal else {
                 continue
             }
-            switch terminal {
-            case .aborted:
-                tasks.removeValue(forKey: key)
-                // 中断不是完成，不发布 transition，也不产生绿色状态或通知。
-                didChange = true
-            case let .completed(completedAt, duration):
-                if recentCompletionDate(for: key) != nil {
-                    // 迟到事件恢复出的任务不能被 rollout 再次完成。
-                    tasks.removeValue(forKey: key)
-                    didChange = true
-                    continue
-                }
-                guard let completion = completeTask(
-                    key: key,
-                    completedAt: completedAt,
-                    reportedDuration: duration
-                ) else {
-                    continue
-                }
-                didChange = true
-                if let sessionTransitionNotBefore,
-                   completion.completedAt >= sessionTransitionNotBefore {
-                    transitions.append(.completed(completion))
-                }
+            tasks.removeValue(forKey: key)
+            didChange = true
+            if case .completed = terminal, recentCompletionDate(for: key) != nil {
+                // 迟到事件恢复出的任务不能被 rollout 再次完成。
+                continue
             }
+            resolveTerminal(
+                terminal,
+                task: task,
+                key: key,
+                abortFallback: Date(),
+                into: &transitions
+            )
         }
 
         if didChange {
@@ -243,9 +252,7 @@ final class CodexActivityMonitor: ObservableObject {
         case .bootstrapStart:
             isBootstrapping = true
             sessionTransitionNotBefore = nil
-            tasks.removeAll()
-            completions.removeAll()
-            recentlyCompletedTaskAt.removeAll()
+            clearCollectedActivityState()
         case let .bootstrapEvents(events):
             for event in events {
                 _ = apply(event)
@@ -257,6 +264,7 @@ final class CodexActivityMonitor: ObservableObject {
             refreshSessionLifecycleNow()
             backfillPromptStartTimesFromHistory()
         case let .live(events):
+            let pendingKeysBefore = Set(pendingTerminalTasks.keys)
             var transitions: [CodexActivityLiveTransition] = []
             for event in events {
                 if let transition = apply(event) {
@@ -266,6 +274,13 @@ final class CodexActivityMonitor: ObservableObject {
 
             refreshSnapshot(now: Date())
             publishLiveTransitions(transitions)
+            if !pendingTerminalTasks.isEmpty {
+                // 只有刚进入终态确认窗口的任务需要重置解析缓存重试定位 rollout；
+                // 窗口期内的后续批次只做即时查询，避免反复递归扫描 sessions。
+                let hasNewPendingTasks = !Set(pendingTerminalTasks.keys)
+                    .subtracting(pendingKeysBefore).isEmpty
+                refreshSessionLifecycleNow(resetsResolutionFallbacks: hasNewPendingTasks)
+            }
         }
     }
 
@@ -336,8 +351,13 @@ final class CodexActivityMonitor: ObservableObject {
 
     private func startTask(from event: WorkflowHookEvent) {
         let key = CodexActivityTaskKey(event: event)
+        let displayID = tasks[key]?.displayID ?? UUID()
         if let completedAt = recentCompletionDate(for: key),
            event.timestamp <= completedAt {
+            return
+        }
+        if let terminatedAt = recentTerminationDate(for: key),
+           event.timestamp <= terminatedAt {
             return
         }
         if let existing = tasks[key], event.timestamp < existing.lastActivityAt {
@@ -345,12 +365,22 @@ final class CodexActivityMonitor: ObservableObject {
         }
 
         if let sessionId = key.sessionId {
-            // 同一 session 的 turn 按顺序执行。新 prompt 代表旧 turn 已被中断，
-            // 即使旧 turn 没有 Stop，也不能继续显示为并发运行任务。
+            // 同一 session 的 turn 按顺序执行。新 prompt 让旧 turn 立即退出活动列表，
+            // 但保留短暂终态确认窗口，避免把迟到的正常完成误记为终止。
             guard !tasks.values.contains(where: {
                 $0.key.sessionId == sessionId && $0.lastActivityAt > event.timestamp
             }) else {
                 return
+            }
+            let supersededTasks = tasks.values.filter {
+                $0.key != key && $0.key.sessionId == sessionId
+            }
+            for task in supersededTasks {
+                pendingTerminalTasks[task.key] = PendingTerminalTask(
+                    task: task,
+                    supersededAt: event.timestamp,
+                    deadline: Date().addingTimeInterval(Self.supersededTerminalGracePeriod)
+                )
             }
             tasks = tasks.filter { taskKey, _ in
                 taskKey == key || taskKey.sessionId != sessionId
@@ -358,12 +388,15 @@ final class CodexActivityMonitor: ObservableObject {
         }
 
         recentlyCompletedTaskAt.removeValue(forKey: key)
+        recentlyTerminatedTaskAt.removeValue(forKey: key)
         if let sessionId = key.sessionId {
             // 缺少 turn 的 Stop 会使用 session 键；新 turn 开始后允许该键再次完成。
             recentlyCompletedTaskAt.removeValue(forKey: .session(sessionId))
+            recentlyTerminatedTaskAt.removeValue(forKey: .session(sessionId))
         }
 
         tasks[key] = CodexActivityTask(
+            displayID: displayID,
             key: key,
             event: event,
             state: .running,
@@ -378,7 +411,9 @@ final class CodexActivityMonitor: ObservableObject {
         allowsRecovery: Bool
     ) {
         let eventKey = CodexActivityTaskKey(event: event)
-        guard recentCompletionDate(for: eventKey) == nil else {
+        guard recentCompletionDate(for: eventKey) == nil,
+              recentTerminationDate(for: eventKey) == nil,
+              pendingTerminalTasks[eventKey] == nil else {
             return
         }
 
@@ -403,6 +438,7 @@ final class CodexActivityMonitor: ObservableObject {
         }
 
         tasks[eventKey] = CodexActivityTask(
+            displayID: UUID(),
             key: eventKey,
             event: event,
             state: .running,
@@ -413,7 +449,9 @@ final class CodexActivityMonitor: ObservableObject {
 
     private func waitForApproval(from event: WorkflowHookEvent) -> CodexActivityLiveTransition? {
         let eventKey = CodexActivityTaskKey(event: event)
-        guard recentCompletionDate(for: eventKey) == nil else {
+        guard recentCompletionDate(for: eventKey) == nil,
+              recentTerminationDate(for: eventKey) == nil,
+              pendingTerminalTasks[eventKey] == nil else {
             return nil
         }
 
@@ -437,6 +475,7 @@ final class CodexActivityMonitor: ObservableObject {
         }
 
         let task = CodexActivityTask(
+            displayID: UUID(),
             key: eventKey,
             event: event,
             state: .waitingApproval,
@@ -453,6 +492,25 @@ final class CodexActivityMonitor: ObservableObject {
             // 清掉旧版本或异常顺序留下的同键恢复任务。
             tasks.removeValue(forKey: eventKey)
             return nil
+        }
+        guard recentTerminationDate(for: eventKey) == nil else {
+            return nil
+        }
+
+        if let pending = pendingTerminalTasks[eventKey] {
+            guard event.timestamp >= pending.task.lastActivityAt else {
+                return nil
+            }
+            pendingTerminalTasks.removeValue(forKey: eventKey)
+            let completion = storeResolvedCompletion(
+                pending.task,
+                key: eventKey,
+                completedAt: event.timestamp,
+                reportedDuration: nil,
+                projectName: event.projectDisplayName,
+                modelName: event.modelName
+            )
+            return .completed(completion)
         }
 
         let matchedKey = matchingTaskKey(for: event)
@@ -476,37 +534,14 @@ final class CodexActivityMonitor: ObservableObject {
         let duration = task?.preciseDuration(until: event.timestamp)
 
         let completion = storeCompletion(
-            key: key,
             projectName: event.projectDisplayName ?? task?.projectName,
+            modelName: event.modelName ?? task?.modelName,
             completedAt: event.timestamp,
             duration: duration
         )
         recordCompletedTask(eventKey, at: event.timestamp)
         recordCompletedTask(key, at: event.timestamp)
         return .completed(completion)
-    }
-
-    private func completeTask(
-        key: CodexActivityTaskKey,
-        completedAt: Date,
-        reportedDuration: TimeInterval?
-    ) -> CodexActivityCompletion? {
-        guard let task = tasks.removeValue(forKey: key) else {
-            return nil
-        }
-
-        // rollout 时间戳是整秒，避免因为同一秒内的 Hook 毫秒时间戳而把完成时间记在最后活动之前。
-        let recordedCompletedAt = max(completedAt, task.lastActivityAt)
-        let duration = reportedDuration ?? task.preciseDuration(until: recordedCompletedAt)
-
-        let completion = storeCompletion(
-            key: key,
-            projectName: task.projectName,
-            completedAt: recordedCompletedAt,
-            duration: duration
-        )
-        recordCompletedTask(key, at: recordedCompletedAt)
-        return completion
     }
 
     /// 精确 turn 失败后回退同 session 最近活动，再回退同项目匿名任务。
@@ -532,16 +567,17 @@ final class CodexActivityMonitor: ObservableObject {
     private func refreshSnapshot(now: Date) {
         pruneExpiredState(now: now)
 
-        let waitingTasks = tasks.values.filter { $0.state == .waitingApproval }
-        let runningTasks = tasks.values.filter { $0.state == .running }
-        let mostRecentCompletion = completions.max { $0.completedAt < $1.completedAt }
+        let waitingTasks = sortedTasks(in: .waitingApproval)
+        let runningTasks = sortedTasks(in: .running)
+        let recentCompletions = completions.sorted(by: Self.recentFirst(\.completedAt, \.id))
+        let recentTerminations = terminations.sorted(by: Self.recentFirst(\.terminatedAt, \.id))
+        let mostRecentCompletion = recentCompletions.first
 
         let newSnapshot = CodexActivitySnapshot(
-            primaryWaitingTask: waitingTasks.max(by: { $0.lastActivityAt < $1.lastActivityAt })?.snapshot,
-            primaryRunningTask: runningTasks.max(by: { $0.lastActivityAt < $1.lastActivityAt })?.snapshot,
-            mostRecentCompletion: mostRecentCompletion,
-            waitingCount: waitingTasks.count,
-            runningCount: runningTasks.count,
+            waitingTasks: waitingTasks.map(\.snapshot),
+            runningTasks: runningTasks.map(\.snapshot),
+            recentCompletions: recentCompletions,
+            recentTerminations: recentTerminations,
             isCompletionHighlighted: mostRecentCompletion.map {
                 now < $0.completedAt.addingTimeInterval(Self.completionHighlightDuration)
             } ?? false
@@ -553,15 +589,40 @@ final class CodexActivityMonitor: ObservableObject {
         scheduleNextCleanup(now: now, mostRecentCompletion: mostRecentCompletion)
     }
 
+    private func sortedTasks(in state: CodexActivityTaskState) -> [CodexActivityTask] {
+        tasks.values
+            .filter { $0.state == state }
+            .sorted(by: Self.recentFirst(\.lastActivityAt, \.displayID))
+    }
+
+    /// 时间相同再按 UUID 字符串排序（Swift sort 不稳定），保证快照对 SwiftUI diff 稳定。
+    private static func recentFirst<Element>(
+        _ date: KeyPath<Element, Date>,
+        _ id: KeyPath<Element, UUID>
+    ) -> (Element, Element) -> Bool {
+        { lhs, rhs in
+            if lhs[keyPath: date] != rhs[keyPath: date] {
+                return lhs[keyPath: date] > rhs[keyPath: date]
+            }
+            return lhs[keyPath: id].uuidString < rhs[keyPath: id].uuidString
+        }
+    }
+
     private func pruneExpiredState(now: Date) {
+        finalizeExpiredPendingTerminalTasks(now: now)
+
         let activityCutoff = now.addingTimeInterval(-Self.activityRetention)
         tasks = tasks.filter { $0.value.lastActivityAt > activityCutoff }
 
-        let completionCutoff = now.addingTimeInterval(-Self.completionRetention)
-        completions.removeAll { $0.completedAt <= completionCutoff }
+        let historyCutoff = now.addingTimeInterval(-Self.recentHistoryRetention)
+        completions.removeAll { $0.completedAt <= historyCutoff }
+        terminations.removeAll { $0.terminatedAt <= historyCutoff }
 
         let completedTaskCutoff = now.addingTimeInterval(-Self.completedTaskRetention)
         recentlyCompletedTaskAt = recentlyCompletedTaskAt.filter {
+            $0.value > completedTaskCutoff
+        }
+        recentlyTerminatedTaskAt = recentlyTerminatedTaskAt.filter {
             $0.value > completedTaskCutoff
         }
     }
@@ -574,9 +635,16 @@ final class CodexActivityMonitor: ObservableObject {
             $0.lastActivityAt.addingTimeInterval(Self.activityRetention)
         }
         deadlines.append(contentsOf: completions.map {
-            $0.completedAt.addingTimeInterval(Self.completionRetention)
+            $0.completedAt.addingTimeInterval(Self.recentHistoryRetention)
         })
+        deadlines.append(contentsOf: terminations.map {
+            $0.terminatedAt.addingTimeInterval(Self.recentHistoryRetention)
+        })
+        deadlines.append(contentsOf: pendingTerminalTasks.values.map(\.deadline))
         deadlines.append(contentsOf: recentlyCompletedTaskAt.values.map {
+            $0.addingTimeInterval(Self.completedTaskRetention)
+        })
+        deadlines.append(contentsOf: recentlyTerminatedTaskAt.values.map {
             $0.addingTimeInterval(Self.completedTaskRetention)
         })
         if let mostRecentCompletion {
@@ -610,56 +678,192 @@ final class CodexActivityMonitor: ObservableObject {
         }
     }
 
-    private static let completionHighlightDuration: TimeInterval = 20
-    private static let completionRetention: TimeInterval = 5 * 60
+    private static let completionHighlightDuration: TimeInterval = 30
+    private static let recentHistoryRetention: TimeInterval = 10 * 60
     private static let completedTaskRetention: TimeInterval = 24 * 60 * 60
     private static let activityRetention: TimeInterval = 24 * 60 * 60
-    private static let sessionLifecyclePollInterval: TimeInterval = 2
+    private static let supersededTerminalGracePeriod: TimeInterval = 5
+    private static let sessionLifecyclePollInterval: TimeInterval = 1
 }
 
 private extension CodexActivityMonitor {
-    func storeCompletion(
+    /// rollout 终态归类的唯一入口；活动任务和等待终态确认任务只有 abort 兜底时间不同。
+    /// 终止记录只供任务中心展示，不发布 transition，也不产生绿色状态或通知。
+    func resolveTerminal(
+        _ terminal: CodexSessionTaskTerminalState,
+        task: CodexActivityTask,
         key: CodexActivityTaskKey,
+        abortFallback: Date,
+        into transitions: inout [CodexActivityTransition]
+    ) {
+        switch terminal {
+        case let .aborted(reportedAt):
+            let terminatedAt = max(reportedAt ?? abortFallback, task.lastActivityAt)
+            storeTermination(task, at: terminatedAt, includesDuration: reportedAt != nil)
+            recordTerminatedTask(key, at: terminatedAt)
+        case let .completed(completedAt, duration):
+            let completion = storeResolvedCompletion(
+                task,
+                key: key,
+                completedAt: completedAt,
+                reportedDuration: duration
+            )
+            if let sessionTransitionNotBefore,
+               completion.completedAt >= sessionTransitionNotBefore {
+                transitions.append(.completed(completion))
+            }
+        }
+    }
+
+    static func backfilledStartedAt(
+        for task: CodexActivityTask,
+        state: CodexSessionTaskLifecycleState
+    ) -> Date? {
+        guard task.startedAt == nil,
+              let startedAt = state.startedAt,
+              startedAt <= task.lastActivityAt.addingTimeInterval(1) else {
+            return nil
+        }
+        return startedAt
+    }
+
+    func storeResolvedCompletion(
+        _ task: CodexActivityTask,
+        key: CodexActivityTaskKey,
+        completedAt: Date,
+        reportedDuration: TimeInterval?,
+        projectName: String? = nil,
+        modelName: String? = nil
+    ) -> CodexActivityCompletion {
+        // rollout 时间戳是整秒，避免因为同一秒内的 Hook 毫秒时间戳而把完成时间记在最后活动之前。
+        let recordedCompletedAt = max(completedAt, task.lastActivityAt)
+        let completion = storeCompletion(
+            projectName: projectName ?? task.projectName,
+            modelName: modelName ?? task.modelName,
+            completedAt: recordedCompletedAt,
+            duration: reportedDuration ?? task.preciseDuration(until: recordedCompletedAt)
+        )
+        recordCompletedTask(key, at: recordedCompletedAt)
+        return completion
+    }
+
+    func storeCompletion(
         projectName: String?,
+        modelName: String?,
         completedAt: Date,
         duration: TimeInterval?
     ) -> CodexActivityCompletion {
         let completion = CodexActivityCompletion(
-            id: "\(key.identifier)|\(Int64((completedAt.timeIntervalSince1970 * 1000).rounded()))",
+            id: UUID(),
             projectName: projectName,
+            modelName: modelName,
             completedAt: completedAt,
             duration: duration
         )
-        completions.removeAll { $0.id == completion.id }
         completions.append(completion)
         return completion
+    }
+
+    func storeTermination(
+        _ task: CodexActivityTask,
+        at terminatedAt: Date,
+        includesDuration: Bool
+    ) {
+        let termination = CodexActivityTermination(
+            id: UUID(),
+            projectName: task.projectName,
+            modelName: task.modelName,
+            terminatedAt: terminatedAt,
+            duration: includesDuration ? task.preciseDuration(until: terminatedAt) : nil
+        )
+        terminations.append(termination)
     }
 
     func recentCompletionDate(
         for key: CodexActivityTaskKey,
         now: Date = Date()
     ) -> Date? {
-        guard let completedAt = recentlyCompletedTaskAt[key] else {
-            return nil
-        }
-        guard completedAt > now.addingTimeInterval(-Self.completedTaskRetention) else {
-            recentlyCompletedTaskAt.removeValue(forKey: key)
-            return nil
-        }
-        return completedAt
+        Self.recentTerminalDate(
+            for: key,
+            storedIn: &recentlyCompletedTaskAt,
+            now: now
+        )
+    }
+
+    func recentTerminationDate(
+        for key: CodexActivityTaskKey,
+        now: Date = Date()
+    ) -> Date? {
+        Self.recentTerminalDate(
+            for: key,
+            storedIn: &recentlyTerminatedTaskAt,
+            now: now
+        )
     }
 
     func recordCompletedTask(_ key: CodexActivityTaskKey, at completedAt: Date) {
-        recentlyCompletedTaskAt[key] = max(
-            recentlyCompletedTaskAt[key] ?? .distantPast,
-            completedAt
+        Self.recordTerminalTask(
+            key,
+            at: completedAt,
+            storedIn: &recentlyCompletedTaskAt
         )
+    }
+
+    func recordTerminatedTask(_ key: CodexActivityTaskKey, at terminatedAt: Date) {
+        Self.recordTerminalTask(
+            key,
+            at: terminatedAt,
+            storedIn: &recentlyTerminatedTaskAt
+        )
+    }
+
+    func clearCollectedActivityState() {
+        tasks.removeAll()
+        pendingTerminalTasks.removeAll()
+        completions.removeAll()
+        terminations.removeAll()
+        recentlyCompletedTaskAt.removeAll()
+        recentlyTerminatedTaskAt.removeAll()
+    }
+
+    static func recentTerminalDate(
+        for key: CodexActivityTaskKey,
+        storedIn dates: inout [CodexActivityTaskKey: Date],
+        now: Date
+    ) -> Date? {
+        guard let date = dates[key] else {
+            return nil
+        }
+        guard date > now.addingTimeInterval(-completedTaskRetention) else {
+            dates.removeValue(forKey: key)
+            return nil
+        }
+        return date
+    }
+
+    static func recordTerminalTask(
+        _ key: CodexActivityTaskKey,
+        at date: Date,
+        storedIn dates: inout [CodexActivityTaskKey: Date]
+    ) {
+        dates[key] = max(dates[key] ?? .distantPast, date)
         if let sessionId = key.sessionId {
             let sessionKey = CodexActivityTaskKey.session(sessionId)
-            recentlyCompletedTaskAt[sessionKey] = max(
-                recentlyCompletedTaskAt[sessionKey] ?? .distantPast,
-                completedAt
-            )
+            dates[sessionKey] = max(dates[sessionKey] ?? .distantPast, date)
+        }
+    }
+
+    func finalizeExpiredPendingTerminalTasks(now: Date) {
+        let expiredKeys = pendingTerminalTasks.compactMap { key, pending in
+            pending.deadline <= now ? key : nil
+        }
+        for key in expiredKeys {
+            guard let pending = pendingTerminalTasks.removeValue(forKey: key) else {
+                continue
+            }
+            let terminatedAt = max(pending.supersededAt, pending.task.lastActivityAt)
+            storeTermination(pending.task, at: terminatedAt, includesDuration: true)
+            recordTerminatedTask(key, at: terminatedAt)
         }
     }
 
@@ -671,7 +875,7 @@ private extension CodexActivityMonitor {
             }
         }
 
-        var publishedCompletionIDs = Set<String>()
+        var publishedCompletionIDs = Set<UUID>()
         for (index, transition) in transitions.enumerated() {
             switch transition {
             case let .waitingApproval(key):
@@ -720,14 +924,6 @@ private enum CodexActivityTaskKey: Hashable {
         return false
     }
 
-    var identifier: String {
-        switch self {
-        case let .turn(session, turn): "turn|\(session)|\(turn)"
-        case let .session(session): "session|\(session)"
-        case let .anonymous(project): "project|\(project)"
-        }
-    }
-
     static func projectIdentifier(_ project: String?) -> String {
         project ?? "__codex__"
     }
@@ -743,7 +939,14 @@ private enum CodexActivityTaskState {
     case waitingApproval
 }
 
+private struct PendingTerminalTask {
+    var task: CodexActivityTask
+    let supersededAt: Date
+    let deadline: Date
+}
+
 private struct CodexActivityTask {
+    let displayID: UUID
     let key: CodexActivityTaskKey
     var state: CodexActivityTaskState
     var latestEvent: CodexActivityEvent
@@ -755,12 +958,14 @@ private struct CodexActivityTask {
     var lastActivityAt: Date
 
     init(
+        displayID: UUID,
         key: CodexActivityTaskKey,
         event: WorkflowHookEvent,
         state: CodexActivityTaskState,
         latestEvent: CodexActivityEvent,
         startedAt: Date?
     ) {
+        self.displayID = displayID
         self.key = key
         self.state = state
         self.latestEvent = latestEvent
@@ -786,6 +991,7 @@ private struct CodexActivityTask {
 
     var snapshot: CodexActivityTaskSnapshot {
         CodexActivityTaskSnapshot(
+            id: displayID,
             latestEvent: latestEvent,
             projectName: projectName,
             modelName: modelName,
