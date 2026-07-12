@@ -82,16 +82,17 @@ struct StatusAccountCard: View {
     let onRefresh: () -> Void
 
     var body: some View {
+        let display = statusDisplay
         HStack(spacing: 8) {
             Image(systemName: "person.fill")
                 .font(.system(size: MenuMetrics.accountIconSize, weight: .medium))
-                .foregroundStyle(statusDisplay.color)
+                .foregroundStyle(display.color)
                 .onTapGesture(count: 2, perform: onRefresh)
 
-            if let text = statusDisplay.text {
+            if let text = display.text {
                 Text(text)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(statusDisplay.color)
+                    .foregroundStyle(display.color)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -145,11 +146,12 @@ struct QuotaLimitsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(limits) { limit in
-                if !isPrimaryLimit(limit) {
+                let isPrimary = limit.id == limits.first?.id
+                if !isPrimary {
                     LiquidGlassDivider()
                 }
 
-                quotaLimitSection(limit, showsResetCredits: isPrimaryLimit(limit))
+                quotaLimitSection(limit, showsResetCredits: isPrimary)
             }
         }
         .markStale(isStale)
@@ -184,10 +186,6 @@ struct QuotaLimitsSection: View {
         }
     }
 
-    private var primaryLimitId: CodexQuotaLimitSnapshot.ID? {
-        limits.first?.id
-    }
-
     private func resetCreditsButton(count: Int) -> some View {
         Button {
             onResetCreditsTap(
@@ -208,10 +206,6 @@ struct QuotaLimitsSection: View {
                 .liquidGlassCapsule(tint: .green)
         }
         .buttonStyle(.plain)
-    }
-
-    private func isPrimaryLimit(_ limit: CodexQuotaLimitSnapshot) -> Bool {
-        limit.id == primaryLimitId
     }
 }
 

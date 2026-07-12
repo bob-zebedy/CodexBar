@@ -128,7 +128,12 @@ actor WorkflowSyncService {
 }
 
 private extension WorkflowSyncService {
-    typealias PendingUpload = (date: String, aggregate: WorkflowSyncedDailyAggregate, hash: String)
+    struct PendingUpload {
+        let date: String
+        let aggregate: WorkflowSyncedDailyAggregate
+        let hash: String
+    }
+
     typealias PendingRecord = (upload: PendingUpload, recordID: CKRecord.ID)
     typealias UploadedHash = (date: String, hash: String)
 
@@ -277,7 +282,7 @@ private extension WorkflowSyncService {
                 return nil
             }
 
-            return (date: date, aggregate: aggregate, hash: hash)
+            return PendingUpload(date: date, aggregate: aggregate, hash: hash)
         }
         .sorted { $0.date < $1.date }
     }
@@ -292,7 +297,6 @@ private extension WorkflowSyncService {
         let recordIDs = pendingRecords.map(\.recordID)
         let existingRecords = try await database.records(for: recordIDs)
         let records = pendingRecords.map { pendingRecord in
-            let (_, aggregate, _) = pendingRecord.upload
             let existingRecord: CKRecord? = if case let .success(record) = existingRecords[pendingRecord.recordID] {
                 record
             } else {
@@ -303,7 +307,7 @@ private extension WorkflowSyncService {
                 recordType: RecordTypes.dailyAggregate,
                 recordID: pendingRecord.recordID
             )
-            apply(aggregate, deviceId: deviceId, to: record)
+            apply(pendingRecord.upload.aggregate, deviceId: deviceId, to: record)
             return record
         }
 
@@ -315,9 +319,8 @@ private extension WorkflowSyncService {
         )
 
         return pendingRecords.compactMap { pendingRecord in
-            let (date, _, hash) = pendingRecord.upload
             if case .success = result.saveResults[pendingRecord.recordID] {
-                return (date: date, hash: hash)
+                return (date: pendingRecord.upload.date, hash: pendingRecord.upload.hash)
             }
             return nil
         }
@@ -350,7 +353,6 @@ private extension WorkflowSyncService {
             excluding: currentDeviceId
         )
         var token: CKServerChangeToken? = initialToken
-        var latestToken: CKServerChangeToken?
         var moreComing = true
 
         while moreComing {
@@ -369,7 +371,6 @@ private extension WorkflowSyncService {
             removeDeletedRecords(result.deletions, from: &cacheByID)
 
             token = result.changeToken
-            latestToken = result.changeToken
             moreComing = result.moreComing
         }
 
@@ -379,8 +380,8 @@ private extension WorkflowSyncService {
                 excluding: currentDeviceId
             )
         )
-        if let latestToken {
-            try saveCursor(latestToken)
+        if let token {
+            try saveCursor(token)
         }
     }
 
@@ -392,9 +393,6 @@ private extension WorkflowSyncService {
     }
 
     func fetchAllRemoteDailyRecords() async throws -> [WorkflowSyncedDailyRecord] {
-        var records = [WorkflowSyncedDailyRecord]()
-        var queryCursor: CKQueryOperation.Cursor?
-
         let query = CKQuery(
             recordType: RecordTypes.dailyAggregate,
             predicate: NSPredicate(format: "TRUEPREDICATE")
@@ -410,8 +408,8 @@ private extension WorkflowSyncService {
             desiredKeys: nil,
             resultsLimit: Metrics.queryFetchLimit
         )
-        records.append(contentsOf: Self.remoteDailyRecords(from: firstPage.matchResults))
-        queryCursor = firstPage.queryCursor
+        var records = Self.remoteDailyRecords(from: firstPage.matchResults)
+        var queryCursor = firstPage.queryCursor
 
         while let cursor = queryCursor {
             let page = try await database.records(
@@ -699,7 +697,7 @@ private extension WorkflowSyncService {
     }
 
     func saveState(_ state: WorkflowSyncState) throws {
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try ensureSyncDirectoryExists()
         let data = try JSONLines.stableEncoder.encode(state)
         try data.write(to: stateURL, options: .atomic)
     }
@@ -713,7 +711,7 @@ private extension WorkflowSyncService {
     }
 
     func saveCachedRecords(_ records: [WorkflowSyncedDailyRecord]) throws {
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try ensureSyncDirectoryExists()
 
         let encoder = JSONLines.stableEncoder
         let data = try records
@@ -742,12 +740,16 @@ private extension WorkflowSyncService {
     }
 
     func saveCursor(_ token: CKServerChangeToken) throws {
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try ensureSyncDirectoryExists()
         let data = try NSKeyedArchiver.archivedData(
             withRootObject: token,
             requiringSecureCoding: true
         )
         try data.write(to: cursorURL, options: .atomic)
+    }
+
+    func ensureSyncDirectoryExists() throws {
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
     }
 }
 
@@ -946,15 +948,6 @@ private nonisolated struct WorkflowSyncState: Codable, Equatable {
             ?? [:]
         lastUploadAt = try container.decodeIfPresent(Date.self, forKey: .lastUploadAt)
         lastPrunedDate = try container.decodeIfPresent(String.self, forKey: .lastPrunedDate)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(schema, forKey: .schema)
-        try container.encodeIfPresent(deviceId, forKey: .deviceId)
-        try container.encode(hashByDate, forKey: .hashByDate)
-        try container.encodeIfPresent(lastUploadAt, forKey: .lastUploadAt)
-        try container.encodeIfPresent(lastPrunedDate, forKey: .lastPrunedDate)
     }
 
     private enum CodingKeys: String, CodingKey {

@@ -528,6 +528,24 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func observeViewModel() {
+        let hasQuotaSnapshot = viewModel.$snapshot
+            .map { $0 != nil }
+            .removeDuplicates()
+
+        Publishers.CombineLatest3(
+            menuSurfaceVisibility.$isVisible,
+            hasQuotaSnapshot,
+            activityMonitor.$snapshot.map(\.hasTaskCenterContent)
+        )
+        .map { isMenuVisible, hasQuotaSnapshot, hasActivity in
+            isMenuVisible && hasQuotaSnapshot && hasActivity
+        }
+        .removeDuplicates()
+        .sink { [weak self] isActive in
+            self?.activityCenterPresentationState.setTimelineActive(isActive)
+        }
+        .store(in: &cancellables)
+
         Publishers.CombineLatest4(
             viewModel.$loadState,
             viewModel.$snapshot,
@@ -538,7 +556,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             StatusIconState(
                 usesErrorImage: loadState.isError || snapshot?.hasTrustedData == false,
                 progress: StatusIconProgress(snapshot: snapshot, selection: selection),
-                activity: activity
+                activity: snapshot == nil ? .empty : activity
             )
         }
         .removeDuplicates()
@@ -557,9 +575,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             }
             .store(in: &cancellables)
 
-        viewModel.$snapshot
-            .map { $0 != nil }
-            .removeDuplicates()
+        hasQuotaSnapshot
             .sink { [weak self] isAvailable in
                 guard let self, !isAvailable else {
                     return
@@ -589,15 +605,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         syncSettings.$syncAvailability
             .removeDuplicates()
             .sink { [weak self] availability in
-                guard let self else {
-                    return
-                }
-
-                if availability.isAvailable {
-                    workflowSyncScheduler.requestSync()
-                } else {
-                    workflowSyncScheduler.clearPendingSync()
-                }
+                self?.handleSyncChanged(availability.isAvailable)
             }
             .store(in: &cancellables)
     }

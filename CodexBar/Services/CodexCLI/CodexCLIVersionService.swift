@@ -55,14 +55,12 @@ nonisolated struct CodexCLIVersionDisplay: Equatable {
     let displayVersion: String
     let hasVersion: Bool
     let path: String?
-    // 当前会话尚未重连到新安装版本时显示的新版本号
-
+    /// 当前会话尚未重连到新安装版本时显示的新版本号
     let newerInstalledVersion: String?
 
     init(item: CodexCLIVersionItem, connection: CodexCLIConnectionInfo?) {
         let isCurrent = connection?.source == item.source
         // 当前来源优先显示正在运行的版本, 避免后台升级后误报已生效
-
         let runningVersion = isCurrent ? connection?.version : nil
         let version = runningVersion ?? item.version
 

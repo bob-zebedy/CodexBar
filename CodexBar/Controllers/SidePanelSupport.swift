@@ -141,7 +141,7 @@ final class SidePanelDrawerAnimator {
     }
 }
 
-/// 重置次数 / 通知子选项两类「一次性展开」抽屉面板共用的显隐状态机:
+/// 重置次数、通知子选项和并发任务中心三类「一次性展开」抽屉面板共用的显隐状态机:
 /// 负责 generation 竞态防护、入退场动画和 child window 挂载/卸载
 /// (热力图详情面板因带切边与延迟隐藏, 状态机不同, 不走这里)
 @MainActor
@@ -503,7 +503,7 @@ enum SidePanelSupport {
     }
 }
 
-nonisolated struct SidePanelHorizontalPlacement {
+private nonisolated struct SidePanelHorizontalPlacement {
     let x: CGFloat
     let side: UsageHeatmapDetailSide
     let isAvailable: Bool

@@ -1,49 +1,37 @@
 import SwiftUI
 
-/// Hook 开启时常驻的固定高度活动摘要，只在菜单面板可见时逐秒更新时间。
+/// Hook 开启时常驻的固定高度活动摘要，使用菜单面板共享的逐秒时间。
 struct CodexActivityCard: View {
-    let snapshot: CodexActivitySnapshot
-    let isTimelineActive: Bool
+    @ObservedObject var activityMonitor: CodexActivityMonitor
+    let timelineDate: Date
     let showsUnavailableState: Bool
     let isTaskCenterPresented: Bool
-    let onTaskCenterTap: (CGRect?) -> Void
+    let onTaskCenterTap: (ScreenFrameProvider) -> Void
     @State private var frameProvider = ScreenFrameProvider()
     @State private var isHovered = false
+
+    private var snapshot: CodexActivitySnapshot {
+        showsUnavailableState ? .empty : activityMonitor.snapshot
+    }
 
     var body: some View {
         Group {
             if snapshot.hasTaskCenterContent {
                 Button {
-                    onTaskCenterTap(frameProvider.currentScreenFrame())
+                    onTaskCenterTap(frameProvider)
                 } label: {
-                    timelineContent
+                    card(now: timelineDate)
                 }
                 .buttonStyle(ActivityCardButtonStyle())
                 .contentShape(Rectangle())
             } else {
-                timelineContent
+                card(now: timelineDate)
             }
         }
         .background {
             ScreenFrameReader(provider: frameProvider)
         }
         .onHover { isHovered = $0 }
-    }
-
-    @ViewBuilder
-    private var timelineContent: some View {
-        if isTimelineActive, needsPerSecondUpdates {
-            TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                card(now: timeline.date)
-            }
-        } else {
-            card(now: Date())
-        }
-    }
-
-    /// 空闲文案不随时间变化，不需要逐秒重算。
-    private var needsPerSecondUpdates: Bool {
-        snapshot.primaryActivity != .idle
     }
 
     private func card(now: Date) -> some View {

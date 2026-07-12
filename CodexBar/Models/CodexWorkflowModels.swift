@@ -104,14 +104,12 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable, Sendable {
         from container: KeyedDecodingContainer<CodingKeys>,
         key: CodingKeys
     ) -> String? {
-        if let value = try? container.decode(String.self, forKey: key) {
-            let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedValue.isEmpty {
-                return trimmedValue
-            }
+        guard let value = try? container.decode(String.self, forKey: key) else {
+            return nil
         }
 
-        return nil
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? nil : trimmedValue
     }
 
     private static func date(from string: String) -> Date? {
@@ -263,14 +261,13 @@ nonisolated struct WorkflowSnapshot: Equatable {
         currentDeviceId: String?
     ) {
         var metricsByDate = [String: WorkflowDailyMetrics]()
-        localAggregates
-            .map(\.metrics)
-            .forEach { Self.merge($0, into: &metricsByDate) }
+        for aggregate in localAggregates {
+            Self.merge(aggregate.metrics, into: &metricsByDate)
+        }
 
-        syncedRecords
-            .filter { $0.deviceId != currentDeviceId }
-            .map(\.daily.metrics)
-            .forEach { Self.merge($0, into: &metricsByDate) }
+        for record in syncedRecords where record.deviceId != currentDeviceId {
+            Self.merge(record.daily.metrics, into: &metricsByDate)
+        }
 
         dailyMetrics = metricsByDate.values.sorted { $0.startDate < $1.startDate }
     }

@@ -7,7 +7,6 @@ struct LogView: View {
 
     var body: some View {
         // 每轮渲染只取一次发布快照复用
-
         let entries = store.entries
         VStack(spacing: 0) {
             header(entries: entries)

@@ -25,8 +25,7 @@ nonisolated struct AppServerCommand: Equatable {
 nonisolated struct CodexCLIConnectionInfo: Equatable {
     let source: CodexCLIExecutableSource
     let executablePath: String
-    // 来自 initialize 握手, 代表当前 app-server 进程真实运行的版本
-
+    /// 来自 initialize 握手, 代表当前 app-server 进程真实运行的版本
     let version: String?
     let openedAt: Date
 }
@@ -163,12 +162,11 @@ nonisolated enum CodexCLIResolver {
         var seen = Set<String>()
 
         for component in path.split(separator: ":").map(String.init) + fallbackPaths {
-            guard !component.isEmpty, !seen.contains(component) else {
+            guard !component.isEmpty, seen.insert(component).inserted else {
                 continue
             }
 
             components.append(component)
-            seen.insert(component)
         }
 
         return components.joined(separator: ":")

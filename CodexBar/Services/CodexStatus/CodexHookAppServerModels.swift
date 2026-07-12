@@ -5,11 +5,7 @@ nonisolated struct CodexConfigReadResponse: Decodable {
     let config: CodexAppServerConfig
 
     var hooksGloballyDisabled: Bool {
-        guard let features = config.features else {
-            return false
-        }
-
-        return (features.hooks ?? features.codexHooks) == false
+        (config.features?.hooks ?? config.features?.codexHooks) == false
     }
 
     var hookTrustState: [String: String] {

@@ -71,8 +71,8 @@ struct UsageSummaryView: View {
             )
         }
         .markStale(isStale)
-        .padding(10)
-        .liquidGlassSurface(cornerRadius: 8)
+        .padding(MenuMetrics.panelPadding)
+        .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
         .onAppear {
             clearHover()
         }
@@ -317,11 +317,8 @@ struct UsageHeatmap: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var visibleDays: [UsageHeatmapDay] {
-        days.compactMap(\.self)
-    }
-
     private var dateRangeText: String? {
+        let visibleDays = days.compactMap(\.self)
         guard let firstDate = visibleDays.first?.startDate,
               let lastDate = visibleDays.last?.startDate else {
             return nil
@@ -501,9 +498,10 @@ struct UsageHeatmapDayDetailView: View {
     }
 
     static func panelSize(showsWorkflow: Bool) -> CGSize {
-        showsWorkflow
-            ? CGSize(width: Metrics.workflowPanelWidth, height: Metrics.workflowPanelHeight)
-            : CGSize(width: Metrics.tokenPanelWidth, height: Metrics.tokenPanelHeight)
+        CGSize(
+            width: Metrics.panelWidth,
+            height: showsWorkflow ? Metrics.workflowPanelHeight : Metrics.tokenPanelHeight
+        )
     }
 
     @ViewBuilder
@@ -741,9 +739,8 @@ struct UsageHeatmapDayDetailView: View {
     }
 
     private enum Metrics {
-        static let workflowPanelWidth: CGFloat = 212
+        static let panelWidth: CGFloat = 212
         static let workflowPanelHeight: CGFloat = 208
-        static let tokenPanelWidth: CGFloat = 212
         static let tokenPanelHeight: CGFloat = 84
         static let sectionSpacing: CGFloat = 8
         static let headerSpacing: CGFloat = 10

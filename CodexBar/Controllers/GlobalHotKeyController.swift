@@ -43,9 +43,7 @@ final class GlobalHotKeyController {
         )
 
         guard status == noErr else {
-            if let installedHandlerRef {
-                GlobalHotKeyRegistration.remove(hotKeyRef: nil, eventHandlerRef: installedHandlerRef)
-            }
+            GlobalHotKeyRegistration.remove(hotKeyRef: nil, eventHandlerRef: installedHandlerRef)
             return false
         }
 

@@ -26,32 +26,76 @@ struct ScreenFrameReader: NSViewRepresentable {
         nsView.onChange = onChange
         nsView.scheduleReport()
     }
+
+    static func dismantleNSView(_ nsView: ScreenFrameReportingView, coordinator _: ()) {
+        nsView.frameProvider?.unbind(from: nsView)
+        nsView.frameProvider = nil
+        nsView.onChange = nil
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView _: ScreenFrameReportingView,
+        context _: Context
+    ) -> CGSize? {
+        guard let width = proposal.width, let height = proposal.height else {
+            return nil
+        }
+        return CGSize(width: width, height: height)
+    }
 }
 
 /// 在交互发生时同步读取最新 screen frame, 避免只依赖异步 SwiftUI 状态
 @MainActor
 final class ScreenFrameProvider {
     private weak var view: NSView?
+    private weak var lastValidWindow: NSWindow?
     private var lastValidFrame: CGRect?
 
     func bind(to view: NSView) {
         self.view = view
     }
 
+    func unbind(from view: NSView) {
+        guard self.view === view else {
+            return
+        }
+        self.view = nil
+        lastValidWindow = nil
+        lastValidFrame = nil
+    }
+
     func currentScreenFrame() -> CGRect? {
         if let currentFrame = Self.screenFrame(for: view) {
-            lastValidFrame = currentFrame
+            updateLastValidFrame(currentFrame, in: view?.window)
             return currentFrame
         }
 
         return lastValidFrame
     }
 
-    func updateLastValidFrame(_ frame: CGRect?) {
-        guard let frame else {
+    func currentScreenFrame(
+        in expectedWindow: NSWindow,
+        allowingCachedFrame: Bool = true
+    ) -> CGRect? {
+        if view?.window === expectedWindow,
+           let currentFrame = Self.screenFrame(for: view) {
+            updateLastValidFrame(currentFrame, in: expectedWindow)
+            return currentFrame
+        }
+
+        guard allowingCachedFrame, lastValidWindow === expectedWindow else {
+            return nil
+        }
+        return lastValidFrame
+    }
+
+    func updateLastValidFrame(_ frame: CGRect?, in window: NSWindow?) {
+        guard let frame, let window else {
             return
         }
 
+        lastValidWindow = window
         lastValidFrame = frame
     }
 
@@ -113,7 +157,7 @@ final class ScreenFrameReportingView: NSView {
 
     private func reportFrame() {
         let screenFrame = ScreenFrameProvider.screenFrame(for: self)
-        frameProvider?.updateLastValidFrame(screenFrame)
+        frameProvider?.updateLastValidFrame(screenFrame, in: window)
         updateFrame(screenFrame)
     }
 

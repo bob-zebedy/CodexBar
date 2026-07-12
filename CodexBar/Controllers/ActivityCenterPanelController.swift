@@ -13,6 +13,9 @@ final class ActivityCenterPanelController {
     private weak var menuSurfaceWindow: NSWindow?
     private weak var menuContentView: NSView?
     private var cancellables = Set<AnyCancellable>()
+    private var presentationTask: Task<Void, Never>?
+    private var panelUpdateTask: Task<Void, Never>?
+    private var panelUpdateGeneration = 0
     private lazy var presenter = SidePanelDrawerPresenter(
         animationKey: Metrics.drawerTransformAnimationKey,
         contentViewProvider: { [weak self] in
@@ -33,11 +36,7 @@ final class ActivityCenterPanelController {
                 guard let self, presentationState.isPresented else {
                     return
                 }
-                if snapshot.hasTaskCenterContent {
-                    updateVisibleLayout(for: snapshot)
-                } else {
-                    hide()
-                }
+                schedulePanelUpdate(hasContent: snapshot.hasTaskCenterContent)
             }
             .store(in: &cancellables)
     }
@@ -58,12 +57,12 @@ final class ActivityCenterPanelController {
         relativeTo menuSurfaceWindow: NSWindow?,
         contentView: NSView?
     ) {
-        if isVisible {
+        if isVisible || presentationTask != nil {
             hide()
             return
         }
 
-        show(
+        schedulePresentation(
             context: context,
             relativeTo: menuSurfaceWindow,
             contentView: contentView
@@ -71,12 +70,50 @@ final class ActivityCenterPanelController {
     }
 
     func hide(immediate: Bool = false) {
+        cancelScheduledPresentation()
         // 热力图 hover 等高频路径会盲调 hide；已隐藏时跳过 @Published 写入，避免整个菜单重算。
         guard presentationState.isPresented || presenter.isVisible else {
             return
         }
+        cancelScheduledPanelUpdate()
         presentationState.isPresented = false
         presenter.hide(immediate: immediate)
+    }
+
+    private func schedulePresentation(
+        context: CodexActivityCenterPanelContext,
+        relativeTo menuSurfaceWindow: NSWindow?,
+        contentView: NSView?
+    ) {
+        presentationTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            contentView?.layoutSubtreeIfNeeded()
+            if let menuSurfaceWindow,
+               context.anchorProvider.currentScreenFrame(
+                   in: menuSurfaceWindow,
+                   allowingCachedFrame: false
+               ) == nil {
+                await Task.yield()
+            }
+
+            guard !Task.isCancelled else {
+                return
+            }
+            presentationTask = nil
+            show(
+                context: context,
+                relativeTo: menuSurfaceWindow,
+                contentView: contentView
+            )
+        }
+    }
+
+    private func cancelScheduledPresentation() {
+        presentationTask?.cancel()
+        presentationTask = nil
     }
 
     private func show(
@@ -84,13 +121,15 @@ final class ActivityCenterPanelController {
         relativeTo menuSurfaceWindow: NSWindow?,
         contentView: NSView?
     ) {
-        guard activityMonitor.snapshot.hasTaskCenterContent,
+        let snapshot = activityMonitor.snapshot
+        guard snapshot.hasTaskCenterContent,
               let menuSurfaceWindow else {
             hide(immediate: true)
             return
         }
 
         let panel = ensurePanel()
+        cancelScheduledPanelUpdate()
         currentContext = context
         self.menuSurfaceWindow = menuSurfaceWindow
         menuContentView = contentView
@@ -98,7 +137,8 @@ final class ActivityCenterPanelController {
             context: context,
             menuSurfaceWindow: menuSurfaceWindow,
             contentView: contentView,
-            snapshot: activityMonitor.snapshot
+            snapshot: snapshot,
+            allowsCachedAnchor: false
         )
 
         updateContent(panelSize: layout.size)
@@ -114,7 +154,8 @@ final class ActivityCenterPanelController {
         context: CodexActivityCenterPanelContext,
         menuSurfaceWindow: NSWindow,
         contentView: NSView?,
-        snapshot: CodexActivitySnapshot
+        snapshot: CodexActivitySnapshot,
+        allowsCachedAnchor: Bool = true
     ) -> (size: CGSize, position: SidePanelPosition) {
         let menuSurfaceFrame = SidePanelSupport.contentScreenFrame(
             for: contentView,
@@ -123,7 +164,10 @@ final class ActivityCenterPanelController {
         let screen = menuSurfaceWindow.screen ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? menuSurfaceFrame
         let alignmentScreenFrame = SidePanelSupport.validatedAlignmentScreenFrame(
-            context.alignmentScreenFrame,
+            context.anchorProvider.currentScreenFrame(
+                in: menuSurfaceWindow,
+                allowingCachedFrame: allowsCachedAnchor
+            ),
             menuSurfaceFrame: menuSurfaceFrame
         )
         let screenMaximumHeight = visibleFrame.height - SidePanelSupport.Metrics.screenPadding * 2
@@ -168,14 +212,48 @@ final class ActivityCenterPanelController {
             contentView: menuContentView,
             snapshot: snapshot
         )
-        // 内容更新由 @ObservedObject 原地驱动；只有尺寸或位置变化才需要重建 rootView 和重设 frame。
         guard panel.frame != layout.position.frame else {
             return
         }
-        if panel.frame.size != layout.size {
-            updateContent(panelSize: layout.size)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Metrics.contentUpdateDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(layout.position.frame, display: true)
         }
-        panel.setFrame(layout.position.frame, display: true)
+    }
+
+    private func schedulePanelUpdate(hasContent: Bool) {
+        cancelScheduledPanelUpdate()
+        let generation = panelUpdateGeneration
+        panelUpdateTask = Task { @MainActor [weak self] in
+            if hasContent {
+                await Task.yield()
+            } else {
+                try? await Task.sleep(for: .seconds(Metrics.contentUpdateDuration))
+            }
+
+            guard let self, !Task.isCancelled,
+                  generation == panelUpdateGeneration else {
+                return
+            }
+            let snapshot = activityMonitor.snapshot
+            guard snapshot.hasTaskCenterContent == hasContent else {
+                return
+            }
+
+            panelUpdateTask = nil
+            if hasContent {
+                updateVisibleLayout(for: snapshot)
+            } else {
+                hide()
+            }
+        }
+    }
+
+    private func cancelScheduledPanelUpdate() {
+        panelUpdateGeneration += 1
+        panelUpdateTask?.cancel()
+        panelUpdateTask = nil
     }
 
     private func ensurePanel() -> NSPanel {
@@ -194,15 +272,14 @@ final class ActivityCenterPanelController {
     private func updateContent(panelSize: CGSize) {
         let rootView = CodexActivityCenterView(
             activityMonitor: activityMonitor,
-            presentationState: presentationState,
-            panelSize: panelSize
+            presentationState: presentationState
         )
 
         if let hostingController {
             hostingController.rootView = rootView
         } else {
             let hostingController = NSHostingController(rootView: rootView)
-            hostingController.sizingOptions = [.preferredContentSize]
+            hostingController.sizingOptions = []
             panel?.contentViewController = hostingController
             self.hostingController = hostingController
         }
@@ -217,5 +294,6 @@ final class ActivityCenterPanelController {
 
     private enum Metrics {
         static let drawerTransformAnimationKey = "CodexBar.activityCenterDrawerTransform"
+        static let contentUpdateDuration: TimeInterval = 0.20
     }
 }

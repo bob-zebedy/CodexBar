@@ -14,6 +14,7 @@ final class CodexNotificationService: NSObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var taskHapticFeedbackTask: Task<Void, Never>?
+    private var taskWaitingNotificationIdentifiers = Set<String>()
     private let creditExpiryReminderScheduler = ReminderCheckScheduler()
     private var latestQuotaSnapshot: CodexQuotaSnapshot?
 
@@ -82,6 +83,12 @@ final class CodexNotificationService: NSObject {
                 self?.handleActivityTransition(transition)
             }
             .store(in: &cancellables)
+
+        activityMonitor.$snapshot
+            .sink { [weak self] snapshot in
+                self?.reconcileTaskWaitingNotifications(with: snapshot)
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Hook 任务提醒
@@ -98,7 +105,22 @@ final class CodexNotificationService: NSObject {
             guard settings.isTaskWaitingEnabled else {
                 return
             }
-            send(.taskWaiting(project: task.projectName, toolName: task.toolName))
+            let taskID = task.id
+            let identifier = Self.taskWaitingNotificationIdentifier(for: taskID)
+            taskWaitingNotificationIdentifiers.insert(identifier)
+            send(
+                .taskWaiting(project: task.projectName, toolName: task.toolName),
+                identifier: identifier,
+                isStillRelevant: { [weak self] in
+                    self?.isTaskStillWaiting(
+                        taskID,
+                        notificationIdentifier: identifier
+                    ) ?? false
+                },
+                onSubmissionFailure: { [weak self] in
+                    self?.taskWaitingNotificationIdentifiers.remove(identifier)
+                }
+            )
         case let .completed(completion):
             guard settings.isLongTaskEnabled,
                   let duration = completion.duration,
@@ -107,6 +129,33 @@ final class CodexNotificationService: NSObject {
             }
             send(.taskCompleted(project: completion.projectName, duration: duration))
         }
+    }
+
+    private func isTaskStillWaiting(
+        _ taskID: UUID,
+        notificationIdentifier: String
+    ) -> Bool {
+        let isStillWaiting = activityMonitor.snapshot.waitingTasks.contains {
+            $0.id == taskID
+        }
+        if !isStillWaiting {
+            taskWaitingNotificationIdentifiers.remove(notificationIdentifier)
+        }
+        return isStillWaiting
+    }
+
+    private func reconcileTaskWaitingNotifications(with snapshot: CodexActivitySnapshot) {
+        let activeIdentifiers = Set(snapshot.waitingTasks.map {
+            Self.taskWaitingNotificationIdentifier(for: $0.id)
+        })
+        let obsoleteIdentifiers = taskWaitingNotificationIdentifiers.subtracting(activeIdentifiers)
+        guard !obsoleteIdentifiers.isEmpty else {
+            return
+        }
+
+        let identifiers = Array(obsoleteIdentifiers)
+        removeNotifications(withIdentifiers: identifiers)
+        taskWaitingNotificationIdentifiers.subtract(obsoleteIdentifiers)
     }
 
     private func performTaskHapticFeedbackIfEnabled() {
@@ -251,10 +300,11 @@ final class CodexNotificationService: NSObject {
                 windowLabel: window.label,
                 thresholdPercent: settings.lowQuotaThresholdPercent
             ),
-            dedupKey: dedupKey
-        ) { [weak self] in
-            self?.lastRemainingPercents.removeValue(forKey: stateKey)
-        }
+            dedupKey: dedupKey,
+            onSubmissionFailure: { [weak self] in
+                self?.lastRemainingPercents.removeValue(forKey: stateKey)
+            }
+        )
     }
 
     // MARK: - 额度重置提醒
@@ -277,19 +327,24 @@ final class CodexNotificationService: NSObject {
                 return
             }
 
+            let dedupKey = window.resetsAt.map { resetsAt in
+                "quotaReset|\(stateKey)|\(Self.epoch(resetsAt))"
+            }
             send(
                 .quotaReset(
                     limitTitle: limit.title,
                     windowLabel: window.label
-                )
-            ) { [weak self] in
-                guard let self,
-                      quotaWindowResetObservations[stateKey]?.lifecycleToken == lifecycleToken else {
-                    return
-                }
+                ),
+                dedupKey: dedupKey,
+                onSubmissionFailure: { [weak self] in
+                    guard let self,
+                          quotaWindowResetObservations[stateKey]?.lifecycleToken == lifecycleToken else {
+                        return
+                    }
 
-                quotaWindowResetObservations[stateKey]?.hasObservedConsumption = true
-            }
+                    quotaWindowResetObservations[stateKey]?.hasObservedConsumption = true
+                }
+            )
         }
     }
 
@@ -360,8 +415,10 @@ final class CodexNotificationService: NSObject {
 
     private func send(
         _ notification: CodexNotificationContent,
+        identifier: String = UUID().uuidString,
         dedupKey: String? = nil,
-        onFailure: (() -> Void)? = nil
+        isStillRelevant: (() -> Bool)? = nil,
+        onSubmissionFailure: (() -> Void)? = nil
     ) {
         if let dedupKey {
             guard !sentDedupKeys.contains(dedupKey),
@@ -376,7 +433,7 @@ final class CodexNotificationService: NSObject {
         content.sound = .default
 
         let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
+            identifier: identifier,
             content: content,
             trigger: nil
         )
@@ -392,8 +449,15 @@ final class CodexNotificationService: NSObject {
             }
 
             for _ in 0 ... Self.notificationSubmissionRetryCount {
+                guard isStillRelevant?() != false else {
+                    return
+                }
                 do {
                     try await UNUserNotificationCenter.current().add(request)
+                    guard isStillRelevant?() != false else {
+                        removeNotifications(withIdentifiers: [identifier])
+                        return
+                    }
                     if let dedupKey {
                         rememberSentDedupKey(dedupKey)
                     }
@@ -403,8 +467,14 @@ final class CodexNotificationService: NSObject {
                 }
             }
 
-            onFailure?()
+            onSubmissionFailure?()
         }
+    }
+
+    private func removeNotifications(withIdentifiers identifiers: [String]) {
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        center.removePendingNotificationRequests(withIdentifiers: identifiers)
     }
 
     private nonisolated static func accountKey(for snapshot: CodexQuotaSnapshot) -> String {
@@ -413,6 +483,10 @@ final class CodexNotificationService: NSObject {
 
     private nonisolated static func epoch(_ date: Date) -> Int {
         Int(date.timeIntervalSince1970)
+    }
+
+    private nonisolated static func taskWaitingNotificationIdentifier(for taskID: UUID) -> String {
+        "taskWaiting|\(taskID.uuidString)"
     }
 
     private nonisolated static func quotaWindowStateKey(

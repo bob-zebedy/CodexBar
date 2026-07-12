@@ -1,13 +1,13 @@
 import Combine
 import SwiftUI
 
-/// 控制 TimelineView 是否 tick 的轻量状态, 由菜单面板显示/隐藏驱动
+/// 菜单面板可见状态，用于控制逐秒时间更新。
 @MainActor
 final class MenuSurfaceVisibilityState: ObservableObject {
     @Published var isVisible = false
 }
 
-/// 菜单栏弹出面板根视图, 只展示账号, 额度, token 和更新时间
+/// 菜单栏弹出面板根视图, 汇总账号、实时活动、额度、token、同步状态和更新时间
 struct CodexStatusMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + MenuMetrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
 
@@ -40,9 +40,7 @@ struct CodexStatusMenuView: View {
 private extension CodexStatusMenuView {
     enum Metrics {
         static let padding: CGFloat = 12
-        static let panelPadding: CGFloat = 10
         static let surfaceCornerRadius: CGFloat = 14
-        static let panelCornerRadius: CGFloat = 8
         static let verticalSpacing: CGFloat = 10
         static let statusAnimation = Animation.codexStatus
     }
@@ -78,14 +76,14 @@ private extension CodexStatusMenuView {
         if codexHookSettings.isEnabled {
             let hasQuotaSnapshot = viewModel.snapshot != nil
             CodexActivityCard(
-                snapshot: hasQuotaSnapshot ? activityMonitor.snapshot : .empty,
-                isTimelineActive: menuSurfaceVisibility.isVisible,
+                activityMonitor: activityMonitor,
+                timelineDate: activityCenterPresentationState.timelineDate,
                 showsUnavailableState: !hasQuotaSnapshot,
                 isTaskCenterPresented: activityCenterPresentationState.isPresented,
-                onTaskCenterTap: { alignmentScreenFrame in
+                onTaskCenterTap: { anchorProvider in
                     onActivityCenterTap(
                         CodexActivityCenterPanelContext(
-                            alignmentScreenFrame: alignmentScreenFrame,
+                            anchorProvider: anchorProvider,
                             preferredSide: .right
                         )
                     )
@@ -121,9 +119,9 @@ private extension CodexStatusMenuView {
         }
 
         updatedAtRow(for: snapshot)
-            .padding(.horizontal, Metrics.panelPadding)
+            .padding(.horizontal, MenuMetrics.panelPadding)
             .padding(.vertical, 7)
-            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
+            .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
     }
 
     func updatedAtRow(for snapshot: CodexQuotaSnapshot) -> some View {

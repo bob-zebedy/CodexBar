@@ -44,7 +44,7 @@ nonisolated enum CodexDateFormat {
         return date
     }
 
-    /// yyyy-MM-dd HH: mm: ss.SSS, Hook 原始事件写入本机时间字符串
+    /// yyyy-MM-dd HH:mm:ss.SSS, Hook 原始事件写入本机时间字符串
     static func localTimestampString(from date: Date) -> String {
         localTimestampFormatter.string(from: date)
     }
@@ -53,7 +53,7 @@ nonisolated enum CodexDateFormat {
         localTimestampFormatter.date(from: string)
     }
 
-    /// yyyy-MM-dd HH: mm: ss, 设置页与重置次数详情统一的本地时间展示
+    /// yyyy-MM-dd HH:mm:ss, 设置页与重置次数详情统一的本地时间展示
     static func localDisplayString(from date: Date) -> String {
         localDisplayFormatter.string(from: date)
     }

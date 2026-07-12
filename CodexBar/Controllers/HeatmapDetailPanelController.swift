@@ -59,7 +59,6 @@ final class HeatmapDetailPanelController {
 
         guard !immediate else {
             drawerAnimator.resetVisualState(for: panel)
-            drawerTransition = .idle
             orderOut(panel)
             return
         }

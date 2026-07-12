@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// 重置次数详情控制器, 复用热力图详情的侧边抽屉动效
+/// 重置次数详情控制器, 复用共享侧边抽屉定位和动画
 @MainActor
 final class ResetCreditsPanelController {
     private var panel: NSPanel?

@@ -236,12 +236,10 @@ private nonisolated struct RPCIDEnvelope: Decodable {
 }
 
 private nonisolated struct RPCResponseEnvelope<Response: Decodable>: Decodable {
-    let id: Int?
     let result: Response?
 }
 
 private nonisolated struct RPCErrorEnvelope: Decodable {
-    let id: Int?
     let error: RPCError?
 }
 

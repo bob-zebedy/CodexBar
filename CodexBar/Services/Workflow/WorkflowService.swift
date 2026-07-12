@@ -631,12 +631,7 @@ nonisolated enum WorkflowStorage {
     }
 
     static func fileSize(at url: URL) -> UInt64 {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let fileSize = attributes[.size] as? NSNumber else {
-            return 0
-        }
-
-        return fileSize.uint64Value
+        fileStat(at: url)?.size ?? 0
     }
 
     /// 单次 stat 同时返回大小与 inode 标识, 文件缺失或不可读时为 nil

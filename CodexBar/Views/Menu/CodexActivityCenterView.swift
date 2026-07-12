@@ -1,15 +1,43 @@
 import Combine
 import SwiftUI
 
-/// 活动卡片与任务中心共享的显隐状态，控制选中外观和逐秒时间更新。
+/// 活动卡片与任务中心共享的显隐和逐秒时间状态。
 @MainActor
 final class CodexActivityCenterPresentationState: ObservableObject {
     @Published var isPresented = false
+    @Published private(set) var timelineDate = Date()
+    private var timelineTask: Task<Void, Never>?
+
+    func setTimelineActive(_ isActive: Bool) {
+        guard isActive else {
+            timelineTask?.cancel()
+            timelineTask = nil
+            return
+        }
+        guard timelineTask == nil else {
+            return
+        }
+
+        timelineDate = Date()
+        timelineTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                let now = Date()
+                let fraction = now.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: 1)
+                try? await Task.sleep(for: .seconds(max(0.01, 1 - fraction)))
+                guard let self, !Task.isCancelled else {
+                    return
+                }
+                timelineDate = Date()
+            }
+        }
+    }
 }
 
 /// 点击活动卡片时传给 AppKit 控制器的定位信息。
-nonisolated struct CodexActivityCenterPanelContext: Equatable {
-    let alignmentScreenFrame: CGRect?
+@MainActor
+struct CodexActivityCenterPanelContext {
+    let anchorProvider: ScreenFrameProvider
     let preferredSide: UsageHeatmapDetailSide
 }
 
@@ -17,21 +45,15 @@ nonisolated struct CodexActivityCenterPanelContext: Equatable {
 struct CodexActivityCenterView: View {
     @ObservedObject var activityMonitor: CodexActivityMonitor
     @ObservedObject var presentationState: CodexActivityCenterPresentationState
-    let panelSize: CGSize
 
     var body: some View {
-        Group {
-            if presentationState.isPresented, needsPerSecondUpdates {
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    content(now: timeline.date)
-                }
-            } else {
-                content(now: Date())
-            }
-        }
-        .frame(width: panelSize.width, height: panelSize.height, alignment: .topLeading)
-        .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
-        .animation(.codexStatus, value: activityMonitor.snapshot)
+        content(now: presentationState.timelineDate)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .topLeading
+            )
+            .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
     }
 
     static var initialPanelSize: CGSize {
@@ -46,28 +68,24 @@ struct CodexActivityCenterView: View {
         maximumHeight: CGFloat,
         snapshot: CodexActivitySnapshot
     ) -> CGSize {
-        let sectionCounts = [
+        let visibleSectionCounts = [
             snapshot.waitingTasks.count,
             snapshot.runningTasks.count,
             snapshot.recentCompletions.count,
             snapshot.recentTerminations.count
         ].filter { $0 > 0 }
+        let rowCount = visibleSectionCounts.reduce(0, +)
         let contentHeight = Metrics.headerHeight
             + Metrics.dividerHeight
             + Metrics.verticalPadding * 2
-            + CGFloat(sectionCounts.count) * Metrics.sectionHeaderHeight
-            + CGFloat(sectionCounts.reduce(0, +)) * (Metrics.rowHeight + Metrics.rowSpacing)
-            + CGFloat(max(0, sectionCounts.count - 1)) * Metrics.sectionSpacing
-        let desiredHeight = max(Metrics.minimumPanelHeight, contentHeight)
+            + CGFloat(visibleSectionCounts.count) * Metrics.sectionHeaderHeight
+            + CGFloat(rowCount) * (Metrics.rowHeight + Metrics.rowSpacing)
+            + CGFloat(max(0, visibleSectionCounts.count - 1)) * Metrics.sectionSpacing
 
         return CGSize(
             width: Metrics.panelWidth,
-            height: min(maximumHeight, desiredHeight)
+            height: min(maximumHeight, contentHeight)
         )
-    }
-
-    private var needsPerSecondUpdates: Bool {
-        activityMonitor.snapshot.hasTaskCenterContent
     }
 
     private func content(now: Date) -> some View {
@@ -77,7 +95,7 @@ struct CodexActivityCenterView: View {
             LiquidGlassDivider()
 
             ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+                VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
                     if !activityMonitor.snapshot.waitingTasks.isEmpty {
                         taskSection(
                             title: "等待确认",
@@ -108,6 +126,7 @@ struct CodexActivityCenterView: View {
                         terminationSection(now: now)
                     }
                 }
+                .animation(.codexStatus, value: activityMonitor.snapshot)
                 .padding(.horizontal, Metrics.horizontalPadding)
                 .padding(.vertical, Metrics.verticalPadding)
             }
@@ -203,6 +222,7 @@ struct CodexActivityCenterView: View {
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
             }
+            .frame(height: Metrics.sectionHeaderHeight)
 
             content()
         }
@@ -280,6 +300,8 @@ struct CodexActivityCenterView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: Metrics.rowHeight, alignment: .top)
+        .transition(Metrics.contentTransition)
     }
 
     private func titleLine(projectName: String?, modelName: String?) -> some View {
@@ -323,7 +345,6 @@ struct CodexActivityCenterView: View {
     private enum Metrics {
         static let panelWidth: CGFloat = 312
         static let preferredPanelHeight: CGFloat = 360
-        static let minimumPanelHeight: CGFloat = 180
         static let headerHeight: CGFloat = 42
         static let dividerHeight: CGFloat = 1
         static let horizontalPadding: CGFloat = 12
@@ -335,5 +356,9 @@ struct CodexActivityCenterView: View {
         static let symbolWidth: CGFloat = 16
         static let titleLineHeight: CGFloat = 16
         static let cornerRadius: CGFloat = 12
+        static let contentTransition = AnyTransition.asymmetric(
+            insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+            removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .top))
+        )
     }
 }

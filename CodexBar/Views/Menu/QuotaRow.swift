@@ -13,7 +13,7 @@ struct QuotaRow: View {
                 .allowsTightening(true)
                 .frame(width: Metrics.labelWidth, alignment: .center)
 
-            SegmentedQuotaBar(percent: displayPercent)
+            SegmentedQuotaBar(percent: remainingPercent)
                 .padding(.leading, Metrics.labelBarSpacing)
 
             Text(percentText)
@@ -55,23 +55,23 @@ private extension QuotaRow {
     }
 
     var percentText: String {
-        guard window.hasData else {
+        guard let remainingPercent else {
             return "--"
         }
 
-        return "\(window.remainingPercent)%"
+        return "\(remainingPercent)%"
     }
 
-    var displayPercent: Int? {
+    var remainingPercent: Int? {
         window.hasData ? window.remainingPercent : nil
     }
 
     var percentColor: Color {
-        guard window.hasData else {
+        guard let remainingPercent else {
             return .secondary
         }
 
-        return QuotaBarPalette.filledColor(for: window.remainingPercent)
+        return QuotaBarPalette.filledColor(for: remainingPercent)
     }
 
     static let resetFormatter: DateFormatter = {

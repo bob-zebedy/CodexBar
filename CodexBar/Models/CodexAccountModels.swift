@@ -11,7 +11,7 @@ nonisolated struct CodexAccount: Decodable, Equatable {
     }
 
     var displayName: String {
-        if let email, hasEmail {
+        if let email, !email.isEmpty {
             return email
         }
 

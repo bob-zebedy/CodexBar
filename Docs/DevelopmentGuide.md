@@ -25,11 +25,11 @@ App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 C
 | ----------------------- | ----------------------------------------------------------------------- |
 | `CodexBar/App/`         | SwiftUI 入口和 AppDelegate 启动分支                                     |
 | `CodexBar/Controllers/` | 菜单栏, 菜单面板, 侧边 child panel, 设置窗口, 日志窗口和窗口行为        |
-| `CodexBar/Models/`      | account, quota, usage, workflow, 日期网格和错误模型                     |
+| `CodexBar/Models/`      | account, quota, usage, workflow, activity, 日期网格、快捷键和错误模型   |
 | `CodexBar/Services/`    | app-server, Codex CLI 解析, 版本探测, Hook 设置, 统计维护, 更新, 登录项 |
 | `CodexBar/Views/`       | 菜单面板, 设置窗口, 日志窗口和共享 Liquid Glass 样式                    |
 | `Docs/`                 | app-server, Hook 和开发文档                                             |
-| `Scripts/`              | DMG 和 appcast 发布脚本                                                 |
+| `Scripts/`              | Release 构建、公证、DMG 和 appcast 发布脚本                             |
 
 ## 2. 总体架构
 
@@ -98,11 +98,13 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 
 正常图标是 `person.fill.checkmark`, 错误图标是 `person.fill.xmark`
 
-小人右下角的状态点只表达 Hook 任务状态，按 `等待批准 > 运行中 > 刚完成 > 暂无活动` 取最高优先级：等待批准使用系统橙色，运行中使用系统蓝色，确认 turn 完成后 30 秒内使用系统绿色，空闲时不显示。小人本体始终使用系统前景色，账号异常继续由 `person.fill.xmark` 表达，不改变状态点颜色；空闲且没有额度竖条时保持 template 图像，有状态点或显示额度竖条时使用非 template 合成图。状态点与额度竖条分别绘制，颜色互不影响。
+小人右下角的状态点只表达 Hook 任务状态，并以 `CodexQuotaSnapshot` 可用作为展示条件。快照可用时按 `等待批准 > 运行中 > 刚完成 > 暂无活动` 取最高优先级：等待批准使用系统橙色，运行中使用系统蓝色，确认 turn 完成后 30 秒内使用系统绿色，空闲时不显示；快照为 `nil` 时不绘制状态点。小人本体始终使用系统前景色，账号异常由 `person.fill.xmark` 表达；状态点与额度竖条分别绘制，颜色互不影响。空闲且没有额度竖条时使用 template 图像，存在状态点或额度竖条时使用非 template 合成图。
 
 设置页「菜单栏额度指示」默认开启, 使用独立开关控制启用状态; 缺失持久化选择时默认使用 `.primary`, 关闭时显式持久化 `.off`。开启后在同一行显示额度窗口菜单, 可选择当前账号 Codex limit 返回的额度窗口, 当前保留选择不在返回窗口中时用 fallback 标题追加到菜单。最后一次非关闭的窗口选择由 `MenuBarQuotaSettings` 以 `MenuBarQuota.lastWindowSelection` 键随偏好持久化: 关闭开关时它继续参与菜单淡出避免过渡期间回退, 重新开启时（含重开设置窗口或重启应用后）恢复该选择, 无记录时回退 `.primary`。开启后 `StatusItemController` 会把所选 Codex 窗口的剩余额度进度条绘制在图标左侧, 以竖条形式与 `person.fill.checkmark` / `person.fill.xmark` 合成为单个 `NSImage`, 并随 `CodexStatusViewModel` 自动刷新。合成图尺寸为 `27 x 17`, 图标本体保持原始 `24 x 17`, 左侧竖条轨道为 `2 x 15`, 状态点位于小人右下角。额度显隐或状态点变化时, `StatusItemController` 合并为同一个逐帧重绘任务，在 0.18 秒内同时插值竖条与状态点的透明度以及状态点颜色，避免两个动画任务竞争；过渡期间合成图宽度和绘制坐标保持固定。活动期间 tooltip 每分钟更新一次耗时并合并并发数量与额度，活动结束后取消刷新任务。
 
-Hook 开启时，账号卡片下方始终显示固定高度 `CodexActivityCard`。主面板 `CodexQuotaSnapshot` 为 `nil` 时，卡片消费空活动快照并显示「暂无数据」，不开放任务中心；Monitor 仍在后台维护状态，主快照恢复后直接发布最新活动。卡片按等待、运行、最近完成、最近终止、空闲的顺序展示项目最后一级名称、模型或工具、耗时及其他任务数量；只有终止历史时使用灰色终止状态展示最近一项。存在活动任务、最近完成或最近终止记录时整张卡片成为无系统 label 状态变化的自定义 button：只有存在其他活动任务时才在右侧显示 `+N`，单任务不显示尾部附件，hover/选中反馈只作用于卡片描边。点击后由 `ActivityCenterPanelController` 展开并发任务中心，按等待、运行、最近完成和最近终止展示 `CodexActivitySnapshot` 的完整有序列表；等待和运行按最后活动时间倒序，完成和终止分别按结束时间倒序。任务及两类最近记录使用进程内 opaque UUID 供 SwiftUI diff，不向 UI 暴露 session/turn ID。最近完成和最近终止均保留 10 分钟，卡片与任务中心的耗时只在各自可见时逐秒 tick；已打开期间主快照变为 `nil` 时会立即收回任务中心。
+Hook 开启时，账号卡片下方始终显示固定高度 `CodexActivityCard`。`CodexQuotaSnapshot` 为 `nil` 时，卡片显示「暂无数据」且不开放任务中心；Monitor 继续维护实时状态。快照可用时，卡片按等待、运行、最近完成、最近终止、空闲的顺序展示项目最后一级名称、模型或工具、耗时及其他活动任务数量；只有终止历史时显示最近一项灰色终止状态。存在任务中心内容时，卡片可点击，其他活动任务数量使用右侧 `+N` 徽标，hover 和选中反馈作用于卡片描边。
+
+`ActivityCenterPanelController` 展示 `CodexActivitySnapshot` 的完整等待、运行、最近完成和最近终止列表。等待和运行按最后活动时间倒序，完成和终止按各自结束时间倒序；列表身份使用进程内 opaque UUID，不向 UI 暴露 session/turn ID。最近完成和最近终止保留 10 分钟。卡片与任务中心直接观察同一个 Monitor，并在菜单可见、额度快照可用且存在任务中心内容时使用 `CodexActivityCenterPresentationState` 的共享逐秒时间。任务中心打开期间额度快照变为 `nil` 时立即关闭。
 
 错误图标触发条件:
 
@@ -147,7 +149,7 @@ Hook 开启时，账号卡片下方始终显示固定高度 `CodexActivityCard`�
 
 - 立即隐藏热力图详情面板、重置次数详情面板和并发任务中心
 - 移除本地和全局事件监听
-- 将 `isVisible` 设为 `false`, 让倒计时停止 `TimelineView` 每秒 tick
+- 将 `isVisible` 设为 `false`, 停止活动卡片与任务中心共享的逐秒时间任务
 - 临时禁止设置窗口和日志窗口成为 key window, 避免关闭菜单面板时 AppKit 把这些辅助窗口提到前面
 - 默认执行 0.18 秒淡出, 无法淡出时直接关闭
 - 菜单面板关闭后延迟 120 ms 恢复设置窗口和日志窗口的 key window 能力
@@ -165,7 +167,11 @@ Command-Space 不直接关闭菜单面板, 只短暂抑制 600 ms 内的 active 
 
 热力图详情面板、重置次数详情面板和并发任务中心都会通过 `containsScreenPoint(_:)` 告诉关闭监听器自己的屏幕区域, 因此点击这些 child panel 内部不会触发主菜单面板关闭。重置次数详情面板和并发任务中心可接收鼠标事件用于滚动; 热力图详情面板不接收鼠标事件。并发任务中心是点击后保持打开的面板；出现有效的热力图方块 hover context 时会自动收回任务中心并展示当天详情，点击重置次数也会显式切换并关闭任务中心。
 
-侧边面板的共同行为集中在 `CodexBar/Controllers/SidePanelSupport.swift`: `NonactivatingSidePanel` 固定不能成为 key/main window, `KeyableBorderlessPanel` 供需要键盘焦点的无边框面板（通知子选项面板、fallback 面板）共用, `SidePanelDrawerAnimator` 管理内容 view 的横向抽屉 transform, `SidePanelDrawerPresenter` 承载重置次数、并发任务中心和通知子选项三类「一次性展开」面板共用的显隐状态机（generation 竞态防护、入退场动画、child window 挂载/卸载、可选 makeKey）, `SidePanelSupport` 提供 panel 工厂（`makePanel`, 由 `ignoresMouseEvents`、初始尺寸与 `keyable` 决定）、完整定位入口（`position`, 内含左右侧选择、坐标夹紧与 `SidePanelPosition` 组装, 纵向由调用方传入期望位置）、锚点行对齐与校验（`alignedProposedY` / `validatedAlignmentScreenFrame`, 容差 6 pt）、锚点感知的定位边界放宽（`anchorAwareVisibleFrame`, 宿主进入系统菜单栏保留区时只向上放宽到锚点行顶边）、共享几何/抽屉动画常量（`SidePanelSupport.Metrics`）, 以及 child window 挂载/移除、菜单面板 key window 恢复、圆角 layer 配置和屏幕 frame 换算。`HeatmapDetailPanelController` 保留 hover 请求、Y 轴策略、侧边切换队列和 token/workflow 内容更新, 其切边/延迟隐藏状态机不走共享 presenter; `ResetCreditsPanelController` 主要保留重置次数内容、最大高度和点击切换状态；`ActivityCenterPanelController` 使用常驻 Monitor 快照原地更新任务列表，只有显隐时播放抽屉动画，并在主面板进入系统菜单栏保留区时只向上放宽定位边界到活动卡片顶边。任务中心先按当前分区和条目数扩展高度，并在打开期间随快照变化重新布局；高度同时受屏幕可见高度和活动卡片顶边到主面板底边的距离限制，只有达到该上限后列表才内部滚动，因此顶边保持对齐且底边不会越过主面板。三个面板视图的玻璃底/背板/描边/圆角裁剪皮肤共用 `LiquidGlassStyle.swift` 的 `sidePanelChrome(cornerRadius:)`。
+侧边面板的共同行为集中在 `CodexBar/Controllers/SidePanelSupport.swift`。`NonactivatingSidePanel` 不能成为 key/main window；`KeyableBorderlessPanel` 用于需要键盘焦点的通知子选项面板和 fallback 面板；`SidePanelDrawerAnimator` 管理横向抽屉 transform；`SidePanelDrawerPresenter` 管理重置次数、并发任务中心和通知子选项面板的显隐状态、generation、入退场动画及 child window 挂载。`SidePanelSupport` 统一提供 panel 创建、左右侧选择、屏幕边界夹紧、锚点行校验与对齐、菜单面板 key window 恢复、圆角 layer 配置和屏幕坐标换算。侧边面板视图的玻璃底、背板、描边和圆角裁剪共用 `LiquidGlassStyle.swift` 的 `sidePanelChrome(cornerRadius:)`。
+
+`HeatmapDetailPanelController` 管理 hover 请求、Y 轴策略、侧边切换队列和 token/workflow 内容更新；`ResetCreditsPanelController` 管理重置次数内容、最大高度和点击切换；`ActivityCenterPanelController` 观察常驻 Monitor 快照并更新列表与窗口布局。任务中心宽度固定，高度由标题、分区、固定行高、间距和底部留白计算，并受屏幕可见高度及活动卡片顶边到主面板底边的范围限制。活动卡片把 `ScreenFrameProvider` 作为锚点交给控制器，控制器每次布局都只读取属于当前菜单窗口的实时 frame；首次读取失败时等待一个 MainActor 调度点重试，仍无有效锚点才回退主面板垂直居中。锚点有效时，面板顶边与卡片顶边对齐，底边最低与主面板底边齐平；达到高度上限后列表内部滚动。
+
+任务中心列表使用普通 `VStack` 和单层条目 transition。快照变化后，SwiftUI 提交列表布局，AppKit 在下一个 MainActor 调度点用 0.20 秒 ease-in-ease-out 曲线更新 panel frame；新的快照会取消尚未执行的布局更新。任务中心内容变空时等待 0.20 秒再执行抽屉收起，期间出现新内容会取消收起。
 
 设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开对应入口时只移动和置前对应窗口。窗口 level 保持 `.normal`; 置前时先恢复 `AuxiliaryHostingWindow.allowsKeyFocus`, 再 `orderFrontRegardless()`, `NSRunningApplication.current.activate(options: [])` 和 `makeKeyAndOrderFront(nil)`, 只做一次性置前, 不持续置顶。CodexBar 是 `LSUIElement` 菜单栏 App, 首次懒创建辅助窗口时需要通过当前运行中应用激活, 避免设置或日志窗口第一次打开时没有稳定拉到最前。
 
@@ -472,7 +478,7 @@ Codex 版本探测错误:
 | 脚本                 | 失败条件                                                        | 行为                                   |
 | -------------------- | --------------------------------------------------------------- | -------------------------------------- |
 | `Scripts/build.sh`   | 找不到 Xcode 工程、签名命令、notary 凭据或导出 App              | `set -euo pipefail` 直接退出并打印错误 |
-| `Scripts/build.sh`   | archive、Developer ID 导出、notary、staple 或签名校验失败       | 退出, 不替换 build 中最终 App          |
+| `Scripts/build.sh`   | archive、Developer ID 导出、notary、staple 或签名校验失败       | 退出；默认不产出最终 App，保留中间产物 |
 | `Scripts/dmg.sh`     | 找不到唯一 App, 版本号缺失, DMG 挂载失败, 缺少必要命令          | `set -euo pipefail` 直接退出并打印错误 |
 | `Scripts/appcast.sh` | 找不到 DMG, appcast, Xcode 工程, build setting 或 `sign_update` | 直接退出并打印错误                     |
 | `Scripts/appcast.sh` | 无法解析 `sparkle:edSignature`                                  | 打印 sign_update 原始输出并退出        |
@@ -564,7 +570,7 @@ flowchart TD
 - 无数据时百分比和重置时间显示 `--`, 电量条用占位色
 - stale 数据通过 `.markStale(true)` 降低透明度到 0.55
 
-`QuotaLimitsSection` 通过 `ScreenFrameProvider` 持有额度区桥接 `NSView`, 点击「重置次数」时同步读取额度区在屏幕坐标系中的最新 frame, 作为重置次数详情面板顶部对齐锚点。`ScreenFrameReader` 是通用 `NSViewRepresentable`, 同时服务额度区和热力图, 会在 SwiftUI 布局稳定后上报 frame 并去重; `ScreenFrameProvider` 会记录最后有效 frame 兜底, 避免只依赖异步 SwiftUI 状态更新导致点击瞬间没有锚点。
+`QuotaLimitsSection` 通过 `ScreenFrameProvider` 持有额度区桥接 `NSView`, 点击「重置次数」时同步读取额度区在屏幕坐标系中的最新 frame, 作为重置次数详情面板顶部对齐锚点。`ScreenFrameReader` 是通用 `NSViewRepresentable`, 同时服务额度区、活动卡片和热力图；它接受父布局提出的尺寸，在 SwiftUI 布局稳定后上报 frame 并去重，视图拆除时解除与 provider 的绑定。`ScreenFrameProvider` 弱持有当前桥接视图，并同时记录最后有效 frame 及其所属 window。任务中心首次展示只接受当前菜单窗口中的实时 frame，失败时等待一个 MainActor 调度点后重试；后续布局也只允许同一窗口的缓存 frame 兜底，避免复用旧菜单窗口坐标导致顶部错位。额度区和热力图继续按各自控制器的锚点校验与降级策略读取坐标。
 
 重置次数详情面板由 `ResetCreditsPanelController` 管理:
 
@@ -1025,7 +1031,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 - notary 凭据优先使用 `--notary-profile`; 未设置时使用 `--apple-id`、`--notary-password` 和 `--team-id`; 如果两组参数同时提供, `--notary-profile` 生效, Apple ID 三件套会被忽略
 - 将导出的 App 压缩后提交 `xcrun notarytool submit --wait`, 成功后对 App 执行 `stapler staple` 和 `stapler validate`
 - 通过 `codesign --verify --deep --strict` 校验导出 App 和最终 App; 默认额外执行 `spctl --assess`
-- 成功后把最终 App 写入 `build/CodexBar.app` 或传入的 `Output.app`; notary 失败时不替换最终 App
+- 成功后把最终 App 写入 `build/CodexBar.app` 或传入的 `Output.app`; 失败时默认不产出最终 App，自定义 build 外输出路径不替换既有 App
 - 最终 App 校验通过后清理 `build/` 下的 archive、DerivedData 等中间产物, 默认只保留 `build/CodexBar.app`; 如果构建或 notary 失败, 保留中间产物便于排查
 - 可用 `--skip-notarization` 只执行 archive/export/signature verify, 便于本地调试脚本
 
@@ -1096,15 +1102,15 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 
 五类通知的触发与去重:
 
-| 通知         | 触发                                                                                                                                               | 去重键                                      |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| 额度低阈值   | 非 stale 快照中窗口剩余比例穿越到 ≤ 阈值; 阈值或子开关变化时用当前快照立即重评估                                                                   | `low\|账号\|limitId\|windowId\|resetsAt`    |
-| 额度已重置   | 同一账号下每个 limit 的 primary/secondary 窗口独立观察；可信快照中消耗曾大于 0%，之后更新为 0% 时立即发送以面板 `limit.title` 和窗口周期命名的通知 | 进程内按 `账号\|limitId\|windowId` 状态转换 |
-| 长任务完成   | monitor 的 live Hook `Stop` 或 rollout `task_complete` transition 具有精确耗时且耗时 ≥ 阈值                                                        | 状态机按精确任务键对两种完成信号去重        |
-| 任务等待批准 | monitor 的 live 批次结束后任务最终仍处于 `waitingApproval`                                                                                         | 同批次按任务键合并，最终快照只发布一次      |
-| 重置机会临期 | 过期时间距今 ≤ 7 天, 并在过期前 7/6/5/4/3/2/1 天各提醒一次; 正文使用本地时间 `yyyy-MM-dd HH:mm:ss`                                                 | `credit\|账号\|过期时间\|提醒档位`          |
+| 通知         | 触发                                                                                                                                    | 去重键                                                                                                                     |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 额度低阈值   | 非 stale 快照中窗口剩余比例穿越到 ≤ 阈值; 阈值或子开关变化时用当前快照立即重评估                                                        | `low\|账号\|limitId\|windowId\|resetsAt`                                                                                   |
+| 额度已重置   | 同一账号下每个 limit 的 primary/secondary 窗口独立观察；可信快照中消耗从大于 0% 变为 0% 时立即发送以 `limit.title` 和窗口周期命名的通知 | 进程内按 `账号\|limitId\|windowId` 观察状态转换；成功发送后使用 `quotaReset\|账号\|limitId\|windowId\|resetsAt` 持久化去重 |
+| 长任务完成   | monitor 的 live Hook `Stop` 或 rollout `task_complete` transition 具有精确耗时且耗时 ≥ 阈值                                             | 状态机按精确任务键对两种完成信号去重                                                                                       |
+| 任务等待批准 | monitor 的 live 批次结束后任务处于 `waitingApproval`；当前进程内任务离开等待状态后移除对应的 delivered/pending 通知                     | 同批次按任务键合并，通知使用 `taskWaiting\|taskUUID` 任务级 identifier                                                     |
+| 重置机会临期 | 过期时间距今 ≤ 7 天, 并在过期前 7/6/5/4/3/2/1 天各提醒一次; 正文使用本地时间 `yyyy-MM-dd HH:mm:ss`                                      | `credit\|账号\|过期时间\|提醒档位`                                                                                         |
 
-额度低阈值和重置机会通知只在系统成功接收后才把已发送去重键持久化到 UserDefaults (`Notification.sentKeys`, 上限 300 条滚动淘汰), 账号维度包含在键中, 切换账号自动隔离。通知服务初始化时会移除旧版预测式额度重置留下的 `reset|` 去重键和 pending reminder 数据，保留有效的 `low|` / `credit|` 键。额度重置与任务等待状态只保留在当前进程内，不按预测时间调度或补发；可信额度快照即使在总开关关闭或授权不可用时也会继续消费重置状态转换但不发送，并移除当前快照中已经消失的窗口，整个快照变为空时清空全部待重置窗口。bootstrap 会恢复 App 启动前滚动 24 小时内的任务状态，但永远不发布 transition，因此不会补发历史权限通知、完成通知或触觉反馈；重新开启通知也不会回放旧事件。
+额度低阈值、额度重置和重置机会通知只在系统成功接收后把去重键写入 UserDefaults (`Notification.sentKeys`)，最多保留 300 条。键包含账号维度；额度重置窗口提供 `resetsAt` 时，去重键还包含该时间，缺失时仍发送通知但不生成周期去重键。额度重置观察状态和等待通知跟踪集合保存在当前进程内；通知不按预测时间调度，也不补发已错过的状态转换。可信额度快照持续推进重置观察状态，stale 快照不参与判定；窗口消失时移除对应观察状态，快照为 `nil` 时清空全部观察状态。Hook bootstrap 只恢复任务状态，不发布 transition，因此不产生历史任务通知或触觉反馈。
 
 「任务触觉反馈」使用 `Notification.taskHapticEnabled` 持久化，缺失时默认开启。等待批准和任意任务完成 transition 都启动一段触觉反馈任务：每 100 ms 请求一次 `.levelChange`，连续 10 次；新 transition 会取消并重启当前序列，开关关闭后会在下一脉冲前停止。触觉反馈不受长任务阈值与系统通知授权影响；App 内「系统通知」总开关关闭时不触发。`NSHapticFeedbackManager.defaultPerformer` 会按当前输入设备、辅助功能与系统偏好决定是否实际反馈及震感强弱。
 
