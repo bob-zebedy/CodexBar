@@ -215,28 +215,46 @@ final class CodexActivityMonitor: ObservableObject {
                 continue
             }
 
+            var taskDidChange = false
             if let startedAt = Self.backfilledStartedAt(for: task, state: state) {
                 task.startedAt = startedAt
+                taskDidChange = true
+            }
+
+            if let terminal = state.terminal {
+                tasks.removeValue(forKey: key)
+                didChange = true
+                if case .completed = terminal, recentCompletionDate(for: key) != nil {
+                    // 迟到事件恢复出的任务不能被 rollout 再次完成。
+                    continue
+                }
+                resolveTerminal(
+                    terminal,
+                    task: task,
+                    key: key,
+                    abortFallback: Date(),
+                    into: &transitions
+                )
+                continue
+            }
+
+            if let approvalReviewer = state.approvalReviewer,
+               task.approvalReviewer != approvalReviewer {
+                task.approvalReviewer = approvalReviewer
+                taskDidChange = true
+            }
+
+            if resolvePendingApprovalIfPossible(
+                for: &task,
+                into: &transitions
+            ) {
+                taskDidChange = true
+            }
+
+            if taskDidChange {
                 tasks[key] = task
                 didChange = true
             }
-
-            guard let terminal = state.terminal else {
-                continue
-            }
-            tasks.removeValue(forKey: key)
-            didChange = true
-            if case .completed = terminal, recentCompletionDate(for: key) != nil {
-                // 迟到事件恢复出的任务不能被 rollout 再次完成。
-                continue
-            }
-            resolveTerminal(
-                terminal,
-                task: task,
-                key: key,
-                abortFallback: Date(),
-                into: &transitions
-            )
         }
 
         if didChange {
@@ -426,6 +444,7 @@ final class CodexActivityMonitor: ObservableObject {
                 task.state = .running
                 task.stateChangedAt = event.timestamp
             }
+            task.pendingApprovalRequestedAt = nil
             task.latestEvent = latestEvent
             task.mergeMetadata(from: event)
             task.lastActivityAt = event.timestamp
@@ -460,30 +479,26 @@ final class CodexActivityMonitor: ObservableObject {
                 return nil
             }
 
-            let wasWaiting = task.state == .waitingApproval
-            if !wasWaiting {
-                task.state = .waitingApproval
-                task.stateChangedAt = event.timestamp
-            }
-            task.latestEvent = .approvalRequested
             task.mergeMetadata(from: event)
             // 权限事件描述当前请求；缺失工具名时不能沿用上一条工具事件。
             task.toolName = event.toolName
             task.lastActivityAt = event.timestamp
+            let enteredWaiting = task.recordApprovalRequest(at: event.timestamp)
             tasks[key] = task
-            return wasWaiting ? nil : .waitingApproval(key)
+            return enteredWaiting ? .waitingApproval(key) : nil
         }
 
-        let task = CodexActivityTask(
+        var task = CodexActivityTask(
             displayID: UUID(),
             key: eventKey,
             event: event,
-            state: .waitingApproval,
-            latestEvent: .approvalRequested,
+            state: .running,
+            latestEvent: .toolStarted,
             startedAt: nil
         )
+        let enteredWaiting = task.recordApprovalRequest(at: event.timestamp)
         tasks[eventKey] = task
-        return .waitingApproval(eventKey)
+        return enteredWaiting ? .waitingApproval(eventKey) : nil
     }
 
     private func completeTask(from event: WorkflowHookEvent) -> CodexActivityLiveTransition? {
@@ -687,6 +702,31 @@ final class CodexActivityMonitor: ObservableObject {
 }
 
 private extension CodexActivityMonitor {
+    /// PermissionRequest 表示进入审批流程；只有 rollout 明确把审批路由给 user 时才是 UI 等待。
+    func resolvePendingApprovalIfPossible(
+        for task: inout CodexActivityTask,
+        into transitions: inout [CodexActivityTransition]
+    ) -> Bool {
+        guard let requestedAt = task.pendingApprovalRequestedAt,
+              let approvalReviewer = task.approvalReviewer else {
+            return false
+        }
+
+        switch approvalReviewer {
+        case .user:
+            let wasWaiting = task.state == .waitingApproval
+            task.confirmPendingApproval()
+            if !wasWaiting,
+               let sessionTransitionNotBefore,
+               requestedAt >= sessionTransitionNotBefore {
+                transitions.append(.waitingApproval(task.snapshot))
+            }
+        case .autoReview, .guardianSubagent:
+            task.pendingApprovalRequestedAt = nil
+        }
+        return true
+    }
+
     /// rollout 终态归类的唯一入口；活动任务和等待终态确认任务只有 abort 兜底时间不同。
     /// 终止记录只供任务中心展示，不发布 transition，也不产生绿色状态或通知。
     func resolveTerminal(
@@ -956,6 +996,8 @@ private struct CodexActivityTask {
     var startedAt: Date?
     var stateChangedAt: Date
     var lastActivityAt: Date
+    var approvalReviewer: CodexApprovalReviewer?
+    var pendingApprovalRequestedAt: Date?
 
     init(
         displayID: UUID,
@@ -975,6 +1017,8 @@ private struct CodexActivityTask {
         self.startedAt = startedAt
         stateChangedAt = event.timestamp
         lastActivityAt = event.timestamp
+        approvalReviewer = event.approvalReviewer
+        pendingApprovalRequestedAt = nil
     }
 
     var showsPreciseDuration: Bool {
@@ -1025,5 +1069,30 @@ private struct CodexActivityTask {
         projectName = event.projectDisplayName ?? projectName
         modelName = event.modelName ?? modelName
         toolName = event.toolName ?? toolName
+        approvalReviewer = event.approvalReviewer ?? approvalReviewer
+    }
+
+    /// 记录审批候选；返回值只表示任务是否刚刚进入用户等待状态。
+    mutating func recordApprovalRequest(at requestedAt: Date) -> Bool {
+        pendingApprovalRequestedAt = requestedAt
+        guard approvalReviewer == .user else {
+            return false
+        }
+
+        let enteredWaiting = state != .waitingApproval
+        confirmPendingApproval()
+        return enteredWaiting
+    }
+
+    mutating func confirmPendingApproval() {
+        guard let requestedAt = pendingApprovalRequestedAt else {
+            return
+        }
+        pendingApprovalRequestedAt = nil
+        if state != .waitingApproval {
+            state = .waitingApproval
+            stateChangedAt = requestedAt
+        }
+        latestEvent = .approvalRequested
     }
 }

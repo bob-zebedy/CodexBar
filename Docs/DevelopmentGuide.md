@@ -777,6 +777,9 @@ sequenceDiagram
     Codex->>App: 执行 Hook 命令并传入事件内容
     App->>Recorder: 进入快速记录分支
     Recorder->>Recorder: 解析事件名和顶层字段
+    opt Prompt 或权限请求
+        Recorder->>Recorder: 从 transcript 尾部提取当前 turn reviewer
+    end
     Recorder->>Lock: 获取独占锁
     Recorder->>Events: 追加一行事件 JSONL
     Recorder->>State: 标记当天等待维护
@@ -794,6 +797,7 @@ sequenceDiagram
 | `tool_name`       | `tool`                                          |
 | `model`           | `model`                                         |
 | `permission_mode` | `permission`                                    |
+| `transcript_path` | `approval`；仅提取匹配 turn 的 reviewer |
 | `session_id`      | `session`                                       |
 | `turn_id`         | `turn`                                          |
 
@@ -803,6 +807,7 @@ sequenceDiagram
 
 - `timestamp` 缺失或无法解析时使用当前时间
 - `cwd` 缺失时使用当前工作目录
+- `transcript_path` 缺失、无法读取、512 KB 内找不到匹配 `turn_context` 或 reviewer 未知时，`approval` 写为 `null`；主 App 仍会通过增量 rollout reader 尝试补齐，未补齐前不判定为用户等待
 - 其他字段缺失写为 `null`
 
 Hook 数据目录:
@@ -1084,7 +1089,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 - 不把原始敏感 RPC 响应写入文档或测试夹具
 - 日志完整保存 request/detail, UI 默认只渲染单行预览; 完整内容通过标题行预览或复制查看
 - Hook 统计默认只保存在用户 Application Support 的 CodexBar 目录；开启「跨设备同步」后, CloudKit 只保存去掉 `sessionIds` / `turnIds` 的 daily 聚合副本, 不保存原始 Hook events
-- 实时任务状态只保存在 `CodexActivityMonitor` 内存中，UI 只展示项目最后一级名称、模型、工具名与最近 Hook 事件类型；运行卡片第一行组合项目和模型，第二行组合运行时间与请求/工具/压缩/子智能体状态，其他任务数使用右侧 `+N` 徽标。并发任务中心消费同一快照中的完整等待、运行、最近完成和最近终止列表，列表身份使用进程内 UUID，不展示或持久化 session/turn ID。不写历史文件、不上传 CloudKit，也不新增网络请求。`CodexSessionLifecycleReader` 只对活跃 session + turn 增量读取本机 rollout，提取事件类型、turn ID、起止时间和耗时，不提取、保存或展示提示词、回复、推理和工具内容
+- 实时任务状态只保存在 `CodexActivityMonitor` 内存中，UI 只展示项目最后一级名称、模型、工具名与最近 Hook 事件类型；运行卡片第一行组合项目和模型，第二行组合运行时间与请求/工具/压缩/子智能体状态，其他任务数使用右侧 `+N` 徽标。并发任务中心消费同一快照中的完整等待、运行、最近完成和最近终止列表，列表身份使用进程内 UUID，不展示或持久化 session/turn ID。不写历史文件、不上传 CloudKit，也不新增网络请求。`CodexSessionLifecycleReader` 只对活跃 session + turn 增量读取本机 rollout，提取事件类型、turn ID、起止时间、耗时和审批 reviewer，不提取、保存或展示提示词、回复、推理、工具内容或审批内容
 
 ## 19. 通知与触觉提醒链路
 
@@ -1092,9 +1097,9 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 
 - `NotificationSettings` (`Services/Settings/`): 总开关、五类通知子开关、任务触觉开关、低额度阈值 (5%/10%/25%, 默认 10%) 和长任务时长 (30s/1m/2m/5m, 默认 1m), 持久化到 UserDefaults; 负责系统授权请求、被拒状态镜像和设置页选项面板可展示状态
 - `CodexNotificationService`: 集中判定、去重、调度与发送; 由 `CodexBarAppDelegate` 创建, 订阅 `CodexStatusViewModel.$snapshot`、`CodexActivityMonitor` live transition 与 `NSWorkspace.didWakeNotification`; 五类正式通知共用 `CodexNotificationContent` 文案工厂，系统提交失败时重试一次，等待与完成 transition 还会按偏好请求 AppKit `.levelChange` 触觉反馈
-- `CodexActivityMonitor`: Hook 开启期间始终运行并维护并发任务；向 UI 发布快照，向提醒服务发布 live transition。单个 live 批次先完整应用事件，再按任务键合并等待候选；只有批次结束后仍处于等待的任务会使用最终快照发布一次等待 transition，完成候选保持顺序并按 completion ID 做批内去重。通知与触觉开关不会停止活动监测
+- `CodexActivityMonitor`: Hook 开启期间始终运行并维护并发任务；向 UI 发布快照，向提醒服务发布 live transition。`PermissionRequest` 先作为审批候选，只有同 turn 的 rollout reviewer 为 `user` 才确认等待；自动 reviewer 或未知 reviewer 保持运行。单个 live 批次先完整应用事件，再按任务键合并已确认的等待候选；只有批次结束后仍处于等待的任务会使用最终快照发布一次等待 transition，完成候选保持顺序并按 completion ID 做批内去重。通知与触觉开关不会停止活动监测
 - `HookEventTailReader` (`Services/Workflow/`): 后台 actor；bootstrap 以 512 KB 为单次分块流式读取滚动 24 小时事件，并用 start/events/end 三阶段恢复状态。当前文件用 inode + 完整行 offset 固定 bootstrap/live 边界；bootstrap 结束后 monitor 再发起一次定向回溯，为缺少起点的精确 turn 向旧日期文件最多回读 8 MB。之后每 2 秒 tail 当日增量，保留半行、跨日先读旧文件尾部；live 每成功处理一个分块就推进到最后完整行 offset，后续分块失败只重试未处理部分。旧文件异常触发 bootstrap 时保留 bootstrap 设置的新日期 offset，临时读取失败则保留旧日期等待下轮重试。bootstrap、定时轮询和 Mac 唤醒补读共用串行入口，读取期间到达的请求合并为当前读取结束后的一次补读；monitor generation 会丢弃停用 reader 的迟到批次
-- `CodexSessionLifecycleReader`: 后台 actor，只为 monitor 当前活动或等待终态确认的精确 session + turn 定位对应 rollout；便宜目录每 10 秒重试，每个活跃生命周期最多递归 `sessions` 一次并保留负缓存，缓存文件移动、session 重新活跃或 Mac 唤醒时重置。rollout 初次最多读取末尾 512 KB，之后每 1 秒按 offset 增量读取；`task_started` 回填缺失起点，`task_complete` 补齐结束和精确耗时，`turn_aborted` 由 monitor 移除任务并生成灰色最近终止记录，读取失败时不改变 Hook 状态。轮询和即时 lifecycle 查询都绑定 reader generation，跨 actor 返回后仍会复核，旧查询不能落入新 reader 状态
+- `CodexSessionLifecycleReader`: 后台 actor，只为 monitor 当前活动或等待终态确认的精确 session + turn 定位对应 rollout；便宜目录每 10 秒重试，每个活跃生命周期最多递归 `sessions` 一次并保留负缓存，缓存文件移动、session 重新活跃或 Mac 唤醒时重置。rollout 初次最多读取末尾 512 KB，之后每 1 秒按 offset 增量读取；`task_started` 回填缺失起点，`task_complete` 补齐结束和精确耗时，`turn_aborted` 由 monitor 移除任务并生成灰色最近终止记录，`turn_context.approvals_reviewer` 用于确认 `PermissionRequest` 是否真的路由给用户，读取失败时不把候选误判为等待。同次查询同时包含 reviewer 和终态时，monitor 保留起点回填后优先处理终态并跳过审批候选确认。轮询和即时 lifecycle 查询都绑定 reader generation，跨 actor 返回后仍会复核，旧查询不能落入新 reader 状态
 
 活动并发以 session 为边界：不同 session 可以同时运行；同一 session 的 turn 按顺序执行。收到新的 `UserPromptSubmit` 时，monitor 会让该 session 中更早且缺少结束信号的 turn 立即退出活动列表，但保留为等待终态确认任务并触发一次即时 rollout 查询；5 秒内收到 Hook `Stop`、rollout `task_complete` 或 `turn_aborted` 时按真实终态归类，到期仍无终态才生成灰色最近终止记录。已完成和已终止任务键分别保留 24 小时 tombstone，避免迟到事件恢复旧任务或误操作同 session 的新 turn。终止不会触发绿色完成状态、长任务通知或完成触觉反馈。Hook `Stop` 与 rollout `task_complete` 均视为完成信号，先到者生效，后到者按任务键和 session 回退键去重；重复完成不会覆盖首次确认结果，也不会缩短去重窗口或再次触发反馈。
 
@@ -1107,7 +1112,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 | 额度低阈值   | 非 stale 快照中窗口剩余比例穿越到 ≤ 阈值; 阈值或子开关变化时用当前快照立即重评估                                                        | `low\|账号\|limitId\|windowId\|resetsAt`                                                                                   |
 | 额度已重置   | 同一账号下每个 limit 的 primary/secondary 窗口独立观察；可信快照中消耗从大于 0% 变为 0% 时立即发送以 `limit.title` 和窗口周期命名的通知 | 进程内按 `账号\|limitId\|windowId` 观察状态转换；成功发送后使用 `quotaReset\|账号\|limitId\|windowId\|resetsAt` 持久化去重 |
 | 长任务完成   | monitor 的 live Hook `Stop` 或 rollout `task_complete` transition 具有精确耗时且耗时 ≥ 阈值                                             | 状态机按精确任务键对两种完成信号去重                                                                                       |
-| 任务等待批准 | monitor 的 live 批次结束后任务处于 `waitingApproval`；当前进程内任务离开等待状态后移除对应的 delivered/pending 通知                     | 同批次按任务键合并，通知使用 `taskWaiting\|taskUUID` 任务级 identifier                                                     |
+| 任务等待批准 | 同一 turn 的 rollout 明确 `approvals_reviewer == user`，且 monitor 的 live 批次结束后任务仍处于 `waitingApproval`；自动审批不触发；任务离开等待状态后移除对应通知 | 同批次按任务键合并，通知使用 `taskWaiting\|taskUUID` 任务级 identifier                                                     |
 | 重置机会临期 | 过期时间距今 ≤ 7 天, 并在过期前 7/6/5/4/3/2/1 天各提醒一次; 正文使用本地时间 `yyyy-MM-dd HH:mm:ss`                                      | `credit\|账号\|过期时间\|提醒档位`                                                                                         |
 
 额度低阈值、额度重置和重置机会通知只在系统成功接收后把去重键写入 UserDefaults (`Notification.sentKeys`)，最多保留 300 条。键包含账号维度；额度重置窗口提供 `resetsAt` 时，去重键还包含该时间，缺失时仍发送通知但不生成周期去重键。额度重置观察状态和等待通知跟踪集合保存在当前进程内；通知不按预测时间调度，也不补发已错过的状态转换。可信额度快照持续推进重置观察状态，stale 快照不参与判定；窗口消失时移除对应观察状态，快照为 `nil` 时清空全部观察状态。Hook bootstrap 只恢复任务状态，不发布 transition，因此不产生历史任务通知或触觉反馈。

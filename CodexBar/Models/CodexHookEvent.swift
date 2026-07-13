@@ -40,3 +40,10 @@ nonisolated enum CodexHookEvent: String, CaseIterable {
             .lowercased()
     }
 }
+
+/// Codex turn 的审批路由；只有 user 表示 PermissionRequest 会停在用户 UI。
+nonisolated enum CodexApprovalReviewer: String, Codable {
+    case user
+    case autoReview = "auto_review"
+    case guardianSubagent = "guardian_subagent"
+}

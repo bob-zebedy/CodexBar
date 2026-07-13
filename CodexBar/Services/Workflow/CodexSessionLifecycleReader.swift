@@ -1,7 +1,7 @@
 import Foundation
 
 /// 活跃 turn 的最小定位信息，只在进程内用于关联 Codex session 生命周期事件。
-nonisolated struct CodexActivityTurnReference: Hashable, Sendable {
+nonisolated struct CodexActivityTurnReference: Hashable {
     let sessionId: String
     let turnId: String
     let startedAt: Date
@@ -58,6 +58,7 @@ actor CodexSessionLifecycleReader {
                         sessionId: reference.sessionId,
                         turnId: reference.turnId,
                         startedAt: lifecycle.startedAt,
+                        approvalReviewer: lifecycle.approvalReviewer,
                         terminal: lifecycle.terminal
                     )
                 )
@@ -236,10 +237,21 @@ private nonisolated struct CodexSessionLifecycleEnvelope: Decodable {
     let payload: CodexSessionLifecyclePayload?
 
     var lifecycleEvent: SessionLifecycleEvent? {
-        guard type == "event_msg",
-              let payload,
+        guard let payload,
               let turnId = payload.turnId,
               !turnId.isEmpty else {
+            return nil
+        }
+
+        if type == "turn_context",
+           let approvalReviewer = payload.approvalReviewer {
+            return SessionLifecycleEvent(
+                turnId: turnId,
+                change: .approvalReviewer(approvalReviewer)
+            )
+        }
+
+        guard type == "event_msg" else {
             return nil
         }
 
@@ -281,6 +293,7 @@ private nonisolated struct CodexSessionLifecyclePayload: Decodable {
     let startedAt: Double?
     let completedAt: Double?
     let durationMilliseconds: Double?
+    let approvalReviewer: CodexApprovalReviewer?
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -288,6 +301,7 @@ private nonisolated struct CodexSessionLifecyclePayload: Decodable {
         case startedAt = "started_at"
         case completedAt = "completed_at"
         case durationMilliseconds = "duration_ms"
+        case approvalReviewer = "approvals_reviewer"
     }
 }
 
@@ -298,12 +312,14 @@ private nonisolated struct SessionLifecycleEvent {
 
 private nonisolated enum SessionLifecycleChange {
     case started(at: Date)
+    case approvalReviewer(CodexApprovalReviewer)
     case completed(at: Date, duration: TimeInterval?)
     case aborted(at: Date?)
 }
 
 private nonisolated struct SessionTurnLifecycle {
     var startedAt: Date?
+    var approvalReviewer: CodexApprovalReviewer?
     var terminal: CodexSessionTaskTerminalState?
 
     mutating func apply(_ change: SessionLifecycleChange) {
@@ -314,6 +330,8 @@ private nonisolated struct SessionTurnLifecycle {
             } else {
                 startedAt = at
             }
+        case let .approvalReviewer(value):
+            approvalReviewer = value
         case let .completed(at, duration):
             terminal = .completed(at: at, duration: duration)
         case let .aborted(at):
@@ -322,14 +340,15 @@ private nonisolated struct SessionTurnLifecycle {
     }
 }
 
-nonisolated struct CodexSessionTaskLifecycleState: Sendable {
+nonisolated struct CodexSessionTaskLifecycleState {
     let sessionId: String
     let turnId: String
     let startedAt: Date?
+    let approvalReviewer: CodexApprovalReviewer?
     let terminal: CodexSessionTaskTerminalState?
 }
 
-nonisolated enum CodexSessionTaskTerminalState: Sendable {
+nonisolated enum CodexSessionTaskTerminalState {
     case completed(at: Date, duration: TimeInterval?)
     case aborted(at: Date?)
 }

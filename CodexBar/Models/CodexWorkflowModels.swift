@@ -32,13 +32,14 @@ private nonisolated enum WorkflowJSON {
 }
 
 /// hooks 进程落盘的最小事件模型, 对历史字段缺失保持宽容
-nonisolated struct WorkflowHookEvent: Decodable, Equatable, Sendable {
+nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     let timestamp: Date
     let name: String
     let directoryPath: String?
     let toolName: String?
     let modelName: String?
     let permissionMode: String?
+    let approvalReviewer: CodexApprovalReviewer?
     let sessionId: String?
     let turnId: String?
 
@@ -49,6 +50,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable, Sendable {
         toolName: String?,
         modelName: String?,
         permissionMode: String?,
+        approvalReviewer: CodexApprovalReviewer?,
         sessionId: String?,
         turnId: String?
     ) {
@@ -58,6 +60,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable, Sendable {
         self.toolName = toolName
         self.modelName = modelName
         self.permissionMode = permissionMode
+        self.approvalReviewer = approvalReviewer
         self.sessionId = sessionId
         self.turnId = turnId
     }
@@ -82,6 +85,10 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable, Sendable {
         toolName = Self.string(from: container, key: .toolName)
         modelName = Self.string(from: container, key: .modelName)
         permissionMode = Self.string(from: container, key: .permissionMode)
+        approvalReviewer = try? container.decode(
+            CodexApprovalReviewer.self,
+            forKey: .approvalReviewer
+        )
         sessionId = Self.string(from: container, key: .sessionId)
         turnId = Self.string(from: container, key: .turnId)
     }
@@ -122,6 +129,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable, Sendable {
             WorkflowJSON.field("event", name),
             WorkflowJSON.field("model", modelName),
             WorkflowJSON.field("permission", permissionMode),
+            WorkflowJSON.field("approval", approvalReviewer),
             WorkflowJSON.field("session", sessionId),
             WorkflowJSON.field("turn", turnId),
             WorkflowJSON.field("tool", toolName),
@@ -138,6 +146,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable, Sendable {
         case toolName = "tool"
         case modelName = "model"
         case permissionMode = "permission"
+        case approvalReviewer = "approval"
         case sessionId = "session"
         case turnId = "turn"
     }

@@ -1,7 +1,7 @@
 import Foundation
 
 /// 活跃任务最近收到的 Hook 事件，供活动卡片展示当前执行阶段。
-nonisolated enum CodexActivityEvent: Equatable, Sendable {
+nonisolated enum CodexActivityEvent: Equatable {
     case promptSubmitted
     case toolStarted
     case toolFinished
@@ -13,13 +13,13 @@ nonisolated enum CodexActivityEvent: Equatable, Sendable {
 }
 
 /// bootstrap 后需要向更早日期定向查找 Prompt 起点的精确任务引用。
-nonisolated struct CodexActivityPromptReference: Hashable, Sendable {
+nonisolated struct CodexActivityPromptReference: Hashable {
     let sessionId: String
     let turnId: String
 }
 
 /// 正在运行或等待批准的任务摘要，不对 UI 暴露原始会话 ID。
-nonisolated struct CodexActivityTaskSnapshot: Equatable, Identifiable, Sendable {
+nonisolated struct CodexActivityTaskSnapshot: Equatable, Identifiable {
     let id: UUID
     let latestEvent: CodexActivityEvent
     let projectName: String?
@@ -31,7 +31,7 @@ nonisolated struct CodexActivityTaskSnapshot: Equatable, Identifiable, Sendable 
 }
 
 /// 最近确认结束的任务。完成只表示一轮任务结束，不代表执行成功。
-nonisolated struct CodexActivityCompletion: Equatable, Identifiable, Sendable {
+nonisolated struct CodexActivityCompletion: Equatable, Identifiable {
     let id: UUID
     let projectName: String?
     let modelName: String?
@@ -40,7 +40,7 @@ nonisolated struct CodexActivityCompletion: Equatable, Identifiable, Sendable {
 }
 
 /// 最近确认终止的任务。终止不会被视为完成，也不会触发完成提醒。
-nonisolated struct CodexActivityTermination: Equatable, Identifiable, Sendable {
+nonisolated struct CodexActivityTermination: Equatable, Identifiable {
     let id: UUID
     let projectName: String?
     let modelName: String?
@@ -49,7 +49,7 @@ nonisolated struct CodexActivityTermination: Equatable, Identifiable, Sendable {
 }
 
 /// UI 只消费该快照，不直接读取或解释 Hook 事件。
-nonisolated struct CodexActivitySnapshot: Equatable, Sendable {
+nonisolated struct CodexActivitySnapshot: Equatable {
     let waitingTasks: [CodexActivityTaskSnapshot]
     let runningTasks: [CodexActivityTaskSnapshot]
     let recentCompletions: [CodexActivityCompletion]
@@ -119,7 +119,7 @@ nonisolated struct CodexActivitySnapshot: Equatable, Sendable {
 }
 
 /// 快照归一后的主活动状态，highlighted 表示完成仍处于高亮时间窗内。
-nonisolated enum CodexPrimaryActivity: Equatable, Sendable {
+nonisolated enum CodexPrimaryActivity: Equatable {
     case waiting(CodexActivityTaskSnapshot)
     case running(CodexActivityTaskSnapshot)
     case completed(CodexActivityCompletion, highlighted: Bool)
@@ -128,7 +128,7 @@ nonisolated enum CodexPrimaryActivity: Equatable, Sendable {
 }
 
 /// 只有 live Hook 或 session 生命周期会发布 transition，bootstrap 永远不会触发历史通知。
-nonisolated enum CodexActivityTransition: Equatable, Sendable {
+nonisolated enum CodexActivityTransition: Equatable {
     case waitingApproval(CodexActivityTaskSnapshot)
     case completed(CodexActivityCompletion)
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated enum HookEventBatch: Sendable {
+nonisolated enum HookEventBatch {
     case bootstrapStart
     case bootstrapEvents([WorkflowHookEvent])
     case bootstrapEnd

@@ -31,6 +31,11 @@ nonisolated enum WorkflowHookEventRecorder {
         let permission = payload.string(for: "permission_mode")
         let sessionId = payload.string(for: "session_id")
         let turnId = payload.string(for: "turn_id")
+        let approvalReviewer = readApprovalReviewer(
+            from: payload,
+            eventName: eventName,
+            turnId: turnId
+        )
         let event = WorkflowHookEvent(
             timestamp: timestamp,
             name: eventName,
@@ -38,11 +43,29 @@ nonisolated enum WorkflowHookEventRecorder {
             toolName: tool,
             modelName: model,
             permissionMode: permission,
+            approvalReviewer: approvalReviewer,
             sessionId: sessionId,
             turnId: turnId
         )
 
         try recordWorkflowTransaction(event: event)
+    }
+
+    private static func readApprovalReviewer(
+        from payload: WorkflowHookPayload,
+        eventName: String,
+        turnId: String?
+    ) -> CodexApprovalReviewer? {
+        guard let hookEvent = CodexHookEvent(eventName: eventName),
+              hookEvent == .userPromptSubmit || hookEvent == .permissionRequest,
+              let turnId,
+              let transcriptPath = payload.string(for: "transcript_path") else {
+            return nil
+        }
+        return WorkflowTurnContextReader.approvalReviewer(
+            transcriptPath: transcriptPath,
+            turnId: turnId
+        )
     }
 
     private static func recordWorkflowTransaction(event: WorkflowHookEvent) throws {
@@ -95,6 +118,67 @@ nonisolated enum WorkflowHookEventRecorder {
         }
 
         return WorkflowHookPayload(values: values)
+    }
+}
+
+/// Hook payload 不直接提供 reviewer；从当前 rollout 尾部只提取匹配 turn 的审批路由。
+private nonisolated enum WorkflowTurnContextReader {
+    static func approvalReviewer(
+        transcriptPath: String,
+        turnId: String
+    ) -> CodexApprovalReviewer? {
+        let url = URL(fileURLWithPath: transcriptPath)
+        let size = WorkflowStorage.fileSize(at: url)
+        guard size > 0,
+              let handle = try? FileHandle(forReadingFrom: url) else {
+            return nil
+        }
+        defer {
+            try? handle.close()
+        }
+
+        let offset = size > searchByteLimit ? size - searchByteLimit : 0
+        guard (try? handle.seek(toOffset: offset)) != nil,
+              let data = try? handle.readToEnd(),
+              !data.isEmpty else {
+            return nil
+        }
+
+        let completeData: Data
+        if offset > 0, let firstNewlineIndex = data.firstIndex(of: newlineByte) {
+            let firstCompleteIndex = data.index(after: firstNewlineIndex)
+            completeData = firstCompleteIndex < data.endIndex
+                ? Data(data[firstCompleteIndex...])
+                : Data()
+        } else {
+            completeData = data
+        }
+
+        for envelope in JSONLines.decode(WorkflowTurnContextEnvelope.self, from: completeData)
+            .reversed()
+            where envelope.type == "turn_context"
+            && envelope.payload?.turnId == turnId {
+            return envelope.payload?.approvalReviewer
+        }
+        return nil
+    }
+
+    private static let searchByteLimit: UInt64 = 512 * 1024
+    private static let newlineByte: UInt8 = 0x0A
+}
+
+private nonisolated struct WorkflowTurnContextEnvelope: Decodable {
+    let type: String
+    let payload: WorkflowTurnContextPayload?
+}
+
+private nonisolated struct WorkflowTurnContextPayload: Decodable {
+    let turnId: String?
+    let approvalReviewer: CodexApprovalReviewer?
+
+    private enum CodingKeys: String, CodingKey {
+        case turnId = "turn_id"
+        case approvalReviewer = "approvals_reviewer"
     }
 }
 
