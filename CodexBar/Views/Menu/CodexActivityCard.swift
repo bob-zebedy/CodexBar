@@ -138,7 +138,7 @@ struct CodexActivityCard: View {
             )
         case .idle:
             return ActivityCardContent(
-                symbolName: "waveform.path",
+                symbolName: "moon.zzz.fill",
                 tint: .secondary,
                 title: showsUnavailableState ? "暂无数据" : "暂无 Codex 活动",
                 detail: nil,
