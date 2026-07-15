@@ -31,6 +31,31 @@ private nonisolated enum WorkflowJSON {
     }
 }
 
+private nonisolated enum WorkflowCountResolution {
+    static func preferredCount(
+        compactedCount: Int?,
+        identifiers: [String]? = nil
+    ) -> Int? {
+        if let compactedCount, compactedCount > 0 {
+            return compactedCount
+        }
+
+        guard let identifiers, !identifiers.isEmpty else {
+            return nil
+        }
+
+        return Set(identifiers).count
+    }
+
+    static func resolvedCount(
+        compactedCount: Int?,
+        identifiers: [String]? = nil,
+        fallback: Int
+    ) -> Int {
+        preferredCount(compactedCount: compactedCount, identifiers: identifiers) ?? fallback
+    }
+}
+
 /// hooks 进程落盘的最小事件模型, 对历史字段缺失保持宽容
 nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     let timestamp: Date
@@ -441,14 +466,21 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         turnIds = nil
     }
 
-    // 会话/轮次最终值: 优先使用去重/压缩后的数量
-    // 起止事件计数只作为缺失兜底
+    // 只有正数压缩计数或非空 ID 集合是有效去重结果, 否则使用起止事件计数兜底
     private var resolvedSessionCount: Int {
-        sessionCount ?? sessionIds?.count ?? sessionStartCount
+        WorkflowCountResolution.resolvedCount(
+            compactedCount: sessionCount,
+            identifiers: sessionIds,
+            fallback: sessionStartCount
+        )
     }
 
     private var resolvedTurnCount: Int {
-        turnCount ?? turnIds?.count ?? stopCount
+        WorkflowCountResolution.resolvedCount(
+            compactedCount: turnCount,
+            identifiers: turnIds,
+            fallback: stopCount
+        )
     }
 
     var metrics: WorkflowDailyMetrics {
@@ -542,19 +574,17 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     }
 
     private var syncedSessionCount: Int? {
-        sessionCount ?? Self.nonEmptyIdentifierCount(sessionIds)
+        WorkflowCountResolution.preferredCount(
+            compactedCount: sessionCount,
+            identifiers: sessionIds
+        )
     }
 
     private var syncedTurnCount: Int? {
-        turnCount ?? Self.nonEmptyIdentifierCount(turnIds)
-    }
-
-    private static func nonEmptyIdentifierCount(_ identifiers: [String]?) -> Int? {
-        guard let identifiers, !identifiers.isEmpty else {
-            return nil
-        }
-
-        return Set(identifiers).count
+        WorkflowCountResolution.preferredCount(
+            compactedCount: turnCount,
+            identifiers: turnIds
+        )
     }
 
     private static func append(
@@ -572,8 +602,9 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         identifiers?.append(identifier)
     }
 
-    private static func normalizedIdentifiers(_ identifiers: [String]?) -> [String] {
-        Set(identifiers ?? []).sorted()
+    private static func normalizedIdentifiers(_ identifiers: [String]?) -> [String]? {
+        let normalized = Set(identifiers ?? []).sorted()
+        return normalized.isEmpty ? nil : normalized
     }
 
     private static func date(from string: String) -> Date? {
@@ -626,8 +657,14 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiabl
     var metrics: WorkflowDailyMetrics {
         WorkflowDailyMetrics(
             startDate: date,
-            sessionCount: sessionCount ?? sessionStartCount,
-            turnCount: turnCount ?? stopCount,
+            sessionCount: WorkflowCountResolution.resolvedCount(
+                compactedCount: sessionCount,
+                fallback: sessionStartCount
+            ),
+            turnCount: WorkflowCountResolution.resolvedCount(
+                compactedCount: turnCount,
+                fallback: stopCount
+            ),
             preToolUseCount: preToolUseCount,
             postToolUseCount: postToolUseCount,
             permissionRequestCount: permissionRequestCount,

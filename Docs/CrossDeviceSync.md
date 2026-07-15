@@ -65,7 +65,7 @@ Sync/cursor.data
 
 ```json
 {
-    "schema": 2,
+    "schema": 3,
     "deviceId": "<当前设备在当前 iCloud 账号下的匿名设备 ID>",
     "hashByDate": {
         "2026-06-25": "<脱敏 daily 聚合的 SHA256>"
@@ -95,7 +95,7 @@ zoneName = CodexBarZone
 recordType = CodexBarSyncMetadata
 recordName = accountSalt
 fields:
-  schemaVersion: Int
+  schemaVersion: 3
   salt: Data(32 bytes)
 ```
 
@@ -105,7 +105,7 @@ fields:
 recordType = CodexBarDailyAggregate
 recordName = <deviceId>_<yyyy-MM-dd>
 fields:
-  schemaVersion: Int
+  schemaVersion: 3
   deviceId: String
   date: String
   eventCount: Int
@@ -143,7 +143,7 @@ deviceId = HMAC_SHA256(accountSalt, IOPlatformUUID)
 - 同一台 Mac 切换 iCloud 账号后会得到不同的 `deviceId`
 - CloudKit 中不会保存原始 `IOPlatformUUID`
 
-如果本地 `state.json` 的 `schema` 和当前代码不一致，服务会丢弃旧同步状态。下一轮同步会按当前设备重新写入 `state.json`，清空旧 `cache.jsonl` / `cursor.data`，再从 `CodexBarZone` 重建缓存。当前 iCloud sync state schema 为 `2`。
+如果本地 `state.json` 的 `schema` 和当前代码不一致，服务会丢弃旧同步状态。下一轮同步会按当前设备重新写入 `state.json`，清空旧 `cache.jsonl` / `cursor.data`，再从 `CodexBarZone` 重建缓存。当前 iCloud sync state schema 为 `3`；从 schema `2` 升级时会重新上传本机 daily，用修复后的会话和轮次计数覆盖历史错误的明确 `0`。
 
 如果本地 `state.json` 中的 `deviceId` 和当前解析出的 `deviceId` 不一致，说明 iCloud 账号或账号级 salt 已变化。此时同步服务会重置本地同步状态，清空 `cache.jsonl`，并删除 `cursor.data`，然后按新账号重新同步。
 
@@ -276,10 +276,13 @@ CodexBar.workflowSyncDidFinish
 - 保留 `modelCounts`
 - 不包含 `sessionIds`
 - 不包含 `turnIds`
-- 如果本机还有 `sessionIds`，会把去重数量写入 `sessionCount`
-- 如果本机还有 `turnIds`，会把去重数量写入 `turnCount`
+- 优先把本机已有的正数 `sessionCount` / `turnCount` 写入同步副本
+- 如果没有正数压缩 count，但本机还有非空 `sessionIds` / `turnIds`，会把去重数量写入对应 count
+- 如果两者都没有，对应同步 count 为 `null`，不会上传空数组得到的 `0`
 
-本机 `daily.jsonl` 不会因为上传而被改写。也就是说，最近 3 个本地自然日的 `sessionIds` / `turnIds` 仍然只保存在本机，用于本机精确去重。
+明确的 `sessionCount == 0` / `turnCount == 0` 如果分别与正数 `sessionStartCount` / `stopCount` 冲突，会被视为旧版空数组压缩产生的不一致值；上传源会在本地归一化时修复。接收端不恢复 ID，生成 `WorkflowDailyMetrics` 时使用「正数 `sessionCount`，否则 `sessionStartCount`」和「正数 `turnCount`，否则 `stopCount`」，所以在云端记录被覆盖前也能立即正确展示。真正没有会话或轮次的日期因为起止事件计数同样为 `0`，最终仍显示为 `0`。
+
+本机 `daily.jsonl` 不会因为上传而被改写。也就是说，最近 3 个本地自然日实际收集到的非空 `sessionIds` / `turnIds` 仍然只保存在本机，用于本机精确去重。
 
 ## 待上传日期选择
 
@@ -367,6 +370,9 @@ UI 展示使用 `WorkflowSnapshot`。合并规则是:
 `cache.jsonl` 写入前会过滤当前设备自己的 CloudKit 记录，否则本机 daily 和自己上传到云端的副本会重复相加。
 
 同一天多设备数据相加时，会先把每台设备的 daily aggregate 转成 `WorkflowDailyMetrics`，再按日期求和:
+
+- 本机 daily 的会话/轮次按「正数压缩 count → 非空 ID 去重数量 → 起止事件计数」解析
+- 同步 daily 不含 ID，按「正数压缩 count → 起止事件计数」解析
 
 ```text
 sessionCount += other.sessionCount

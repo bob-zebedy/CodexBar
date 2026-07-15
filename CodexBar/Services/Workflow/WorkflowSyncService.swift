@@ -138,7 +138,7 @@ private extension WorkflowSyncService {
     typealias UploadedHash = (date: String, hash: String)
 
     enum Metrics {
-        static let syncSchemaVersion = 2
+        static let syncSchemaVersion = 3
         static let syncZoneName = "CodexBarZone"
         static let saltByteCount = 32
         static let recordFetchLimit = 200
@@ -917,7 +917,7 @@ nonisolated struct WorkflowSyncSnapshot: Equatable {
 }
 
 private nonisolated struct WorkflowSyncState: Codable, Equatable {
-    static let currentSchema = 2
+    static let currentSchema = 3
 
     var schema: Int
     var deviceId: String?

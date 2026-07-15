@@ -179,7 +179,7 @@ Hook 写入路径不更新 `daily.jsonl`，也不执行重建或清理旧文件�
 
 CodexBar 最多保留最近 210 天数据。
 
-最近 3 个本地自然日的每日聚合保留 `sessionIds` 和 `turnIds`，用于继续去重。早于最近 3 天窗口的日期会把 ID 集合压缩成 `sessionCount` 和 `turnCount`，之后不再保存 ID。210 天外的 `events/YYYY-MM-DD.jsonl` 会在主 App 维护流程中删除。
+最近 3 个本地自然日的每日聚合只在实际收集到 ID 时保留非空 `sessionIds` 和 `turnIds`，用于继续去重。新建聚合以 `[]` 开始，一轮聚合结束后仍为空的数组会规范化为 `null`。早于最近 3 天窗口的日期会把有效 ID 数量或起止事件兜底值压缩成 `sessionCount` 和 `turnCount`，之后不再保存 ID。210 天外的 `events/YYYY-MM-DD.jsonl` 会在主 App 维护流程中删除。
 
 如果 `daily.jsonl` 缺失、为空、解析失败、缺少对应日期摘要，或者某天 events 文件状态和 `maintenance.json` 不一致，主 App 会把对应日期加入 `dirty` 并在刷新维护时按天重建。
 
@@ -195,6 +195,7 @@ CloudKit 中每个 iCloud 账号会保存一条账号级 salt:
 zoneName = CodexBarZone
 recordType = CodexBarSyncMetadata
 recordName = accountSalt
+schemaVersion = 3
 salt = 32 bytes
 ```
 
@@ -212,7 +213,7 @@ CodexBar 不上传原始 `IOPlatformUUID`。同一台 Mac 在同一 iCloud 账�
 sessionIds, turnIds
 ```
 
-其余字段保持原值同步，包括 `projectCounts` 和 `modelCounts`。如果本地仍保留 `sessionIds` / `turnIds`，上传副本会把去重后的 `sessionIds.count` / `turnIds.count` 写入 `sessionCount` / `turnCount`，但不会上传 ID 本身；只有既没有压缩后的 count、也没有本地 ID 时，这两个字段才可能为 `null`。脱敏只发生在上传副本上，不会写回本地 `daily.jsonl`，因此最近 3 天本地仍保留 `sessionIds` / `turnIds` 用于本机精确去重。
+除 `sessionCount` / `turnCount` 按下述规则生成外，其余字段保持原值同步，包括 `projectCounts` 和 `modelCounts`。上传副本中的这两个 count 只接受已有正数压缩 count，或本地非空 `sessionIds` / `turnIds` 的去重数量；两者都没有时写为 `null`，不会把空数组或真实全零日上传成明确的 count。脱敏只发生在上传副本上，不会写回本地 `daily.jsonl`，因此最近 3 天本地仍保留非空 `sessionIds` / `turnIds` 用于本机精确去重。接收端读取同步记录时不恢复 ID；正数 count 优先，否则分别回退到 `sessionStartCount` / `stopCount`，所以旧版错误的明确 `0` 和缺失字段都不会压过起止事件计数。
 
 每台设备每天一条记录:
 
@@ -220,6 +221,7 @@ sessionIds, turnIds
 zoneName = CodexBarZone
 recordType = CodexBarDailyAggregate
 recordName = <deviceId>_<yyyy-MM-dd>
+schemaVersion = 3
 ```
 
 Hook 子进程不访问网络。主 App 在工作流统计维护刷新后对本次可能变化的日期生成脱敏 daily 副本，计算稳定 hash，并和本地同步状态比较。只有 hash 变化的日期才 upsert 到 CloudKit；上传成功后才更新本地 hash，失败则下次刷新继续重试。
@@ -277,51 +279,51 @@ subagentStopCount, sessionCount, turnCount, projectCounts, modelCounts, sessionI
 
 从 `events/YYYY-MM-DD.jsonl` 到页面指标的判定规则如下:
 
-| 页面展示名 | 会被计入的 `events/YYYY-MM-DD.jsonl` 行                                                                                                                        | 不会计入的典型情况                                                            | 计数方式                                                               |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| 会话总数   | 最近 3 个本地自然日内，任意带非空 `session` 的事件行都会把该 `session` 加入当天去重集合；另外 `event` 归一化为 `sessionstart` 的行会增加 `sessionStartCount`。 | `session` 为 `null` 且 `event` 不是 `SessionStart`；坏行。                    | 优先 `sessionCount`，其次 `sessionIds.count`，最后 `sessionStartCount` |
-| 对话轮次   | 最近 3 个本地自然日内，任意带非空 `turn` 的事件行都会把该 `turn` 加入当天去重集合；另外 `event` 归一化为 `stop` 的行会增加 `stopCount`。                       | `turn` 为 `null` 且 `event` 不是 `Stop`；坏行。                               | 优先 `turnCount`，其次 `turnIds.count`，最后 `stopCount`               |
-| 子智能体   | `event` 归一化为 `subagentstart` 或 `subagentstop` 的行。                                                                                                      | 其他事件名；坏行。                                                            | `max(subagentStartCount, subagentStopCount)`                           |
-| 调用工具   | `event` 归一化为 `pretooluse` 的行会增加 `preToolUseCount`；归一化为 `posttooluse` 的行会增加 `postToolUseCount`。`tool` 可以是具体工具名，也可以是 `null`。   | `SessionStart` 这类非工具事件，即使 `tool` 是 `null` 或存在也不会计入；坏行。 | `max(preToolUseCount, postToolUseCount)`                               |
-| 权限请求   | `event` 归一化为 `permissionrequest` 的行。                                                                                                                    | `permission` 字段本身不会触发计数；只有事件名是 `PermissionRequest` 才计入。  | `permissionRequestCount`                                               |
-| 上下文压缩 | `event` 归一化为 `precompact` 或 `postcompact` 的行。                                                                                                          | 其他事件名；坏行。                                                            | `max(preCompactCount, postCompactCount)`                               |
-| 最热模型   | 任意带非空 `model` 的有效事件行。                                                                                                                              | `model` 为 `null` 或空字符串；坏行。                                          | 按模型名累计事件数，取最高值；并列时按模型名升序取第一个               |
+| 页面展示名 | 会被计入的 `events/YYYY-MM-DD.jsonl` 行                                                                                                                        | 不会计入的典型情况                                                            | 计数方式                                                                            |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 会话总数   | 最近 3 个本地自然日内，任意带非空 `session` 的事件行都会把该 `session` 加入当天去重集合；另外 `event` 归一化为 `sessionstart` 的行会增加 `sessionStartCount`。 | `session` 为 `null` 且 `event` 不是 `SessionStart`；坏行。                    | 优先正数 `sessionCount`，其次非空 `sessionIds` 的去重数量，最后 `sessionStartCount` |
+| 对话轮次   | 最近 3 个本地自然日内，任意带非空 `turn` 的事件行都会把该 `turn` 加入当天去重集合；另外 `event` 归一化为 `stop` 的行会增加 `stopCount`。                       | `turn` 为 `null` 且 `event` 不是 `Stop`；坏行。                               | 优先正数 `turnCount`，其次非空 `turnIds` 的去重数量，最后 `stopCount`               |
+| 子智能体   | `event` 归一化为 `subagentstart` 或 `subagentstop` 的行。                                                                                                      | 其他事件名；坏行。                                                            | `max(subagentStartCount, subagentStopCount)`                                        |
+| 调用工具   | `event` 归一化为 `pretooluse` 的行会增加 `preToolUseCount`；归一化为 `posttooluse` 的行会增加 `postToolUseCount`。`tool` 可以是具体工具名，也可以是 `null`。   | `SessionStart` 这类非工具事件，即使 `tool` 是 `null` 或存在也不会计入；坏行。 | `max(preToolUseCount, postToolUseCount)`                                            |
+| 权限请求   | `event` 归一化为 `permissionrequest` 的行。                                                                                                                    | `permission` 字段本身不会触发计数；只有事件名是 `PermissionRequest` 才计入。  | `permissionRequestCount`                                                            |
+| 上下文压缩 | `event` 归一化为 `precompact` 或 `postcompact` 的行。                                                                                                          | 其他事件名；坏行。                                                            | `max(preCompactCount, postCompactCount)`                                            |
+| 最热模型   | 任意带非空 `model` 的有效事件行。                                                                                                                              | `model` 为 `null` 或空字符串；坏行。                                          | 按模型名累计事件数，取最高值；并列时按模型名升序取第一个                            |
 
 逐字段统计口径如下:
 
-| `daily.jsonl` 字段       | 从 `events/YYYY-MM-DD.jsonl` 读取什么                | 写入 / 更新规则                                                                                                                                                                                                           | 页面关系                                                 |
-| ------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `date`                   | `timestamp`                                          | Hook 写入时先把事件时间解析为绝对时间，再按当前本地时区格式化为 `yyyy-MM-dd` 选择日期文件。维护流程按当前处理的文件日期生成同名 `daily.jsonl` 行。早于最近 210 天保留窗口的日期不会进入聚合。                             | 热力图日期键；详情面板日期。                             |
-| `eventCount`             | 每条成功解码并保留下来的事件行                       | 每处理一条事件就 `+1`，发生在具体事件类型判断之前。因此 `UserPromptSubmit`、未知 `event`、`tool: null`、`session: null` 等行都会计入，只要 `timestamp` 和 `event` 可解析。                                                | 进入 `WorkflowDailyMetrics.eventCount`，当前页面不展示。 |
-| `sessionStartCount`      | `event`                                              | `event` 归一化后等于 `sessionstart` 时 `+1`。不要求 `session` 非空。                                                                                                                                                      | 作为「会话总数」兜底来源。                               |
-| `stopCount`              | `event`                                              | `event` 归一化后等于 `stop` 时 `+1`。不要求 `turn` 非空。                                                                                                                                                                 | 作为「对话轮次」兜底来源。                               |
-| `preToolUseCount`        | `event`                                              | `event` 归一化后等于 `pretooluse` 时 `+1`。不读取 `tool` 做过滤，`tool` 为 `null` 也计入。                                                                                                                                | 参与「调用工具」。                                       |
-| `postToolUseCount`       | `event`                                              | `event` 归一化后等于 `posttooluse` 时 `+1`。不读取 `tool` 做过滤，`tool` 为 `null` 也计入。                                                                                                                               | 参与「调用工具」。                                       |
-| `permissionRequestCount` | `event`                                              | `event` 归一化后等于 `permissionrequest` 时 `+1`。不读取 `permission` 字段做过滤，`permission` 只是记录当时的权限模式。                                                                                                   | 直接显示为「权限请求」。                                 |
-| `preCompactCount`        | `event`                                              | `event` 归一化后等于 `precompact` 时 `+1`。                                                                                                                                                                               | 参与「上下文压缩」。                                     |
-| `postCompactCount`       | `event`                                              | `event` 归一化后等于 `postcompact` 时 `+1`。                                                                                                                                                                              | 参与「上下文压缩」。                                     |
-| `subagentStartCount`     | `event`                                              | `event` 归一化后等于 `subagentstart` 时 `+1`。                                                                                                                                                                            | 参与「子智能体」。                                       |
-| `subagentStopCount`      | `event`                                              | `event` 归一化后等于 `subagentstop` 时 `+1`。                                                                                                                                                                             | 参与「子智能体」。                                       |
-| `sessionIds`             | `session`                                            | 仅最近 3 个本地自然日保留。任意事件行只要 `session` 是非空字符串，就插入当天集合并去重、排序；不要求事件类型是 `SessionStart`。窗口外日期会被压缩为 `sessionCount` 并写成 `null`。                                        | 参与「会话总数」去重。                                   |
-| `turnIds`                | `turn`                                               | 仅最近 3 个本地自然日保留。任意事件行只要 `turn` 是非空字符串，就插入当天集合并去重、排序；不要求事件类型是 `Stop`。窗口外日期会被压缩为 `turnCount` 并写成 `null`。                                                      | 参与「对话轮次」去重。                                   |
-| `sessionCount`           | `sessionIds`、旧 `sessionCount`、`sessionStartCount` | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有 `sessionCount`，否则使用 `sessionIds.count`，再否则使用 `sessionStartCount`，然后移除 `sessionIds`。这样旧日期不用继续保存完整 ID，也能保留会话总数。 | 参与「会话总数」。                                       |
-| `turnCount`              | `turnIds`、旧 `turnCount`、`stopCount`               | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有 `turnCount`，否则使用 `turnIds.count`，再否则使用 `stopCount`，然后移除 `turnIds`。这样旧日期不用继续保存完整 ID，也能保留轮次总数。                  | 参与「对话轮次」。                                       |
-| `projectCounts`          | `cwd`                                                | 任意事件行只要 `cwd` 非空，就取标准化路径的最后一层目录名作为项目名并 `+1`；如果最后一层为空，回退使用完整路径字符串。统计的是事件数，不是会话数或调用工具数。未知事件也会计入。                                          | 用于计算 `mostActiveProject`，当前页面不展示。           |
-| `modelCounts`            | `model`                                              | 任意事件行只要 `model` 非空，就按原始模型名 `+1`。统计的是带模型字段的事件数，不是 token 数；未知事件也会计入。                                                                                                           | 合并后用于计算并展示「最热模型」。                       |
+| `daily.jsonl` 字段       | 从 `events/YYYY-MM-DD.jsonl` 读取什么                | 写入 / 更新规则                                                                                                                                                                                                                                                                     | 页面关系                                                 |
+| ------------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `date`                   | `timestamp`                                          | Hook 写入时先把事件时间解析为绝对时间，再按当前本地时区格式化为 `yyyy-MM-dd` 选择日期文件。维护流程按当前处理的文件日期生成同名 `daily.jsonl` 行。早于最近 210 天保留窗口的日期不会进入聚合。                                                                                       | 热力图日期键；详情面板日期。                             |
+| `eventCount`             | 每条成功解码并保留下来的事件行                       | 每处理一条事件就 `+1`，发生在具体事件类型判断之前。因此 `UserPromptSubmit`、未知 `event`、`tool: null`、`session: null` 等行都会计入，只要 `timestamp` 和 `event` 可解析。                                                                                                          | 进入 `WorkflowDailyMetrics.eventCount`，当前页面不展示。 |
+| `sessionStartCount`      | `event`                                              | `event` 归一化后等于 `sessionstart` 时 `+1`。不要求 `session` 非空。                                                                                                                                                                                                                | 作为「会话总数」兜底来源。                               |
+| `stopCount`              | `event`                                              | `event` 归一化后等于 `stop` 时 `+1`。不要求 `turn` 非空。                                                                                                                                                                                                                           | 作为「对话轮次」兜底来源。                               |
+| `preToolUseCount`        | `event`                                              | `event` 归一化后等于 `pretooluse` 时 `+1`。不读取 `tool` 做过滤，`tool` 为 `null` 也计入。                                                                                                                                                                                          | 参与「调用工具」。                                       |
+| `postToolUseCount`       | `event`                                              | `event` 归一化后等于 `posttooluse` 时 `+1`。不读取 `tool` 做过滤，`tool` 为 `null` 也计入。                                                                                                                                                                                         | 参与「调用工具」。                                       |
+| `permissionRequestCount` | `event`                                              | `event` 归一化后等于 `permissionrequest` 时 `+1`。不读取 `permission` 字段做过滤，`permission` 只是记录当时的权限模式。                                                                                                                                                             | 直接显示为「权限请求」。                                 |
+| `preCompactCount`        | `event`                                              | `event` 归一化后等于 `precompact` 时 `+1`。                                                                                                                                                                                                                                         | 参与「上下文压缩」。                                     |
+| `postCompactCount`       | `event`                                              | `event` 归一化后等于 `postcompact` 时 `+1`。                                                                                                                                                                                                                                        | 参与「上下文压缩」。                                     |
+| `subagentStartCount`     | `event`                                              | `event` 归一化后等于 `subagentstart` 时 `+1`。                                                                                                                                                                                                                                      | 参与「子智能体」。                                       |
+| `subagentStopCount`      | `event`                                              | `event` 归一化后等于 `subagentstop` 时 `+1`。                                                                                                                                                                                                                                       | 参与「子智能体」。                                       |
+| `sessionIds`             | `session`                                            | 新建聚合初始化为 `[]`。最近 3 个本地自然日内，任意事件行只要 `session` 是非空字符串，就插入当天集合并去重、排序；不要求事件类型是 `SessionStart`。聚合结束后仍为空或进入窗口外压缩时写成 `null`；只有非空数组会持久化。                                                             | 参与「会话总数」去重。                                   |
+| `turnIds`                | `turn`                                               | 新建聚合初始化为 `[]`。最近 3 个本地自然日内，任意事件行只要 `turn` 是非空字符串，就插入当天集合并去重、排序；不要求事件类型是 `Stop`。聚合结束后仍为空或进入窗口外压缩时写成 `null`；只有非空数组会持久化。                                                                        | 参与「对话轮次」去重。                                   |
+| `sessionCount`           | `sessionIds`、旧 `sessionCount`、`sessionStartCount` | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有正数 `sessionCount`，否则使用非空 `sessionIds` 的去重数量，再否则使用 `sessionStartCount`，然后移除 `sessionIds`。空 ID 数组不表示权威的零；历史 `sessionCount == 0` 但 `sessionStartCount > 0` 时也会自动修复。 | 参与「会话总数」。                                       |
+| `turnCount`              | `turnIds`、旧 `turnCount`、`stopCount`               | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有正数 `turnCount`，否则使用非空 `turnIds` 的去重数量，再否则使用 `stopCount`，然后移除 `turnIds`。空 ID 数组不表示权威的零；历史 `turnCount == 0` 但 `stopCount > 0` 时也会自动修复。                             | 参与「对话轮次」。                                       |
+| `projectCounts`          | `cwd`                                                | 任意事件行只要 `cwd` 非空，就取标准化路径的最后一层目录名作为项目名并 `+1`；如果最后一层为空，回退使用完整路径字符串。统计的是事件数，不是会话数或调用工具数。未知事件也会计入。                                                                                                    | 用于计算 `mostActiveProject`，当前页面不展示。           |
+| `modelCounts`            | `model`                                              | 任意事件行只要 `model` 非空，就按原始模型名 `+1`。统计的是带模型字段的事件数，不是 token 数；未知事件也会计入。                                                                                                                                                                     | 合并后用于计算并展示「最热模型」。                       |
 
-读取旧 `daily.jsonl` 时，缺失的数字字段按 `0` 处理，缺失的 `projectCounts` / `modelCounts` 按空字典处理，缺失的 `sessionIds` / `turnIds` / `sessionCount` / `turnCount` 保持为 `nil`。维护 schema 升级到 `3` 后会把保留窗口内已有事件日期标记为 dirty，从原始事件重建模型计数；后续归一化仍按当前保留策略补齐或压缩 ID 字段。
+读取旧 `daily.jsonl` 时，缺失的数字字段按 `0` 处理，缺失的 `projectCounts` / `modelCounts` 按空字典处理，缺失的 `sessionIds` / `turnIds` / `sessionCount` / `turnCount` 保持为 `nil`。维护 schema 升级到 `3` 后会把保留窗口内已有事件日期标记为 dirty，从原始事件重建模型计数；后续归一化仍按当前保留策略补齐或压缩 ID 字段，并把由空 ID 数组错误压缩出的零计数修复为起止事件兜底值。
 
 UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyMetrics`:
 
-| 页面展示名 | 生成规则                                                |
-| ---------- | ------------------------------------------------------- |
-| 会话总数   | `sessionCount ?? sessionIds.count ?? sessionStartCount` |
-| 对话轮次   | `turnCount ?? turnIds.count ?? stopCount`               |
-| 子智能体   | `max(subagentStartCount, subagentStopCount)`            |
-| 调用工具   | `max(preToolUseCount, postToolUseCount)`                |
-| 权限请求   | `permissionRequestCount`                                |
-| 上下文压缩 | `max(preCompactCount, postCompactCount)`                |
-| 最热模型   | 合并 `modelCounts` 后取计数最高的模型；并列时按名称升序 |
+| 页面展示名 | 生成规则                                                                        |
+| ---------- | ------------------------------------------------------------------------------- |
+| 会话总数   | 正数 `sessionCount`，否则非空 `sessionIds` 的去重数量，否则 `sessionStartCount` |
+| 对话轮次   | 正数 `turnCount`，否则非空 `turnIds` 的去重数量，否则 `stopCount`               |
+| 子智能体   | `max(subagentStartCount, subagentStopCount)`                                    |
+| 调用工具   | `max(preToolUseCount, postToolUseCount)`                                        |
+| 权限请求   | `permissionRequestCount`                                                        |
+| 上下文压缩 | `max(preCompactCount, postCompactCount)`                                        |
+| 最热模型   | 合并 `modelCounts` 后取计数最高的模型；并列时按名称升序                         |
 
 `eventCount` 和 `projectCounts` 保留在 daily 聚合中，但当前页面不展示。`UserPromptSubmit` 和未知事件不会增加上述 6 个计数指标，只会进入 `eventCount`；有 `cwd` 时进入 `projectCounts`，有 `model` 时进入 `modelCounts`。
 

@@ -797,7 +797,7 @@ sequenceDiagram
 | `tool_name`       | `tool`                                          |
 | `model`           | `model`                                         |
 | `permission_mode` | `permission`                                    |
-| `transcript_path` | `approval`；仅提取匹配 turn 的 reviewer |
+| `transcript_path` | `approval`；仅提取匹配 turn 的 reviewer         |
 | `session_id`      | `session`                                       |
 | `turn_id`         | `turn`                                          |
 
@@ -868,25 +868,30 @@ flowchart TD
 - 事件名先去掉 `_` 和 `-`, 再转小写
 - `sessionStartCount`, `stopCount`, `preToolUseCount` 等按归一化事件名增加
 - 任意有效事件中的非空 `model` 按模型名累加到 `modelCounts`
-- 最近 3 个本地自然日保留 `sessionIds` 和 `turnIds`, 用于继续去重
+- 最近 3 个本地自然日只持久化非空 `sessionIds` 和 `turnIds`, 用于继续去重
+- 新建聚合的 ID 数组从 `[]` 开始；聚合结束后仍为空时规范化为 `nil`，只有非空 ID 数组会持久化
 - 3 天前把 ID 集合压缩为 `sessionCount` 和 `turnCount`, 随后移除 ID 列表
+- 压缩和展示时只有正数 count 或非空 ID 集合可以优先于起止事件计数；空 ID 数组以及与正数起止事件冲突的零 count 按缺失处理
+- 本机聚合和同步聚合共享 `WorkflowCountResolution`; 同步聚合不含 ID，因此直接按正数 count、起止事件计数的顺序解析
 - 最多保留最近 210 天数据
 - 210 天外的 `events/YYYY-MM-DD.jsonl` 在主 App 维护流程中删除
 - 坏 JSONL 行跳过并计入 `corrupt`, 不阻断整天聚合
 
 UI 展示指标来自 `WorkflowDailyAggregate.metrics`:
 
-| UI 字段    | 生成规则                                                |
-| ---------- | ------------------------------------------------------- |
-| 会话总数   | `sessionCount ?? sessionIds.count ?? sessionStartCount` |
-| 对话轮次   | `turnCount ?? turnIds.count ?? stopCount`               |
-| 子智能体   | `max(subagentStartCount, subagentStopCount)`            |
-| 调用工具   | `max(preToolUseCount, postToolUseCount)`                |
-| 权限请求   | `permissionRequestCount`                                |
-| 上下文压缩 | `max(preCompactCount, postCompactCount)`                |
-| 最热模型   | 合并 `modelCounts` 后取计数最高的模型, 并列时按名称升序 |
+| UI 字段    | 生成规则                                                                        |
+| ---------- | ------------------------------------------------------------------------------- |
+| 会话总数   | 正数 `sessionCount`，否则非空 `sessionIds` 的去重数量，否则 `sessionStartCount` |
+| 对话轮次   | 正数 `turnCount`，否则非空 `turnIds` 的去重数量，否则 `stopCount`               |
+| 子智能体   | `max(subagentStartCount, subagentStopCount)`                                    |
+| 调用工具   | `max(preToolUseCount, postToolUseCount)`                                        |
+| 权限请求   | `permissionRequestCount`                                                        |
+| 上下文压缩 | `max(preCompactCount, postCompactCount)`                                        |
+| 最热模型   | 合并 `modelCounts` 后取计数最高的模型, 并列时按名称升序                         |
 
 跨设备同步只在 `performMaintenance: true, synchronize: true` 的刷新中执行。`WorkflowSyncScheduler` 会合并同步开关、Hook 重新开启、同步账号恢复可用和自动刷新产生的同步请求；同步中不取消重启, 冷却窗口内只保留一次待补跑请求, 补跑前重新校验 Hook 开启、跨设备同步偏好为 true 且同步账号可用。`WorkflowSyncService` 先用本机 daily 聚合生成脱敏 `WorkflowSyncedDailyAggregate`, 保留 `projectCounts` 和 `modelCounts`, 再按日期稳定排序候选项, 每批最多上传 25 天, 每轮最多使用 20 秒。zone 存在性确认和 account salt 首次成功后在 actor 内跨轮缓存, 任一轮同步失败时作废, 下一轮重新确认（覆盖 iCloud 账号切换）。每批成功后立即保存 `state.hashByDate` 和 `lastUploadAt`, 未完成的 backfill 留给后续自动刷新继续。没有 `cursor.data` 时先 query 全量 `CodexBarDailyAggregate` 回填 `cache.jsonl`; 有游标时优先拉 CloudKit 增量, 游标失效或增量失败时不写入日志窗口, 直接全量重建缓存。写入 `cache.jsonl` 前会过滤当前设备自己的记录, 只保留其他设备记录。增量路径先写 `cache.jsonl`, 成功后再写 `cursor.data`, 避免游标提前推进导致未落盘记录被跳过。同步失败会通过 `CodexBar.workflowSyncDidFinish` 通知发送 `didSucceed=false` 和归类后的 `failureMessage`, 主面板同步图标进入失败态。
+
+当前代码写入的 CloudKit `schemaVersion` 和本地同步 state schema 都是 `3`。本地 state 从 schema `2` 升级时会丢弃旧 hash 和游标基线，重新上传本机 daily，并从 custom zone 重建其他设备缓存，从而覆盖旧版空数组压缩产生的错误零 count。
 
 ## 13. 设置窗口流程
 
@@ -1107,13 +1112,13 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 
 五类通知的触发与去重:
 
-| 通知         | 触发                                                                                                                                    | 去重键                                                                                                                     |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| 额度低阈值   | 非 stale 快照中窗口剩余比例穿越到 ≤ 阈值; 阈值或子开关变化时用当前快照立即重评估                                                        | `low\|账号\|limitId\|windowId\|resetsAt`                                                                                   |
-| 额度已重置   | 同一账号下每个 limit 的 primary/secondary 窗口独立观察；可信快照中消耗从大于 0% 变为 0% 时立即发送以 `limit.title` 和窗口周期命名的通知 | 进程内按 `账号\|limitId\|windowId` 观察状态转换；成功发送后使用 `quotaReset\|账号\|limitId\|windowId\|resetsAt` 持久化去重 |
-| 长任务完成   | monitor 的 live Hook `Stop` 或 rollout `task_complete` transition 具有精确耗时且耗时 ≥ 阈值                                             | 状态机按精确任务键对两种完成信号去重                                                                                       |
+| 通知         | 触发                                                                                                                                                              | 去重键                                                                                                                     |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 额度低阈值   | 非 stale 快照中窗口剩余比例穿越到 ≤ 阈值; 阈值或子开关变化时用当前快照立即重评估                                                                                  | `low\|账号\|limitId\|windowId\|resetsAt`                                                                                   |
+| 额度已重置   | 同一账号下每个 limit 的 primary/secondary 窗口独立观察；可信快照中消耗从大于 0% 变为 0% 时立即发送以 `limit.title` 和窗口周期命名的通知                           | 进程内按 `账号\|limitId\|windowId` 观察状态转换；成功发送后使用 `quotaReset\|账号\|limitId\|windowId\|resetsAt` 持久化去重 |
+| 长任务完成   | monitor 的 live Hook `Stop` 或 rollout `task_complete` transition 具有精确耗时且耗时 ≥ 阈值                                                                       | 状态机按精确任务键对两种完成信号去重                                                                                       |
 | 任务等待批准 | 同一 turn 的 rollout 明确 `approvals_reviewer == user`，且 monitor 的 live 批次结束后任务仍处于 `waitingApproval`；自动审批不触发；任务离开等待状态后移除对应通知 | 同批次按任务键合并，通知使用 `taskWaiting\|taskUUID` 任务级 identifier                                                     |
-| 重置机会临期 | 过期时间距今 ≤ 7 天, 并在过期前 7/6/5/4/3/2/1 天各提醒一次; 正文使用本地时间 `yyyy-MM-dd HH:mm:ss`                                      | `credit\|账号\|过期时间\|提醒档位`                                                                                         |
+| 重置机会临期 | 过期时间距今 ≤ 7 天, 并在过期前 7/6/5/4/3/2/1 天各提醒一次; 正文使用本地时间 `yyyy-MM-dd HH:mm:ss`                                                                | `credit\|账号\|过期时间\|提醒档位`                                                                                         |
 
 额度低阈值、额度重置和重置机会通知只在系统成功接收后把去重键写入 UserDefaults (`Notification.sentKeys`)，最多保留 300 条。键包含账号维度；额度重置窗口提供 `resetsAt` 时，去重键还包含该时间，缺失时仍发送通知但不生成周期去重键。额度重置观察状态和等待通知跟踪集合保存在当前进程内；通知不按预测时间调度，也不补发已错过的状态转换。可信额度快照持续推进重置观察状态，stale 快照不参与判定；窗口消失时移除对应观察状态，快照为 `nil` 时清空全部观察状态。Hook bootstrap 只恢复任务状态，不发布 transition，因此不产生历史任务通知或触觉反馈。
 
