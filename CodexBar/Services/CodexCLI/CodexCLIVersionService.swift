@@ -342,26 +342,11 @@ final class CodexCLIVersionViewModel: ObservableObject {
               Date().timeIntervalSince(snapshot.refreshedAt) > Self.refreshThrottle else {
             return
         }
-        isRefreshing = true
 
-        refreshCoordinator.start { [weak self] generation in
-            guard let self else {
-                return
-            }
-
-            defer {
-                self.refreshCoordinator.finish(generation) {
-                    self.isRefreshing = false
-                }
-            }
-
-            let snapshot = await service.fetchSnapshot()
-
-            guard refreshCoordinator.canCommit(generation) else {
-                return
-            }
-
-            self.snapshot = snapshot
-        }
+        refreshCoordinator.run(
+            setRefreshing: { [weak self] in self?.isRefreshing = $0 },
+            operation: { [service = self.service] in await service.fetchSnapshot() },
+            commit: { [weak self] snapshot in self?.snapshot = snapshot }
+        )
     }
 }

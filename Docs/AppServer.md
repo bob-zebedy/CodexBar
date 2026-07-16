@@ -125,6 +125,6 @@ UI 只展示「未登录」和「初始化失败」两类特殊状态；具体�
 - 带 id 的 JSON-RPC 请求先记录为进行，响应或错误到达后回填到同一条。
 - `initialized` 这类无 id 请求记录为空响应。
 - 日志容量上限 500 条，`RequestLogEntry` 完整保存 request/detail；日志窗口列表和行内展开只渲染单行短预览，非空请求/响应标题行提供完整预览和复制，预览视图对 JSON 做格式化和高亮。
-- 合法 JSON 通过 `JSONSerialization` 重新序列化，使用 `.sortedKeys` 和 `.withoutEscapingSlashes`。
-- 非 JSON 错误消息保持原样。
+- `AppServerSession` 生成请求时已经通过 `JSONSerialization` 使用 `.sortedKeys` 和 `.withoutEscapingSlashes` 稳定序列化；`RequestLogStorage` 直接保存同一份 request 文本，不再二次解析。
+- 响应和 JSON 错误详情进入日志时仍通过 `JSONSerialization` 使用相同选项稳定化；非 JSON 错误消息保持原样。
 - 不要把子进程 stderr 直接展示给用户。

@@ -197,7 +197,7 @@ private struct LogRow: View {
                         systemImage: "doc.on.doc",
                         help: "复制完整\(caption)"
                     ) {
-                        LogClipboard.copy(text)
+                        PasteboardWriter.copy(text)
                     }
                 }
             }
@@ -255,14 +255,6 @@ private struct LogHeaderActionButton: View {
     }
 }
 
-/// 统一收口剪贴板写入
-private enum LogClipboard {
-    static func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
-}
-
 /// 完整请求/响应预览弹窗
 private struct FullLogTextView: View {
     let item: FullLogTextItem
@@ -299,7 +291,7 @@ private struct FullLogTextView: View {
                 Spacer()
 
                 Button {
-                    LogClipboard.copy(item.text)
+                    PasteboardWriter.copy(item.text)
                 } label: {
                     Label("复制", systemImage: "doc.on.doc")
                 }

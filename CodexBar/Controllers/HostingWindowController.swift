@@ -64,9 +64,7 @@ class HostingWindowController {
         }
 
         (window as? AuxiliaryHostingWindow)?.allowsKeyFocus = true
-        window.orderFrontRegardless()
-        NSRunningApplication.current.activate(options: [])
-        window.makeKeyAndOrderFront(nil)
+        window.bringToFrontActivatingApp()
     }
 
     func setAllowsKeyFocus(_ allowsKeyFocus: Bool) {

@@ -102,7 +102,11 @@ actor CodexStatusService {
     }
 
     func currentConnectionInfo() async -> CodexCLIConnectionInfo? {
-        currentConnectionInfoSnapshot()
+        guard let connection, connection.session.process.isRunning else {
+            return nil
+        }
+
+        return connection.commandInfo
     }
 
     func readCodexConfig() async throws -> CodexConfigReadResponse {
@@ -207,14 +211,6 @@ actor CodexStatusService {
     private func teardownConnection() {
         connection?.close()
         connection = nil
-    }
-
-    private func currentConnectionInfoSnapshot() -> CodexCLIConnectionInfo? {
-        guard let connection, connection.session.process.isRunning else {
-            return nil
-        }
-
-        return connection.commandInfo
     }
 
     /// 额度与用量独立读取

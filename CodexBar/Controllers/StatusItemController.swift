@@ -369,7 +369,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                 if let toolName = task.toolName {
                     text += " • \(toolName)"
                 }
-                text += " • 已等待 \(CodexActivityDurationFormat.text(for: now.timeIntervalSince(task.stateChangedAt)))"
+                text += " • \(CodexActivityDisplayFormat.waitingDurationFragment(since: task.stateChangedAt, now: now))"
                 return text
             case let .running(task):
                 var text = "Codex 正在运行"
@@ -377,7 +377,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                     text += " • \(projectName)"
                 }
                 if task.showsPreciseDuration, let startedAt = task.startedAt {
-                    text += " • 已运行 \(CodexActivityDurationFormat.text(for: now.timeIntervalSince(startedAt)))"
+                    text += " • \(CodexActivityDisplayFormat.runningDurationFragment(since: startedAt, now: now))"
                 }
                 return text
             case .completed(let completion, highlighted: true):
@@ -386,7 +386,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                     text += " • \(projectName)"
                 }
                 if let duration = completion.duration {
-                    text += " • 耗时 \(CodexActivityDurationFormat.text(for: duration))"
+                    text += " • \(CodexActivityDisplayFormat.elapsedDurationFragment(for: duration))"
                 }
                 return text
             case .completed, .terminated, .idle:
@@ -426,11 +426,9 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         init?(snapshot: CodexQuotaSnapshot?, selection: MenuBarQuotaSelection) {
-            guard let targetWindowId = selection.windowId,
+            guard let targetKind = selection.windowKind,
                   let snapshot,
-                  let window = snapshot.codexLimit?.windows.first(where: {
-                      $0.id == targetWindowId
-                  }),
+                  let window = snapshot.codexLimit?.window(ofKind: targetKind),
                   window.hasData else {
                 return nil
             }

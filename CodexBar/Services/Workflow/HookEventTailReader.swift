@@ -256,7 +256,7 @@ actor HookEventTailReader {
             readOffset += UInt64(chunk.count)
             pending.append(chunk)
 
-            guard let lastNewlineIndex = pending.lastIndex(of: Self.newlineByte) else {
+            guard let lastNewlineIndex = pending.lastIndex(of: JSONLines.newlineByte) else {
                 await Task.yield()
                 continue
             }
@@ -314,13 +314,7 @@ actor HookEventTailReader {
             }
             remainingBytes -= UInt64(data.count)
 
-            var completeData = data
-            if readOffset > 0, let firstNewlineIndex = data.firstIndex(of: Self.newlineByte) {
-                let firstCompleteIndex = data.index(after: firstNewlineIndex)
-                completeData = firstCompleteIndex < data.endIndex
-                    ? Data(data[firstCompleteIndex...])
-                    : Data()
-            }
+            let completeData = readOffset > 0 ? JSONLines.droppingLeadingPartialLine(data) : data
 
             for event in JSONLines.decode(WorkflowHookEvent.self, from: completeData)
                 where event.hookEvent == .userPromptSubmit && event.timestamp < cutoff {
@@ -386,11 +380,10 @@ actor HookEventTailReader {
     }
 
     private static let pollInterval: TimeInterval = 2
-    private static let activityRetention: TimeInterval = 24 * 60 * 60
+    private static let activityRetention = CodexActivityRetention.window
     private static let readChunkByteCount = 512 * 1024
     private static let promptSearchByteLimit: UInt64 = 8 * 1024 * 1024
     private static let bootstrapAttemptLimit = 3
-    private static let newlineByte: UInt8 = 0x0A
 }
 
 private nonisolated struct HookFileBoundary {

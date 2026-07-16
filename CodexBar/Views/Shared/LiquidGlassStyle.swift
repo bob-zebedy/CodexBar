@@ -253,19 +253,20 @@ private struct LiquidGlassFrostedTexture: View {
             let columns = max(Int((size.width / step).rounded(.up)), 0)
             let rows = max(Int((size.height / step).rounded(.up)), 0)
             let baseOpacity = colorScheme == .dark ? 0.035 : 0.045
-            let outerScale = isOuterSurface ? 0.75 : 1
+            let outerScale = isOuterSurface ? 0.75 : 1.0
+            let shadowFactor = colorScheme == .dark ? 0.24 : 0.16
+
+            // 按强度分桶合并同色点, 把上万次单点 fill 压缩成每桶一次路径填充
+            // 桶内取中值不透明度, 与逐点绘制的偏差不超过 baseOpacity / (2 * bucketCount)
+            var highlightPaths = [Path](repeating: Path(), count: Self.bucketCount)
+            var shadowPaths = [Path](repeating: Path(), count: Self.bucketCount)
 
             for row in 0 ..< rows {
                 for column in 0 ..< columns {
                     let sample = Self.noise(column: column, row: row)
                     let isHighlight = sample >= 0.5
                     let strength = isHighlight ? (sample - 0.5) * 2 : (0.5 - sample) * 2
-                    let opacity = baseOpacity * strength * outerScale
-                    let color = if isHighlight {
-                        Color.white.opacity(opacity)
-                    } else {
-                        Color.black.opacity(opacity * (colorScheme == .dark ? 0.24 : 0.16))
-                    }
+                    let bucket = min(Int(strength * Double(Self.bucketCount)), Self.bucketCount - 1)
                     let rect = CGRect(
                         x: CGFloat(column) * step,
                         y: CGFloat(row) * step,
@@ -273,12 +274,25 @@ private struct LiquidGlassFrostedTexture: View {
                         height: 1
                     )
 
-                    context.fill(Path(rect), with: .color(color))
+                    if isHighlight {
+                        highlightPaths[bucket].addRect(rect)
+                    } else {
+                        shadowPaths[bucket].addRect(rect)
+                    }
                 }
+            }
+
+            for bucket in 0 ..< Self.bucketCount {
+                let strength = (Double(bucket) + 0.5) / Double(Self.bucketCount)
+                let opacity = baseOpacity * strength * outerScale
+                context.fill(highlightPaths[bucket], with: .color(.white.opacity(opacity)))
+                context.fill(shadowPaths[bucket], with: .color(.black.opacity(opacity * shadowFactor)))
             }
         }
         .allowsHitTesting(false)
     }
+
+    private static let bucketCount = 16
 
     private nonisolated static func noise(column: Int, row: Int) -> Double {
         var value = UInt64(column) &* 0x9E3779B185EBCA87

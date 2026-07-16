@@ -7,6 +7,8 @@ actor WorkflowService {
     private let eventsDirectoryURL: URL
     private let dailyLogURL: URL
     private let syncService: WorkflowSyncService
+    /// 上次归一化时 daily.jsonl 的 stat 与当天日期键
+    private var lastNormalizedDailyLog: WorkflowDailyLogStamp?
     private static let eventReadChunkSize = 64 * 1024
 
     init(
@@ -47,8 +49,7 @@ actor WorkflowService {
 
         return WorkflowSnapshot(
             localAggregates: aggregates,
-            syncedRecords: syncSnapshot.records,
-            currentDeviceId: syncSnapshot.currentDeviceId
+            syncedRecords: syncSnapshot.records
         )
     }
 
@@ -57,7 +58,7 @@ actor WorkflowService {
             return nil
         }
 
-        let aggregates = WorkflowDailyAggregate.decodeJSONLines(from: data)
+        let aggregates: [WorkflowDailyAggregate] = JSONLines.decode(from: data)
         guard !aggregates.isEmpty else {
             return nil
         }
@@ -70,8 +71,11 @@ actor WorkflowService {
 
         do {
             let tasks = try prepareMaintenanceTasks()
-            perform(tasks)
-            try normalizeDailyAggregatesIfNeeded()
+            let didWriteDailyLog = perform(tasks)
+            // 每次落盘前都已整体归一化, 写入过就不必再做一轮全量解码比对
+            if !didWriteDailyLog {
+                try normalizeDailyAggregatesIfNeeded()
+            }
             try pruneExpiredEventFiles()
         } catch {
             return []
@@ -84,15 +88,24 @@ actor WorkflowService {
         return changedSyncPayloadDates(before: beforePayloads, after: syncPayloadByDate())
     }
 
-    private func perform(_ tasks: [WorkflowMaintenanceTask]) {
+    /// 返回是否写入过 daily.jsonl; 批次内共享同一份内存聚合, 避免每个任务重新读盘
+    private func perform(_ tasks: [WorkflowMaintenanceTask]) -> Bool {
+        guard !tasks.isEmpty else {
+            return false
+        }
+
+        var aggregates = loadDailyAggregates() ?? []
+        var didWrite = false
         for task in tasks {
             do {
                 let result = try buildDailyAggregate(for: task)
-                try commit(result)
+                didWrite = try commit(result, aggregates: &aggregates) || didWrite
             } catch {
                 markDirty(task.dateKey)
             }
         }
+
+        return didWrite
     }
 
     private func prepareMaintenanceTasks() throws -> [WorkflowMaintenanceTask] {
@@ -240,7 +253,7 @@ actor WorkflowService {
     }
 
     private func eventLogURL(for dateKey: String) -> URL {
-        eventsDirectoryURL.appendingPathComponent("\(dateKey).jsonl", isDirectory: false)
+        WorkflowStorage.eventLogURL(for: dateKey, in: eventsDirectoryURL)
     }
 
     private func eventLogSize(for dateKey: String) -> UInt64 {
@@ -320,7 +333,7 @@ actor WorkflowService {
             remainingBytes -= UInt64(chunk.count)
             buffer.append(chunk)
 
-            while let newlineIndex = buffer.firstIndex(of: 0x0A) {
+            while let newlineIndex = buffer.firstIndex(of: JSONLines.newlineByte) {
                 let lineData = buffer[..<newlineIndex]
                 corrupt += decode(lineData, using: decoder, record: record)
                 buffer.removeSubrange(...newlineIndex)
@@ -357,15 +370,20 @@ actor WorkflowService {
         return 0
     }
 
-    private func commit(_ result: WorkflowMaintenanceResult) throws {
+    /// 返回是否写入了 daily.jsonl
+    private func commit(
+        _ result: WorkflowMaintenanceResult,
+        aggregates: inout [WorkflowDailyAggregate]
+    ) throws -> Bool {
         guard try eventLogHasNotShrunk(for: result) else {
-            return
+            return false
         }
 
         // daily.jsonl 和 maintenance.json 分开写
         // 每次提交前后都检查事件文件是否被并发追加
-        try writeDailyAggregate(result.aggregate)
+        try writeDailyAggregate(result.aggregate, into: &aggregates)
         try commitMaintenanceState(result)
+        return true
     }
 
     private func eventLogHasNotShrunk(for result: WorkflowMaintenanceResult) throws -> Bool {
@@ -390,13 +408,15 @@ actor WorkflowService {
         return currentSize
     }
 
-    private func writeDailyAggregate(_ aggregate: WorkflowDailyAggregate) throws {
+    private func writeDailyAggregate(
+        _ aggregate: WorkflowDailyAggregate,
+        into aggregates: inout [WorkflowDailyAggregate]
+    ) throws {
         try FileManager.default.createDirectory(
             at: dailyLogURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
 
-        var aggregates = loadDailyAggregates() ?? []
         upsert(aggregate, into: &aggregates)
         aggregates = WorkflowDailyAggregate.normalized(aggregates: aggregates)
         let data = try WorkflowDailyAggregate.encodeJSONLines(aggregates)
@@ -404,6 +424,16 @@ actor WorkflowService {
     }
 
     private func normalizeDailyAggregatesIfNeeded() throws {
+        guard let stat = WorkflowStorage.fileStat(at: dailyLogURL), stat.size > 0 else {
+            return
+        }
+
+        // 稳态下文件与日期都没变, 跳过全量解码与重编码比对
+        let dayKey = WorkflowStorage.dateKey(for: Date())
+        if lastNormalizedDailyLog == WorkflowDailyLogStamp(size: stat.size, identifier: stat.identifier, dayKey: dayKey) {
+            return
+        }
+
         guard let data = try? Data(contentsOf: dailyLogURL), !data.isEmpty else {
             return
         }
@@ -415,15 +445,21 @@ actor WorkflowService {
 
         let normalizedAggregates = WorkflowDailyAggregate.normalized(aggregates: decodeResult.values)
         let normalizedData = try WorkflowDailyAggregate.encodeJSONLines(normalizedAggregates)
-        guard normalizedData != data else {
-            return
+        if normalizedData != data {
+            try FileManager.default.createDirectory(
+                at: dailyLogURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try normalizedData.write(to: dailyLogURL, options: .atomic)
         }
 
-        try FileManager.default.createDirectory(
-            at: dailyLogURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try normalizedData.write(to: dailyLogURL, options: .atomic)
+        if let latestStat = WorkflowStorage.fileStat(at: dailyLogURL) {
+            lastNormalizedDailyLog = WorkflowDailyLogStamp(
+                size: latestStat.size,
+                identifier: latestStat.identifier,
+                dayKey: dayKey
+            )
+        }
     }
 
     private func syncPayloadByDate() -> [String: String] {
@@ -531,9 +567,8 @@ nonisolated enum WorkflowStorage {
             .appendingPathComponent("events", isDirectory: true)
     }
 
-    static func eventLogURL(for dateKey: String) -> URL {
-        eventsDirectoryURL()
-            .appendingPathComponent("\(dateKey).jsonl", isDirectory: false)
+    static func eventLogURL(for dateKey: String, in directoryURL: URL = eventsDirectoryURL()) -> URL {
+        directoryURL.appendingPathComponent("\(dateKey).jsonl", isDirectory: false)
     }
 
     static func dailyURL() -> URL {
@@ -806,6 +841,13 @@ nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
     }
 }
 
+/// daily.jsonl 某一时刻的 stat 快照与当天日期键, 用于跳过稳态下的重复归一化
+private nonisolated struct WorkflowDailyLogStamp: Equatable {
+    let size: UInt64
+    let identifier: UInt64?
+    let dayKey: String
+}
+
 // 单次维护任务: 从 startOffset 读到 size, 可基于已有聚合继续追加
 private nonisolated struct WorkflowMaintenanceTask {
     let dateKey: String
@@ -856,28 +898,14 @@ final class WorkflowViewModel: ObservableObject {
             return
         }
 
-        isRefreshing = true
-
-        refreshCoordinator.start { [weak self] generation in
-            guard let self else {
-                return
+        refreshCoordinator.run(
+            setRefreshing: { [weak self] in self?.isRefreshing = $0 },
+            operation: { [service = self.service] in await service.loadSnapshot() },
+            commit: { [weak self] snapshot in
+                self?.snapshot = snapshot
+                self?.lastRefreshedAt = Date()
             }
-
-            defer {
-                self.refreshCoordinator.finish(generation) {
-                    self.isRefreshing = false
-                }
-            }
-
-            let snapshot = await service.loadSnapshot()
-
-            guard refreshCoordinator.canCommit(generation) else {
-                return
-            }
-
-            self.snapshot = snapshot
-            lastRefreshedAt = Date()
-        }
+        )
     }
 
     /// 由 WorkflowSyncScheduler 串行调度, 无需自行判断并发, 只执行一次明确的维护刷新

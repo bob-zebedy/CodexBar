@@ -696,7 +696,7 @@ final class CodexActivityMonitor: ObservableObject {
     private static let completionHighlightDuration: TimeInterval = 30
     private static let recentHistoryRetention: TimeInterval = 10 * 60
     private static let completedTaskRetention: TimeInterval = 24 * 60 * 60
-    private static let activityRetention: TimeInterval = 24 * 60 * 60
+    private static let activityRetention = CodexActivityRetention.window
     private static let supersededTerminalGracePeriod: TimeInterval = 5
     private static let sessionLifecyclePollInterval: TimeInterval = 1
 }

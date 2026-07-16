@@ -9,9 +9,9 @@ struct HotKeyRecorderRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 10) {
+            HStack(spacing: SettingsRowMetrics.spacing) {
                 Image(systemName: "keyboard")
-                    .frame(width: Metrics.iconWidth)
+                    .frame(width: SettingsRowMetrics.iconWidth)
                     .foregroundStyle(.tint)
 
                 Text("使用快捷键")
@@ -144,7 +144,6 @@ struct HotKeyRecorderRow: View {
     }
 
     private enum Metrics {
-        static let iconWidth: CGFloat = 18
         static let shortcutButtonMinWidth: CGFloat = 78
     }
 }

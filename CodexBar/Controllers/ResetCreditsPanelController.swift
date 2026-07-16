@@ -4,12 +4,16 @@ import SwiftUI
 /// 重置次数详情控制器, 复用共享侧边抽屉定位和动画
 @MainActor
 final class ResetCreditsPanelController {
-    private var panel: NSPanel?
-    private var hostingController: NSHostingController<ResetCreditsPanelView>?
+    private let contentHost = SidePanelContentHost<ResetCreditsPanelView>(
+        initialSize: ResetCreditsPanelView.initialPanelSize,
+        ignoresMouseEvents: false,
+        sizingOptions: [.preferredContentSize],
+        cornerRadius: ResetCreditsPanelView.panelCornerRadius
+    )
     private lazy var presenter = SidePanelDrawerPresenter(
         animationKey: Metrics.drawerTransformAnimationKey,
         contentViewProvider: { [weak self] in
-            self?.hostingController?.view
+            self?.contentHost.contentView
         }
     )
 
@@ -18,11 +22,7 @@ final class ResetCreditsPanelController {
     }
 
     func containsScreenPoint(_ screenPoint: NSPoint) -> Bool {
-        guard let panel, panel.isVisible else {
-            return false
-        }
-
-        return panel.frame.contains(screenPoint)
+        contentHost.containsScreenPoint(screenPoint)
     }
 
     func toggle(
@@ -56,7 +56,7 @@ final class ResetCreditsPanelController {
             return
         }
 
-        let panel = ensurePanel()
+        let panel = contentHost.ensurePanel()
         let menuSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: menuSurfaceWindow) ?? menuSurfaceWindow.frame
         let alignmentScreenFrame = SidePanelSupport.validatedAlignmentScreenFrame(
             context.alignmentScreenFrame,
@@ -83,41 +83,8 @@ final class ResetCreditsPanelController {
             SidePanelSupport.restoreMenuSurfaceKeyWindow(menuSurfaceWindow)
         }
 
-        updateContent(resolvedContext, size: panelSize)
+        contentHost.updateContent(ResetCreditsPanelView(context: resolvedContext), size: panelSize)
         presenter.present(panel, at: position, relativeTo: menuSurfaceWindow)
-    }
-
-    private func ensurePanel() -> NSPanel {
-        if let panel {
-            return panel
-        }
-
-        let panel = SidePanelSupport.makePanel(
-            initialSize: ResetCreditsPanelView.initialPanelSize,
-            ignoresMouseEvents: false
-        )
-        self.panel = panel
-        return panel
-    }
-
-    private func updateContent(_ context: ResetCreditsPanelContext, size: CGSize) {
-        let rootView = ResetCreditsPanelView(context: context)
-
-        if let hostingController {
-            hostingController.rootView = rootView
-        } else {
-            let hostingController = NSHostingController(rootView: rootView)
-            hostingController.sizingOptions = [.preferredContentSize]
-            panel?.contentViewController = hostingController
-            self.hostingController = hostingController
-        }
-
-        SidePanelSupport.configureLayers(
-            hostingView: hostingController?.view,
-            contentView: panel?.contentView,
-            cornerRadius: ResetCreditsPanelView.panelCornerRadius
-        )
-        panel?.setContentSize(size)
     }
 
     private func panelPosition(

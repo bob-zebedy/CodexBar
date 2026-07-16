@@ -113,7 +113,7 @@ final class MenuBarQuotaSettings: ObservableObject {
     private static let lastWindowSelectionKey = "MenuBarQuota.lastWindowSelection"
 }
 
-nonisolated enum MenuBarQuotaSelection: String, CaseIterable, Identifiable {
+nonisolated enum MenuBarQuotaSelection: String, Identifiable {
     case off
     case primary
     case secondary
@@ -122,36 +122,20 @@ nonisolated enum MenuBarQuotaSelection: String, CaseIterable, Identifiable {
         rawValue
     }
 
-    init?(windowId: String) {
-        switch windowId {
-        case "primary":
+    init(windowKind: QuotaWindowKind) {
+        switch windowKind {
+        case .primary:
             self = .primary
-        case "secondary":
+        case .secondary:
             self = .secondary
-        default:
-            return nil
         }
     }
 
     var fallbackTitle: String {
-        switch self {
-        case .off:
-            "off"
-        case .primary:
-            "primary"
-        case .secondary:
-            "secondary"
-        }
+        rawValue
     }
 
-    var windowId: String? {
-        switch self {
-        case .off:
-            nil
-        case .primary:
-            "primary"
-        case .secondary:
-            "secondary"
-        }
+    var windowKind: QuotaWindowKind? {
+        QuotaWindowKind(rawValue: rawValue)
     }
 }

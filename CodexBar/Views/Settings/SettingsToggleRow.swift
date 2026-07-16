@@ -1,21 +1,44 @@
 import SwiftUI
 
-/// 设置页通用开关行
-struct SettingsToggleRow: View {
+/// 设置页行布局共享常量: 各行的图标列宽与行内间距必须一致才能对齐
+enum SettingsRowMetrics {
+    static let iconWidth: CGFloat = 18
+    static let spacing: CGFloat = 10
+}
+
+/// 设置页通用开关行, accessory 插入在开关左侧
+struct SettingsToggleRow<Accessory: View>: View {
     let icon: String
     let title: String
     let isOn: Binding<Bool>
-    var isEnabled = true
+    let isEnabled: Bool
+    private let accessory: Accessory
+
+    init(
+        icon: String,
+        title: String,
+        isOn: Binding<Bool>,
+        isEnabled: Bool = true,
+        @ViewBuilder accessory: () -> Accessory
+    ) {
+        self.icon = icon
+        self.title = title
+        self.isOn = isOn
+        self.isEnabled = isEnabled
+        self.accessory = accessory()
+    }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: SettingsRowMetrics.spacing) {
             Image(systemName: icon)
-                .frame(width: Metrics.iconWidth)
+                .frame(width: SettingsRowMetrics.iconWidth)
                 .foregroundStyle(.tint)
 
             Text(title)
 
             Spacer()
+
+            accessory
 
             Toggle(title, isOn: isOn)
                 .labelsHidden()
@@ -24,8 +47,17 @@ struct SettingsToggleRow: View {
                 .disabled(!isEnabled)
         }
     }
+}
 
-    private enum Metrics {
-        static let iconWidth: CGFloat = 18
+extension SettingsToggleRow where Accessory == EmptyView {
+    init(
+        icon: String,
+        title: String,
+        isOn: Binding<Bool>,
+        isEnabled: Bool = true
+    ) {
+        self.init(icon: icon, title: title, isOn: isOn, isEnabled: isEnabled) {
+            EmptyView()
+        }
     }
 }

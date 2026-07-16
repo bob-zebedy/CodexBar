@@ -119,7 +119,6 @@ actor WorkflowSyncService {
 
     private func snapshot(from state: WorkflowSyncState) -> WorkflowSyncSnapshot {
         WorkflowSyncSnapshot(
-            currentDeviceId: state.deviceId,
             records: state.deviceId == nil
                 ? []
                 : Self.filteredRetained(records: loadCachedRecords(), excluding: state.deviceId)
@@ -184,8 +183,12 @@ private extension WorkflowSyncService {
         CKRecord.ID(recordName: Self.accountSaltRecordName, zoneID: syncZoneID)
     }
 
-    var stateURL: URL {
+    nonisolated static func stateURL(in directoryURL: URL) -> URL {
         directoryURL.appendingPathComponent("state.json", isDirectory: false)
+    }
+
+    var stateURL: URL {
+        Self.stateURL(in: directoryURL)
     }
 
     var cacheURL: URL {
@@ -674,9 +677,7 @@ private extension WorkflowSyncService {
 extension WorkflowSyncService {
     /// 设置页读取最近上传时间, 与内部 loadState 使用同一 schema 校验口径
     nonisolated static func loadLastUploadAt() -> Date? {
-        let stateURL = WorkflowStorage.syncDirectoryURL()
-            .appendingPathComponent("state.json", isDirectory: false)
-        return loadState(at: stateURL).lastUploadAt
+        loadState(at: stateURL(in: WorkflowStorage.syncDirectoryURL())).lastUploadAt
     }
 }
 
@@ -909,11 +910,11 @@ private extension WorkflowSyncService {
     }
 }
 
+/// records 永不包含本机设备的记录: 写缓存与读取时都经 filteredRetained(excluding:) 过滤
 nonisolated struct WorkflowSyncSnapshot: Equatable {
-    let currentDeviceId: String?
     let records: [WorkflowSyncedDailyRecord]
 
-    static let disabled = WorkflowSyncSnapshot(currentDeviceId: nil, records: [])
+    static let disabled = WorkflowSyncSnapshot(records: [])
 }
 
 private nonisolated struct WorkflowSyncState: Codable, Equatable {

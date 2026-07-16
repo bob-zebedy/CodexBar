@@ -29,6 +29,20 @@ nonisolated struct DailyUsageBucket: Decodable, Equatable, Identifiable {
 nonisolated struct CodexUsageSnapshot: Equatable {
     let summary: UsageSummary
     let dailyBuckets: [DailyUsageBucket]
+    /// 构造时聚合一次; 该快照在菜单面板每次渲染中被反复查询
+    private let tokensByDate: [String: Int]
+
+    init(summary: UsageSummary, dailyBuckets: [DailyUsageBucket]) {
+        self.summary = summary
+        self.dailyBuckets = dailyBuckets
+        tokensByDate = dailyBuckets.reduce(into: [String: Int]()) { result, bucket in
+            result[bucket.startDate, default: 0] += bucket.tokens
+        }
+    }
+
+    static func == (lhs: CodexUsageSnapshot, rhs: CodexUsageSnapshot) -> Bool {
+        lhs.summary == rhs.summary && lhs.dailyBuckets == rhs.dailyBuckets
+    }
 
     func tokenCount(on date: Date) -> Int? {
         let startDate = CodexDateFormat.dayString(from: date)
@@ -37,8 +51,7 @@ nonisolated struct CodexUsageSnapshot: Equatable {
 
     /// 给热力图生成按周排列的最近日期网格, 每列从周日开始
     func recentWeekGrid(columnCount: Int, endingDaysAgo: Int = 0, today: Date = Date()) -> [DailyUsageBucket?] {
-        let tokenCountsByDate = tokensByDate
-        return CodexWeekGrid.dates(
+        CodexWeekGrid.dates(
             columnCount: columnCount,
             endingDaysAgo: endingDaysAgo,
             today: today
@@ -48,15 +61,9 @@ nonisolated struct CodexUsageSnapshot: Equatable {
                 let startDate = CodexDateFormat.dayString(from: $0)
                 return DailyUsageBucket(
                     startDate: startDate,
-                    tokens: tokenCountsByDate[startDate] ?? 0
+                    tokens: tokensByDate[startDate] ?? 0
                 )
             }
-        }
-    }
-
-    private var tokensByDate: [String: Int] {
-        dailyBuckets.reduce(into: [String: Int]()) { result, bucket in
-            result[bucket.startDate, default: 0] += bucket.tokens
         }
     }
 }

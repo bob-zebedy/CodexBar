@@ -182,20 +182,7 @@ final class NotificationOptionsPanelController {
     }
 
     private func measuredPanelSize() -> CGSize {
-        guard let hostingView = hostingController?.view else {
-            return NotificationOptionsView.initialPanelSize
-        }
-
-        hostingView.layoutSubtreeIfNeeded()
-        let fittingSize = hostingView.fittingSize
-        guard fittingSize.width.isFinite,
-              fittingSize.height.isFinite,
-              fittingSize.width > 0,
-              fittingSize.height > 0 else {
-            return NotificationOptionsView.initialPanelSize
-        }
-
-        return fittingSize
+        hostingController?.view.validFittingSize ?? NotificationOptionsView.initialPanelSize
     }
 
     private enum Metrics {

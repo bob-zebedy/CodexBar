@@ -24,6 +24,31 @@ final nonisolated class RefreshTaskCoordinator: Sendable {
         return generation
     }
 
+    /// ViewModel 共用的刷新样板: 置位刷新标记 → 取数 → 仅当代际未过期时提交
+    /// 过期刷新结果直接丢弃, 避免慢请求覆盖后启动的新状态
+    @MainActor
+    func run<Value>(
+        setRefreshing: @escaping @MainActor @Sendable (Bool) -> Void,
+        operation: @escaping @MainActor @Sendable () async -> Value,
+        commit: @escaping @MainActor @Sendable (Value) -> Void
+    ) {
+        setRefreshing(true)
+        start { [self] generation in
+            defer {
+                finish(generation) {
+                    setRefreshing(false)
+                }
+            }
+
+            let value = await operation()
+            guard canCommit(generation) else {
+                return
+            }
+
+            commit(value)
+        }
+    }
+
     private func begin() -> Int {
         let (task, generation) = state.withLock {
             let task = $0.task

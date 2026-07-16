@@ -189,7 +189,7 @@ actor CodexSessionLifecycleReader {
         guard (try? handle.seek(toOffset: cursor.offset)) != nil,
               let data = try? handle.readToEnd(),
               !data.isEmpty,
-              let lastNewlineIndex = data.lastIndex(of: Self.newlineByte) else {
+              let lastNewlineIndex = data.lastIndex(of: JSONLines.newlineByte) else {
             return
         }
 
@@ -197,18 +197,17 @@ actor CodexSessionLifecycleReader {
         cursor.offset += UInt64(consumedCount)
         cursor.fileIdentifier = identifier
 
-        var firstCompleteIndex = data.startIndex
+        var completeData = Data(data[data.startIndex ... lastNewlineIndex])
         if cursor.discardsLeadingPartialLine {
-            firstCompleteIndex = data.index(after: data.firstIndex(of: Self.newlineByte) ?? lastNewlineIndex)
+            completeData = JSONLines.droppingLeadingPartialLine(completeData)
             cursor.discardsLeadingPartialLine = false
         }
 
-        guard firstCompleteIndex <= lastNewlineIndex else {
+        guard !completeData.isEmpty else {
             return
         }
 
-        let completeData = Data(data[firstCompleteIndex ... lastNewlineIndex])
-        for envelope in JSONLines.decode(CodexSessionLifecycleEnvelope.self, from: completeData) {
+        for envelope in JSONLines.decode(CodexRolloutLineEnvelope.self, from: completeData) {
             guard let event = envelope.lifecycleEvent else {
                 continue
             }
@@ -220,7 +219,6 @@ actor CodexSessionLifecycleReader {
 
     private static let bootstrapByteLimit: UInt64 = 512 * 1024
     private static let fileResolutionRetryInterval: TimeInterval = 10
-    private static let newlineByte: UInt8 = 0x0A
 }
 
 private nonisolated struct SessionFileCursor {
@@ -231,11 +229,33 @@ private nonisolated struct SessionFileCursor {
     var lifecycleByTurnId: [String: SessionTurnLifecycle]
 }
 
-private nonisolated struct CodexSessionLifecycleEnvelope: Decodable {
+/// Codex rollout JSONL 单行的共享解码模型
+/// Hook 子进程 (WorkflowTurnContextReader) 与 lifecycle reader 共用同一份 schema
+nonisolated struct CodexRolloutLineEnvelope: Decodable {
     let timestamp: String?
     let type: String
-    let payload: CodexSessionLifecyclePayload?
+    let payload: CodexRolloutLinePayload?
+}
 
+nonisolated struct CodexRolloutLinePayload: Decodable {
+    let type: String?
+    let turnId: String?
+    let startedAt: Double?
+    let completedAt: Double?
+    let durationMilliseconds: Double?
+    let approvalReviewer: CodexApprovalReviewer?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case turnId = "turn_id"
+        case startedAt = "started_at"
+        case completedAt = "completed_at"
+        case durationMilliseconds = "duration_ms"
+        case approvalReviewer = "approvals_reviewer"
+    }
+}
+
+private nonisolated extension CodexRolloutLineEnvelope {
     var lifecycleEvent: SessionLifecycleEvent? {
         guard let payload,
               let turnId = payload.turnId,
@@ -284,24 +304,6 @@ private nonisolated struct CodexSessionLifecycleEnvelope: Decodable {
             return nil
         }
         return Date(timeIntervalSince1970: seconds)
-    }
-}
-
-private nonisolated struct CodexSessionLifecyclePayload: Decodable {
-    let type: String?
-    let turnId: String?
-    let startedAt: Double?
-    let completedAt: Double?
-    let durationMilliseconds: Double?
-    let approvalReviewer: CodexApprovalReviewer?
-
-    private enum CodingKeys: String, CodingKey {
-        case type
-        case turnId = "turn_id"
-        case startedAt = "started_at"
-        case completedAt = "completed_at"
-        case durationMilliseconds = "duration_ms"
-        case approvalReviewer = "approvals_reviewer"
     }
 }
 

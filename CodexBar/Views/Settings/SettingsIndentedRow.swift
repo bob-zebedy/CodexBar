@@ -3,8 +3,8 @@ import SwiftUI
 /// 设置页中与主行标题对齐的缩进辅助行
 struct SettingsIndentedRow<Content: View>: View {
     var alignment: VerticalAlignment = .center
-    var iconWidth: CGFloat = 18
-    var spacing: CGFloat = 10
+    var iconWidth: CGFloat = SettingsRowMetrics.iconWidth
+    var spacing: CGFloat = SettingsRowMetrics.spacing
     @ViewBuilder var content: () -> Content
 
     var body: some View {

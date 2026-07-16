@@ -66,6 +66,7 @@ final nonisolated class RequestLogStorage: Sendable {
 
     private init() {}
 
+    /// payload 由 AppServerSession 用相同的稳定序列化选项生成, 无需再做一轮归一化
     func beginRequest(method: String, payload: String) -> UUID {
         let id = UUID()
         append(
@@ -75,7 +76,7 @@ final nonisolated class RequestLogStorage: Sendable {
                 respondedAt: nil,
                 kind: .pending,
                 method: method,
-                request: Self.normalized(payload),
+                request: payload,
                 detail: nil
             )
         )
@@ -106,7 +107,7 @@ final nonisolated class RequestLogStorage: Sendable {
                 respondedAt: nil,
                 kind: .emptyResponse,
                 method: method,
-                request: Self.normalized(payload),
+                request: payload,
                 detail: ""
             )
         )

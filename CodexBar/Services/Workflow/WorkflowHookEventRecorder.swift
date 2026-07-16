@@ -144,17 +144,9 @@ private nonisolated enum WorkflowTurnContextReader {
             return nil
         }
 
-        let completeData: Data
-        if offset > 0, let firstNewlineIndex = data.firstIndex(of: newlineByte) {
-            let firstCompleteIndex = data.index(after: firstNewlineIndex)
-            completeData = firstCompleteIndex < data.endIndex
-                ? Data(data[firstCompleteIndex...])
-                : Data()
-        } else {
-            completeData = data
-        }
+        let completeData = offset > 0 ? JSONLines.droppingLeadingPartialLine(data) : data
 
-        for envelope in JSONLines.decode(WorkflowTurnContextEnvelope.self, from: completeData)
+        for envelope in JSONLines.decode(CodexRolloutLineEnvelope.self, from: completeData)
             .reversed()
             where envelope.type == "turn_context"
             && envelope.payload?.turnId == turnId {
@@ -164,22 +156,6 @@ private nonisolated enum WorkflowTurnContextReader {
     }
 
     private static let searchByteLimit: UInt64 = 512 * 1024
-    private static let newlineByte: UInt8 = 0x0A
-}
-
-private nonisolated struct WorkflowTurnContextEnvelope: Decodable {
-    let type: String
-    let payload: WorkflowTurnContextPayload?
-}
-
-private nonisolated struct WorkflowTurnContextPayload: Decodable {
-    let turnId: String?
-    let approvalReviewer: CodexApprovalReviewer?
-
-    private enum CodingKeys: String, CodingKey {
-        case turnId = "turn_id"
-        case approvalReviewer = "approvals_reviewer"
-    }
 }
 
 /// Codex Hook payload 字段存在版本差异, 这里集中做宽松类型归一化

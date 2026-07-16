@@ -90,7 +90,6 @@ private extension AppSettingsView {
         static let panelPadding: CGFloat = 12
         static let surfaceCornerRadius: CGFloat = 16
         static let panelCornerRadius: CGFloat = 10
-        static let iconWidth: CGFloat = 18
         static let notificationOptionsButtonSize: CGFloat = 22
         static let menuBarQuotaPickerWidth: CGFloat = 72
         static let statusAnimation = Animation.codexStatus
@@ -126,15 +125,14 @@ private extension AppSettingsView {
     var menuBarQuotaRow: some View {
         let isEnabled = isMenuBarQuotaEnabled
 
-        return HStack(spacing: 10) {
-            Image(systemName: "gauge.with.dots.needle.50percent")
-                .frame(width: Metrics.iconWidth)
-                .foregroundStyle(.tint)
-
-            Text("菜单栏额度指示")
-
-            Spacer()
-
+        return SettingsToggleRow(
+            icon: "gauge.with.dots.needle.50percent",
+            title: "菜单栏额度指示",
+            isOn: Binding(
+                get: { isMenuBarQuotaEnabled },
+                set: { menuBarQuotaSettings.setEnabled($0) }
+            )
+        ) {
             if isEnabled {
                 Picker(
                     "额度窗口",
@@ -153,29 +151,17 @@ private extension AppSettingsView {
                 .frame(width: Metrics.menuBarQuotaPickerWidth)
                 .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
-
-            Toggle(
-                "菜单栏额度指示",
-                isOn: Binding(
-                    get: { isMenuBarQuotaEnabled },
-                    set: { menuBarQuotaSettings.setEnabled($0) }
-                )
-            )
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .controlSize(.small)
         }
         .animation(Metrics.statusAnimation, value: isEnabled)
     }
 
     var menuBarQuotaWindowOptions: [MenuBarQuotaOption] {
         var options = (statusViewModel.snapshot?.codexLimit?.windows ?? [])
-            .compactMap { window -> MenuBarQuotaOption? in
-                guard let selection = MenuBarQuotaSelection(windowId: window.id) else {
-                    return nil
-                }
-
-                return MenuBarQuotaOption(selection: selection, title: window.label)
+            .map { window in
+                MenuBarQuotaOption(
+                    selection: MenuBarQuotaSelection(windowKind: window.kind),
+                    title: window.label
+                )
             }
 
         let selectedWindow = menuBarQuotaSettings.activeWindowSelection
@@ -262,9 +248,9 @@ private extension AppSettingsView {
 
     var syncRowState: SyncRowState {
         SyncRowState(
+            isActive: syncSettings.isEffectivelyActive(isHookEnabled: codexHookSettings.isEnabled),
             isHookEnabled: codexHookSettings.isEnabled,
             isHookUpdating: codexHookSettings.isUpdating,
-            isSyncEnabled: syncSettings.isEnabled,
             isSyncAvailable: syncSettings.isSyncAvailable,
             isSyncing: syncSettings.isSyncing
         )
@@ -273,15 +259,14 @@ private extension AppSettingsView {
     /// 主开关行保留在设置窗口内, 子选项在右侧子面板中展开
     var notificationRow: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 10) {
-                Image(systemName: "bell.badge")
-                    .frame(width: Metrics.iconWidth)
-                    .foregroundStyle(.tint)
-
-                Text("系统通知")
-
-                Spacer()
-
+            SettingsToggleRow(
+                icon: "bell.badge",
+                title: "系统通知",
+                isOn: Binding(
+                    get: { notificationSettings.isEnabled },
+                    set: { setNotificationsEnabled($0) }
+                )
+            ) {
                 Button {
                     onNotificationOptionsAction(.toggle(alignmentScreenFrame: notificationRowFrame))
                 } label: {
@@ -299,17 +284,6 @@ private extension AppSettingsView {
                 .accessibilityHidden(!notificationSettings.canShowOptions)
                 .help("通知选项")
                 .animation(Metrics.statusAnimation, value: notificationSettings.canShowOptions)
-
-                Toggle(
-                    "系统通知",
-                    isOn: Binding(
-                        get: { notificationSettings.isEnabled },
-                        set: { setNotificationsEnabled($0) }
-                    )
-                )
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
             }
             .background(
                 ScreenFrameReader { frame in
@@ -370,9 +344,9 @@ private extension AppSettingsView {
     var versionRow: some View {
         let status = versionStatus
 
-        return HStack(spacing: 10) {
+        return HStack(spacing: SettingsRowMetrics.spacing) {
             Image(systemName: "info.circle")
-                .frame(width: Metrics.iconWidth)
+                .frame(width: SettingsRowMetrics.iconWidth)
                 .foregroundStyle(.tint)
 
             Text("CodexBar 版本")
@@ -457,15 +431,12 @@ private extension AppSettingsView {
 }
 
 private struct SyncRowState {
+    /// 由 WorkflowSyncSettings.isEffectivelyActive 统一判定, 视图层不再拼接业务谓词
+    let isActive: Bool
     let isHookEnabled: Bool
     let isHookUpdating: Bool
-    let isSyncEnabled: Bool
     let isSyncAvailable: Bool
     let isSyncing: Bool
-
-    var isActive: Bool {
-        isHookEnabled && isSyncEnabled && isSyncAvailable
-    }
 
     var canToggle: Bool {
         isHookEnabled && !isHookUpdating && isSyncAvailable

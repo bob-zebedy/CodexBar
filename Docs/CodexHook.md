@@ -173,7 +173,7 @@ Hook 写入路径不更新 `daily.jsonl`，也不执行重建或清理旧文件�
 
 `WorkflowService` 是 actor，只在现有自动刷新或手动刷新触发工作流统计刷新时检查 `maintenance.json`。打开菜单面板时只读取现有 `daily.jsonl`。如果没有 `pending` 或 `dirty`，服务不会执行维护。
 
-维护时优先处理 `dirty`，从对应日期文件第一行开始流式重建当天聚合；再处理 `pending`，从 `days[date].offset` 开始流式读取新增事件并合并到已有当天聚合。每条坏行会被跳过并计入 `days[date].corrupt`。处理完成后先在 `stats.lock` 外原子写回 `daily.jsonl`，再短暂持有 `stats.lock` 更新 `maintenance.json`，避免主 App 写 daily 时阻塞 Hook 追加事件。
+维护时优先处理 `dirty`，从对应日期文件第一行开始流式重建当天聚合；再处理 `pending`，从 `days[date].offset` 开始流式读取新增事件并合并到已有当天聚合。同一维护批次只读取一次现有 `daily.jsonl`，所有日期任务共享并逐步更新同一份内存聚合集合，每次落盘前仍对整份集合执行当前保留策略的归一化。每条坏行会被跳过并计入 `days[date].corrupt`。处理完成后先在 `stats.lock` 外原子写回 `daily.jsonl`，再短暂持有 `stats.lock` 更新 `maintenance.json`，避免主 App 写 daily 时阻塞 Hook 追加事件。批次没有写入时，服务使用文件 size、identifier 和当天日期键组成的进程内 stamp 跳过未变化文件的重复全量归一化；日期跨天或文件变化后会重新检查并在需要时原子改写。
 
 ## 保留策略
 

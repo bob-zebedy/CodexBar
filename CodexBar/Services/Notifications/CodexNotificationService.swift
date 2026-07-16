@@ -567,7 +567,7 @@ nonisolated struct CodexNotificationContent: Equatable {
         let projectText = project.map { "「\($0)」" } ?? "Codex"
         return CodexNotificationContent(
             title: "Codex 任务完成",
-            body: "\(projectText) 任务完成, 耗时 \(CodexActivityDurationFormat.text(for: duration))"
+            body: "\(projectText) 任务完成, \(CodexActivityDisplayFormat.elapsedDurationFragment(for: duration))"
         )
     }
 

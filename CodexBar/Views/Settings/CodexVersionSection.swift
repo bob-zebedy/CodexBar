@@ -94,8 +94,7 @@ struct CodexVersionSection: View {
     }
 
     private func copyPathToPasteboard(_ path: String, source: CodexCLIExecutableSource) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(path, forType: .string)
+        PasteboardWriter.copy(path)
 
         copiedPathResetTasks[source]?.cancel()
         copiedPathResetTasks[source] = Task { @MainActor in
@@ -108,7 +107,7 @@ struct CodexVersionSection: View {
 
     private enum Metrics {
         static let rowSpacing: CGFloat = 14
-        static let iconWidth: CGFloat = 18
+        static let iconWidth = SettingsRowMetrics.iconWidth
         static let childIndent: CGFloat = 28
         static let versionColumnWidth: CGFloat = 270
         static let statusAnimation = Animation.codexStatus

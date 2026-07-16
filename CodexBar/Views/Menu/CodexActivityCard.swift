@@ -1,17 +1,25 @@
 import SwiftUI
 
 /// Hook 开启时常驻的固定高度活动摘要，使用菜单面板共享的逐秒时间。
+/// 在卡片内部观察 activityMonitor 与逐秒时间, 让 1Hz 失效范围只覆盖本卡片而不是整个菜单树。
 struct CodexActivityCard: View {
     @ObservedObject var activityMonitor: CodexActivityMonitor
-    let timelineDate: Date
+    @ObservedObject var presentationState: CodexActivityCenterPresentationState
     let showsUnavailableState: Bool
-    let isTaskCenterPresented: Bool
     let onTaskCenterTap: (ScreenFrameProvider) -> Void
     @State private var frameProvider = ScreenFrameProvider()
     @State private var isHovered = false
 
     private var snapshot: CodexActivitySnapshot {
         showsUnavailableState ? .empty : activityMonitor.snapshot
+    }
+
+    private var timelineDate: Date {
+        presentationState.timelineDate
+    }
+
+    private var isTaskCenterPresented: Bool {
+        presentationState.isPresented
     }
 
     var body: some View {

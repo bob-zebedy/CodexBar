@@ -759,9 +759,6 @@ private extension CodexHookSettings {
     }
 
     static func normalizedPath(_ path: String) -> String {
-        URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-            .path
+        CodexCLIResolver.canonicalPath(path, expandingTilde: true)
     }
 }

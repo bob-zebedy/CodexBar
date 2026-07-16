@@ -176,8 +176,10 @@ nonisolated enum CodexCLIResolver {
         canonicalPath(lhs) == canonicalPath(rhs)
     }
 
-    private static func canonicalPath(_ path: String) -> String {
-        URL(fileURLWithPath: path)
+    /// 「两个路径是否指向同一文件」的统一口径, Hook 配置匹配也复用它
+    static func canonicalPath(_ path: String, expandingTilde: Bool = false) -> String {
+        let expandedPath = expandingTilde ? (path as NSString).expandingTildeInPath : path
+        return URL(fileURLWithPath: expandedPath)
             .resolvingSymlinksInPath()
             .standardizedFileURL
             .path

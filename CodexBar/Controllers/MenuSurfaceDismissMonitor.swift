@@ -171,9 +171,7 @@ final class MenuSurfaceDismissMonitor {
             return
         }
 
-        activeMenuSurfaceWindow.orderFrontRegardless()
-        NSRunningApplication.current.activate(options: [])
-        activeMenuSurfaceWindow.makeKeyAndOrderFront(nil)
+        activeMenuSurfaceWindow.bringToFrontActivatingApp()
     }
 
     private func removeEventMonitor(_ monitor: inout Any?) {

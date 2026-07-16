@@ -100,13 +100,13 @@ struct UsageSummaryView: View {
     }
 
     private func tokenMetric(label: String, value: Int) -> some View {
-        metric(label: label, alignment: .center) {
+        metric(label: label) {
             TokenCountText(tokens: value)
         }
     }
 
     private func textMetric(label: String, value: String) -> some View {
-        metric(label: label, alignment: .center) {
+        metric(label: label) {
             Text(value)
                 .font(.caption.monospacedDigit().weight(.semibold))
                 .lineLimit(1)
@@ -116,17 +116,16 @@ struct UsageSummaryView: View {
 
     private func metric(
         label: String,
-        alignment: Alignment,
         @ViewBuilder value: () -> some View
     ) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: alignment)
+                .frame(maxWidth: .infinity, alignment: .center)
 
             value()
-                .frame(maxWidth: .infinity, alignment: alignment)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
         .frame(maxWidth: .infinity)
     }

@@ -1,5 +1,6 @@
 import AppKit
 import QuartzCore
+import SwiftUI
 
 /// 侧边详情面板不接收焦点, 只作为菜单面板的跟随子窗口
 @MainActor
@@ -177,7 +178,6 @@ final class SidePanelDrawerPresenter {
         visibilityGeneration += 1
         isExitAnimationRunning = false
         panel.setFrame(position.frame, display: true)
-        panel.alphaValue = 1
         currentSide = position.side
 
         let generation = visibilityGeneration
@@ -245,6 +245,74 @@ final class SidePanelDrawerPresenter {
 
     private func orderOut(_ panel: NSPanel) {
         SidePanelSupport.orderOut(panel, menuSurfaceWindow: parentWindow)
+    }
+}
+
+/// 侧边面板的内容宿主: 懒建 panel + hostingController, 统一「替换 rootView →
+/// configureLayers → setContentSize」的更新序列
+/// ⚠️ 每次更新都整树替换 rootView 是刻意行为 (见 CLAUDE.md 热力图详情面板的说明), 不要改成常驻状态推送
+@MainActor
+final class SidePanelContentHost<Root: View> {
+    private(set) var panel: NSPanel?
+    private var hostingController: NSHostingController<Root>?
+    private let initialSize: CGSize
+    private let ignoresMouseEvents: Bool
+    private let sizingOptions: NSHostingSizingOptions
+    private let cornerRadius: CGFloat
+
+    init(
+        initialSize: CGSize,
+        ignoresMouseEvents: Bool,
+        sizingOptions: NSHostingSizingOptions,
+        cornerRadius: CGFloat
+    ) {
+        self.initialSize = initialSize
+        self.ignoresMouseEvents = ignoresMouseEvents
+        self.sizingOptions = sizingOptions
+        self.cornerRadius = cornerRadius
+    }
+
+    var contentView: NSView? {
+        hostingController?.view
+    }
+
+    func containsScreenPoint(_ screenPoint: NSPoint) -> Bool {
+        guard let panel, panel.isVisible else {
+            return false
+        }
+
+        return panel.frame.contains(screenPoint)
+    }
+
+    func ensurePanel() -> NSPanel {
+        if let panel {
+            return panel
+        }
+
+        let panel = SidePanelSupport.makePanel(
+            initialSize: initialSize,
+            ignoresMouseEvents: ignoresMouseEvents
+        )
+        self.panel = panel
+        return panel
+    }
+
+    func updateContent(_ rootView: Root, size: CGSize) {
+        if let hostingController {
+            hostingController.rootView = rootView
+        } else {
+            let hostingController = NSHostingController(rootView: rootView)
+            hostingController.sizingOptions = sizingOptions
+            panel?.contentViewController = hostingController
+            self.hostingController = hostingController
+        }
+
+        SidePanelSupport.configureLayers(
+            hostingView: hostingController?.view,
+            contentView: panel?.contentView,
+            cornerRadius: cornerRadius
+        )
+        panel?.setContentSize(size)
     }
 }
 

@@ -14,10 +14,11 @@ struct CodexStatusMenuView: View {
     @ObservedObject var viewModel: CodexStatusViewModel
     @ObservedObject var workflowViewModel: WorkflowViewModel
     @ObservedObject var codexHookSettings: CodexHookSettings
-    @ObservedObject var activityMonitor: CodexActivityMonitor
+    // 活动状态与逐秒时间只被活动卡片消费, 由卡片自行观察, 避免 1Hz tick 让整个菜单树每秒重算
+    let activityMonitor: CodexActivityMonitor
     @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var menuSurfaceVisibility: MenuSurfaceVisibilityState
-    @ObservedObject var activityCenterPresentationState: CodexActivityCenterPresentationState
+    let activityCenterPresentationState: CodexActivityCenterPresentationState
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
     let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
     let onActivityCenterTap: (CodexActivityCenterPanelContext) -> Void
@@ -74,12 +75,10 @@ private extension CodexStatusMenuView {
     @ViewBuilder
     var activityCard: some View {
         if codexHookSettings.isEnabled {
-            let hasQuotaSnapshot = viewModel.snapshot != nil
             CodexActivityCard(
                 activityMonitor: activityMonitor,
-                timelineDate: activityCenterPresentationState.timelineDate,
-                showsUnavailableState: !hasQuotaSnapshot,
-                isTaskCenterPresented: activityCenterPresentationState.isPresented,
+                presentationState: activityCenterPresentationState,
+                showsUnavailableState: viewModel.snapshot == nil,
                 onTaskCenterTap: { anchorProvider in
                     onActivityCenterTap(
                         CodexActivityCenterPanelContext(

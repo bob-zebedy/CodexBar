@@ -289,17 +289,17 @@ nonisolated struct WorkflowSnapshot: Equatable {
         self.dailyMetrics = dailyMetrics
     }
 
+    /// syncedRecords 由 WorkflowSyncService 保证不含本机设备的记录
     init(
         localAggregates: [WorkflowDailyAggregate],
-        syncedRecords: [WorkflowSyncedDailyRecord],
-        currentDeviceId: String?
+        syncedRecords: [WorkflowSyncedDailyRecord]
     ) {
         var metricsByDate = [String: WorkflowDailyMetrics]()
         for aggregate in localAggregates {
             Self.merge(aggregate.metrics, into: &metricsByDate)
         }
 
-        for record in syncedRecords where record.deviceId != currentDeviceId {
+        for record in syncedRecords {
             Self.merge(record.daily.metrics, into: &metricsByDate)
         }
 
@@ -466,7 +466,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         turnIds = nil
     }
 
-    // 只有正数压缩计数或非空 ID 集合是有效去重结果, 否则使用起止事件计数兜底
+    /// 只有正数压缩计数或非空 ID 集合是有效去重结果, 否则使用起止事件计数兜底
     private var resolvedSessionCount: Int {
         WorkflowCountResolution.resolvedCount(
             compactedCount: sessionCount,
@@ -517,10 +517,6 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
             return mutableAggregate
         }
         .sorted { $0.date < $1.date }
-    }
-
-    static func decodeJSONLines(from data: Data) -> [WorkflowDailyAggregate] {
-        JSONLines.decode(from: data)
     }
 
     static func encodeJSONLines(_ aggregates: [WorkflowDailyAggregate]) throws -> Data {

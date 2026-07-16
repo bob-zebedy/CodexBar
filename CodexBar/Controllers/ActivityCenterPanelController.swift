@@ -7,8 +7,12 @@ import SwiftUI
 final class ActivityCenterPanelController {
     private let activityMonitor: CodexActivityMonitor
     private let presentationState: CodexActivityCenterPresentationState
-    private var panel: NSPanel?
-    private var hostingController: NSHostingController<CodexActivityCenterView>?
+    private let contentHost = SidePanelContentHost<CodexActivityCenterView>(
+        initialSize: CodexActivityCenterView.initialPanelSize,
+        ignoresMouseEvents: false,
+        sizingOptions: [],
+        cornerRadius: CodexActivityCenterView.panelCornerRadius
+    )
     private var currentContext: CodexActivityCenterPanelContext?
     private weak var menuSurfaceWindow: NSWindow?
     private weak var menuContentView: NSView?
@@ -19,7 +23,7 @@ final class ActivityCenterPanelController {
     private lazy var presenter = SidePanelDrawerPresenter(
         animationKey: Metrics.drawerTransformAnimationKey,
         contentViewProvider: { [weak self] in
-            self?.hostingController?.view
+            self?.contentHost.contentView
         }
     )
 
@@ -46,10 +50,7 @@ final class ActivityCenterPanelController {
     }
 
     func containsScreenPoint(_ screenPoint: NSPoint) -> Bool {
-        guard let panel, panel.isVisible else {
-            return false
-        }
-        return panel.frame.contains(screenPoint)
+        contentHost.containsScreenPoint(screenPoint)
     }
 
     func toggle(
@@ -128,7 +129,7 @@ final class ActivityCenterPanelController {
             return
         }
 
-        let panel = ensurePanel()
+        let panel = contentHost.ensurePanel()
         cancelScheduledPanelUpdate()
         currentContext = context
         self.menuSurfaceWindow = menuSurfaceWindow
@@ -199,7 +200,7 @@ final class ActivityCenterPanelController {
     }
 
     private func updateVisibleLayout(for snapshot: CodexActivitySnapshot) {
-        guard let panel,
+        guard let panel = contentHost.panel,
               panel.isVisible,
               let currentContext,
               let menuSurfaceWindow else {
@@ -256,40 +257,14 @@ final class ActivityCenterPanelController {
         panelUpdateTask = nil
     }
 
-    private func ensurePanel() -> NSPanel {
-        if let panel {
-            return panel
-        }
-
-        let panel = SidePanelSupport.makePanel(
-            initialSize: CodexActivityCenterView.initialPanelSize,
-            ignoresMouseEvents: false
-        )
-        self.panel = panel
-        return panel
-    }
-
     private func updateContent(panelSize: CGSize) {
-        let rootView = CodexActivityCenterView(
-            activityMonitor: activityMonitor,
-            presentationState: presentationState
+        contentHost.updateContent(
+            CodexActivityCenterView(
+                activityMonitor: activityMonitor,
+                presentationState: presentationState
+            ),
+            size: panelSize
         )
-
-        if let hostingController {
-            hostingController.rootView = rootView
-        } else {
-            let hostingController = NSHostingController(rootView: rootView)
-            hostingController.sizingOptions = []
-            panel?.contentViewController = hostingController
-            self.hostingController = hostingController
-        }
-
-        SidePanelSupport.configureLayers(
-            hostingView: hostingController?.view,
-            contentView: panel?.contentView,
-            cornerRadius: CodexActivityCenterView.panelCornerRadius
-        )
-        panel?.setContentSize(panelSize)
     }
 
     private enum Metrics {

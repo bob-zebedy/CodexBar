@@ -77,42 +77,32 @@ final class CodexStatusViewModel: ObservableObject {
             return
         }
 
-        isRefreshing = true
-
-        refreshCoordinator.start { [weak self] generation in
-            guard let self else {
-                return
-            }
-
-            defer {
-                self.refreshCoordinator.finish(generation) {
-                    self.isRefreshing = false
+        refreshCoordinator.run(
+            setRefreshing: { [weak self] in self?.isRefreshing = $0 },
+            operation: { [service = self.service] in
+                await (outcome: service.fetchOutcome(), connectionInfo: service.currentConnectionInfo())
+            },
+            commit: { [weak self] result in
+                guard let self else {
+                    return
                 }
+
+                switch result.outcome {
+                case let .data(snapshot):
+                    self.snapshot = snapshot
+                    loadState = .loaded
+                case .notLoggedIn:
+                    snapshot = nil
+                    loadState = .notLoggedIn
+                case .initializationFailed:
+                    snapshot = nil
+                    loadState = .initializationFailed
+                }
+
+                codexConnectionInfo = result.connectionInfo
+                autoRefreshCountdownStartedAt = Date()
             }
-
-            let outcome = await service.fetchOutcome()
-            let connectionInfo = await service.currentConnectionInfo()
-
-            // 过期刷新结果直接丢弃, 避免慢请求覆盖后启动的新状态
-            guard refreshCoordinator.canCommit(generation) else {
-                return
-            }
-
-            switch outcome {
-            case let .data(snapshot):
-                self.snapshot = snapshot
-                loadState = .loaded
-            case .notLoggedIn:
-                snapshot = nil
-                loadState = .notLoggedIn
-            case .initializationFailed:
-                snapshot = nil
-                loadState = .initializationFailed
-            }
-
-            codexConnectionInfo = connectionInfo
-            autoRefreshCountdownStartedAt = Date()
-        }
+        )
     }
 
     func refreshCodexConnectionInfo() {

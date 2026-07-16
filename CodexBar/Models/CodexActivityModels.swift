@@ -1,5 +1,11 @@
 import Foundation
 
+/// 实时活动管道的共享保留窗口。
+/// tail reader 的 bootstrap 回放范围与任务中心的历史保留期是同一个不变量，必须相等。
+nonisolated enum CodexActivityRetention {
+    static let window: TimeInterval = 24 * 60 * 60
+}
+
 /// 活跃任务最近收到的 Hook 事件，供活动卡片展示当前执行阶段。
 nonisolated enum CodexActivityEvent: Equatable {
     case promptSubmitted
@@ -178,6 +184,19 @@ nonisolated enum CodexActivityDisplayFormat {
         relativeText(since: terminatedAt, now: now, action: "终止")
     }
 
+    /// 活动卡片、任务中心、菜单栏 tooltip 和系统通知共用的时长片段。
+    static func waitingDurationFragment(since stateChangedAt: Date, now: Date) -> String {
+        "已等待 \(CodexActivityDurationFormat.text(for: now.timeIntervalSince(stateChangedAt)))"
+    }
+
+    static func runningDurationFragment(since startedAt: Date, now: Date) -> String {
+        "已运行 \(CodexActivityDurationFormat.text(for: now.timeIntervalSince(startedAt)))"
+    }
+
+    static func elapsedDurationFragment(for duration: TimeInterval) -> String {
+        "耗时 \(CodexActivityDurationFormat.text(for: duration))"
+    }
+
     /// 活动卡片和任务中心共用同一份文案片段，各自决定连接符。
     static func waitingDetailComponents(
         for task: CodexActivityTaskSnapshot,
@@ -185,7 +204,7 @@ nonisolated enum CodexActivityDisplayFormat {
     ) -> [String] {
         [
             task.toolName ?? "等待下一步操作",
-            "已等待 \(CodexActivityDurationFormat.text(for: now.timeIntervalSince(task.stateChangedAt)))"
+            waitingDurationFragment(since: task.stateChangedAt, now: now)
         ]
     }
 
@@ -194,7 +213,7 @@ nonisolated enum CodexActivityDisplayFormat {
         now: Date
     ) -> [String] {
         let duration = if task.showsPreciseDuration, let startedAt = task.startedAt {
-            "已运行 \(CodexActivityDurationFormat.text(for: now.timeIntervalSince(startedAt)))"
+            runningDurationFragment(since: startedAt, now: now)
         } else {
             "正在运行"
         }
@@ -207,7 +226,7 @@ nonisolated enum CodexActivityDisplayFormat {
     ) -> [String] {
         var components = [String]()
         if let duration {
-            components.append("耗时 \(CodexActivityDurationFormat.text(for: duration))")
+            components.append(elapsedDurationFragment(for: duration))
         }
         components.append(relativeText)
         return components

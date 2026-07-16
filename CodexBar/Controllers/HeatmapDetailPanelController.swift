@@ -5,11 +5,15 @@ import SwiftUI
 /// 热力图 hover 详情控制器, 负责左右贴边定位和抽屉式切换动画
 @MainActor
 final class HeatmapDetailPanelController {
-    private var panel: NSPanel?
-    private var hostingController: NSHostingController<UsageHeatmapDayDetailView>?
+    private let contentHost = SidePanelContentHost<UsageHeatmapDayDetailView>(
+        initialSize: UsageHeatmapDayDetailView.panelSize(showsWorkflow: true),
+        ignoresMouseEvents: true,
+        sizingOptions: [.preferredContentSize],
+        cornerRadius: UsageHeatmapDayDetailView.panelCornerRadius
+    )
     private lazy var drawerAnimator = SidePanelDrawerAnimator(
         contentViewProvider: { [weak self] in
-            self?.hostingController?.view
+            self?.contentHost.contentView
         },
         animationKey: Metrics.drawerTransformAnimationKey,
         overscan: SidePanelSupport.Metrics.drawerOverscan
@@ -22,11 +26,7 @@ final class HeatmapDetailPanelController {
     private weak var menuSurfaceWindow: NSWindow?
 
     func containsScreenPoint(_ screenPoint: NSPoint) -> Bool {
-        guard let panel, panel.isVisible else {
-            return false
-        }
-
-        return panel.frame.contains(screenPoint)
+        contentHost.containsScreenPoint(screenPoint)
     }
 
     func update(
@@ -53,7 +53,7 @@ final class HeatmapDetailPanelController {
         drawerTransition = .idle
         pendingSideSwitchRequest = nil
 
-        guard let panel, panel.isVisible else {
+        guard let panel = contentHost.panel, panel.isVisible else {
             return
         }
 
@@ -71,7 +71,7 @@ final class HeatmapDetailPanelController {
             guard let self,
                   !Task.isCancelled,
                   generation == visibilityGeneration,
-                  let panel = self.panel,
+                  let panel = contentHost.panel,
                   panel.isVisible else {
                 return
             }
@@ -105,7 +105,7 @@ final class HeatmapDetailPanelController {
     ) {
         cancelHideTask()
 
-        let panel = ensurePanel()
+        let panel = contentHost.ensurePanel()
         let wasVisible = panel.isVisible
         if wasVisible {
             attach(panel, to: menuSurfaceWindow)
@@ -280,19 +280,6 @@ final class HeatmapDetailPanelController {
         }
     }
 
-    private func ensurePanel() -> NSPanel {
-        if let panel {
-            return panel
-        }
-
-        let panel = SidePanelSupport.makePanel(
-            initialSize: UsageHeatmapDayDetailView.panelSize(showsWorkflow: true),
-            ignoresMouseEvents: true
-        )
-        self.panel = panel
-        return panel
-    }
-
     private func attach(_ panel: NSPanel, to parentWindow: NSWindow) {
         menuSurfaceWindow = parentWindow
         SidePanelSupport.attach(panel, to: parentWindow)
@@ -303,24 +290,10 @@ final class HeatmapDetailPanelController {
     }
 
     private func updateContent(_ context: UsageHeatmapHoverContext) {
-        let rootView = UsageHeatmapDayDetailView(context: context)
-        let size = UsageHeatmapDayDetailView.panelSize(showsWorkflow: context.showsWorkflow)
-
-        if let hostingController {
-            hostingController.rootView = rootView
-        } else {
-            let hostingController = NSHostingController(rootView: rootView)
-            hostingController.sizingOptions = [.preferredContentSize]
-            panel?.contentViewController = hostingController
-            self.hostingController = hostingController
-        }
-
-        SidePanelSupport.configureLayers(
-            hostingView: hostingController?.view,
-            contentView: panel?.contentView,
-            cornerRadius: UsageHeatmapDayDetailView.panelCornerRadius
+        contentHost.updateContent(
+            UsageHeatmapDayDetailView(context: context),
+            size: UsageHeatmapDayDetailView.panelSize(showsWorkflow: context.showsWorkflow)
         )
-        panel?.setContentSize(size)
     }
 
     private func apply(_ request: PanelRequest, to panel: NSPanel) {

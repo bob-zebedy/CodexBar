@@ -34,9 +34,7 @@ final class FallbackPanelController {
             return
         }
 
-        panel.orderFrontRegardless()
-        NSRunningApplication.current.activate(options: [])
-        panel.makeKeyAndOrderFront(nil)
+        panel.bringToFrontActivatingApp()
     }
 
     func orderOut() {
@@ -68,16 +66,7 @@ final class FallbackPanelController {
     }
 
     private func contentSize(for panel: NSPanel) -> NSSize {
-        guard let contentView = panel.contentViewController?.view else {
-            return Metrics.fallbackSize
-        }
-
-        contentView.layoutSubtreeIfNeeded()
-        let fittingSize = contentView.fittingSize
-        guard fittingSize.width.isFinite,
-              fittingSize.height.isFinite,
-              fittingSize.width > 0,
-              fittingSize.height > 0 else {
+        guard let fittingSize = panel.contentViewController?.view.validFittingSize else {
             return Metrics.fallbackSize
         }
 

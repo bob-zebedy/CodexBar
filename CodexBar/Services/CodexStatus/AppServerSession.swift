@@ -211,17 +211,16 @@ final nonisolated class AppServerSession {
         token: UUID,
         decoder: JSONDecoder
     ) throws -> Response {
-        if let errorEnvelope = try? decoder.decode(RPCErrorEnvelope.self, from: line.data),
-           let error = errorEnvelope.error {
-            try failRequest(token, message: line.text, error: .serverError(error.message))
+        if let envelope = try? decoder.decode(RPCResponseEnvelope<Response>.self, from: line.data) {
+            if let error = envelope.error {
+                try failRequest(token, message: line.text, error: .serverError(error.message))
+            }
+            if let result = envelope.result {
+                return result
+            }
         }
 
-        guard let envelope = try? decoder.decode(RPCResponseEnvelope<Response>.self, from: line.data),
-              let result = envelope.result else {
-            try failRequest(token, message: line.text, error: .invalidServerResponse)
-        }
-
-        return result
+        try failRequest(token, message: line.text, error: .invalidServerResponse)
     }
 
     private func failRequest(_ token: UUID, message: String, error: CodexStatusError) throws -> Never {
@@ -235,12 +234,10 @@ private nonisolated struct RPCIDEnvelope: Decodable {
     let id: Int?
 }
 
+/// error 与 result 合并在同一个信封里一次解码; 大响应行只完整解析一次
 private nonisolated struct RPCResponseEnvelope<Response: Decodable>: Decodable {
-    let result: Response?
-}
-
-private nonisolated struct RPCErrorEnvelope: Decodable {
     let error: RPCError?
+    let result: Response?
 }
 
 private nonisolated struct RPCError: Decodable {

@@ -49,6 +49,10 @@ nonisolated struct CodexQuotaLimitSnapshot: Equatable, Identifiable {
         limitId
     }
 
+    func window(ofKind kind: QuotaWindowKind) -> QuotaWindow? {
+        windows.first { $0.kind == kind }
+    }
+
     var title: String {
         if let limitName, !limitName.isEmpty {
             return limitName.capitalizingFirstLetter()
@@ -68,12 +72,23 @@ private nonisolated extension String {
     }
 }
 
+/// primary/secondary 窗口的稳定标识; 这组词汇由模型层拥有
+/// 菜单栏额度指示偏好 (MenuBarQuotaSelection) 与窗口查找都经它互转
+nonisolated enum QuotaWindowKind: String, Equatable {
+    case primary
+    case secondary
+}
+
 /// primary/secondary 窗口的 UI 友好表示, 统一计算剩余额度百分比
 nonisolated struct QuotaWindow: Equatable, Identifiable {
-    let id: String
+    let kind: QuotaWindowKind
     let windowDurationMins: Int?
     let usedPercent: Int?
     let resetsAt: Date?
+
+    var id: String {
+        kind.rawValue
+    }
 
     var label: String {
         Self.windowLabel(for: windowDurationMins)
@@ -212,9 +227,9 @@ nonisolated extension CodexQuotaSnapshot {
 
 nonisolated extension CodexQuotaLimitSnapshot {
     init?(limitId: String, snapshot: RateLimitSnapshot) {
-        let windows = [("primary", snapshot.primary), ("secondary", snapshot.secondary)]
-            .compactMap { id, window in
-                window.map { QuotaWindow(id: id, window: $0) }
+        let windows = [(QuotaWindowKind.primary, snapshot.primary), (.secondary, snapshot.secondary)]
+            .compactMap { kind, window in
+                window.map { QuotaWindow(kind: kind, window: $0) }
             }
 
         guard !windows.isEmpty else {
@@ -230,9 +245,9 @@ nonisolated extension CodexQuotaLimitSnapshot {
 }
 
 nonisolated extension QuotaWindow {
-    init(id: String, window: RateLimitWindow) {
+    init(kind: QuotaWindowKind, window: RateLimitWindow) {
         self.init(
-            id: id,
+            kind: kind,
             windowDurationMins: window.windowDurationMins,
             usedPercent: window.usedPercent,
             resetsAt: window.resetDate

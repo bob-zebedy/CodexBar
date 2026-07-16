@@ -104,7 +104,7 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 
 Hook 开启时，账号卡片下方始终显示固定高度 `CodexActivityCard`。`CodexQuotaSnapshot` 为 `nil` 时，卡片显示「暂无数据」且不开放任务中心；Monitor 继续维护实时状态。快照可用时，卡片按等待、运行、最近完成、最近终止、空闲的顺序展示项目最后一级名称、模型或工具、耗时及其他活动任务数量；只有终止历史时显示最近一项灰色终止状态。存在任务中心内容时，卡片可点击，其他活动任务数量使用右侧 `+N` 徽标，hover 和选中反馈作用于卡片描边。
 
-`ActivityCenterPanelController` 展示 `CodexActivitySnapshot` 的完整等待、运行、最近完成和最近终止列表。等待和运行按最后活动时间倒序，完成和终止按各自结束时间倒序；列表身份使用进程内 opaque UUID，不向 UI 暴露 session/turn ID。最近完成和最近终止保留 10 分钟。卡片与任务中心直接观察同一个 Monitor，并在菜单可见、额度快照可用且存在任务中心内容时使用 `CodexActivityCenterPresentationState` 的共享逐秒时间。任务中心打开期间额度快照变为 `nil` 时立即关闭。
+`ActivityCenterPanelController` 展示 `CodexActivitySnapshot` 的完整等待、运行、最近完成和最近终止列表。等待和运行按最后活动时间倒序，完成和终止按各自结束时间倒序；列表身份使用进程内 opaque UUID，不向 UI 暴露 session/turn ID。最近完成和最近终止保留 10 分钟。活动 Monitor 和 `CodexActivityCenterPresentationState` 作为普通引用传入菜单根视图，再由活动卡片自身观察；这样共享逐秒时间只让卡片失效，不会带动整个菜单树每秒重算。卡片与任务中心观察同一个 Monitor，并在菜单可见、额度快照可用且存在任务中心内容时使用 presentation state 的共享逐秒时间。任务中心打开期间额度快照变为 `nil` 时立即关闭。
 
 错误图标触发条件:
 
@@ -167,13 +167,13 @@ Command-Space 不直接关闭菜单面板, 只短暂抑制 600 ms 内的 active 
 
 热力图详情面板、重置次数详情面板和并发任务中心都会通过 `containsScreenPoint(_:)` 告诉关闭监听器自己的屏幕区域, 因此点击这些 child panel 内部不会触发主菜单面板关闭。重置次数详情面板和并发任务中心可接收鼠标事件用于滚动; 热力图详情面板不接收鼠标事件。并发任务中心是点击后保持打开的面板；出现有效的热力图方块 hover context 时会自动收回任务中心并展示当天详情，点击重置次数也会显式切换并关闭任务中心。
 
-侧边面板的共同行为集中在 `CodexBar/Controllers/SidePanelSupport.swift`。`NonactivatingSidePanel` 不能成为 key/main window；`KeyableBorderlessPanel` 用于需要键盘焦点的通知子选项面板和 fallback 面板；`SidePanelDrawerAnimator` 管理横向抽屉 transform；`SidePanelDrawerPresenter` 管理重置次数、并发任务中心和通知子选项面板的显隐状态、generation、入退场动画及 child window 挂载。`SidePanelSupport` 统一提供 panel 创建、左右侧选择、屏幕边界夹紧、锚点行校验与对齐、菜单面板 key window 恢复、圆角 layer 配置和屏幕坐标换算。侧边面板视图的玻璃底、背板、描边和圆角裁剪共用 `LiquidGlassStyle.swift` 的 `sidePanelChrome(cornerRadius:)`。
+侧边面板的共同行为集中在 `CodexBar/Controllers/SidePanelSupport.swift`。`NonactivatingSidePanel` 不能成为 key/main window；`KeyableBorderlessPanel` 用于需要键盘焦点的通知子选项面板和 fallback 面板；`SidePanelDrawerAnimator` 管理横向抽屉 transform；`SidePanelDrawerPresenter` 管理重置次数、并发任务中心和通知子选项面板的显隐状态、generation、入退场动画及 child window 挂载；`SidePanelContentHost` 统一三个侧边详情面板的内容宿主行为——懒建 panel + hostingController、每次更新替换 rootView、圆角 layer 重配、内容尺寸同步与屏幕点命中检测。`SidePanelSupport` 统一提供 panel 创建、左右侧选择、屏幕边界夹紧、锚点行校验与对齐、菜单面板 key window 恢复、圆角 layer 配置和屏幕坐标换算。侧边面板视图的玻璃底、背板、描边和圆角裁剪共用 `LiquidGlassStyle.swift` 的 `sidePanelChrome(cornerRadius:)`。
 
 `HeatmapDetailPanelController` 管理 hover 请求、Y 轴策略、侧边切换队列和 token/workflow 内容更新；`ResetCreditsPanelController` 管理重置次数内容、最大高度和点击切换；`ActivityCenterPanelController` 观察常驻 Monitor 快照并更新列表与窗口布局。任务中心宽度固定，高度由标题、分区、固定行高、间距和底部留白计算，并受屏幕可见高度及活动卡片顶边到主面板底边的范围限制。活动卡片把 `ScreenFrameProvider` 作为锚点交给控制器，控制器每次布局都只读取属于当前菜单窗口的实时 frame；首次读取失败时等待一个 MainActor 调度点重试，仍无有效锚点才回退主面板垂直居中。锚点有效时，面板顶边与卡片顶边对齐，底边最低与主面板底边齐平；达到高度上限后列表内部滚动。
 
 任务中心列表使用普通 `VStack` 和单层条目 transition。快照变化后，SwiftUI 提交列表布局，AppKit 在下一个 MainActor 调度点用 0.20 秒 ease-in-ease-out 曲线更新 panel frame；新的快照会取消尚未执行的布局更新。任务中心内容变空时等待 0.20 秒再执行抽屉收起，期间出现新内容会取消收起。
 
-设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开对应入口时只移动和置前对应窗口。窗口 level 保持 `.normal`; 置前时先恢复 `AuxiliaryHostingWindow.allowsKeyFocus`, 再 `orderFrontRegardless()`, `NSRunningApplication.current.activate(options: [])` 和 `makeKeyAndOrderFront(nil)`, 只做一次性置前, 不持续置顶。CodexBar 是 `LSUIElement` 菜单栏 App, 首次懒创建辅助窗口时需要通过当前运行中应用激活, 避免设置或日志窗口第一次打开时没有稳定拉到最前。
+设置窗口和日志窗口都继承 `HostingWindowController` 的行为: 懒创建, 关闭后不释放, 重新打开复用, 按当前屏幕居中, 重新打开对应入口时只移动和置前对应窗口。窗口 level 保持 `.normal`; 置前时先恢复 `AuxiliaryHostingWindow.allowsKeyFocus`, 再执行 `NSWindow.bringToFrontActivatingApp()` (`ScreenGeometry.swift`, 即 `orderFrontRegardless()` → `NSRunningApplication.current.activate(options: [])` → `makeKeyAndOrderFront(nil)` 的固定序列, fallback 面板和菜单面板聚焦共用), 只做一次性置前, 不持续置顶。CodexBar 是 `LSUIElement` 菜单栏 App, 首次懒创建辅助窗口时需要通过当前运行中应用激活, 避免设置或日志窗口第一次打开时没有稳定拉到最前。
 
 设置窗口和日志窗口使用 `AuxiliaryHostingWindow`; 窗口可以成为 key window, 但不能成为 main window。关闭菜单面板期间会临时禁止成为 key window, 避免菜单面板收起时抢焦点。通过快捷键打开或关闭菜单面板时, 只激活并置前当前面板, 不主动置前已有的设置窗口或日志窗口。
 
@@ -353,9 +353,10 @@ codex app-server --listen stdio://
 `AppServerSession` 负责 JSON-RPC 读写:
 
 - 每个带 id 的请求先写入 `RequestLogStorage.beginRequest`
-- 请求 JSON 使用 sorted keys 和不转义斜杠序列化
+- 请求 JSON 使用 sorted keys 和不转义斜杠序列化，同一份稳定文本直接写入请求日志
 - 写入 stdin 时追加换行
 - `JSONLineReader` 从 stdout 读取按行 JSON, 只处理 id 匹配的响应, 其他行忽略
+- id 匹配后用同时包含 `error` 和 `result` 的统一响应信封完成一次完整解码，避免大响应行重复解析
 - 收到 JSON-RPC error 时转成 `CodexStatusError.serverError(message)`
 - 响应不能解析成期望类型时归为 `.invalidServerResponse`
 - `initialized` 是无 id 通知, 不等待响应, 但记录为"请求"
@@ -377,7 +378,7 @@ codex app-server --listen stdio://
 - `RequestLogEntry` 完整保存 request/detail
 - 列表摘要和行内展开只使用 `RequestLogEntry` 生成的单行短预览
 - 非空请求和响应标题行提供完整预览和复制; 预览视图对 JSON 做格式化和高亮
-- 合法 JSON 会稳定化显示, 非 JSON 错误消息保持原样
+- request 直接保存 `AppServerSession` 已稳定序列化的文本；响应和 JSON 错误详情由 storage 使用相同选项稳定化，非 JSON 错误消息保持原样
 - storage 用 `OSAllocatedUnfairLock` 保护, 后台请求路径可以同步写入并立即拿到请求 token
 - 写入后通过 `Task { @MainActor ... }` 刷新 `RequestLogStore.shared`
 - 日志窗口关闭不会清空日志
@@ -427,16 +428,16 @@ app-server 与状态刷新错误:
 
 日志错误处理:
 
-| 场景                     | 行为                                 |
-| ------------------------ | ------------------------------------ |
-| 请求发送后等待响应       | 日志先显示"进行"                     |
-| 收到正常响应             | 回填同一条日志为"完成"               |
-| 请求失败或响应解析失败   | 回填同一条日志为"错误"               |
-| `initialized` 无 id 通知 | 记录为"请求", 不等待响应             |
-| 进程级错误没有 method    | 日志行直接预览错误文本               |
-| 合法 JSON 内容           | 重新序列化为稳定顺序并保留未转义斜杠 |
-| 请求 payload             | 存完整内容, UI 行内只渲染单行短预览  |
-| 响应或错误详情           | 存完整内容, 通过预览视图查看或复制   |
+| 场景                     | 行为                                                          |
+| ------------------------ | ------------------------------------------------------------- |
+| 请求发送后等待响应       | 日志先显示"进行"                                              |
+| 收到正常响应             | 回填同一条日志为"完成"                                        |
+| 请求失败或响应解析失败   | 回填同一条日志为"错误"                                        |
+| `initialized` 无 id 通知 | 记录为"请求", 不等待响应                                      |
+| 进程级错误没有 method    | 日志行直接预览错误文本                                        |
+| 响应或 JSON 错误详情     | 重新序列化为稳定顺序并保留未转义斜杠                          |
+| 请求 payload             | 直接保存已稳定序列化的完整内容, UI 行内只渲染单行短预览       |
+| 响应或错误详情           | 存完整内容, 通过预览视图查看或复制                            |
 
 设置, Hook 和更新错误:
 
@@ -592,7 +593,7 @@ flowchart TD
 
 热力图详情面板是菜单面板的 borderless nonactivating child panel, 不接收鼠标事件, 按悬停列优先显示在菜单面板左侧或右侧; 左右空间不足时尝试另一侧, 最终在当前屏幕可见区域内保留 8 px 边距。侧边切换时先以 0.12 秒抽屉动画收起, 再以 0.18 秒展开。热力图详情面板和重置次数详情面板互斥, hover 热力图会立即隐藏重置次数详情面板。nonactivating panel、抽屉 transform、child window 挂载和圆角 layer 配置复用 `SidePanelSupport.swift`。
 
-`HeatmapDetailPanelController` 会复用同一个 `NSPanel` 和 `NSHostingController`, 但每次 hover 内容变化时必须替换 `hostingController.rootView` 并同步 `setContentSize`。不要用常驻 `ObservableObject` model 持续推送 `UsageHeatmapHoverContext`; Hook 开关会让详情面板在 `212 x 84` 和 `212 x 208` 两种布局之间切换, 复用同一棵 SwiftUI 布局树容易触发 AppKit constraint/layout 递归。相关回归路径是: 先 hover 出详情面板, 打开设置切换 Hook, 再回到主面板 hover 热力图。
+`HeatmapDetailPanelController` 会复用同一个 `NSPanel` 和 `NSHostingController`, 但每次 hover 内容变化时必须替换 `hostingController.rootView` 并同步 `setContentSize` (该更新序列由 `SidePanelContentHost` 统一执行)。不要用常驻 `ObservableObject` model 持续推送 `UsageHeatmapHoverContext`; Hook 开关会让详情面板在 `212 x 84` 和 `212 x 208` 两种布局之间切换, 复用同一棵 SwiftUI 布局树容易触发 AppKit constraint/layout 递归。相关回归路径是: 先 hover 出详情面板, 打开设置切换 Hook, 再回到主面板 hover 热力图。
 
 详情面板分两种:
 
@@ -862,6 +863,8 @@ flowchart TD
 | ------- | ---------------------------------------------------------- | ------------------------------- |
 | dirty   | schema 变化, daily 缺失或坏行, events 状态不一致, 文件缩小 | 从当天 events 文件开头重建      |
 | pending | Hook 新增事件或 events 文件变大                            | 从 `days[date].offset` 增量读取 |
+
+同一维护批次只读取一次现有 `daily.jsonl`，随后让所有 dirty/pending 日期任务共享并逐步更新同一份内存聚合集合；每次落盘前仍对整份集合执行当前保留策略的归一化。批次没有写入时，服务用文件 size、identifier 和当天日期键组成的进程内 stamp 跳过未变化文件的重复全量解码；日期跨天或文件发生变化后会重新检查并在需要时原子改写。
 
 聚合规则:
 

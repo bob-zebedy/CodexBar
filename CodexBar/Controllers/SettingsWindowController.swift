@@ -70,11 +70,8 @@ final class SettingsWindowController: HostingWindowController {
     }
 
     override func prepareForDisplay(_ window: NSWindow) {
-        window.contentViewController?.view.layoutSubtreeIfNeeded()
-
-        if let fittingSize = window.contentViewController?.view.fittingSize,
-           let contentSize = clampedContentSize(fittingSize, for: window) {
-            window.setContentSize(contentSize)
+        if let fittingSize = window.contentViewController?.view.validFittingSize {
+            window.setContentSize(clampedContentSize(fittingSize, for: window))
         }
 
         super.prepareForDisplay(window)
@@ -131,14 +128,7 @@ final class SettingsWindowController: HostingWindowController {
         )
     }
 
-    private func clampedContentSize(_ fittingSize: NSSize, for window: NSWindow) -> NSSize? {
-        guard fittingSize.width.isFinite,
-              fittingSize.height.isFinite,
-              fittingSize.width > 0,
-              fittingSize.height > 0 else {
-            return nil
-        }
-
+    private func clampedContentSize(_ fittingSize: NSSize, for window: NSWindow) -> NSSize {
         let maximumContentSize = maximumContentSize(for: window)
         return NSSize(
             width: clampedContentDimension(
