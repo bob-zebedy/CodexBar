@@ -191,12 +191,16 @@ final class CodexActivityMonitor: ObservableObject {
         for state in states {
             let key = CodexActivityTaskKey.turn(session: state.sessionId, turn: state.turnId)
             if var pending = pendingTerminalTasks[key] {
-                if let startedAt = Self.backfilledStartedAt(for: pending.task, state: state) {
-                    pending.task.startedAt = startedAt
-                    pendingTerminalTasks[key] = pending
-                }
+                let pendingDidChange = Self.mergeLifecycleBackfill(
+                    from: state,
+                    into: &pending.task
+                )
 
                 guard let terminal = state.terminal else {
+                    if pendingDidChange {
+                        pendingTerminalTasks[key] = pending
+                        didChange = true
+                    }
                     continue
                 }
                 pendingTerminalTasks.removeValue(forKey: key)
@@ -215,11 +219,7 @@ final class CodexActivityMonitor: ObservableObject {
                 continue
             }
 
-            var taskDidChange = false
-            if let startedAt = Self.backfilledStartedAt(for: task, state: state) {
-                task.startedAt = startedAt
-                taskDidChange = true
-            }
+            var taskDidChange = Self.mergeLifecycleBackfill(from: state, into: &task)
 
             if let terminal = state.terminal {
                 tasks.removeValue(forKey: key)
@@ -354,9 +354,9 @@ final class CodexActivityMonitor: ObservableObject {
             resumeTask(from: event, latestEvent: .compactionFinished, allowsRecovery: true)
         case .subagentStart:
             // 子智能体只更新所属顶层任务，不自行创建一条并发任务。
-            resumeTask(from: event, latestEvent: .subagentStarted, allowsRecovery: false)
+            updateSubagentActivity(from: event, isStarting: true)
         case .subagentStop:
-            resumeTask(from: event, latestEvent: .subagentFinished, allowsRecovery: false)
+            updateSubagentActivity(from: event, isStarting: false)
         case .permissionRequest:
             return waitForApproval(from: event)
         case .stop:
@@ -466,6 +466,68 @@ final class CodexActivityMonitor: ObservableObject {
         )
     }
 
+    private func updateSubagentActivity(
+        from event: WorkflowHookEvent,
+        isStarting: Bool
+    ) {
+        let eventKey = CodexActivityTaskKey(event: event)
+        guard recentCompletionDate(for: eventKey) == nil,
+              recentTerminationDate(for: eventKey) == nil,
+              pendingTerminalTasks[eventKey] == nil,
+              let key = matchingTaskKey(for: event),
+              var task = tasks[key] else {
+            return
+        }
+
+        // 子 Agent 只能按 session 关联父任务，忽略上一 turn 延迟到达的事件。
+        if let startedAt = task.startedAt, event.timestamp < startedAt {
+            return
+        }
+
+        task.recordSubagentActivity(
+            agentId: event.agentId,
+            isStarting: isStarting,
+            at: event.timestamp,
+            hasReliableTaskAssociation: hasReliableSubagentAssociation(
+                eventSessionId: event.sessionId,
+                matchedKey: key
+            )
+        )
+
+        if event.timestamp >= task.lastActivityAt {
+            if task.state != .running {
+                task.state = .running
+                task.stateChangedAt = event.timestamp
+            }
+            task.pendingApprovalRequestedAt = nil
+            task.latestEvent = isStarting ? .subagentStarted : .subagentFinished
+            task.mergeMetadata(from: event)
+            task.lastActivityAt = event.timestamp
+        }
+        tasks[key] = task
+    }
+
+    /// Subagent Hook 的 turn 属于子 Agent 自己；父任务只能通过共享 session 关联。
+    private func hasReliableSubagentAssociation(
+        eventSessionId: String?,
+        matchedKey: CodexActivityTaskKey
+    ) -> Bool {
+        guard let eventSessionId,
+              matchedKey.sessionId == eventSessionId else {
+            return false
+        }
+
+        let activeTaskCount = tasks.values.reduce(into: 0) { count, task in
+            if task.key.sessionId == eventSessionId {
+                count += 1
+            }
+        }
+        let hasPendingTask = pendingTerminalTasks.values.contains {
+            $0.task.key.sessionId == eventSessionId
+        }
+        return activeTaskCount == 1 && !hasPendingTask
+    }
+
     private func waitForApproval(from event: WorkflowHookEvent) -> CodexActivityLiveTransition? {
         let eventKey = CodexActivityTaskKey(event: event)
         guard recentCompletionDate(for: eventKey) == nil,
@@ -523,7 +585,8 @@ final class CodexActivityMonitor: ObservableObject {
                 completedAt: event.timestamp,
                 reportedDuration: nil,
                 projectName: event.projectDisplayName,
-                modelName: event.modelName
+                modelName: event.modelName,
+                effort: event.effort
             )
             return .completed(completion)
         }
@@ -551,6 +614,7 @@ final class CodexActivityMonitor: ObservableObject {
         let completion = storeCompletion(
             projectName: event.projectDisplayName ?? task?.projectName,
             modelName: event.modelName ?? task?.modelName,
+            effort: event.effort ?? task?.effort,
             completedAt: event.timestamp,
             duration: duration
         )
@@ -767,19 +831,36 @@ private extension CodexActivityMonitor {
         return startedAt
     }
 
+    static func mergeLifecycleBackfill(
+        from state: CodexSessionTaskLifecycleState,
+        into task: inout CodexActivityTask
+    ) -> Bool {
+        var didChange = false
+        if let startedAt = backfilledStartedAt(for: task, state: state) {
+            task.startedAt = startedAt
+            didChange = true
+        }
+        if task.mergeEffort(state.effort) {
+            didChange = true
+        }
+        return didChange
+    }
+
     func storeResolvedCompletion(
         _ task: CodexActivityTask,
         key: CodexActivityTaskKey,
         completedAt: Date,
         reportedDuration: TimeInterval?,
         projectName: String? = nil,
-        modelName: String? = nil
+        modelName: String? = nil,
+        effort: String? = nil
     ) -> CodexActivityCompletion {
         // rollout 时间戳是整秒，避免因为同一秒内的 Hook 毫秒时间戳而把完成时间记在最后活动之前。
         let recordedCompletedAt = max(completedAt, task.lastActivityAt)
         let completion = storeCompletion(
             projectName: projectName ?? task.projectName,
             modelName: modelName ?? task.modelName,
+            effort: effort ?? task.effort,
             completedAt: recordedCompletedAt,
             duration: reportedDuration ?? task.preciseDuration(until: recordedCompletedAt)
         )
@@ -790,6 +871,7 @@ private extension CodexActivityMonitor {
     func storeCompletion(
         projectName: String?,
         modelName: String?,
+        effort: String?,
         completedAt: Date,
         duration: TimeInterval?
     ) -> CodexActivityCompletion {
@@ -797,6 +879,7 @@ private extension CodexActivityMonitor {
             id: UUID(),
             projectName: projectName,
             modelName: modelName,
+            effort: effort,
             completedAt: completedAt,
             duration: duration
         )
@@ -813,6 +896,7 @@ private extension CodexActivityMonitor {
             id: UUID(),
             projectName: task.projectName,
             modelName: task.modelName,
+            effort: task.effort,
             terminatedAt: terminatedAt,
             duration: includesDuration ? task.preciseDuration(until: terminatedAt) : nil
         )
@@ -992,12 +1076,15 @@ private struct CodexActivityTask {
     var latestEvent: CodexActivityEvent
     var projectName: String?
     var modelName: String?
+    var effort: String?
     var toolName: String?
     var startedAt: Date?
     var stateChangedAt: Date
     var lastActivityAt: Date
     var approvalReviewer: CodexApprovalReviewer?
     var pendingApprovalRequestedAt: Date?
+    var subagentsByID: [String: CodexSubagentObservation]
+    var isSubagentCountReliable: Bool
 
     init(
         displayID: UUID,
@@ -1013,12 +1100,15 @@ private struct CodexActivityTask {
         self.latestEvent = latestEvent
         projectName = event.projectDisplayName
         modelName = event.modelName
+        effort = Self.normalizedEffort(event.effort)
         toolName = event.toolName
         self.startedAt = startedAt
         stateChangedAt = event.timestamp
         lastActivityAt = event.timestamp
         approvalReviewer = event.approvalReviewer
         pendingApprovalRequestedAt = nil
+        subagentsByID = [:]
+        isSubagentCountReliable = startedAt != nil
     }
 
     var showsPreciseDuration: Bool {
@@ -1039,10 +1129,12 @@ private struct CodexActivityTask {
             latestEvent: latestEvent,
             projectName: projectName,
             modelName: modelName,
+            effort: effort,
             toolName: toolName,
             startedAt: startedAt,
             stateChangedAt: stateChangedAt,
-            showsPreciseDuration: showsPreciseDuration
+            showsPreciseDuration: showsPreciseDuration,
+            activeSubagentCount: activeSubagentCount
         )
     }
 
@@ -1068,8 +1160,68 @@ private struct CodexActivityTask {
     mutating func mergeMetadata(from event: WorkflowHookEvent) {
         projectName = event.projectDisplayName ?? projectName
         modelName = event.modelName ?? modelName
+        _ = mergeEffort(event.effort)
         toolName = event.toolName ?? toolName
         approvalReviewer = event.approvalReviewer ?? approvalReviewer
+    }
+
+    @discardableResult
+    mutating func mergeEffort(_ incomingEffort: String?) -> Bool {
+        guard let incomingEffort = Self.normalizedEffort(incomingEffort) else {
+            return false
+        }
+        guard let effort else {
+            effort = incomingEffort
+            return true
+        }
+        guard effort != incomingEffort, effort != "mixed" else {
+            return false
+        }
+        self.effort = "mixed"
+        return true
+    }
+
+    mutating func recordSubagentActivity(
+        agentId: String?,
+        isStarting: Bool,
+        at timestamp: Date,
+        hasReliableTaskAssociation: Bool
+    ) {
+        guard hasReliableTaskAssociation, let agentId else {
+            isSubagentCountReliable = false
+            return
+        }
+
+        let previous = subagentsByID[agentId]
+        if let previous, timestamp < previous.timestamp {
+            return
+        }
+        if !isStarting, previous == nil {
+            isSubagentCountReliable = false
+        }
+        subagentsByID[agentId] = CodexSubagentObservation(
+            isRunning: isStarting,
+            timestamp: timestamp
+        )
+    }
+
+    private var activeSubagentCount: Int? {
+        guard isSubagentCountReliable else {
+            return nil
+        }
+        return subagentsByID.values.reduce(into: 0) { count, observation in
+            if observation.isRunning {
+                count += 1
+            }
+        }
+    }
+
+    private static func normalizedEffort(_ effort: String?) -> String? {
+        guard let effort else {
+            return nil
+        }
+        let value = effort.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     /// 记录审批候选；返回值只表示任务是否刚刚进入用户等待状态。
@@ -1095,4 +1247,9 @@ private struct CodexActivityTask {
         }
         latestEvent = .approvalRequested
     }
+}
+
+private struct CodexSubagentObservation {
+    let isRunning: Bool
+    let timestamp: Date
 }

@@ -63,10 +63,12 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     let directoryPath: String?
     let toolName: String?
     let modelName: String?
+    let effort: String?
     let permissionMode: String?
     let approvalReviewer: CodexApprovalReviewer?
     let sessionId: String?
     let turnId: String?
+    let agentId: String?
 
     init(
         timestamp: Date,
@@ -74,20 +76,24 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         directoryPath: String?,
         toolName: String?,
         modelName: String?,
+        effort: String?,
         permissionMode: String?,
         approvalReviewer: CodexApprovalReviewer?,
         sessionId: String?,
-        turnId: String?
+        turnId: String?,
+        agentId: String?
     ) {
         self.timestamp = timestamp
         self.name = name
         self.directoryPath = directoryPath
         self.toolName = toolName
         self.modelName = modelName
+        self.effort = effort
         self.permissionMode = permissionMode
         self.approvalReviewer = approvalReviewer
         self.sessionId = sessionId
         self.turnId = turnId
+        self.agentId = agentId
     }
 
     init(from decoder: Decoder) throws {
@@ -109,6 +115,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         directoryPath = Self.string(from: container, key: .cwd)
         toolName = Self.string(from: container, key: .toolName)
         modelName = Self.string(from: container, key: .modelName)
+        effort = Self.string(from: container, key: .effort)
         permissionMode = Self.string(from: container, key: .permissionMode)
         approvalReviewer = try? container.decode(
             CodexApprovalReviewer.self,
@@ -116,6 +123,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         )
         sessionId = Self.string(from: container, key: .sessionId)
         turnId = Self.string(from: container, key: .turnId)
+        agentId = Self.string(from: container, key: .agentId)
     }
 
     var hookEvent: CodexHookEvent? {
@@ -153,10 +161,12 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
             WorkflowJSON.field("timestamp", CodexDateFormat.localTimestampString(from: timestamp)),
             WorkflowJSON.field("event", name),
             WorkflowJSON.field("model", modelName),
+            WorkflowJSON.field("effort", effort),
             WorkflowJSON.field("permission", permissionMode),
             WorkflowJSON.field("approval", approvalReviewer),
             WorkflowJSON.field("session", sessionId),
             WorkflowJSON.field("turn", turnId),
+            WorkflowJSON.field("agent", agentId),
             WorkflowJSON.field("tool", toolName),
             WorkflowJSON.field("cwd", directoryPath)
         ]
@@ -170,10 +180,12 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         case cwd
         case toolName = "tool"
         case modelName = "model"
+        case effort
         case permissionMode = "permission"
         case approvalReviewer = "approval"
         case sessionId = "session"
         case turnId = "turn"
+        case agentId = "agent"
     }
 }
 

@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 100;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -38,11 +38,9 @@
 /* Begin PBXFrameworksBuildPhase section */
 		C4A0FD922FD9302E000263A7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 				C42A52F12FDACDEC004A2B53 /* Sparkle in Frameworks */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
@@ -75,8 +73,6 @@
 				C4A0FD932FD9302E000263A7 /* Resources */,
 			);
 			buildRules = (
-			);
-			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
 				9E664A4C2FDD47530016B96E /* CodexBar */,
@@ -116,7 +112,7 @@
 			packageReferences = (
 				C42A52EF2FDACDEC004A2B53 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
-			preferredProjectObjectVersion = 77;
+			preferredProjectObjectVersion = 100;
 			productRefGroup = C4A0FD962FD9302E000263A7 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -129,25 +125,21 @@
 /* Begin PBXResourcesBuildPhase section */
 		C4A0FD932FD9302E000263A7 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		C4A0FD912FD9302E000263A7 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
 			files = (
 			);
-			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		C4A0FD9E2FD9302E000263A7 /* Debug */ = {
+		C4A0FD9E2FD9302E000263A7 /* Debug configuration for PBXProject "CodexBar" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -214,7 +206,7 @@
 			};
 			name = Debug;
 		};
-		C4A0FD9F2FD9302E000263A7 /* Release */ = {
+		C4A0FD9F2FD9302E000263A7 /* Release configuration for PBXProject "CodexBar" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -273,7 +265,7 @@
 			};
 			name = Release;
 		};
-		C4A0FDA12FD9302E000263A7 /* Debug */ = {
+		C4A0FDA12FD9302E000263A7 /* Debug configuration for PBXNativeTarget "CodexBar" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -282,7 +274,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 4KJ362VJW5;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
@@ -298,7 +290,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 3.3.7;
+				MARKETING_VERSION = 3.3.8;
 				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -311,7 +303,7 @@
 			};
 			name = Debug;
 		};
-		C4A0FDA22FD9302E000263A7 /* Release */ = {
+		C4A0FDA22FD9302E000263A7 /* Release configuration for PBXNativeTarget "CodexBar" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -321,7 +313,7 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 4KJ362VJW5;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
@@ -337,7 +329,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 3.3.7;
+				MARKETING_VERSION = 3.3.8;
 				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -357,19 +349,17 @@
 		C4A0FD902FD9302E000263A7 /* Build configuration list for PBXProject "CodexBar" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				C4A0FD9E2FD9302E000263A7 /* Debug */,
-				C4A0FD9F2FD9302E000263A7 /* Release */,
+				C4A0FD9E2FD9302E000263A7 /* Debug configuration for PBXProject "CodexBar" */,
+				C4A0FD9F2FD9302E000263A7 /* Release configuration for PBXProject "CodexBar" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 		C4A0FDA02FD9302E000263A7 /* Build configuration list for PBXNativeTarget "CodexBar" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				C4A0FDA12FD9302E000263A7 /* Debug */,
-				C4A0FDA22FD9302E000263A7 /* Release */,
+				C4A0FDA12FD9302E000263A7 /* Debug configuration for PBXNativeTarget "CodexBar" */,
+				C4A0FDA22FD9302E000263A7 /* Release configuration for PBXNativeTarget "CodexBar" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */

@@ -30,10 +30,13 @@ nonisolated struct CodexActivityTaskSnapshot: Equatable, Identifiable {
     let latestEvent: CodexActivityEvent
     let projectName: String?
     let modelName: String?
+    let effort: String?
     let toolName: String?
     let startedAt: Date?
     let stateChangedAt: Date
     let showsPreciseDuration: Bool
+    /// nil 表示 Hook 字段不足，无法可靠统计；0 表示已确认当前没有活跃子 Agent。
+    let activeSubagentCount: Int?
 }
 
 /// 最近确认结束的任务。完成只表示一轮任务结束，不代表执行成功。
@@ -41,6 +44,7 @@ nonisolated struct CodexActivityCompletion: Equatable, Identifiable {
     let id: UUID
     let projectName: String?
     let modelName: String?
+    let effort: String?
     let completedAt: Date
     let duration: TimeInterval?
 }
@@ -50,6 +54,7 @@ nonisolated struct CodexActivityTermination: Equatable, Identifiable {
     let id: UUID
     let projectName: String?
     let modelName: String?
+    let effort: String?
     let terminatedAt: Date
     let duration: TimeInterval?
 }
@@ -155,6 +160,11 @@ nonisolated enum CodexActivityDurationFormat {
 }
 
 nonisolated enum CodexActivityDisplayFormat {
+    static func modelMetadata(modelName: String?, effort: String?) -> String? {
+        let components = [modelName, effort].compactMap(normalizedText)
+        return components.isEmpty ? nil : components.joined(separator: " • ")
+    }
+
     static func eventText(for task: CodexActivityTaskSnapshot) -> String {
         switch task.latestEvent {
         case .promptSubmitted:
@@ -197,7 +207,7 @@ nonisolated enum CodexActivityDisplayFormat {
         "耗时 \(CodexActivityDurationFormat.text(for: duration))"
     }
 
-    /// 活动卡片和任务中心共用同一份文案片段，各自决定连接符。
+    /// 活动卡片和任务中心共用同一份文案片段。
     static func waitingDetailComponents(
         for task: CodexActivityTaskSnapshot,
         now: Date
@@ -241,5 +251,13 @@ nonisolated enum CodexActivityDisplayFormat {
             return "\(seconds) 秒前\(action)"
         }
         return "\(seconds / 60) 分钟前\(action)"
+    }
+
+    private static func normalizedText(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? nil : trimmedValue
     }
 }

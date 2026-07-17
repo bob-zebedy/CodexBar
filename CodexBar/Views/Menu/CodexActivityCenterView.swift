@@ -167,7 +167,7 @@ struct CodexActivityCenterView: View {
                 components.append("最近终止 \(snapshot.recentTerminations.count)")
             }
         }
-        return components.joined(separator: " · ")
+        return components.joined(separator: " • ")
     }
 
     private func taskSection(
@@ -240,6 +240,7 @@ struct CodexActivityCenterView: View {
             tint: tint,
             projectName: task.projectName,
             modelName: task.modelName,
+            effort: task.effort,
             detail: taskDetail(task, now: now, isWaiting: isWaiting)
         )
     }
@@ -250,6 +251,7 @@ struct CodexActivityCenterView: View {
             tint: .green,
             projectName: completion.projectName,
             modelName: completion.modelName,
+            effort: completion.effort,
             detail: historyDetail(
                 duration: completion.duration,
                 relativeText: CodexActivityDisplayFormat.completionRelativeText(
@@ -266,6 +268,7 @@ struct CodexActivityCenterView: View {
             tint: .secondary,
             projectName: termination.projectName,
             modelName: termination.modelName,
+            effort: termination.effort,
             detail: historyDetail(
                 duration: termination.duration,
                 relativeText: CodexActivityDisplayFormat.terminationRelativeText(
@@ -281,6 +284,7 @@ struct CodexActivityCenterView: View {
         tint: Color,
         projectName: String?,
         modelName: String?,
+        effort: String?,
         detail: String
     ) -> some View {
         HStack(alignment: .top, spacing: 9) {
@@ -290,7 +294,11 @@ struct CodexActivityCenterView: View {
                 .frame(width: Metrics.symbolWidth, height: Metrics.titleLineHeight)
 
             VStack(alignment: .leading, spacing: 3) {
-                titleLine(projectName: projectName, modelName: modelName)
+                titleLine(
+                    projectName: projectName,
+                    modelName: modelName,
+                    effort: effort
+                )
 
                 Text(detail)
                     .font(.caption2)
@@ -304,7 +312,11 @@ struct CodexActivityCenterView: View {
         .transition(Metrics.contentTransition)
     }
 
-    private func titleLine(projectName: String?, modelName: String?) -> some View {
+    private func titleLine(
+        projectName: String?,
+        modelName: String?,
+        effort: String?
+    ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(projectName ?? "Codex")
                 .font(.caption.weight(.semibold))
@@ -313,8 +325,11 @@ struct CodexActivityCenterView: View {
 
             Spacer(minLength: 4)
 
-            if let modelName {
-                Text(modelName)
+            if let metadata = CodexActivityDisplayFormat.modelMetadata(
+                modelName: modelName,
+                effort: effort
+            ) {
+                Text(metadata)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -332,14 +347,14 @@ struct CodexActivityCenterView: View {
         let components = isWaiting
             ? CodexActivityDisplayFormat.waitingDetailComponents(for: task, now: now)
             : CodexActivityDisplayFormat.runningDetailComponents(for: task, now: now)
-        return components.joined(separator: " · ")
+        return components.joined(separator: " • ")
     }
 
     private func historyDetail(duration: TimeInterval?, relativeText: String) -> String {
         CodexActivityDisplayFormat.historyDetailComponents(
             duration: duration,
             relativeText: relativeText
-        ).joined(separator: " · ")
+        ).joined(separator: " • ")
     }
 
     private enum Metrics {

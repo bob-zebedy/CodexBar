@@ -36,7 +36,7 @@ App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 C
 两条主数据链路:
 
 - Codex app-server 链路: `CodexStatusService` 启动或复用本机 app-server, 生成 `CodexQuotaSnapshot`, 由 `CodexStatusViewModel` 发布给菜单栏 UI
-- Codex Hook 链路: Codex 进程触发带 `--hook-event` 参数的 Hook 命令, CodexBar 从 stdin payload 读取 `hook_event_name` 并快速写入 JSONL; 主 App 一路维护聚合并生成 `WorkflowSnapshot`, 另一路通过 `CodexActivityMonitor` 只读 tail 原始事件并发布实时活动快照；活跃 turn 再由 `CodexSessionLifecycleReader` 从本机 rollout 补充起点、结束和中断信号
+- Codex Hook 链路: Codex 进程触发带 `--hook-event` 参数的 Hook 命令, CodexBar 从 stdin payload 读取 `hook_event_name` 并快速写入 JSONL; 主 App 一路维护聚合并生成 `WorkflowSnapshot`, 另一路通过 `CodexActivityMonitor` 只读 tail 原始事件并发布实时活动快照；活跃 turn 再由 `CodexSessionLifecycleReader` 从本机 rollout 补充起点、终态、审批路由和推理强度
 
 ## 3. 启动流程
 
@@ -428,16 +428,16 @@ app-server 与状态刷新错误:
 
 日志错误处理:
 
-| 场景                     | 行为                                                          |
-| ------------------------ | ------------------------------------------------------------- |
-| 请求发送后等待响应       | 日志先显示"进行"                                              |
-| 收到正常响应             | 回填同一条日志为"完成"                                        |
-| 请求失败或响应解析失败   | 回填同一条日志为"错误"                                        |
-| `initialized` 无 id 通知 | 记录为"请求", 不等待响应                                      |
-| 进程级错误没有 method    | 日志行直接预览错误文本                                        |
-| 响应或 JSON 错误详情     | 重新序列化为稳定顺序并保留未转义斜杠                          |
-| 请求 payload             | 直接保存已稳定序列化的完整内容, UI 行内只渲染单行短预览       |
-| 响应或错误详情           | 存完整内容, 通过预览视图查看或复制                            |
+| 场景                     | 行为                                                    |
+| ------------------------ | ------------------------------------------------------- |
+| 请求发送后等待响应       | 日志先显示"进行"                                        |
+| 收到正常响应             | 回填同一条日志为"完成"                                  |
+| 请求失败或响应解析失败   | 回填同一条日志为"错误"                                  |
+| `initialized` 无 id 通知 | 记录为"请求", 不等待响应                                |
+| 进程级错误没有 method    | 日志行直接预览错误文本                                  |
+| 响应或 JSON 错误详情     | 重新序列化为稳定顺序并保留未转义斜杠                    |
+| 请求 payload             | 直接保存已稳定序列化的完整内容, UI 行内只渲染单行短预览 |
+| 响应或错误详情           | 存完整内容, 通过预览视图查看或复制                      |
 
 设置, Hook 和更新错误:
 
@@ -798,9 +798,10 @@ sequenceDiagram
 | `tool_name`       | `tool`                                          |
 | `model`           | `model`                                         |
 | `permission_mode` | `permission`                                    |
-| `transcript_path` | `approval`；仅提取匹配 turn 的 reviewer         |
+| `transcript_path` | `approval`、`effort`；仅提取匹配 turn 的上下文  |
 | `session_id`      | `session`                                       |
 | `turn_id`         | `turn`                                          |
+| `agent_id`        | `agent`                                         |
 
 `hook_event_name` 是 Hook 事件来源。如果 stdin 有输入但缺失事件名, 记录器会吞掉本次 Hook, 避免 Hook 子进程启动完整菜单栏 App。
 
@@ -808,7 +809,7 @@ sequenceDiagram
 
 - `timestamp` 缺失或无法解析时使用当前时间
 - `cwd` 缺失时使用当前工作目录
-- `transcript_path` 缺失、无法读取、512 KB 内找不到匹配 `turn_context` 或 reviewer 未知时，`approval` 写为 `null`；主 App 仍会通过增量 rollout reader 尝试补齐，未补齐前不判定为用户等待
+- `transcript_path` 缺失、无法读取或 512 KB 内找不到匹配 `turn_context` 时，`approval` 和 `effort` 写为 `null`；reviewer 未知时 `approval` 写为 `null`。主 App 仍会通过 rollout reader 尝试补齐，未补齐 reviewer 前不判定为用户等待
 - 其他字段缺失写为 `null`
 
 Hook 数据目录:
@@ -1097,7 +1098,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 - 不把原始敏感 RPC 响应写入文档或测试夹具
 - 日志完整保存 request/detail, UI 默认只渲染单行预览; 完整内容通过标题行预览或复制查看
 - Hook 统计默认只保存在用户 Application Support 的 CodexBar 目录；开启「跨设备同步」后, CloudKit 只保存去掉 `sessionIds` / `turnIds` 的 daily 聚合副本, 不保存原始 Hook events
-- 实时任务状态只保存在 `CodexActivityMonitor` 内存中，UI 只展示项目最后一级名称、模型、工具名与最近 Hook 事件类型；运行卡片第一行组合项目和模型，第二行组合运行时间与请求/工具/压缩/子智能体状态，其他任务数使用右侧 `+N` 徽标。并发任务中心消费同一快照中的完整等待、运行、最近完成和最近终止列表，列表身份使用进程内 UUID，不展示或持久化 session/turn ID。不写历史文件、不上传 CloudKit，也不新增网络请求。`CodexSessionLifecycleReader` 只对活跃 session + turn 增量读取本机 rollout，提取事件类型、turn ID、起止时间、耗时和审批 reviewer，不提取、保存或展示提示词、回复、推理、工具内容或审批内容
+- 实时任务状态只保存在 `CodexActivityMonitor` 内存中，UI 只展示项目最后一级名称、模型、推理强度、工具名与最近 Hook 事件类型；活动卡片第一行以 `•` 组合模型、推理强度和项目，第二行组合运行时间、可靠且大于 0 的活跃子 Agent 数量与请求/工具/压缩/子智能体状态，其他任务数使用右侧 `+N` 徽标。并发任务中心消费同一快照中的完整等待、运行、最近完成和最近终止列表，在模型后以 `•` 展示推理强度，但不展示子 Agent 数量；列表身份使用进程内 UUID，不展示或持久化 session/turn/agent ID。不写历史文件、不上传 CloudKit，也不新增网络请求。`CodexSessionLifecycleReader` 只对活跃 session + turn 读取本机 rollout，提取事件类型、turn ID、起止时间、耗时、审批 reviewer 和推理强度；不提取、保存或展示提示词、回复、推理内容、工具内容、审批内容或 token 数据
 
 ## 19. 通知与触觉提醒链路
 
@@ -1107,9 +1108,9 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 - `CodexNotificationService`: 集中判定、去重、调度与发送; 由 `CodexBarAppDelegate` 创建, 订阅 `CodexStatusViewModel.$snapshot`、`CodexActivityMonitor` live transition 与 `NSWorkspace.didWakeNotification`; 五类正式通知共用 `CodexNotificationContent` 文案工厂，系统提交失败时重试一次，等待与完成 transition 还会按偏好请求 AppKit `.levelChange` 触觉反馈
 - `CodexActivityMonitor`: Hook 开启期间始终运行并维护并发任务；向 UI 发布快照，向提醒服务发布 live transition。`PermissionRequest` 先作为审批候选，只有同 turn 的 rollout reviewer 为 `user` 才确认等待；自动 reviewer 或未知 reviewer 保持运行。单个 live 批次先完整应用事件，再按任务键合并已确认的等待候选；只有批次结束后仍处于等待的任务会使用最终快照发布一次等待 transition，完成候选保持顺序并按 completion ID 做批内去重。通知与触觉开关不会停止活动监测
 - `HookEventTailReader` (`Services/Workflow/`): 后台 actor；bootstrap 以 512 KB 为单次分块流式读取滚动 24 小时事件，并用 start/events/end 三阶段恢复状态。当前文件用 inode + 完整行 offset 固定 bootstrap/live 边界；bootstrap 结束后 monitor 再发起一次定向回溯，为缺少起点的精确 turn 向旧日期文件最多回读 8 MB。之后每 2 秒 tail 当日增量，保留半行、跨日先读旧文件尾部；live 每成功处理一个分块就推进到最后完整行 offset，后续分块失败只重试未处理部分。旧文件异常触发 bootstrap 时保留 bootstrap 设置的新日期 offset，临时读取失败则保留旧日期等待下轮重试。bootstrap、定时轮询和 Mac 唤醒补读共用串行入口，读取期间到达的请求合并为当前读取结束后的一次补读；monitor generation 会丢弃停用 reader 的迟到批次
-- `CodexSessionLifecycleReader`: 后台 actor，只为 monitor 当前活动或等待终态确认的精确 session + turn 定位对应 rollout；便宜目录每 10 秒重试，每个活跃生命周期最多递归 `sessions` 一次并保留负缓存，缓存文件移动、session 重新活跃或 Mac 唤醒时重置。rollout 初次最多读取末尾 512 KB，之后每 1 秒按 offset 增量读取；`task_started` 回填缺失起点，`task_complete` 补齐结束和精确耗时，`turn_aborted` 由 monitor 移除任务并生成灰色最近终止记录，`turn_context.approvals_reviewer` 用于确认 `PermissionRequest` 是否真的路由给用户，读取失败时不把候选误判为等待。同次查询同时包含 reviewer 和终态时，monitor 保留起点回填后优先处理终态并跳过审批候选确认。轮询和即时 lifecycle 查询都绑定 reader generation，跨 actor 返回后仍会复核，旧查询不能落入新 reader 状态
+- `CodexSessionLifecycleReader`: 后台 actor，只为 monitor 当前活动或等待终态确认的精确 session + turn 定位对应 rollout；便宜目录每 10 秒重试，每个活跃生命周期最多递归 `sessions` 一次并保留负缓存，缓存文件移动、session 重新活跃或 Mac 唤醒时重置。rollout 初次最多读取末尾 512 KB，之后每 1 秒按 offset 增量读取；活跃 turn 的 effort 仍缺失且初始窗口未覆盖完整历史时，在任务开始至少 2 秒后从文件尾部最多 8 MB 定向回查，每轮查询最多处理一个 turn，失败至少间隔 10 秒重试。`task_started` 回填缺失起点，`task_complete` 补齐结束和精确耗时，`turn_aborted` 由 monitor 移除任务并生成灰色最近终止记录，`turn_context.approvals_reviewer` 用于确认 `PermissionRequest` 是否真的路由给用户，`turn_context.effort` 用于回填推理强度。读取失败时不把审批候选误判为等待，也不猜测 effort。同次查询同时包含 reviewer 和终态时，monitor 保留起点回填后优先处理终态并跳过审批候选确认。轮询和即时 lifecycle 查询都绑定 reader generation，跨 actor 返回后仍会复核，旧查询不能落入新 reader 状态
 
-活动并发以 session 为边界：不同 session 可以同时运行；同一 session 的 turn 按顺序执行。收到新的 `UserPromptSubmit` 时，monitor 会让该 session 中更早且缺少结束信号的 turn 立即退出活动列表，但保留为等待终态确认任务并触发一次即时 rollout 查询；5 秒内收到 Hook `Stop`、rollout `task_complete` 或 `turn_aborted` 时按真实终态归类，到期仍无终态才生成灰色最近终止记录。已完成和已终止任务键分别保留 24 小时 tombstone，避免迟到事件恢复旧任务或误操作同 session 的新 turn。终止不会触发绿色完成状态、长任务通知或完成触觉反馈。Hook `Stop` 与 rollout `task_complete` 均视为完成信号，先到者生效，后到者按任务键和 session 回退键去重；重复完成不会覆盖首次确认结果，也不会缩短去重窗口或再次触发反馈。
+活动并发以 session 为边界：不同 session 可以同时运行；同一 session 的 turn 按顺序执行。收到新的 `UserPromptSubmit` 时，monitor 会让该 session 中更早且缺少结束信号的 turn 立即退出活动列表，但保留为等待终态确认任务并触发一次即时 rollout 查询；5 秒内收到 Hook `Stop`、rollout `task_complete` 或 `turn_aborted` 时按真实终态归类，到期仍无终态才生成灰色最近终止记录。子 Agent 事件只能通过共享 session 关联父任务，早于当前顶层任务可信开始时间的事件会被当作上一 turn 的迟到事件忽略。已完成和已终止任务键分别保留 24 小时 tombstone，避免迟到事件恢复旧任务或误操作同 session 的新 turn。终止不会触发绿色完成状态、长任务通知或完成触觉反馈。Hook `Stop` 与 rollout `task_complete` 均视为完成信号，先到者生效，后到者按任务键和 session 回退键去重；重复完成不会覆盖首次确认结果，也不会缩短去重窗口或再次触发反馈。
 
 设置页交互: 「系统通知」主开关行保留在设置窗口内, 子选项 (五类通知子开关、任务触觉开关与两个阈值 Picker) 在主选项右侧的子面板中展开 (`NotificationOptionsPanelController`, 复用 SidePanelSupport 抽屉机制挂在设置窗口上, 内容用常驻 hosting controller + ObservableObject 驱动, 面板尺寸在 Hook 开/关两种状态下保持不变)。「任务等待通知」和「任务触觉反馈」依次排列在「任务完成通知」下方。主开关开启后仅在系统授权允许时展开, 首次授权场景会等待授权结果; 点击行内滑杆按钮可手动展开; 设置窗口 resign key/关闭、主开关关闭或授权变为被拒时自动收起。任务完成、任务等待与任务触觉子项在 Hook 未开启时显示为关闭并置灰, 不修改各自持久化偏好, Hook 重新开启后恢复用户原选择。授权被拒的引导文案与"打开系统设置"按钮仍内联显示在主开关行下方, 插入提示时不触发设置项纵向动画。
 

@@ -41,6 +41,8 @@ actor CodexSessionLifecycleReader {
         recursiveFallbackSessionIds.formIntersection(activeSessionIds)
 
         var states: [CodexSessionTaskLifecycleState] = []
+        var performedEffortBackfill = false
+        let now = Date()
         for (sessionId, sessionReferences) in referencesBySession {
             guard let reference = sessionReferences.max(by: { $0.startedAt < $1.startedAt }),
                   var cursor = cursor(for: reference) else {
@@ -48,6 +50,42 @@ actor CodexSessionLifecycleReader {
             }
 
             scanNewLifecycleEvents(into: &cursor)
+            pruneEffortBackfillState(
+                in: &cursor,
+                activeTurnIds: Set(sessionReferences.map(\.turnId))
+            )
+            if !performedEffortBackfill,
+               let reference = effortBackfillReference(
+                   from: sessionReferences,
+                   cursor: cursor,
+                   now: now
+               ) {
+                performedEffortBackfill = true
+                cursor.lastEffortBackfillAttemptByTurnId[reference.turnId] = now
+                switch backfilledEffort(
+                    from: cursor.url,
+                    turnId: reference.turnId
+                ) {
+                case let .found(effort):
+                    var lifecycle = cursor.lifecycleByTurnId[reference.turnId]
+                        ?? SessionTurnLifecycle()
+                    lifecycle.apply(
+                        .context(approvalReviewer: nil, effort: effort)
+                    )
+                    cursor.lifecycleByTurnId[reference.turnId] = lifecycle
+                    cursor.completedEffortBackfillTurnIds.insert(reference.turnId)
+                    cursor.lastEffortBackfillAttemptByTurnId.removeValue(
+                        forKey: reference.turnId
+                    )
+                case .notFound:
+                    cursor.completedEffortBackfillTurnIds.insert(reference.turnId)
+                    cursor.lastEffortBackfillAttemptByTurnId.removeValue(
+                        forKey: reference.turnId
+                    )
+                case .unavailable:
+                    break
+                }
+            }
             cursorsBySession[sessionId] = cursor
             for reference in sessionReferences {
                 guard let lifecycle = cursor.lifecycleByTurnId[reference.turnId] else {
@@ -59,12 +97,51 @@ actor CodexSessionLifecycleReader {
                         turnId: reference.turnId,
                         startedAt: lifecycle.startedAt,
                         approvalReviewer: lifecycle.approvalReviewer,
+                        effort: lifecycle.effort,
                         terminal: lifecycle.terminal
                     )
                 )
             }
         }
         return states
+    }
+
+    private func pruneEffortBackfillState(
+        in cursor: inout SessionFileCursor,
+        activeTurnIds: Set<String>
+    ) {
+        cursor.completedEffortBackfillTurnIds.formIntersection(activeTurnIds)
+        cursor.lastEffortBackfillAttemptByTurnId = cursor
+            .lastEffortBackfillAttemptByTurnId
+            .filter { activeTurnIds.contains($0.key) }
+    }
+
+    private func effortBackfillReference(
+        from references: [CodexActivityTurnReference],
+        cursor: SessionFileCursor,
+        now: Date
+    ) -> CodexActivityTurnReference? {
+        guard cursor.hasUnscannedHistoricalPrefix else {
+            return nil
+        }
+
+        return references
+            .filter { reference in
+                guard now.timeIntervalSince(reference.startedAt)
+                    >= Self.effortBackfillMinimumTaskAge,
+                    cursor.lifecycleByTurnId[reference.turnId]?.effort == nil,
+                    cursor.lifecycleByTurnId[reference.turnId]?.terminal == nil,
+                    !cursor.completedEffortBackfillTurnIds.contains(reference.turnId) else {
+                    return false
+                }
+                guard let lastAttempt = cursor
+                    .lastEffortBackfillAttemptByTurnId[reference.turnId] else {
+                    return true
+                }
+                return now.timeIntervalSince(lastAttempt)
+                    >= Self.effortBackfillRetryInterval
+            }
+            .max(by: { $0.startedAt < $1.startedAt })
     }
 
     /// 唤醒后允许仍未定位到文件的活跃 session 重新执行一次递归兜底。
@@ -165,8 +242,48 @@ actor CodexSessionLifecycleReader {
             fileIdentifier: stat?.identifier,
             offset: offset,
             discardsLeadingPartialLine: offset > 0,
-            lifecycleByTurnId: [:]
+            lifecycleByTurnId: [:],
+            hasUnscannedHistoricalPrefix: offset > 0,
+            completedEffortBackfillTurnIds: [],
+            lastEffortBackfillAttemptByTurnId: [:]
         )
+    }
+
+    private func backfilledEffort(
+        from url: URL,
+        turnId: String
+    ) -> EffortBackfillResult {
+        let size = WorkflowStorage.fileSize(at: url)
+        guard size > 0,
+              let handle = try? FileHandle(forReadingFrom: url) else {
+            return .unavailable
+        }
+        defer {
+            try? handle.close()
+        }
+
+        let offset = size > Self.effortBackfillByteLimit
+            ? size - Self.effortBackfillByteLimit
+            : 0
+        guard (try? handle.seek(toOffset: offset)) != nil,
+              let data = try? handle.readToEnd(),
+              !data.isEmpty else {
+            return .unavailable
+        }
+
+        let completeData = offset > 0
+            ? JSONLines.droppingLeadingPartialLine(data)
+            : data
+        for envelope in JSONLines.decode(
+            CodexRolloutLineEnvelope.self,
+            from: completeData
+        ).reversed() where envelope.type == "turn_context"
+            && envelope.payload?.turnId == turnId {
+            if let effort = envelope.payload?.normalizedEffort {
+                return .found(effort)
+            }
+        }
+        return .notFound
     }
 
     private func scanNewLifecycleEvents(into cursor: inout SessionFileCursor) {
@@ -218,6 +335,9 @@ actor CodexSessionLifecycleReader {
     }
 
     private static let bootstrapByteLimit: UInt64 = 512 * 1024
+    private static let effortBackfillByteLimit: UInt64 = 8 * 1024 * 1024
+    private static let effortBackfillMinimumTaskAge: TimeInterval = 2
+    private static let effortBackfillRetryInterval: TimeInterval = 10
     private static let fileResolutionRetryInterval: TimeInterval = 10
 }
 
@@ -227,6 +347,15 @@ private nonisolated struct SessionFileCursor {
     var offset: UInt64
     var discardsLeadingPartialLine: Bool
     var lifecycleByTurnId: [String: SessionTurnLifecycle]
+    let hasUnscannedHistoricalPrefix: Bool
+    var completedEffortBackfillTurnIds: Set<String>
+    var lastEffortBackfillAttemptByTurnId: [String: Date]
+}
+
+private nonisolated enum EffortBackfillResult {
+    case found(String)
+    case notFound
+    case unavailable
 }
 
 /// Codex rollout JSONL 单行的共享解码模型
@@ -244,6 +373,15 @@ nonisolated struct CodexRolloutLinePayload: Decodable {
     let completedAt: Double?
     let durationMilliseconds: Double?
     let approvalReviewer: CodexApprovalReviewer?
+    let effort: String?
+
+    var normalizedEffort: String? {
+        guard let effort else {
+            return nil
+        }
+        let value = effort.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
 
     private enum CodingKeys: String, CodingKey {
         case type
@@ -252,6 +390,7 @@ nonisolated struct CodexRolloutLinePayload: Decodable {
         case completedAt = "completed_at"
         case durationMilliseconds = "duration_ms"
         case approvalReviewer = "approvals_reviewer"
+        case effort
     }
 }
 
@@ -263,11 +402,17 @@ private nonisolated extension CodexRolloutLineEnvelope {
             return nil
         }
 
-        if type == "turn_context",
-           let approvalReviewer = payload.approvalReviewer {
+        if type == "turn_context" {
+            let effort = payload.normalizedEffort
+            guard payload.approvalReviewer != nil || effort != nil else {
+                return nil
+            }
             return SessionLifecycleEvent(
                 turnId: turnId,
-                change: .approvalReviewer(approvalReviewer)
+                change: .context(
+                    approvalReviewer: payload.approvalReviewer,
+                    effort: effort
+                )
             )
         }
 
@@ -314,7 +459,7 @@ private nonisolated struct SessionLifecycleEvent {
 
 private nonisolated enum SessionLifecycleChange {
     case started(at: Date)
-    case approvalReviewer(CodexApprovalReviewer)
+    case context(approvalReviewer: CodexApprovalReviewer?, effort: String?)
     case completed(at: Date, duration: TimeInterval?)
     case aborted(at: Date?)
 }
@@ -322,6 +467,7 @@ private nonisolated enum SessionLifecycleChange {
 private nonisolated struct SessionTurnLifecycle {
     var startedAt: Date?
     var approvalReviewer: CodexApprovalReviewer?
+    var effort: String?
     var terminal: CodexSessionTaskTerminalState?
 
     mutating func apply(_ change: SessionLifecycleChange) {
@@ -332,8 +478,9 @@ private nonisolated struct SessionTurnLifecycle {
             } else {
                 startedAt = at
             }
-        case let .approvalReviewer(value):
-            approvalReviewer = value
+        case let .context(reviewer, reasoningEffort):
+            approvalReviewer = reviewer ?? approvalReviewer
+            effort = reasoningEffort ?? effort
         case let .completed(at, duration):
             terminal = .completed(at: at, duration: duration)
         case let .aborted(at):
@@ -347,6 +494,7 @@ nonisolated struct CodexSessionTaskLifecycleState {
     let turnId: String
     let startedAt: Date?
     let approvalReviewer: CodexApprovalReviewer?
+    let effort: String?
     let terminal: CodexSessionTaskTerminalState?
 }
 

@@ -81,12 +81,14 @@ Hook stdin 会尝试解析为 Codex 官方 JSON 对象，只读取顶层字段�
 - 目录: `cwd`
 - 工具: `tool_name`
 - 模型: `model`
+- 推理强度来源: `transcript_path`；只在 `UserPromptSubmit` / `PermissionRequest` 时从对应 rollout 尾部最多 512 KB 查找同 turn 的 `turn_context.effort`，写为 `effort`
 - 权限模式: `permission_mode`，写入 `events/YYYY-MM-DD.jsonl` 时保存为 `permission`
 - 审批路由来源: `transcript_path`；只在 `UserPromptSubmit` / `PermissionRequest` 时从对应 rollout 尾部最多 512 KB 查找同 turn 的 `turn_context.approvals_reviewer`，写为 `approval`
 - 会话: `session_id`
 - 轮次: `turn_id`
+- 子 Agent 标识: `agent_id`，字段存在时写为 `agent`，用于本机实时配对 `SubagentStart` / `SubagentStop`
 
-事件名来自 payload 顶层 `hook_event_name`。没有 `--hook-event` 参数时按普通 App 启动；有 `--hook-event` 参数但 stdin 为空、不是 JSON 或事件名缺失时吞掉本次 Hook，避免 Hook 子进程继续启动完整菜单栏 App。事件时间优先读取 payload 顶层 `timestamp`，解析后按本机时区写成 `yyyy-MM-dd HH:mm:ss.SSS`；如果 `timestamp` 缺失或无法解析，记录当前时间作为兜底。同一个事件时间也会按本机时区格式化为 `yyyy-MM-dd` 的 date key，用于选择 `events/YYYY-MM-DD.jsonl` 文件。日期和时间解析统一走 `CodexDateFormat`，其中高频的 `yyyy-MM-dd` key 由本机 Gregorian 日历组件生成和校验，不暴露可变 `DateFormatter` 实例。每行按固定顺序写入 `timestamp`、`event`、`model`、`permission`、`approval`、`session`、`turn`、`tool`、`cwd`；缺少 reviewer 或当前 rollout 无法读取时写为 `null`。
+事件名来自 payload 顶层 `hook_event_name`。没有 `--hook-event` 参数时按普通 App 启动；有 `--hook-event` 参数但 stdin 为空、不是 JSON 或事件名缺失时吞掉本次 Hook，避免 Hook 子进程继续启动完整菜单栏 App。事件时间优先读取 payload 顶层 `timestamp`，解析后按本机时区写成 `yyyy-MM-dd HH:mm:ss.SSS`；如果 `timestamp` 缺失或无法解析，记录当前时间作为兜底。同一个事件时间也会按本机时区格式化为 `yyyy-MM-dd` 的 date key，用于选择 `events/YYYY-MM-DD.jsonl` 文件。日期和时间解析统一走 `CodexDateFormat`，其中高频的 `yyyy-MM-dd` key 由本机 Gregorian 日历组件生成和校验，不暴露可变 `DateFormatter` 实例。每行按固定顺序写入 `timestamp`、`event`、`model`、`effort`、`permission`、`approval`、`session`、`turn`、`agent`、`tool`、`cwd`；缺少对应 Hook 字段或当前 rollout 无法读取时写为 `null`。旧版事件行缺少新增字段时仍可正常解码。
 
 事件名统计时会去掉 `_` 和 `-` 并转小写，因此 `PreToolUse`、`pre_tool_use`、`pre-tool-use` 会归为同一个事件。
 
@@ -144,20 +146,22 @@ Codex Hook 事件可能缺少起点、结束或中断信号。`CodexSessionLifec
 
 - 只检查 monitor 内仍在运行、等待批准或等待终态确认，并且同时具有 session ID 和 turn ID 的任务，不持续扫描所有历史会话。
 - 优先在 `~/.codex/sessions/YYYY/MM/DD/` 和 `~/.codex/archived_sessions/` 按 session ID 定位对应 rollout；这些便宜目录允许每 10 秒重试。resume 的旧 session 找不到时，每个活跃生命周期只递归 `sessions` 一次并保留负缓存；session 重新活跃、缓存文件消失或 Mac 唤醒时重置递归资格。
-- 初次从文件末尾最多读取 512 KB，之后每 1 秒按 byte offset 增量读取，保留半行并检测截断或替换。只解出顶层 `type`、`payload.type`、`payload.turn_id`、`started_at`、`completed_at`、`duration_ms` 和 `turn_context.approvals_reviewer`；不提取、保存或展示提示词、回复、推理、工具内容或审批内容。
+- 初次从文件末尾最多读取 512 KB，之后每 1 秒按 byte offset 增量读取，保留半行并检测截断或替换。初始窗口未覆盖完整历史且活跃 turn 的 effort 仍缺失时，会在任务开始至少 2 秒后按精确 turn 从文件尾部最多 8 MB 一次性回查 `turn_context.effort`；每轮 lifecycle 查询最多回查一个 turn，读取失败至少间隔 10 秒重试，成功读取但未找到则不再回查。只解出顶层 `type`、`payload.type`、`payload.turn_id`、`started_at`、`completed_at`、`duration_ms`、`turn_context.approvals_reviewer` 和 `turn_context.effort`；不提取、保存或展示提示词、回复、推理内容、工具内容、审批内容或 token 数据。
 - `event_msg / task_started` 只为缺少 Hook Prompt 起点的精确 turn 回填开始时间；`task_complete` 补齐缺失的 Hook `Stop`，使用 `completed_at` 和 `duration_ms` 生成完成状态。初始恢复只更新状态而不回放通知或触觉反馈；运行期间新收到的 `task_complete` 可发布一次完成 transition，后到的 Hook `Stop` 会被去重。定时轮询和唤醒/恢复触发的即时查询都绑定启动时的 reader generation，并在跨 actor 等待前后校验，旧 generation 的迟到 rollout 结果不会写入新状态。
 - `PermissionRequest` 只表示操作进入审批流程，不等同于 UI 正在等待用户。monitor 先把它保存为当前 turn 的等待候选；只有同一 turn 的 `turn_context.approvals_reviewer` 明确为 `user` 时才切换到等待批准。`auto_review`、兼容值 `guardian_subagent` 或 reviewer 缺失时保持运行状态，不发布等待 transition、通知或触觉反馈。
 - 单次 lifecycle 查询同时包含 reviewer 和 `task_complete` / `turn_aborted` 时，monitor 先保留 `task_started` 的起点回填，再优先处理终态并跳过审批候选确认，不为已经结束的任务发布等待 transition。
+- lifecycle 查询读到 `turn_context.effort` 时会回填当前 turn 的推理强度；Hook 与 rollout 值一致时保持原值，缺失时沿用已有值，若同一 turn 出现冲突则标记为 `mixed`，不会静默覆盖。推理强度会随任务进入完成或终止记录。
 - `event_msg / turn_aborted` 移除对应任务，并在任务中心生成保留 10 分钟的灰色最近终止记录；优先使用 rollout 行时间，缺失时活跃任务使用检测时间、等待终态确认任务使用被新 Prompt 替代的时间，且都不猜测耗时。不生成完成记录、绿色状态、通知或触觉反馈。文件不存在、无法读取、格式变化或缺少精确 ID 时保留原 Hook 状态，最终仍由后续 prompt、Stop、Hook 关闭或 24 小时过期兜底。
 
 任务状态机规则：
 
 - 任务键优先使用 `session + turn`，缺少 turn 时使用 session；两者都缺少时按项目名归入匿名任务。匿名任务以及缺少起点的恢复任务不展示精确总耗时。
 - `UserPromptSubmit` 创建运行任务；同一 session 收到新 prompt 时，旧 turn 即使缺少 Stop 也视为已中断并从运行状态移除，但不生成完成记录、通知或触觉反馈。工具、上下文压缩和子智能体事件更新已有任务并解除等待，同时记录最近事件供活动卡片实时展示。工具和权限事件缺少起点时可以恢复顶层状态，子智能体事件不会单独创建顶层任务。
+- `SubagentStart` / `SubagentStop` 的 `turn_id` 属于子 Agent 自己，不等于父任务 turn；子 Agent 活跃数通过共享 `session_id` 归属到该 session 下唯一的当前顶层任务。关联成功后，早于顶层任务可信开始时间的事件会被视为上一 turn 的迟到事件并忽略。monitor 以 `agent_id` 保存每个子 Agent 最新的开始/结束状态，重复事件幂等，旧时间戳不会覆盖新状态；遇到缺失 `agent_id`、同 session 存在多个活动或等待终态确认的顶层任务、无法关联任务，或没有已知开始状态的结束事件后，将当前任务标记为不可可靠统计并隐藏数量。数量可靠且大于 0 时才显示在主面板当前活动卡片，任务中心不显示；任务结束或新 turn 替换旧 turn 时随内存任务状态一并清除。Hook 整体缺失结束事件无法被主动识别，因此该值仍是基于完整 Hook 序列的最佳努力实时状态。
 - `PermissionRequest` 先成为审批候选；只有 rollout 已确认该 turn 的 `approvals_reviewer == user` 才进入等待批准，自动 reviewer 产生的同名 Hook 不改变运行状态。重复的用户等待事件不重复发布等待 transition。live 读取一次可能包含多个事件，monitor 会在整批应用后按任务键合并等待候选：最终仍在等待时使用最终快照发布一次，已经恢复运行、完成或移除时不发布过期等待 transition；完成候选保持事件顺序，并按 completion ID 防止同批重复发布。
 - Hook `Stop` 或 rollout `task_complete` 结束任务并产生最近完成记录，两者在进程内按精确任务键和 session 回退键去重，保留第一次确认的完成及精确耗时且不重复发布 transition。后到的重复完成不会覆盖首次确认结果，也不会缩短 24 小时去重窗口。期间迟到的工具、压缩或权限事件不会恢复已完成任务，只有时间晚于完成记录的新 `UserPromptSubmit` 可以开始下一段生命周期。rollout `turn_aborted` 会直接进入最近终止列表；同 session 新 prompt 淘汰的旧 turn 则立即退出活动列表并进入 5 秒终态确认窗口，期间继续参与 rollout 查询并优先接受 `task_complete`、`turn_aborted` 或迟到 Hook `Stop`，到期仍无终态才进入最近终止列表。“完成”只表示该 turn 已结束，不表示任务成功。
 - 精确 turn 匹配失败时，回退同 session 最近活动任务，再回退同项目匿名任务。
-- UI 优先展示最近等待任务，其次最近运行任务、最近完成任务和最近终止任务，同时保留运行与等待数量。只有终止历史时，活动卡片使用灰色终止状态展示最近一项。运行卡片第一行组合项目与模型，第二行展示运行时间及最近的请求/工具/压缩/子智能体事件，其他任务数量以右侧 `+N` 徽标展示。菜单栏完成绿色保留 30 秒，任务中心的最近完成和最近终止记录保留 10 分钟，24 小时没有新事件的活动自动过期。
+- UI 优先展示最近等待任务，其次最近运行任务、最近完成任务和最近终止任务，同时保留运行与等待数量。只有终止历史时，活动卡片使用灰色终止状态展示最近一项。活动卡片第一行按“模型 ` • ` 推理强度 ` • ` 项目”组合可用字段，第二行展示运行时间、可靠时的“`N 个子 Agent`”及最近的请求/工具/压缩/子智能体事件；其他任务数量以右侧 `+N` 徽标展示。任务中心在模型后使用 ` • ` 展示推理强度，但不展示子 Agent 数量。菜单栏完成绿色保留 30 秒，任务中心的最近完成和最近终止记录保留 10 分钟，24 小时没有新事件的活动自动过期。
 
 跨日时仍在内存中的运行任务会继续保留；重启 App 后由滚动 24 小时 bootstrap 恢复近期活动，并为更早开始的精确 turn 定向回填起点。任务会一直保留到收到 Hook `Stop` 或 rollout `task_complete`、检测到 `turn_aborted`、同 session 新 prompt 将其淘汰、Hook 被关闭或连续 24 小时没有新事件。完成高亮、最近完成、最近终止、完成去重键和活动过期共用按最近到期时刻创建的单次清理任务，不运行常驻清理计时器；读取完成键时还会惰性淘汰已经超过 24 小时的记录，避免系统休眠或计时任务稍晚唤醒时误拦第一条新事件。
 
@@ -276,6 +280,8 @@ subagentStopCount, sessionCount, turnCount, projectCounts, modelCounts, sessionI
 - `event` 是非空字符串
 
 不满足这两个条件的坏行在重建时会被跳过。其他字段缺失不会阻断统计，只会影响依赖该字段的去重或项目统计。
+
+`effort` 用于本机实时任务展示，`agent` 用于子 Agent 关联；两者都不参与每日计数或 `daily.jsonl` schema，也不会进入 CloudKit 同步副本。`agent` 不直接展示给用户；原始值只随对应 Hook 行保存在本机事件文件中。
 
 从 `events/YYYY-MM-DD.jsonl` 到页面指标的判定规则如下:
 

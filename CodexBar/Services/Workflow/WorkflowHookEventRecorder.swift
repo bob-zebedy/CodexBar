@@ -31,7 +31,8 @@ nonisolated enum WorkflowHookEventRecorder {
         let permission = payload.string(for: "permission_mode")
         let sessionId = payload.string(for: "session_id")
         let turnId = payload.string(for: "turn_id")
-        let approvalReviewer = readApprovalReviewer(
+        let agentId = payload.string(for: "agent_id")
+        let turnContext = readTurnContext(
             from: payload,
             eventName: eventName,
             turnId: turnId
@@ -42,27 +43,29 @@ nonisolated enum WorkflowHookEventRecorder {
             directoryPath: cwd,
             toolName: tool,
             modelName: model,
+            effort: turnContext?.effort,
             permissionMode: permission,
-            approvalReviewer: approvalReviewer,
+            approvalReviewer: turnContext?.approvalReviewer,
             sessionId: sessionId,
-            turnId: turnId
+            turnId: turnId,
+            agentId: agentId
         )
 
         try recordWorkflowTransaction(event: event)
     }
 
-    private static func readApprovalReviewer(
+    private static func readTurnContext(
         from payload: WorkflowHookPayload,
         eventName: String,
         turnId: String?
-    ) -> CodexApprovalReviewer? {
+    ) -> WorkflowTurnContext? {
         guard let hookEvent = CodexHookEvent(eventName: eventName),
               hookEvent == .userPromptSubmit || hookEvent == .permissionRequest,
               let turnId,
               let transcriptPath = payload.string(for: "transcript_path") else {
             return nil
         }
-        return WorkflowTurnContextReader.approvalReviewer(
+        return WorkflowTurnContextReader.context(
             transcriptPath: transcriptPath,
             turnId: turnId
         )
@@ -121,12 +124,12 @@ nonisolated enum WorkflowHookEventRecorder {
     }
 }
 
-/// Hook payload 不直接提供 reviewer；从当前 rollout 尾部只提取匹配 turn 的审批路由。
+/// Hook payload 不直接提供 reviewer 和 effort；从当前 rollout 尾部只提取匹配 turn 的上下文。
 private nonisolated enum WorkflowTurnContextReader {
-    static func approvalReviewer(
+    static func context(
         transcriptPath: String,
         turnId: String
-    ) -> CodexApprovalReviewer? {
+    ) -> WorkflowTurnContext? {
         let url = URL(fileURLWithPath: transcriptPath)
         let size = WorkflowStorage.fileSize(at: url)
         guard size > 0,
@@ -147,15 +150,26 @@ private nonisolated enum WorkflowTurnContextReader {
         let completeData = offset > 0 ? JSONLines.droppingLeadingPartialLine(data) : data
 
         for envelope in JSONLines.decode(CodexRolloutLineEnvelope.self, from: completeData)
-            .reversed()
-            where envelope.type == "turn_context"
-            && envelope.payload?.turnId == turnId {
-            return envelope.payload?.approvalReviewer
+            .reversed() {
+            guard envelope.type == "turn_context",
+                  let payload = envelope.payload,
+                  payload.turnId == turnId else {
+                continue
+            }
+            return WorkflowTurnContext(
+                approvalReviewer: payload.approvalReviewer,
+                effort: payload.normalizedEffort
+            )
         }
         return nil
     }
 
     private static let searchByteLimit: UInt64 = 512 * 1024
+}
+
+private nonisolated struct WorkflowTurnContext {
+    let approvalReviewer: CodexApprovalReviewer?
+    let effort: String?
 }
 
 /// Codex Hook payload 字段存在版本差异, 这里集中做宽松类型归一化

@@ -97,26 +97,36 @@ struct CodexActivityCard: View {
     private func content(at now: Date) -> ActivityCardContent {
         switch snapshot.primaryActivity {
         case let .waiting(task):
-            let details = CodexActivityDisplayFormat.waitingDetailComponents(for: task, now: now)
+            let details = activeDetailComponents(
+                CodexActivityDisplayFormat.waitingDetailComponents(for: task, now: now),
+                task: task
+            )
             return ActivityCardContent(
                 symbolName: "hand.raised.fill",
                 tint: .orange,
-                title: task.projectName ?? "Codex 等待批准",
+                title: activityTitle(
+                    modelName: task.modelName,
+                    effort: task.effort,
+                    projectName: task.projectName,
+                    fallback: "Codex 等待批准"
+                ),
                 detail: details.joined(separator: " • "),
                 otherTaskCount: otherTaskCount
             )
         case let .running(task):
-            var titles: [String] = []
-            if let modelName = task.modelName {
-                titles.append(modelName)
-            }
-            titles.append(task.projectName ?? "Codex")
-
-            let details = CodexActivityDisplayFormat.runningDetailComponents(for: task, now: now)
+            let details = activeDetailComponents(
+                CodexActivityDisplayFormat.runningDetailComponents(for: task, now: now),
+                task: task
+            )
             return ActivityCardContent(
                 symbolName: "bolt.fill",
                 tint: .blue,
-                title: titles.joined(separator: " • "),
+                title: activityTitle(
+                    modelName: task.modelName,
+                    effort: task.effort,
+                    projectName: task.projectName,
+                    fallback: "Codex"
+                ),
                 detail: details.joined(separator: " • "),
                 otherTaskCount: otherTaskCount
             )
@@ -128,7 +138,12 @@ struct CodexActivityCard: View {
             return ActivityCardContent(
                 symbolName: "checkmark.circle.fill",
                 tint: .green,
-                title: completion.projectName ?? "Codex 任务已完成",
+                title: activityTitle(
+                    modelName: completion.modelName,
+                    effort: completion.effort,
+                    projectName: completion.projectName,
+                    fallback: "Codex 任务已完成"
+                ),
                 detail: details.joined(separator: " • "),
                 otherTaskCount: 0
             )
@@ -140,7 +155,12 @@ struct CodexActivityCard: View {
             return ActivityCardContent(
                 symbolName: "xmark.circle.fill",
                 tint: .secondary,
-                title: termination.projectName ?? "Codex 任务已终止",
+                title: activityTitle(
+                    modelName: termination.modelName,
+                    effort: termination.effort,
+                    projectName: termination.projectName,
+                    fallback: "Codex 任务已终止"
+                ),
                 detail: details.joined(separator: " • "),
                 otherTaskCount: 0
             )
@@ -153,6 +173,35 @@ struct CodexActivityCard: View {
                 otherTaskCount: 0
             )
         }
+    }
+
+    private func activityTitle(
+        modelName: String?,
+        effort: String?,
+        projectName: String?,
+        fallback: String
+    ) -> String {
+        [
+            CodexActivityDisplayFormat.modelMetadata(
+                modelName: modelName,
+                effort: effort
+            ),
+            projectName ?? fallback
+        ]
+        .compactMap(\.self)
+        .joined(separator: " • ")
+    }
+
+    private func activeDetailComponents(
+        _ components: [String],
+        task: CodexActivityTaskSnapshot
+    ) -> [String] {
+        guard let count = task.activeSubagentCount, count > 0 else {
+            return components
+        }
+        var result = components
+        result.insert("\(count) 个子 Agent", at: min(1, result.count))
+        return result
     }
 
     private var otherTaskCount: Int {
