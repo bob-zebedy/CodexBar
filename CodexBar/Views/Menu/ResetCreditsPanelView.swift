@@ -149,7 +149,7 @@ struct ResetCreditsPanelView: View {
 
                     Spacer(minLength: 8)
 
-                    availableValue(count: group.count)
+                    availableValue(for: group)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -163,15 +163,17 @@ struct ResetCreditsPanelView: View {
             .fixedSize(horizontal: true, vertical: false)
     }
 
-    private func availableValue(count: Int) -> some View {
-        Text("可用: \(count)")
+    private func availableValue(for group: ResetCreditExpirationGroup) -> some View {
+        let tint: Color = group.isExpiringSoon ? .orange : .green
+
+        return Text("可用: \(group.count)")
             .font(.caption2.monospacedDigit().weight(.semibold))
-            .foregroundStyle(.green)
+            .foregroundStyle(tint)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .liquidGlassCapsule(tint: .green)
+            .liquidGlassCapsule(tint: tint)
     }
 
     private enum Metrics {
@@ -194,20 +196,30 @@ struct ResetCreditsPanelView: View {
 private struct ResetCreditExpirationGroup: Identifiable, Equatable {
     let expirationText: String
     var count: Int
+    let isExpiringSoon: Bool
 
     var id: String {
         expirationText
     }
 
-    static func grouped(from dates: [Date]) -> [Self] {
+    static func grouped(from dates: [Date], now: Date = Date()) -> [Self] {
         dates.sorted().reduce(into: [Self]()) { groups, date in
             let expirationText = CodexDateFormat.localDisplayString(from: date)
 
             if let lastIndex = groups.indices.last, groups[lastIndex].expirationText == expirationText {
                 groups[lastIndex].count += 1
             } else {
-                groups.append(Self(expirationText: expirationText, count: 1))
+                let remainingTime = date.timeIntervalSince(now)
+                groups.append(
+                    Self(
+                        expirationText: expirationText,
+                        count: 1,
+                        isExpiringSoon: remainingTime > 0 && remainingTime <= expiringSoonInterval
+                    )
+                )
             }
         }
     }
+
+    private static let expiringSoonInterval: TimeInterval = 7 * 24 * 60 * 60
 }
