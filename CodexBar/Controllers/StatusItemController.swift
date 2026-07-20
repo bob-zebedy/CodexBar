@@ -9,6 +9,9 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     lazy var viewModel = CodexStatusViewModel(service: codexStatusService)
     let workflowViewModel = WorkflowViewModel()
     lazy var codexHookSettings = CodexHookSettings(codexStatusService: codexStatusService)
+    lazy var codexCLINotificationSettings = CodexCLINotificationSettings(
+        codexStatusService: codexStatusService
+    )
     lazy var activityMonitor = CodexActivityMonitor(codexHookSettings: codexHookSettings)
     let syncSettings = WorkflowSyncSettings()
     let globalHotKeySettings = GlobalHotKeySettings()
@@ -25,6 +28,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             viewModel: viewModel,
             workflowViewModel: workflowViewModel,
             codexHookSettings: codexHookSettings,
+            codexCLINotificationSettings: codexCLINotificationSettings,
             activityMonitor: activityMonitor,
             syncSettings: syncSettings,
             globalHotKeySettings: globalHotKeySettings,
@@ -64,6 +68,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private let viewModel: CodexStatusViewModel
     private let workflowViewModel: WorkflowViewModel
     private let codexHookSettings: CodexHookSettings
+    private let codexCLINotificationSettings: CodexCLINotificationSettings
     private let activityMonitor: CodexActivityMonitor
     private let syncSettings: WorkflowSyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
@@ -94,6 +99,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         viewModel: viewModel,
         appUpdater: appUpdater,
         codexHookSettings: codexHookSettings,
+        codexCLINotificationSettings: codexCLINotificationSettings,
         syncSettings: syncSettings,
         globalHotKeySettings: globalHotKeySettings,
         menuBarQuotaSettings: menuBarQuotaSettings,
@@ -153,6 +159,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         viewModel: CodexStatusViewModel,
         workflowViewModel: WorkflowViewModel,
         codexHookSettings: CodexHookSettings,
+        codexCLINotificationSettings: CodexCLINotificationSettings,
         activityMonitor: CodexActivityMonitor,
         syncSettings: WorkflowSyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
@@ -164,6 +171,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         self.viewModel = viewModel
         self.workflowViewModel = workflowViewModel
         self.codexHookSettings = codexHookSettings
+        self.codexCLINotificationSettings = codexCLINotificationSettings
         self.activityMonitor = activityMonitor
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings

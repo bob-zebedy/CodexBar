@@ -76,11 +76,50 @@ nonisolated enum WorkflowHookEventRecorder {
             let dateKey = WorkflowStorage.dateKey(for: event.timestamp)
             let eventLogURL = WorkflowStorage.eventLogURL(for: dateKey)
             var maintenanceState = WorkflowStorage.loadMaintenanceState()
+            let existingStat = WorkflowStorage.fileStat(at: eventLogURL)
+            var stateChanged = false
+
+            if let existingStat {
+                let day = maintenanceState.days[dateKey]
+                let identifierChanged = day?.fileIdentifier != nil
+                    && existingStat.identifier != nil
+                    && day?.fileIdentifier != existingStat.identifier
+                let fileShrank = day.map { existingStat.size < $0.offset } ?? false
+
+                if identifierChanged || fileShrank {
+                    maintenanceState.startNewSourceGeneration(
+                        for: dateKey,
+                        isFresh: existingStat.size == 0,
+                        fileIdentifier: existingStat.identifier
+                    )
+                    stateChanged = true
+                } else {
+                    stateChanged = maintenanceState.ensureSourceGeneration(
+                        for: dateKey,
+                        fileIdentifier: existingStat.identifier
+                    )
+                }
+            } else {
+                maintenanceState.startNewSourceGeneration(
+                    for: dateKey,
+                    isFresh: true,
+                    fileIdentifier: nil
+                )
+                stateChanged = true
+            }
 
             try append(event.jsonLineData(), to: eventLogURL)
 
+            if var day = maintenanceState.days[dateKey],
+               day.fileIdentifier == nil,
+               let identifier = WorkflowStorage.fileStat(at: eventLogURL)?.identifier {
+                day.fileIdentifier = identifier
+                maintenanceState.days[dateKey] = day
+                stateChanged = true
+            }
+
             // 稳态下当天早已 pending, 跳过无变化的全量重写以缩短持锁时间
-            if maintenanceState.markPending(dateKey) {
+            if maintenanceState.markPending(dateKey) || stateChanged {
                 try WorkflowStorage.saveMaintenanceState(maintenanceState)
             }
         }

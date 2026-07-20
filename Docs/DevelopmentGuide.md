@@ -630,6 +630,8 @@ Hook 开启且当天没有 token bucket 时, 今天的 token 数显示 `--`。�
 
 开启前会复用 App 当前的 `CodexStatusService` app-server 会话调用 `config/read`, 如果有效配置中 `[features] hooks = false` 或兼容旧名 `codex_hooks = false`, 则不写入 Hook, 并在 Hook 选项下方提示。`config/read` 请求失败时同样不写入 Hook, 并显示"设置 Codex Hook 失败"。开启写入后会继续调用 `hooks/list`, 检查 Codex 实际识别到的 `command`, `eventName`, `enabled`, `sourcePath`, `trustStatus`, `key`, `currentHash`, `warnings` 和 `errors`。如果 `trustStatus` 是 `untrusted` 或 `modified`, CodexBar 只对 `sourcePath` 指向全局 `~/.codex/hooks.json` 且 command 属于当前 CodexBar 的 Hook, 用 `config/batchWrite` 把对应 `trusted_hash` upsert 到 `hooks.state` 并重新 `hooks/list` 验证。`hooks/list`、自动信任写入或验证未通过不会回滚已写入 Hook, 只在 Hook 选项下方显示验证摘要。这些 app-server 请求和响应都会进入日志窗口。
 
+Hook command 保存当前可执行文件的绝对路径。移动或替换 App 后如果不同安装路径的 CodexBar Hook 同时生效，Codex 会让每个 command 都处理同一事件，造成重复追加；另一安装位置的二进制还可能改写共享的 maintenance state。配置维护只增删当前可执行文件对应的 Hook，不会自动清除其他安装路径留下的条目，因此移动 App 和排障时需要显式检查并移除原路径。
+
 下面的时序图展示开启 Hook, Codex 触发事件, 本机写入, 后台维护, 以及常见错误后的处理
 
 ```mermaid
@@ -825,7 +827,7 @@ Hook 数据目录:
 | `events/YYYY-MM-DD.jsonl` | 按本机日期拆分的原始 Hook 事件                   |
 | `daily.jsonl`             | 每日聚合结果, UI 优先读取                        |
 | `stats.lock`              | `flock` 锁文件                                   |
-| `maintenance.json`        | pending, dirty, offset, size, corrupt 等维护状态 |
+| `maintenance.json`        | pending、dirty、offset、来源 generation 和文件连续性校验状态 |
 
 ## 12. Workflow 维护与聚合流程
 
@@ -860,12 +862,14 @@ flowchart TD
 
 任务类型:
 
-| 类型    | 触发条件                                                   | 读取方式                        |
-| ------- | ---------------------------------------------------------- | ------------------------------- |
-| dirty   | schema 变化, daily 缺失或坏行, events 状态不一致, 文件缩小 | 从当天 events 文件开头重建      |
-| pending | Hook 新增事件或 events 文件变大                            | 从 `days[date].offset` 增量读取 |
+| 类型    | 触发条件                                                                 | 读取方式                        |
+| ------- | ------------------------------------------------------------------------ | ------------------------------- |
+| dirty   | schema 变化、daily 缺失或坏行、events 来源 generation 或文件连续性不一致 | 从当天 events 文件开头重建      |
+| pending | Hook 新增事件或 events 文件变大                                          | 从 `days[date].offset` 增量读取 |
 
 同一维护批次只读取一次现有 `daily.jsonl`，随后让所有 dirty/pending 日期任务共享并逐步更新同一份内存聚合集合；每次落盘前仍对整份集合执行当前保留策略的归一化。批次没有写入时，服务用文件 size、identifier 和当天日期键组成的进程内 stamp 跳过未变化文件的重复全量解码；日期跨天或文件发生变化后会重新检查并在需要时原子改写。
+
+事件文件发现以当前实际存在的 `events/YYYY-MM-DD.jsonl` 为准。物理删除历史 events 文件不会删除已有 daily 行，也不会单独切换 generation；如果 daily 行也不存在，开启同步时快照可回退到当前 cache 中的云端贡献。仍存在的文件被清空、截断、替换 inode 或边界内容变化时，维护才会按连续性校验切换 generation 并重建。
 
 聚合规则:
 
@@ -893,9 +897,11 @@ UI 展示指标来自 `WorkflowDailyAggregate.metrics`:
 | 上下文压缩 | `max(preCompactCount, postCompactCount)`                                        |
 | 最热模型   | 合并 `modelCounts` 后取计数最高的模型, 并列时按名称升序                         |
 
-跨设备同步只在 `performMaintenance: true, synchronize: true` 的刷新中执行。`WorkflowSyncScheduler` 会合并同步开关、Hook 重新开启、同步账号恢复可用和自动刷新产生的同步请求；同步中不取消重启, 冷却窗口内只保留一次待补跑请求, 补跑前重新校验 Hook 开启、跨设备同步偏好为 true 且同步账号可用。`WorkflowSyncService` 先用本机 daily 聚合生成脱敏 `WorkflowSyncedDailyAggregate`, 保留 `projectCounts` 和 `modelCounts`, 再按日期稳定排序候选项, 每批最多上传 25 天, 每轮最多使用 20 秒。zone 存在性确认和 account salt 首次成功后在 actor 内跨轮缓存, 任一轮同步失败时作废, 下一轮重新确认（覆盖 iCloud 账号切换）。每批成功后立即保存 `state.hashByDate` 和 `lastUploadAt`, 未完成的 backfill 留给后续自动刷新继续。没有 `cursor.data` 时先 query 全量 `CodexBarDailyAggregate` 回填 `cache.jsonl`; 有游标时优先拉 CloudKit 增量, 游标失效或增量失败时不写入日志窗口, 直接全量重建缓存。写入 `cache.jsonl` 前会过滤当前设备自己的记录, 只保留其他设备记录。增量路径先写 `cache.jsonl`, 成功后再写 `cursor.data`, 避免游标提前推进导致未落盘记录被跳过。同步失败会通过 `CodexBar.workflowSyncDidFinish` 通知发送 `didSucceed=false` 和归类后的 `failureMessage`, 主面板同步图标进入失败态。
+跨设备同步只在 `performMaintenance: true, synchronize: true` 的刷新中执行。`WorkflowSyncScheduler` 会合并同步开关、Hook 重新开启、同步账号恢复可用和自动刷新产生的同步请求；同步中不取消重启, 冷却窗口内只保留一次待补跑请求, 补跑前重新校验 Hook 开启、跨设备同步偏好为 true 且同步账号可用。`WorkflowSyncService` 先用本机 daily 聚合生成脱敏 `WorkflowSyncedDailyAggregate`, 保留 `sourceGeneration`、`projectCounts` 和 `modelCounts`, 再为保留窗口内的全部本机日期计算稳定 hash、按日期稳定排序候选项, 每批最多上传 25 天, 每轮最多使用 20 秒。zone 存在性确认和 account salt 首次成功后在 actor 内跨轮缓存, 任一轮同步失败时作废, 下一轮重新确认（覆盖 iCloud 账号切换）。同步先刷新一次 CloudKit 缓存再决定上传：只在当前 `deviceId`、当前待上传日期内查找本机副本；同 generation 复用现有记录并按 `eventCount` 防倒退；没有 generation 的记录必须与本机全部同步业务字段完全一致才会被认作同一来源，即使两边 generation 都是 `nil` 也不能跳过内容比较；确认从空文件开始的新 generation 使用独立记录；来源不明确的非空替换在已有云端贡献时只确认保留云端，不自动上传为新贡献。每批处理后立即保存已经上传或确认保留的 `state.hashByDate`; 只有实际上传时更新 `lastUploadAt`, 未完成的 backfill 留给后续自动刷新继续。上传后再次拉取 CloudKit 变化。没有 `cursor.data` 时先 query 全量 `CodexBarDailyAggregate` 回填 `cache.jsonl`; 有游标时优先拉 CloudKit 增量, 游标失效或增量失败时不写入日志窗口, 直接全量重建缓存。删除变化只移除 cache 记录，不清除已确认 hash，所以外部删除不会在本机 daily 未变化时立即回传。`cache.jsonl` 按 record name 保存所有设备和 generation 的记录；展示时当前本机 generation 与同 generation 云端副本按 `eventCount` 择优，确认独立的其他 generation 与其他设备记录继续累加；来源不明确的替换继续使用已有云端记录。增量路径先写 `cache.jsonl`, 成功后再写 `cursor.data`, 避免游标提前推进导致未落盘记录被跳过。同步失败会通过 `CodexBar.workflowSyncDidFinish` 通知发送 `didSucceed=false` 和归类后的 `failureMessage`, 主面板同步图标进入失败态。
 
-当前代码写入的 CloudKit `schemaVersion` 和本地同步 state schema 都是 `3`。本地 state 从 schema `2` 升级时会丢弃旧 hash 和游标基线，重新上传本机 daily，并从 custom zone 重建其他设备缓存，从而覆盖旧版空数组压缩产生的错误零 count。
+当前代码写入的 CloudKit `schemaVersion` 是 `4`, 本地同步 state schema 是 `4`，本地工作流维护 state schema 也是 `4`。同步 state 无法按当前 schema 使用时会重建并重新同步。daily 或 CloudKit 记录没有 `sourceGeneration` 时仍可读取；只有其全部同步业务字段与当前本机聚合一致时，才会认作同一 generation。
+
+CloudKit Production schema 必须包含当前 schema `4` 使用的字段；schema 变化需要通过 CloudKit Dashboard 从 Development 部署到 Production，运行时代码不会代替发布流程执行部署。
 
 ## 13. 设置窗口流程
 
@@ -905,6 +911,7 @@ UI 展示指标来自 `WorkflowDailyAggregate.metrics`:
 
 - `CodexHookSettings.refresh()`
 - `CodexHookSettings.verifyInstalledHooks()`
+- `CodexCLINotificationSettings.refresh()`
 - `WorkflowSyncSettings.refresh()`
 - `MenuBarQuotaSettings.refresh()`
 - `MainPanelSettings.refresh()`
@@ -934,6 +941,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 | 菜单栏额度指示  | `MenuBarQuotaSettings.selection` / `MenuBarQuota.lastWindowSelection`                | 开关写入 `.off` 或恢复持久化的上次窗口选择, 窗口菜单写入所选窗口并同步记住; 标签优先来自当前账号 Codex limit 返回的额度窗口, 缺失时使用 fallback 标题 |
 | 主面板任务中心  | `MainPanelSettings.showsTaskCenter` + Codex Hook 状态                                | 写入 `MainPanel.showsTaskCenter`; 缺失时默认开启。Hook 关闭时显示为关闭并置灰但保留偏好, 重新开启后恢复                                               |
 | 系统通知        | `NotificationSettings` + `UNUserNotificationCenter`                                  | 总开关、五类通知子开关、任务触觉开关与阈值写入 `UserDefaults`; 首次开启时请求系统通知授权                                                             |
+| Codex TUI 通知  | `CodexCLINotificationSettings` + app-server `config/read` / `config/batchWrite`      | 读取用户级 `[tui].notifications`; 缺失时按开启处理，关闭/开启分别 upsert `false` / `true`，不修改顶层 `notify`                                        |
 | 使用快捷键      | `GlobalHotKeySettings.shortcut`                                                      | 写入 `UserDefaults` 并注册 hot key                                                                                                                    |
 | 启用 Codex Hook | app-server `config/read` / `hooks/list` / `config/batchWrite`, `~/.codex/hooks.json` | 检查全局 Hook 开关后追加或移除当前 CodexBar command hook, 并维护对应 `hooks.state` 信任状态                                                           |
 | 跨设备同步      | `WorkflowSyncSettings` + CloudKit account status + `WorkflowSyncScheduler`           | Hook 开启且同步账号可用时写入 `UserDefaults`; 开启时标记 `needsBackfill` 并请求调度同步                                                               |
@@ -1093,6 +1101,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 - 主 App 维护 `daily.jsonl` 时, 先锁外原子写 daily, 再短暂持锁提交维护状态, 减少阻塞 Hook 写入
 - `maintenance.json` 和 `daily.jsonl` 使用 atomic write
 - 设置 Hook 时通过当前 app-server 会话先读 `config/read`, 未全局禁用时 pretty printed 写回 `~/.codex/hooks.json`, 只移除 command 同时包含当前 App 可执行路径和 `--hook-event` 参数的 handler, 写入后再用 `hooks/list` 验证有效状态；未信任或已修改时, 仅把当前 CodexBar command 且来源为全局 `hooks.json` 的 `key/currentHash` 通过 `config/batchWrite` 写入 `hooks.state`
+- `CodexCLINotificationSettings` 通过同一 app-server 会话读取有效 `tui.notifications`，并用 `config/batchWrite` 只 upsert 该布尔值；不直接重写 `config.toml`，也不修改顶层 `notify`
 
 隐私和敏感信息边界:
 
@@ -1100,7 +1109,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 - 不展示 Codex OAuth token 或 `auth.json` 内容; 只用 access token 发起 `rate-limit-reset-credits` 只读请求, 丢弃原始响应, 只保留可用且未过期的过期时间数组
 - 不把原始敏感 RPC 响应写入文档或测试夹具
 - 日志完整保存 request/detail, UI 默认只渲染单行预览; 完整内容通过标题行预览或复制查看
-- Hook 统计默认只保存在用户 Application Support 的 CodexBar 目录；开启「跨设备同步」后, CloudKit 只保存去掉 `sessionIds` / `turnIds` 的 daily 聚合副本, 不保存原始 Hook events
+- Hook 统计默认只保存在用户 Application Support 的 CodexBar 目录；开启「跨设备同步」后, CloudKit 只保存去掉 `sourceIsFresh`、`sessionIds` 和 `turnIds` 的 daily 聚合副本，以及用于区分独立数据段的随机 `sourceGeneration`，不保存原始 Hook events、文件 inode 或边界 hash
 - 实时任务状态只保存在 `CodexActivityMonitor` 内存中，UI 只展示项目最后一级名称、模型、推理强度、工具名与最近 Hook 事件类型；活动卡片第一行以 `•` 组合模型、推理强度和项目，第二行组合运行时间、可靠且大于 0 的活跃子 Agent 数量与请求/工具/压缩/子智能体状态，其他任务数使用右侧 `+N` 徽标。并发任务中心消费同一快照中的完整等待、运行、最近完成和最近终止列表，在模型后以 `•` 展示推理强度，但不展示子 Agent 数量；列表身份使用进程内 UUID，不展示或持久化 session/turn/agent ID。不写历史文件、不上传 CloudKit，也不新增网络请求。`CodexSessionLifecycleReader` 只对活跃 session + turn 读取本机 rollout，提取事件类型、turn ID、起止时间、耗时、审批 reviewer 和推理强度；不提取、保存或展示提示词、回复、推理内容、工具内容、审批内容或 token 数据
 
 ## 19. 通知与触觉提醒链路
@@ -1108,6 +1117,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 通知与触觉反馈判定在 `CodexBar/Services/Notifications/`, 偏好类随其他设置类放在 `CodexBar/Services/Settings/`:
 
 - `NotificationSettings` (`Services/Settings/`): 总开关、五类通知子开关、任务触觉开关、低额度阈值 (5%/10%/25%, 默认 10%) 和长任务时长 (30s/1m/2m/5m, 默认 1m), 持久化到 UserDefaults; 负责系统授权请求、被拒状态镜像和设置页选项面板可展示状态
+- `CodexCLINotificationSettings` (`Services/Settings/`): 通过 app-server 读取和写入用户级 `tui.notifications`; 支持解析布尔值与事件数组，缺失时按默认开启，写入后回读验证并把错误显示在通知选项行
 - `CodexNotificationService`: 集中判定、去重、调度与发送; 由 `CodexBarAppDelegate` 创建, 订阅 `CodexStatusViewModel.$snapshot`、`CodexActivityMonitor` live transition 与 `NSWorkspace.didWakeNotification`; 五类正式通知共用 `CodexNotificationContent` 文案工厂，系统提交失败时重试一次，等待与完成 transition 还会按偏好请求 AppKit `.levelChange` 触觉反馈
 - `CodexActivityMonitor`: Hook 开启期间始终运行并维护并发任务；向 UI 发布快照，向提醒服务发布 live transition。`PermissionRequest` 先作为审批候选，只有同 turn 的 rollout reviewer 为 `user` 才确认等待；自动 reviewer 或未知 reviewer 保持运行。单个 live 批次先完整应用事件，再按任务键合并已确认的等待候选；只有批次结束后仍处于等待的任务会使用最终快照发布一次等待 transition，完成候选保持顺序并按 completion ID 做批内去重。通知与触觉开关不会停止活动监测
 - `HookEventTailReader` (`Services/Workflow/`): 后台 actor；bootstrap 以 512 KB 为单次分块流式读取滚动 24 小时事件，并用 start/events/end 三阶段恢复状态。当前文件用 inode + 完整行 offset 固定 bootstrap/live 边界；bootstrap 结束后 monitor 再发起一次定向回溯，为缺少起点的精确 turn 向旧日期文件最多回读 8 MB。之后每 2 秒 tail 当日增量，保留半行、跨日先读旧文件尾部；live 每成功处理一个分块就推进到最后完整行 offset，后续分块失败只重试未处理部分。旧文件异常触发 bootstrap 时保留 bootstrap 设置的新日期 offset，临时读取失败则保留旧日期等待下轮重试。bootstrap、定时轮询和 Mac 唤醒补读共用串行入口，读取期间到达的请求合并为当前读取结束后的一次补读；monitor generation 会丢弃停用 reader 的迟到批次
@@ -1115,7 +1125,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 
 活动并发以 session 为边界：不同 session 可以同时运行；同一 session 的 turn 按顺序执行。收到新的 `UserPromptSubmit` 时，monitor 会让该 session 中更早且缺少结束信号的 turn 立即退出活动列表，但保留为等待终态确认任务并触发一次即时 rollout 查询；5 秒内收到 Hook `Stop`、rollout `task_complete` 或 `turn_aborted` 时按真实终态归类，到期仍无终态才生成灰色最近终止记录。子 Agent 事件只能通过共享 session 关联父任务，早于当前顶层任务可信开始时间的事件会被当作上一 turn 的迟到事件忽略。已完成和已终止任务键分别保留 24 小时 tombstone，避免迟到事件恢复旧任务或误操作同 session 的新 turn。终止不会触发绿色完成状态、长任务通知或完成触觉反馈。Hook `Stop` 与 rollout `task_complete` 均视为完成信号，先到者生效，后到者按任务键和 session 回退键去重；重复完成不会覆盖首次确认结果，也不会缩短去重窗口或再次触发反馈。
 
-设置页交互: 「系统通知」主开关行保留在设置窗口内, 子选项 (五类通知子开关、任务触觉开关与两个阈值 Picker) 在主选项右侧的子面板中展开 (`NotificationOptionsPanelController`, 复用 SidePanelSupport 抽屉机制挂在设置窗口上, 内容用常驻 hosting controller + ObservableObject 驱动, 面板尺寸在 Hook 开/关两种状态下保持不变)。「任务等待通知」和「任务触觉反馈」依次排列在「任务完成通知」下方。主开关开启后仅在系统授权允许时展开, 首次授权场景会等待授权结果; 点击行内滑杆按钮可手动展开; 设置窗口 resign key/关闭、主开关关闭或授权变为被拒时自动收起。任务完成、任务等待与任务触觉子项在 Hook 未开启时显示为关闭并置灰, 不修改各自持久化偏好, Hook 重新开启后恢复用户原选择。「主面板任务中心」沿用相同依赖语义；关闭只隐藏活动卡片和任务中心入口，不停止 Monitor、状态点、通知或触觉反馈。授权被拒的引导文案与"打开系统设置"按钮仍内联显示在主开关行下方, 插入提示时不触发设置项纵向动画。
+设置页交互: 「系统通知」主开关行保留在设置窗口内, 子选项 (五类通知子开关、任务触觉开关、Codex TUI 通知开关与两个阈值 Picker) 在主选项右侧的子面板中展开 (`NotificationOptionsPanelController`, 复用 SidePanelSupport 抽屉机制挂在设置窗口上, 内容用常驻 hosting controller + ObservableObject 驱动, 面板尺寸在 Hook 开/关两种状态下保持不变)。「任务等待通知」和「任务触觉反馈」依次排列在「任务完成通知」下方。主开关开启后仅在系统授权允许时展开, 首次授权场景会等待授权结果; 点击行内滑杆按钮可手动展开; 设置窗口 resign key/关闭、主开关关闭或授权变为被拒时自动收起。任务完成、任务等待与任务触觉子项在 Hook 未开启时显示为关闭并置灰, 不修改各自持久化偏好, Hook 重新开启后恢复用户原选择。「Codex TUI 通知」与用户级 `[tui] notifications` 联动，面板打开时刷新，写入后回读验证；已有 CLI 会话需重启后生效。该项不服从 CodexBar 通知发送判定，也不修改顶层 `notify`。「主面板任务中心」沿用相同依赖语义；关闭只隐藏活动卡片和任务中心入口，不停止 Monitor、状态点、通知或触觉反馈。授权被拒的引导文案与"打开系统设置"按钮仍内联显示在主开关行下方, 插入提示时不触发设置项纵向动画。
 
 五类通知的触发与去重:
 

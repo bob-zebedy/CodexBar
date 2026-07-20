@@ -1,4 +1,5 @@
 import Combine
+import CryptoKit
 import Darwin
 import Foundation
 
@@ -25,20 +26,13 @@ actor WorkflowService {
         performMaintenance: Bool = false,
         synchronize: Bool = false
     ) async -> WorkflowSnapshot {
-        var changedDates = Set<String>()
         if performMaintenance {
-            // changedDates 只在实际执行 iCloud 同步时被消费, 其余场景跳过 payload 比对
-            changedDates = performMaintenanceIfNeeded(
-                computesChangedDates: synchronize && WorkflowSyncSettings.isEnabled()
-            )
+            performMaintenanceIfNeeded()
         }
 
         let aggregates = loadDailyAggregates() ?? []
         let syncSnapshot: WorkflowSyncSnapshot = if synchronize {
-            await syncService.synchronizeIfEnabled(
-                localAggregates: aggregates,
-                changedDates: changedDates
-            )
+            await syncService.synchronizeIfEnabled(localAggregates: aggregates)
         } else {
             await syncService.snapshotFromCacheIfEnabled()
         }
@@ -49,7 +43,8 @@ actor WorkflowService {
 
         return WorkflowSnapshot(
             localAggregates: aggregates,
-            syncedRecords: syncSnapshot.records
+            syncedRecords: syncSnapshot.records,
+            currentDeviceId: syncSnapshot.currentDeviceId
         )
     }
 
@@ -66,9 +61,7 @@ actor WorkflowService {
         return WorkflowDailyAggregate.normalized(aggregates: aggregates)
     }
 
-    private func performMaintenanceIfNeeded(computesChangedDates: Bool) -> Set<String> {
-        let beforePayloads = computesChangedDates ? syncPayloadByDate() : [:]
-
+    private func performMaintenanceIfNeeded() {
         do {
             let tasks = try prepareMaintenanceTasks()
             let didWriteDailyLog = perform(tasks)
@@ -78,14 +71,8 @@ actor WorkflowService {
             }
             try pruneExpiredEventFiles()
         } catch {
-            return []
+            return
         }
-
-        guard computesChangedDates else {
-            return []
-        }
-
-        return changedSyncPayloadDates(before: beforePayloads, after: syncPayloadByDate())
     }
 
     /// 返回是否写入过 daily.jsonl; 批次内共享同一份内存聚合, 避免每个任务重新读盘
@@ -172,14 +159,37 @@ actor WorkflowService {
     ) -> Bool {
         var changed = state.markDirty(contentsOf: eventDateKeys.filter { state.days[$0] == nil })
 
-        // 文件变小说明被外部截断, 必须全量重建
-        // 变大则从旧 offset 增量追上
-        for (dateKey, day) in state.days {
-            let actualSize = eventLogSize(for: dateKey)
-            if actualSize < day.offset || day.offset != day.size {
+        for dateKey in eventDateKeys {
+            guard let stat = WorkflowStorage.fileStat(at: eventLogURL(for: dateKey)) else {
+                continue
+            }
+
+            changed = state.ensureSourceGeneration(
+                for: dateKey,
+                fileIdentifier: stat.identifier
+            ) || changed
+            guard let day = state.days[dateKey] else {
+                continue
+            }
+
+            let identifierChanged = day.fileIdentifier != nil
+                && stat.identifier != nil
+                && day.fileIdentifier != stat.identifier
+            let boundaryChanged = day.boundaryHash.map {
+                (try? eventLogBoundaryHash(for: dateKey, endingAt: day.offset)) != $0
+            } ?? false
+
+            if identifierChanged || stat.size < day.offset || boundaryChanged {
+                state.startNewSourceGeneration(
+                    for: dateKey,
+                    isFresh: stat.size == 0,
+                    fileIdentifier: stat.identifier
+                )
+                changed = true
+            } else if day.offset != day.size {
                 state.markDirty(dateKey)
                 changed = true
-            } else if actualSize > day.offset,
+            } else if stat.size > day.offset,
                       !state.pending.contains(dateKey),
                       !state.dirty.contains(dateKey) {
                 state.markPending(dateKey)
@@ -196,7 +206,12 @@ actor WorkflowService {
         changedState: inout Bool
     ) -> [WorkflowMaintenanceTask] {
         let dirty = Set(state.dirty)
-        var tasks = state.dirty.map { dirtyTask(for: $0) }
+        var tasks: [WorkflowMaintenanceTask] = state.dirty.compactMap { dateKey in
+            guard let day = state.days[dateKey] else {
+                return nil
+            }
+            return dirtyTask(for: dateKey, day: day)
+        }
 
         for dateKey in state.pending where !dirty.contains(dateKey) {
             let day = state.days[dateKey] ?? WorkflowDayMaintenanceState()
@@ -207,10 +222,11 @@ actor WorkflowService {
                 continue
             }
 
-            guard let baseAggregate = dailyByDate[dateKey] else {
+            guard let baseAggregate = dailyByDate[dateKey],
+                  baseAggregate.sourceGeneration == day.sourceGeneration else {
                 state.markDirty(dateKey)
                 changedState = true
-                tasks.append(dirtyTask(for: dateKey, size: size))
+                tasks.append(dirtyTask(for: dateKey, day: day, size: size))
                 continue
             }
 
@@ -227,13 +243,21 @@ actor WorkflowService {
         return tasks
     }
 
-    private func dirtyTask(for dateKey: String, size: UInt64? = nil) -> WorkflowMaintenanceTask {
-        WorkflowMaintenanceTask(
+    private func dirtyTask(
+        for dateKey: String,
+        day: WorkflowDayMaintenanceState,
+        size: UInt64? = nil
+    ) -> WorkflowMaintenanceTask {
+        let stat = WorkflowStorage.fileStat(at: eventLogURL(for: dateKey))
+        return WorkflowMaintenanceTask(
             dateKey: dateKey,
             startOffset: 0,
-            size: size ?? eventLogSize(for: dateKey),
+            size: size ?? stat?.size ?? 0,
             baseAggregate: nil,
-            existingCorrupt: 0
+            existingCorrupt: 0,
+            sourceGeneration: day.sourceGeneration,
+            sourceIsFresh: day.sourceIsFresh,
+            fileIdentifier: stat?.identifier
         )
     }
 
@@ -248,7 +272,10 @@ actor WorkflowService {
             startOffset: day.offset,
             size: size,
             baseAggregate: baseAggregate,
-            existingCorrupt: day.corrupt
+            existingCorrupt: day.corrupt,
+            sourceGeneration: day.sourceGeneration,
+            sourceIsFresh: day.sourceIsFresh,
+            fileIdentifier: day.fileIdentifier
         )
     }
 
@@ -258,6 +285,31 @@ actor WorkflowService {
 
     private func eventLogSize(for dateKey: String) -> UInt64 {
         WorkflowStorage.fileSize(at: eventLogURL(for: dateKey))
+    }
+
+    private func eventLogBoundaryHash(
+        for dateKey: String,
+        endingAt offset: UInt64
+    ) throws -> String? {
+        guard offset > 0 else {
+            return nil
+        }
+
+        let length = min(offset, 4 * 1024)
+        let handle = try FileHandle(forReadingFrom: eventLogURL(for: dateKey))
+        defer {
+            try? handle.close()
+        }
+
+        try handle.seek(toOffset: offset - length)
+        guard let data = try handle.read(upToCount: Int(length)),
+              data.count == Int(length) else {
+            throw CocoaError(.fileReadUnknown)
+        }
+
+        return SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     private func loadDailyAggregatesWithFailures() -> JSONLinesDecodeResult<WorkflowDailyAggregate> {
@@ -275,7 +327,13 @@ actor WorkflowService {
     private func buildDailyAggregate(
         for task: WorkflowMaintenanceTask
     ) throws -> WorkflowMaintenanceResult {
-        var aggregate = task.baseAggregate ?? WorkflowDailyAggregate(date: task.dateKey)
+        var aggregate = task.baseAggregate ?? WorkflowDailyAggregate(
+            date: task.dateKey,
+            sourceGeneration: task.sourceGeneration,
+            sourceIsFresh: task.sourceIsFresh
+        )
+        aggregate.sourceGeneration = task.sourceGeneration
+        aggregate.sourceIsFresh = task.sourceIsFresh
         var corrupt = task.existingCorrupt
         var identifierCache = WorkflowDailyIdentifierCache(aggregate: aggregate)
         let keepsIdentifiers = keepsIdentifiers(for: task.dateKey)
@@ -293,11 +351,13 @@ actor WorkflowService {
         }
 
         aggregate.compactIdentifiersIfNeeded(keepsIdentifiers: keepsIdentifiers)
-        return WorkflowMaintenanceResult(
+        return try WorkflowMaintenanceResult(
             dateKey: task.dateKey,
             aggregate: aggregate,
             size: task.size,
-            corrupt: corrupt
+            corrupt: corrupt,
+            fileIdentifier: task.fileIdentifier,
+            boundaryHash: eventLogBoundaryHash(for: task.dateKey, endingAt: task.size)
         )
     }
 
@@ -375,7 +435,7 @@ actor WorkflowService {
         _ result: WorkflowMaintenanceResult,
         aggregates: inout [WorkflowDailyAggregate]
     ) throws -> Bool {
-        guard try eventLogHasNotShrunk(for: result) else {
+        guard try eventLogSourceIsValid(for: result) else {
             return false
         }
 
@@ -386,26 +446,45 @@ actor WorkflowService {
         return true
     }
 
-    private func eventLogHasNotShrunk(for result: WorkflowMaintenanceResult) throws -> Bool {
+    private func eventLogSourceIsValid(for result: WorkflowMaintenanceResult) throws -> Bool {
         try WorkflowStorage.withExclusiveLock {
             var state = WorkflowStorage.loadMaintenanceState()
-            return try eventLogSizeIfNotShrunk(for: result, state: &state) != nil
+            return try validatedEventLogSize(for: result, state: &state) != nil
         }
     }
 
-    /// 锁内校验事件文件未被外部截断; 已收缩时标脏并落盘, 返回 nil
-    private func eventLogSizeIfNotShrunk(
+    /// 锁内确认读取期间仍是同一份追加源；断代时换 generation 并等待重建
+    private func validatedEventLogSize(
         for result: WorkflowMaintenanceResult,
         state: inout WorkflowMaintenanceState
     ) throws -> UInt64? {
-        let currentSize = WorkflowStorage.fileSize(at: eventLogURL(for: result.dateKey))
-        guard currentSize >= result.size else {
-            state.markDirty(result.dateKey)
+        guard state.days[result.dateKey]?.sourceGeneration == result.aggregate.sourceGeneration else {
+            return nil
+        }
+
+        let stat = WorkflowStorage.fileStat(at: eventLogURL(for: result.dateKey))
+        let identifierMatches = result.fileIdentifier == nil
+            || stat?.identifier == nil
+            || result.fileIdentifier == stat?.identifier
+        let boundaryMatches = (try? eventLogBoundaryHash(
+            for: result.dateKey,
+            endingAt: result.size
+        )) == result.boundaryHash
+
+        guard let stat,
+              stat.size >= result.size,
+              identifierMatches,
+              boundaryMatches else {
+            state.startNewSourceGeneration(
+                for: result.dateKey,
+                isFresh: stat?.size == 0,
+                fileIdentifier: stat?.identifier
+            )
             try WorkflowStorage.saveMaintenanceState(state)
             return nil
         }
 
-        return currentSize
+        return stat.size
     }
 
     private func writeDailyAggregate(
@@ -462,38 +541,22 @@ actor WorkflowService {
         }
     }
 
-    private func syncPayloadByDate() -> [String: String] {
-        loadDailyAggregatesWithFailures().values.reduce(into: [String: String]()) { result, aggregate in
-            guard let data = try? aggregate.syncedAggregate.jsonLineData() else {
-                return
-            }
-
-            result[aggregate.date] = data.base64EncodedString()
-        }
-    }
-
-    private func changedSyncPayloadDates(
-        before: [String: String],
-        after: [String: String]
-    ) -> Set<String> {
-        let allDates = Set(before.keys).union(after.keys)
-        return Set(allDates.filter {
-            before[$0] != after[$0]
-        })
-    }
-
     private func commitMaintenanceState(_ result: WorkflowMaintenanceResult) throws {
         try WorkflowStorage.withExclusiveLock {
             var state = WorkflowStorage.loadMaintenanceState()
 
-            guard let currentSize = try eventLogSizeIfNotShrunk(for: result, state: &state) else {
+            guard let currentSize = try validatedEventLogSize(for: result, state: &state) else {
                 return
             }
 
             state.days[result.dateKey] = WorkflowDayMaintenanceState(
                 offset: result.size,
                 size: result.size,
-                corrupt: result.corrupt
+                corrupt: result.corrupt,
+                sourceGeneration: result.aggregate.sourceGeneration,
+                sourceIsFresh: result.aggregate.sourceIsFresh,
+                fileIdentifier: result.fileIdentifier,
+                boundaryHash: result.boundaryHash
             )
             state.removeDirty(result.dateKey)
 
@@ -587,21 +650,8 @@ nonisolated enum WorkflowStorage {
     }
 
     static func syncDirectoryURL() -> URL {
-        let currentURL = directoryURL()
+        directoryURL()
             .appendingPathComponent("Sync", isDirectory: true)
-        let legacyURL = directoryURL()
-            .appendingPathComponent(legacySyncDirectoryName, isDirectory: true)
-
-        if FileManager.default.fileExists(atPath: legacyURL.path),
-           !FileManager.default.fileExists(atPath: currentURL.path) {
-            return legacyURL
-        }
-
-        return currentURL
-    }
-
-    private static var legacySyncDirectoryName: String {
-        ["i", "Cloud", "Sync"].joined()
     }
 
     static func directoryURL() -> URL {
@@ -729,17 +779,44 @@ nonisolated struct WorkflowDayMaintenanceState: Codable, Equatable {
     var offset: UInt64
     var size: UInt64
     var corrupt: Int
+    var sourceGeneration: String?
+    var sourceIsFresh: Bool
+    var fileIdentifier: UInt64?
+    var boundaryHash: String?
 
-    init(offset: UInt64 = 0, size: UInt64 = 0, corrupt: Int = 0) {
+    init(
+        offset: UInt64 = 0,
+        size: UInt64 = 0,
+        corrupt: Int = 0,
+        sourceGeneration: String? = nil,
+        sourceIsFresh: Bool = false,
+        fileIdentifier: UInt64? = nil,
+        boundaryHash: String? = nil
+    ) {
         self.offset = offset
         self.size = size
         self.corrupt = corrupt
+        self.sourceGeneration = sourceGeneration
+        self.sourceIsFresh = sourceIsFresh
+        self.fileIdentifier = fileIdentifier
+        self.boundaryHash = boundaryHash
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        offset = try container.decodeIfPresent(UInt64.self, forKey: .offset) ?? 0
+        size = try container.decodeIfPresent(UInt64.self, forKey: .size) ?? 0
+        corrupt = try container.decodeIfPresent(Int.self, forKey: .corrupt) ?? 0
+        sourceGeneration = try container.decodeIfPresent(String.self, forKey: .sourceGeneration)
+        sourceIsFresh = try container.decodeIfPresent(Bool.self, forKey: .sourceIsFresh) ?? false
+        fileIdentifier = try container.decodeIfPresent(UInt64.self, forKey: .fileIdentifier)
+        boundaryHash = try container.decodeIfPresent(String.self, forKey: .boundaryHash)
     }
 }
 
 /// maintenance.json 的全局状态, pending 表示可增量, dirty 表示需全量重建
 nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
-    static let currentSchema = 3
+    static let currentSchema = 4
 
     var schema: Int
     var pending: [String]
@@ -814,6 +891,41 @@ nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
         days.removeValue(forKey: dateKey)
     }
 
+    @discardableResult
+    mutating func ensureSourceGeneration(
+        for dateKey: String,
+        fileIdentifier: UInt64?
+    ) -> Bool {
+        var day = days[dateKey] ?? WorkflowDayMaintenanceState()
+        var changed = false
+
+        if day.sourceGeneration == nil {
+            day.sourceGeneration = Self.newSourceGeneration()
+            day.sourceIsFresh = false
+            changed = true
+        }
+        if day.fileIdentifier == nil, let fileIdentifier {
+            day.fileIdentifier = fileIdentifier
+            changed = true
+        }
+
+        days[dateKey] = day
+        return changed
+    }
+
+    mutating func startNewSourceGeneration(
+        for dateKey: String,
+        isFresh: Bool,
+        fileIdentifier: UInt64?
+    ) {
+        days[dateKey] = WorkflowDayMaintenanceState(
+            sourceGeneration: Self.newSourceGeneration(),
+            sourceIsFresh: isFresh,
+            fileIdentifier: fileIdentifier
+        )
+        markDirty(dateKey)
+    }
+
     mutating func normalize() -> Bool {
         let previousPending = pending
         let previousDirty = dirty
@@ -839,6 +951,10 @@ nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
     private static func normalizedDates(_ dates: [String]) -> [String] {
         Array(Set(dates.filter { WorkflowStorage.isValidDateKey($0) })).sorted()
     }
+
+    private static func newSourceGeneration() -> String {
+        UUID().uuidString.lowercased()
+    }
 }
 
 /// daily.jsonl 某一时刻的 stat 快照与当天日期键, 用于跳过稳态下的重复归一化
@@ -855,6 +971,9 @@ private nonisolated struct WorkflowMaintenanceTask {
     let size: UInt64
     let baseAggregate: WorkflowDailyAggregate?
     let existingCorrupt: Int
+    let sourceGeneration: String?
+    let sourceIsFresh: Bool
+    let fileIdentifier: UInt64?
 }
 
 /// 维护任务的提交结果, corrupt 统计保留给后续诊断
@@ -863,6 +982,8 @@ private nonisolated struct WorkflowMaintenanceResult {
     let aggregate: WorkflowDailyAggregate
     let size: UInt64
     let corrupt: Int
+    let fileIdentifier: UInt64?
+    let boundaryHash: String?
 }
 
 /// UI 层的工作流状态, 节流普通刷新, 维护刷新由上层调度器合并

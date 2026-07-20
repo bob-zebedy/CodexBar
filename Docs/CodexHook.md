@@ -88,7 +88,7 @@ Hook stdin 会尝试解析为 Codex 官方 JSON 对象，只读取顶层字段�
 - 轮次: `turn_id`
 - 子 Agent 标识: `agent_id`，字段存在时写为 `agent`，用于本机实时配对 `SubagentStart` / `SubagentStop`
 
-事件名来自 payload 顶层 `hook_event_name`。没有 `--hook-event` 参数时按普通 App 启动；有 `--hook-event` 参数但 stdin 为空、不是 JSON 或事件名缺失时吞掉本次 Hook，避免 Hook 子进程继续启动完整菜单栏 App。事件时间优先读取 payload 顶层 `timestamp`，解析后按本机时区写成 `yyyy-MM-dd HH:mm:ss.SSS`；如果 `timestamp` 缺失或无法解析，记录当前时间作为兜底。同一个事件时间也会按本机时区格式化为 `yyyy-MM-dd` 的 date key，用于选择 `events/YYYY-MM-DD.jsonl` 文件。日期和时间解析统一走 `CodexDateFormat`，其中高频的 `yyyy-MM-dd` key 由本机 Gregorian 日历组件生成和校验，不暴露可变 `DateFormatter` 实例。每行按固定顺序写入 `timestamp`、`event`、`model`、`effort`、`permission`、`approval`、`session`、`turn`、`agent`、`tool`、`cwd`；缺少对应 Hook 字段或当前 rollout 无法读取时写为 `null`。旧版事件行缺少新增字段时仍可正常解码。
+事件名来自 payload 顶层 `hook_event_name`。没有 `--hook-event` 参数时按普通 App 启动；有 `--hook-event` 参数但 stdin 为空、不是 JSON 或事件名缺失时吞掉本次 Hook，避免 Hook 子进程继续启动完整菜单栏 App。事件时间优先读取 payload 顶层 `timestamp`，解析后按本机时区写成 `yyyy-MM-dd HH:mm:ss.SSS`；如果 `timestamp` 缺失或无法解析，记录当前时间作为兜底。同一个事件时间也会按本机时区格式化为 `yyyy-MM-dd` 的 date key，用于选择 `events/YYYY-MM-DD.jsonl` 文件。日期和时间解析统一走 `CodexDateFormat`，其中高频的 `yyyy-MM-dd` key 由本机 Gregorian 日历组件生成和校验，不暴露可变 `DateFormatter` 实例。每行按固定顺序写入 `timestamp`、`event`、`model`、`effort`、`permission`、`approval`、`session`、`turn`、`agent`、`tool`、`cwd`；缺少对应 Hook 字段或当前 rollout 无法读取时写为 `null`。事件行缺少可选字段时仍可正常解码。
 
 事件名统计时会去掉 `_` 和 `-` 并转小写，因此 `PreToolUse`、`pre_tool_use`、`pre-tool-use` 会归为同一个事件。
 
@@ -113,24 +113,28 @@ Hook 数据目录:
 
 ```json
 {
-    "schema": 3,
+    "schema": 4,
     "pending": ["2026-06-21"],
     "dirty": [],
     "days": {
         "2026-06-21": {
             "offset": 102400,
             "size": 122880,
-            "corrupt": 0
+            "corrupt": 0,
+            "sourceGeneration": "<uuid>",
+            "sourceIsFresh": true,
+            "fileIdentifier": 123456,
+            "boundaryHash": "<sha256>"
         }
     }
 }
 ```
 
-`pending` 表示有新增事件等待整理的日期；`dirty` 表示需要从头重建 `daily.jsonl` 对应日期的日期；`offset` 是当天 events 文件已经处理到的字节位置；`size` 是上次处理完成时当天 events 文件大小；`corrupt` 是当天解析失败的 JSONL 行数。
+`pending` 表示有新增事件等待整理的日期；`dirty` 表示需要从头重建 `daily.jsonl` 对应日期的日期；`offset` 是当天 events 文件已经处理到的字节位置；`size` 是上次处理完成时当天 events 文件大小；`corrupt` 是当天解析失败的 JSONL 行数。`sourceGeneration` 标识这份日期文件从空文件开始后的连续追加阶段，`sourceIsFresh` 表示该阶段是否由 CodexBar 确认从空文件开始；`fileIdentifier` 和 `boundaryHash` 只在本机用于识别文件替换、截断或原位置内容变化，不进入 CloudKit。
 
 `WorkflowStorage` 定义这些路径和保留策略。UI 读取时优先加载 `daily.jsonl`；原始事件文件不再作为 UI 临时快照回退源。
 
-旧版单文件 `HookEvents/events.jsonl` 不参与新版统计、迁移或清理。
+当前统计只读取按日期拆分的 `events/YYYY-MM-DD.jsonl`；`HookEvents/events.jsonl` 不参与统计或清理。
 
 ## 实时活动状态
 
@@ -161,7 +165,7 @@ Codex Hook 事件可能缺少起点、结束或中断信号。`CodexSessionLifec
 - `PermissionRequest` 先成为审批候选；只有 rollout 已确认该 turn 的 `approvals_reviewer == user` 才进入等待批准，自动 reviewer 产生的同名 Hook 不改变运行状态。重复的用户等待事件不重复发布等待 transition。live 读取一次可能包含多个事件，monitor 会在整批应用后按任务键合并等待候选：最终仍在等待时使用最终快照发布一次，已经恢复运行、完成或移除时不发布过期等待 transition；完成候选保持事件顺序，并按 completion ID 防止同批重复发布。
 - Hook `Stop` 或 rollout `task_complete` 结束任务并产生最近完成记录，两者在进程内按精确任务键和 session 回退键去重，保留第一次确认的完成及精确耗时且不重复发布 transition。后到的重复完成不会覆盖首次确认结果，也不会缩短 24 小时去重窗口。期间迟到的工具、压缩或权限事件不会恢复已完成任务，只有时间晚于完成记录的新 `UserPromptSubmit` 可以开始下一段生命周期。rollout `turn_aborted` 会直接进入最近终止列表；同 session 新 prompt 淘汰的旧 turn 则立即退出活动列表并进入 5 秒终态确认窗口，期间继续参与 rollout 查询并优先接受 `task_complete`、`turn_aborted` 或迟到 Hook `Stop`，到期仍无终态才进入最近终止列表。“完成”只表示该 turn 已结束，不表示任务成功。
 - 精确 turn 匹配失败时，回退同 session 最近活动任务，再回退同项目匿名任务。
-- UI 优先展示最近等待任务，其次最近运行任务、最近完成任务和最近终止任务，同时保留运行与等待数量。只有终止历史时，活动卡片使用灰色终止状态展示最近一项。活动卡片第一行按“模型 ` • ` 推理强度 ` • ` 项目”组合可用字段，第二行展示运行时间、可靠时的“`N 个子 Agent`”及最近的请求/工具/压缩/子智能体事件；其他任务数量以右侧 `+N` 徽标展示。任务中心在模型后使用 ` • ` 展示推理强度，但不展示子 Agent 数量。菜单栏完成绿色保留 30 秒，任务中心的最近完成和最近终止记录保留 10 分钟，24 小时没有新事件的活动自动过期。
+- UI 优先展示最近等待任务，其次最近运行任务、最近完成任务和最近终止任务，同时保留运行与等待数量。只有终止历史时，活动卡片使用灰色终止状态展示最近一项。活动卡片第一行按“模型 `•` 推理强度 `•` 项目”组合可用字段，第二行展示运行时间、可靠时的“`N 个子 Agent`”及最近的请求/工具/压缩/子智能体事件；其他任务数量以右侧 `+N` 徽标展示。任务中心在模型后使用 `•` 展示推理强度，但不展示子 Agent 数量。菜单栏完成绿色保留 30 秒，任务中心的最近完成和最近终止记录保留 10 分钟，24 小时没有新事件的活动自动过期。
 
 跨日时仍在内存中的运行任务会继续保留；重启 App 后由滚动 24 小时 bootstrap 恢复近期活动，并为更早开始的精确 turn 定向回填起点。任务会一直保留到收到 Hook `Stop` 或 rollout `task_complete`、检测到 `turn_aborted`、同 session 新 prompt 将其淘汰、Hook 被关闭或连续 24 小时没有新事件。完成高亮、最近完成、最近终止、完成去重键和活动过期共用按最近到期时刻创建的单次清理任务，不运行常驻清理计时器；读取完成键时还会惰性淘汰已经超过 24 小时的记录，避免系统休眠或计时任务稍晚唤醒时误拦第一条新事件。
 
@@ -170,14 +174,17 @@ Codex Hook 事件可能缺少起点、结束或中断信号。`CodexSessionLifec
 Hook 可能由多个 Codex 进程并发触发。`WorkflowHookEventRecorder` 会在同一个 `flock(LOCK_EX)` 中完成轻量写入事务:
 
 1. 解析事件时间并格式化为本机时间戳与 date key
-2. 追加当前事件到 `events/YYYY-MM-DD.jsonl`
-3. 将 date key 加入 `maintenance.json` 的 `pending`；如果当天已在 `pending` 且已有日期状态记录（稳态下的绝大多数事件），跳过 `maintenance.json` 重写
+2. 检查当天事件文件是否不存在、已清空、缩小或更换 inode；确认从空文件开始时创建可独立累加的新 generation，非空替换则创建来源不明确的新 generation
+3. 追加当前事件到 `events/YYYY-MM-DD.jsonl`
+4. 将 date key 加入 `maintenance.json` 的 `pending`；如果来源状态和 pending 都没有变化，跳过 `maintenance.json` 重写
 
 Hook 写入路径不更新 `daily.jsonl`，也不执行重建或清理旧文件，避免在 Hook timeout 内持锁执行重活。
 
 `WorkflowService` 是 actor，只在现有自动刷新或手动刷新触发工作流统计刷新时检查 `maintenance.json`。打开菜单面板时只读取现有 `daily.jsonl`。如果没有 `pending` 或 `dirty`，服务不会执行维护。
 
-维护时优先处理 `dirty`，从对应日期文件第一行开始流式重建当天聚合；再处理 `pending`，从 `days[date].offset` 开始流式读取新增事件并合并到已有当天聚合。同一维护批次只读取一次现有 `daily.jsonl`，所有日期任务共享并逐步更新同一份内存聚合集合，每次落盘前仍对整份集合执行当前保留策略的归一化。每条坏行会被跳过并计入 `days[date].corrupt`。处理完成后先在 `stats.lock` 外原子写回 `daily.jsonl`，再短暂持有 `stats.lock` 更新 `maintenance.json`，避免主 App 写 daily 时阻塞 Hook 追加事件。批次没有写入时，服务使用文件 size、identifier 和当天日期键组成的进程内 stamp 跳过未变化文件的重复全量归一化；日期跨天或文件变化后会重新检查并在需要时原子改写。
+维护时优先处理 `dirty`，从对应日期文件第一行开始流式重建当天聚合；再处理 `pending`，从 `days[date].offset` 开始流式读取新增事件并合并到已有当天聚合。同一维护批次只读取一次现有 `daily.jsonl`，所有日期任务共享并逐步更新同一份内存聚合集合，每次落盘前仍对整份集合执行当前保留策略的归一化。每条坏行会被跳过并计入 `days[date].corrupt`。处理前后会同时校验文件大小、inode 和上次处理边界前最多 4 KB 的 SHA256；无法证明仍为连续追加时换 generation 并重新构建。处理完成后先在 `stats.lock` 外原子写回 `daily.jsonl`，再短暂持有 `stats.lock` 更新 `maintenance.json`，避免主 App 写 daily 时阻塞 Hook 追加事件。批次没有写入时，服务使用文件 size、identifier 和当天日期键组成的进程内 stamp 跳过未变化文件的重复全量归一化；日期跨天或文件变化后会重新检查并在需要时原子改写。
+
+维护只会根据当前仍存在的 events 文件发现和重建日期。直接删除某个历史 `events/YYYY-MM-DD.jsonl` 不会连带删除现有 `daily.jsonl` 行，也不会单独触发 generation 变化；历史日期不再写入新事件时，界面会继续使用已有 daily。若 daily 行也被删除，开启同步时可从本地同步缓存回退到云端贡献。把仍存在的 events 文件清空、截断或替换则不同：连续性校验会识别变化，并按来源是否可确认从空文件开始来切换 generation 和重建。
 
 ## 保留策略
 
@@ -199,7 +206,7 @@ CloudKit 中每个 iCloud 账号会保存一条账号级 salt:
 zoneName = CodexBarZone
 recordType = CodexBarSyncMetadata
 recordName = accountSalt
-schemaVersion = 3
+schemaVersion = 4
 salt = 32 bytes
 ```
 
@@ -214,23 +221,26 @@ CodexBar 不上传原始 `IOPlatformUUID`。同一台 Mac 在同一 iCloud 账�
 跨设备同步上传的是 `daily.jsonl` 单日聚合行的内存副本，去掉:
 
 ```text
-sessionIds, turnIds
+sourceIsFresh, sessionIds, turnIds
 ```
 
-除 `sessionCount` / `turnCount` 按下述规则生成外，其余字段保持原值同步，包括 `projectCounts` 和 `modelCounts`。上传副本中的这两个 count 只接受已有正数压缩 count，或本地非空 `sessionIds` / `turnIds` 的去重数量；两者都没有时写为 `null`，不会把空数组或真实全零日上传成明确的 count。脱敏只发生在上传副本上，不会写回本地 `daily.jsonl`，因此最近 3 天本地仍保留非空 `sessionIds` / `turnIds` 用于本机精确去重。接收端读取同步记录时不恢复 ID；正数 count 优先，否则分别回退到 `sessionStartCount` / `stopCount`，所以旧版错误的明确 `0` 和缺失字段都不会压过起止事件计数。
+`sourceGeneration` 会同步，用于区分同一设备、同一天的独立贡献；它只是随机 UUID。`sourceIsFresh` 只留在本机决定是否允许创建独立贡献，不上传。除 `sessionCount` / `turnCount` 按下述规则生成外，其余统计字段保持原值同步，包括 `projectCounts` 和 `modelCounts`。上传副本中的这两个 count 只接受已有正数压缩 count，或本地非空 `sessionIds` / `turnIds` 的去重数量；两者都没有时写为 `null`，不会把空数组或真实全零日上传成明确的 count。脱敏只发生在上传副本上，不会写回本地 `daily.jsonl`，因此最近 3 天本地仍保留非空 `sessionIds` / `turnIds` 用于本机精确去重。接收端读取同步记录时不恢复 ID；正数 count 优先，否则分别回退到 `sessionStartCount` / `stopCount`，所以明确的 `0` 和缺失字段都不会压过起止事件计数。
 
-每台设备每天一条记录:
+正常情况下每台设备每天只有一个 generation、一条记录；确认事件文件从空文件重新开始后，会为同一天创建新的 generation 记录:
 
 ```text
 zoneName = CodexBarZone
 recordType = CodexBarDailyAggregate
-recordName = <deviceId>_<yyyy-MM-dd>
-schemaVersion = 3
+recordName = <deviceId>_<yyyy-MM-dd>[_<sourceGeneration>]
+schemaVersion = 4
+sourceGeneration = UUID?
 ```
 
-Hook 子进程不访问网络。主 App 在工作流统计维护刷新后对本次可能变化的日期生成脱敏 daily 副本，计算稳定 hash，并和本地同步状态比较。只有 hash 变化的日期才 upsert 到 CloudKit；上传成功后才更新本地 hash，失败则下次刷新继续重试。
+上传匹配只在当前 `deviceId`、当前待上传日期的云端记录内进行，其他设备同一天的贡献不会参与本机副本判断。云端记录没有 `sourceGeneration` 时，必须与本机脱敏聚合的全部同步业务字段完全一致才会被认作同一来源；即使两边 generation 都是 `nil` 也不会跳过内容比较。内容不一致时保留云端贡献，不覆盖、不相加，也不把来源不明确的本机聚合另建为独立贡献。
 
-上传按日期稳定排序并分批执行。每轮同步最多处理 20 秒，每批最多 25 天；每批成功后立即把对应日期的 hash 和 `lastUploadAt` 写入 `state.json`。如果时间预算用完、任务被取消或本批 CloudKit 请求失败，本轮停止，剩余日期留给后续每分钟刷新继续。首次开启同步时设置 `needsBackfill`，只有本地所有日期的 hash 都已与 state 匹配后才清除 backfill 请求。
+Hook 子进程不访问网络。主 App 每次实际同步都会为保留窗口内的本机 daily 生成脱敏副本并计算稳定 hash，和本地同步状态相同的日期直接跳过，因此不会依赖某次维护刷新是否恰好与 CloudKit 同步同时发生。只有整批待写记录都返回成功才更新本地 hash。单条读取只有 `unknownItem` 会被视为记录不存在；其他读取错误、请求错误、结果缺失或任一单条保存失败都会清除失败批次日期的 hash，使整批在下次刷新继续重试。
+
+上传按日期稳定排序并分批执行。每轮同步最多处理 20 秒，每批最多 25 天；每批全部确认后立即把对应日期的 hash 和 `lastUploadAt` 写入 `state.json`。如果时间预算用完、任务被取消或本批 CloudKit 请求失败，本轮停止，剩余日期留给后续每分钟刷新继续；部分成功、部分失败的批次会整体重试，重复 upsert 不改变聚合内容。首次开启同步时设置 `needsBackfill`，只有本地所有日期的 hash 都已与 state 匹配后才清除 backfill 请求。
 
 本地同步状态保存在:
 
@@ -240,21 +250,23 @@ Hook 子进程不访问网络。主 App 在工作流统计维护刷新后对本�
 ~/Library/Application Support/CodexBar/HookEvents/Sync/cursor.data
 ```
 
-- `state.json`: 保存 `deviceId`、按日期记录的 `hashByDate`、`lastUploadAt` 和 `lastPrunedDate`。
-- `cache.jsonl`: 保存从 iCloud 拉到的其他设备脱敏 daily 记录，一行一条；不保存当前设备自己的云端副本。
+- `state.json`: 保存 `deviceId`、按日期记录的已上传或已按保护规则处理的 `hashByDate`、`lastUploadAt` 和 `lastPrunedDate`。
+- `cache.jsonl`: 保存从 iCloud 拉到的所有设备脱敏 daily 记录，一行一条；当前设备自己的云端副本用于本地数据缩减时回退。
 - `cursor.data`: 保存 CloudKit custom zone `CodexBarZone` 的 `CKServerChangeToken`，用于下次只拉取增量变化；没有游标时会 query 全量 `CodexBarDailyAggregate` 重建 `cache.jsonl`，随后建立新的游标基线；游标失效或增量拉取失败时会重新全量重建。
+
+CloudKit 返回删除变化时只会按 record name 从 `cache.jsonl` 移除记录，不会清除 `state.json` 已确认的日期 hash。因此外部删除云端记录后，如果本机该日聚合没有变化，不会在下一轮立即重新上传；本机内容变化或对应 hash 被清除后才会再次进入候选。
 
 接收云端变化时只更新 `cache.jsonl` 和 `cursor.data`，不直接发布新的 `WorkflowSnapshot`，也不让面板立即跳数。缓存和游标按「先写 `cache.jsonl`，再写 `cursor.data`」提交；如果缓存写入失败，游标不会提前推进，下一轮会重新拉取同一批变化或全量回填。面板仍只在现有每分钟自动刷新或用户手动刷新时重新读取本地 `daily.jsonl` 与同步缓存。
 
 展示合并规则:
 
 ```text
-最终展示 = 本机 daily.jsonl + 同步缓存中的其他设备记录
+最终展示 = 各设备、各安全 generation 的 daily 贡献之和
 ```
 
-`cache.jsonl` 写入前必须过滤本机自己的 CloudKit 记录，否则本机会把本地 daily 和自己上传的云端副本重复相加。本机数据永远以本地 `daily.jsonl` 为准；同步缓存只补其他设备。热力图详情的 6 个计数指标按每台设备各自 daily 口径先生成展示值，再按日期相加；`projectCounts` 和 `modelCounts` 分别按项目名、模型名逐项相加，最后从合并后的模型计数中选出「最热模型」。
+同一 generation 的本机 daily 和本机云端副本不会重复相加：本机 `eventCount` 大于等于同 generation 云端副本时使用本机，否则回退云端。确认从空文件开始的新 generation 会作为同设备、同日期的独立贡献，与已有 generation 相加；来源不明确的非空替换不会自动加入已有云端贡献，避免重复统计。云端记录没有 generation 时，只有其全部同步业务字段与本机完全相同才会认作同一 generation；不一致则继续保护云端。其他设备记录照常累加；热力图详情的 6 个计数指标按每条安全贡献各自 daily 口径先生成展示值，再按日期相加，`projectCounts` 和 `modelCounts` 分别按项目名、模型名逐项相加，最后从合并后的模型计数中选出「最热模型」。
 
-CloudKit 也按最近 210 天保留。每天第一次工作流刷新时，当前设备会删除 `deviceId == 本机 deviceId` 且早于保留窗口的 CloudKit 记录；其他设备记录不由本机清理。展示侧始终忽略最近 210 天外的缓存记录。
+CloudKit 也按最近 210 天保留。每天第一次工作流刷新时，当前设备会删除 `deviceId == 本机 deviceId` 且早于保留窗口的全部 generation 记录；其他设备记录不由本机清理。展示侧始终忽略最近 210 天外的缓存记录。
 
 维护和同步请求由 `WorkflowSyncScheduler` 统一调度。菜单面板打开时只读取现有 `daily.jsonl` 和同步缓存；app-server 自动刷新倒计时重置、同步开关开启、Hook 重新开启或同步账号恢复可用时, 调度器合并维护/同步请求。同步中不会取消重启，冷却窗口内只保留一次待补跑请求，补跑前会重新校验 Hook、同步偏好和账号可用性。
 
@@ -267,12 +279,12 @@ CloudKit 也按最近 210 天保留。每天第一次工作流刷新时，当前
 `daily.jsonl` 每一行 JSON 的字段顺序固定为:
 
 ```text
-date, eventCount, sessionStartCount, stopCount, preToolUseCount, postToolUseCount,
+date, sourceGeneration, sourceIsFresh, eventCount, sessionStartCount, stopCount, preToolUseCount, postToolUseCount,
 permissionRequestCount, preCompactCount, postCompactCount, subagentStartCount,
 subagentStopCount, sessionCount, turnCount, projectCounts, modelCounts, sessionIds, turnIds
 ```
 
-其中 `sessionIds` / `turnIds` / `sessionCount` / `turnCount` 没有值时写为 `null`，`projectCounts` 和 `modelCounts` 内部键按稳定顺序写出。
+其中 `sourceGeneration` 是本地日期事件源的随机 UUID，`sourceIsFresh` 只表示 CodexBar 是否确认该 generation 从空文件开始；两者不包含事件内容。`sessionIds` / `turnIds` / `sessionCount` / `turnCount` 没有值时写为 `null`，`projectCounts` 和 `modelCounts` 内部键按稳定顺序写出。
 
 能参与统计的事件行必须至少满足:
 
@@ -312,12 +324,12 @@ subagentStopCount, sessionCount, turnCount, projectCounts, modelCounts, sessionI
 | `subagentStopCount`      | `event`                                              | `event` 归一化后等于 `subagentstop` 时 `+1`。                                                                                                                                                                                                                                       | 参与「子智能体」。                                       |
 | `sessionIds`             | `session`                                            | 新建聚合初始化为 `[]`。最近 3 个本地自然日内，任意事件行只要 `session` 是非空字符串，就插入当天集合并去重、排序；不要求事件类型是 `SessionStart`。聚合结束后仍为空或进入窗口外压缩时写成 `null`；只有非空数组会持久化。                                                             | 参与「会话总数」去重。                                   |
 | `turnIds`                | `turn`                                               | 新建聚合初始化为 `[]`。最近 3 个本地自然日内，任意事件行只要 `turn` 是非空字符串，就插入当天集合并去重、排序；不要求事件类型是 `Stop`。聚合结束后仍为空或进入窗口外压缩时写成 `null`；只有非空数组会持久化。                                                                        | 参与「对话轮次」去重。                                   |
-| `sessionCount`           | `sessionIds`、旧 `sessionCount`、`sessionStartCount` | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有正数 `sessionCount`，否则使用非空 `sessionIds` 的去重数量，再否则使用 `sessionStartCount`，然后移除 `sessionIds`。空 ID 数组不表示权威的零；历史 `sessionCount == 0` 但 `sessionStartCount > 0` 时也会自动修复。 | 参与「会话总数」。                                       |
-| `turnCount`              | `turnIds`、旧 `turnCount`、`stopCount`               | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有正数 `turnCount`，否则使用非空 `turnIds` 的去重数量，再否则使用 `stopCount`，然后移除 `turnIds`。空 ID 数组不表示权威的零；历史 `turnCount == 0` 但 `stopCount > 0` 时也会自动修复。                             | 参与「对话轮次」。                                       |
+| `sessionCount`           | `sessionIds`、`sessionCount`、`sessionStartCount` | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有正数 `sessionCount`，否则使用非空 `sessionIds` 的去重数量，再否则使用 `sessionStartCount`，然后移除 `sessionIds`。空 ID 数组不表示权威的零；`sessionCount == 0` 但 `sessionStartCount > 0` 时会自动修复。 | 参与「会话总数」。                                       |
+| `turnCount`              | `turnIds`、`turnCount`、`stopCount`               | 最近 3 天通常为 `null`；日期进入 3 天外窗口后，归一化时优先沿用已有正数 `turnCount`，否则使用非空 `turnIds` 的去重数量，再否则使用 `stopCount`，然后移除 `turnIds`。空 ID 数组不表示权威的零；`turnCount == 0` 但 `stopCount > 0` 时会自动修复。                             | 参与「对话轮次」。                                       |
 | `projectCounts`          | `cwd`                                                | 任意事件行只要 `cwd` 非空，就取标准化路径的最后一层目录名作为项目名并 `+1`；如果最后一层为空，回退使用完整路径字符串。统计的是事件数，不是会话数或调用工具数。未知事件也会计入。                                                                                                    | 用于计算 `mostActiveProject`，当前页面不展示。           |
 | `modelCounts`            | `model`                                              | 任意事件行只要 `model` 非空，就按原始模型名 `+1`。统计的是带模型字段的事件数，不是 token 数；未知事件也会计入。                                                                                                                                                                     | 合并后用于计算并展示「最热模型」。                       |
 
-读取旧 `daily.jsonl` 时，缺失的数字字段按 `0` 处理，缺失的 `projectCounts` / `modelCounts` 按空字典处理，缺失的 `sessionIds` / `turnIds` / `sessionCount` / `turnCount` 保持为 `nil`。维护 schema 升级到 `3` 后会把保留窗口内已有事件日期标记为 dirty，从原始事件重建模型计数；后续归一化仍按当前保留策略补齐或压缩 ID 字段，并把由空 ID 数组错误压缩出的零计数修复为起止事件兜底值。
+读取 `daily.jsonl` 时，缺失的数字字段按 `0` 处理，缺失的 `projectCounts` / `modelCounts` 按空字典处理，缺失的 `sessionIds` / `turnIds` / `sessionCount` / `turnCount` / `sourceGeneration` 保持为 `nil`，缺失的 `sourceIsFresh` 按 `false` 处理。仍有原始 events 文件的日期会在维护时确保存在来源 generation；已有非空事件文件默认视为来源不明确，只有 Hook 明确从不存在或空文件开始时才标记 fresh。只剩 daily、原始 events 已不存在的日期不会凭空生成 generation，原 daily 行会继续保留。后续归一化仍按当前保留策略补齐或压缩 ID 字段，并把由空 ID 数组产生的不一致零计数修复为起止事件兜底值。
 
 UI 不直接展示所有原始字段，而是先生成 `WorkflowDailyMetrics`:
 

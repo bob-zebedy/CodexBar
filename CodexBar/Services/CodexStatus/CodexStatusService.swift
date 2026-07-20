@@ -127,7 +127,7 @@ actor CodexStatusService {
         )
     }
 
-    /// Hook 自动信任和清理统一走批量写入, 让 Codex 负责刷新用户配置
+    /// 设置写入统一走批量接口, 让 Codex 负责刷新用户配置
     func writeCodexConfigBatch(edits: [CodexConfigBatchEdit]) async throws -> CodexConfigWriteResponse {
         let connection = try readyConnection()
         return try connection.session.request(

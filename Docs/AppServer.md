@@ -51,9 +51,9 @@ codex app-server --listen stdio://
 - `account/read` 每轮复用连接时用 `refreshToken: false` 更新账户状态。
 - `account/rateLimits/read` 读取额度, 包括可选的 `rateLimitResetCredits.availableCount`。当可用重置次数大于 0 时, 主 App 会通过 `CodexResetCreditsService` 额外读取本机 Codex OAuth token, 只读请求 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 获取各重置机会的 `expires_at`; 这条请求不走 app-server 日志, 失败时重置次数按钮仍可显示, 但侧边详情面板只展示未知过期时间。
 - `account/usage/read` 读取 `summary.lifetimeTokens`、`summary.peakDailyTokens`、`dailyUsageBuckets`。
-- `config/read` 在开启 Codex Hook 前读取有效配置，用于判断 `[features] hooks = false` 或兼容旧名 `codex_hooks = false` 是否禁用了 Hook；关闭清理时也读取 `hooks.state` 以保留其他 Hook 的信任状态。
+- `config/read` 在开启 Codex Hook 前读取有效配置，用于判断 `[features] hooks = false` 或兼容旧名 `codex_hooks = false` 是否禁用了 Hook；关闭清理时也读取 `hooks.state` 以保留其他 Hook 的信任状态。打开设置窗口或通知选项面板时还会读取 `[tui].notifications`，缺失时按 Codex 默认开启处理，布尔值 `false` 或空事件数组按关闭处理。
 - `hooks/list` 在写入 Hook 后或设置页刷新时验证 Codex 实际识别到的 Hook，检查 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`key`、`currentHash`、`warnings` 和 `errors`。
-- `config/batchWrite` 只用于写回 `hooks.state`：开启后把 CodexBar Hook 的 `key/currentHash` upsert 成 `trusted_hash`，关闭时移除对应 key。
+- `config/batchWrite` 用于写回 `hooks.state` 和 `tui.notifications`：Hook 开启后把 CodexBar Hook 的 `key/currentHash` upsert 成 `trusted_hash`，关闭时移除对应 key；通知选项面板切换「Codex TUI 通知」时只 upsert `tui.notifications` 的布尔值并要求 app-server reload 用户配置，不修改顶层 `notify` 外部回调。
 
 `account/rateLimits/read` 的额度模型约定:
 

@@ -7,6 +7,7 @@ final class SettingsWindowController: HostingWindowController {
     private let viewModel: CodexStatusViewModel
     private let appUpdater: AppUpdater
     private let codexHookSettings: CodexHookSettings
+    private let codexCLINotificationSettings: CodexCLINotificationSettings
     private let syncSettings: WorkflowSyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
     private let menuBarQuotaSettings: MenuBarQuotaSettings
@@ -15,13 +16,15 @@ final class SettingsWindowController: HostingWindowController {
     private let onSyncChanged: (Bool) -> Void
     private lazy var notificationOptionsPanelController = NotificationOptionsPanelController(
         notificationSettings: notificationSettings,
-        codexHookSettings: codexHookSettings
+        codexHookSettings: codexHookSettings,
+        codexCLINotificationSettings: codexCLINotificationSettings
     )
 
     init(
         viewModel: CodexStatusViewModel,
         appUpdater: AppUpdater,
         codexHookSettings: CodexHookSettings,
+        codexCLINotificationSettings: CodexCLINotificationSettings,
         syncSettings: WorkflowSyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
         menuBarQuotaSettings: MenuBarQuotaSettings,
@@ -33,6 +36,7 @@ final class SettingsWindowController: HostingWindowController {
         self.viewModel = viewModel
         self.appUpdater = appUpdater
         self.codexHookSettings = codexHookSettings
+        self.codexCLINotificationSettings = codexCLINotificationSettings
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
         self.menuBarQuotaSettings = menuBarQuotaSettings
@@ -90,6 +94,7 @@ final class SettingsWindowController: HostingWindowController {
     private func refreshSettingsState() {
         codexHookSettings.refresh()
         codexHookSettings.verifyInstalledHooks()
+        codexCLINotificationSettings.refresh()
         syncSettings.refresh()
         menuBarQuotaSettings.refresh()
         mainPanelSettings.refresh()

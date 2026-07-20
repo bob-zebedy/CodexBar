@@ -301,21 +301,62 @@ nonisolated struct WorkflowSnapshot: Equatable {
         self.dailyMetrics = dailyMetrics
     }
 
-    /// syncedRecords 由 WorkflowSyncService 保证不含本机设备的记录
+    /// 同 generation 只采用一份数据；确认独立的新 generation 与历史贡献累加
     init(
         localAggregates: [WorkflowDailyAggregate],
-        syncedRecords: [WorkflowSyncedDailyRecord]
+        syncedRecords: [WorkflowSyncedDailyRecord],
+        currentDeviceId: String?
     ) {
         var metricsByDate = [String: WorkflowDailyMetrics]()
-        for aggregate in localAggregates {
-            Self.merge(aggregate.metrics, into: &metricsByDate)
-        }
 
-        for record in syncedRecords {
-            Self.merge(record.daily.metrics, into: &metricsByDate)
+        let localByDate = Dictionary(uniqueKeysWithValues: localAggregates.map { ($0.date, $0) })
+        let currentDeviceRecords = syncedRecords.filter { $0.deviceId == currentDeviceId }
+        let otherDeviceRecords = syncedRecords.filter { $0.deviceId != currentDeviceId }
+
+        Self.merge(otherDeviceRecords, into: &metricsByDate)
+
+        let remoteByDate = Dictionary(grouping: currentDeviceRecords, by: \.date)
+        let currentDeviceDates = Set(localByDate.keys).union(remoteByDate.keys)
+        for date in currentDeviceDates {
+            Self.mergeCurrentDeviceDate(
+                local: localByDate[date],
+                remoteRecords: remoteByDate[date] ?? [],
+                into: &metricsByDate
+            )
         }
 
         dailyMetrics = metricsByDate.values.sorted { $0.startDate < $1.startDate }
+    }
+
+    private static func mergeCurrentDeviceDate(
+        local: WorkflowDailyAggregate?,
+        remoteRecords: [WorkflowSyncedDailyRecord],
+        into metricsByDate: inout [String: WorkflowDailyMetrics]
+    ) {
+        guard let local else {
+            merge(remoteRecords, into: &metricsByDate)
+            return
+        }
+
+        let matchingIndex = remoteRecords.firstIndex {
+            local.syncedAggregate.matchesRemoteSource($0.daily)
+        }
+
+        guard remoteRecords.isEmpty || local.sourceIsFresh || matchingIndex != nil else {
+            merge(remoteRecords, into: &metricsByDate)
+            return
+        }
+
+        for (index, record) in remoteRecords.enumerated() where index != matchingIndex {
+            merge(record.daily.metrics, into: &metricsByDate)
+        }
+
+        if let matchingIndex,
+           remoteRecords[matchingIndex].daily.eventCount > local.eventCount {
+            merge(remoteRecords[matchingIndex].daily.metrics, into: &metricsByDate)
+        } else {
+            merge(local.metrics, into: &metricsByDate)
+        }
     }
 
     func recentWeekGrid(columnCount: Int, endingDaysAgo: Int = 0, today: Date = Date()) -> [WorkflowDailyMetrics?] {
@@ -333,6 +374,15 @@ nonisolated struct WorkflowSnapshot: Equatable {
                 let startDate = CodexDateFormat.dayString(from: $0)
                 return metricsByDate[startDate] ?? WorkflowDailyMetrics.empty(startDate: startDate)
             }
+        }
+    }
+
+    private static func merge(
+        _ records: [WorkflowSyncedDailyRecord],
+        into metricsByDate: inout [String: WorkflowDailyMetrics]
+    ) {
+        for record in records {
+            merge(record.daily.metrics, into: &metricsByDate)
         }
     }
 
@@ -362,6 +412,8 @@ nonisolated struct WorkflowDailyIdentifierCache {
 /// daily.jsonl 中的持久化聚合行, 同时兼容保留 ID 和只保留计数两种形态
 nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     let date: String
+    var sourceGeneration: String?
+    var sourceIsFresh: Bool
     var eventCount: Int
     var sessionStartCount: Int
     var stopCount: Int
@@ -383,8 +435,14 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         date
     }
 
-    init(date: String) {
+    init(
+        date: String,
+        sourceGeneration: String? = nil,
+        sourceIsFresh: Bool = false
+    ) {
         self.date = date
+        self.sourceGeneration = sourceGeneration
+        self.sourceIsFresh = sourceIsFresh
         eventCount = 0
         sessionStartCount = 0
         stopCount = 0
@@ -406,6 +464,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         date = try container.decode(String.self, forKey: .date)
+        sourceGeneration = try container.decodeIfPresent(String.self, forKey: .sourceGeneration)
+        sourceIsFresh = try container.decodeIfPresent(Bool.self, forKey: .sourceIsFresh) ?? false
         eventCount = try container.decodeIfPresent(Int.self, forKey: .eventCount) ?? 0
         sessionStartCount = try container.decodeIfPresent(Int.self, forKey: .sessionStartCount) ?? 0
         stopCount = try container.decodeIfPresent(Int.self, forKey: .stopCount) ?? 0
@@ -540,6 +600,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     func jsonLineData() throws -> Data {
         let fields = try [
             WorkflowJSON.field("date", date),
+            WorkflowJSON.field("sourceGeneration", sourceGeneration),
+            WorkflowJSON.field("sourceIsFresh", sourceIsFresh),
             WorkflowJSON.field("eventCount", eventCount),
             WorkflowJSON.field("sessionStartCount", sessionStartCount),
             WorkflowJSON.field("stopCount", stopCount),
@@ -564,6 +626,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     var syncedAggregate: WorkflowSyncedDailyAggregate {
         WorkflowSyncedDailyAggregate(
             date: date,
+            sourceGeneration: sourceGeneration,
             eventCount: eventCount,
             sessionStartCount: sessionStartCount,
             stopCount: stopCount,
@@ -621,6 +684,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case date
+        case sourceGeneration
+        case sourceIsFresh
         case eventCount
         case sessionStartCount
         case stopCount
@@ -643,6 +708,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
 /// 同步存储中保存的脱敏每日聚合行: 对应 daily.jsonl 但不包含 sessionIds / turnIds
 nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiable {
     let date: String
+    var sourceGeneration: String?
     var eventCount: Int
     var sessionStartCount: Int
     var stopCount: Int
@@ -687,6 +753,7 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiabl
     func jsonLineData() throws -> Data {
         let fields = try [
             WorkflowJSON.field("date", date),
+            WorkflowJSON.field("sourceGeneration", sourceGeneration),
             WorkflowJSON.field("eventCount", eventCount),
             WorkflowJSON.field("sessionStartCount", sessionStartCount),
             WorkflowJSON.field("stopCount", stopCount),
@@ -705,22 +772,39 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiabl
 
         return WorkflowJSON.lineData(fields)
     }
+
+    func hasSameContent(as other: WorkflowSyncedDailyAggregate) -> Bool {
+        var lhs = self
+        var rhs = other
+        lhs.sourceGeneration = nil
+        rhs.sourceGeneration = nil
+        return lhs == rhs
+    }
+
+    func matchesRemoteSource(_ remote: WorkflowSyncedDailyAggregate) -> Bool {
+        if let sourceGeneration,
+           remote.sourceGeneration == sourceGeneration {
+            return true
+        }
+        return remote.sourceGeneration == nil && hasSameContent(as: remote)
+    }
 }
 
 nonisolated struct WorkflowSyncedDailyRecord: Codable, Equatable, Identifiable {
     let deviceId: String
     let daily: WorkflowSyncedDailyAggregate
     var updatedAt: Date?
+    var recordName: String?
 
     var id: String {
-        Self.id(deviceId: deviceId, date: daily.date)
+        recordName ?? Self.legacyRecordName(deviceId: deviceId, date: daily.date)
     }
 
     var date: String {
         daily.date
     }
 
-    static func id(deviceId: String, date: String) -> String {
-        "\(deviceId)|\(date)"
+    static func legacyRecordName(deviceId: String, date: String) -> String {
+        "\(deviceId)_\(date)"
     }
 }

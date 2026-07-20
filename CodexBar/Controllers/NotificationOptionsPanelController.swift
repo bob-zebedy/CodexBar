@@ -14,6 +14,7 @@ nonisolated enum NotificationOptionsPanelAction: Equatable {
 final class NotificationOptionsPanelController {
     private let notificationSettings: NotificationSettings
     private let codexHookSettings: CodexHookSettings
+    private let codexCLINotificationSettings: CodexCLINotificationSettings
     private var panel: NSPanel?
     private var hostingController: NSHostingController<NotificationOptionsView>?
     private lazy var presenter = SidePanelDrawerPresenter(
@@ -29,10 +30,12 @@ final class NotificationOptionsPanelController {
 
     init(
         notificationSettings: NotificationSettings,
-        codexHookSettings: CodexHookSettings
+        codexHookSettings: CodexHookSettings,
+        codexCLINotificationSettings: CodexCLINotificationSettings
     ) {
         self.notificationSettings = notificationSettings
         self.codexHookSettings = codexHookSettings
+        self.codexCLINotificationSettings = codexCLINotificationSettings
     }
 
     var isVisible: Bool {
@@ -70,6 +73,7 @@ final class NotificationOptionsPanelController {
             return
         }
 
+        codexCLINotificationSettings.refresh()
         let panel = ensurePanel()
         let windowSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: window) ?? window.frame
         let panelSize = measuredPanelSize()
@@ -111,7 +115,8 @@ final class NotificationOptionsPanelController {
         let hostingController = NSHostingController(
             rootView: NotificationOptionsView(
                 notificationSettings: notificationSettings,
-                codexHookSettings: codexHookSettings
+                codexHookSettings: codexHookSettings,
+                codexCLINotificationSettings: codexCLINotificationSettings
             )
         )
         hostingController.sizingOptions = [.preferredContentSize]

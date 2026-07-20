@@ -5,6 +5,7 @@ import SwiftUI
 struct NotificationOptionsView: View {
     @ObservedObject var notificationSettings: NotificationSettings
     @ObservedObject var codexHookSettings: CodexHookSettings
+    @ObservedObject var codexCLINotificationSettings: CodexCLINotificationSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
@@ -14,6 +15,7 @@ struct NotificationOptionsView: View {
             taskWaitingRow
             taskHapticRow
             creditExpiryRow
+            codexCLINotificationRow
         }
         .padding(.horizontal, Metrics.horizontalPadding)
         .padding(.vertical, Metrics.verticalPadding)
@@ -135,6 +137,29 @@ struct NotificationOptionsView: View {
         )
     }
 
+    private var codexCLINotificationRow: some View {
+        optionRow(
+            title: "Codex TUI 通知",
+            isOn: Binding(
+                get: { codexCLINotificationSettings.isEnabled },
+                set: { codexCLINotificationSettings.setEnabled($0) }
+            ),
+            isEnabled: !codexCLINotificationSettings.isUpdating
+        ) {
+            if codexCLINotificationSettings.isUpdating {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.7)
+                    .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
+            } else if let errorMessage = codexCLINotificationSettings.errorMessage {
+                Image(systemName: "exclamationmark.circle")
+                    .foregroundStyle(.orange)
+                    .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
+                    .help(errorMessage)
+            }
+        }
+    }
+
     private func optionRow(
         title: String,
         isOn: Binding<Bool>,
@@ -194,10 +219,11 @@ struct NotificationOptionsView: View {
         static let panelWidth: CGFloat = 300
         static let horizontalPadding: CGFloat = 12
         static let verticalPadding: CGFloat = 10
-        static let optionRowCount = 6
+        static let optionRowCount = 7
         static let rowSpacing: CGFloat = 7
         static let rowHeight: CGFloat = 22
         static let pickerWidth: CGFloat = 72
+        static let statusIconSize: CGFloat = 16
         static let cornerRadius: CGFloat = 12
         static let statusAnimation = Animation.codexStatus
     }

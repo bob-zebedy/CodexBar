@@ -89,6 +89,8 @@ CodexBar 会把该设备的使用详情数据同步到当前 iCloud 账号的 Cl
 
 五类通知可以单独开关；全部为本地通知，不新增网络请求。
 
+通知子面板还可以控制「Codex TUI 通知」。该开关与用户级 `~/.codex/config.toml` 中的 `[tui] notifications` 联动：关闭时写入 `false`，开启时写入 `true`，不会修改顶层 `notify` 外部回调；已经运行的 Codex CLI 需要重新启动会话后采用新设置。
+
 通知子面板中的「任务触觉反馈」默认开启；当任务进入等待批准或确认结束时，CodexBar 会每 100 ms 请求一次层级变化触觉反馈，连续 10 次。该功能服从 App 内「系统通知」总开关，但不依赖系统通知授权或长任务时长阈值；是否实际反馈及震感强弱由当前输入设备、辅助功能和系统偏好决定。
 
 Hook 事件可能在一次轮询中成批到达。CodexBar 会先处理完整批次，再按任务合并等待状态：只有 reviewer 为 `user`、批次结束后仍在等待批准的任务才通知一次；自动审批以及已经恢复运行、完成或移除的短暂候选不会产生过期提醒。
@@ -129,6 +131,8 @@ brew install --cask bob-zebedy/tap/codexbar
 
 CodexBar 默认通过本机 Codex app-server 读取账号、额度和 Token 用量。若 app-server 返回可用手动重置机会，CodexBar 会使用本机 Codex OAuth token 向 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 发起只读请求，用于读取这些重置机会的过期时间；请求失败时不展示具体过期时间，重置次数侧边详情面板显示「未知过期时间」，也不会保留原始响应。
 
+用户在通知子面板切换「Codex TUI 通知」时，CodexBar 通过本机 app-server 只更新用户级 `config.toml` 的 `tui.notifications`，不修改顶层 `notify` 或其他 Codex 配置。
+
 Codex Hook 工作流数据默认只保存在本机:
 
 ```text
@@ -137,7 +141,7 @@ Codex Hook 工作流数据默认只保存在本机:
 
 菜单栏实时任务状态只存在于当前 App 进程内。活动卡片和并发任务中心只展示工作目录最后一级项目名、模型、推理强度、工具、阶段与耗时；可可靠统计且存在活跃子 Agent 时，活动卡片还会显示其数量。不展示完整路径、会话 ID、轮次 ID 或 agent ID。这份状态不会上传到 CloudKit，也不会产生新的网络请求。为补齐 Hook 缺失的起点、结束、中断、审批路由或推理强度，CodexBar 只对当前活跃 turn 读取 `~/.codex/sessions/` 或 `~/.codex/archived_sessions/` 下对应 rollout JSONL：正常情况下只增量解析生命周期事件、turn ID、起止耗时、`turn_context.approvals_reviewer` 和 `turn_context.effort`，effort 缺失时最多额外读取文件尾部 8 MB；不会提取、保存或展示其中的提示词、回复、推理内容、工具内容或 token 数据。
 
-只有在用户开启「跨设备同步」后，CodexBar 才会通过 `CloudKit private database` 同步每日使用详情数据; 同步的数据副本只包含各个事件数量、项目聚合和模型名使用次数，不包含事件具体的数据。
+只有在用户开启「跨设备同步」后，CodexBar 才会通过 `CloudKit private database` 同步每日使用详情数据；同步的数据副本只包含各个事件数量、项目聚合、模型名使用次数，以及用于区分同一日期独立数据段的随机 generation，不包含原始事件、会话 ID 或轮次 ID。正常追加时，同一 generation 的本机数据和云端副本只取一份；确认事件文件从空文件重新开始时，新 generation 会与旧云端贡献相加；无法确认来源的非空替换不会自动覆盖或叠加旧云端数据。
 
 除上述重置机会过期时间查询、Sparkle appcast / DMG 下载，以及用户开启跨设备同步后的 CloudKit 请求外，CodexBar 自身不发起其他网络请求。
 
