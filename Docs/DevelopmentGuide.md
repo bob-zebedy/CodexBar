@@ -102,9 +102,9 @@ App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall
 
 设置页「菜单栏额度指示」默认开启, 使用独立开关控制启用状态; 缺失持久化选择时默认使用 `.primary`, 关闭时显式持久化 `.off`。开启后在同一行显示额度窗口菜单, 可选择当前账号 Codex limit 返回的额度窗口, 当前保留选择不在返回窗口中时用 fallback 标题追加到菜单。最后一次非关闭的窗口选择由 `MenuBarQuotaSettings` 以 `MenuBarQuota.lastWindowSelection` 键随偏好持久化: 关闭开关时它继续参与菜单淡出避免过渡期间回退, 重新开启时（含重开设置窗口或重启应用后）恢复该选择, 无记录时回退 `.primary`。开启后 `StatusItemController` 会把所选 Codex 窗口的剩余额度进度条绘制在图标左侧, 以竖条形式与 `person.fill.checkmark` / `person.fill.xmark` 合成为单个 `NSImage`, 并随 `CodexStatusViewModel` 自动刷新。合成图尺寸为 `27 x 17`, 图标本体保持原始 `24 x 17`, 左侧竖条轨道为 `2 x 15`, 状态点位于小人右下角。额度显隐或状态点变化时, `StatusItemController` 合并为同一个逐帧重绘任务，在 0.18 秒内同时插值竖条与状态点的透明度以及状态点颜色，避免两个动画任务竞争；过渡期间合成图宽度和绘制坐标保持固定。活动期间 tooltip 每分钟更新一次耗时并合并并发数量与额度，活动结束后取消刷新任务。
 
-Hook 开启时，账号卡片下方始终显示固定高度 `CodexActivityCard`。`CodexQuotaSnapshot` 为 `nil` 时，卡片显示「暂无数据」且不开放任务中心；Monitor 继续维护实时状态。快照可用时，卡片按等待、运行、最近完成、最近终止、空闲的顺序展示项目最后一级名称、模型或工具、耗时及其他活动任务数量；只有终止历史时显示最近一项灰色终止状态。存在任务中心内容时，卡片可点击，其他活动任务数量使用右侧 `+N` 徽标，hover 和选中反馈作用于卡片描边。
+Hook 开启且 `MainPanelSettings.showsTaskCenter` 为 `true` 时，账号卡片下方显示固定高度 `CodexActivityCard`；该偏好缺失时默认开启。`CodexQuotaSnapshot` 为 `nil` 时，卡片显示「暂无数据」且不开放任务中心；Monitor 继续维护实时状态。快照可用时，卡片按等待、运行、最近完成、最近终止、空闲的顺序展示项目最后一级名称、模型或工具、耗时及其他活动任务数量；只有终止历史时显示最近一项灰色终止状态。存在任务中心内容时，卡片可点击，其他活动任务数量使用右侧 `+N` 徽标，hover 和选中反馈作用于卡片描边。关闭展示偏好只移除活动卡片和任务中心入口，不影响 Monitor、菜单栏状态点、通知或触觉反馈。
 
-`ActivityCenterPanelController` 展示 `CodexActivitySnapshot` 的完整等待、运行、最近完成和最近终止列表。等待和运行按最后活动时间倒序，完成和终止按各自结束时间倒序；列表身份使用进程内 opaque UUID，不向 UI 暴露 session/turn ID。最近完成和最近终止保留 10 分钟。活动 Monitor 和 `CodexActivityCenterPresentationState` 作为普通引用传入菜单根视图，再由活动卡片自身观察；这样共享逐秒时间只让卡片失效，不会带动整个菜单树每秒重算。卡片与任务中心观察同一个 Monitor，并在菜单可见、额度快照可用且存在任务中心内容时使用 presentation state 的共享逐秒时间。任务中心打开期间额度快照变为 `nil` 时立即关闭。
+`ActivityCenterPanelController` 展示 `CodexActivitySnapshot` 的完整等待、运行、最近完成和最近终止列表。等待和运行按最后活动时间倒序，完成和终止按各自结束时间倒序；列表身份使用进程内 opaque UUID，不向 UI 暴露 session/turn ID。最近完成和最近终止保留 10 分钟。活动 Monitor 和 `CodexActivityCenterPresentationState` 作为普通引用传入菜单根视图，再由活动卡片自身观察；这样共享逐秒时间只让卡片失效，不会带动整个菜单树每秒重算。卡片与任务中心观察同一个 Monitor，并在菜单可见、额度快照可用、`MainPanelSettings` 允许展示且存在任务中心内容时使用 presentation state 的共享逐秒时间。任务中心打开期间额度快照变为 `nil`、Hook 关闭或展示偏好关闭时立即关闭。
 
 错误图标触发条件:
 
@@ -121,7 +121,7 @@ Hook 开启时，账号卡片下方始终显示固定高度 `CodexActivityCard`�
 | 全局快捷键       | 切换菜单面板     |
 | 系统 `⌘,`        | 打开独立设置窗口 |
 | 菜单面板内 `⌘L`  | 打开独立日志窗口 |
-| 点击活动卡片     | 切换并发任务中心 |
+| 点击可见活动卡片 | 切换并发任务中心 |
 | 上下文菜单"设置" | 打开独立设置窗口 |
 | 上下文菜单"日志" | 打开独立日志窗口 |
 | 上下文菜单"退出" | 终止 App         |
@@ -563,7 +563,7 @@ flowchart TD
 额度区:
 
 - 多个 limit 间用 `LiquidGlassDivider` 分隔
-- 如果 `resetCreditsAvailableCount > 0`, 只在置顶主 limit 标题右侧显示 `重置次数: N`; 该控件是 plain button, 点击后通过重置次数侧边详情面板展示过期时间。`resetCreditExpirationDates` 非空时按 `yyyy-MM-dd HH:mm:ss` 升序逐行展示, 相同展示时间合并数量, 单个显示 `可用: 1`, 多行之间显示渐变分隔线; 没有过期时间时显示「未知过期时间」
+- 如果 `resetCreditsAvailableCount > 0`, 只在置顶主 limit 标题右侧显示 `重置次数: N`; 该控件是 plain button, 点击后通过重置次数侧边详情面板展示过期时间。`resetCreditExpirationDates` 非空时按 `yyyy-MM-dd HH:mm:ss` 升序逐行展示, 相同展示时间合并数量, 单个显示 `可用: 1`; 剩余时间不超过 7 天时徽标为橙色, 少于 24 小时时为红色, 两个阈值均按精确秒数计算; 多行之间显示渐变分隔线; 没有过期时间时显示「未知过期时间」
 - 每个 quota window 展示标签, 50 个固定胶囊组成的电量条, 剩余百分比和重置时间
 - 胶囊宽度为 `3.5`, 间距为 `2`, 高度为 `12`
 - 额度行标签列宽 `34`, 居中显示, 标签允许最小缩放到 `0.75`, 标签到电量条间距 `12`, 电量条到百分比间距 `8`, 百分比列宽 `37`, 百分比到重置时间最小间距 `6`, 重置时间列宽 `75`
@@ -907,6 +907,7 @@ UI 展示指标来自 `WorkflowDailyAggregate.metrics`:
 - `CodexHookSettings.verifyInstalledHooks()`
 - `WorkflowSyncSettings.refresh()`
 - `MenuBarQuotaSettings.refresh()`
+- `MainPanelSettings.refresh()`
 
 设置窗口按 SwiftUI 内容 `fittingSize` 自适应高度, 但必须校验尺寸有限且夹紧到当前屏幕可见区域内的安全上限, 避免 SwiftUI 初始化或状态刷新重入时给出异常尺寸导致空白大窗口。`MenuBarQuotaSettings.refresh()` 可能被设置页 `onAppear` 和 `didBecomeActive` 调用, 发布 `selection` 时需要延后到下一轮 MainActor, 避免在 SwiftUI view update 中同步发布造成未定义布局行为。
 
@@ -915,6 +916,7 @@ UI 展示指标来自 `WorkflowDailyAggregate.metrics`:
 - `LoginItemSettings.refresh()`
 - `WorkflowSyncSettings.refresh()`
 - `MenuBarQuotaSettings.refresh()`
+- `MainPanelSettings.refresh()`
 - `AppUpdater.refreshAutomaticCheckSetting()`
 - `CodexCLIVersionViewModel.refresh()`
 - `CodexStatusViewModel.refreshCodexConnectionInfo()`
@@ -930,6 +932,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 | 开机自动启动    | `SMAppService.mainApp.status`                                                        | `register()` / `unregister()`                                                                                                                         |
 | 自动检查更新    | Sparkle updater                                                                      | 设置 `automaticallyChecksForUpdates`                                                                                                                  |
 | 菜单栏额度指示  | `MenuBarQuotaSettings.selection` / `MenuBarQuota.lastWindowSelection`                | 开关写入 `.off` 或恢复持久化的上次窗口选择, 窗口菜单写入所选窗口并同步记住; 标签优先来自当前账号 Codex limit 返回的额度窗口, 缺失时使用 fallback 标题 |
+| 主面板任务中心  | `MainPanelSettings.showsTaskCenter` + Codex Hook 状态                                | 写入 `MainPanel.showsTaskCenter`; 缺失时默认开启。Hook 关闭时显示为关闭并置灰但保留偏好, 重新开启后恢复                                               |
 | 系统通知        | `NotificationSettings` + `UNUserNotificationCenter`                                  | 总开关、五类通知子开关、任务触觉开关与阈值写入 `UserDefaults`; 首次开启时请求系统通知授权                                                             |
 | 使用快捷键      | `GlobalHotKeySettings.shortcut`                                                      | 写入 `UserDefaults` 并注册 hot key                                                                                                                    |
 | 启用 Codex Hook | app-server `config/read` / `hooks/list` / `config/batchWrite`, `~/.codex/hooks.json` | 检查全局 Hook 开关后追加或移除当前 CodexBar command hook, 并维护对应 `hooks.state` 信任状态                                                           |
@@ -1112,7 +1115,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 
 活动并发以 session 为边界：不同 session 可以同时运行；同一 session 的 turn 按顺序执行。收到新的 `UserPromptSubmit` 时，monitor 会让该 session 中更早且缺少结束信号的 turn 立即退出活动列表，但保留为等待终态确认任务并触发一次即时 rollout 查询；5 秒内收到 Hook `Stop`、rollout `task_complete` 或 `turn_aborted` 时按真实终态归类，到期仍无终态才生成灰色最近终止记录。子 Agent 事件只能通过共享 session 关联父任务，早于当前顶层任务可信开始时间的事件会被当作上一 turn 的迟到事件忽略。已完成和已终止任务键分别保留 24 小时 tombstone，避免迟到事件恢复旧任务或误操作同 session 的新 turn。终止不会触发绿色完成状态、长任务通知或完成触觉反馈。Hook `Stop` 与 rollout `task_complete` 均视为完成信号，先到者生效，后到者按任务键和 session 回退键去重；重复完成不会覆盖首次确认结果，也不会缩短去重窗口或再次触发反馈。
 
-设置页交互: 「系统通知」主开关行保留在设置窗口内, 子选项 (五类通知子开关、任务触觉开关与两个阈值 Picker) 在主选项右侧的子面板中展开 (`NotificationOptionsPanelController`, 复用 SidePanelSupport 抽屉机制挂在设置窗口上, 内容用常驻 hosting controller + ObservableObject 驱动, 面板尺寸在 Hook 开/关两种状态下保持不变)。「任务等待通知」和「任务触觉反馈」依次排列在「任务完成通知」下方。主开关开启后仅在系统授权允许时展开, 首次授权场景会等待授权结果; 点击行内滑杆按钮可手动展开; 设置窗口 resign key/关闭、主开关关闭或授权变为被拒时自动收起。任务完成、任务等待与任务触觉子项在 Hook 未开启时显示为关闭并置灰, 不修改各自持久化偏好, Hook 重新开启后恢复用户原选择。授权被拒的引导文案与"打开系统设置"按钮仍内联显示在主开关行下方, 插入提示时不触发设置项纵向动画。
+设置页交互: 「系统通知」主开关行保留在设置窗口内, 子选项 (五类通知子开关、任务触觉开关与两个阈值 Picker) 在主选项右侧的子面板中展开 (`NotificationOptionsPanelController`, 复用 SidePanelSupport 抽屉机制挂在设置窗口上, 内容用常驻 hosting controller + ObservableObject 驱动, 面板尺寸在 Hook 开/关两种状态下保持不变)。「任务等待通知」和「任务触觉反馈」依次排列在「任务完成通知」下方。主开关开启后仅在系统授权允许时展开, 首次授权场景会等待授权结果; 点击行内滑杆按钮可手动展开; 设置窗口 resign key/关闭、主开关关闭或授权变为被拒时自动收起。任务完成、任务等待与任务触觉子项在 Hook 未开启时显示为关闭并置灰, 不修改各自持久化偏好, Hook 重新开启后恢复用户原选择。「主面板任务中心」沿用相同依赖语义；关闭只隐藏活动卡片和任务中心入口，不停止 Monitor、状态点、通知或触觉反馈。授权被拒的引导文案与"打开系统设置"按钮仍内联显示在主开关行下方, 插入提示时不触发设置项纵向动画。
 
 五类通知的触发与去重:
 

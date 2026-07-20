@@ -164,7 +164,13 @@ struct ResetCreditsPanelView: View {
     }
 
     private func availableValue(for group: ResetCreditExpirationGroup) -> some View {
-        let tint: Color = group.isExpiringSoon ? .orange : .green
+        let tint: Color = if group.isExpiringUrgently {
+            .red
+        } else if group.isExpiringSoon {
+            .orange
+        } else {
+            .green
+        }
 
         return Text("可用: \(group.count)")
             .font(.caption2.monospacedDigit().weight(.semibold))
@@ -197,6 +203,7 @@ private struct ResetCreditExpirationGroup: Identifiable, Equatable {
     let expirationText: String
     var count: Int
     let isExpiringSoon: Bool
+    let isExpiringUrgently: Bool
 
     var id: String {
         expirationText
@@ -210,11 +217,13 @@ private struct ResetCreditExpirationGroup: Identifiable, Equatable {
                 groups[lastIndex].count += 1
             } else {
                 let remainingTime = date.timeIntervalSince(now)
+                let isExpiringSoon = remainingTime > 0 && remainingTime <= expiringSoonInterval
                 groups.append(
                     Self(
                         expirationText: expirationText,
                         count: 1,
-                        isExpiringSoon: remainingTime > 0 && remainingTime <= expiringSoonInterval
+                        isExpiringSoon: isExpiringSoon,
+                        isExpiringUrgently: isExpiringSoon && remainingTime < expiringUrgentlyInterval
                     )
                 )
             }
@@ -222,4 +231,5 @@ private struct ResetCreditExpirationGroup: Identifiable, Equatable {
     }
 
     private static let expiringSoonInterval: TimeInterval = 7 * 24 * 60 * 60
+    private static let expiringUrgentlyInterval: TimeInterval = 24 * 60 * 60
 }

@@ -272,7 +272,7 @@ final class SidePanelContentHost<Root: View> {
         self.cornerRadius = cornerRadius
     }
 
-    // Swift 6.3.3 的 EarlyPerfInliner 会在优化该泛型类型的合成析构函数时崩溃。
+    /// Swift 6.3.3 的 EarlyPerfInliner 会在优化该泛型类型的合成析构函数时崩溃。
     @_optimize(none)
     deinit {}
 

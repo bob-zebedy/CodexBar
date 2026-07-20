@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// 设置窗口根视图, 汇总启动项、更新、Hook、跨设备同步、快捷键和版本信息
+/// 设置窗口根视图, 汇总启动项、显示、Hook、同步、通知、快捷键和版本信息
 struct AppSettingsView: View {
     @EnvironmentObject private var statusViewModel: CodexStatusViewModel
     @EnvironmentObject private var appUpdater: AppUpdater
@@ -11,6 +11,7 @@ struct AppSettingsView: View {
     @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
     @ObservedObject var menuBarQuotaSettings: MenuBarQuotaSettings
+    @ObservedObject var mainPanelSettings: MainPanelSettings
     @ObservedObject var notificationSettings: NotificationSettings
     let onSyncChanged: (Bool) -> Void
     let onNotificationOptionsAction: (NotificationOptionsPanelAction) -> Void
@@ -27,6 +28,8 @@ struct AppSettingsView: View {
                 menuBarQuotaRow
                 LiquidGlassDivider()
                 codexHookRow
+                LiquidGlassDivider()
+                taskCenterRow
                 LiquidGlassDivider()
                 syncRow
                 LiquidGlassDivider()
@@ -66,6 +69,7 @@ struct AppSettingsView: View {
             loginItemSettings.refresh()
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
+            mainPanelSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
             refreshCodexVersionSection()
             notificationSettings.refreshAuthorizationStatus()
@@ -74,6 +78,7 @@ struct AppSettingsView: View {
             codexHookSettings.refresh()
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
+            mainPanelSettings.refresh()
             codexHookSettings.verifyInstalledHooks()
             refreshCodexVersionSection()
             notificationSettings.refreshAuthorizationStatus()
@@ -179,6 +184,21 @@ private extension AppSettingsView {
 
     var isMenuBarQuotaEnabled: Bool {
         menuBarQuotaSettings.selection != .off
+    }
+
+    /// Hook 未开启时显示为关闭并置灰, 不修改持久化的 showsTaskCenter。
+    var taskCenterRow: some View {
+        let isDisplayedOn = codexHookSettings.isEnabled && mainPanelSettings.showsTaskCenter
+
+        return SettingsToggleRow(
+            icon: "list.bullet.rectangle",
+            title: "主面板任务中心",
+            isOn: Binding(
+                get: { isDisplayedOn },
+                set: { mainPanelSettings.setShowsTaskCenter($0) }
+            ),
+            isEnabled: codexHookSettings.isEnabled && !codexHookSettings.isUpdating
+        )
     }
 
     var codexHookRow: some View {

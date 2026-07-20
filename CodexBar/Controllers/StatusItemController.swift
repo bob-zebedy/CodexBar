@@ -13,6 +13,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     let syncSettings = WorkflowSyncSettings()
     let globalHotKeySettings = GlobalHotKeySettings()
     let menuBarQuotaSettings = MenuBarQuotaSettings()
+    let mainPanelSettings = MainPanelSettings()
     let notificationSettings = NotificationSettings()
     let appUpdater = AppUpdater()
 
@@ -28,6 +29,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             syncSettings: syncSettings,
             globalHotKeySettings: globalHotKeySettings,
             menuBarQuotaSettings: menuBarQuotaSettings,
+            mainPanelSettings: mainPanelSettings,
             notificationSettings: notificationSettings,
             appUpdater: appUpdater
         )
@@ -66,6 +68,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private let syncSettings: WorkflowSyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
     private let menuBarQuotaSettings: MenuBarQuotaSettings
+    private let mainPanelSettings: MainPanelSettings
     private let notificationSettings: NotificationSettings
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -94,6 +97,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         syncSettings: syncSettings,
         globalHotKeySettings: globalHotKeySettings,
         menuBarQuotaSettings: menuBarQuotaSettings,
+        mainPanelSettings: mainPanelSettings,
         notificationSettings: notificationSettings
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
@@ -153,6 +157,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         syncSettings: WorkflowSyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
         menuBarQuotaSettings: MenuBarQuotaSettings,
+        mainPanelSettings: MainPanelSettings,
         notificationSettings: NotificationSettings,
         appUpdater: AppUpdater
     ) {
@@ -163,6 +168,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
         self.menuBarQuotaSettings = menuBarQuotaSettings
+        self.mainPanelSettings = mainPanelSettings
         self.notificationSettings = notificationSettings
         self.appUpdater = appUpdater
         super.init()
@@ -501,6 +507,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             viewModel: viewModel,
             workflowViewModel: workflowViewModel,
             codexHookSettings: codexHookSettings,
+            mainPanelSettings: mainPanelSettings,
             activityMonitor: activityMonitor,
             syncSettings: syncSettings,
             menuSurfaceVisibility: menuSurfaceVisibility,
@@ -530,13 +537,27 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             .map { $0 != nil }
             .removeDuplicates()
 
-        Publishers.CombineLatest3(
+        let hasTaskCenterContent = activityMonitor.$snapshot
+            .map(\.hasTaskCenterContent)
+            .removeDuplicates()
+
+        let isTaskCenterVisible = Publishers.CombineLatest(
+            codexHookSettings.$isEnabled,
+            mainPanelSettings.$showsTaskCenter
+        )
+        .map { isHookEnabled, showsTaskCenter in
+            isHookEnabled && showsTaskCenter
+        }
+        .removeDuplicates()
+
+        Publishers.CombineLatest4(
             menuSurfaceVisibility.$isVisible,
             hasQuotaSnapshot,
-            activityMonitor.$snapshot.map(\.hasTaskCenterContent)
+            hasTaskCenterContent,
+            isTaskCenterVisible
         )
-        .map { isMenuVisible, hasQuotaSnapshot, hasActivity in
-            isMenuVisible && hasQuotaSnapshot && hasActivity
+        .map { isMenuVisible, hasQuotaSnapshot, hasActivity, isTaskCenterVisible in
+            isMenuVisible && hasQuotaSnapshot && hasActivity && isTaskCenterVisible
         }
         .removeDuplicates()
         .sink { [weak self] isActive in
@@ -579,6 +600,13 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                     return
                 }
                 activityCenterPanelController.hide(immediate: true)
+            }
+            .store(in: &cancellables)
+
+        mainPanelSettings.$showsTaskCenter
+            .filter { !$0 }
+            .sink { [weak self] _ in
+                self?.activityCenterPanelController.hide(immediate: true)
             }
             .store(in: &cancellables)
     }

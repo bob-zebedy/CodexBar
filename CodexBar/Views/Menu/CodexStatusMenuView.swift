@@ -14,6 +14,7 @@ struct CodexStatusMenuView: View {
     @ObservedObject var viewModel: CodexStatusViewModel
     @ObservedObject var workflowViewModel: WorkflowViewModel
     @ObservedObject var codexHookSettings: CodexHookSettings
+    @ObservedObject var mainPanelSettings: MainPanelSettings
     // 活动状态与逐秒时间只被活动卡片消费, 由卡片自行观察, 避免 1Hz tick 让整个菜单树每秒重算
     let activityMonitor: CodexActivityMonitor
     @ObservedObject var syncSettings: WorkflowSyncSettings
@@ -32,6 +33,7 @@ struct CodexStatusMenuView: View {
         .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, isOuterSurface: true)
         .animation(Metrics.statusAnimation, value: viewModel.loadState)
         .animation(Metrics.statusAnimation, value: codexHookSettings.isEnabled)
+        .animation(Metrics.statusAnimation, value: mainPanelSettings.showsTaskCenter)
         .animation(Metrics.statusAnimation, value: syncSettings.isEnabled)
         .animation(Metrics.statusAnimation, value: syncSettings.isSyncing)
         .animation(Metrics.statusAnimation, value: syncSettings.hasSyncFailure)
@@ -74,7 +76,7 @@ private extension CodexStatusMenuView {
 
     @ViewBuilder
     var activityCard: some View {
-        if codexHookSettings.isEnabled {
+        if codexHookSettings.isEnabled, mainPanelSettings.showsTaskCenter {
             CodexActivityCard(
                 activityMonitor: activityMonitor,
                 presentationState: activityCenterPresentationState,
