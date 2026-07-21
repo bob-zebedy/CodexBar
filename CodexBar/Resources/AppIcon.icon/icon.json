@@ -1,47 +1,15 @@
 {
-  "fill" : "automatic",
+  "color-space-for-untagged-svg-colors" : "display-p3",
+  "fill" : {
+    "solid" : "extended-gray:1.00000,1.00000"
+  },
   "groups" : [
     {
       "layers" : [
         {
-          "glass" : false,
-          "image-name-specializations" : [
-            {
-              "value" : "bar-white.png"
-            },
-            {
-              "appearance" : "light",
-              "value" : "bar-black.png"
-            }
-          ],
-          "name" : "bar",
-          "position" : {
-            "scale" : 1,
-            "translation-in-points" : [
-              0,
-              340
-            ]
-          }
-        },
-        {
-          "glass" : false,
-          "image-name-specializations" : [
-            {
-              "value" : "codex-white.png"
-            },
-            {
-              "appearance" : "light",
-              "value" : "codex-black.png"
-            }
-          ],
-          "name" : "codex",
-          "position" : {
-            "scale" : 1,
-            "translation-in-points" : [
-              0,
-              -50
-            ]
-          }
+          "glass" : true,
+          "image-name" : "AppIcon.png",
+          "name" : "AppIcon"
         }
       ],
       "shadow" : {

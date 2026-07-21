@@ -218,7 +218,7 @@ private extension AppSettingsView {
 
         return SettingsToggleRow(
             icon: "list.bullet.rectangle",
-            title: "主面板任务中心",
+            title: "任务中心",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { mainPanelSettings.setShowsTaskCenter($0) }
