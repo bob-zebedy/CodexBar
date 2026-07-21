@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Hook 开启时常驻的固定高度活动摘要，使用菜单面板共享的逐秒时间。
-/// 在卡片内部观察 activityMonitor 与逐秒时间, 让 1Hz 失效范围只覆盖本卡片而不是整个菜单树。
+/// Hook 开启时常驻的固定高度活动摘要, 使用菜单面板共享的逐秒时间
+/// 在卡片内部观察 activityMonitor 与逐秒时间, 让 1Hz 失效范围只覆盖本卡片而不是整个菜单树
 struct CodexActivityCard: View {
     @ObservedObject var activityMonitor: CodexActivityMonitor
     @ObservedObject var presentationState: CodexActivityCenterPresentationState
@@ -213,7 +213,7 @@ struct CodexActivityCard: View {
     }
 }
 
-/// 卡片自行处理 hover/选中描边，按钮样式不再修改 label 的前景色或透明度。
+/// 卡片自行处理 hover/选中描边, 按钮样式不再修改 label 的前景色或透明度
 private struct ActivityCardButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

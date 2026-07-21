@@ -1,12 +1,12 @@
 import Foundation
 
-/// 实时活动管道的共享保留窗口。
-/// tail reader 的 bootstrap 回放范围与任务中心的历史保留期是同一个不变量，必须相等。
+/// 实时活动管道的共享保留窗口
+/// tail reader 的 bootstrap 回放范围与任务中心的历史保留期是同一个不变量, 必须相等
 nonisolated enum CodexActivityRetention {
     static let window: TimeInterval = 24 * 60 * 60
 }
 
-/// 活跃任务最近收到的 Hook 事件，供活动卡片展示当前执行阶段。
+/// 活跃任务最近收到的 Hook 事件, 供活动卡片展示当前执行阶段
 nonisolated enum CodexActivityEvent: Equatable {
     case promptSubmitted
     case toolStarted
@@ -18,13 +18,13 @@ nonisolated enum CodexActivityEvent: Equatable {
     case approvalRequested
 }
 
-/// bootstrap 后需要向更早日期定向查找 Prompt 起点的精确任务引用。
+/// bootstrap 后需要向更早日期定向查找 Prompt 起点的精确任务引用
 nonisolated struct CodexActivityPromptReference: Hashable {
     let sessionId: String
     let turnId: String
 }
 
-/// 正在运行或等待批准的任务摘要，不对 UI 暴露原始会话 ID。
+/// 正在运行或等待批准的任务摘要, 不对 UI 暴露原始会话 ID
 nonisolated struct CodexActivityTaskSnapshot: Equatable, Identifiable {
     let id: UUID
     let latestEvent: CodexActivityEvent
@@ -35,11 +35,11 @@ nonisolated struct CodexActivityTaskSnapshot: Equatable, Identifiable {
     let startedAt: Date?
     let stateChangedAt: Date
     let showsPreciseDuration: Bool
-    /// nil 表示 Hook 字段不足，无法可靠统计；0 表示已确认当前没有活跃子 Agent。
+    /// nil 表示 Hook 字段不足, 无法可靠统计; 0 表示已确认当前没有活跃子 Agent
     let activeSubagentCount: Int?
 }
 
-/// 最近确认结束的任务。完成只表示一轮任务结束，不代表执行成功。
+/// 最近确认结束的任务; 完成只表示一轮任务结束, 不代表执行成功
 nonisolated struct CodexActivityCompletion: Equatable, Identifiable {
     let id: UUID
     let projectName: String?
@@ -49,7 +49,7 @@ nonisolated struct CodexActivityCompletion: Equatable, Identifiable {
     let duration: TimeInterval?
 }
 
-/// 最近确认终止的任务。终止不会被视为完成，也不会触发完成提醒。
+/// 最近确认终止的任务; 终止不会被视为完成, 也不会触发完成提醒
 nonisolated struct CodexActivityTermination: Equatable, Identifiable {
     let id: UUID
     let projectName: String?
@@ -59,7 +59,7 @@ nonisolated struct CodexActivityTermination: Equatable, Identifiable {
     let duration: TimeInterval?
 }
 
-/// UI 只消费该快照，不直接读取或解释 Hook 事件。
+/// UI 只消费该快照, 不直接读取或解释 Hook 事件
 nonisolated struct CodexActivitySnapshot: Equatable {
     let waitingTasks: [CodexActivityTaskSnapshot]
     let runningTasks: [CodexActivityTaskSnapshot]
@@ -111,7 +111,7 @@ nonisolated struct CodexActivitySnapshot: Equatable {
         hasActiveTasks || !recentCompletions.isEmpty || !recentTerminations.isEmpty
     }
 
-    /// 等待批准 > 运行中 > 最近完成 > 最近终止 > 空闲；菜单栏图标、tooltip 和活动卡片共用同一判定。
+    /// 等待批准 > 运行中 > 最近完成 > 最近终止 > 空闲; 菜单栏图标, tooltip 和活动卡片共用同一判定
     var primaryActivity: CodexPrimaryActivity {
         if let task = primaryWaitingTask {
             return .waiting(task)
@@ -129,7 +129,7 @@ nonisolated struct CodexActivitySnapshot: Equatable {
     }
 }
 
-/// 快照归一后的主活动状态，highlighted 表示完成仍处于高亮时间窗内。
+/// 快照归一后的主活动状态, highlighted 表示完成仍处于高亮时间窗内
 nonisolated enum CodexPrimaryActivity: Equatable {
     case waiting(CodexActivityTaskSnapshot)
     case running(CodexActivityTaskSnapshot)
@@ -138,7 +138,7 @@ nonisolated enum CodexPrimaryActivity: Equatable {
     case idle
 }
 
-/// 只有 live Hook 或 session 生命周期会发布 transition，bootstrap 永远不会触发历史通知。
+/// 只有 live Hook 或 session 生命周期会发布 transition, bootstrap 永远不会触发历史通知
 nonisolated enum CodexActivityTransition: Equatable {
     case waitingApproval(CodexActivityTaskSnapshot)
     case completed(CodexActivityCompletion)
@@ -194,7 +194,7 @@ nonisolated enum CodexActivityDisplayFormat {
         relativeText(since: terminatedAt, now: now, action: "终止")
     }
 
-    /// 活动卡片、任务中心、菜单栏 tooltip 和系统通知共用的时长片段。
+    /// 活动卡片, 任务中心, 菜单栏 tooltip 和系统通知共用的时长片段
     static func waitingDurationFragment(since stateChangedAt: Date, now: Date) -> String {
         "已等待 \(CodexActivityDurationFormat.text(for: now.timeIntervalSince(stateChangedAt)))"
     }
@@ -207,7 +207,7 @@ nonisolated enum CodexActivityDisplayFormat {
         "耗时 \(CodexActivityDurationFormat.text(for: duration))"
     }
 
-    /// 活动卡片和任务中心共用同一份文案片段。
+    /// 活动卡片和任务中心共用同一份文案片段
     static func waitingDetailComponents(
         for task: CodexActivityTaskSnapshot,
         now: Date

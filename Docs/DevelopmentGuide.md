@@ -822,11 +822,11 @@ Hook 数据目录:
 
 文件职责:
 
-| 文件                      | 职责                                             |
-| ------------------------- | ------------------------------------------------ |
-| `events/YYYY-MM-DD.jsonl` | 按本机日期拆分的原始 Hook 事件                   |
-| `daily.jsonl`             | 每日聚合结果, UI 优先读取                        |
-| `stats.lock`              | `flock` 锁文件                                   |
+| 文件                      | 职责                                                         |
+| ------------------------- | ------------------------------------------------------------ |
+| `events/YYYY-MM-DD.jsonl` | 按本机日期拆分的原始 Hook 事件                               |
+| `daily.jsonl`             | 每日聚合结果, UI 优先读取                                    |
+| `stats.lock`              | `flock` 锁文件                                               |
 | `maintenance.json`        | pending、dirty、offset、来源 generation 和文件连续性校验状态 |
 
 ## 12. Workflow 维护与聚合流程
@@ -837,8 +837,10 @@ Hook 数据目录:
 - 打开菜单面板时如果 Hook 开启, 只读取现有 `daily.jsonl` 和同步缓存, 不维护, 不联网
 - app-server 自动刷新倒计时重置时, 如果 Hook 开启, 通过 `WorkflowSyncScheduler.requestMaintenance(allowsSync: true)` 请求一次维护
 - 同步开关开启、Hook 重新开启或同步账号恢复可用时, 通过 `WorkflowSyncScheduler.requestSync()` 请求一次同步维护
-- `WorkflowSyncScheduler` 是维护/同步任务的唯一调度者, 负责运行中、待补跑、冷却窗口和最终状态校验
-- `WorkflowViewModel.refreshMaintenance(synchronize:)` 不自行判断维护并发, 只取消普通读取并执行一次明确的 `WorkflowService.loadSnapshot(performMaintenance: true, synchronize: ...)`
+- `WorkflowSyncScheduler` 是维护、同步和显式重建的唯一调度者, 负责运行中、待补跑、冷却窗口和最终状态校验
+- `WorkflowViewModel.refreshMaintenance(synchronize:)` 只取消普通读取并执行一次明确的 `WorkflowService.loadSnapshot(performMaintenance: true, synchronize: ...)`, 运行和排队状态由调度器管理
+- 设置页日期范围批量重建同样通过 `WorkflowSyncScheduler` 排队, 首次点击确定起点, 第二次点击确定终点且允许跨月, 两次点击同一天时形成单日范围; 保留窗口内的日期均可选择, 本机非空事件日期以圆点标记, 提交时只筛选范围内本机非空的分日事件文件, 逐日从头生成新的本地 generation, 并批量持久化当前设备对应日期的待云端替换状态
+- 已有维护或同步先完成再执行重建; 重建期间新增的本机维护和同步请求分别合并, 整批重建结束后由调度器继续处理, 不与重建并发读写工作流状态
 
 维护流程在 `WorkflowService` actor 内串行执行
 
@@ -899,6 +901,8 @@ UI 展示指标来自 `WorkflowDailyAggregate.metrics`:
 
 跨设备同步只在 `performMaintenance: true, synchronize: true` 的刷新中执行。`WorkflowSyncScheduler` 会合并同步开关、Hook 重新开启、同步账号恢复可用和自动刷新产生的同步请求；同步中不取消重启, 冷却窗口内只保留一次待补跑请求, 补跑前重新校验 Hook 开启、跨设备同步偏好为 true 且同步账号可用。`WorkflowSyncService` 先用本机 daily 聚合生成脱敏 `WorkflowSyncedDailyAggregate`, 保留 `sourceGeneration`、`projectCounts` 和 `modelCounts`, 再为保留窗口内的全部本机日期计算稳定 hash、按日期稳定排序候选项, 每批最多上传 25 天, 每轮最多使用 20 秒。zone 存在性确认和 account salt 首次成功后在 actor 内跨轮缓存, 任一轮同步失败时作废, 下一轮重新确认（覆盖 iCloud 账号切换）。同步先刷新一次 CloudKit 缓存再决定上传：只在当前 `deviceId`、当前待上传日期内查找本机副本；同 generation 复用现有记录并按 `eventCount` 防倒退；没有 generation 的记录必须与本机全部同步业务字段完全一致才会被认作同一来源，即使两边 generation 都是 `nil` 也不能跳过内容比较；确认从空文件开始的新 generation 使用独立记录；来源不明确的非空替换在已有云端贡献时只确认保留云端，不自动上传为新贡献。每批处理后立即保存已经上传或确认保留的 `state.hashByDate`; 只有实际上传时更新 `lastUploadAt`, 未完成的 backfill 留给后续自动刷新继续。上传后再次拉取 CloudKit 变化。没有 `cursor.data` 时先 query 全量 `CodexBarDailyAggregate` 回填 `cache.jsonl`; 有游标时优先拉 CloudKit 增量, 游标失效或增量失败时不写入日志窗口, 直接全量重建缓存。删除变化只移除 cache 记录，不清除已确认 hash，所以外部删除不会在本机 daily 未变化时立即回传。`cache.jsonl` 按 record name 保存所有设备和 generation 的记录；展示时当前本机 generation 与同 generation 云端副本按 `eventCount` 择优，确认独立的其他 generation 与其他设备记录继续累加；来源不明确的替换继续使用已有云端记录。增量路径先写 `cache.jsonl`, 成功后再写 `cursor.data`, 避免游标提前推进导致未落盘记录被跳过。同步失败会通过 `CodexBar.workflowSyncDidFinish` 通知发送 `didSucceed=false` 和归类后的 `failureMessage`, 主面板同步图标进入失败态。
 
+显式日期重建完成后, `WorkflowSyncService` 把实际重建日期写入 `state.replacementDates`, 清除对应日期的确认 hash, 并在快照合并时忽略当前设备这些日期的旧缓存。同步可用时先全量重建 CloudKit 缓存, 再分批删除当前设备对应日期的 legacy 和全部 generation 记录; 删除成功或返回 `unknownItem` 后从本地 cache 移除旧记录, 随后按正常上传流程写入本机新 generation。日期只有在新记录确认后才从 `replacementDates` 移除; 删除、上传或同步中途失败时保留请求并在后续同步幂等重试。其他设备和范围外日期不参与替换。
+
 当前代码写入的 CloudKit `schemaVersion` 是 `4`, 本地同步 state schema 是 `4`，本地工作流维护 state schema 也是 `4`。同步 state 无法按当前 schema 使用时会重建并重新同步。daily 或 CloudKit 记录没有 `sourceGeneration` 时仍可读取；只有其全部同步业务字段与当前本机聚合一致时，才会认作同一 generation。
 
 CloudKit Production schema 必须包含当前 schema `4` 使用的字段；schema 变化需要通过 CloudKit Dashboard 从 Development 部署到 Production，运行时代码不会代替发布流程执行部署。
@@ -927,8 +931,10 @@ CloudKit Production schema 必须包含当前 schema `4` 使用的字段；schem
 - `AppUpdater.refreshAutomaticCheckSetting()`
 - `CodexCLIVersionViewModel.refresh()`
 - `CodexStatusViewModel.refreshCodexConnectionInfo()`
+- `NotificationSettings.refreshAuthorizationStatus()`
+- `WorkflowStorage.rebuildableEventDateKeys()`
 
-App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并在已安装 Hook 时重新运行 `hooks/list` 验证。
+App 再次成为 active 时, 也会刷新 Hook、同步、菜单栏额度、主面板、Codex 版本、通知授权和可重建日期, 并重新运行 `hooks/list` 验证。`SettingsWindowController.open()` 发布 `.settingsWindowDidOpen` 后, 日期重建范围、确认弹窗和上次结果消息恢复为未选择状态。
 
 版本探测内部有 60 秒节流, 避免 `onAppear` 和 `didBecomeActive` 连续触发时重复启动子进程
 
@@ -945,6 +951,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 | 使用快捷键      | `GlobalHotKeySettings.shortcut`                                                      | 写入 `UserDefaults` 并注册 hot key                                                                                                                    |
 | 启用 Codex Hook | app-server `config/read` / `hooks/list` / `config/batchWrite`, `~/.codex/hooks.json` | 检查全局 Hook 开关后追加或移除当前 CodexBar command hook, 并维护对应 `hooks.state` 信任状态                                                           |
 | 跨设备同步      | `WorkflowSyncSettings` + CloudKit account status + `WorkflowSyncScheduler`           | Hook 开启且同步账号可用时写入 `UserDefaults`; 开启时标记 `needsBackfill` 并请求调度同步                                                               |
+| 重建数据        | `WorkflowStorage.rebuildableEventDateKeys()` + `WorkflowSyncScheduler`               | 选择最近 210 天内的日期范围, 将范围内非空本机事件日期交给调度器逐日重建, 并登记当前设备对应日期的待云端替换状态                                       |
 | Codex 版本      | `CodexCLIVersionSnapshot` + 当前 app-server 握手信息                                 | 路径点击复制到剪贴板                                                                                                                                  |
 | CodexBar 版本   | Bundle + AppUpdater 状态                                                             | 有更新状态时优先显示动态消息                                                                                                                          |
 
@@ -954,6 +961,7 @@ App 再次成为 active 时, 也会刷新 Codex 版本区、同步可用性, 并
 - Hook 设置失败, 全局禁用, 自动信任写入失败或验证异常显示在 Hook 选项下方
 - 同步账号不可用时显示在跨设备同步开关下方
 - 同步运行失败不在设置页展示原始错误; 主面板同步图标 tooltip 显示归类后的短错误
+- 重建行始终保留一行消息位置: 未选择时显示「未选择重建日期范围」, 只选择起点时显示「选择结束日期」, 范围完成且存在数据时显示完整日历范围的「已选择 X 天」, 范围内没有非空事件文件时显示「没有可重建的本地数据」; 完成或失败后改为对应结果消息
 - 没有登录项错误时不渲染错误组
 - 快捷键无法识别, 规则不合法或注册冲突显示在快捷键行内
 - 更新检查状态显示在 CodexBar 版本行

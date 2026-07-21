@@ -60,7 +60,7 @@ final class WorkflowSyncSettings: ObservableObject {
         syncAvailability.isAvailable
     }
 
-    /// 「同步是否实际生效」的唯一判定: Hook 已启用且同步开关打开且 iCloud 可用
+    /// "同步是否实际生效"的唯一判定: Hook 已启用且同步开关打开且 iCloud 可用
     func isEffectivelyActive(isHookEnabled: Bool) -> Bool {
         isHookEnabled && isEnabled && isSyncAvailable
     }

@@ -3,6 +3,9 @@ import Foundation
 /// 合并工作流维护刷新中的同步请求, 避免频繁开关产生重复同步
 @MainActor
 final class WorkflowSyncScheduler {
+    typealias RebuildCompletion = (Result<WorkflowDataRebuildSummary, Error>) -> Void
+    typealias RebuildHandler = ([String], @escaping RebuildCompletion) -> Void
+
     private static let syncCooldown: TimeInterval = 8
 
     private let viewModel: WorkflowViewModel
@@ -10,6 +13,7 @@ final class WorkflowSyncScheduler {
     private var isRunning = false
     private var pendingSync = false
     private var pendingLocalMaintenance = false
+    private var pendingRebuild: RebuildRequest?
     private var cooldownTask: Task<Void, Never>?
     private var lastSyncFinishedAt: Date?
 
@@ -45,6 +49,16 @@ final class WorkflowSyncScheduler {
         drain()
     }
 
+    func requestRebuild(
+        for dateKeys: [String],
+        completion: @escaping RebuildCompletion
+    ) {
+        pendingRebuild?.completion(.failure(CancellationError()))
+        pendingRebuild = RebuildRequest(dateKeys: dateKeys, completion: completion)
+        cancelCooldownTask()
+        drain()
+    }
+
     func clearPendingSync() {
         pendingSync = false
         cancelCooldownTask()
@@ -59,10 +73,17 @@ final class WorkflowSyncScheduler {
 
     func cancel() {
         clearPendingMaintenance()
+        pendingRebuild?.completion(.failure(CancellationError()))
+        pendingRebuild = nil
     }
 
     private func drain() {
         guard !isRunning else {
+            return
+        }
+
+        if let pendingRebuild {
+            startRebuild(pendingRebuild)
             return
         }
 
@@ -121,6 +142,37 @@ final class WorkflowSyncScheduler {
         drain()
     }
 
+    private func startRebuild(_ request: RebuildRequest) {
+        isRunning = true
+        pendingRebuild = nil
+        let synchronize = canSynchronize()
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            let result: Result<WorkflowDataRebuildSummary, Error>
+            do {
+                result = try await .success(
+                    viewModel.rebuildData(
+                        for: request.dateKeys,
+                        synchronize: synchronize
+                    )
+                )
+            } catch {
+                result = .failure(error)
+            }
+
+            isRunning = false
+            if synchronize {
+                lastSyncFinishedAt = Date()
+            }
+            request.completion(result)
+            drain()
+        }
+    }
+
     private func remainingSyncCooldown() -> TimeInterval {
         guard let lastSyncFinishedAt else {
             return 0
@@ -150,5 +202,10 @@ final class WorkflowSyncScheduler {
     private func cancelCooldownTask() {
         cooldownTask?.cancel()
         cooldownTask = nil
+    }
+
+    private struct RebuildRequest {
+        let dateKeys: [String]
+        let completion: RebuildCompletion
     }
 }

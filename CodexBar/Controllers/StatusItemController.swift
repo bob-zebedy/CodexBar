@@ -109,6 +109,12 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         self?.statusItem.button?.window?.screen
     } onSyncChanged: { [weak self] enabled in
         self?.handleSyncChanged(enabled)
+    } onRebuildWorkflowData: { [weak self] dateKeys, completion in
+        guard let self else {
+            completion(.failure(CancellationError()))
+            return
+        }
+        workflowSyncScheduler.requestRebuild(for: dateKeys, completion: completion)
     }
 
     private lazy var logWindowController = LogWindowController { [weak self] in
@@ -182,7 +188,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
     }
 
-    /// 无状态点和额度条时使用模板渲染，由系统按菜单栏外观着色。
+    /// 无状态点和额度条时使用模板渲染, 由系统按菜单栏外观着色
     private static func makeStatusImage(
         _ symbolName: String,
         indicatorTint: NSColor? = nil,
@@ -346,7 +352,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             }
         }
 
-        /// 只包含影响图像像素的字段；tooltip 文本变化不应触发重绘。
+        /// 只包含影响图像像素的字段; tooltip 文本变化不应触发重绘
         var renderState: StatusIconRenderState {
             StatusIconRenderState(symbolName: symbolName, indicator: indicator, progress: progress)
         }
@@ -409,7 +415,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    /// 状态图标中影响像素的渲染子状态，用于跳过 tooltip-only 变化引发的重绘。
+    /// 状态图标中影响像素的渲染子状态, 用于跳过 tooltip-only 变化引发的重绘
     private struct StatusIconRenderState: Equatable {
         let symbolName: String
         let indicator: ActivityIndicator?
@@ -700,7 +706,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             renderStatusImage(state)
             return
         }
-        // tooltip-only 变化不重绘，也不打断进行中的图标动画。
+        // tooltip-only 变化不重绘, 也不打断进行中的图标动画
         guard previousState.renderState != state.renderState else {
             return
         }
@@ -843,7 +849,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    /// toggle 将走「打开」分支的状态谓词, 与 toggleMenuSurface 的分支口径一致
+    /// toggle 将走"打开"分支的状态谓词, 与 toggleMenuSurface 的分支口径一致
     private var menuSurfaceWillOpenOnToggle: Bool {
         menuSurfaceState == .hidden || menuSurfaceState == .closing
     }
@@ -1127,7 +1133,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         scheduleAuxiliaryWindowKeyFocusRestore()
     }
 
-    /// 侧边面板互斥名册：新增面板只需要加入这里，显隐与点击区域判定即可覆盖。
+    /// 侧边面板互斥名册: 新增面板只需要加入这里, 显隐与点击区域判定即可覆盖
     private var sideDetailPanels: [MenuSideDetailPanel] {
         [heatmapDetailPanelController, resetCreditsPanelController, activityCenterPanelController]
     }
@@ -1357,7 +1363,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 }
 
-/// 菜单侧边面板的互斥名册接口；面板间互斥和点击区域判定统一走名册遍历。
+/// 菜单侧边面板的互斥名册接口; 面板间互斥和点击区域判定统一走名册遍历
 private protocol MenuSideDetailPanel: AnyObject {
     func hide(immediate: Bool)
     func containsScreenPoint(_ screenPoint: NSPoint) -> Bool

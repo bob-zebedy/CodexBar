@@ -1,7 +1,7 @@
 import Combine
 import SwiftUI
 
-/// 活动卡片与任务中心共享的显隐和逐秒时间状态。
+/// 活动卡片与任务中心共享的显隐和逐秒时间状态
 @MainActor
 final class CodexActivityCenterPresentationState: ObservableObject {
     @Published var isPresented = false
@@ -34,14 +34,14 @@ final class CodexActivityCenterPresentationState: ObservableObject {
     }
 }
 
-/// 点击活动卡片时传给 AppKit 控制器的定位信息。
+/// 点击活动卡片时传给 AppKit 控制器的定位信息
 @MainActor
 struct CodexActivityCenterPanelContext {
     let anchorProvider: ScreenFrameProvider
     let preferredSide: UsageHeatmapDetailSide
 }
 
-/// 并发任务中心，实时展示全部等待、运行、最近完成和最近终止任务。
+/// 并发任务中心, 实时展示全部等待; 运行; 最近完成和最近终止任务
 struct CodexActivityCenterView: View {
     @ObservedObject var activityMonitor: CodexActivityMonitor
     @ObservedObject var presentationState: CodexActivityCenterPresentationState

@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 
-/// 点击活动卡片后展开的并发任务中心，复用菜单侧边抽屉定位和动画。
+/// 点击活动卡片后展开的并发任务中心, 复用菜单侧边抽屉定位和动画
 @MainActor
 final class ActivityCenterPanelController {
     private let activityMonitor: CodexActivityMonitor
@@ -72,7 +72,7 @@ final class ActivityCenterPanelController {
 
     func hide(immediate: Bool = false) {
         cancelScheduledPresentation()
-        // 热力图 hover 等高频路径会盲调 hide；已隐藏时跳过 @Published 写入，避免整个菜单重算。
+        // 热力图 hover 等高频路径会盲调 hide; 已隐藏时跳过 @Published 写入, 避免整个菜单重算
         guard presentationState.isPresented || presenter.isVisible else {
             return
         }

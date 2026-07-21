@@ -34,6 +34,27 @@ actor WorkflowSyncService {
         return snapshot(from: state)
     }
 
+    /// 显式重建后, 将所选日期标记为当前设备云端贡献的权威替换来源
+    func markReplacementNeeded(for dates: [String]) throws {
+        let validDates = Set(dates.filter(WorkflowStorage.isValidDateKey))
+        guard !validDates.isEmpty else {
+            return
+        }
+
+        var state = loadState()
+        state.replacementDates = Set(state.replacementDates)
+            .union(validDates)
+            .sorted()
+        for date in validDates {
+            state.hashByDate.removeValue(forKey: date)
+        }
+        try saveState(state)
+    }
+
+    func hasPendingReplacement(for dates: [String]) -> Bool {
+        !Set(loadState().replacementDates).isDisjoint(with: dates)
+    }
+
     func synchronizeIfEnabled(
         localAggregates: [WorkflowDailyAggregate]
     ) async -> WorkflowSyncSnapshot {
@@ -59,15 +80,32 @@ actor WorkflowSyncService {
             let deviceId = try await resolveCurrentDeviceId()
             try resetStateIfDeviceChanged(deviceId, state: &state)
             try await migrateStateIfNeeded(&state)
-            try await refreshCacheFromRemote()
 
             let localByDate = Self.syncedAggregatesByDate(localAggregates)
+            if state.replacementDates.isEmpty {
+                try await refreshCacheFromRemote()
+            } else {
+                // 替换前全量拉取, 避免增量缓存遗漏同设备同日期的旧 generation
+                try await rebuildCacheFromRemote()
+                try await preparePendingReplacements(
+                    localByDate: localByDate,
+                    deviceId: deviceId,
+                    state: &state
+                )
+            }
+
             let forceBackfill = WorkflowSyncSettings.needsBackfill()
             let confirmedDates = try await uploadChangedAggregates(
                 localByDate: localByDate,
                 remoteRecords: loadCachedRecords(),
                 state: &state
             )
+
+            let completedReplacementDates = Set(state.replacementDates).intersection(confirmedDates)
+            if !completedReplacementDates.isEmpty {
+                state.replacementDates.removeAll { completedReplacementDates.contains($0) }
+                try saveState(state)
+            }
 
             if forceBackfill,
                backfillCompleted(localByDate: localByDate, confirmedDates: confirmedDates) {
@@ -99,7 +137,10 @@ actor WorkflowSyncService {
         try removeCursorIfPresent()
         try saveCachedRecords([])
 
-        let resetState = WorkflowSyncState(deviceId: deviceId)
+        let resetState = WorkflowSyncState(
+            deviceId: deviceId,
+            replacementDates: state.replacementDates
+        )
         try saveState(resetState)
         state = resetState
     }
@@ -123,11 +164,18 @@ actor WorkflowSyncService {
     }
 
     private func snapshot(from state: WorkflowSyncState) -> WorkflowSyncSnapshot {
-        WorkflowSyncSnapshot(
-            records: state.deviceId == nil
-                ? []
-                : Self.filteredRetained(records: loadCachedRecords()),
-            currentDeviceId: state.deviceId
+        guard let deviceId = state.deviceId else {
+            return .disabled
+        }
+
+        let replacementDates = Set(state.replacementDates)
+        let records = Self.filteredRetained(records: loadCachedRecords()).filter { record in
+            record.deviceId != deviceId || !replacementDates.contains(record.date)
+        }
+
+        return WorkflowSyncSnapshot(
+            records: records,
+            currentDeviceId: deviceId
         )
     }
 }
@@ -287,6 +335,68 @@ private extension WorkflowSyncService {
             state.hashByDate.removeValue(forKey: upload.date)
         }
         try saveState(state)
+    }
+
+    func preparePendingReplacements(
+        localByDate: [String: LocalSyncAggregate],
+        deviceId: String,
+        state: inout WorkflowSyncState
+    ) async throws {
+        let replacementDates = Set(state.replacementDates).intersection(localByDate.keys)
+        guard !replacementDates.isEmpty else {
+            return
+        }
+
+        let cachedRecords = loadCachedRecords()
+        let recordsToReplace = cachedRecords.filter {
+            $0.deviceId == deviceId && replacementDates.contains($0.date)
+        }
+        var recordIDs = Set(recordsToReplace.map {
+            CKRecord.ID(recordName: $0.id, zoneID: syncZoneID)
+        })
+
+        for date in replacementDates {
+            recordIDs.insert(recordID(deviceId: deviceId, date: date))
+            if let generation = localByDate[date]?.aggregate.sourceGeneration {
+                recordIDs.insert(recordID(deviceId: deviceId, date: date, generation: generation))
+            }
+        }
+
+        try await deleteRecords(Array(recordIDs))
+
+        try saveCachedRecords(cachedRecords.filter {
+            $0.deviceId != deviceId || !replacementDates.contains($0.date)
+        })
+        for date in replacementDates {
+            state.hashByDate.removeValue(forKey: date)
+        }
+        try saveState(state)
+    }
+
+    func deleteRecords(_ recordIDs: [CKRecord.ID]) async throws {
+        for batchStart in stride(from: 0, to: recordIDs.count, by: Metrics.uploadBatchSize) {
+            let batchEnd = min(batchStart + Metrics.uploadBatchSize, recordIDs.count)
+            let batch = Array(recordIDs[batchStart ..< batchEnd])
+            let result = try await database.modifyRecords(
+                saving: [],
+                deleting: batch,
+                savePolicy: .changedKeys,
+                atomically: false
+            )
+
+            for recordID in batch {
+                switch result.deleteResults[recordID] {
+                case .success:
+                    continue
+                case let .failure(error as CKError) where error.code == .unknownItem:
+                    continue
+                case let .failure(error):
+                    throw error
+                case nil:
+                    throw WorkflowSyncError.missingRecordResult
+                }
+            }
+        }
     }
 
     func applyConfirmedHashes(
@@ -525,26 +635,54 @@ private extension WorkflowSyncService {
             NSSortDescriptor(key: FieldKeys.date, ascending: true)
         ]
 
+        let matches = try await fetchAllRecordMatches(matching: query)
+        return try Self.remoteDailyRecords(from: matches)
+    }
+
+    func fetchExpiredCurrentDeviceRecordIDs(
+        deviceId: String,
+        cutoffKey: String
+    ) async throws -> [CKRecord.ID] {
+        let query = CKQuery(
+            recordType: RecordTypes.dailyAggregate,
+            predicate: NSPredicate(
+                format: "%K == %@ AND %K < %@",
+                FieldKeys.deviceId,
+                deviceId,
+                FieldKeys.date,
+                cutoffKey
+            )
+        )
+
+        return try await fetchAllRecordMatches(matching: query).map { recordID, result in
+            _ = try result.get()
+            return recordID
+        }
+    }
+
+    func fetchAllRecordMatches(
+        matching query: CKQuery
+    ) async throws -> [(CKRecord.ID, Result<CKRecord, Error>)] {
         let firstPage = try await database.records(
             matching: query,
             inZoneWith: syncZoneID,
             desiredKeys: nil,
             resultsLimit: Metrics.queryFetchLimit
         )
-        var records = try Self.remoteDailyRecords(from: firstPage.matchResults)
-        var queryCursor = firstPage.queryCursor
+        var matches = firstPage.matchResults
+        var cursor = firstPage.queryCursor
 
-        while let cursor = queryCursor {
+        while let currentCursor = cursor {
             let page = try await database.records(
-                continuingMatchFrom: cursor,
+                continuingMatchFrom: currentCursor,
                 desiredKeys: nil,
                 resultsLimit: Metrics.queryFetchLimit
             )
-            try records.append(contentsOf: Self.remoteDailyRecords(from: page.matchResults))
-            queryCursor = page.queryCursor
+            matches.append(contentsOf: page.matchResults)
+            cursor = page.queryCursor
         }
 
-        return records
+        return matches
     }
 
     func establishCursorBaseline(cachedRecords: [WorkflowSyncedDailyRecord]) async {
@@ -595,45 +733,35 @@ private extension WorkflowSyncService {
 
         let cutoffKey = WorkflowStorage.dateKey(for: WorkflowStorage.retentionCutoffDate())
         let expiredDates = Set(state.hashByDate.keys.filter { $0 < cutoffKey })
-        let expiredRecords = loadCachedRecords().filter {
-            $0.deviceId == deviceId && $0.date < cutoffKey
-        }
-        var recordNames = Set(expiredRecords.map(\.id))
+        state.replacementDates.removeAll { $0 < cutoffKey }
+        var recordIDs = try await Set(
+            fetchExpiredCurrentDeviceRecordIDs(
+                deviceId: deviceId,
+                cutoffKey: cutoffKey
+            )
+        )
         for date in expiredDates {
-            recordNames.insert(
-                WorkflowSyncedDailyRecord.legacyRecordName(deviceId: deviceId, date: date)
+            recordIDs.insert(
+                CKRecord.ID(
+                    recordName: WorkflowSyncedDailyRecord.legacyRecordName(
+                        deviceId: deviceId,
+                        date: date
+                    ),
+                    zoneID: syncZoneID
+                )
             )
         }
 
-        guard !recordNames.isEmpty else {
-            for date in expiredDates {
-                state.hashByDate.removeValue(forKey: date)
-            }
-            state.lastPrunedDate = today
-            return
+        if !recordIDs.isEmpty {
+            try await deleteRecords(
+                recordIDs.sorted { $0.recordName < $1.recordName }
+            )
         }
 
-        let recordIDs = recordNames.map {
-            CKRecord.ID(recordName: $0, zoneID: syncZoneID)
+        for date in expiredDates {
+            state.hashByDate.removeValue(forKey: date)
         }
-
-        let result = try await database.modifyRecords(
-            saving: [],
-            deleting: recordIDs,
-            savePolicy: .changedKeys,
-            atomically: false
-        )
-
-        let allDeleted = recordIDs.allSatisfy { recordID in
-            Self.isSuccessfulDeleteResult(result.deleteResults[recordID])
-        }
-
-        if allDeleted {
-            for date in expiredDates {
-                state.hashByDate.removeValue(forKey: date)
-            }
-            state.lastPrunedDate = today
-        }
+        state.lastPrunedDate = today
     }
 
     func resolveCurrentDeviceId() async throws -> String {
@@ -1003,17 +1131,6 @@ private extension WorkflowSyncService {
             }
     }
 
-    static func isSuccessfulDeleteResult(_ result: Result<Void, Error>?) -> Bool {
-        switch result {
-        case .success:
-            true
-        case let .failure(error as CKError) where error.code == .unknownItem:
-            true
-        case .failure, .none:
-            false
-        }
-    }
-
     static func intValue(_ value: CKRecordValue?) -> Int {
         optionalIntValue(value) ?? 0
     }
@@ -1079,7 +1196,7 @@ private extension WorkflowSyncService {
     }
 }
 
-/// records 包含所有设备的脱敏聚合；currentDeviceId 用于展示时替换而不是叠加本机云端副本
+/// records 包含所有设备的脱敏聚合; currentDeviceId 用于展示时替换而不是叠加本机云端副本
 nonisolated struct WorkflowSyncSnapshot: Equatable {
     let records: [WorkflowSyncedDailyRecord]
     let currentDeviceId: String?
@@ -1098,6 +1215,7 @@ private nonisolated struct WorkflowSyncState: Codable, Equatable {
     var schema: Int
     var deviceId: String?
     var hashByDate: [String: String]
+    var replacementDates: [String]
     var lastUploadAt: Date?
     var lastPrunedDate: String?
 
@@ -1105,12 +1223,14 @@ private nonisolated struct WorkflowSyncState: Codable, Equatable {
         schema: Int = Self.currentSchema,
         deviceId: String? = nil,
         hashByDate: [String: String] = [:],
+        replacementDates: [String] = [],
         lastUploadAt: Date? = nil,
         lastPrunedDate: String? = nil
     ) {
         self.schema = schema
         self.deviceId = deviceId
         self.hashByDate = hashByDate
+        self.replacementDates = replacementDates
         self.lastUploadAt = lastUploadAt
         self.lastPrunedDate = lastPrunedDate
     }
@@ -1122,6 +1242,13 @@ private nonisolated struct WorkflowSyncState: Codable, Equatable {
         deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
         hashByDate = try container.decodeIfPresent([String: String].self, forKey: .hashByDate)
             ?? [:]
+        let decodedReplacementDates = try container.decodeIfPresent(
+            [String].self,
+            forKey: .replacementDates
+        ) ?? []
+        replacementDates = Set(
+            decodedReplacementDates.filter(WorkflowStorage.isValidDateKey)
+        ).sorted()
         lastUploadAt = try container.decodeIfPresent(Date.self, forKey: .lastUploadAt)
         lastPrunedDate = try container.decodeIfPresent(String.self, forKey: .lastPrunedDate)
     }
@@ -1130,6 +1257,7 @@ private nonisolated struct WorkflowSyncState: Codable, Equatable {
         case schema
         case deviceId
         case hashByDate
+        case replacementDates
         case lastUploadAt
         case lastPrunedDate
     }

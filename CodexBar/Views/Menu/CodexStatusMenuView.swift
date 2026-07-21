@@ -1,13 +1,13 @@
 import Combine
 import SwiftUI
 
-/// 菜单面板可见状态，用于控制逐秒时间更新。
+/// 菜单面板可见状态, 用于控制逐秒时间更新
 @MainActor
 final class MenuSurfaceVisibilityState: ObservableObject {
     @Published var isVisible = false
 }
 
-/// 菜单栏弹出面板根视图, 汇总账号、实时活动、额度、token、同步状态和更新时间
+/// 菜单栏弹出面板根视图, 汇总账号; 实时活动; 额度; token; 同步状态和更新时间
 struct CodexStatusMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + MenuMetrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
 
@@ -63,7 +63,7 @@ private extension CodexStatusMenuView {
 
             dataSection(snapshot)
         } else {
-            // 仅展示未登录 / 初始化失败两种特殊状态, 其余错误只进日志
+            // 仅展示未登录/初始化失败两种特殊状态, 其余错误只进日志
             StatusAccountCard(
                 loadState: viewModel.loadState,
                 isRefreshing: viewModel.isRefreshing,

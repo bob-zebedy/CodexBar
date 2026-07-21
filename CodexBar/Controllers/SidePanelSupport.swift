@@ -106,7 +106,7 @@ final class SidePanelDrawerAnimator {
 
         Task { @MainActor [weak self, weak panel] in
             await Task.yield()
-            // 过期请求的隐藏和清理由调用方的 generation 流程负责。
+            // 过期请求的隐藏和清理由调用方的 generation 流程负责
             guard let self,
                   let panel,
                   panel.isVisible,
@@ -142,8 +142,8 @@ final class SidePanelDrawerAnimator {
     }
 }
 
-/// 重置次数、通知子选项和并发任务中心三类「一次性展开」抽屉面板共用的显隐状态机:
-/// 负责 generation 竞态防护、入退场动画和 child window 挂载/卸载
+/// 重置次数; 通知子选项和并发任务中心三类"一次性展开"抽屉面板共用的显隐状态机
+/// 负责 generation 竞态防护; 入退场动画和 child window 挂载/卸载
 /// (热力图详情面板因带切边与延迟隐藏, 状态机不同, 不走这里)
 @MainActor
 final class SidePanelDrawerPresenter {
@@ -248,8 +248,8 @@ final class SidePanelDrawerPresenter {
     }
 }
 
-/// 侧边面板的内容宿主: 懒建 panel + hostingController, 统一「替换 rootView →
-/// configureLayers → setContentSize」的更新序列
+/// 侧边面板的内容宿主: 懒建 panel + hostingController, 统一"替换 rootView →
+/// configureLayers → setContentSize"的更新序列
 /// ⚠️ 每次更新都整树替换 rootView 是刻意行为 (见 CLAUDE.md 热力图详情面板的说明), 不要改成常驻状态推送
 @MainActor
 final class SidePanelContentHost<Root: View> {
@@ -272,7 +272,7 @@ final class SidePanelContentHost<Root: View> {
         self.cornerRadius = cornerRadius
     }
 
-    /// Swift 6.3.3 的 EarlyPerfInliner 会在优化该泛型类型的合成析构函数时崩溃。
+    /// Swift 6.3.3 的 EarlyPerfInliner 会在优化该泛型类型的合成析构函数时崩溃
     @_optimize(none)
     deinit {}
 
@@ -465,7 +465,7 @@ enum SidePanelSupport {
         return alignmentScreenFrame.maxY - panelSize.height
     }
 
-    /// 宿主菜单面板可能进入系统菜单栏保留区域; 面板定位只向上放宽到锚点行顶边,
+    /// 宿主菜单面板可能进入系统菜单栏保留区域; 面板定位只向上放宽到锚点行顶边
     /// 让两者顶边对齐, 同时继续沿用 visibleFrame 的左右边界和 Dock 下边界
     static func anchorAwareVisibleFrame(
         visibleFrame: CGRect,

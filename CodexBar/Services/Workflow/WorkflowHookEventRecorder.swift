@@ -163,7 +163,7 @@ nonisolated enum WorkflowHookEventRecorder {
     }
 }
 
-/// Hook payload 不直接提供 reviewer 和 effort；从当前 rollout 尾部只提取匹配 turn 的上下文。
+/// Hook payload 不直接提供 reviewer 和 effort; 从当前 rollout 尾部只提取匹配 turn 的上下文
 private nonisolated enum WorkflowTurnContextReader {
     static func context(
         transcriptPath: String,

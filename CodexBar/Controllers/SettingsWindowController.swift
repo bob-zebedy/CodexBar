@@ -14,6 +14,7 @@ final class SettingsWindowController: HostingWindowController {
     private let mainPanelSettings: MainPanelSettings
     private let notificationSettings: NotificationSettings
     private let onSyncChanged: (Bool) -> Void
+    private let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
     private lazy var notificationOptionsPanelController = NotificationOptionsPanelController(
         notificationSettings: notificationSettings,
         codexHookSettings: codexHookSettings,
@@ -31,7 +32,8 @@ final class SettingsWindowController: HostingWindowController {
         mainPanelSettings: MainPanelSettings,
         notificationSettings: NotificationSettings,
         screenProvider: @escaping () -> NSScreen?,
-        onSyncChanged: @escaping (Bool) -> Void
+        onSyncChanged: @escaping (Bool) -> Void,
+        onRebuildWorkflowData: @escaping WorkflowSyncScheduler.RebuildHandler
     ) {
         self.viewModel = viewModel
         self.appUpdater = appUpdater
@@ -43,12 +45,14 @@ final class SettingsWindowController: HostingWindowController {
         self.mainPanelSettings = mainPanelSettings
         self.notificationSettings = notificationSettings
         self.onSyncChanged = onSyncChanged
+        self.onRebuildWorkflowData = onRebuildWorkflowData
         super.init(screenProvider: screenProvider)
     }
 
     override func open() {
         refreshSettingsState()
         super.open()
+        NotificationCenter.default.post(name: .settingsWindowDidOpen, object: nil)
     }
 
     override func makeWindow() -> NSWindow {
@@ -61,6 +65,7 @@ final class SettingsWindowController: HostingWindowController {
                 mainPanelSettings: mainPanelSettings,
                 notificationSettings: notificationSettings,
                 onSyncChanged: onSyncChanged,
+                onRebuildWorkflowData: onRebuildWorkflowData,
                 onNotificationOptionsAction: { [weak self] action in
                     self?.handleNotificationOptionsAction(action)
                 }
@@ -161,4 +166,8 @@ final class SettingsWindowController: HostingWindowController {
     ) -> CGFloat {
         min(maximum, max(minimum, value))
     }
+}
+
+nonisolated extension Notification.Name {
+    static let settingsWindowDidOpen = Notification.Name("CodexBar.settingsWindowDidOpen")
 }

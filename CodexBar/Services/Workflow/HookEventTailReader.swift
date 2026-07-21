@@ -7,13 +7,13 @@ nonisolated enum HookEventBatch {
     case live([WorkflowHookEvent])
 }
 
-/// 在独立 actor 中按完整 JSONL 行读取 HookEvents/events。
-/// bootstrap 覆盖滚动 24 小时并作为单次事务发送，live 随后按当日文件 offset 增量读取。
+/// 在独立 actor 中按完整 JSONL 行读取 HookEvents/events
+/// bootstrap 覆盖滚动 24 小时并作为单次事务发送, live 随后按当日文件 offset 增量读取
 actor HookEventTailReader {
     private let onBatch: @MainActor @Sendable (HookEventBatch) -> Void
     private var pollTask: Task<Void, Never>?
     private var isRunning = false
-    // actor 会在 await 期间重入；所有外部读取请求通过这两个标记合并为单一读取流程。
+    // actor 会在 await 期间重入; 所有外部读取请求通过这两个标记合并为单一读取流程
     private var isProcessingReads = false
     private var hasPendingDrain = false
     private var activeDateKey = ""
@@ -99,7 +99,7 @@ actor HookEventTailReader {
             }
         }
 
-        // 连续读取失败时清空恢复态并跳过当前已有字节，避免稍后误当 live 发送历史通知。
+        // 连续读取失败时清空恢复态并跳过当前已有字节, 避免稍后误当 live 发送历史通知
         let dateKey = WorkflowStorage.dateKey(for: Date())
         let stat = WorkflowStorage.fileStat(at: WorkflowStorage.eventLogURL(for: dateKey))
         activeDateKey = dateKey
@@ -167,9 +167,9 @@ actor HookEventTailReader {
 
         let todayKey = WorkflowStorage.dateKey(for: Date())
         if todayKey != activeDateKey {
-            // 跨零点先读完旧文件尾部，再切到新日期文件。
+            // 跨零点先读完旧文件尾部, 再切到新日期文件
             guard await readAppendedLines() else {
-                // bootstrap 已经完成切日；临时失败则保留旧日期，下一轮继续重试。
+                // bootstrap 已经完成切日; 临时失败则保留旧日期, 下一轮继续重试
                 return
             }
             activeDateKey = todayKey
@@ -180,7 +180,7 @@ actor HookEventTailReader {
         _ = await readAppendedLines()
     }
 
-    /// 返回是否读到当前文件上界；触发重新 bootstrap 或读取中断时为 false。
+    /// 返回是否读到当前文件上界; 触发重新 bootstrap 或读取中断时为 false
     private func readAppendedLines() async -> Bool {
         let url = activeFileURL
         let stat = WorkflowStorage.fileStat(at: url)
@@ -213,7 +213,7 @@ actor HookEventTailReader {
         return streamResult.didReachUpperBound
     }
 
-    /// 返回已处理完整行的绝对 offset 和是否读完固定上界；后续失败时保留此前进度。
+    /// 返回已处理完整行的绝对 offset 和是否读完固定上界; 后续失败时保留此前进度
     private func streamEvents(
         at url: URL,
         from startOffset: UInt64,
@@ -281,7 +281,7 @@ actor HookEventTailReader {
         return .completed(at: completeOffset)
     }
 
-    /// 从 24 小时窗口之前的事件文件中定向查找 Prompt 起点，供 bootstrap 后回填恢复任务的开始时间。
+    /// 从 24 小时窗口之前的事件文件中定向查找 Prompt 起点, 供 bootstrap 后回填恢复任务的开始时间
     func findPromptStartTimes(
         for references: [CodexActivityPromptReference]
     ) -> [CodexActivityPromptReference: Date] {

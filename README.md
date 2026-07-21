@@ -61,6 +61,8 @@ CodexBar 是一个无 Dock 图标的 macOS 菜单栏应用。
 
 统计结果会汇总到热力图详情面板中，不打断正常的 Codex 使用流程。
 
+设置页「重建数据」第一次点击选择开始日期，第二次点击选择结束日期，并批量重新统计范围内仍存在且非空的分日原始事件；连续点击同一天两次即可只重建一天，选择范围允许跨月。最近 210 天保留窗口内的日期均可选择，本机原始事件非空的日期以圆点标记，没有数据的日期不会进入实际重建。确认后会为实际重建的每一天生成新的本机 generation；开启跨设备同步时，只替换当前设备对应日期的旧云端聚合，其他设备、范围外日期、无数据日期和原始事件不受影响。
+
 主 App 还会在后台只读 Hook JSONL：启动时按块恢复最近 24 小时的活动，之后 tail 当天新增事件，并在内存中维护并发任务状态。跨日任务缺少起点时会按精确 session + turn 定向查找更早的 Prompt；对于仍处于运行、等待终态确认或等待批准状态的精确 turn，CodexBar 会每秒增量读取对应本机 Codex session rollout，用 `task_started` 回填缺失起点、用 `task_complete` 补齐缺失的结束、用 `turn_aborted` 清理中断任务并生成最近终止记录，用 `turn_context.approvals_reviewer` 区分用户审批和自动审批，并用 `turn_context.effort` 补齐当前 turn 的推理强度；初始 512 KB 未找到 effort 时，主 App 会按精确 turn 从文件尾部最多 8 MB 执行一次受限回查。只有 reviewer 明确为 `user` 且同时收到 `PermissionRequest` 时才显示等待批准；`auto_review` 不会触发等待状态或提醒。Subagent Hook 带有稳定 `agent_id` 时，CodexBar 会通过共享 session 将子 Agent 归属到唯一的当前顶层任务，并在内存中幂等配对开始和结束事件，统计当前活跃数量；早于当前顶层任务可信开始时间的事件会被视为上一 turn 的迟到事件并忽略，字段缺失、同 session 无法唯一关联顶层任务或事件序列不完整时则隐藏数量，避免展示不可靠结果。同 session 新 Prompt 会让旧 turn 立即退出活动列表，但先保留 5 秒终态确认窗口，优先接受 rollout 或迟到 Hook 的完成/终止信号，仍无终态才记为终止。不读取提示词、回复、推理内容、工具内容、审批内容或 token 数据。该实时状态用于菜单栏状态点、活动卡片、并发任务中心、可选任务通知和触觉反馈，不新增历史状态文件，也不参与跨设备同步。
 
 CodexBar 只会追加或移除属于当前 CodexBar 可执行文件的 Hook，不会删除用户已有的其他 Codex Hook。
@@ -141,7 +143,7 @@ Codex Hook 工作流数据默认只保存在本机:
 
 菜单栏实时任务状态只存在于当前 App 进程内。活动卡片和并发任务中心只展示工作目录最后一级项目名、模型、推理强度、工具、阶段与耗时；可可靠统计且存在活跃子 Agent 时，活动卡片还会显示其数量。不展示完整路径、会话 ID、轮次 ID 或 agent ID。这份状态不会上传到 CloudKit，也不会产生新的网络请求。为补齐 Hook 缺失的起点、结束、中断、审批路由或推理强度，CodexBar 只对当前活跃 turn 读取 `~/.codex/sessions/` 或 `~/.codex/archived_sessions/` 下对应 rollout JSONL：正常情况下只增量解析生命周期事件、turn ID、起止耗时、`turn_context.approvals_reviewer` 和 `turn_context.effort`，effort 缺失时最多额外读取文件尾部 8 MB；不会提取、保存或展示其中的提示词、回复、推理内容、工具内容或 token 数据。
 
-只有在用户开启「跨设备同步」后，CodexBar 才会通过 `CloudKit private database` 同步每日使用详情数据；同步的数据副本只包含各个事件数量、项目聚合、模型名使用次数，以及用于区分同一日期独立数据段的随机 generation，不包含原始事件、会话 ID 或轮次 ID。正常追加时，同一 generation 的本机数据和云端副本只取一份；确认事件文件从空文件重新开始时，新 generation 会与旧云端贡献相加；无法确认来源的非空替换不会自动覆盖或叠加旧云端数据。
+只有在用户开启「跨设备同步」后，CodexBar 才会通过 `CloudKit private database` 同步每日使用详情数据；同步的数据副本只包含各个事件数量、项目聚合、模型名使用次数，以及用于区分同一日期独立数据段的随机 generation，不包含原始事件、会话 ID 或轮次 ID。正常追加时，同一 generation 的本机数据和云端副本只取一份；确认事件文件从空文件重新开始时，新 generation 会与旧云端贡献相加；无法确认来源的非空替换不会自动覆盖或叠加旧云端数据。只有用户在设置页确认批量重建日期范围时，才会以范围内实际存在的本机原始事件为准，替换当前设备对应日期的云端 generation。
 
 除上述重置机会过期时间查询、Sparkle appcast / DMG 下载，以及用户开启跨设备同步后的 CloudKit 请求外，CodexBar 自身不发起其他网络请求。
 

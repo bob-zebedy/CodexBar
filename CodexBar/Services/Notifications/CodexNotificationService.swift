@@ -3,7 +3,7 @@ import Combine
 import Foundation
 import UserNotifications
 
-/// 集中式提醒服务: 订阅额度与实时活动，负责触觉反馈、阈值判定、去重、重置识别与本地通知发送。
+/// 集中式提醒服务: 订阅额度与实时活动, 负责触觉反馈; 阈值判定; 去重; 重置识别与本地通知发送
 @MainActor
 final class CodexNotificationService: NSObject {
     private let settings: NotificationSettings
@@ -25,7 +25,7 @@ final class CodexNotificationService: NSObject {
     /// 阈值穿越判定的会话内上一帧剩余比例, key 为 account|limitId|windowId
     private var lastRemainingPercents: [String: Int] = [:]
 
-    /// 可信快照中每个额度窗口的重置观察状态；窗口消失后重现会获得新的生命周期标记。
+    /// 可信快照中每个额度窗口的重置观察状态; 窗口消失后重现会获得新的生命周期标记
     private var quotaWindowResetObservations: [String: QuotaWindowResetObservation] = [:]
 
     init(
@@ -319,7 +319,7 @@ final class CodexNotificationService: NSObject {
             quotaWindowResetObservations[stateKey]?.hasObservedConsumption = true
         } else if usedPercent == 0,
                   quotaWindowResetObservations[stateKey]?.hasObservedConsumption == true {
-            // 归零即消费待重置状态; 开关或授权此刻不可用时不保留补发。
+            // 归零即消费待重置状态; 开关或授权此刻不可用时不保留补发
             quotaWindowResetObservations[stateKey]?.hasObservedConsumption = false
             guard settings.canDeliver,
                   settings.isQuotaResetEnabled,

@@ -30,22 +30,65 @@ actor WorkflowService {
             performMaintenanceIfNeeded()
         }
 
-        let aggregates = loadDailyAggregates() ?? []
+        return await makeSnapshot(
+            localAggregates: loadDailyAggregates() ?? [],
+            synchronize: synchronize
+        )
+    }
+
+    private func makeSnapshot(
+        localAggregates: [WorkflowDailyAggregate],
+        synchronize: Bool
+    ) async -> WorkflowSnapshot {
         let syncSnapshot: WorkflowSyncSnapshot = if synchronize {
-            await syncService.synchronizeIfEnabled(localAggregates: aggregates)
+            await syncService.synchronizeIfEnabled(localAggregates: localAggregates)
         } else {
             await syncService.snapshotFromCacheIfEnabled()
         }
 
-        guard !aggregates.isEmpty || !syncSnapshot.records.isEmpty else {
+        guard !localAggregates.isEmpty || !syncSnapshot.records.isEmpty else {
             return .empty
         }
 
         return WorkflowSnapshot(
-            localAggregates: aggregates,
+            localAggregates: localAggregates,
             syncedRecords: syncSnapshot.records,
             currentDeviceId: syncSnapshot.currentDeviceId
         )
+    }
+
+    /// 以指定日期范围内的本机原始事件为权威来源重建, 并安排替换当前设备的同日云端贡献
+    fileprivate func rebuildData(
+        for dateKeys: [String],
+        synchronize: Bool
+    ) async throws -> WorkflowDataRebuildOutcome {
+        let normalizedDateKeys = Set(dateKeys).sorted()
+        guard !normalizedDateKeys.isEmpty else {
+            throw WorkflowDataRebuildError.sourceUnavailable
+        }
+
+        var rebuildResults = [WorkflowMaintenanceResult]()
+        do {
+            for dateKey in normalizedDateKeys {
+                try rebuildResults.append(rebuildLocalData(for: dateKey))
+            }
+        } catch {
+            try? await syncService.markReplacementNeeded(for: rebuildResults.map(\.dateKey))
+            throw error
+        }
+        try await syncService.markReplacementNeeded(for: normalizedDateKeys)
+
+        let snapshot = await makeSnapshot(
+            localAggregates: loadDailyAggregates() ?? [],
+            synchronize: synchronize
+        )
+        let summary = await WorkflowDataRebuildSummary(
+            rebuiltDateCount: rebuildResults.count,
+            eventCount: rebuildResults.reduce(0) { $0 + $1.aggregate.eventCount },
+            corruptLineCount: rebuildResults.reduce(0) { $0 + $1.corrupt },
+            isSyncReplacementPending: syncService.hasPendingReplacement(for: normalizedDateKeys)
+        )
+        return WorkflowDataRebuildOutcome(snapshot: snapshot, summary: summary)
     }
 
     private func loadDailyAggregates() -> [WorkflowDailyAggregate]? {
@@ -59,6 +102,67 @@ actor WorkflowService {
         }
 
         return WorkflowDailyAggregate.normalized(aggregates: aggregates)
+    }
+
+    private func rebuildLocalData(for dateKey: String) throws -> WorkflowMaintenanceResult {
+        let task = try prepareRebuildTask(for: dateKey)
+        var aggregates = loadDailyAggregates() ?? []
+
+        do {
+            let result = try buildDailyAggregate(for: task)
+            guard try commit(result, aggregates: &aggregates),
+                  rebuildWasCommitted(result) else {
+                throw WorkflowDataRebuildError.sourceChanged
+            }
+            return result
+        } catch {
+            markDirty(dateKey)
+            throw error
+        }
+    }
+
+    private func prepareRebuildTask(for dateKey: String) throws -> WorkflowMaintenanceTask {
+        let retentionCutoffKey = WorkflowStorage.dateKey(for: WorkflowStorage.retentionCutoffDate())
+        guard WorkflowStorage.isValidDateKey(dateKey), dateKey >= retentionCutoffKey else {
+            throw WorkflowDataRebuildError.sourceUnavailable
+        }
+
+        return try WorkflowStorage.withExclusiveLock {
+            guard let stat = WorkflowStorage.fileStat(at: eventLogURL(for: dateKey)),
+                  stat.size > 0 else {
+                throw WorkflowDataRebuildError.sourceUnavailable
+            }
+
+            var state = WorkflowStorage.loadMaintenanceState()
+            state.startNewSourceGeneration(
+                for: dateKey,
+                isFresh: false,
+                fileIdentifier: stat.identifier
+            )
+            try WorkflowStorage.saveMaintenanceState(state)
+
+            guard let day = state.days[dateKey] else {
+                throw WorkflowDataRebuildError.sourceUnavailable
+            }
+            return dirtyTask(for: dateKey, day: day, size: stat.size)
+        }
+    }
+
+    private func rebuildWasCommitted(_ result: WorkflowMaintenanceResult) -> Bool {
+        let dailyGeneration = loadDailyAggregates()?
+            .first(where: { $0.date == result.dateKey })?
+            .sourceGeneration
+        guard dailyGeneration == result.aggregate.sourceGeneration else {
+            return false
+        }
+
+        return (try? WorkflowStorage.withExclusiveLock {
+            guard let day = WorkflowStorage.loadMaintenanceState().days[result.dateKey] else {
+                return false
+            }
+            return day.sourceGeneration == result.aggregate.sourceGeneration
+                && day.offset == result.size
+        }) ?? false
     }
 
     private func performMaintenanceIfNeeded() {
@@ -453,7 +557,7 @@ actor WorkflowService {
         }
     }
 
-    /// 锁内确认读取期间仍是同一份追加源；断代时换 generation 并等待重建
+    /// 锁内确认读取期间仍是同一份追加源; 断代时换 generation 并等待重建
     private func validatedEventLogSize(
         for result: WorkflowMaintenanceResult,
         state: inout WorkflowMaintenanceState
@@ -748,6 +852,19 @@ nonisolated enum WorkflowStorage {
             .sorted()
     }
 
+    /// 返回保留窗口内且本机原始事件文件非空的日期, 供设置页标记和筛选实际重建项
+    static func rebuildableEventDateKeys(
+        in directoryURL: URL = eventsDirectoryURL()
+    ) -> [String] {
+        let cutoffKey = dateKey(for: retentionCutoffDate())
+        return eventLogDateKeys(in: directoryURL)
+            .filter { dateKey in
+                dateKey >= cutoffKey
+                    && fileSize(at: eventLogURL(for: dateKey, in: directoryURL)) > 0
+            }
+            .sorted(by: >)
+    }
+
     static func retentionCutoffDate(today: Date = Date(), calendar: Calendar = .current) -> Date {
         cutoffDate(dayCount: retentionDayCount, today: today, calendar: calendar)
     }
@@ -949,7 +1066,7 @@ nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
     }
 
     private static func normalizedDates(_ dates: [String]) -> [String] {
-        Array(Set(dates.filter { WorkflowStorage.isValidDateKey($0) })).sorted()
+        Set(dates.filter(WorkflowStorage.isValidDateKey)).sorted()
     }
 
     private static func newSourceGeneration() -> String {
@@ -984,6 +1101,32 @@ private nonisolated struct WorkflowMaintenanceResult {
     let corrupt: Int
     let fileIdentifier: UInt64?
     let boundaryHash: String?
+}
+
+nonisolated struct WorkflowDataRebuildSummary: Equatable, Sendable {
+    let rebuiltDateCount: Int
+    let eventCount: Int
+    let corruptLineCount: Int
+    let isSyncReplacementPending: Bool
+}
+
+private nonisolated struct WorkflowDataRebuildOutcome {
+    let snapshot: WorkflowSnapshot
+    let summary: WorkflowDataRebuildSummary
+}
+
+private nonisolated enum WorkflowDataRebuildError: LocalizedError {
+    case sourceUnavailable
+    case sourceChanged
+
+    var errorDescription: String? {
+        switch self {
+        case .sourceUnavailable:
+            "没有可重建的本地数据"
+        case .sourceChanged:
+            "本地数据发生变化, 请重试"
+        }
+    }
 }
 
 /// UI 层的工作流状态, 节流普通刷新, 维护刷新由上层调度器合并
@@ -1044,5 +1187,24 @@ final class WorkflowViewModel: ObservableObject {
 
         self.snapshot = snapshot
         lastRefreshedAt = Date()
+    }
+
+    func rebuildData(
+        for dateKeys: [String],
+        synchronize: Bool
+    ) async throws -> WorkflowDataRebuildSummary {
+        refreshCoordinator.cancel()
+        isRefreshing = true
+        defer {
+            isRefreshing = false
+        }
+
+        let outcome = try await service.rebuildData(
+            for: dateKeys,
+            synchronize: synchronize
+        )
+        snapshot = outcome.snapshot
+        lastRefreshedAt = Date()
+        return outcome.summary
     }
 }

@@ -301,7 +301,7 @@ nonisolated struct WorkflowSnapshot: Equatable {
         self.dailyMetrics = dailyMetrics
     }
 
-    /// 同 generation 只采用一份数据；确认独立的新 generation 与历史贡献累加
+    /// 同 generation 只采用一份数据; 确认独立的新 generation 与历史贡献累加
     init(
         localAggregates: [WorkflowDailyAggregate],
         syncedRecords: [WorkflowSyncedDailyRecord],

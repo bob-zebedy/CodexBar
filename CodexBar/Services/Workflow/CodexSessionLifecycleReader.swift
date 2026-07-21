@@ -1,13 +1,13 @@
 import Foundation
 
-/// 活跃 turn 的最小定位信息，只在进程内用于关联 Codex session 生命周期事件。
+/// 活跃 turn 的最小定位信息, 只在进程内用于关联 Codex session 生命周期事件
 nonisolated struct CodexActivityTurnReference: Hashable {
     let sessionId: String
     let turnId: String
     let startedAt: Date
 }
 
-/// 增量读取活跃 Codex session 的 rollout JSONL，只提取 turn 生命周期字段。
+/// 增量读取活跃 Codex session 的 rollout JSONL, 只提取 turn 生命周期字段
 actor CodexSessionLifecycleReader {
     private let sessionsRootURL: URL
     private let archivedSessionsRootURL: URL
@@ -28,7 +28,7 @@ actor CodexSessionLifecycleReader {
         self.fileManager = fileManager
     }
 
-    /// 返回 rollout 中已知的起点和终态，不解码会话或工具内容。
+    /// 返回 rollout 中已知的起点和终态, 不解码会话或工具内容
     func lifecycleStates(
         for references: [CodexActivityTurnReference]
     ) -> [CodexSessionTaskLifecycleState] {
@@ -144,7 +144,7 @@ actor CodexSessionLifecycleReader {
             .max(by: { $0.startedAt < $1.startedAt })
     }
 
-    /// 唤醒后允许仍未定位到文件的活跃 session 重新执行一次递归兜底。
+    /// 唤醒后允许仍未定位到文件的活跃 session 重新执行一次递归兜底
     func resetResolutionFallbacks() {
         lastResolutionAttemptBySession.removeAll()
         recursiveFallbackSessionIds.removeAll()
@@ -156,7 +156,7 @@ actor CodexSessionLifecycleReader {
             return cursor
         }
         if cursorsBySession.removeValue(forKey: reference.sessionId) != nil {
-            // 缓存文件可能被移动到 archived_sessions，允许重新完整定位一次。
+            // 缓存文件可能被移动到 archived_sessions, 允许重新完整定位一次
             recursiveFallbackSessionIds.remove(reference.sessionId)
         }
 
@@ -199,7 +199,7 @@ actor CodexSessionLifecycleReader {
             return nil
         }
 
-        // resume 可能继续很早以前创建的 session；每次活跃生命周期最多递归一次。
+        // resume 可能继续很早以前创建的 session; 每次活跃生命周期最多递归一次
         let suffix = "-\(reference.sessionId).jsonl"
         guard let enumerator = fileManager.enumerator(
             at: sessionsRootURL,

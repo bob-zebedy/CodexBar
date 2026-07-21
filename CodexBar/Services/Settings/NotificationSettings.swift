@@ -3,7 +3,7 @@ import Combine
 import Foundation
 import UserNotifications
 
-/// 通知偏好: 总开关、五类通知子开关、任务触觉开关、两个阈值和系统授权状态镜像
+/// 通知偏好: 总开关; 五类通知子开关; 任务触觉开关; 两个阈值和系统授权状态镜像
 /// 授权请求/查询集中在这里, 通知与触觉反馈判定在 CodexNotificationService
 @MainActor
 final class NotificationSettings: ObservableObject {
@@ -23,7 +23,7 @@ final class NotificationSettings: ObservableObject {
         authorizationStatus == .denied
     }
 
-    /// 总开关开启且系统已明确允许时才发送, 未决定或未知状态都按不可发送处理。
+    /// 总开关开启且系统已明确允许时才发送, 未决定或未知状态都按不可发送处理
     var canDeliver: Bool {
         guard isEnabled else {
             return false
@@ -39,7 +39,7 @@ final class NotificationSettings: ObservableObject {
         }
     }
 
-    /// 触觉反馈不依赖系统通知授权，但服从 App 内通知总开关。
+    /// 触觉反馈不依赖系统通知授权, 但服从 App 内通知总开关
     var canPerformTaskHapticFeedback: Bool {
         isEnabled && isTaskHapticEnabled
     }

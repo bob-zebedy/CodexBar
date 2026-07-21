@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 通知子选项面板, 挂在设置窗口「系统通知」行右侧展开
+/// 通知子选项面板, 挂在设置窗口"系统通知"行右侧展开
 /// 面板尺寸在 Hook 开/关两种状态下保持不变: 行高固定, Picker 行内显隐不改行高
 struct NotificationOptionsView: View {
     @ObservedObject var notificationSettings: NotificationSettings

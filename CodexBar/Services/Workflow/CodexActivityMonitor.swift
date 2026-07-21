@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import Foundation
 
-/// 从本机 Hook JSONL 维护进程内实时任务状态，是菜单栏、活动卡片、通知和触觉反馈的唯一任务状态来源。
+/// 从本机 Hook JSONL 维护进程内实时任务状态, 是菜单栏; 活动卡片; 通知和触觉反馈的唯一任务状态来源
 @MainActor
 final class CodexActivityMonitor: ObservableObject {
     @Published private(set) var snapshot = CodexActivitySnapshot.empty
@@ -225,7 +225,7 @@ final class CodexActivityMonitor: ObservableObject {
                 tasks.removeValue(forKey: key)
                 didChange = true
                 if case .completed = terminal, recentCompletionDate(for: key) != nil {
-                    // 迟到事件恢复出的任务不能被 rollout 再次完成。
+                    // 迟到事件恢复出的任务不能被 rollout 再次完成
                     continue
                 }
                 resolveTerminal(
@@ -293,8 +293,8 @@ final class CodexActivityMonitor: ObservableObject {
             refreshSnapshot(now: Date())
             publishLiveTransitions(transitions)
             if !pendingTerminalTasks.isEmpty {
-                // 只有刚进入终态确认窗口的任务需要重置解析缓存重试定位 rollout；
-                // 窗口期内的后续批次只做即时查询，避免反复递归扫描 sessions。
+                // 只有刚进入终态确认窗口的任务需要重置解析缓存重试定位 rollout
+                // 窗口期内的后续批次只做即时查询, 避免反复递归扫描 sessions
                 let hasNewPendingTasks = !Set(pendingTerminalTasks.keys)
                     .subtracting(pendingKeysBefore).isEmpty
                 refreshSessionLifecycleNow(resetsResolutionFallbacks: hasNewPendingTasks)
@@ -302,7 +302,7 @@ final class CodexActivityMonitor: ObservableObject {
         }
     }
 
-    /// bootstrap 只覆盖 24 小时窗口；窗口内恢复出的无起点任务向更早日期回查 Prompt 起点。
+    /// bootstrap 只覆盖 24 小时窗口; 窗口内恢复出的无起点任务向更早日期回查 Prompt 起点
     private func backfillPromptStartTimesFromHistory() {
         let references = tasks.values.compactMap(\.promptReference)
         guard !references.isEmpty, let reader = tailReader else {
@@ -353,7 +353,7 @@ final class CodexActivityMonitor: ObservableObject {
         case .postCompact:
             resumeTask(from: event, latestEvent: .compactionFinished, allowsRecovery: true)
         case .subagentStart:
-            // 子智能体只更新所属顶层任务，不自行创建一条并发任务。
+            // 子智能体只更新所属顶层任务, 不自行创建一条并发任务
             updateSubagentActivity(from: event, isStarting: true)
         case .subagentStop:
             updateSubagentActivity(from: event, isStarting: false)
@@ -383,8 +383,8 @@ final class CodexActivityMonitor: ObservableObject {
         }
 
         if let sessionId = key.sessionId {
-            // 同一 session 的 turn 按顺序执行。新 prompt 让旧 turn 立即退出活动列表，
-            // 但保留短暂终态确认窗口，避免把迟到的正常完成误记为终止。
+            // 同一 session 的 turn 按顺序执行. 新 prompt 让旧 turn 立即退出活动列表
+            // 但保留短暂终态确认窗口, 避免把迟到的正常完成误记为终止
             guard !tasks.values.contains(where: {
                 $0.key.sessionId == sessionId && $0.lastActivityAt > event.timestamp
             }) else {
@@ -408,7 +408,7 @@ final class CodexActivityMonitor: ObservableObject {
         recentlyCompletedTaskAt.removeValue(forKey: key)
         recentlyTerminatedTaskAt.removeValue(forKey: key)
         if let sessionId = key.sessionId {
-            // 缺少 turn 的 Stop 会使用 session 键；新 turn 开始后允许该键再次完成。
+            // 缺少 turn 的 Stop 会使用 session 键; 新 turn 开始后允许该键再次完成
             recentlyCompletedTaskAt.removeValue(forKey: .session(sessionId))
             recentlyTerminatedTaskAt.removeValue(forKey: .session(sessionId))
         }
@@ -479,7 +479,7 @@ final class CodexActivityMonitor: ObservableObject {
             return
         }
 
-        // 子 Agent 只能按 session 关联父任务，忽略上一 turn 延迟到达的事件。
+        // 子 Agent 只能按 session 关联父任务, 忽略上一 turn 延迟到达的事件
         if let startedAt = task.startedAt, event.timestamp < startedAt {
             return
         }
@@ -507,7 +507,7 @@ final class CodexActivityMonitor: ObservableObject {
         tasks[key] = task
     }
 
-    /// Subagent Hook 的 turn 属于子 Agent 自己；父任务只能通过共享 session 关联。
+    /// Subagent Hook 的 turn 属于子 Agent 自己; 父任务只能通过共享 session 关联
     private func hasReliableSubagentAssociation(
         eventSessionId: String?,
         matchedKey: CodexActivityTaskKey
@@ -542,7 +542,7 @@ final class CodexActivityMonitor: ObservableObject {
             }
 
             task.mergeMetadata(from: event)
-            // 权限事件描述当前请求；缺失工具名时不能沿用上一条工具事件。
+            // 权限事件描述当前请求; 缺失工具名时不能沿用上一条工具事件
             task.toolName = event.toolName
             task.lastActivityAt = event.timestamp
             let enteredWaiting = task.recordApprovalRequest(at: event.timestamp)
@@ -566,7 +566,7 @@ final class CodexActivityMonitor: ObservableObject {
     private func completeTask(from event: WorkflowHookEvent) -> CodexActivityLiveTransition? {
         let eventKey = CodexActivityTaskKey(event: event)
         guard recentCompletionDate(for: eventKey) == nil else {
-            // 清掉旧版本或异常顺序留下的同键恢复任务。
+            // 清掉旧版本或异常顺序留下的同键恢复任务
             tasks.removeValue(forKey: eventKey)
             return nil
         }
@@ -623,7 +623,7 @@ final class CodexActivityMonitor: ObservableObject {
         return .completed(completion)
     }
 
-    /// 精确 turn 失败后回退同 session 最近活动，再回退同项目匿名任务。
+    /// 精确 turn 失败后回退同 session 最近活动, 再回退同项目匿名任务
     private func matchingTaskKey(for event: WorkflowHookEvent) -> CodexActivityTaskKey? {
         let exactKey = CodexActivityTaskKey(event: event)
         if tasks[exactKey] != nil {
@@ -674,7 +674,7 @@ final class CodexActivityMonitor: ObservableObject {
             .sorted(by: Self.recentFirst(\.lastActivityAt, \.displayID))
     }
 
-    /// 时间相同再按 UUID 字符串排序（Swift sort 不稳定），保证快照对 SwiftUI diff 稳定。
+    /// 时间相同再按 UUID 字符串排序(Swift sort 不稳定), 保证快照对 SwiftUI diff 稳定
     private static func recentFirst<Element>(
         _ date: KeyPath<Element, Date>,
         _ id: KeyPath<Element, UUID>
@@ -766,7 +766,7 @@ final class CodexActivityMonitor: ObservableObject {
 }
 
 private extension CodexActivityMonitor {
-    /// PermissionRequest 表示进入审批流程；只有 rollout 明确把审批路由给 user 时才是 UI 等待。
+    /// PermissionRequest 表示进入审批流程; 只有 rollout 明确把审批路由给 user 时才是 UI 等待
     func resolvePendingApprovalIfPossible(
         for task: inout CodexActivityTask,
         into transitions: inout [CodexActivityTransition]
@@ -791,8 +791,8 @@ private extension CodexActivityMonitor {
         return true
     }
 
-    /// rollout 终态归类的唯一入口；活动任务和等待终态确认任务只有 abort 兜底时间不同。
-    /// 终止记录只供任务中心展示，不发布 transition，也不产生绿色状态或通知。
+    /// rollout 终态归类的唯一入口; 活动任务和等待终态确认任务只有 abort 兜底时间不同
+    /// 终止记录只供任务中心展示, 不发布 transition, 也不产生绿色状态或通知
     func resolveTerminal(
         _ terminal: CodexSessionTaskTerminalState,
         task: CodexActivityTask,
@@ -855,7 +855,7 @@ private extension CodexActivityMonitor {
         modelName: String? = nil,
         effort: String? = nil
     ) -> CodexActivityCompletion {
-        // rollout 时间戳是整秒，避免因为同一秒内的 Hook 毫秒时间戳而把完成时间记在最后活动之前。
+        // rollout 时间戳是整秒, 避免因为同一秒内的 Hook 毫秒时间戳而把完成时间记在最后活动之前
         let recordedCompletedAt = max(completedAt, task.lastActivityAt)
         let completion = storeCompletion(
             projectName: projectName ?? task.projectName,
@@ -1115,7 +1115,7 @@ private struct CodexActivityTask {
         startedAt != nil && !key.isAnonymous
     }
 
-    /// 起点可信时返回到 end 的精确耗时，起点缺失或晚于 end 时为 nil。
+    /// 起点可信时返回到 end 的精确耗时, 起点缺失或晚于 end 时为 nil
     func preciseDuration(until end: Date) -> TimeInterval? {
         guard showsPreciseDuration, let startedAt, end >= startedAt else {
             return nil
@@ -1224,7 +1224,7 @@ private struct CodexActivityTask {
         return value.isEmpty ? nil : value
     }
 
-    /// 记录审批候选；返回值只表示任务是否刚刚进入用户等待状态。
+    /// 记录审批候选; 返回值只表示任务是否刚刚进入用户等待状态
     mutating func recordApprovalRequest(at requestedAt: Date) -> Bool {
         pendingApprovalRequestedAt = requestedAt
         guard approvalReviewer == .user else {
