@@ -27,7 +27,7 @@ CodexBar 是一款无 Dock 图标的 macOS 菜单栏应用。无需打开 Codex 
 brew install --cask bob-zebedy/tap/codexbar
 ```
 
-也可以从 [Releases](https://github.com/bob-zebedy/CodexBar/releases) 下载最新 DMG，并将 `CodexBar.app` 拖入 `/Applications`。
+也可以从 [Releases](https://github.com/bob-zebedy/CodexBar/releases) 下载最新 DMG，并将 `CodexBar.app` 拖入 `/Applications`
 
 运行要求：
 
