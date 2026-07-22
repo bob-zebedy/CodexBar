@@ -422,7 +422,7 @@ date < retentionCutoffDate
 
 其他设备的记录不会由本机删除。每台设备只负责清理自己上传的过期记录。
 
-清理候选直接通过 CloudKit 按 `deviceId == 当前设备 && date < retentionCutoffDate` 分页查询，并使用查询结果中的完整 `CKRecord.ID` 分批删除。因此清理不依赖已经过滤过期行的 `cache.jsonl`，legacy 名称和 `<device>_<date>_<generation>` 名称都会进入删除请求。只有全部删除成功或返回 `unknownItem` 后才更新 `lastPrunedDate`；中途失败会在下一轮继续查询和幂等重试。
+清理候选先通过 CloudKit 按 `deviceId == 当前设备` 分页查询，并通过 `desiredKeys` 只读取 `date` 字段，再在本地校验日期格式并按 `date < retentionCutoffDate` 过滤。CloudKit 的 `date` 是字符串字段，不在服务端使用范围比较；缺失 `date` 或不是合法 `yyyy-MM-dd` 的当前设备记录视为异常记录并一并删除。清理使用查询结果中的完整 `CKRecord.ID` 分批执行，不依赖已经过滤过期行的 `cache.jsonl`，legacy 名称和 `<device>_<date>_<generation>` 名称都会进入删除请求。只有全部删除成功或返回 `unknownItem` 后才更新 `lastPrunedDate`；中途失败会在下一轮继续查询和幂等重试。
 
 当前实现不会因为本机 `daily.jsonl` 删除了某个仍在 210 天窗口内的日期，就主动删除该日期对应的 CloudKit 记录。它会等到该记录超过 210 天保留窗口后再清理。
 

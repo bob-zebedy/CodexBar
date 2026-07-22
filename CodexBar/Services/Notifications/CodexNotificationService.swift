@@ -582,7 +582,7 @@ nonisolated struct CodexNotificationContent: Equatable {
 
     static func creditExpiry(count: Int, expirationDate: Date) -> CodexNotificationContent {
         CodexNotificationContent(
-            title: "重置次数即将过期",
+            title: "重置即将过期",
             body: "有 \(count) 个重置次数将于 \(CodexDateFormat.localDisplayString(from: expirationDate)) 过期"
         )
     }

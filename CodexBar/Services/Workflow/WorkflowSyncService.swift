@@ -639,34 +639,43 @@ private extension WorkflowSyncService {
         return try Self.remoteDailyRecords(from: matches)
     }
 
-    func fetchExpiredCurrentDeviceRecordIDs(
+    func fetchCurrentDeviceRecordIDsToPrune(
         deviceId: String,
         cutoffKey: String
     ) async throws -> [CKRecord.ID] {
         let query = CKQuery(
             recordType: RecordTypes.dailyAggregate,
             predicate: NSPredicate(
-                format: "%K == %@ AND %K < %@",
+                format: "%K == %@",
                 FieldKeys.deviceId,
-                deviceId,
-                FieldKeys.date,
-                cutoffKey
+                deviceId
             )
         )
 
-        return try await fetchAllRecordMatches(matching: query).map { recordID, result in
-            _ = try result.get()
-            return recordID
+        let currentDeviceMatches = try await fetchAllRecordMatches(
+            matching: query,
+            desiredKeys: [FieldKeys.date]
+        )
+        return try currentDeviceMatches.compactMap { recordID, result in
+            let record = try result.get()
+            guard let date = record[FieldKeys.date] as? String,
+                  WorkflowStorage.isValidDateKey(date) else {
+                // 无法进入保留窗口比较的当前设备记录是异常数据, 一并清理
+                return recordID
+            }
+
+            return date < cutoffKey ? recordID : nil
         }
     }
 
     func fetchAllRecordMatches(
-        matching query: CKQuery
+        matching query: CKQuery,
+        desiredKeys: [String]? = nil
     ) async throws -> [(CKRecord.ID, Result<CKRecord, Error>)] {
         let firstPage = try await database.records(
             matching: query,
             inZoneWith: syncZoneID,
-            desiredKeys: nil,
+            desiredKeys: desiredKeys,
             resultsLimit: Metrics.queryFetchLimit
         )
         var matches = firstPage.matchResults
@@ -675,7 +684,7 @@ private extension WorkflowSyncService {
         while let currentCursor = cursor {
             let page = try await database.records(
                 continuingMatchFrom: currentCursor,
-                desiredKeys: nil,
+                desiredKeys: desiredKeys,
                 resultsLimit: Metrics.queryFetchLimit
             )
             matches.append(contentsOf: page.matchResults)
@@ -735,7 +744,7 @@ private extension WorkflowSyncService {
         let expiredDates = Set(state.hashByDate.keys.filter { $0 < cutoffKey })
         state.replacementDates.removeAll { $0 < cutoffKey }
         var recordIDs = try await Set(
-            fetchExpiredCurrentDeviceRecordIDs(
+            fetchCurrentDeviceRecordIDsToPrune(
                 deviceId: deviceId,
                 cutoffKey: cutoffKey
             )
