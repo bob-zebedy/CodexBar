@@ -4,7 +4,7 @@
 
 ## 开关行为
 
-设置页「启用 Codex Hook」由 `CodexHookSettings` 管理。开启后，CodexBar 会把当前 App 的可执行文件路径写入全局配置:
+设置页「CodexBar Hook」由 `CodexHookSettings` 管理。开启后，CodexBar 会把当前 App 的可执行文件路径写入全局配置:
 
 ```text
 ~/.codex/hooks.json

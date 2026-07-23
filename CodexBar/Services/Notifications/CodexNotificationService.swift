@@ -110,6 +110,7 @@ final class CodexNotificationService: NSObject {
             taskWaitingNotificationIdentifiers.insert(identifier)
             send(
                 .taskWaiting(project: task.projectName, toolName: task.toolName),
+                sound: settings.taskWaitingSound,
                 identifier: identifier,
                 isStillRelevant: { [weak self] in
                     self?.isTaskStillWaiting(
@@ -127,7 +128,10 @@ final class CodexNotificationService: NSObject {
                   duration >= TimeInterval(settings.longTaskThresholdSeconds) else {
                 return
             }
-            send(.taskCompleted(project: completion.projectName, duration: duration))
+            send(
+                .taskCompleted(project: completion.projectName, duration: duration),
+                sound: settings.longTaskSound
+            )
         }
     }
 
@@ -300,6 +304,7 @@ final class CodexNotificationService: NSObject {
                 windowLabel: window.label,
                 thresholdPercent: settings.lowQuotaThresholdPercent
             ),
+            sound: settings.lowQuotaSound,
             dedupKey: dedupKey,
             onSubmissionFailure: { [weak self] in
                 self?.lastRemainingPercents.removeValue(forKey: stateKey)
@@ -335,6 +340,7 @@ final class CodexNotificationService: NSObject {
                     limitTitle: limit.title,
                     windowLabel: window.label
                 ),
+                sound: settings.quotaResetSound,
                 dedupKey: dedupKey,
                 onSubmissionFailure: { [weak self] in
                     guard let self,
@@ -373,6 +379,7 @@ final class CodexNotificationService: NSObject {
             let dedupKey = "credit|\(accountKey)|\(epochSecond)|\(reminderDay)d"
             send(
                 .creditExpiry(count: groupedDates.count, expirationDate: date),
+                sound: settings.creditExpirySound,
                 dedupKey: dedupKey
             )
         }
@@ -415,6 +422,7 @@ final class CodexNotificationService: NSObject {
 
     private func send(
         _ notification: CodexNotificationContent,
+        sound: NotificationSoundOption,
         identifier: String = UUID().uuidString,
         dedupKey: String? = nil,
         isStillRelevant: (() -> Bool)? = nil,
@@ -430,7 +438,7 @@ final class CodexNotificationService: NSObject {
         let content = UNMutableNotificationContent()
         content.title = notification.title
         content.body = notification.body
-        content.sound = .default
+        content.sound = sound.notificationSound
 
         let request = UNNotificationRequest(
             identifier: identifier,

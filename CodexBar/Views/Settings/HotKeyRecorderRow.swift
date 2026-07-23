@@ -14,7 +14,7 @@ struct HotKeyRecorderRow: View {
                     .frame(width: SettingsRowMetrics.iconWidth)
                     .foregroundStyle(.tint)
 
-                Text("使用快捷键")
+                Text("APP 快捷键")
 
                 Spacer()
 
@@ -45,7 +45,7 @@ struct HotKeyRecorderRow: View {
 
                 iconButton(
                     systemName: "arrow.counterclockwise.circle",
-                    help: "恢复默认快捷键",
+                    help: "恢复默认",
                     isDisabled: !canRestoreDefaultShortcut
                 ) {
                     settings.restoreDefaultShortcut()
@@ -54,7 +54,7 @@ struct HotKeyRecorderRow: View {
 
                 iconButton(
                     systemName: "xmark.circle",
-                    help: "清除设置快捷键",
+                    help: "清除 APP 快捷键",
                     isDisabled: !canClearShortcut
                 ) {
                     settings.clearShortcut()
@@ -73,7 +73,7 @@ struct HotKeyRecorderRow: View {
 
     private var shortcutLabel: String {
         if isRecording {
-            return "请输入快捷键"
+            return "请设置快捷键"
         }
 
         return settings.shortcut?.label ?? "未设置"

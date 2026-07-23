@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// 通知子选项面板动作, 由 AppSettingsView 发出并在 SettingsWindowController 中路由
@@ -27,6 +28,8 @@ final class NotificationOptionsPanelController {
     private weak var settingsWindow: NSWindow?
     private var panelDismissObserver: NSObjectProtocol?
     private var settingsWindowDismissObservers: [NSObjectProtocol] = []
+    private var cancellables = Set<AnyCancellable>()
+    private var panelResizeTask: Task<Void, Never>?
 
     init(
         notificationSettings: NotificationSettings,
@@ -36,6 +39,7 @@ final class NotificationOptionsPanelController {
         self.notificationSettings = notificationSettings
         self.codexHookSettings = codexHookSettings
         self.codexCLINotificationSettings = codexCLINotificationSettings
+        observeContentHeightChanges()
     }
 
     var isVisible: Bool {
@@ -190,7 +194,71 @@ final class NotificationOptionsPanelController {
         hostingController?.view.validFittingSize ?? NotificationOptionsView.initialPanelSize
     }
 
+    private func observeContentHeightChanges() {
+        Publishers.MergeMany([
+            notificationSettings.$isLowQuotaEnabled.map { _ in () },
+            notificationSettings.$isQuotaResetEnabled.map { _ in () },
+            notificationSettings.$isLongTaskEnabled.map { _ in () },
+            notificationSettings.$isTaskWaitingEnabled.map { _ in () },
+            notificationSettings.$isCreditExpiryEnabled.map { _ in () },
+            codexHookSettings.$isEnabled.map { _ in () }
+        ])
+        .sink { [weak self] in
+            self?.schedulePanelResize()
+        }
+        .store(in: &cancellables)
+    }
+
+    private func schedulePanelResize() {
+        guard panel != nil else {
+            return
+        }
+
+        panelResizeTask?.cancel()
+        panelResizeTask = Task { @MainActor [weak self] in
+            // @Published 先于 SwiftUI 布局发出变更, 等待视图提交新的 fitting size
+            await Task.yield()
+            await Task.yield()
+            guard let self,
+                  !Task.isCancelled,
+                  let panel,
+                  panel.isVisible,
+                  let size = hostingController?.view.validFittingSize else {
+                return
+            }
+
+            resizePanel(panel, to: size)
+        }
+    }
+
+    private func resizePanel(_ panel: NSPanel, to size: CGSize) {
+        guard size != panel.frame.size else {
+            return
+        }
+
+        let currentFrame = panel.frame
+        var targetFrame = NSRect(
+            x: currentFrame.minX,
+            y: currentFrame.maxY - size.height,
+            width: size.width,
+            height: size.height
+        )
+        if let visibleFrame = panel.screen?.visibleFrame {
+            targetFrame.origin.y = max(
+                targetFrame.origin.y,
+                visibleFrame.minY + SidePanelSupport.Metrics.screenPadding
+            )
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Metrics.resizeDuration
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(targetFrame, display: true)
+        }
+    }
+
     private enum Metrics {
         static let drawerTransformAnimationKey = "CodexBar.notificationOptionsDrawerTransform"
+        static let resizeDuration: TimeInterval = 0.16
     }
 }

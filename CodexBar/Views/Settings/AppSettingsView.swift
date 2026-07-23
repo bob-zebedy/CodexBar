@@ -33,21 +33,21 @@ struct AppSettingsView: View {
                 LiquidGlassDivider()
                 menuBarQuotaRow
                 LiquidGlassDivider()
+                hotKeyRow
+                LiquidGlassDivider()
                 codexHookRow
                 LiquidGlassDivider()
                 taskCenterRow
+                LiquidGlassDivider()
+                notificationRow
                 LiquidGlassDivider()
                 syncRow
                 LiquidGlassDivider()
                 rebuildWorkflowDataRow
                 LiquidGlassDivider()
-                notificationRow
-                LiquidGlassDivider()
-                hotKeyRow
+                versionRow
                 LiquidGlassDivider()
                 codexVersionSection
-                LiquidGlassDivider()
-                versionRow
             }
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
@@ -123,6 +123,8 @@ private extension AppSettingsView {
         static let panelCornerRadius: CGFloat = 10
         static let notificationOptionsButtonSize: CGFloat = 22
         static let menuBarQuotaPickerWidth: CGFloat = 72
+        static let syncStatusRowHeight: CGFloat = 16
+        static let syncStatusValueWidth: CGFloat = 160
         static let statusAnimation = Animation.codexStatus
     }
 
@@ -218,7 +220,7 @@ private extension AppSettingsView {
 
         return SettingsToggleRow(
             icon: "list.bullet.rectangle",
-            title: "任务中心",
+            title: "主面板任务中心",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { mainPanelSettings.setShowsTaskCenter($0) }
@@ -231,7 +233,7 @@ private extension AppSettingsView {
         VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
                 icon: "link",
-                title: "启用 Codex Hook",
+                title: "CodexBar Hook",
                 isOn: Binding(
                     get: { codexHookSettings.isEnabled },
                     set: { codexHookSettings.setEnabled($0) }
@@ -267,7 +269,10 @@ private extension AppSettingsView {
 
             if let message = syncSettings.unavailableMessage {
                 SettingsCaptionMessageRow(message: message)
-            } else if state.shouldShowSyncStatus(lastSyncText: lastSyncText) {
+                    .frame(minHeight: Metrics.syncStatusRowHeight, alignment: .top)
+            } else if state.isActive {
+                let showsSyncStatus = state.shouldShowSyncStatus(lastSyncText: lastSyncText)
+
                 SettingsIndentedRow {
                     Text("最近同步")
                         .font(.caption)
@@ -275,19 +280,34 @@ private extension AppSettingsView {
 
                     Spacer(minLength: 8)
 
-                    if syncSettings.isSyncing {
-                        ProgressView()
-                            .controlSize(.small)
-                            .scaleEffect(0.7)
-                            .frame(width: 16, height: 16)
-                            .help("正在同步")
-                    } else if let lastSyncText {
-                        Text(lastSyncText)
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                    ZStack(alignment: .trailing) {
+                        if syncSettings.isSyncing {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .frame(
+                                    width: Metrics.syncStatusRowHeight,
+                                    height: Metrics.syncStatusRowHeight
+                                )
+                                .help("正在同步")
+                                .transition(.opacity)
+                        } else if let lastSyncText {
+                            Text(lastSyncText)
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .transition(.opacity)
+                        }
                     }
+                    .frame(
+                        width: Metrics.syncStatusValueWidth,
+                        height: Metrics.syncStatusRowHeight,
+                        alignment: .trailing
+                    )
+                    .animation(Metrics.statusAnimation, value: syncSettings.isSyncing)
                 }
+                .frame(height: Metrics.syncStatusRowHeight)
+                .opacity(showsSyncStatus ? 1 : 0)
+                .accessibilityHidden(!showsSyncStatus)
             }
         }
     }

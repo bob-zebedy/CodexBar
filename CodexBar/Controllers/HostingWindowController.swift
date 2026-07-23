@@ -1,12 +1,16 @@
 import AppKit
 
-/// 可临时禁止成为 key window, 让菜单面板关闭动画期间不被辅助窗口抢焦点
+/// 可临时忽略 key window 请求, 让菜单面板关闭动画期间不被辅助窗口抢焦点
 @MainActor
 final class AuxiliaryHostingWindow: NSWindow {
     var allowsKeyFocus = true
 
-    override var canBecomeKey: Bool {
-        allowsKeyFocus
+    override func makeKey() {
+        guard allowsKeyFocus else {
+            return
+        }
+
+        super.makeKey()
     }
 
     override var canBecomeMain: Bool {

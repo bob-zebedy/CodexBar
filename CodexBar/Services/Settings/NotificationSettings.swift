@@ -3,7 +3,7 @@ import Combine
 import Foundation
 import UserNotifications
 
-/// 通知偏好: 总开关; 五类通知子开关; 任务触觉开关; 两个阈值和系统授权状态镜像
+/// 通知偏好: 总开关; 五类通知子开关及声音; 任务触觉开关; 两个阈值和系统授权状态镜像
 /// 授权请求/查询集中在这里, 通知与触觉反馈判定在 CodexNotificationService
 @MainActor
 final class NotificationSettings: ObservableObject {
@@ -16,6 +16,11 @@ final class NotificationSettings: ObservableObject {
     @Published private(set) var isCreditExpiryEnabled: Bool
     @Published private(set) var lowQuotaThresholdPercent: Int
     @Published private(set) var longTaskThresholdSeconds: Int
+    @Published private(set) var lowQuotaSound: NotificationSoundOption
+    @Published private(set) var quotaResetSound: NotificationSoundOption
+    @Published private(set) var longTaskSound: NotificationSoundOption
+    @Published private(set) var taskWaitingSound: NotificationSoundOption
+    @Published private(set) var creditExpirySound: NotificationSoundOption
     @Published private(set) var authorizationStatus: UNAuthorizationStatus = .notDetermined
 
     /// 系统授权被拒时设置页展示引导, 通知服务停发
@@ -74,6 +79,11 @@ final class NotificationSettings: ObservableObject {
             in: Self.longTaskThresholdOptions,
             defaultValue: 60
         )
+        lowQuotaSound = Self.sound(from: defaults, key: Self.lowQuotaSoundKey)
+        quotaResetSound = Self.sound(from: defaults, key: Self.quotaResetSoundKey)
+        longTaskSound = Self.sound(from: defaults, key: Self.longTaskSoundKey)
+        taskWaitingSound = Self.sound(from: defaults, key: Self.taskWaitingSoundKey)
+        creditExpirySound = Self.sound(from: defaults, key: Self.creditExpirySoundKey)
     }
 
     deinit {
@@ -136,6 +146,26 @@ final class NotificationSettings: ObservableObject {
         defaults.set(seconds, forKey: Self.longTaskThresholdKey)
     }
 
+    func setLowQuotaSound(_ sound: NotificationSoundOption) {
+        setSound(sound, current: &lowQuotaSound, key: Self.lowQuotaSoundKey)
+    }
+
+    func setQuotaResetSound(_ sound: NotificationSoundOption) {
+        setSound(sound, current: &quotaResetSound, key: Self.quotaResetSoundKey)
+    }
+
+    func setLongTaskSound(_ sound: NotificationSoundOption) {
+        setSound(sound, current: &longTaskSound, key: Self.longTaskSoundKey)
+    }
+
+    func setTaskWaitingSound(_ sound: NotificationSoundOption) {
+        setSound(sound, current: &taskWaitingSound, key: Self.taskWaitingSoundKey)
+    }
+
+    func setCreditExpirySound(_ sound: NotificationSoundOption) {
+        setSound(sound, current: &creditExpirySound, key: Self.creditExpirySoundKey)
+    }
+
     /// 用户可能在系统设置里改过权限, 回到 App 时需要重新读取
     func refreshAuthorizationStatus() {
         authorizationTask?.cancel()
@@ -193,6 +223,19 @@ final class NotificationSettings: ObservableObject {
         defaults.set(value, forKey: key)
     }
 
+    private func setSound(
+        _ sound: NotificationSoundOption,
+        current: inout NotificationSoundOption,
+        key: String
+    ) {
+        guard sound != current else {
+            return
+        }
+
+        current = sound
+        defaults.set(sound.rawValue, forKey: key)
+    }
+
     private static func bool(from defaults: UserDefaults, key: String, defaultValue: Bool) -> Bool {
         guard defaults.object(forKey: key) != nil else {
             return defaultValue
@@ -209,6 +252,15 @@ final class NotificationSettings: ObservableObject {
         return value
     }
 
+    private static func sound(from defaults: UserDefaults, key: String) -> NotificationSoundOption {
+        guard let rawValue = defaults.string(forKey: key),
+              let sound = NotificationSoundOption(rawValue: rawValue) else {
+            return .systemDefault
+        }
+
+        return sound
+    }
+
     private static let enabledKey = "Notification.enabled"
     private static let lowQuotaEnabledKey = "Notification.lowQuotaEnabled"
     private static let quotaResetEnabledKey = "Notification.quotaResetEnabled"
@@ -218,4 +270,9 @@ final class NotificationSettings: ObservableObject {
     private static let creditExpiryEnabledKey = "Notification.creditExpiryEnabled"
     private static let lowQuotaThresholdKey = "Notification.lowQuotaThresholdPercent"
     private static let longTaskThresholdKey = "Notification.longTaskThresholdSeconds"
+    private static let lowQuotaSoundKey = "Notification.lowQuotaSound"
+    private static let quotaResetSoundKey = "Notification.quotaResetSound"
+    private static let longTaskSoundKey = "Notification.longTaskSound"
+    private static let taskWaitingSoundKey = "Notification.taskWaitingSound"
+    private static let creditExpirySoundKey = "Notification.creditExpirySound"
 }
