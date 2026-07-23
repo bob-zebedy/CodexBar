@@ -148,6 +148,7 @@ final class SidePanelDrawerAnimator {
 @MainActor
 final class SidePanelDrawerPresenter {
     private let makesKey: Bool
+    private let usesUntranslatedInitialLayout: Bool
     private let drawerAnimator: SidePanelDrawerAnimator
     private weak var panel: NSPanel?
     private var visibilityGeneration = 0
@@ -158,9 +159,11 @@ final class SidePanelDrawerPresenter {
     init(
         animationKey: String,
         makesKey: Bool = false,
+        usesUntranslatedInitialLayout: Bool = false,
         contentViewProvider: @escaping @MainActor () -> NSView?
     ) {
         self.makesKey = makesKey
+        self.usesUntranslatedInitialLayout = usesUntranslatedInitialLayout
         drawerAnimator = SidePanelDrawerAnimator(
             contentViewProvider: contentViewProvider,
             animationKey: animationKey,
@@ -173,7 +176,12 @@ final class SidePanelDrawerPresenter {
     }
 
     /// 内容更新由调用方在 present 之前完成
-    func present(_ panel: NSPanel, at position: SidePanelPosition, relativeTo parentWindow: NSWindow) {
+    func present(
+        _ panel: NSPanel,
+        at position: SidePanelPosition,
+        relativeTo parentWindow: NSWindow,
+        completion: @escaping @MainActor () -> Void = {}
+    ) {
         self.panel = panel
         visibilityGeneration += 1
         isExitAnimationRunning = false
@@ -182,7 +190,7 @@ final class SidePanelDrawerPresenter {
 
         let generation = visibilityGeneration
         let hidden = drawerAnimator.hiddenTranslation(for: currentSide, panelWidth: panel.frame.width)
-        drawerAnimator.setTranslation(hidden)
+        drawerAnimator.setTranslation(usesUntranslatedInitialLayout ? 0 : hidden)
         panel.alphaValue = 0
         self.parentWindow = parentWindow
         SidePanelSupport.attach(panel, to: parentWindow)
@@ -198,7 +206,12 @@ final class SidePanelDrawerPresenter {
                 self?.visibilityGeneration == generation
             },
             completion: { [weak self] in
-                self?.drawerAnimator.setTranslation(0)
+                guard let self else {
+                    return
+                }
+
+                drawerAnimator.setTranslation(0)
+                completion()
             }
         )
     }

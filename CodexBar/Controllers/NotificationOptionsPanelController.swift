@@ -21,6 +21,7 @@ final class NotificationOptionsPanelController {
     private lazy var presenter = SidePanelDrawerPresenter(
         animationKey: Metrics.drawerTransformAnimationKey,
         makesKey: true,
+        usesUntranslatedInitialLayout: true,
         contentViewProvider: { [weak self] in
             self?.hostingController?.view
         }
@@ -30,6 +31,7 @@ final class NotificationOptionsPanelController {
     private var settingsWindowDismissObservers: [NSObjectProtocol] = []
     private var cancellables = Set<AnyCancellable>()
     private var panelResizeTask: Task<Void, Never>?
+    private var isEntryAnimationRunning = false
 
     init(
         notificationSettings: NotificationSettings,
@@ -79,6 +81,7 @@ final class NotificationOptionsPanelController {
 
         codexCLINotificationSettings.refresh()
         let panel = ensurePanel()
+        panel.contentView?.layoutSubtreeIfNeeded()
         let windowSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: window) ?? window.frame
         let panelSize = measuredPanelSize()
         let validatedAlignmentFrame = SidePanelSupport.validatedAlignmentScreenFrame(
@@ -99,10 +102,22 @@ final class NotificationOptionsPanelController {
 
         panel.level = window.level
         installSettingsWindowDismissObservers(for: window)
-        presenter.present(panel, at: position, relativeTo: window)
+        panelResizeTask?.cancel()
+        isEntryAnimationRunning = true
+        presenter.present(panel, at: position, relativeTo: window) { [weak self] in
+            guard let self else {
+                return
+            }
+
+            isEntryAnimationRunning = false
+            schedulePanelResize()
+        }
     }
 
     func hide(immediate: Bool = false) {
+        panelResizeTask?.cancel()
+        panelResizeTask = nil
+        isEntryAnimationRunning = false
         presenter.hide(immediate: immediate)
     }
 
@@ -158,7 +173,7 @@ final class NotificationOptionsPanelController {
                 object: window,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     self?.hide(immediate: true)
                 }
             }
@@ -210,7 +225,7 @@ final class NotificationOptionsPanelController {
     }
 
     private func schedulePanelResize() {
-        guard panel != nil else {
+        guard panel != nil, !isEntryAnimationRunning else {
             return
         }
 

@@ -184,6 +184,8 @@ struct NotificationOptionsView: View {
         }
     }
 
+    /// Swift 6.3.3 在 -O 下会让这两个行构建器中的原生 mini Switch 漏绘 thumb
+    @_optimize(none)
     private func optionRow(
         title: String,
         isOn: Binding<Bool>,
@@ -224,6 +226,7 @@ struct NotificationOptionsView: View {
         }
     }
 
+    @_optimize(none)
     private func notificationOptionRow(
         title: String,
         isOn: Binding<Bool>,
@@ -232,6 +235,7 @@ struct NotificationOptionsView: View {
         @ViewBuilder accessory: () -> some View
     ) -> some View {
         let showsSoundControls = isEnabled && isOn.wrappedValue
+        let canPreviewSound = sound.wrappedValue != .silent
 
         return VStack(spacing: 0) {
             HStack(spacing: Metrics.notificationControlSpacing) {
@@ -263,12 +267,24 @@ struct NotificationOptionsView: View {
                     Spacer(minLength: 8)
 
                     soundMenu(selection: sound)
+
+                    Button {
+                        playPreview(for: sound.wrappedValue)
+                    } label: {
+                        Image(systemName: "play.circle")
+                            .font(.system(size: Metrics.soundPreviewIconSize))
+                            .frame(
+                                width: Metrics.soundPreviewButtonSize,
+                                height: Metrics.soundPreviewButtonSize
+                            )
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(canPreviewSound ? .secondary : .tertiary)
+                    .disabled(!canPreviewSound)
                 }
                 .frame(height: Metrics.soundRowHeight)
-                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .animation(Metrics.statusAnimation, value: showsSoundControls)
     }
 
     private func optionPicker(
@@ -373,8 +389,9 @@ struct NotificationOptionsView: View {
         static let notificationControlSpacing: CGFloat = 6
         static let pickerWidth: CGFloat = 68
         static let soundMenuWidth: CGFloat = 160
+        static let soundPreviewButtonSize: CGFloat = 18
+        static let soundPreviewIconSize: CGFloat = 13
         static let statusIconSize: CGFloat = 16
         static let cornerRadius: CGFloat = 12
-        static let statusAnimation = Animation.codexStatus
     }
 }
