@@ -140,6 +140,8 @@ Hook 数据目录:
 
 `CodexActivityMonitor` 是 `@MainActor ObservableObject` 长期对象。Hook 开启时它启动 `HookEventTailReader`，关闭时停止读取并清空状态；通知与触觉开关只控制是否发送对应提醒，不控制监测器生命周期。实时状态只保存在内存，不写入新的历史文件，也不增加 CloudKit 字段或网络请求。
 
+可选的 `KeepAliveController` 复用同一份实时快照，只在 `runningTasks` 非空且尚未达到用户选择的最长防休眠期限时请求关闭系统休眠并持有 `PreventUserIdleSystemSleep` assertion。已经确认进入 `waitingApproval` 的任务不计入运行数量；自动 reviewer 仍保持 `.running`，因此不会被误当成用户等待。控制器以稳定的任务 `id` 识别首次进入运行态的新任务，并记录上一份快照的等待任务；每个新运行任务以及同一任务从等待恢复运行都会把唯一共享起点更新为当前时间，即使旧任务仍在运行或上一周期已经到期也会开始新周期。普通 Hook 活动仍按实时状态机规则更新任务的 `lastActivityAt` 和过期时间，但不会更新防休眠期限的独立起点；App 激活和设置刷新同样不会续期。最后一个运行任务离开运行态或最近运行阶段对应的期限到期后恢复任务开始前的休眠设置，再释放 assertion，让 macOS 按当前空闲计时、其他 assertion 和电源策略重新评估是否应休眠；普通合盖且恢复结果为 `SleepDisabled=0` 时还会主动请求休眠。关闭 Hook 会同步关闭并持久化防休眠选项、请求恢复系统休眠，并使设置项置灰；重新开启 Hook 不会自动重新开启防休眠。该功能不改变 Hook 事件、原始文件或聚合口径，详细边界见 [KeepAlive.md](KeepAlive.md)。
+
 `HookEventTailReader` 是独立 actor，文件 I/O 和 JSON 解码不占用 MainActor。读取分为两类批次：
 
 - `bootstrap`：App 启动、当前活动事件文件被截断或替换时，按 512 KB 分块流式读取滚动 24 小时涉及的日期文件，并按事件时间过滤窗口之外的数据。每次尝试开始时清空恢复态，成功后只发布一次最终快照，整个 bootstrap 不发布活动 transition。读取前记录各文件 inode 和 size；当前文件只读到当时最后一个完整换行，后续新增字节由 live 消费。文件边界变化时最多重试三次，连续失败则再次清空恢复态并跳过当前已有字节，避免把历史事件误当 live 通知。
@@ -198,7 +200,7 @@ CodexBar 最多保留最近 210 天数据。
 
 完整链路见 [CrossDeviceSync.md](CrossDeviceSync.md)。本节只保留和 Hook 统计直接相关的同步摘要。
 
-设置页「跨设备同步」由 `WorkflowSyncSettings` 管理。该开关只有在 Codex Hook 开启且 `CKContainer.default().accountStatus` 为 `available` 时可操作；账号不可用时开关禁用，并在开关下方显示「同步不可用」。关闭 Hook 后不会继续触发工作流统计同步。同步使用 CloudKit private database，数据归属当前登录的 iCloud 账号，不跨 iCloud 账号迁移或合并。CodexBar 自己创建和维护的记录都保存在 custom zone `CodexBarZone`，不会写入 `_defaultZone`。
+设置页「跨设备同步」由 `WorkflowSyncSettings` 管理。该开关只有在 Codex Hook 开启且 `WorkflowSyncCloudKit.makeContainer().accountStatus` 为 `available` 时可操作；`WorkflowSyncCloudKit` 固定使用 `iCloud.app.zabrian.codexbar` 容器。账号不可用时开关禁用，并在开关下方显示「同步不可用」。关闭 Hook 后不会继续触发工作流统计同步。同步使用 CloudKit private database，数据归属当前登录的 iCloud 账号，不跨 iCloud 账号迁移或合并。CodexBar 自己创建和维护的记录都保存在 custom zone `CodexBarZone`，不会写入 `_defaultZone`。
 
 CloudKit 中每个 iCloud 账号会保存一条账号级 salt:
 

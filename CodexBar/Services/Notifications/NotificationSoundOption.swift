@@ -60,7 +60,7 @@ enum NotificationSoundOption: String, Identifiable {
         case .silent:
             "静音"
         case .systemDefault:
-            "系统提示音"
+            "默认"
         case .basso:
             "Basso"
         case .blow:

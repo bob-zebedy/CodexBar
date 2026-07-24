@@ -4,6 +4,14 @@ import Foundation
 import IOKit
 import Security
 
+nonisolated enum WorkflowSyncCloudKit {
+    private static let containerIdentifier = "iCloud.app.zabrian.codexbar"
+
+    static func makeContainer() -> CKContainer {
+        CKContainer(identifier: containerIdentifier)
+    }
+}
+
 /// 将本机 daily.jsonl 的脱敏聚合行同步到 CloudKit private database
 actor WorkflowSyncService {
     private let database: CKDatabase
@@ -16,7 +24,7 @@ actor WorkflowSyncService {
     private var cachedAccountSalt: Data?
 
     init(
-        container: CKContainer = .default(),
+        container: CKContainer = WorkflowSyncCloudKit.makeContainer(),
         fileManager: FileManager = .default,
         directoryURL: URL = WorkflowStorage.syncDirectoryURL()
     ) {

@@ -174,7 +174,7 @@ final class WorkflowSyncSettings: ObservableObject {
 
     private nonisolated static func querySyncAvailability() async -> WorkflowSyncAvailabilityResult {
         await withCheckedContinuation { continuation in
-            CKContainer.default().accountStatus { status, error in
+            WorkflowSyncCloudKit.makeContainer().accountStatus { status, error in
                 continuation.resume(
                     returning: WorkflowSyncFailureReason.availabilityResult(
                         status: status,

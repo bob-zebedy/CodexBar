@@ -2,7 +2,7 @@
 
 本文面向继续开发 CodexBar 的维护者, 记录当前 App 的主要流程, 数据边界和模块协作方式
 
-更细的 app-server 协议见 [AppServer.md](AppServer.md), Codex Hook 统计口径见 [CodexHook.md](CodexHook.md), 跨设备同步链路见 [CrossDeviceSync.md](CrossDeviceSync.md)
+更细的 app-server 协议见 [AppServer.md](AppServer.md), Codex Hook 统计口径见 [CodexHook.md](CodexHook.md), 跨设备同步链路见 [CrossDeviceSync.md](CrossDeviceSync.md), 防休眠边界见 [KeepAlive.md](KeepAlive.md)
 
 ## 1. 应用定位与工程边界
 
@@ -21,15 +21,17 @@ App 通过本机 Codex app-server 读取账号, 额度和 token 用量, 通过 C
 
 源码目录职责:
 
-| 目录                    | 职责                                                                    |
-| ----------------------- | ----------------------------------------------------------------------- |
-| `CodexBar/App/`         | SwiftUI 入口和 AppDelegate 启动分支                                     |
-| `CodexBar/Controllers/` | 菜单栏, 菜单面板, 侧边 child panel, 设置窗口, 日志窗口和窗口行为        |
-| `CodexBar/Models/`      | account, quota, usage, workflow, activity, 日期网格、快捷键和错误模型   |
-| `CodexBar/Services/`    | app-server, Codex CLI 解析, 版本探测, Hook 设置, 统计维护, 更新, 登录项 |
-| `CodexBar/Views/`       | 菜单面板, 设置窗口, 日志窗口和共享 Liquid Glass 样式                    |
-| `Docs/`                 | app-server, Hook 和开发文档                                             |
-| `Scripts/`              | Release 构建、公证、DMG 和 appcast 发布脚本                             |
+| 目录                    | 职责                                                                  |
+| ----------------------- | --------------------------------------------------------------------- |
+| `CodexBar/App/`         | SwiftUI 入口和 AppDelegate 启动分支                                   |
+| `CodexBar/Controllers/` | 菜单栏, 菜单面板, 侧边 child panel, 设置窗口, 日志窗口和窗口行为      |
+| `CodexBar/Models/`      | account, quota, usage, workflow, activity, 日期网格、快捷键和错误模型 |
+| `CodexBar/Services/`    | app-server, Codex CLI 解析, Hook、统计、防休眠、更新和登录项          |
+| `CodexBar/Views/`       | 菜单面板, 设置窗口, 日志窗口和共享 Liquid Glass 样式                  |
+| `Shared/`               | 主 App 与 root helper 共用的最小 XPC 契约                             |
+| `CodexBarHelper/`       | 防休眠 root helper 与嵌入 App 的 LaunchDaemon plist                   |
+| `Docs/`                 | app-server, Hook 和开发文档                                           |
+| `Scripts/`              | Release 构建、公证、DMG 和 appcast 发布脚本                           |
 
 ## 2. 总体架构
 
@@ -72,6 +74,7 @@ sequenceDiagram
 - `WorkflowViewModel`: Hook 工作流统计快照
 - `CodexHookSettings`: Hook 配置状态和写入操作
 - `CodexActivityMonitor`: Hook 实时任务状态、UI 快照和 live transition
+- `KeepAliveController`: 订阅实时任务快照、维护用户偏好和 helper 授权/XPC 状态
 - `WorkflowSyncSettings`: 跨设备同步偏好、账号可用性、同步中和失败状态
 - `GlobalHotKeySettings`: 全局快捷键配置和错误状态
 - `MenuBarQuotaSettings`: 菜单栏额度指示偏好和窗口选择
@@ -90,7 +93,19 @@ sequenceDiagram
 
 启动时还会把系统 tooltip 首次出现延迟 `NSInitialToolTipDelay` 设置为 200 ms, 让主面板同步图标等短提示更快出现。
 
-App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall()` 和 `CodexActivityMonitor.stop()`, 关闭菜单面板与实时 tail, 注销全局快捷键, 移除订阅并从系统状态栏移除 status item
+App 退出时, `applicationWillTerminate` 调用 `StatusItemController.uninstall()`、`KeepAliveController.stop()` 和 `CodexActivityMonitor.stop()`, 关闭菜单面板与实时 tail, 注销全局快捷键, 释放防休眠连接, 移除订阅并从系统状态栏移除 status item。`KeepAliveController.stop()` 会先进入停止态，再取消 XPC 重试、最长时限任务和 Helper 注册任务；注册任务的迟到结果只有在控制器仍运行且任务未取消时才能提交状态或重新收敛防休眠
+
+### 3.1 任务运行期防休眠
+
+设置页「阻止系统休眠」持久化到 `KeepAlive.isEnabled`，依赖 Codex Hook。最长防休眠期限为 1、2、4、8、12、24 小时或无限制，缺失或无效值回退为 12 小时，持久化键为 `KeepAlive.maximumContinuousDurationSeconds`。`KeepAliveController` 订阅 Hook 开关；Hook 关闭时立即把防休眠选项设为关闭、清除开启偏好并请求恢复，设置页在 Hook 关闭期间将该选项置灰，Hook 重新开启后不会自动恢复开启。控制器只把 `CodexActivitySnapshot.runningTasks` 非空视为需要保活；`waitingTasks`、最近完成和最近终止都不计入。多个并发任务中只要仍有一个运行任务就继续保活，最后一个运行任务进入等待、完成、终止或从快照移除后立即请求恢复。
+
+控制器用 `CodexActivityTaskSnapshot.id` 识别新运行任务，并记录上一份快照中的等待任务，只维护一个期限起点。第一个运行任务触发保活时建立起点；后续任何首次进入运行态的新任务，或同一任务从 `waitingApproval` 恢复为 `running`，都会把起点更新为当前时间并重排到期任务，因此旧任务仍在运行或本轮已经到期都不妨碍新的运行阶段开始完整周期。同一运行阶段内的工具事件、其他 Hook 更新、App 激活和设置刷新不会更新起点；无限制不创建计时任务。最后一个运行任务进入等待时会恢复系统休眠，获批恢复运行时从恢复时刻重新获得完整期限；多任务中即使还有其他任务一直运行，这次恢复也会更新全部运行任务共享的截止时间。到期后控制器设置上限锁存状态并请求恢复，直到新运行任务或等待任务恢复运行、所有运行和等待任务都消失、功能关闭或 helper 不再可用。用户把期限改大且按最近运行阶段起点仍有剩余时间，或改为无限制时，也可以继续当前周期。
+
+`SystemSleepService` 在进入保活前创建 `kIOPMAssertionTypePreventUserIdleSystemSleep` assertion，再由 helper 设置 `SleepDisabled=1`：前者明确阻止空闲休眠，后者覆盖普通 assertion 无法覆盖的合盖和手动休眠。每次 App 成功恢复时，先由 helper 还原任务开始前的 `SleepDisabled`，再释放 assertion，使 macOS 的空闲休眠策略在全局禁休眠已经解除后重新计算当前空闲时间、其他 assertion 和电源条件；因此已经达到空闲期限的开盖 Mac 可以由系统立即休眠，App 不自行猜测空闲期限或绕过系统条件强制休眠。随后只要 helper 确认结果为 `SleepDisabled=0`，且 `AppleClamshellState` 与 `AppleClamshellCausesSleep` 表明当前处于普通合盖应休眠状态，App 就调用 `IOPMSleepSystem` 补偿禁休眠期间被抑制的合盖休眠。该恢复流程统一覆盖任务等待、完成、终止、空闲、用户关闭功能和期限到达；App 已退出后的 helper 兜底恢复仍只负责还原原设置。
+
+普通 power assertion 或 `caffeinate` 不能可靠阻止 MacBook 合盖休眠，因此工程使用 `SMAppService.daemon` 注册嵌入 App 的 `CodexBarHelper`，由 root helper 执行 `/usr/bin/pmset -a disablesleep 1/0`；空闲休眠 assertion 由无特权的主 App 持有，root helper 只负责固定的休眠设置切换和恢复哨兵。helper 只接受 Team ID 与当前构建配置 bundle identifier 都匹配的 CodexBar XPC 客户端。Debug 使用 `app.zabrian.codexbar.debug` 和独立的 helper 服务身份，Release 使用 `app.zabrian.codexbar`，避免开发授权影响正式版本。Mach service 名由当前进程的 bundle identifier 派生：App 添加 `.helper` 后缀，helper 直接使用自身 identifier；LaunchDaemon plist 名和 helper 私有哨兵文件名再由 service 名派生。首次开启可能进入 `requiresApproval`，设置页提供「打开系统设置」；批准后 App 再次 active 时刷新状态并按当前任务快照收敛。控制器按固定顺序计算嵌入的 helper 可执行文件与当前 LaunchDaemon plist 的内容 SHA-256，并把已注册服务对应的指纹保存在当前 App 身份的 `UserDefaults`。每次启动都会检查已注册或等待批准的服务，即使功能关闭；任一文件内容变化时会注销并重新注册，两个文件内容均未变化时不会因 App 本体更新重复注册。功能关闭且服务未注册时不主动注册。注册任务在注销前和注销完成后检查取消状态，停止后的结果不会提交状态、打开系统设置或触发防休眠。针对 macOS 在注销后立即重新注册可能返回的 `SMAppServiceErrorDomain Code=1` 竞态，只做 0.5、1、2 秒有限退避重试，其他错误不重试。
+
+helper 在切换前把原始 `SleepDisabled` 值写入 root-owned `0600` 哨兵，恢复时写回原值而不是无条件写 `0`，避免覆盖用户或其他工具原有的禁休眠设置，并在 XPC reply 中把恢复后的值返回给 App。App 连接断开后有 15 秒看门狗，helper 每 60 秒自检残留哨兵；helper 启动、收到终止信号或 App 正常请求时也会尝试恢复。详细打包、安全边界与手动验收见 [KeepAlive.md](KeepAlive.md)。
 
 ## 4. 菜单栏, 菜单面板与窗口流程
 
@@ -921,6 +936,7 @@ CloudKit Production schema 必须包含当前 schema `4` 使用的字段；schem
 - `WorkflowSyncSettings.refresh()`
 - `MenuBarQuotaSettings.refresh()`
 - `MainPanelSettings.refresh()`
+- `KeepAliveController.refresh()`
 
 设置窗口按 SwiftUI 内容 `fittingSize` 自适应高度, 但必须校验尺寸有限且夹紧到当前屏幕可见区域内的安全上限, 避免 SwiftUI 初始化或状态刷新重入时给出异常尺寸导致空白大窗口。`MenuBarQuotaSettings.refresh()` 可能被设置页 `onAppear` 和 `didBecomeActive` 调用, 发布 `selection` 时需要延后到下一轮 MainActor, 避免在 SwiftUI view update 中同步发布造成未定义布局行为。
 
@@ -934,15 +950,16 @@ CloudKit Production schema 必须包含当前 schema `4` 使用的字段；schem
 - `CodexCLIVersionViewModel.refresh()`
 - `CodexStatusViewModel.refreshCodexConnectionInfo()`
 - `NotificationSettings.refreshAuthorizationStatus()`
+- `KeepAliveController.refresh()`
 - `WorkflowStorage.rebuildableEventDateKeys()`
 
-App 再次成为 active 时, 也会刷新 Hook、同步、菜单栏额度、主面板、Codex 版本、通知授权和可重建日期, 并重新运行 `hooks/list` 验证。`SettingsWindowController.open()` 发布 `.settingsWindowDidOpen` 后, 日期重建范围、确认弹窗和上次结果消息恢复为未选择状态。
+App 再次成为 active 时, 也会刷新 Hook、同步、菜单栏额度、主面板、Codex 版本、通知授权、防休眠 helper 状态和可重建日期, 并重新运行 `hooks/list` 验证。`SettingsWindowController.open()` 发布 `.settingsWindowDidOpen` 后, 日期重建范围、确认弹窗和上次结果消息恢复为未选择状态。
 
 版本探测内部有 60 秒节流, 避免 `onAppear` 和 `didBecomeActive` 连续触发时重复启动子进程
 
 设置项:
 
-主设置卡片依次展示「开机自动启动」「自动检查更新」「菜单栏额度指示」「设置快捷键」「CodexBar Hook」「主面板任务中心」「系统通知」「跨设备同步」「重建数据」「CodexBar 版本」和「Codex 版本」。
+主设置卡片依次展示「开机自动启动」「自动检查更新」「菜单栏额度指示」「设置快捷键」「CodexBar Hook」「主面板任务中心」「系统通知」「跨设备同步」「阻止系统休眠」「重建数据」「Codex 版本」和「CodexBar 版本」。
 
 跨设备同步开启时，状态子行始终保留固定 16 pt 高的单行布局；右侧固定宽度 `ZStack` 让同步时间和 `.mini` 进度指示以交叉淡入淡出切换，不对 AppKit 进度控件应用几何缩放，也不改变该行高度或控件位置。关闭同步后移除整行占位，让设置窗口 fitting size 随开关状态缩回。
 
@@ -957,15 +974,17 @@ App 再次成为 active 时, 也会刷新 Hook、同步、菜单栏额度、主�
 | 系统通知       | `NotificationSettings` + `UNUserNotificationCenter`                                  | 总开关、五类通知子开关、任务触觉开关与阈值写入 `UserDefaults`; 首次开启时请求系统通知授权                                                             |
 | Codex TUI 通知 | `CodexCLINotificationSettings` + app-server `config/read` / `config/batchWrite`      | 读取用户级 `[tui].notifications`; 缺失时按开启处理，关闭/开启分别 upsert `false` / `true`，不修改顶层 `notify`                                        |
 | 跨设备同步     | `WorkflowSyncSettings` + CloudKit account status + `WorkflowSyncScheduler`           | Hook 开启且同步账号可用时写入 `UserDefaults`; 开启时标记 `needsBackfill` 并请求调度同步                                                               |
+| 阻止系统休眠   | `KeepAliveController` + `CodexActivityMonitor` + `SMAppService`                      | Hook 开启时允许写入 `KeepAlive.isEnabled`; 运行任务出现后通过 helper 和 idle sleep assertion 阻止休眠，等待、结束、关闭或到期后恢复                   |
 | 重建数据       | `WorkflowStorage.rebuildableEventDateKeys()` + `WorkflowSyncScheduler`               | 选择最近 210 天内的日期范围, 将范围内非空本机事件日期交给调度器逐日重建, 并登记当前设备对应日期的待云端替换状态                                       |
-| CodexBar 版本  | Bundle + AppUpdater 状态                                                             | 有更新状态时优先显示动态消息                                                                                                                          |
 | Codex 版本     | `CodexCLIVersionSnapshot` + 当前 app-server 握手信息                                 | 路径点击复制到剪贴板                                                                                                                                  |
+| CodexBar 版本  | Bundle + AppUpdater 状态                                                             | 有更新状态时优先显示动态消息                                                                                                                          |
 
 错误显示:
 
 - 开机启动失败显示在设置组与底部按钮组之间的独立错误组
 - Hook 设置失败, 全局禁用, 自动信任写入失败或验证异常显示在 Hook 选项下方
 - 同步账号不可用时显示在跨设备同步开关下方
+- 防休眠依赖、helper 授权、注册状态、当前休眠状态和切换错误显示在阻止系统休眠开关下方
 - 同步运行失败不在设置页展示原始错误; 主面板同步图标 tooltip 显示归类后的短错误
 - 重建行始终保留一行消息位置: 未选择时显示「未选择重建日期范围」, 只选择起点时显示「选择结束日期」, 范围完成且存在数据时显示完整日历范围的「已选择 X 天」, 范围内没有非空事件文件时显示「没有可重建的本地数据」; 完成或失败后改为对应结果消息
 - 没有登录项错误时不渲染错误组
@@ -1131,7 +1150,7 @@ App 再次成为 active 时, 也会刷新 Hook、同步、菜单栏额度、主�
 通知与触觉反馈判定在 `CodexBar/Services/Notifications/`, 偏好类随其他设置类放在 `CodexBar/Services/Settings/`:
 
 - `NotificationSettings` (`Services/Settings/`): 总开关、五类通知子开关及各自的声音、任务触觉开关、低额度阈值 (5%/10%/25%, 默认 10%) 和长任务时长 (30s/1m/2m/5m, 默认 1m), 持久化到 UserDefaults; 负责系统授权请求、被拒状态镜像和设置页选项面板可展示状态
-- `NotificationSoundOption`: 定义系统提示音、静音、14 个经典提示音和 17 个现代提示音；非静音选项统一生成 `UNNotificationSound` 并为设置页提供同源 WAV 试听资源
+- `NotificationSoundOption`: 定义默认、静音、14 个经典提示音和 17 个现代提示音；非静音选项统一生成 `UNNotificationSound` 并为设置页提供同源 WAV 试听资源
 - `CodexCLINotificationSettings` (`Services/Settings/`): 通过 app-server 读取和写入用户级 `tui.notifications`; 支持解析布尔值与事件数组，缺失时按默认开启，写入后回读验证并把错误显示在通知选项行
 - `CodexNotificationService`: 集中判定、去重、调度与发送; 由 `CodexBarAppDelegate` 创建, 订阅 `CodexStatusViewModel.$snapshot`、`CodexActivityMonitor` live transition 与 `NSWorkspace.didWakeNotification`; 五类正式通知共用 `CodexNotificationContent` 文案工厂并按类型附加用户选择的声音，系统提交失败时重试一次，等待与完成 transition 还会按偏好请求 AppKit `.levelChange` 触觉反馈
 - `CodexActivityMonitor`: Hook 开启期间始终运行并维护并发任务；向 UI 发布快照，向提醒服务发布 live transition。`PermissionRequest` 先作为审批候选，只有同 turn 的 rollout reviewer 为 `user` 才确认等待；自动 reviewer 或未知 reviewer 保持运行。单个 live 批次先完整应用事件，再按任务键合并已确认的等待候选；只有批次结束后仍处于等待的任务会使用最终快照发布一次等待 transition，完成候选保持顺序并按 completion ID 做批内去重。通知与触觉开关不会停止活动监测
@@ -1140,7 +1159,7 @@ App 再次成为 active 时, 也会刷新 Hook、同步、菜单栏额度、主�
 
 活动并发以 session 为边界：不同 session 可以同时运行；同一 session 的 turn 按顺序执行。收到新的 `UserPromptSubmit` 时，monitor 会让该 session 中更早且缺少结束信号的 turn 立即退出活动列表，但保留为等待终态确认任务并触发一次即时 rollout 查询；5 秒内收到 Hook `Stop`、rollout `task_complete` 或 `turn_aborted` 时按真实终态归类，到期仍无终态才生成灰色最近终止记录。子 Agent 事件只能通过共享 session 关联父任务，早于当前顶层任务可信开始时间的事件会被当作上一 turn 的迟到事件忽略。已完成和已终止任务键分别保留 24 小时 tombstone，避免迟到事件恢复旧任务或误操作同 session 的新 turn。终止不会触发绿色完成状态、长任务通知或完成触觉反馈。Hook `Stop` 与 rollout `task_complete` 均视为完成信号，先到者生效，后到者按任务键和 session 回退键去重；重复完成不会覆盖首次确认结果，也不会缩短去重窗口或再次触发反馈。
 
-设置页交互: 「系统通知」主开关行保留在设置窗口内, 子选项 (五类通知子开关与声音、任务触觉开关、Codex TUI 通知开关及两个阈值 Picker) 在主选项右侧的子面板中展开 (`NotificationOptionsPanelController`, 复用 SidePanelSupport 抽屉机制挂在设置窗口上, 内容用常驻 hosting controller + ObservableObject 驱动)。五类通知按需使用双行布局：第一行展示通知名称、可选阈值和开关，阈值 Picker 位于开关前；通知开启且依赖可用时，第二行展示「通知音效」、加宽的声音菜单和独立播放按钮，关闭时整行从布局移除。控制器订阅五类通知开关和 Hook 状态；入场期间暂停 fitting-size 更新，动画完成后重新测量，后续内容变化在 SwiftUI 完成布局后按 fitting size 动画调整面板高度并保持面板顶边位置，避免收起后残留空白。菜单顶层提供系统提示音和静音，其他声音按「经典提示音」和「现代提示音」子菜单分组。选择任意声音时立即试听，播放按钮可重复试听当前非静音选项，新的试听会停止上一段自定义声音；系统提示音使用 `NSSound.beep()`, 静音不播放预览且禁用播放按钮，其余声音优先播放 App 包内与正式通知同源的 WAV。选项依次排列为「任务完成通知」「任务等待通知」「额度预警通知」「额度重置通知」「重置临期通知」「任务触觉反馈」和「Codex TUI 通知」。主开关开启后仅在系统授权允许时展开, 首次授权场景会等待授权结果; 点击行内滑杆按钮可手动展开; 设置窗口 resign key/关闭、主开关关闭或授权变为被拒时自动收起。任务完成、任务等待与任务触觉子项在 Hook 未开启时显示为关闭并置灰, 不修改各自持久化偏好及声音, Hook 重新开启后恢复用户原选择。「Codex TUI 通知」与用户级 `[tui] notifications` 联动，面板打开时刷新，写入后回读验证；已有 CLI 会话需重启后生效。该项不服从 CodexBar 通知发送判定，也不修改顶层 `notify`。「主面板任务中心」沿用相同依赖语义；关闭只隐藏活动卡片和任务中心入口，不停止 Monitor、状态点、通知或触觉反馈。授权被拒的引导文案与"打开系统设置"按钮仍内联显示在主开关行下方, 插入提示时不触发设置项纵向动画。
+设置页交互: 「系统通知」主开关行保留在设置窗口内, 子选项 (五类通知子开关与声音、任务触觉开关、Codex TUI 通知开关及两个阈值 Picker) 在主选项右侧的子面板中展开 (`NotificationOptionsPanelController`, 复用 SidePanelSupport 抽屉机制挂在设置窗口上, 内容用常驻 hosting controller + ObservableObject 驱动)。五类通知按需使用双行布局：第一行展示通知名称、可选阈值和开关，阈值 Picker 位于开关前；通知开启且依赖可用时，第二行展示「通知音效」、加宽的声音菜单和独立播放按钮，关闭时整行从布局移除。控制器订阅五类通知开关和 Hook 状态；入场期间暂停 fitting-size 更新，动画完成后重新测量，后续内容变化在 SwiftUI 完成布局后按 fitting size 动画调整面板高度并保持面板顶边位置，避免收起后残留空白。菜单顶层提供默认和静音，其他声音按「经典提示音」和「现代提示音」子菜单分组。选择任意声音时立即试听，播放按钮可重复试听当前非静音选项，新的试听会停止上一段自定义声音；默认使用 `NSSound.beep()`, 静音不播放预览且禁用播放按钮，其余声音优先播放 App 包内与正式通知同源的 WAV。选项依次排列为「任务完成通知」「任务等待通知」「额度预警通知」「额度重置通知」「重置临期通知」「任务触觉反馈」和「Codex TUI 通知」。主开关开启后仅在系统授权允许时展开, 首次授权场景会等待授权结果; 点击行内滑杆按钮可手动展开; 设置窗口 resign key/关闭、主开关关闭或授权变为被拒时自动收起。任务完成、任务等待与任务触觉子项在 Hook 未开启时显示为关闭并置灰, 不修改各自持久化偏好及声音, Hook 重新开启后恢复用户原选择。「Codex TUI 通知」与用户级 `[tui] notifications` 联动，面板打开时刷新，写入后回读验证；已有 CLI 会话需重启后生效。该项不服从 CodexBar 通知发送判定，也不修改顶层 `notify`。「主面板任务中心」沿用相同依赖语义；关闭只隐藏活动卡片和任务中心入口，不停止 Monitor、状态点、通知或触觉反馈。授权被拒的引导文案与"打开系统设置"按钮仍内联显示在主开关行下方, 插入提示时不触发设置项纵向动画。
 
 `NotificationOptionsView` 的两个实际行构建器保留 `@_optimize(none)`：Swift 6.3.3 在 `-O` 下优化这些包含原生 mini Switch 的动态布局时会漏绘开关 thumb。该约束只覆盖 `optionRow` 和带 accessory 的 `notificationOptionRow` 实现，其余通知视图与 Release target 继续使用正常优化；调整这两个构建器的编译属性后需要用 Release 产物人工检查开启状态的 thumb。
 
@@ -1156,7 +1175,7 @@ App 再次成为 active 时, 也会刷新 Hook、同步、菜单栏额度、主�
 
 额度低阈值、额度重置和重置机会通知只在系统成功接收后把去重键写入 UserDefaults (`Notification.sentKeys`)，最多保留 300 条。键包含账号维度；额度重置窗口提供 `resetsAt` 时，去重键还包含该时间，缺失时仍发送通知但不生成周期去重键。额度重置观察状态和等待通知跟踪集合保存在当前进程内；通知不按预测时间调度，也不补发已错过的状态转换。可信额度快照持续推进重置观察状态，stale 快照不参与判定；窗口消失时移除对应观察状态，快照为 `nil` 时清空全部观察状态。Hook bootstrap 只恢复任务状态，不发布 transition，因此不产生历史任务通知或触觉反馈。
 
-五类声音分别使用 `Notification.lowQuotaSound`、`Notification.quotaResetSound`、`Notification.longTaskSound`、`Notification.taskWaitingSound` 和 `Notification.creditExpirySound`。偏好缺失或保存值未知时回退到系统提示音，兼容升级前的用户数据；系统提示音提交 `.default`，静音提交 `nil`，其他选项提交 App 包根资源目录中的 `CodexBar-<Name>.wav`，由系统通知中心按系统授权、专注模式和通知设置决定是否实际播放。
+五类声音分别使用 `Notification.lowQuotaSound`、`Notification.quotaResetSound`、`Notification.longTaskSound`、`Notification.taskWaitingSound` 和 `Notification.creditExpirySound`。偏好缺失或保存值未知时回退到默认，兼容升级前的用户数据；默认提交 `.default`，静音提交 `nil`，其他选项提交 App 包根资源目录中的 `CodexBar-<Name>.wav`，由系统通知中心按系统授权、专注模式和通知设置决定是否实际播放。
 
 「任务触觉反馈」使用 `Notification.taskHapticEnabled` 持久化，缺失时默认开启。等待批准和任意任务完成 transition 都启动一段触觉反馈任务：每 100 ms 请求一次 `.levelChange`，连续 10 次；新 transition 会取消并重启当前序列，开关关闭后会在下一脉冲前停止。触觉反馈不受长任务阈值与系统通知授权影响；App 内「系统通知」总开关关闭时不触发。`NSHapticFeedbackManager.defaultPerformer` 会按当前输入设备、辅助功能与系统偏好决定是否实际反馈及震感强弱。
 

@@ -13,6 +13,10 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         codexStatusService: codexStatusService
     )
     lazy var activityMonitor = CodexActivityMonitor(codexHookSettings: codexHookSettings)
+    lazy var keepAliveController = KeepAliveController(
+        activityMonitor: activityMonitor,
+        codexHookSettings: codexHookSettings
+    )
     let syncSettings = WorkflowSyncSettings()
     let globalHotKeySettings = GlobalHotKeySettings()
     let menuBarQuotaSettings = MenuBarQuotaSettings()
@@ -35,6 +39,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             menuBarQuotaSettings: menuBarQuotaSettings,
             mainPanelSettings: mainPanelSettings,
             notificationSettings: notificationSettings,
+            keepAliveController: keepAliveController,
             appUpdater: appUpdater
         )
         controller.install()
@@ -50,10 +55,12 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         notificationService.start()
         self.notificationService = notificationService
         activityMonitor.start()
+        keepAliveController.start()
     }
 
     func applicationWillTerminate(_: Notification) {
         statusItemController?.uninstall()
+        keepAliveController.stop()
         activityMonitor.stop()
     }
 
@@ -75,6 +82,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private let menuBarQuotaSettings: MenuBarQuotaSettings
     private let mainPanelSettings: MainPanelSettings
     private let notificationSettings: NotificationSettings
+    private let keepAliveController: KeepAliveController
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
@@ -104,7 +112,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         globalHotKeySettings: globalHotKeySettings,
         menuBarQuotaSettings: menuBarQuotaSettings,
         mainPanelSettings: mainPanelSettings,
-        notificationSettings: notificationSettings
+        notificationSettings: notificationSettings,
+        keepAliveController: keepAliveController
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
     } onSyncChanged: { [weak self] enabled in
@@ -172,6 +181,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         menuBarQuotaSettings: MenuBarQuotaSettings,
         mainPanelSettings: MainPanelSettings,
         notificationSettings: NotificationSettings,
+        keepAliveController: KeepAliveController,
         appUpdater: AppUpdater
     ) {
         self.viewModel = viewModel
@@ -184,6 +194,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         self.menuBarQuotaSettings = menuBarQuotaSettings
         self.mainPanelSettings = mainPanelSettings
         self.notificationSettings = notificationSettings
+        self.keepAliveController = keepAliveController
         self.appUpdater = appUpdater
         super.init()
     }

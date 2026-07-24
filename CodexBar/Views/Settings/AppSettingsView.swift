@@ -13,6 +13,7 @@ struct AppSettingsView: View {
     @ObservedObject var menuBarQuotaSettings: MenuBarQuotaSettings
     @ObservedObject var mainPanelSettings: MainPanelSettings
     @ObservedObject var notificationSettings: NotificationSettings
+    @ObservedObject var keepAliveController: KeepAliveController
     let onSyncChanged: (Bool) -> Void
     let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
     let onNotificationOptionsAction: (NotificationOptionsPanelAction) -> Void
@@ -43,11 +44,13 @@ struct AppSettingsView: View {
                 LiquidGlassDivider()
                 syncRow
                 LiquidGlassDivider()
+                keepAliveRow
+                LiquidGlassDivider()
                 rebuildWorkflowDataRow
                 LiquidGlassDivider()
-                versionRow
-                LiquidGlassDivider()
                 codexVersionSection
+                LiquidGlassDivider()
+                versionRow
             }
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
@@ -79,9 +82,7 @@ struct AppSettingsView: View {
             menuBarQuotaSettings.refresh()
             mainPanelSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
-            refreshCodexVersionSection()
-            notificationSettings.refreshAuthorizationStatus()
-            refreshRebuildableDates()
+            refreshStatusRows()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             codexHookSettings.refresh()
@@ -89,9 +90,7 @@ struct AppSettingsView: View {
             menuBarQuotaSettings.refresh()
             mainPanelSettings.refresh()
             codexHookSettings.verifyInstalledHooks()
-            refreshCodexVersionSection()
-            notificationSettings.refreshAuthorizationStatus()
-            refreshRebuildableDates()
+            refreshStatusRows()
         }
         .onReceive(NotificationCenter.default.publisher(for: .settingsWindowDidOpen)) { _ in
             selectedRebuildRange = nil
@@ -123,6 +122,7 @@ private extension AppSettingsView {
         static let panelCornerRadius: CGFloat = 10
         static let notificationOptionsButtonSize: CGFloat = 22
         static let menuBarQuotaPickerWidth: CGFloat = 72
+        static let keepAliveDurationPickerWidth: CGFloat = 88
         static let syncStatusRowHeight: CGFloat = 16
         static let syncStatusValueWidth: CGFloat = 160
         static let statusAnimation = Animation.codexStatus
@@ -244,6 +244,104 @@ private extension AppSettingsView {
             if let message = codexHookSettings.errorMessage {
                 SettingsCaptionMessageRow(message: message)
             }
+        }
+    }
+
+    var keepAliveRow: some View {
+        let caption = keepAliveCaption
+
+        return VStack(alignment: .leading, spacing: 4) {
+            SettingsToggleRow(
+                icon: "moon.zzz",
+                title: "阻止系统休眠",
+                isOn: Binding(
+                    get: { keepAliveController.isEnabled },
+                    set: { keepAliveController.setEnabled($0) }
+                ),
+                isEnabled: codexHookSettings.isEnabled && !codexHookSettings.isUpdating
+            ) {
+                if keepAliveController.isEnabled {
+                    HStack(spacing: 6) {
+                        Text("最长阻止时间")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+
+                        Picker(
+                            "最长阻止时间",
+                            selection: Binding(
+                                get: { keepAliveController.maximumDuration },
+                                set: { keepAliveController.setMaximumDuration($0) }
+                            )
+                        ) {
+                            ForEach(KeepAliveController.MaximumDuration.allCases) { duration in
+                                Text(duration.title).tag(duration)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .controlSize(.small)
+                        .frame(width: Metrics.keepAliveDurationPickerWidth)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                }
+            }
+
+            SettingsIndentedRow(alignment: .top) {
+                Text(caption.message)
+                    .font(.caption)
+                    .foregroundStyle(caption.isError ? .red : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+
+                Spacer(minLength: 8)
+
+                if caption.showsSystemSettingsButton {
+                    Button("打开系统设置") {
+                        keepAliveController.openSystemSettings()
+                    }
+                    .controlSize(.small)
+                    .fixedSize()
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                }
+            }
+        }
+        .animation(Metrics.statusAnimation, value: caption)
+        .animation(Metrics.statusAnimation, value: keepAliveController.isEnabled)
+    }
+
+    var keepAliveCaption: KeepAliveCaption {
+        if let errorMessage = keepAliveController.errorMessage {
+            return KeepAliveCaption(message: errorMessage, isError: true)
+        }
+        guard codexHookSettings.isEnabled else {
+            return KeepAliveCaption(message: "需要启用 CodexBar Hook")
+        }
+        guard keepAliveController.isEnabled else {
+            return KeepAliveCaption(message: "当有 Codex 任务运行时禁止系统休眠, 任务结束后自动恢复")
+        }
+
+        switch keepAliveController.helperStatus {
+        case .requiresApproval:
+            return KeepAliveCaption(
+                message: "需要授权允许 CodexBar 后台运行",
+                showsSystemSettingsButton: true
+            )
+        case .notRegistered, .notFound:
+            return KeepAliveCaption(message: "CodexBarHelper 尚未注册")
+        case .enabled:
+            if keepAliveController.hasReachedMaximumDuration {
+                let action = keepAliveController.isPreventingSleep
+                    ? "正在恢复系统休眠"
+                    : "已允许系统休眠"
+                return KeepAliveCaption(
+                    message: "已达到禁用休眠上限 (\(keepAliveController.maximumDuration.title)); \(action)"
+                )
+            }
+            if keepAliveController.isPreventingSleep {
+                return KeepAliveCaption(message: "当前禁止系统休眠")
+            }
+            return KeepAliveCaption(message: "当前允许系统休眠")
         }
     }
 
@@ -399,6 +497,13 @@ private extension AppSettingsView {
         rebuildableDates = WorkflowStorage.rebuildableEventDateKeys()
     }
 
+    func refreshStatusRows() {
+        refreshCodexVersionSection()
+        notificationSettings.refreshAuthorizationStatus()
+        keepAliveController.refresh()
+        refreshRebuildableDates()
+    }
+
     func rebuildWorkflowData() {
         let dateKeys = selectedRebuildDateKeys
         guard !dateKeys.isEmpty, !isRebuildingWorkflowData else {
@@ -470,7 +575,7 @@ private extension AppSettingsView {
             )
 
             if notificationSettings.isEnabled, notificationSettings.isAuthorizationDenied {
-                notificationDeniedRows
+                notificationDeniedRow
                     .transition(.identity)
                     .transaction { transaction in
                         transaction.animation = nil
@@ -508,14 +613,19 @@ private extension AppSettingsView {
         }
     }
 
-    @ViewBuilder
-    var notificationDeniedRows: some View {
-        SettingsCaptionMessageRow(message: "系统通知权限未开启, 请在系统设置中允许 CodexBar 发送通知")
+    var notificationDeniedRow: some View {
         SettingsIndentedRow {
+            Text("系统通知权限未开启")
+                .font(.caption)
+                .foregroundStyle(.red)
+
+            Spacer(minLength: 8)
+
             Button("打开系统设置") {
                 notificationSettings.openSystemNotificationSettings()
             }
             .controlSize(.small)
+            .fixedSize()
         }
     }
 
@@ -952,6 +1062,12 @@ private struct RebuildDateRange: Equatable {
 private struct RebuildStatus {
     let message: String
     let isError: Bool
+}
+
+private struct KeepAliveCaption: Equatable {
+    let message: String
+    var isError = false
+    var showsSystemSettingsButton = false
 }
 
 private struct SyncRowState {

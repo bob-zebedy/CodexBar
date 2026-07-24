@@ -6,13 +6,14 @@
 
 CodexBar 是一个 macOS 15+ 菜单栏应用，使用 Swift 6、SwiftUI + AppKit + MVVM。应用通过本机 Codex app-server 读取账号、额度和 token 用量，通过可选 Codex Hook 记录本机 Codex 工作流事件，并在菜单栏面板、设置窗口和日志窗口中展示状态。
 
-工程只有一个 Xcode app target：`CodexBar`。当前没有独立测试 target 或 `*Tests*` 目录。
+工程包含主 App target `CodexBar` 和随 App 嵌入的命令行 helper target `CodexBarHelper`。当前没有独立测试 target 或 `*Tests*` 目录。
 
 ## 重要边界
 
 - 应用是 `LSUIElement` 菜单栏 App，不显示 Dock 图标，也不依赖主窗口。
 - 最低系统版本是 macOS 15.0。
 - App Sandbox 关闭，因为需要启动本机 `codex`、读取用户 Codex 登录状态，并写入用户级 Hook 配置。
+- `CodexBarHelper` 只允许已签名的 CodexBar 通过 XPC 请求切换 `/usr/bin/pmset -a disablesleep`，并只在 `/Library/Application Support/CodexBar/` 维护恢复哨兵；不要给 root helper 增加网络、任意命令或其他文件访问能力。
 - 除手动重置机会过期时间查询、Sparkle 更新、用户显式开启跨设备同步后的 CloudKit private database 同步外，App 自身不应新增网络请求。
 - Codex 账号、额度、token 用量只在本机处理。Hook 工作流统计默认只写本机文件，跨设备同步只上传 daily 聚合数据，不上传原始事件、会话 ID、轮次 ID、请求日志或认证文件。
 - 不要回滚或清理与当前任务无关的未提交变更；仓库可能处于脏工作树状态。
@@ -50,6 +51,8 @@ Tag：
 - `CodexBar/Services/`: app-server、Codex CLI 解析、Codex 版本探测、Hook 设置、工作流统计、同步、日志、登录项和更新服务。
 - `CodexBar/Views/`: 菜单面板、设置窗口、日志窗口和共享 Liquid Glass 样式。
 - `CodexBar/Resources/`: Info.plist、entitlements、图标和 asset catalog。
+- `Shared/`: 主 App 与 root helper XPC 契约。
+- `CodexBarHelper/`: 防休眠 root helper 入口和 LaunchDaemon plist。
 - `Docs/`: app-server、Codex Hook、跨设备同步和开发文档。
 - `Scripts/`: Release 构建、公证、DMG 和 Sparkle appcast 发布脚本。
 
@@ -73,7 +76,7 @@ Scripts/appcast.sh
 
 `Scripts/build.sh` 默认执行 Release archive、导出 Developer ID app、公证、staple 和 Gatekeeper 校验。没有发布凭据或不需要完整发布流程时，不要把它当作普通本地验证命令。
 
-当前没有自动化测试套件。修改后至少跑一次 `xcodebuild ... build`；如果改动涉及菜单面板、窗口焦点、Hook 或同步逻辑，需要手动说明还应覆盖的交互场景。
+当前没有自动化测试套件。修改后至少跑一次 `xcodebuild ... build`；如果改动涉及菜单面板、窗口焦点、Hook、同步或防休眠逻辑，需要手动说明还应覆盖的交互场景。防休眠还应检查 App 包内 helper/plist 位置、签名、首次系统授权、运行/等待切换和异常退出后的恢复。
 
 ## Swift 与并发约定
 

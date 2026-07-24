@@ -20,7 +20,7 @@
 - `sessionIds` 和 `turnIds`
 - CodexBar 设置项、快捷键、日志窗口内容
 
-同步目标是当前 macOS 登录的 iCloud 账号的 CloudKit private database。数据不会跨 iCloud 账号迁移或合并；切换 iCloud 账号后会进入另一个 private database。
+同步目标是当前 macOS 登录的 iCloud 账号在 `iCloud.app.zabrian.codexbar` 容器中的 CloudKit private database。代码显式使用该容器标识，不通过 App bundle identifier 推导默认容器，因此独立 bundle identifier 的 Debug 构建不会误连到不存在的 `iCloud.app.zabrian.codexbar.debug`。数据不会跨 iCloud 账号迁移或合并；切换 iCloud 账号后会进入另一个 private database。
 
 ## 代码入口
 
@@ -86,7 +86,7 @@ Sync/cursor.data
 
 ## CloudKit 数据结构
 
-CloudKit 使用默认 container 的 private database。CodexBar 自己创建和维护的记录都保存在 custom zone `CodexBarZone`；不会向 CloudKit `_defaultZone` 写入同步数据。
+CloudKit 使用显式标识为 `iCloud.app.zabrian.codexbar` 的 container private database。CodexBar 自己创建和维护的记录都保存在 custom zone `CodexBarZone`；不会向 CloudKit `_defaultZone` 写入同步数据。
 
 账号级 metadata 记录保存在 custom zone `CodexBarZone`:
 
@@ -166,7 +166,7 @@ deviceId = HMAC_SHA256(accountSalt, IOPlatformUUID)
 ```text
 Codex Hook 已开启
 Codex Hook 当前没有正在更新
-CKContainer.default().accountStatus == .available
+WorkflowSyncCloudKit.makeContainer().accountStatus == .available
 ```
 
 UI 状态:

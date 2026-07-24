@@ -13,6 +13,7 @@ final class SettingsWindowController: HostingWindowController {
     private let menuBarQuotaSettings: MenuBarQuotaSettings
     private let mainPanelSettings: MainPanelSettings
     private let notificationSettings: NotificationSettings
+    private let keepAliveController: KeepAliveController
     private let onSyncChanged: (Bool) -> Void
     private let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
     private lazy var notificationOptionsPanelController = NotificationOptionsPanelController(
@@ -31,6 +32,7 @@ final class SettingsWindowController: HostingWindowController {
         menuBarQuotaSettings: MenuBarQuotaSettings,
         mainPanelSettings: MainPanelSettings,
         notificationSettings: NotificationSettings,
+        keepAliveController: KeepAliveController,
         screenProvider: @escaping () -> NSScreen?,
         onSyncChanged: @escaping (Bool) -> Void,
         onRebuildWorkflowData: @escaping WorkflowSyncScheduler.RebuildHandler
@@ -44,6 +46,7 @@ final class SettingsWindowController: HostingWindowController {
         self.menuBarQuotaSettings = menuBarQuotaSettings
         self.mainPanelSettings = mainPanelSettings
         self.notificationSettings = notificationSettings
+        self.keepAliveController = keepAliveController
         self.onSyncChanged = onSyncChanged
         self.onRebuildWorkflowData = onRebuildWorkflowData
         super.init(screenProvider: screenProvider)
@@ -64,6 +67,7 @@ final class SettingsWindowController: HostingWindowController {
                 menuBarQuotaSettings: menuBarQuotaSettings,
                 mainPanelSettings: mainPanelSettings,
                 notificationSettings: notificationSettings,
+                keepAliveController: keepAliveController,
                 onSyncChanged: onSyncChanged,
                 onRebuildWorkflowData: onRebuildWorkflowData,
                 onNotificationOptionsAction: { [weak self] action in
@@ -103,6 +107,7 @@ final class SettingsWindowController: HostingWindowController {
         syncSettings.refresh()
         menuBarQuotaSettings.refresh()
         mainPanelSettings.refresh()
+        keepAliveController.refresh()
     }
 
     private func handleNotificationOptionsAction(_ action: NotificationOptionsPanelAction) {
