@@ -466,7 +466,7 @@ private extension AppSettingsView {
             return KeepAliveCaption(message: "需要启用 CodexBar Hook")
         }
         guard keepAliveController.isEnabled else {
-            return KeepAliveCaption(message: "当有 Codex 任务运行时禁止系统休眠, 任务结束后自动恢复")
+            return KeepAliveCaption(message: "当有 Codex 任务运行时阻止系统休眠, 任务结束后自动恢复")
         }
 
         switch keepAliveController.helperStatus {
@@ -480,14 +480,14 @@ private extension AppSettingsView {
         case .enabled:
             if keepAliveController.hasReachedMaximumDuration {
                 let action = keepAliveController.isPreventingSleep
-                    ? "正在恢复系统休眠"
+                    ? "正恢复系统休眠"
                     : "已允许系统休眠"
                 return KeepAliveCaption(
-                    message: "已达到禁用休眠上限 (\(keepAliveController.maximumDuration.title)); \(action)"
+                    message: "已达到阻止休眠上限 (\(keepAliveController.maximumDuration.title)); \(action)"
                 )
             }
             if keepAliveController.isPreventingSleep {
-                return KeepAliveCaption(message: "当前禁止系统休眠")
+                return KeepAliveCaption(message: "当前阻止系统休眠")
             }
             return KeepAliveCaption(message: "当前允许系统休眠")
         }
