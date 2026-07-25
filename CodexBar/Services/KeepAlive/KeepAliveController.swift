@@ -12,7 +12,17 @@ final class KeepAliveController: ObservableObject {
     @Published private(set) var helperStatus = HelperStatus.notRegistered
     @Published private(set) var isPreventingSleep = false
     @Published private(set) var hasReachedMaximumDuration = false
-    @Published private(set) var errorMessage: String?
+
+    /// helper 安装与注册状态的错误, 注册恢复正常时才清除
+    @Published private var registrationErrorMessage: String?
+    /// 切换休眠状态过程中的错误, 只能由下一次操作结果或用户动作覆盖
+    /// 与注册类错误分开存储: refreshHelperStatus 每次 App 激活都会跑, 不能抹掉操作结果
+    @Published private var operationErrorMessage: String?
+
+    /// 注册不成功时操作类错误只是下游噪音, 优先展示注册问题
+    var errorMessage: String? {
+        registrationErrorMessage ?? operationErrorMessage
+    }
 
     private let activityMonitor: CodexActivityMonitor
     private let codexHookSettings: CodexHookSettings
@@ -28,6 +38,7 @@ final class KeepAliveController: ObservableObject {
     private var requestInFlight = false
     private var requestGeneration: UInt64 = 0
     private var retryTask: Task<Void, Never>?
+    private var retryAttempt = 0
     private var maximumDurationTask: Task<Void, Never>?
     private var maximumDurationStartedAt: Date?
     private var helperRegistrationTask: Task<Void, Never>?
@@ -54,13 +65,12 @@ final class KeepAliveController: ObservableObject {
         }
         isStarted = true
 
+        // Hook 是本功能的依赖, 不是用户意图
+        // 只重新求值当前该不该阻止休眠, 绝不改写用户保存的开关
         codexHookSettings.$isEnabled
             .removeDuplicates()
-            .sink { [weak self] isHookEnabled in
-                guard !isHookEnabled else {
-                    return
-                }
-                self?.setEnabled(false)
+            .sink { [weak self] _ in
+                self?.reconcileSleepState()
             }
             .store(in: &cancellables)
 
@@ -120,7 +130,8 @@ final class KeepAliveController: ObservableObject {
 
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
-        errorMessage = nil
+        registrationErrorMessage = nil
+        operationErrorMessage = nil
 
         if enabled {
             ensureHelperRegistration(opensSystemSettings: true)
@@ -205,7 +216,7 @@ final class KeepAliveController: ObservableObject {
             return
         case .notRegistered, .notFound:
             guard Self.helperAssetsArePresent else {
-                errorMessage = "服务异常, 请重新安装 CodexBar"
+                registrationErrorMessage = "服务异常, 请重新安装 CodexBar"
                 return
             }
         }
@@ -215,7 +226,7 @@ final class KeepAliveController: ObservableObject {
         } catch {
             refreshHelperStatus()
             if !helperStatus.isRegisteredOrAwaitingApproval {
-                errorMessage = "注册服务失败: \(error.localizedDescription)"
+                registrationErrorMessage = "注册服务失败: \(error.localizedDescription)"
             }
         }
 
@@ -235,7 +246,9 @@ final class KeepAliveController: ObservableObject {
         isRefreshingHelper = true
         cancelRetryTask()
         invalidateConnection()
-        errorMessage = nil
+        // 连接已失效, 重试也取消了, 之前的操作类错误已经过期
+        registrationErrorMessage = nil
+        operationErrorMessage = nil
 
         let service = Self.helperService
         helperRegistrationTask = Task { @MainActor [weak self] in
@@ -263,7 +276,7 @@ final class KeepAliveController: ObservableObject {
             if helperStatus.isRegisteredOrAwaitingApproval {
                 recordHelperRegistrationIfCurrent()
             } else if let registrationError {
-                errorMessage = "更新服务失败: \(registrationError.localizedDescription)"
+                registrationErrorMessage = "更新服务失败: \(registrationError.localizedDescription)"
             }
 
             isRefreshingHelper = false
@@ -302,7 +315,9 @@ final class KeepAliveController: ObservableObject {
     private func refreshHelperStatus() {
         helperStatus = HelperStatus(Self.helperService.status)
         if helperStatus == .enabled {
-            errorMessage = nil
+            // 注册已正常, 只撤回注册类抱怨
+            // 操作类结果 (例如重试耗尽) 必须留到下一次操作有结论为止
+            registrationErrorMessage = nil
         } else if helperStatus != .requiresApproval {
             _ = systemSleepService.endPreventingIdleSleep()
             isPreventingSleep = false
@@ -337,7 +352,7 @@ final class KeepAliveController: ObservableObject {
         if disabled {
             let result = systemSleepService.beginPreventingIdleSleep()
             guard result == kIOReturnSuccess else {
-                errorMessage = "阻止空闲休眠失败 (\(result))"
+                operationErrorMessage = "阻止空闲休眠失败 (\(result))"
                 scheduleRetryIfNeeded(for: true)
                 return
             }
@@ -374,14 +389,14 @@ final class KeepAliveController: ObservableObject {
                         _ = self.systemSleepService.endPreventingIdleSleep()
                     }
                     self.invalidateConnection()
-                    self.errorMessage = "切换休眠状态失败 (\(exitCode))"
+                    self.operationErrorMessage = "切换休眠状态失败 (\(exitCode))"
                     self.scheduleRetryIfNeeded(for: disabled)
                     return
                 }
 
                 self.cancelRetryTask()
                 self.isPreventingSleep = disabled
-                self.errorMessage = nil
+                self.operationErrorMessage = nil
                 if disabled {
                     self.beginMaximumDurationCountdownIfNeeded()
                 } else {
@@ -444,7 +459,7 @@ final class KeepAliveController: ObservableObject {
     private func finishSleepRestore(sleepDisabledAfterOperation: Bool) {
         let idleSleepResult = systemSleepService.endPreventingIdleSleep()
         if idleSleepResult != kIOReturnSuccess {
-            errorMessage = "恢复空闲休眠策略失败 (\(idleSleepResult))"
+            operationErrorMessage = "恢复空闲休眠策略失败 (\(idleSleepResult))"
         }
 
         let shouldRequestSystemSleep = !sleepDisabledAfterOperation
@@ -456,7 +471,7 @@ final class KeepAliveController: ObservableObject {
 
         let result = SystemSleepService.requestSystemSleep()
         if result != kIOReturnSuccess {
-            errorMessage = "请求系统休眠失败 (\(result))"
+            operationErrorMessage = "请求系统休眠失败 (\(result))"
         }
     }
 
@@ -513,7 +528,7 @@ final class KeepAliveController: ObservableObject {
         let shouldRetry = requestInFlight || isPreventingSleep
         let desiredSleepDisabled = shouldDisableSleep
         invalidateConnection()
-        errorMessage = "连接服务失败: \(error.localizedDescription)"
+        operationErrorMessage = "连接服务失败: \(error.localizedDescription)"
         if shouldRetry {
             scheduleRetryIfNeeded(for: desiredSleepDisabled)
         }
@@ -534,6 +549,8 @@ final class KeepAliveController: ObservableObject {
     private func cancelRetryTask() {
         retryTask?.cancel()
         retryTask = nil
+        // 成功或任务结束都会走到这里, 重试预算随之重置
+        retryAttempt = 0
     }
 
     private func cancelHelperRegistrationTask() {
@@ -550,8 +567,18 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
+        // 每次重试都会重建特权连接并以 root 拉起 pmset
+        // 固定 2 秒无上限重试会让持续失败的 helper 变成无限循环
+        guard retryAttempt < Self.sleepToggleRetryDelays.count else {
+            operationErrorMessage = "阻止休眠多次失败, 已停止重试"
+            return
+        }
+
+        let delay = Self.sleepToggleRetryDelays[retryAttempt]
+        retryAttempt += 1
+
         retryTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(2))
+            try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self else {
                 return
             }
@@ -565,9 +592,12 @@ final class KeepAliveController: ObservableObject {
         }
     }
 
+    /// 用户意图 (isEnabled) 与依赖可用性在这里汇合
+    /// 依赖不满足只让效果失效, 不回写 isEnabled
     private var shouldDisableSleep: Bool {
         isStarted
             && isEnabled
+            && codexHookSettings.isEnabled
             && hasRunningTasks
             && helperStatus == .enabled
             && !isRefreshingHelper
@@ -584,6 +614,19 @@ final class KeepAliveController: ObservableObject {
         .seconds(2)
     ]
     private static let operationNotPermittedErrorCode = 1
+
+    /// 切换休眠状态失败后的重试节奏, 逐次翻倍
+    /// 列表耗尽 (累计约 8.5 分钟) 即放弃: 瞬时抖动能自愈, 权限类故障不会无限重试
+    private static let sleepToggleRetryDelays: [Duration] = [
+        .seconds(2),
+        .seconds(4),
+        .seconds(8),
+        .seconds(16),
+        .seconds(32),
+        .seconds(64),
+        .seconds(128),
+        .seconds(256)
+    ]
 
     private static var helperService: SMAppService {
         SMAppService.daemon(plistName: CodexBarHelperIPC.daemonPlistName)

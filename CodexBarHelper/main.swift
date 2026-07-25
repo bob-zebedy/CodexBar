@@ -32,6 +32,14 @@ private struct SleepRestoreResult {
     let restoredSleepDisabled: Bool
 }
 
+/// 哨兵必须区分三态: 「不存在」和「读不出来」的处理方式完全相反
+/// 把读取失败折叠成 nil 会让恢复流程认为无需恢复, 使 SleepDisabled=1 永久残留
+private enum SentinelState {
+    case absent
+    case present(previouslyDisabled: Bool)
+    case unreadable(Error)
+}
+
 private enum SleepRestoreTrigger: String {
     case appRequest = "CodexBar 主动请求"
     case connectionWatchdog = "CodexBar 连接断开"
@@ -119,7 +127,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
             exit(EXIT_FAILURE)
         }
 
-        if sentinelPreviousState() != nil {
+        if sentinelNeedsRestore() {
             _ = restoreSleep(trigger: .helperStartup)
         }
 
@@ -186,7 +194,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         queue.async { [self] in
             guard connections.remove(identifier) != nil,
                   connections.isEmpty,
-                  sentinelPreviousState() != nil else {
+                  sentinelNeedsRestore() else {
                 return
             }
 
@@ -196,7 +204,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
                     return
                 }
                 watchdog = nil
-                guard connections.isEmpty, sentinelPreviousState() != nil else {
+                guard connections.isEmpty, sentinelNeedsRestore() else {
                     return
                 }
                 _ = restoreSleep(trigger: .connectionWatchdog)
@@ -211,7 +219,18 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
 
     private func disableSleep() -> Int32 {
         var didCreateSentinel = false
-        if sentinelPreviousState() == nil {
+        switch sentinelState() {
+        case .present:
+            break
+        case let .unreadable(error):
+            // 不能用当前的 SleepDisabled 覆写损坏的记录: 当前值可能正是我们自己禁用的结果
+            // 那会把「原本允许休眠」错记成「原本已禁用」, 让后续恢复永久跳过
+            let sentinelPath = sentinelURL.path
+            helperLog.error(
+                "休眠记录损坏, 拒绝覆写: path=\(sentinelPath, privacy: .public), detail=\(error.localizedDescription, privacy: .public)"
+            )
+            return -1
+        case .absent:
             let current = PmsetRunner.currentSleepDisabled()
             guard current.result.exitCode == 0, let wasDisabled = current.value else {
                 helperLog.error(
@@ -249,8 +268,19 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
 
     @discardableResult
     private func restoreSleep(trigger: SleepRestoreTrigger) -> SleepRestoreResult {
-        guard let previouslyDisabled = sentinelPreviousState() else {
+        let previouslyDisabled: Bool
+        switch sentinelState() {
+        case .absent:
             return SleepRestoreResult(exitCode: 0, restoredSleepDisabled: true)
+        case let .present(value):
+            previouslyDisabled = value
+        case let .unreadable(error):
+            // 读不出原值时按系统默认的「允许休眠」恢复
+            // 宁可多恢复一次(pmset 幂等), 也不能把 SleepDisabled=1 永久留给用户
+            helperLog.error(
+                "读取休眠记录失败, 按允许休眠恢复: reason=\(trigger.rawValue, privacy: .public), detail=\(error.localizedDescription, privacy: .public)"
+            )
+            previouslyDisabled = false
         }
 
         let previousValue = previouslyDisabled ? 1 : 0
@@ -286,7 +316,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
             guard let self,
                   connections.isEmpty,
                   watchdog == nil,
-                  sentinelPreviousState() != nil else {
+                  sentinelNeedsRestore() else {
                 return
             }
             _ = restoreSleep(trigger: .sentinelCheck)
@@ -364,8 +394,25 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         }
     }
 
-    private func sentinelPreviousState() -> Bool? {
-        try? readSentinelPreviousState()
+    private func sentinelState() -> SentinelState {
+        do {
+            guard let previouslyDisabled = try readSentinelPreviousState() else {
+                return .absent
+            }
+            return .present(previouslyDisabled: previouslyDisabled)
+        } catch {
+            return .unreadable(error)
+        }
+    }
+
+    /// 读取失败也必须进入恢复流程: 记录损坏时无法排除「休眠正被我们禁用着」
+    private func sentinelNeedsRestore() -> Bool {
+        switch sentinelState() {
+        case .absent:
+            false
+        case .present, .unreadable:
+            true
+        }
     }
 
     private func readSentinelPreviousState() throws -> Bool? {

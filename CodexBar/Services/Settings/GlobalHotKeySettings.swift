@@ -40,7 +40,9 @@ final class GlobalHotKeySettings: ObservableObject {
         errorMessage = message
     }
 
-    func restoreShortcut(_ shortcut: GlobalHotKeyShortcut?, message: String) {
+    /// 参数不可为空: 传 nil 会经 saveShortcut 清空用户保存的配置
+    /// 没有可回退的快捷键时应改用 setRegistrationError
+    func restoreShortcut(_ shortcut: GlobalHotKeyShortcut, message: String) {
         self.shortcut = shortcut
         saveShortcut(shortcut)
         errorMessage = message

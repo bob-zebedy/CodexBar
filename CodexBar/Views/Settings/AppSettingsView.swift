@@ -666,21 +666,58 @@ private extension AppSettingsView {
 
             switch result {
             case let .success(summary):
-                var message = "共处理 \(summary.rebuiltDateCount) 天, 包含 \(summary.eventCount) 条数据"
-                if summary.corruptLineCount > 0 {
-                    message += ", 跳过 \(summary.corruptLineCount) 条无效数据"
-                }
-                if summary.isSyncReplacementPending {
-                    message += "; 云端替换将在同步可用后继续"
-                }
-                rebuildStatus = RebuildStatus(message: message, isError: false)
+                rebuildStatus = RebuildStatus(
+                    message: Self.rebuildSuccessMessage(
+                        for: summary,
+                        autoRetryAvailable: codexHookSettings.isEnabled
+                    ),
+                    isError: false
+                )
             case let .failure(error):
+                // 请求被后续请求顶替时工作本身并没有失败, 不该报错
+                guard !(error is CancellationError) else {
+                    clearRebuildStatus()
+                    return
+                }
+
                 rebuildStatus = RebuildStatus(
                     message: "重建失败: \(error.localizedDescription)",
                     isError: true
                 )
             }
         }
+    }
+
+    static let rebuildFailedDateListLimit = 3
+
+    /// 未完成的日期只列前几个, 避免长范围重建时提示挤满整行
+    /// autoRetryAvailable: 常规维护只在 Hook 开启时运行, 关闭时不能承诺自动重试
+    static func rebuildSuccessMessage(
+        for summary: WorkflowDataRebuildSummary,
+        autoRetryAvailable: Bool
+    ) -> String {
+        var message = "已重建 \(summary.rebuiltDateCount) 天, 包含 \(summary.eventCount) 条数据"
+        if summary.corruptLineCount > 0 {
+            message += ", 跳过 \(summary.corruptLineCount) 条无效数据"
+        }
+
+        if !summary.failedDateKeys.isEmpty {
+            let listed = summary.failedDateKeys.prefix(rebuildFailedDateListLimit)
+            var dates = listed.joined(separator: ", ")
+            if summary.failedDateKeys.count > listed.count {
+                dates += " 等"
+            }
+            message += "; \(summary.failedDateKeys.count) 天未完成 (\(dates))"
+            message += autoRetryAvailable ? ", 稍后会自动重试" : ", 开启 CodexBar Hook 后会自动重试"
+        }
+
+        if summary.didFailSyncReplacementMarking {
+            message += "; 云端替换未能登记, 请稍后重新重建这些日期"
+        } else if summary.isSyncReplacementPending {
+            message += "; 云端替换将在同步可用后继续"
+        }
+
+        return message
     }
 
     func clearRebuildStatus() {
@@ -1166,9 +1203,7 @@ private struct RebuildDateRange: Equatable {
             return 0
         }
 
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .autoupdatingCurrent
-        guard let dayDifference = calendar.dateComponents(
+        guard let dayDifference = CodexDateFormat.localGregorianCalendar.dateComponents(
             [.day],
             from: startDate,
             to: endDate

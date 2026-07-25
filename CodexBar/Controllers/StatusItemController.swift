@@ -688,7 +688,14 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         let message = hotKeyConflictMessage(for: shortcut)
-        globalHotKeySettings.restoreShortcut(registeredHotKeyShortcut, message: message)
+        guard let previousShortcut = registeredHotKeyShortcut else {
+            // 启动阶段冲突时还没有成功注册过任何快捷键
+            // 此时 restoreShortcut(nil) 会清空用户保存的配置, 只能提示冲突
+            globalHotKeySettings.setRegistrationError(message)
+            return
+        }
+
+        globalHotKeySettings.restoreShortcut(previousShortcut, message: message)
     }
 
     private func hotKeyConflictMessage(for shortcut: GlobalHotKeyShortcut) -> String {

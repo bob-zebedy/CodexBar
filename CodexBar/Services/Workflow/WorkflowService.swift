@@ -67,16 +67,36 @@ actor WorkflowService {
             throw WorkflowDataRebuildError.sourceUnavailable
         }
 
+        // 单日失败不中止整批: 失败的日期已被 rebuildLocalData 标脏, 常规维护会自动重建
+        // 中止会让「前几天已改写、后几天没碰」这个事实完全不被上报
         var rebuildResults = [WorkflowMaintenanceResult]()
-        do {
-            for dateKey in normalizedDateKeys {
+        var failedDateKeys = [String]()
+        var firstFailure: Error?
+        for dateKey in normalizedDateKeys {
+            do {
                 try rebuildResults.append(rebuildLocalData(for: dateKey))
+            } catch {
+                failedDateKeys.append(dateKey)
+                if firstFailure == nil {
+                    firstFailure = error
+                }
             }
-        } catch {
-            try? await syncService.markReplacementNeeded(for: rebuildResults.map(\.dateKey))
-            throw error
         }
-        try await syncService.markReplacementNeeded(for: normalizedDateKeys)
+
+        // 成功与失败的日期都要登记: 失败的日期稍后会被自动重建并推进 sourceGeneration,
+        // 届时会上传到新的 record ID, 不清理旧记录会在云端留下同日重复的贡献
+        // 全部失败时同样要登记, 它们一样已被标脏
+        var didFailReplacementMarking = false
+        do {
+            try await syncService.markReplacementNeeded(for: normalizedDateKeys)
+        } catch {
+            didFailReplacementMarking = true
+        }
+
+        // 一天都没成功才算整体失败, 并保留首个真实原因而非笼统报「数据发生变化」
+        guard !rebuildResults.isEmpty else {
+            throw firstFailure ?? WorkflowDataRebuildError.sourceUnavailable
+        }
 
         let snapshot = await makeSnapshot(
             localAggregates: loadDailyAggregates() ?? [],
@@ -86,7 +106,9 @@ actor WorkflowService {
             rebuiltDateCount: rebuildResults.count,
             eventCount: rebuildResults.reduce(0) { $0 + $1.aggregate.eventCount },
             corruptLineCount: rebuildResults.reduce(0) { $0 + $1.corrupt },
-            isSyncReplacementPending: syncService.hasPendingReplacement(for: normalizedDateKeys)
+            isSyncReplacementPending: syncService.hasPendingReplacement(for: normalizedDateKeys),
+            failedDateKeys: failedDateKeys,
+            didFailSyncReplacementMarking: didFailReplacementMarking
         )
         return WorkflowDataRebuildOutcome(snapshot: snapshot, summary: summary)
     }
@@ -277,13 +299,16 @@ actor WorkflowService {
             }
 
             let identifierChanged = day.fileIdentifier != nil
-                && stat.identifier != nil
                 && day.fileIdentifier != stat.identifier
-            let boundaryChanged = day.boundaryHash.map {
-                (try? eventLogBoundaryHash(for: dateKey, endingAt: day.offset)) != $0
-            } ?? false
+            let boundary = boundaryStatus(dateKey: dateKey, day: day, stat: stat)
+            if let verifiedAt = boundary.verifiedAtNanoseconds {
+                changed = state.recordBoundaryVerification(
+                    for: dateKey,
+                    at: verifiedAt
+                ) || changed
+            }
 
-            if identifierChanged || stat.size < day.offset || boundaryChanged {
+            if identifierChanged || stat.size < day.offset || boundary.isChanged {
                 state.startNewSourceGeneration(
                     for: dateKey,
                     isFresh: stat.size == 0,
@@ -302,6 +327,35 @@ actor WorkflowService {
         }
 
         return changed
+    }
+
+    /// boundaryHash 覆盖的是 [offset-4KB, offset), 而追加只写在 offset 之后,
+    /// 所以文件没被写过时那段字节不可能变化, 无需重算哈希.
+    /// 保留期内可能有上百个历史文件, 每轮全量重算会显著拉长持锁时间,
+    /// 而 Hook 子进程要等这把锁才能记录事件.
+    /// 返回边界是否变化, 以及重算确认无变化时应记下的 mtime (无需记录时为 nil)
+    private func boundaryStatus(
+        dateKey: String,
+        day: WorkflowDayMaintenanceState,
+        stat: WorkflowFileStat
+    ) -> (isChanged: Bool, verifiedAtNanoseconds: Int64?) {
+        guard let recordedHash = day.boundaryHash else {
+            return (false, nil)
+        }
+
+        // mtime 是主判据: 任何写入都会推进它, identifier 与 size 作为附加保险
+        if day.boundaryVerifiedAtNanoseconds == stat.modifiedAtNanoseconds,
+           day.fileIdentifier == stat.identifier,
+           day.size == stat.size {
+            return (false, nil)
+        }
+
+        guard (try? eventLogBoundaryHash(for: dateKey, endingAt: day.offset)) == recordedHash else {
+            return (true, nil)
+        }
+
+        // 记下本次校验时的 mtime, 文件保持不动的话下一轮即可跳过
+        return (false, stat.modifiedAtNanoseconds)
     }
 
     private func makeMaintenanceTasks(
@@ -568,7 +622,6 @@ actor WorkflowService {
 
         let stat = WorkflowStorage.fileStat(at: eventLogURL(for: result.dateKey))
         let identifierMatches = result.fileIdentifier == nil
-            || stat?.identifier == nil
             || result.fileIdentifier == stat?.identifier
         let boundaryMatches = (try? eventLogBoundaryHash(
             for: result.dateKey,
@@ -771,33 +824,68 @@ nonisolated enum WorkflowStorage {
             .appendingPathComponent("HookEvents", isDirectory: true)
     }
 
-    static func withExclusiveLock<T>(_ work: () throws -> T) throws -> T {
+    /// waitLimitSeconds 为 nil 时无限等待, 供不在 Codex 关键路径上的主 App 使用
+    static func withExclusiveLock<T>(
+        waitLimitSeconds: Double? = nil,
+        _ work: () throws -> T
+    ) throws -> T {
         try FileManager.default.createDirectory(
             at: directoryURL(),
             withIntermediateDirectories: true
         )
 
-        let lockURL = lockURL()
-        if !FileManager.default.fileExists(atPath: lockURL.path) {
-            FileManager.default.createFile(atPath: lockURL.path, contents: nil)
+        // 创建与打开必须是同一次调用: 分开做时两个进程可能各自创建,
+        // 后创建的会 unlink 掉前者正在锁的 inode, 于是双方都以为自己独占
+        let fileDescriptor = open(lockURL().path, O_RDWR | O_CREAT, 0o644)
+        guard fileDescriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
-
-        let lockHandle = try FileHandle(forUpdating: lockURL)
         defer {
-            try? lockHandle.close()
+            close(fileDescriptor)
         }
 
         // Hook 子进程和主 App 可能同时写统计文件, 必须使用进程级排他锁
-        if flock(lockHandle.fileDescriptor, LOCK_EX) != 0 {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
+        try acquireExclusiveLock(fileDescriptor, waitLimitSeconds: waitLimitSeconds)
 
         defer {
-            flock(lockHandle.fileDescriptor, LOCK_UN)
+            flock(fileDescriptor, LOCK_UN)
         }
 
         return try work()
     }
+
+    /// 有等待上限时改用非阻塞重试: Hook 子进程不能无限期占着 Codex 的一轮
+    private static func acquireExclusiveLock(
+        _ fileDescriptor: Int32,
+        waitLimitSeconds: Double?
+    ) throws {
+        guard let waitLimitSeconds else {
+            guard flock(fileDescriptor, LOCK_EX) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            return
+        }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(waitLimitSeconds))
+        var retryInterval = lockMinimumRetryIntervalMicroseconds
+        while flock(fileDescriptor, LOCK_EX | LOCK_NB) != 0 {
+            let lockErrno = errno
+            guard lockErrno == EWOULDBLOCK else {
+                throw POSIXError(POSIXErrorCode(rawValue: lockErrno) ?? .EIO)
+            }
+            guard clock.now < deadline else {
+                throw POSIXError(.ETIMEDOUT)
+            }
+            usleep(retryInterval)
+            retryInterval = min(retryInterval * 2, lockMaximumRetryIntervalMicroseconds)
+        }
+    }
+
+    /// 轮询间隔从 1ms 起翻倍: 维护流程每次持锁都只有几毫秒,
+    /// 固定长间隔会让 Hook 子进程为一次已经释放的锁白等一整个间隔
+    private static let lockMinimumRetryIntervalMicroseconds: UInt32 = 1000
+    private static let lockMaximumRetryIntervalMicroseconds: UInt32 = 20000
 
     static func loadMaintenanceState() -> WorkflowMaintenanceState {
         let url = maintenanceURL()
@@ -824,14 +912,20 @@ nonisolated enum WorkflowStorage {
     }
 
     /// 单次 stat 同时返回大小与 inode 标识, 文件缺失或不可读时为 nil
-    static func fileStat(at url: URL) -> (size: UInt64, identifier: UInt64?)? {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+    /// 维护流程每轮要 stat 上百个事件文件, 用裸 stat(2) 而非 attributesOfItem 避免逐个构造属性字典
+    /// mtime 记整数纳秒: 落盘状态用 JSON 编码, Date 会退化成浮点而无法精确比较
+    /// 沿用 attributesOfItem 的语义跟随符号链接, 因此用 stat 而非 lstat
+    static func fileStat(at url: URL) -> WorkflowFileStat? {
+        var info = Darwin.stat()
+        guard stat(url.path, &info) == 0 else {
             return nil
         }
 
-        return (
-            size: (attributes[.size] as? NSNumber)?.uint64Value ?? 0,
-            identifier: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+        return WorkflowFileStat(
+            size: UInt64(clamping: info.st_size),
+            identifier: UInt64(info.st_ino),
+            modifiedAtNanoseconds: Int64(info.st_mtimespec.tv_sec) * 1000000000
+                + Int64(info.st_mtimespec.tv_nsec)
         )
     }
 
@@ -892,6 +986,13 @@ nonisolated enum WorkflowStorage {
 }
 
 /// 记录单日事件文件已处理到的 offset, 支持后续增量维护
+/// stat(2) 里维护流程需要的三个字段
+nonisolated struct WorkflowFileStat {
+    let size: UInt64
+    let identifier: UInt64
+    let modifiedAtNanoseconds: Int64
+}
+
 nonisolated struct WorkflowDayMaintenanceState: Codable, Equatable {
     var offset: UInt64
     var size: UInt64
@@ -900,6 +1001,8 @@ nonisolated struct WorkflowDayMaintenanceState: Codable, Equatable {
     var sourceIsFresh: Bool
     var fileIdentifier: UInt64?
     var boundaryHash: String?
+    /// 上次校验 boundaryHash 时文件的 mtime; 未变即可跳过重算
+    var boundaryVerifiedAtNanoseconds: Int64?
 
     init(
         offset: UInt64 = 0,
@@ -908,7 +1011,8 @@ nonisolated struct WorkflowDayMaintenanceState: Codable, Equatable {
         sourceGeneration: String? = nil,
         sourceIsFresh: Bool = false,
         fileIdentifier: UInt64? = nil,
-        boundaryHash: String? = nil
+        boundaryHash: String? = nil,
+        boundaryVerifiedAtNanoseconds: Int64? = nil
     ) {
         self.offset = offset
         self.size = size
@@ -917,6 +1021,7 @@ nonisolated struct WorkflowDayMaintenanceState: Codable, Equatable {
         self.sourceIsFresh = sourceIsFresh
         self.fileIdentifier = fileIdentifier
         self.boundaryHash = boundaryHash
+        self.boundaryVerifiedAtNanoseconds = boundaryVerifiedAtNanoseconds
     }
 
     init(from decoder: Decoder) throws {
@@ -928,6 +1033,10 @@ nonisolated struct WorkflowDayMaintenanceState: Codable, Equatable {
         sourceIsFresh = try container.decodeIfPresent(Bool.self, forKey: .sourceIsFresh) ?? false
         fileIdentifier = try container.decodeIfPresent(UInt64.self, forKey: .fileIdentifier)
         boundaryHash = try container.decodeIfPresent(String.self, forKey: .boundaryHash)
+        boundaryVerifiedAtNanoseconds = try container.decodeIfPresent(
+            Int64.self,
+            forKey: .boundaryVerifiedAtNanoseconds
+        )
     }
 }
 
@@ -1030,6 +1139,18 @@ nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
         return changed
     }
 
+    /// 记下 boundaryHash 重算通过时文件的 mtime, 供下一轮跳过重算
+    @discardableResult
+    mutating func recordBoundaryVerification(for dateKey: String, at nanoseconds: Int64) -> Bool {
+        guard var day = days[dateKey], day.boundaryVerifiedAtNanoseconds != nanoseconds else {
+            return false
+        }
+
+        day.boundaryVerifiedAtNanoseconds = nanoseconds
+        days[dateKey] = day
+        return true
+    }
+
     mutating func startNewSourceGeneration(
         for dateKey: String,
         isFresh: Bool,
@@ -1108,6 +1229,9 @@ nonisolated struct WorkflowDataRebuildSummary: Equatable, Sendable {
     let eventCount: Int
     let corruptLineCount: Int
     let isSyncReplacementPending: Bool
+    /// 未完成的日期, 已标脏并会由常规维护自动重建
+    let failedDateKeys: [String]
+    let didFailSyncReplacementMarking: Bool
 }
 
 private nonisolated struct WorkflowDataRebuildOutcome {

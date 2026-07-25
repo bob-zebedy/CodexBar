@@ -226,7 +226,9 @@ actor CodexSessionLifecycleReader {
     }
 
     private func sessionDirectory(for date: Date) -> URL {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        // Codex 的 sessions 目录名是公历, 必须固定公历日历
+        let components = CodexDateFormat.localGregorianCalendar
+            .dateComponents([.year, .month, .day], from: date)
         return sessionsRootURL
             .appendingPathComponent(String(format: "%04d", components.year ?? 0), isDirectory: true)
             .appendingPathComponent(String(format: "%02d", components.month ?? 0), isDirectory: true)

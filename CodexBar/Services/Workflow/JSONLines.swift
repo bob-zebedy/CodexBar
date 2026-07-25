@@ -4,6 +4,9 @@ import Foundation
 nonisolated enum JSONLines {
     static let newlineByte: UInt8 = 0x0A
 
+    /// RFC 8259 允许出现在值前后的空白, 用于识别只含空白的空行
+    private static let jsonWhitespaceBytes: Set<UInt8> = [0x20, 0x09, 0x0A, 0x0D]
+
     /// 落盘 JSON 统一的稳定输出配置, 保证文件可 diff 且格式一致
     /// 配置后不再修改, encode 可重入, 可跨并发域缓存共享
     static let stableEncoder: JSONEncoder = {
@@ -23,7 +26,7 @@ nonisolated enum JSONLines {
         return firstCompleteIndex < data.endIndex ? Data(data[firstCompleteIndex...]) : Data()
     }
 
-    /// 按行解码 JSONL: 切分换行, trim, 跳过空行与解码失败的行
+    /// 按行解码 JSONL: 切分换行, 跳过空行与解码失败的行
     static func decode<T: Decodable>(_ type: T.Type = T.self, from data: Data) -> [T] {
         decodeWithFailures(type, from: data).values
     }
@@ -32,28 +35,25 @@ nonisolated enum JSONLines {
         _: T.Type = T.self,
         from data: Data
     ) -> JSONLinesDecodeResult<T> {
-        guard let text = String(bytes: data, encoding: .utf8) else {
-            return JSONLinesDecodeResult(values: [], failedLineCount: data.isEmpty ? 0 : 1)
-        }
-
         let decoder = JSONDecoder()
+        var values = [T]()
         var failedLineCount = 0
 
-        let values = text
-            .split(whereSeparator: \.isNewline)
-            .compactMap { line -> T? in
-                let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedLine.isEmpty, let lineData = trimmedLine.data(using: .utf8) else {
-                    return nil
-                }
-
-                if let value = try? decoder.decode(T.self, from: lineData) {
-                    return value
-                }
-
-                failedLineCount += 1
-                return nil
+        // 逐行独立解码: 进程被杀或断电会留下截断的多字节序列
+        // 整块处理时一处损坏会连带丢掉同一次读取里的所有完好事件, 且调用方仍会推进 offset
+        // 直接把字节切片交给 JSONDecoder: 它自己跳过首尾空白并拒收非法 UTF-8,
+        // 省掉每行 String 转换 + trim + 再编码回 Data 的三次拷贝 (单次读取可达上万行)
+        for line in data.split(separator: newlineByte) {
+            guard line.contains(where: { !Self.jsonWhitespaceBytes.contains($0) }) else {
+                continue
             }
+            guard let value = try? decoder.decode(T.self, from: Data(line)) else {
+                failedLineCount += 1
+                continue
+            }
+
+            values.append(value)
+        }
 
         return JSONLinesDecodeResult(values: values, failedLineCount: failedLineCount)
     }

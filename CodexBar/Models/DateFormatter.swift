@@ -63,7 +63,9 @@ nonisolated enum CodexDateFormat {
         try? Date(string, strategy: .iso8601)
     }
 
-    private static let localGregorianCalendar: Calendar = {
+    /// 所有日期计算共用: Codex 落盘的日期键与目录名都是公历
+    /// 系统区域日历可能是和历/佛历等, 不能用 Calendar.current
+    static let localGregorianCalendar: Calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale(identifier: "en_US_POSIX")
         calendar.timeZone = .autoupdatingCurrent

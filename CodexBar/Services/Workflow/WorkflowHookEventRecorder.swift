@@ -5,6 +5,13 @@ import Foundation
 nonisolated enum WorkflowHookEventRecorder {
     static let hookArgument = "--hook-event"
 
+    /// 写进 hooks.json 的 handler 超时, 超时后 Codex 会杀掉本子进程
+    /// 定义在这里而不是 CodexHookSettings: 需要据此推算下面的等锁预算, 两者必须一起改
+    static let hookTimeoutSeconds = 5
+
+    /// 留出余量在被 Codex 杀掉之前主动收工: 被杀可能发生在写入中途并留下半截坏行
+    private static let lockWaitLimitSeconds = Double(hookTimeoutSeconds) - 2
+
     static func handleIfRequested() -> Bool {
         guard CommandLine.arguments.contains(hookArgument) else {
             return false
@@ -72,7 +79,7 @@ nonisolated enum WorkflowHookEventRecorder {
     }
 
     private static func recordWorkflowTransaction(event: WorkflowHookEvent) throws {
-        try WorkflowStorage.withExclusiveLock {
+        try WorkflowStorage.withExclusiveLock(waitLimitSeconds: lockWaitLimitSeconds) {
             let dateKey = WorkflowStorage.dateKey(for: event.timestamp)
             let eventLogURL = WorkflowStorage.eventLogURL(for: dateKey)
             var maintenanceState = WorkflowStorage.loadMaintenanceState()
@@ -82,7 +89,6 @@ nonisolated enum WorkflowHookEventRecorder {
             if let existingStat {
                 let day = maintenanceState.days[dateKey]
                 let identifierChanged = day?.fileIdentifier != nil
-                    && existingStat.identifier != nil
                     && day?.fileIdentifier != existingStat.identifier
                 let fileShrank = day.map { existingStat.size < $0.offset } ?? false
 

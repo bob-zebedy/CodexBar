@@ -362,8 +362,8 @@ actor HookEventTailReader {
     }
 
     private static func dateKeys(from start: Date, through end: Date) -> [String] {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .autoupdatingCurrent
+        // 产出的日期键要和 WorkflowStorage.dateKey 对齐, 必须固定公历
+        let calendar = CodexDateFormat.localGregorianCalendar
         var date = calendar.startOfDay(for: start)
         let endDate = calendar.startOfDay(for: end)
         var keys: [String] = []

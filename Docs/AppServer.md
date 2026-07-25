@@ -1,130 +1,110 @@
-# app-server 通信合约
+# Codex app-server
 
-本文档记录 CodexBar 与本机 Codex app-server 的连接、请求、错误处理和日志规则。`AGENTS.md` 只保留开发时必须遵守的边界，具体实现细节以本文档为准。
+CodexBar 通过本机 Codex app-server 读取账号, 额度, Token 用量和部分用户配置; 通信使用子进程标准输入输出, 每条消息占一行 JSON
 
-## 启动命令
+## Codex 解析
 
-启动命令统一是:
+CodexBar 按以下顺序选择可执行文件
 
-```bash
+1. `PATH` 中的全局 `codex`
+2. `/Applications/ChatGPT.app/Contents/Resources/codex`
+3. `/Applications/Codex.app/Contents/Resources/codex`
+
+菜单栏 App 的环境会补充 Homebrew, npm, `~/.local`, Volta 和系统命令目录; `HOME` 使用当前真实用户目录; Codex 配置目录优先取 `CODEX_HOME`, 否则使用 `~/.codex`
+
+启动命令固定为
+
+```text
 codex app-server --listen stdio://
 ```
 
-必须通过 `CodexCLIResolver.resolveAppServerCommand()` 解析:
+设置窗口会同时探测全局 Codex 和 App 内置 Codex 的版本, 并根据当前 app-server 握手结果标记实际使用来源
 
-- 优先 PATH 中的全局 `codex`。
-- 如果 PATH 中的 `codex` 等价于 APP 内置路径，当作内置 CLI，不当作全局 CLI。
-- 全局 CLI 不存在时依次检查 `/Applications/ChatGPT.app/Contents/Resources/codex` 和 `/Applications/Codex.app/Contents/Resources/codex`。
-- 两者都不存在时返回 `CodexStatusError.executableNotFound`，UI 归为「初始化失败」，日志记录具体错误。
+## 会话生命周期
 
-不要绕过 `CodexCLIResolver` 直接启动 app-server。
+新会话依次执行
 
-## 启动环境
+1. 发送 `initialize`
+2. 发送 `initialized` 通知
+3. 发送 `account/read`, 确认账号已登录
 
-启动环境由 `CodexCLIResolver.environment` 构造:
+连接在刷新之间复用, 最长保留 1 小时; 进程退出, 写入失败, 响应超时或响应无法解析时, 连接会关闭; 复用连接发生传输故障时, 本轮读取最多重建并重试一次
 
-- 保留当前环境。
-- `HOME` 必须来自 `getpwuid(getuid())` 的真实用户 home。
-- 同步设置 `USER`、`LOGNAME`。
-- 合并 Homebrew、npm global、`.local`、Volta 和系统路径。
-- 确保 `TERM` 有值。
-- 不要改回 Xcode sandbox/container 的 `HOME`，否则会读不到真实 `~/.codex/auth.json`。
+单次请求超时为 20 秒; stdout 读取器只向上层返回完整非空行, 并按响应 `id` 过滤; stderr 持续排空, 避免子进程因管道写满而阻塞
 
-## 首次连接
+关闭会话时先结束管道并请求进程退出, 必要时再强制终止
 
-首次连接流程:
+## 使用的接口
 
-```json
-{"method":"initialize","id":1,"params":{"clientInfo":{"name":"codex_bar","title":"Codex Bar","version":"<Bundle MARKETING_VERSION 或 1.0.0>"}}}
-{"method":"initialized"}
-{"method":"account/read","id":2,"params":{"refreshToken":false}}
-```
+| 方法 | 用途 |
+| --- | --- |
+| `initialize` | 建立客户端会话并读取运行版本 |
+| `initialized` | 完成初始化通知 |
+| `account/read` | 读取账号; 可请求刷新认证 |
+| `account/rateLimits/read` | 读取额度限制, 窗口和可用重置次数 |
+| `account/usage/read` | 读取 Token 摘要和每日用量 |
+| `config/read` | 读取 Hook, 信任状态和 Codex TUI 通知配置 |
+| `config/batchWrite` | 写入 Hook 信任状态和 TUI 通知配置 |
+| `hooks/list` | 验证 Codex 实际解析出的 Hook |
 
-`initialized` 是无 id 请求，不等待响应；日志中记录为空响应请求，不归为通知类型。
+`config/batchWrite` 始终设置 `reloadUserConfig: true`, 由 Codex 重新加载用户配置
 
-`initialize` 响应的 `userAgent` 首个 token 形如 `codex_bar/0.139.0 (...)`；取 `/` 后版本号作为当前运行版本。
+## 刷新与缓存
 
-## 后续读取
+UI 默认每 60 秒触发一次读取; 一次刷新按以下顺序处理
 
-同一会话后续读取:
+1. 复用连接时重新读取账号状态
+2. 读取额度
+3. 读取 Token 用量
+4. 组装菜单面板快照
 
-- `account/read` 每轮复用连接时用 `refreshToken: false` 更新账户状态。
-- `account/rateLimits/read` 读取额度, 包括可选的 `rateLimitResetCredits.availableCount`。当可用重置次数大于 0 时, 主 App 会通过 `CodexResetCreditsService` 额外读取本机 Codex OAuth token, 只读请求 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 获取各重置机会的 `expires_at`; 这条请求不走 app-server 日志, 失败时重置次数按钮仍可显示, 但侧边详情面板只展示未知过期时间。
-- `account/usage/read` 读取 `summary.lifetimeTokens`、`summary.peakDailyTokens`、`dailyUsageBuckets`。
-- `config/read` 在开启 Codex Hook 前读取有效配置，用于判断 `[features] hooks = false` 或兼容旧名 `codex_hooks = false` 是否禁用了 Hook；关闭清理时也读取 `hooks.state` 以保留其他 Hook 的信任状态。打开设置窗口或通知选项面板时还会读取 `[tui].notifications`，缺失时按 Codex 默认开启处理，布尔值 `false` 或空事件数组按关闭处理。
-- `hooks/list` 在写入 Hook 后或设置页刷新时验证 Codex 实际识别到的 Hook，检查 `command`、`eventName`、`enabled`、`sourcePath`、`trustStatus`、`key`、`currentHash`、`warnings` 和 `errors`。
-- `config/batchWrite` 用于写回 `hooks.state` 和 `tui.notifications`：Hook 开启后把 CodexBar Hook 的 `key/currentHash` upsert 成 `trusted_hash`，关闭时移除对应 key；通知选项面板切换「Codex TUI 通知」时只 upsert `tui.notifications` 的布尔值并要求 app-server reload 用户配置，不修改顶层 `notify` 外部回调。
+额度和用量是独立的补充数据
 
-`account/rateLimits/read` 的额度模型约定:
+- 成功读取时更新当前账号的内存缓存
+- 普通业务错误时可以回退到同一账号的缓存, 并标记为陈旧数据
+- 方法不支持, 认证失败或连接故障时不使用该项缓存
+- 账号变化时清空全部补充缓存
 
-- `rateLimitsByLimitId` 优先于顶层 `rateLimits`; 为空时回退顶层 `rateLimits`。
-- 顶层 `rateLimits.limitId` 指向主 limit, 缺省为 `codex`。
-- `rateLimitResetCredits.availableCount` 是可用额度重置次数; 字段缺失或值不大于 0 时 UI 不显示重置次数。
-- `rateLimitResetCredits.availableCount > 0` 时, `CodexResetCreditsService` 使用真实用户 `CODEX_HOME/auth.json` 或 `HOME/.codex/auth.json` 中的 access token 请求 ChatGPT backend, 超时为 4 秒。401/403 时复用本轮认证刷新预算调用一次 `account/read(refreshToken:true)` 后重试; 其他失败静默降级。成功响应只保留 `status == "available"` 且未过期 credit 的 `expires_at`, 点击 `重置次数: N` 后在侧边详情面板中按时间升序展示 `yyyy-MM-dd HH:mm:ss` 和 `可用: N`; 相同展示时间合并数量, 单个显示 `可用: 1`。
+app-server 返回认证错误时, 本轮最多执行一次 `account/read(refreshToken: true)`; 刷新后仍未认证则进入"未登录"状态
 
-认证失败时，同会话最多调用一次 `account/read(refreshToken:true)` 后重试原读取。
+app-server 明确表示方法不支持后, 当前会话会记住该方法, 后续不再重复请求; 可重试的服务端业务错误在会话层重试一次
 
-## 错误处理
+## 手动重置机会
 
-所有走 `AppServerSession.request` 的方法，收到方法不支持错误后都记录到当前会话的 `unsupportedMethods`，本连接后续不再请求该方法。
-
-方法不支持必须是 JSON-RPC error，且 message 包含:
+`account/rateLimits/read` 返回可用重置次数且数量大于 0 时, CodexBar 会读取当前 Codex 配置目录下的 `auth.json`, 向以下只读接口查询每次机会的过期时间
 
 ```text
-Invalid request: unknown variant
+https://chatgpt.com/backend-api/wham/rate-limit-reset-credits
 ```
 
-请求有 JSON-RPC error 响应，且不是认证失败、不是方法不支持、不是传输/解析故障时，先立即重试同一个请求一次。
+请求超时为 4 秒, 只保留状态为 `available` 且尚未过期的时间; 401 或 403 时, 如果本轮尚未刷新认证, 会先通过当前 app-server 刷新一次账号认证再重试; 查询失败不影响额度和可用次数展示, 只是不提供具体过期时间
 
-非认证业务错误重试后仍失败时，不阻断整轮刷新，详情只进日志。
+## 配置读写
 
-`account/rateLimits/read` 和 `account/usage/read` 重试后仍失败时:
+CodexBar 通过 app-server 管理两类用户配置
 
-- 若同账号有上次成功数据，则复用旧数据并标记为 stale。
-- 没有旧数据则不展示对应区域。
-- 方法不支持不复用旧数据，对应读取结果视为空。
+- `hooks.state`: 只新增, 更新或移除当前 CodexBar Hook 对应的信任项
+- `tui.notifications`: 写入布尔值控制 Codex TUI 通知
 
-传输/解析故障归为需要重建连接。
+Hook 事件注册本身保存在 `${CODEX_HOME}/hooks.json`, 由 CodexBar 直接按 JSON 文件读写; 注册后再通过 `hooks/list` 验证; 详见 [Codex Hook 与工作流统计](CodexHook.md)
 
-## 连接生命周期
+## 交互日志
 
-连接细节:
+日志窗口保存本次运行期间最近 500 条记录, 包括
 
-- `requestTimeout` 是 20 秒。
-- `connectionMaxAge` 是 1 小时。
-- `SIGPIPE` 已被忽略，写入断管后应由 `write` 抛错并走重建。
-- 复用连接出现传输故障时只重建重试一次。
-- 全新连接初始化失败直接返回「初始化失败」，不重复完整握手。
-- 关闭会话时先停止 stdout/stderr reader 并关闭 stdin，然后对 app-server 进程执行有界退出: 先 `terminate()` 等待 1 秒，仍未退出再 `SIGKILL` 并等待 0.5 秒；被强制结束或仍未退出时写入请求日志。
+- 请求方法和请求 JSON
+- 响应 JSON
+- 传输, 解析, 业务和进程错误
+- 无响应通知
 
-`CodexStatusService` 是 actor，app-server 连接、补充数据缓存和重建策略都在 actor 隔离内串行访问。stdout 的 `JSONLineReader` 和 stderr 的 `PipeDrain` 共用底层 `PipeReadBuffer`，把 `FileHandle`、`DispatchSourceRead` 和 semaphore 这些非 Sendable IO 细节集中在唯一的受控边界内；读事件运行在 `CodexBar.pipe-read` 的 `.userInitiated` 队列上。
+合法 JSON 会按稳定键序规范化; 日志只保存在进程内存中, 可以在窗口内清空, 不写入工作流文件, 也不参与跨设备同步
 
 ## UI 状态
 
-`CodexLoadState` 只有四种:
+服务层向 UI 归并为三类结果
 
-- `loading`
-- `loaded`
-- `notLoggedIn`
-- `initializationFailed`
+- 数据可用
+- 未登录
+- 初始化失败
 
-UI 只展示「未登录」和「初始化失败」两类特殊状态；具体请求错误、启动错误、超时、断连、解析失败都进入日志。
-
-## 请求日志
-
-日志状态标签:
-
-- `.pending` ->「进行」
-- `.response` ->「完成」
-- `.failure` ->「错误」
-- `.emptyResponse` ->「请求」
-
-日志规则:
-
-- 后台请求路径写入 `RequestLogStorage.shared`，日志窗口通过 `@MainActor RequestLogStore.shared` 订阅 storage 快照。
-- 带 id 的 JSON-RPC 请求先记录为进行，响应或错误到达后回填到同一条。
-- `initialized` 这类无 id 请求记录为空响应。
-- 日志容量上限 500 条，`RequestLogEntry` 完整保存 request/detail；日志窗口列表和行内展开只渲染单行短预览，非空请求/响应标题行提供完整预览和复制，预览视图对 JSON 做格式化和高亮。
-- `AppServerSession` 生成请求时已经通过 `JSONSerialization` 使用 `.sortedKeys` 和 `.withoutEscapingSlashes` 稳定序列化；`RequestLogStorage` 直接保存同一份 request 文本，不再二次解析。
-- 响应和 JSON 错误详情进入日志时仍通过 `JSONSerialization` 使用相同选项稳定化；非 JSON 错误消息保持原样。
-- 不要把子进程 stderr 直接展示给用户。
+更具体的请求错误保留在交互日志中; 陈旧的额度或用量仍可展示, 但会降低透明度, 且不会用于额度通知判断

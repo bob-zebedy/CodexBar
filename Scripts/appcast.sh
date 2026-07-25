@@ -230,16 +230,28 @@ APPCAST_ITEM="        <item>
         </item>"
 
 echo "==> Updating appcast"
-APPCAST_ITEM="${APPCAST_ITEM}" APPCAST_VERSION="${BUILD_VERSION}" perl -0pi -e '
+# Write through a temp file so a perl die leaves appcast.xml untouched.
+APPCAST_TMP="$(mktemp)"
+trap 'rm -f "${APPCAST_TMP}"' EXIT
+APPCAST_ITEM="${APPCAST_ITEM}" APPCAST_VERSION="${BUILD_VERSION}" perl -0p -e '
   my $item = $ENV{"APPCAST_ITEM"};
   my $version = $ENV{"APPCAST_VERSION"};
+  my $before = () = /<item>/g;
 
-  s/\n\s*<item>\s*.*?<sparkle:version>\Q$version\E<\/sparkle:version>.*?<\/item>//sg;
+  # Keep the (?!<\/item>) guards: a plain .*? spans item boundaries and would
+  # also delete every entry above the one being replaced.
+  s/\n\s*<item>(?:(?!<\/item>).)*?<sparkle:version>\Q$version\E<\/sparkle:version>(?:(?!<\/item>).)*?<\/item>//sg;
 
   if (!s/(<language>.*?<\/language>)/$1\n$item/s) {
     die "Unable to find <language>...</language> insertion point\n";
   }
-' "${APPCAST_PATH}"
+
+  my $after = () = /<item>/g;
+  if ($after != $before && $after != $before + 1) {
+    die "Unexpected appcast item count: before=$before after=$after\n";
+  }
+' "${APPCAST_PATH}" > "${APPCAST_TMP}"
+cat "${APPCAST_TMP}" > "${APPCAST_PATH}"
 
 if command -v xmllint >/dev/null 2>&1; then
     xmllint --noout "${APPCAST_PATH}"

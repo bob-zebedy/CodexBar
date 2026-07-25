@@ -18,8 +18,12 @@ final class AppUpdater: NSObject, ObservableObject {
     private var updaterController: SPUStandardUpdaterController?
     private var clearSettingsStatusMessageTask: Task<Void, Never>?
     private var isManualCheckInProgress = false
+    private var manualCheckTimeoutTask: Task<Void, Never>?
 
     private static let missingUpdateConfigurationMessage = "未配置更新资源"
+    /// Sparkle 可能既不回调 didFindValidUpdate / didNotFindUpdate 也不回调 didAbortWithError
+    /// (后台检查已在进行, 或 feed 请求被放弃), 超时复位避免永久停留在手动检查态
+    private static let manualCheckTimeout = Duration.seconds(30)
 
     init(bundle: Bundle = .main) {
         super.init()
@@ -50,7 +54,7 @@ final class AppUpdater: NSObject, ObservableObject {
             return
         }
 
-        isManualCheckInProgress = true
+        beginManualCheck()
         showSettingsStatusMessage("正在检查更新")
         updaterController.updater.checkForUpdateInformation()
     }
@@ -78,6 +82,28 @@ final class AppUpdater: NSObject, ObservableObject {
 
     func refreshAutomaticCheckSetting() {
         automaticallyChecksForUpdates = updaterController?.updater.automaticallyChecksForUpdates ?? false
+    }
+
+    private func beginManualCheck() {
+        isManualCheckInProgress = true
+
+        manualCheckTimeoutTask?.cancel()
+        manualCheckTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.manualCheckTimeout)
+            guard !Task.isCancelled, let self else {
+                return
+            }
+
+            isManualCheckInProgress = false
+            manualCheckTimeoutTask = nil
+        }
+    }
+
+    /// 手动检查态只影响结果去向 (设置窗 vs 菜单面板), 复位失败会永久隐藏面板更新提示
+    private func finishManualCheck() {
+        manualCheckTimeoutTask?.cancel()
+        manualCheckTimeoutTask = nil
+        isManualCheckInProgress = false
     }
 
     private func showSettingsStatusMessage(_ message: String, autoDismissDelay: Duration? = .seconds(3)) {
@@ -120,7 +146,7 @@ extension AppUpdater: SPUUpdaterDelegate {
             panelUpdateMessage = message
         }
 
-        isManualCheckInProgress = false
+        finishManualCheck()
     }
 
     func updaterDidNotFindUpdate(_: SPUUpdater, error _: Error) {
@@ -131,7 +157,7 @@ extension AppUpdater: SPUUpdaterDelegate {
             showSettingsStatusMessage("没有可用更新", autoDismissDelay: .milliseconds(1000))
         }
 
-        isManualCheckInProgress = false
+        finishManualCheck()
     }
 
     func updater(_: SPUUpdater, didAbortWithError _: Error) {
@@ -140,6 +166,6 @@ extension AppUpdater: SPUUpdaterDelegate {
         }
 
         showSettingsStatusMessage("检查更新失败")
-        isManualCheckInProgress = false
+        finishManualCheck()
     }
 }

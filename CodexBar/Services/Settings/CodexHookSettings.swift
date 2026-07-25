@@ -6,7 +6,16 @@ import Foundation
 final class CodexHookSettings: ObservableObject {
     @Published private(set) var isEnabled = false
     @Published private(set) var isUpdating = false
-    @Published private(set) var errorMessage: String?
+
+    /// 读取 hooks.json 失败, 由 refresh() 独立维护
+    @Published private var readErrorMessage: String?
+    /// 开关操作与 Hook 校验的结果, 只能由下一次操作或校验覆盖
+    /// 与读取类错误分开存储: refresh() 每 60 秒被调用一次, 不能抹掉校验告警
+    @Published private var operationErrorMessage: String?
+
+    var errorMessage: String? {
+        operationErrorMessage ?? readErrorMessage
+    }
 
     private let hooksURL: URL
     private let fileManager: FileManager
@@ -35,10 +44,12 @@ final class CodexHookSettings: ObservableObject {
                 in: config,
                 executablePath: currentExecutablePath
             )
-            errorMessage = nil
+            readErrorMessage = nil
         } catch {
-            isEnabled = false
-            errorMessage = "读取 Codex Hook 配置失败: \(error.localizedDescription)"
+            // 只有 I/O 失败和 JSON 格式错误会走到这里, 它们对「Hook 装没装」不提供信息
+            // 文件不存在或配置里没有 CodexBar 都由 readConfigIfPresent 正常返回
+            // 因此保留上次已知值, 不能把读取失败当成用户关闭了 Hook
+            readErrorMessage = "读取 Codex Hook 配置失败: \(error.localizedDescription)"
         }
     }
 
@@ -91,7 +102,7 @@ final class CodexHookSettings: ObservableObject {
         do {
             try await validateInstalledHooksWithAppServer()
             try ensureCurrentUpdate(generation)
-            errorMessage = nil
+            operationErrorMessage = nil
         } catch is CancellationError {
             return
         } catch let error as HookConfigError {
@@ -99,13 +110,13 @@ final class CodexHookSettings: ObservableObject {
                 return
             }
 
-            errorMessage = error.localizedDescription
+            operationErrorMessage = error.localizedDescription
         } catch {
             guard isCurrentUpdate(generation) else {
                 return
             }
 
-            errorMessage = "无法验证 Codex Hook: \(error.localizedDescription)"
+            operationErrorMessage = "无法验证 Codex Hook: \(error.localizedDescription)"
         }
     }
 
@@ -119,7 +130,7 @@ final class CodexHookSettings: ObservableObject {
 
         if showProgress {
             isUpdating = true
-            errorMessage = nil
+            operationErrorMessage = nil
         }
 
         updateTask = Task { [weak self] in
@@ -163,10 +174,10 @@ final class CodexHookSettings: ObservableObject {
         if let hookError = error as? HookConfigError,
            hookError.isPreflightFailure {
             isEnabled = false
-            errorMessage = hookError.localizedDescription
+            operationErrorMessage = hookError.localizedDescription
         } else {
             refresh()
-            errorMessage = "设置 Codex Hook 失败: \(error.localizedDescription)"
+            operationErrorMessage = "设置 Codex Hook 失败: \(error.localizedDescription)"
         }
     }
 }
@@ -180,7 +191,7 @@ private extension CodexHookSettings {
     static let hookCommandKey = "command"
     static let hookTimeoutKey = "timeout"
     static let hookCommandType = "command"
-    static let hookTimeout = 5
+    static let hookTimeout = WorkflowHookEventRecorder.hookTimeoutSeconds
     static let configMergeStrategyReplace = "replace"
     static let configMergeStrategyUpsert = "upsert"
     static let hookTrustStateKeyPath = "hooks.state"
@@ -322,9 +333,9 @@ private extension CodexHookSettings {
             }
 
             if let discoveryError {
-                errorMessage = "已关闭 Codex Hook, 清理信任状态失败: \(discoveryError.localizedDescription)"
+                operationErrorMessage = "已关闭 Codex Hook, 清理信任状态失败: \(discoveryError.localizedDescription)"
             } else {
-                errorMessage = nil
+                operationErrorMessage = nil
             }
         } catch is CancellationError {
             return
@@ -333,7 +344,7 @@ private extension CodexHookSettings {
                 return
             }
 
-            errorMessage = "已关闭 Codex Hook, 清理信任状态失败: \(error.localizedDescription)"
+            operationErrorMessage = "已关闭 Codex Hook, 清理信任状态失败: \(error.localizedDescription)"
         }
     }
 
@@ -464,9 +475,11 @@ private extension CodexHookSettings {
         var hooks = try hooksObject(from: config)
 
         // 仅移除 command 同时匹配当前可执行路径与 --hook-event 的 handler
+        // 结构异常的同级条目一律跳过: 只负责移除自己的 handler, 不校验整个文件
+        // 在这里抛错会让开关既关不掉又被 refresh() 翻回打开, 用户无法从 UI 脱困
         for (event, value) in hooks {
             guard let groups = value as? JSONArray else {
-                throw HookConfigError.invalidFormat
+                continue
             }
 
             let filteredGroups = groups.compactMap {
