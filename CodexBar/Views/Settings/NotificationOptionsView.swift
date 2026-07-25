@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// 通知子选项面板, 挂在设置窗口"系统通知"行右侧展开
+/// 通知子选项面板, 挂在设置窗口右侧并与设置内容区底边对齐
 /// 通知开启时展开音效子行, 关闭时连同占位一起收起
 struct NotificationOptionsView: View {
     @ObservedObject var notificationSettings: NotificationSettings

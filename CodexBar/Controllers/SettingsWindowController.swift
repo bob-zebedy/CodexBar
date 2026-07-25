@@ -72,31 +72,34 @@ final class SettingsWindowController: HostingWindowController {
                 onRebuildWorkflowData: onRebuildWorkflowData,
                 onNotificationOptionsAction: { [weak self] action in
                     self?.handleNotificationOptionsAction(action)
+                },
+                onContentHeightChanged: { [weak self] height in
+                    self?.resizeContentHeight(height)
                 }
             )
             .environmentObject(viewModel)
             .environmentObject(appUpdater)
         )
-        hostingController.sizingOptions = [.preferredContentSize]
+        hostingController.sizingOptions = []
 
         let window = AuxiliaryHostingWindow(contentViewController: hostingController)
         window.title = "CodexBar 设置"
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.contentMinSize = Metrics.minimumContentSize
+        window.setContentSize(Metrics.initialContentSize)
         return window
     }
 
     override func prepareForDisplay(_ window: NSWindow) {
-        if let fittingSize = window.contentViewController?.view.validFittingSize {
-            window.setContentSize(clampedContentSize(fittingSize, for: window))
-        }
-
-        super.prepareForDisplay(window)
+        window.setContentSize(clampedContentSize(window.contentLayoutRect.size, for: window))
+        positionForTabResizing(window)
     }
 
     private enum Metrics {
         static let minimumContentSize = NSSize(width: 420, height: 240)
+        static let initialContentSize = NSSize(width: 430, height: 270)
         static let maximumFallbackContentSize = NSSize(width: 560, height: 720)
+        static let maximumPreferredContentHeight: CGFloat = 500
         static let screenInset: CGFloat = 80
     }
 
@@ -112,21 +115,92 @@ final class SettingsWindowController: HostingWindowController {
 
     private func handleNotificationOptionsAction(_ action: NotificationOptionsPanelAction) {
         switch action {
-        case let .toggle(alignmentFrame):
+        case .toggle:
             notificationOptionsPanelController.toggle(
-                alignmentScreenFrame: alignmentFrame,
                 relativeTo: window,
                 contentView: window?.contentViewController?.view
             )
-        case let .open(alignmentFrame):
+        case .open:
             notificationOptionsPanelController.show(
-                alignmentScreenFrame: alignmentFrame,
                 relativeTo: window,
                 contentView: window?.contentViewController?.view
             )
         case .close:
             notificationOptionsPanelController.hide()
         }
+    }
+
+    private func resizeContentHeight(_ height: CGFloat) {
+        guard let window else {
+            return
+        }
+
+        let currentContentSize = window.contentLayoutRect.size
+        let targetContentSize = clampedContentSize(
+            NSSize(
+                width: currentContentSize.width,
+                height: min(height, Metrics.maximumPreferredContentHeight)
+            ),
+            for: window
+        )
+        let targetFrameHeight = window.frameRect(
+            forContentRect: NSRect(origin: .zero, size: targetContentSize)
+        ).height
+        guard abs(window.frame.height - targetFrameHeight) > 0.5 else {
+            return
+        }
+
+        var targetFrame = window.frame
+        let topEdge = targetFrame.maxY
+        targetFrame.size.height = targetFrameHeight
+        targetFrame.origin.y = topEdge - targetFrame.height
+        targetFrame = constrainedFrame(targetFrame, for: window)
+        window.setFrame(targetFrame, display: true)
+    }
+
+    private func positionForTabResizing(_ window: NSWindow) {
+        guard let screen = screenProvider() ?? window.screen ?? NSScreen.main else {
+            window.center()
+            return
+        }
+
+        let visibleFrame = screen.visibleFrame
+        let maximumContentHeight = min(
+            maximumContentSize(for: window).height,
+            Metrics.maximumPreferredContentHeight
+        )
+        let maximumFrameHeight = window.frameRect(
+            forContentRect: NSRect(
+                origin: .zero,
+                size: NSSize(
+                    width: window.contentLayoutRect.width,
+                    height: maximumContentHeight
+                )
+            )
+        ).height
+        let reservedTopEdge = visibleFrame.midY - maximumFrameHeight / 2 + maximumFrameHeight
+        window.setFrameOrigin(
+            NSPoint(
+                x: visibleFrame.midX - window.frame.width / 2,
+                y: reservedTopEdge - window.frame.height
+            )
+        )
+    }
+
+    private func constrainedFrame(_ frame: NSRect, for window: NSWindow) -> NSRect {
+        guard let screen = screenProvider() ?? window.screen ?? NSScreen.main else {
+            return frame
+        }
+
+        var constrainedFrame = frame
+        let visibleFrame = screen.visibleFrame
+        if constrainedFrame.minY < visibleFrame.minY {
+            constrainedFrame.origin.y = visibleFrame.minY
+        }
+        if constrainedFrame.maxY > visibleFrame.maxY {
+            constrainedFrame.origin.y = visibleFrame.maxY - constrainedFrame.height
+        }
+        return constrainedFrame
     }
 
     private func maximumContentSize(for window: NSWindow) -> NSSize {

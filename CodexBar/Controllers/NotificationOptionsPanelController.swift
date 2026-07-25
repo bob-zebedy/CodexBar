@@ -3,13 +3,13 @@ import Combine
 import SwiftUI
 
 /// 通知子选项面板动作, 由 AppSettingsView 发出并在 SettingsWindowController 中路由
-nonisolated enum NotificationOptionsPanelAction: Equatable {
-    case toggle(alignmentScreenFrame: CGRect?)
-    case open(alignmentScreenFrame: CGRect?)
+nonisolated enum NotificationOptionsPanelAction {
+    case toggle
+    case open
     case close
 }
 
-/// 通知子选项面板控制器, 挂在设置窗口右侧, 复用侧边抽屉动效
+/// 通知子选项面板控制器, 挂在设置窗口右侧并保持底边对齐, 复用侧边抽屉动效
 /// 与重置次数面板不同: 内容是交互控件, 用常驻 hosting controller + ObservableObject 驱动更新, 不替换 rootView
 @MainActor
 final class NotificationOptionsPanelController {
@@ -44,16 +44,15 @@ final class NotificationOptionsPanelController {
         observeContentHeightChanges()
     }
 
-    var isVisible: Bool {
+    private var isVisible: Bool {
         presenter.isVisible
     }
 
-    func owns(_ window: NSWindow?) -> Bool {
+    private func owns(_ window: NSWindow?) -> Bool {
         window === panel
     }
 
     func toggle(
-        alignmentScreenFrame: CGRect?,
         relativeTo window: NSWindow?,
         contentView: NSView?
     ) {
@@ -62,15 +61,10 @@ final class NotificationOptionsPanelController {
             return
         }
 
-        show(
-            alignmentScreenFrame: alignmentScreenFrame,
-            relativeTo: window,
-            contentView: contentView
-        )
+        show(relativeTo: window, contentView: contentView)
     }
 
     func show(
-        alignmentScreenFrame: CGRect?,
         relativeTo window: NSWindow?,
         contentView: NSView?
     ) {
@@ -84,20 +78,12 @@ final class NotificationOptionsPanelController {
         panel.contentView?.layoutSubtreeIfNeeded()
         let windowSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: window) ?? window.frame
         let panelSize = measuredPanelSize()
-        let validatedAlignmentFrame = SidePanelSupport.validatedAlignmentScreenFrame(
-            alignmentScreenFrame,
-            menuSurfaceFrame: windowSurfaceFrame
-        )
         let position = SidePanelSupport.position(
             panelSize: panelSize,
             menuSurfaceFrame: windowSurfaceFrame,
             visibleFrame: (window.screen ?? NSScreen.main)?.visibleFrame ?? windowSurfaceFrame,
             preferredSide: .right,
-            proposedY: SidePanelSupport.alignedProposedY(
-                panelSize: panelSize,
-                menuSurfaceFrame: windowSurfaceFrame,
-                alignmentScreenFrame: validatedAlignmentFrame
-            )
+            proposedY: windowSurfaceFrame.minY
         )
 
         panel.level = window.level
@@ -251,18 +237,13 @@ final class NotificationOptionsPanelController {
             return
         }
 
-        let currentFrame = panel.frame
-        var targetFrame = NSRect(
-            x: currentFrame.minX,
-            y: currentFrame.maxY - size.height,
-            width: size.width,
-            height: size.height
-        )
+        var targetFrame = panel.frame
+        targetFrame.size = size
         if let visibleFrame = panel.screen?.visibleFrame {
-            targetFrame.origin.y = max(
-                targetFrame.origin.y,
-                visibleFrame.minY + SidePanelSupport.Metrics.screenPadding
-            )
+            let maximumY = visibleFrame.maxY - SidePanelSupport.Metrics.screenPadding
+            if targetFrame.maxY > maximumY {
+                targetFrame.origin.y = maximumY - targetFrame.height
+            }
         }
 
         NSAnimationContext.runAnimationGroup { context in

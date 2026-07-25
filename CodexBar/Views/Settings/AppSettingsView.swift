@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// 设置窗口根视图, 汇总启动项; 显示; Hook; 同步; 通知; 快捷键和版本信息
+/// 设置窗口根视图, 按通用; 工作流和关于分页汇总设置与版本信息
 struct AppSettingsView: View {
     @EnvironmentObject private var statusViewModel: CodexStatusViewModel
     @EnvironmentObject private var appUpdater: AppUpdater
@@ -17,7 +17,9 @@ struct AppSettingsView: View {
     let onSyncChanged: (Bool) -> Void
     let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
     let onNotificationOptionsAction: (NotificationOptionsPanelAction) -> Void
-    @State private var notificationRowFrame: CGRect?
+    let onContentHeightChanged: (CGFloat) -> Void
+    @State private var selectedTab = SettingsTab.general
+    @State private var isTabContentSettled = true
     @State private var shouldOpenNotificationOptionsAfterAuthorization = false
     @State private var rebuildableDates = [String]()
     @State private var selectedRebuildRange: RebuildDateRange?
@@ -26,47 +28,36 @@ struct AppSettingsView: View {
     @State private var rebuildStatus: RebuildStatus?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
-            VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
-                launchAtLoginRow
-                LiquidGlassDivider()
-                automaticUpdateCheckRow
-                LiquidGlassDivider()
-                menuBarQuotaRow
-                LiquidGlassDivider()
-                hotKeyRow
-                LiquidGlassDivider()
-                codexHookRow
-                LiquidGlassDivider()
-                taskCenterRow
-                LiquidGlassDivider()
-                notificationRow
-                LiquidGlassDivider()
-                syncRow
-                LiquidGlassDivider()
-                keepAliveRow
-                LiquidGlassDivider()
-                rebuildWorkflowDataRow
-                LiquidGlassDivider()
-                codexVersionSection
-                LiquidGlassDivider()
-                versionRow
-            }
-            .padding(Metrics.panelPadding)
-            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
+        VStack(spacing: 0) {
+            settingsTabBar
+                .padding(.top, Metrics.padding)
+                .padding(.bottom, Metrics.tabContentSpacing)
 
-            settingsErrorPanel
-
-            HStack(alignment: .center, spacing: 12) {
-                quitButton
-                Spacer()
-                checkUpdateButton
+            ScrollView(.vertical) {
+                selectedSettingsPage
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(
+                                key: SettingsPageHeightPreferenceKey.self,
+                                value: proxy.size.height
+                            )
+                        }
+                    }
+                    .padding(.horizontal, Metrics.padding)
+                    .padding(.bottom, Metrics.padding)
             }
-            .padding(Metrics.panelPadding)
-            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
+            .id(selectedTab)
+            .scrollIndicators(.automatic)
+            .scaleEffect(
+                isTabContentSettled ? 1 : Metrics.tabContentInitialScale,
+                anchor: .top
+            )
+            .offset(y: isTabContentSettled ? 0 : Metrics.tabContentInitialOffset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .padding(Metrics.padding)
         .frame(width: Metrics.windowWidth)
+        .frame(maxHeight: .infinity, alignment: .top)
         .liquidGlassSurface(
             cornerRadii: RectangleCornerRadii(
                 topLeading: 0,
@@ -97,6 +88,31 @@ struct AppSettingsView: View {
             isShowingRebuildConfirmation = false
             clearRebuildStatus()
         }
+        .onChange(of: selectedTab) { _, _ in
+            shouldOpenNotificationOptionsAfterAuthorization = false
+            onNotificationOptionsAction(.close)
+        }
+        .task(id: selectedTab) {
+            guard !isTabContentSettled else {
+                return
+            }
+
+            await Task.yield()
+            guard !Task.isCancelled else {
+                return
+            }
+
+            withAnimation(Metrics.tabContentTransition) {
+                isTabContentSettled = true
+            }
+        }
+        .onPreferenceChange(SettingsPageHeightPreferenceKey.self) { pageHeight in
+            guard pageHeight.isFinite, pageHeight > 0 else {
+                return
+            }
+
+            onContentHeightChanged(pageHeight + Metrics.windowChromeHeight)
+        }
         .alert(
             "批量重建 \(selectedRebuildDateKeys.count) 天的数据?",
             isPresented: $isShowingRebuildConfirmation
@@ -113,19 +129,151 @@ struct AppSettingsView: View {
 
 private extension AppSettingsView {
     enum Metrics {
-        static let padding: CGFloat = 20
+        static let padding: CGFloat = 12
         static let windowWidth: CGFloat = 430
         static let sectionSpacing: CGFloat = 18
         static let rowSpacing: CGFloat = 14
         static let panelPadding: CGFloat = 12
         static let surfaceCornerRadius: CGFloat = 16
         static let panelCornerRadius: CGFloat = 10
+        static let tabBarWidth = windowWidth - padding * 2
+        static let tabBarHeight: CGFloat = 38
+        static let tabBarPadding: CGFloat = 4
+        static let tabSpacing: CGFloat = 4
+        static let tabVerticalPadding: CGFloat = 7
+        static let tabContentSpacing = padding
+        static let windowChromeHeight = padding * 2 + tabBarHeight + tabContentSpacing
         static let notificationOptionsButtonSize: CGFloat = 22
         static let menuBarQuotaPickerWidth: CGFloat = 72
         static let keepAliveDurationPickerWidth: CGFloat = 88
         static let syncStatusRowHeight: CGFloat = 16
         static let syncStatusValueWidth: CGFloat = 160
+        static let tabContentInitialScale = 0.975
+        static let tabContentInitialOffset: CGFloat = 8
+        static let tabContentTransition = Animation.spring(
+            response: 0.32,
+            dampingFraction: 0.74,
+            blendDuration: 0.08
+        )
         static let statusAnimation = Animation.codexStatus
+    }
+
+    var settingsTabBar: some View {
+        HStack(spacing: Metrics.tabSpacing) {
+            ForEach(SettingsTab.allCases) { tab in
+                let isSelected = selectedTab == tab
+
+                Button {
+                    selectSettingsTab(tab)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: tab.icon)
+                            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+
+                        Text(tab.title)
+                            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Metrics.tabVerticalPadding)
+                    .contentShape(Capsule(style: .continuous))
+                    .background {
+                        if isSelected {
+                            Capsule(style: .continuous)
+                                .fill(.clear)
+                                .liquidGlassCapsule(tint: .accentColor)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+        .padding(Metrics.tabBarPadding)
+        .frame(width: Metrics.tabBarWidth, height: Metrics.tabBarHeight)
+        .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
+    }
+
+    func selectSettingsTab(_ tab: SettingsTab) {
+        guard selectedTab != tab else {
+            return
+        }
+
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isTabContentSettled = false
+            selectedTab = tab
+        }
+    }
+
+    @ViewBuilder
+    var selectedSettingsPage: some View {
+        switch selectedTab {
+        case .general:
+            generalSettingsPage
+        case .advanced:
+            advancedSettingsPage
+        case .about:
+            aboutSettingsPage
+        }
+    }
+
+    var generalSettingsPage: some View {
+        VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+            VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
+                launchAtLoginRow
+                LiquidGlassDivider()
+                automaticUpdateCheckRow
+                LiquidGlassDivider()
+                menuBarQuotaRow
+                LiquidGlassDivider()
+                hotKeyRow
+            }
+            .padding(Metrics.panelPadding)
+            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
+
+            settingsErrorPanel
+        }
+    }
+
+    var advancedSettingsPage: some View {
+        VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
+            codexHookRow
+            LiquidGlassDivider()
+            taskCenterRow
+            LiquidGlassDivider()
+            notificationRow
+            LiquidGlassDivider()
+            keepAliveRow
+            LiquidGlassDivider()
+            syncRow
+            LiquidGlassDivider()
+            rebuildWorkflowDataRow
+        }
+        .padding(Metrics.panelPadding)
+        .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
+    }
+
+    var aboutSettingsPage: some View {
+        VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+            VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
+                codexVersionSection
+                LiquidGlassDivider()
+                versionRow
+            }
+            .padding(Metrics.panelPadding)
+            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
+
+            HStack(alignment: .center, spacing: 12) {
+                quitButton
+                Spacer()
+                checkUpdateButton
+            }
+            .padding(Metrics.panelPadding)
+            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
+        }
     }
 
     var launchAtLoginRow: some View {
@@ -551,7 +699,7 @@ private extension AppSettingsView {
                 )
             ) {
                 Button {
-                    onNotificationOptionsAction(.toggle(alignmentScreenFrame: notificationRowFrame))
+                    onNotificationOptionsAction(.toggle)
                 } label: {
                     Image(systemName: "slider.horizontal.3")
                 }
@@ -568,11 +716,6 @@ private extension AppSettingsView {
                 .help("通知选项")
                 .animation(Metrics.statusAnimation, value: notificationSettings.canShowOptions)
             }
-            .background(
-                ScreenFrameReader { frame in
-                    notificationRowFrame = frame
-                }
-            )
 
             if notificationSettings.isEnabled, notificationSettings.isAuthorizationDenied {
                 notificationDeniedRow
@@ -590,7 +733,7 @@ private extension AppSettingsView {
 
             if shouldOpenNotificationOptionsAfterAuthorization {
                 shouldOpenNotificationOptionsAfterAuthorization = false
-                onNotificationOptionsAction(.open(alignmentScreenFrame: notificationRowFrame))
+                onNotificationOptionsAction(.open)
             }
         }
         .onChange(of: notificationSettings.isAuthorizationDenied) { _, isDenied in
@@ -605,7 +748,7 @@ private extension AppSettingsView {
         notificationSettings.setEnabled(enabled)
         if enabled, notificationSettings.canShowOptions {
             shouldOpenNotificationOptionsAfterAuthorization = false
-            onNotificationOptionsAction(.open(alignmentScreenFrame: notificationRowFrame))
+            onNotificationOptionsAction(.open)
         } else {
             shouldOpenNotificationOptionsAfterAuthorization = enabled
                 && !notificationSettings.isAuthorizationDenied
@@ -1068,6 +1211,46 @@ private struct KeepAliveCaption: Equatable {
     let message: String
     var isError = false
     var showsSystemSettingsButton = false
+}
+
+private enum SettingsTab: CaseIterable, Identifiable {
+    case general
+    case advanced
+    case about
+
+    var id: Self {
+        self
+    }
+
+    var title: String {
+        switch self {
+        case .general:
+            "通用"
+        case .advanced:
+            "高级"
+        case .about:
+            "关于"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general:
+            "gearshape"
+        case .advanced:
+            "gearshape.2"
+        case .about:
+            "info.circle"
+        }
+    }
+}
+
+private struct SettingsPageHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
 }
 
 private struct SyncRowState {

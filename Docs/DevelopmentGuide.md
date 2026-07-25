@@ -938,7 +938,7 @@ CloudKit Production schema 必须包含当前 schema `4` 使用的字段；schem
 - `MainPanelSettings.refresh()`
 - `KeepAliveController.refresh()`
 
-设置窗口按 SwiftUI 内容 `fittingSize` 自适应高度, 但必须校验尺寸有限且夹紧到当前屏幕可见区域内的安全上限, 避免 SwiftUI 初始化或状态刷新重入时给出异常尺寸导致空白大窗口。`MenuBarQuotaSettings.refresh()` 可能被设置页 `onAppear` 和 `didBecomeActive` 调用, 发布 `selection` 时需要延后到下一轮 MainActor, 避免在 SwiftUI view update 中同步发布造成未定义布局行为。
+设置窗口内容宽度固定为 430 pt, 外层四周以及分页栏与内容卡片之间统一使用 12 pt 间距。当前分页通过 `SettingsPageHeightPreferenceKey` 回报实际内容高度, 窗口按「顶部间距 + 分页栏 + 中间间距 + 页面内容 + 底部间距」计算目标高度, 不再为各分页维护容易产生不等留白的固定高度; 超过 500 pt 或屏幕安全上限时由共享纵向 `ScrollView` 承接。Hosting controller 关闭 `preferredContentSize` 自动联动, SwiftUI 根视图始终贴住窗口顶部, 由 `SettingsWindowController` 统一控制窗口高度和底边。初次打开时控制器按最大视口高度预留居中位置; 切换分页固定标题栏和左上角且不使用窗口缩放动画, 旧页面立即替换, 只让新内容区从轻微缩小和下移状态通过弹簧动画回到原位, 避免过渡期间保留两份页面造成内容重叠; 顶部分页栏不参与布局动画。同时保留可见区域约束作为异常屏幕尺寸的兜底。`MenuBarQuotaSettings.refresh()` 可能被设置页 `onAppear` 和 `didBecomeActive` 调用, 发布 `selection` 时需要延后到下一轮 MainActor, 避免在 SwiftUI view update 中同步发布造成未定义布局行为。
 
 `AppSettingsView.onAppear` 时刷新:
 
@@ -953,15 +953,19 @@ CloudKit Production schema 必须包含当前 schema `4` 使用的字段；schem
 - `KeepAliveController.refresh()`
 - `WorkflowStorage.rebuildableEventDateKeys()`
 
-App 再次成为 active 时, 也会刷新 Hook、同步、菜单栏额度、主面板、Codex 版本、通知授权、防休眠 helper 状态和可重建日期, 并重新运行 `hooks/list` 验证。`SettingsWindowController.open()` 发布 `.settingsWindowDidOpen` 后, 日期重建范围、确认弹窗和上次结果消息恢复为未选择状态。
+App 再次成为 active 时, 也会刷新 Hook、同步、菜单栏额度、主面板、Codex 版本、通知授权、防休眠 helper 状态和可重建日期, 并重新运行 `hooks/list` 验证。`SettingsWindowController.open()` 发布 `.settingsWindowDidOpen` 后, 日期重建范围、确认弹窗和上次结果消息恢复为未选择状态。窗口存活期间保留最后选择的分页; 切换分页时关闭通知选项侧面板。
 
 版本探测内部有 60 秒节流, 避免 `onAppear` 和 `didBecomeActive` 连续触发时重复启动子进程
 
-设置项:
+设置项通过与现有 Liquid Glass 卡片一致的顶部分页栏分为:
 
-主设置卡片依次展示「开机自动启动」「自动检查更新」「菜单栏额度指示」「设置快捷键」「CodexBar Hook」「主面板任务中心」「系统通知」「跨设备同步」「阻止系统休眠」「重建数据」「Codex 版本」和「CodexBar 版本」。
+- 「通用」: 开机自动启动、自动检查更新、菜单栏额度指示和设置快捷键
+- 「高级」: CodexBar Hook、主面板任务中心、系统通知、阻止系统休眠、跨设备同步和重建数据
+- 「关于」: Codex 版本、CodexBar 版本、检查更新和退出 CodexBar
 
-跨设备同步开启时，状态子行始终保留固定 16 pt 高的单行布局；右侧固定宽度 `ZStack` 让同步时间和 `.mini` 进度指示以交叉淡入淡出切换，不对 AppKit 进度控件应用几何缩放，也不改变该行高度或控件位置。关闭同步后移除整行占位，让设置窗口 fitting size 随开关状态缩回。
+窗口首次创建时默认进入「通用」, 后续关闭再打开沿用本次 App 运行期间最后选择的分页。检查更新和退出操作只在「关于」底部操作卡片展示。
+
+跨设备同步开启时，状态子行始终保留固定 16 pt 高的单行布局；右侧固定宽度 `ZStack` 让同步时间和 `.mini` 进度指示以交叉淡入淡出切换，不对 AppKit 进度控件应用几何缩放，也不改变该行高度或控件位置。关闭同步后移除整行占位, 让工作流页面回收对应的行内空间。
 
 | 设置项         | 状态源                                                                               | 写入行为                                                                                                                                              |
 | -------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1159,7 +1163,7 @@ App 再次成为 active 时, 也会刷新 Hook、同步、菜单栏额度、主�
 
 活动并发以 session 为边界：不同 session 可以同时运行；同一 session 的 turn 按顺序执行。收到新的 `UserPromptSubmit` 时，monitor 会让该 session 中更早且缺少结束信号的 turn 立即退出活动列表，但保留为等待终态确认任务并触发一次即时 rollout 查询；5 秒内收到 Hook `Stop`、rollout `task_complete` 或 `turn_aborted` 时按真实终态归类，到期仍无终态才生成灰色最近终止记录。子 Agent 事件只能通过共享 session 关联父任务，早于当前顶层任务可信开始时间的事件会被当作上一 turn 的迟到事件忽略。已完成和已终止任务键分别保留 24 小时 tombstone，避免迟到事件恢复旧任务或误操作同 session 的新 turn。终止不会触发绿色完成状态、长任务通知或完成触觉反馈。Hook `Stop` 与 rollout `task_complete` 均视为完成信号，先到者生效，后到者按任务键和 session 回退键去重；重复完成不会覆盖首次确认结果，也不会缩短去重窗口或再次触发反馈。
 
-设置页交互: 「系统通知」主开关行保留在设置窗口内, 子选项 (五类通知子开关与声音、任务触觉开关、Codex TUI 通知开关及两个阈值 Picker) 在主选项右侧的子面板中展开 (`NotificationOptionsPanelController`, 复用 SidePanelSupport 抽屉机制挂在设置窗口上, 内容用常驻 hosting controller + ObservableObject 驱动)。五类通知按需使用双行布局：第一行展示通知名称、可选阈值和开关，阈值 Picker 位于开关前；通知开启且依赖可用时，第二行展示「通知音效」、加宽的声音菜单和独立播放按钮，关闭时整行从布局移除。控制器订阅五类通知开关和 Hook 状态；入场期间暂停 fitting-size 更新，动画完成后重新测量，后续内容变化在 SwiftUI 完成布局后按 fitting size 动画调整面板高度并保持面板顶边位置，避免收起后残留空白。菜单顶层提供默认和静音，其他声音按「经典提示音」和「现代提示音」子菜单分组。选择任意声音时立即试听，播放按钮可重复试听当前非静音选项，新的试听会停止上一段自定义声音；默认使用 `NSSound.beep()`, 静音不播放预览且禁用播放按钮，其余声音优先播放 App 包内与正式通知同源的 WAV。选项依次排列为「任务完成通知」「任务等待通知」「额度预警通知」「额度重置通知」「重置临期通知」「任务触觉反馈」和「Codex TUI 通知」。主开关开启后仅在系统授权允许时展开, 首次授权场景会等待授权结果; 点击行内滑杆按钮可手动展开; 设置窗口 resign key/关闭、主开关关闭或授权变为被拒时自动收起。任务完成、任务等待与任务触觉子项在 Hook 未开启时显示为关闭并置灰, 不修改各自持久化偏好及声音, Hook 重新开启后恢复用户原选择。「Codex TUI 通知」与用户级 `[tui] notifications` 联动，面板打开时刷新，写入后回读验证；已有 CLI 会话需重启后生效。该项不服从 CodexBar 通知发送判定，也不修改顶层 `notify`。「主面板任务中心」沿用相同依赖语义；关闭只隐藏活动卡片和任务中心入口，不停止 Monitor、状态点、通知或触觉反馈。授权被拒的引导文案与"打开系统设置"按钮仍内联显示在主开关行下方, 插入提示时不触发设置项纵向动画。
+设置页交互: 「系统通知」主开关行保留在设置窗口内, 子选项 (五类通知子开关与声音、任务触觉开关、Codex TUI 通知开关及两个阈值 Picker) 在设置窗口右侧的子面板中展开 (`NotificationOptionsPanelController`, 复用 SidePanelSupport 抽屉机制挂在设置窗口上, 内容用常驻 hosting controller + ObservableObject 驱动)。子面板不再读取通知行作为纵向锚点, 初次展开时底边与设置窗口内容区底边对齐。五类通知按需使用双行布局：第一行展示通知名称、可选阈值和开关，阈值 Picker 位于开关前；通知开启且依赖可用时，第二行展示「通知音效」、加宽的声音菜单和独立播放按钮，关闭时整行从布局移除。控制器订阅五类通知开关和 Hook 状态；入场期间暂停 fitting-size 更新，动画完成后重新测量，后续内容变化在 SwiftUI 完成布局后按 fitting size 动画调整面板高度并保持面板底边位置, 只在超过屏幕顶部安全边界时修正位置。菜单顶层提供默认和静音，其他声音按「经典提示音」和「现代提示音」子菜单分组。选择任意声音时立即试听，播放按钮可重复试听当前非静音选项，新的试听会停止上一段自定义声音；默认使用 `NSSound.beep()`, 静音不播放预览且禁用播放按钮，其余声音优先播放 App 包内与正式通知同源的 WAV。选项依次排列为「任务完成通知」「任务等待通知」「额度预警通知」「额度重置通知」「重置临期通知」「任务触觉反馈」和「Codex TUI 通知」。主开关开启后仅在系统授权允许时展开, 首次授权场景会等待授权结果; 点击行内滑杆按钮可手动展开; 设置窗口 resign key/关闭、主开关关闭或授权变为被拒时自动收起。任务完成、任务等待与任务触觉子项在 Hook 未开启时显示为关闭并置灰, 不修改各自持久化偏好及声音, Hook 重新开启后恢复用户原选择。「Codex TUI 通知」与用户级 `[tui] notifications` 联动，面板打开时刷新，写入后回读验证；已有 CLI 会话需重启后生效。该项不服从 CodexBar 通知发送判定，也不修改顶层 `notify`。「主面板任务中心」沿用相同依赖语义；关闭只隐藏活动卡片和任务中心入口，不停止 Monitor、状态点、通知或触觉反馈。授权被拒的引导文案与"打开系统设置"按钮仍内联显示在主开关行下方, 插入提示时不触发设置项纵向动画。
 
 `NotificationOptionsView` 的两个实际行构建器保留 `@_optimize(none)`：Swift 6.3.3 在 `-O` 下优化这些包含原生 mini Switch 的动态布局时会漏绘开关 thumb。该约束只覆盖 `optionRow` 和带 accessory 的 `notificationOptionRow` 实现，其余通知视图与 Release target 继续使用正常优化；调整这两个构建器的编译属性后需要用 Release 产物人工检查开启状态的 thumb。
 
