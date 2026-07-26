@@ -18,6 +18,8 @@ struct CodexStatusMenuView: View {
     // 活动状态与逐秒时间只被活动卡片消费, 由卡片自行观察, 避免 1Hz tick 让整个菜单树每秒重算
     let activityMonitor: CodexActivityMonitor
     @ObservedObject var syncSettings: WorkflowSyncSettings
+    // 同 activityMonitor, 交给活动卡片自行观察, 不让 helper 状态变化重算整个菜单树
+    let keepAliveController: KeepAliveController
     @ObservedObject var menuSurfaceVisibility: MenuSurfaceVisibilityState
     let activityCenterPresentationState: CodexActivityCenterPresentationState
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
@@ -80,6 +82,7 @@ private extension CodexStatusMenuView {
             CodexActivityCard(
                 activityMonitor: activityMonitor,
                 presentationState: activityCenterPresentationState,
+                keepAliveController: keepAliveController,
                 showsUnavailableState: viewModel.snapshot == nil,
                 onTaskCenterTap: { anchorProvider in
                     onActivityCenterTap(

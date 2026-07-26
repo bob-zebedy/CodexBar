@@ -27,13 +27,8 @@ final class KeepAliveController: ObservableObject {
     /// 用户开关仍开着, 且 helper 已经真的把休眠关掉
     /// isPreventingSleep 在稳态下已隐含 isEnabled (shouldDisableSleep 要求它),
     /// 叠这一层是为了关开关到 helper 回调之间的异步空窗: 用户意图先落地
-    var isActivelyPreventingSleepPublisher: AnyPublisher<Bool, Never> {
-        Publishers.CombineLatest($isEnabled, $isPreventingSleep)
-            .map { isEnabled, isPreventingSleep in
-                isEnabled && isPreventingSleep
-            }
-            .removeDuplicates()
-            .eraseToAnyPublisher()
+    var isActivelyPreventingSleep: Bool {
+        isEnabled && isPreventingSleep
     }
 
     private let activityMonitor: CodexActivityMonitor
@@ -317,6 +312,19 @@ final class KeepAliveController: ObservableObject {
         }
     }
 
+    /// @Published 在 willSet 无条件发信号, 不比较新旧值
+    /// refreshHelperStatus 每次 App 激活跑, releaseSleepPrevention 每条活动快照都会经过
+    /// 同值赋值会让菜单面板和设置页反复空转, 所有 @Published 的写入都走这里
+    private func assign<Value: Equatable>(
+        _ value: Value,
+        to keyPath: ReferenceWritableKeyPath<KeepAliveController, Value>
+    ) {
+        guard self[keyPath: keyPath] != value else {
+            return
+        }
+        self[keyPath: keyPath] = value
+    }
+
     private static func isTransientHelperRegistrationError(_ error: Error) -> Bool {
         let error = error as NSError
         return error.domain == SMAppServiceErrorDomain
@@ -324,11 +332,11 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func refreshHelperStatus() {
-        helperStatus = HelperStatus(Self.helperService.status)
+        assign(HelperStatus(Self.helperService.status), to: \.helperStatus)
         if helperStatus == .enabled {
             // 注册已正常, 只撤回注册类抱怨
             // 操作类结果 (例如重试耗尽) 必须留到下一次操作有结论为止
-            registrationErrorMessage = nil
+            assign(nil, to: \.registrationErrorMessage)
         } else if helperStatus != .requiresApproval {
             releaseSleepPrevention()
             resetMaximumDurationState()
@@ -486,7 +494,7 @@ final class KeepAliveController: ObservableObject {
     private func resetMaximumDurationState() {
         cancelMaximumDurationTask()
         maximumDurationStartedAt = nil
-        hasReachedMaximumDuration = false
+        assign(false, to: \.hasReachedMaximumDuration)
     }
 
     private func cancelMaximumDurationTask() {
@@ -557,7 +565,7 @@ final class KeepAliveController: ObservableObject {
     /// 且没有任何后续路径会释放它; 仍需要防休眠时由重试经 applySleepDisabled(true) 重建
     private func releaseSleepPrevention() {
         _ = systemSleepService.endPreventingIdleSleep()
-        isPreventingSleep = false
+        assign(false, to: \.isPreventingSleep)
     }
 
     private func cancelRetryTask() {

@@ -2,9 +2,11 @@ import SwiftUI
 
 /// Hook 开启时常驻的固定高度活动摘要, 使用菜单面板共享的逐秒时间
 /// 在卡片内部观察 activityMonitor 与逐秒时间, 让 1Hz 失效范围只覆盖本卡片而不是整个菜单树
+/// keepAliveController 同理, 它的 helperStatus 等字段与菜单树无关却会无条件发信号
 struct CodexActivityCard: View {
     @ObservedObject var activityMonitor: CodexActivityMonitor
     @ObservedObject var presentationState: CodexActivityCenterPresentationState
+    @ObservedObject var keepAliveController: KeepAliveController
     let showsUnavailableState: Bool
     let onTaskCenterTap: (ScreenFrameProvider) -> Void
     @State private var frameProvider = ScreenFrameProvider()
@@ -20,6 +22,12 @@ struct CodexActivityCard: View {
 
     private var isTaskCenterPresented: Bool {
         presentationState.isPresented
+    }
+
+    /// 额度数据不可用时卡片整体退到"暂无数据", 徽标属于活动信息, 必须跟着一起收
+    /// 否则会出现"暂无数据"配上防休眠徽标的自相矛盾画面
+    private var showsKeepAliveBadge: Bool {
+        keepAliveController.isActivelyPreventingSleep && !showsUnavailableState
     }
 
     var body: some View {
@@ -68,16 +76,29 @@ struct CodexActivityCard: View {
 
             Spacer(minLength: 0)
 
+            if showsKeepAliveBadge {
+                // 防休眠只在任务运行期间生效, 所以状态挂在活动卡片上而不是单独占一行
+                Image(systemName: "cup.and.saucer.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.teal)
+                    .transition(.opacity)
+            }
+
             if content.otherTaskCount > 0 {
                 Text("+\(content.otherTaskCount)")
                     .font(.caption2.monospacedDigit().weight(.semibold))
                     .foregroundStyle(.secondary)
+                    .numericRollTransition(value: Double(content.otherTaskCount))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
                     .background(.secondary.opacity(0.12), in: Capsule())
+                    .transition(.opacity)
                     .help("另有 \(content.otherTaskCount) 个任务")
             }
         }
+        .animation(.codexStatus, value: showsKeepAliveBadge)
+        // 任务数变化会让 +N 增删, 咖啡杯跟着横移; 两者一起纳入动画上下文才不会跳
+        .animation(.codexStatus, value: content.otherTaskCount)
         .padding(.horizontal, MenuMetrics.panelPadding)
         .frame(maxWidth: .infinity, minHeight: Metrics.height, maxHeight: Metrics.height)
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
