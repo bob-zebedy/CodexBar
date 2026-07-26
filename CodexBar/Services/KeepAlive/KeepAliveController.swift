@@ -24,6 +24,18 @@ final class KeepAliveController: ObservableObject {
         registrationErrorMessage ?? operationErrorMessage
     }
 
+    /// 用户开关仍开着, 且 helper 已经真的把休眠关掉
+    /// isPreventingSleep 在稳态下已隐含 isEnabled (shouldDisableSleep 要求它),
+    /// 叠这一层是为了关开关到 helper 回调之间的异步空窗: 用户意图先落地
+    var isActivelyPreventingSleepPublisher: AnyPublisher<Bool, Never> {
+        Publishers.CombineLatest($isEnabled, $isPreventingSleep)
+            .map { isEnabled, isPreventingSleep in
+                isEnabled && isPreventingSleep
+            }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+
     private let activityMonitor: CodexActivityMonitor
     private let codexHookSettings: CodexHookSettings
     private let defaults: UserDefaults
@@ -104,7 +116,6 @@ final class KeepAliveController: ObservableObject {
         if connection != nil {
             applySleepDisabled(false)
         }
-        _ = systemSleepService.endPreventingIdleSleep()
         invalidateConnection()
     }
 
@@ -319,8 +330,7 @@ final class KeepAliveController: ObservableObject {
             // 操作类结果 (例如重试耗尽) 必须留到下一次操作有结论为止
             registrationErrorMessage = nil
         } else if helperStatus != .requiresApproval {
-            _ = systemSleepService.endPreventingIdleSleep()
-            isPreventingSleep = false
+            releaseSleepPrevention()
             resetMaximumDurationState()
         }
     }
@@ -333,7 +343,7 @@ final class KeepAliveController: ObservableObject {
             if connection != nil, appliedSleepDisabled != false || isPreventingSleep {
                 applySleepDisabled(false)
             } else {
-                _ = systemSleepService.endPreventingIdleSleep()
+                releaseSleepPrevention()
             }
             return
         }
@@ -385,9 +395,7 @@ final class KeepAliveController: ObservableObject {
                 }
                 self.requestInFlight = false
                 guard exitCode == 0 else {
-                    if disabled {
-                        _ = self.systemSleepService.endPreventingIdleSleep()
-                    }
+                    // invalidateConnection 会连同 assertion 一起收
                     self.invalidateConnection()
                     self.operationErrorMessage = "切换休眠状态失败 (\(exitCode))"
                     self.scheduleRetryIfNeeded(for: disabled)
@@ -505,10 +513,8 @@ final class KeepAliveController: ObservableObject {
                 }
                 let shouldRetry = self.requestInFlight || self.isPreventingSleep
                 let desiredSleepDisabled = self.shouldDisableSleep
-                self.connection = nil
-                self.appliedSleepDisabled = nil
-                self.requestInFlight = false
-                self.isPreventingSleep = false
+                // 复用统一清理: 连接失效同样要释放 assertion, 否则空闲休眠会被永久阻止
+                self.invalidateConnection()
                 if shouldRetry {
                     self.scheduleRetryIfNeeded(for: desiredSleepDisabled)
                 }
@@ -543,6 +549,14 @@ final class KeepAliveController: ObservableObject {
         connection?.invalidate()
         appliedSleepDisabled = nil
         requestInFlight = false
+        releaseSleepPrevention()
+    }
+
+    /// assertion 与 isPreventingSleep 同进同退的唯一出口
+    /// 两者必须一起收: 只清标志会让菜单栏图标显示成未防休眠, 而这条 assertion 仍在阻止空闲休眠,
+    /// 且没有任何后续路径会释放它; 仍需要防休眠时由重试经 applySleepDisabled(true) 重建
+    private func releaseSleepPrevention() {
+        _ = systemSleepService.endPreventingIdleSleep()
         isPreventingSleep = false
     }
 

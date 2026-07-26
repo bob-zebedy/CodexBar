@@ -13,6 +13,8 @@ final class SystemSleepService {
         }
     }
 
+    private static let idleSleepAssertionName = "CodexBar - Codex task running"
+
     private var idleSleepAssertionID = IOPMAssertionID(kIOPMNullAssertionID)
 
     func beginPreventingIdleSleep() -> IOReturn {
@@ -21,10 +23,12 @@ final class SystemSleepService {
         }
 
         var assertionID = IOPMAssertionID(kIOPMNullAssertionID)
+        // 名称必须是 ASCII: 含中文时 pmset -g assertions 会把 named 显示成空串,
+        // 这条断言在诊断输出里就失去了标识, 只能靠进程名辨认
         let result = IOPMAssertionCreateWithName(
             kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
             IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            "Codex 任务正在运行" as CFString,
+            Self.idleSleepAssertionName as CFString,
             &assertionID
         )
         if result == kIOReturnSuccess {

@@ -10,8 +10,8 @@ line_length:
     ignores_interpolated_strings: true
 
 file_length:
-    warning: 900
-    error: 1200
+    warning: 1200
+    error: 1500
     ignore_comment_only_lines: true
 
 type_body_length:

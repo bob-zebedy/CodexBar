@@ -199,25 +199,51 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
     }
 
-    /// 无状态点和额度条时使用模板渲染, 由系统按菜单栏外观着色
+    /// 无状态点; 额度条和符号着色时使用模板渲染, 由系统按菜单栏外观着色
+    /// keepAliveFraction: 0 为常态, 1 为阻止休眠态, 中间值是过渡帧
     private static func makeStatusImage(
         _ symbolName: String,
-        indicatorTint: NSColor? = nil,
+        keepAliveFraction: CGFloat,
+        indicatorTint: NSColor?,
         indicatorVisibility: CGFloat = 1,
-        progress: StatusIconProgress? = nil,
+        progress: StatusIconProgress?,
         progressVisibility: CGFloat = 1
     ) -> NSImage? {
         guard let symbolImage = makeStatusSymbolImage(symbolName) else {
             return nil
         }
 
-        let usesTemplateRendering = indicatorTint == nil && progress == nil
+        let keepAliveFraction = clampedVisibility(keepAliveFraction)
+        let symbolAlpha = interpolated(
+            from: 1,
+            to: Metrics.keepAliveActiveSymbolAlpha,
+            progress: keepAliveFraction
+        )
+        // fraction 大于 0 就要自行着色, 与具体色值无关
+        let usesTemplateRendering = indicatorTint == nil && progress == nil && keepAliveFraction <= 0
+        let staleAlpha = progress?.isStale == true ? Metrics.staleIconAlpha : 1
         let statusImage = NSImage(size: Metrics.progressStatusImageSize, flipped: false) { _ in
+            // 两端用动态色以跟随菜单栏外观, 只有过渡帧需要混成静态色
+            // 三种情况都必须在 handler 内求值: blended 会把 labelColor 与 systemRed
+            // 按 App 当前外观冻结, 而不是菜单栏外观
+            let tint: NSColor = switch keepAliveFraction {
+            case ...0:
+                usesTemplateRendering ? .black : .labelColor
+            case 1...:
+                Metrics.keepAliveActiveSymbolColor
+            default:
+                Self.blendedColor(
+                    .labelColor,
+                    Metrics.keepAliveActiveSymbolColor,
+                    progress: keepAliveFraction
+                )
+            }
             Self.drawStatusSymbol(
                 symbolImage,
                 in: Metrics.progressStatusSymbolRect,
-                tint: usesTemplateRendering ? .black : .labelColor,
-                alpha: progress?.isStale == true ? Metrics.staleIconAlpha : 1
+                tint: tint,
+                // 两个来源相乘: stale 时在符号自身透明度基础上再淡一档
+                alpha: symbolAlpha * staleAlpha
             )
             if let progress {
                 Self.drawProgress(
@@ -336,6 +362,38 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         min(max(value, 0), 1)
     }
 
+    private static func visibility(_ isVisible: Bool) -> CGFloat {
+        isVisible ? 1 : 0
+    }
+
+    private static func interpolated(
+        from source: CGFloat,
+        to destination: CGFloat,
+        progress: CGFloat
+    ) -> CGFloat {
+        source + (destination - source) * progress
+    }
+
+    /// 色彩空间转换失败时 blended 返回 nil, 统一退到较近的一端
+    private static func blendedColor(
+        _ source: NSColor,
+        _ destination: NSColor,
+        progress: CGFloat
+    ) -> NSColor {
+        let progress = clampedVisibility(progress)
+        return source.blended(withFraction: progress, of: destination)
+            ?? (progress < 0.5 ? source : destination)
+    }
+
+    /// 图标动画中一条 0↔1 的过渡: 起止由布尔状态决定, 按动画进度取中间值
+    private static func transitionValue(
+        from source: Bool,
+        to destination: Bool,
+        progress: CGFloat
+    ) -> CGFloat {
+        interpolated(from: visibility(source), to: visibility(destination), progress: progress)
+    }
+
     private static func easedVisibility(_ value: CGFloat) -> CGFloat {
         let value = clampedVisibility(value)
         return value * value * (3 - 2 * value)
@@ -345,6 +403,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         let usesErrorImage: Bool
         let progress: StatusIconProgress?
         let activity: CodexActivitySnapshot
+        let isPreventingSleep: Bool
 
         var symbolName: String {
             usesErrorImage ? Metrics.errorStatusSymbolName : Metrics.normalStatusSymbolName
@@ -365,7 +424,12 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
         /// 只包含影响图像像素的字段; tooltip 文本变化不应触发重绘
         var renderState: StatusIconRenderState {
-            StatusIconRenderState(symbolName: symbolName, indicator: indicator, progress: progress)
+            StatusIconRenderState(
+                symbolName: symbolName,
+                indicator: indicator,
+                progress: progress,
+                isPreventingSleep: isPreventingSleep
+            )
         }
 
         var hasLiveDuration: Bool {
@@ -431,6 +495,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         let symbolName: String
         let indicator: ActivityIndicator?
         let progress: StatusIconProgress?
+        let isPreventingSleep: Bool
     }
 
     private enum ActivityIndicator: Equatable {
@@ -596,11 +661,14 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
             menuBarQuotaSettings.$selection,
             activityMonitor.$snapshot
         )
-        .map { loadState, snapshot, selection, activity in
-            StatusIconState(
+        .combineLatest(keepAliveController.isActivelyPreventingSleepPublisher)
+        .map { base, isPreventingSleep in
+            let (loadState, snapshot, selection, activity) = base
+            return StatusIconState(
                 usesErrorImage: loadState.isError || snapshot?.hasTrustedData == false,
                 progress: StatusIconProgress(snapshot: snapshot, selection: selection),
-                activity: snapshot == nil ? .empty : activity
+                activity: snapshot == nil ? .empty : activity,
+                isPreventingSleep: isPreventingSleep
             )
         }
         .removeDuplicates()
@@ -731,7 +799,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         statusIconAnimationTask?.cancel()
 
         let progressVisibilityChanged = (previousState.progress == nil) != (state.progress == nil)
-        if previousState.indicator != state.indicator || progressVisibilityChanged {
+        let symbolTintChanged = previousState.isPreventingSleep != state.isPreventingSleep
+        if previousState.indicator != state.indicator || progressVisibilityChanged || symbolTintChanged {
             animateStatusImage(from: previousState, to: state)
             return
         }
@@ -742,6 +811,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private func renderStatusImage(_ state: StatusIconState) {
         statusItem.button?.image = Self.makeStatusImage(
             state.symbolName,
+            keepAliveFraction: Self.visibility(state.isPreventingSleep),
             indicatorTint: state.indicator?.color,
             progress: state.progress
         )
@@ -749,10 +819,6 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func animateStatusImage(from previousState: StatusIconState, to finalState: StatusIconState) {
         let renderedProgress = finalState.progress ?? previousState.progress
-        let fromProgressVisibility: CGFloat = previousState.progress == nil ? 0 : 1
-        let toProgressVisibility: CGFloat = finalState.progress == nil ? 0 : 1
-        let fromIndicatorVisibility: CGFloat = previousState.indicator == nil ? 0 : 1
-        let toIndicatorVisibility: CGFloat = finalState.indicator == nil ? 0 : 1
 
         statusIconAnimationTask = Task { @MainActor [weak self] in
             for frame in 0 ... Metrics.statusIconAnimationFrameCount {
@@ -764,20 +830,29 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
                 let rawProgress = CGFloat(frame) / CGFloat(Metrics.statusIconAnimationFrameCount)
                 let easedProgress = Self.easedVisibility(rawProgress)
-                let progressVisibility = fromProgressVisibility
-                    + (toProgressVisibility - fromProgressVisibility) * easedProgress
-                let indicatorVisibility = fromIndicatorVisibility
-                    + (toIndicatorVisibility - fromIndicatorVisibility) * easedProgress
                 statusItem.button?.image = Self.makeStatusImage(
                     finalState.symbolName,
+                    keepAliveFraction: Self.transitionValue(
+                        from: previousState.isPreventingSleep,
+                        to: finalState.isPreventingSleep,
+                        progress: easedProgress
+                    ),
                     indicatorTint: Self.interpolatedIndicatorTint(
                         from: previousState.indicator,
                         to: finalState.indicator,
                         progress: easedProgress
                     ),
-                    indicatorVisibility: indicatorVisibility,
+                    indicatorVisibility: Self.transitionValue(
+                        from: previousState.indicator != nil,
+                        to: finalState.indicator != nil,
+                        progress: easedProgress
+                    ),
                     progress: renderedProgress,
-                    progressVisibility: progressVisibility
+                    progressVisibility: Self.transitionValue(
+                        from: previousState.progress != nil,
+                        to: finalState.progress != nil,
+                        progress: easedProgress
+                    )
                 )
 
                 if frame < Metrics.statusIconAnimationFrameCount {
@@ -826,13 +901,12 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     ) -> NSColor? {
         switch (source, destination) {
         case let (source?, destination?):
-            let progress = clampedVisibility(progress)
-            return source.color.blended(withFraction: progress, of: destination.color)
-                ?? (progress < 0.5 ? source.color : destination.color)
+            // 只在两端都有指示点时混色; 单端的显隐交给 indicatorVisibility
+            blendedColor(source.color, destination.color, progress: progress)
         case let (indicator?, nil), let (nil, indicator?):
-            return indicator.color
+            indicator.color
         case (nil, nil):
-            return nil
+            nil
         }
     }
 
@@ -1329,6 +1403,11 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private enum Metrics {
         static let normalStatusSymbolName = "person.fill.checkmark"
         static let errorStatusSymbolName = "person.fill.xmark"
+        /// 正在阻止系统休眠时的符号颜色; 动态色会跟随菜单栏外观调整
+        static let keepAliveActiveSymbolColor = NSColor.systemRed
+        /// 让红色透出一点菜单栏底色, 比满色红柔和
+        /// 用真实 alpha 而不是调淡的固定色: 深浅菜单栏下各自融进底色
+        static let keepAliveActiveSymbolAlpha: CGFloat = 0.75
         static let fadeInDuration: TimeInterval = 0.24
         static let fadeOutDuration: TimeInterval = 0.18
         static let auxiliaryWindowKeyFocusRestoreDelayMilliseconds: UInt64 = 120

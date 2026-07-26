@@ -68,7 +68,7 @@ actor WorkflowService {
         }
 
         // 单日失败不中止整批: 失败的日期已被 rebuildLocalData 标脏, 常规维护会自动重建
-        // 中止会让「前几天已改写、后几天没碰」这个事实完全不被上报
+        // 中止会让「前几天已改写, 后几天没碰」这个事实完全不被上报
         var rebuildResults = [WorkflowMaintenanceResult]()
         var failedDateKeys = [String]()
         var firstFailure: Error?
