@@ -87,7 +87,8 @@ struct CodexActivityCard: View {
             if content.otherTaskCount > 0 {
                 Text("+\(content.otherTaskCount)")
                     .font(.caption2.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    // 必须是具体 Color, 层级样式在 numericText 的过渡层里会被重新解析成别的层级
+                    .foregroundStyle(Color.codexSecondaryLabel)
                     .numericRollTransition(value: Double(content.otherTaskCount))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
