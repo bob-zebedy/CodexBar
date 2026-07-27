@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import os
 
 /// 主面板内容偏好
 @MainActor
@@ -27,6 +28,7 @@ final class MainPanelSettings: ObservableObject {
             return
         }
 
+        AppLog.settings.notice("任务中心显示已变更: enabled=\(showsTaskCenter ? 1 : 0)")
         defaults.set(showsTaskCenter, forKey: Self.showsTaskCenterKey)
         self.showsTaskCenter = showsTaskCenter
     }

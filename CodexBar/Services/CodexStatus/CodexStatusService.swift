@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// UI 只关心可展示数据, 未登录, 初始化失败; 更细的错误保留在交互日志中
 nonisolated enum CodexFetchOutcome {
@@ -317,11 +318,17 @@ actor CodexStatusService {
             do {
                 try refreshTokenIfNeeded()
             } catch {
+                AppLog.app.error(
+                    "重置次数查询失败: stage=refreshToken; detail=\(error.localizedDescription, privacy: .public)"
+                )
                 return nil
             }
 
             return try? await fetchExpirationDates()
         } catch {
+            AppLog.app.error(
+                "重置次数查询失败: stage=fetch; detail=\(error.localizedDescription, privacy: .public)"
+            )
             return nil
         }
     }
@@ -471,6 +478,10 @@ actor CodexStatusService {
                 reused: false
             )
         } catch {
+            // app-server 链路的细节按既有分工进日志窗口, 不重复写系统日志
+            RequestLogStorage.shared.recordFailure(
+                message: "app-server 会话初始化失败: \(error.localizedDescription)"
+            )
             session.close()
             return .initializationFailed
         }

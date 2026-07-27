@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 
 /// 从本机 Hook JSONL 维护进程内实时任务状态, 是菜单栏; 活动卡片; 通知和触觉反馈的唯一任务状态来源
 @MainActor
@@ -55,6 +56,7 @@ final class CodexActivityMonitor: ObservableObject {
                 guard let self else {
                     return
                 }
+                AppLog.activity.notice("系统唤醒, 立即重新读取")
                 if let reader = tailReader {
                     Task {
                         await reader.drainNow()
@@ -76,6 +78,7 @@ final class CodexActivityMonitor: ObservableObject {
 
     private func setMonitoringEnabled(_ enabled: Bool) {
         guard enabled else {
+            AppLog.activity.notice("已停止监控")
             stopReaderAndClearState()
             return
         }
@@ -83,6 +86,8 @@ final class CodexActivityMonitor: ObservableObject {
         guard tailReader == nil else {
             return
         }
+
+        AppLog.activity.notice("已开始监控")
 
         tailReaderGeneration &+= 1
         let generation = tailReaderGeneration
@@ -281,8 +286,11 @@ final class CodexActivityMonitor: ObservableObject {
             refreshSnapshot(now: Date())
             refreshSessionLifecycleNow()
             backfillPromptStartTimesFromHistory()
+            let activeCount = snapshot.activeCount
+            AppLog.activity.notice("历史回放完成: activeTasks=\(activeCount)")
         case let .live(events):
             let pendingKeysBefore = Set(pendingTerminalTasks.keys)
+            let activeCountBefore = snapshot.activeCount
             var transitions: [CodexActivityLiveTransition] = []
             for event in events {
                 if let transition = apply(event) {
@@ -291,6 +299,14 @@ final class CodexActivityMonitor: ObservableObject {
             }
 
             refreshSnapshot(now: Date())
+            // 活跃数变化覆盖任务起止, transitions 覆盖等待批准
+            // 只看活跃数会漏掉 running 转 waitingApproval, 那一进一出恒抵消为零
+            let activeCountAfter = snapshot.activeCount
+            if activeCountAfter != activeCountBefore || !transitions.isEmpty {
+                AppLog.activity.notice(
+                    "任务状态变化: from=\(activeCountBefore); to=\(activeCountAfter); transitions=\(transitions.count)"
+                )
+            }
             publishLiveTransitions(transitions)
             if !pendingTerminalTasks.isEmpty {
                 // 只有刚进入终态确认窗口的任务需要重置解析缓存重试定位 rollout

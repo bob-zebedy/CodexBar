@@ -82,6 +82,7 @@ struct CodexActivityCard: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color.teal)
                     .transition(.opacity)
+                    .help("已阻止系统休眠")
             }
 
             if content.otherTaskCount > 0 {

@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 import UserNotifications
 
 /// 通知偏好: 总开关; 五类通知子开关及声音; 任务触觉开关; 两个阈值和系统授权状态镜像
@@ -95,6 +96,7 @@ final class NotificationSettings: ObservableObject {
             return
         }
 
+        AppLog.notification.notice("通知总开关已变更: enabled=\(enabled ? 1 : 0)")
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
         if enabled {
@@ -182,6 +184,12 @@ final class NotificationSettings: ObservableObject {
                 return
             }
 
+            let previousStatus = authorizationStatus
+            if status != previousStatus {
+                AppLog.notification.notice(
+                    "通知授权状态变化: from=\(String(describing: previousStatus), privacy: .public); to=\(String(describing: status), privacy: .public)"
+                )
+            }
             authorizationStatus = status
         }
     }
@@ -210,6 +218,10 @@ final class NotificationSettings: ObservableObject {
                 return
             }
 
+            // 被拒时通知会静默不发, 这是最常见的"设置开了却收不到"来源, 必须留痕
+            AppLog.notification.notice(
+                "通知授权请求结果: status=\(String(describing: status), privacy: .public)"
+            )
             authorizationStatus = status
         }
     }
@@ -219,6 +231,10 @@ final class NotificationSettings: ObservableObject {
             return
         }
 
+        // 六个通知细项都走这里, 用持久化 key 区分是哪一项, 不必逐个 setter 铺日志
+        AppLog.notification.notice(
+            "通知选项已变更: key=\(key, privacy: .public); enabled=\(value ? 1 : 0)"
+        )
         current = value
         defaults.set(value, forKey: key)
     }

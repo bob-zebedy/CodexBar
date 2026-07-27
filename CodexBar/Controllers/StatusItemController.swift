@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import os
 import SwiftUI
 
 /// 应用级对象装配点, 持有共享服务和 ViewModel 生命周期
@@ -56,12 +57,33 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         self.notificationService = notificationService
         activityMonitor.start()
         keepAliveController.start()
+        logLaunchState()
     }
 
     func applicationWillTerminate(_: Notification) {
+        AppLog.app.notice("APP 即将退出")
         statusItemController?.uninstall()
         keepAliveController.stop()
         activityMonitor.stop()
+    }
+
+    /// 启动时把各开关的初始值记成一条基线, 之后的变更日志都是相对这条基线的增量
+    /// 排查时先看这条就知道当时的配置, 不必让用户逐项回忆
+    private func logLaunchState() {
+        // 全部先落到局部量再插值: Logger 的插值是 autoclosure, 直接写属性会与 --self remove 打架
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-"
+        let hook = codexHookSettings.isEnabled ? 1 : 0
+        let keepAlive = keepAliveController.isEnabled ? 1 : 0
+        let keepAliveLimit = keepAliveController.maximumDuration.title
+        let sync = syncSettings.isEnabled ? 1 : 0
+        let notification = notificationSettings.isEnabled ? 1 : 0
+        let menuBarQuota = menuBarQuotaSettings.selection.rawValue
+        let taskCenter = mainPanelSettings.showsTaskCenter ? 1 : 0
+        let hotKey = globalHotKeySettings.shortcut == nil ? 0 : 1
+        AppLog.app.notice(
+            "APP 已启动: version=\(version, privacy: .public); build=\(build, privacy: .public); hook=\(hook); keepAlive=\(keepAlive); keepAliveLimit=\(keepAliveLimit, privacy: .public); sync=\(sync); notification=\(notification); menuBarQuota=\(menuBarQuota, privacy: .public); taskCenter=\(taskCenter); hotKey=\(hotKey)"
+        )
     }
 
     func openSettingsFromCommand() {

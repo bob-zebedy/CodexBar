@@ -2,6 +2,7 @@ import CloudKit
 import CryptoKit
 import Foundation
 import IOKit
+import os
 import Security
 
 nonisolated enum WorkflowSyncCloudKit {
@@ -124,9 +125,14 @@ actor WorkflowSyncService {
             try await pruneCurrentDeviceRecordsIfNeeded(deviceId: deviceId, state: &state)
             try saveState(state)
             didSucceed = true
+            AppLog.sync.notice("同步完成")
         } catch {
+            let reason = WorkflowSyncFailureReason.classify(error)
+            AppLog.sync.error(
+                "同步失败: reason=\(reason.rawValue, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+            )
             invalidateAccountScopedCaches()
-            failureMessage = WorkflowSyncFailureReason.classify(error).message
+            failureMessage = reason.message
             try? saveState(state)
         }
 
@@ -587,6 +593,10 @@ private extension WorkflowSyncService {
                 cachedRecords: loadCachedRecords()
             )
         } catch {
+            // 增量拉取退化成全量重建, 代价高得多, 反复出现说明游标或缓存有问题
+            AppLog.sync.notice(
+                "增量拉取失败, 改为全量重建: detail=\(error.localizedDescription, privacy: .public)"
+            )
             try await rebuildCacheFromRemote()
         }
     }
@@ -709,6 +719,10 @@ private extension WorkflowSyncService {
                 cachedRecords: cachedRecords
             )
         } catch {
+            // 丢掉游标, 下次同步会从头拉一遍
+            AppLog.sync.notice(
+                "建立游标基线失败, 已丢弃游标: detail=\(error.localizedDescription, privacy: .public)"
+            )
             try? fileManager.removeItem(at: cursorURL)
         }
     }

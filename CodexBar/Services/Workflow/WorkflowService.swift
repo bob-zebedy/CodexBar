@@ -2,6 +2,7 @@ import Combine
 import CryptoKit
 import Darwin
 import Foundation
+import os
 
 /// 从 Hook 原始事件维护每日聚合, 对外只发布 UI 需要的统计快照
 actor WorkflowService {
@@ -76,6 +77,10 @@ actor WorkflowService {
             do {
                 try rebuildResults.append(rebuildLocalData(for: dateKey))
             } catch {
+                // 整批成功时这个原因不会往上抛, 摘要只带得走日期
+                AppLog.workflow.error(
+                    "重建失败: date=\(dateKey, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+                )
                 failedDateKeys.append(dateKey)
                 if firstFailure == nil {
                     firstFailure = error
@@ -90,6 +95,9 @@ actor WorkflowService {
         do {
             try await syncService.markReplacementNeeded(for: normalizedDateKeys)
         } catch {
+            AppLog.workflow.error(
+                "登记待替换记录失败: dates=\(normalizedDateKeys.count); detail=\(error.localizedDescription, privacy: .public)"
+            )
             didFailReplacementMarking = true
         }
 
@@ -109,6 +117,9 @@ actor WorkflowService {
             isSyncReplacementPending: syncService.hasPendingReplacement(for: normalizedDateKeys),
             failedDateKeys: failedDateKeys,
             didFailSyncReplacementMarking: didFailReplacementMarking
+        )
+        AppLog.workflow.notice(
+            "重建完成: dates=\(summary.rebuiltDateCount); events=\(summary.eventCount); corruptLines=\(summary.corruptLineCount); failedDates=\(failedDateKeys.count)"
         )
         return WorkflowDataRebuildOutcome(snapshot: snapshot, summary: summary)
     }
@@ -197,6 +208,9 @@ actor WorkflowService {
             }
             try pruneExpiredEventFiles()
         } catch {
+            AppLog.workflow.error(
+                "维护未完成: detail=\(error.localizedDescription, privacy: .public)"
+            )
             return
         }
     }
@@ -214,6 +228,9 @@ actor WorkflowService {
                 let result = try buildDailyAggregate(for: task)
                 didWrite = try commit(result, aggregates: &aggregates) || didWrite
             } catch {
+                AppLog.workflow.error(
+                    "聚合失败, 已标记待重建: date=\(task.dateKey, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+                )
                 markDirty(task.dateKey)
             }
         }
@@ -766,6 +783,10 @@ actor WorkflowService {
 
             try WorkflowStorage.saveMaintenanceState(state)
         }
+        // 保留期到点会真的删掉原始事件文件, 数据对不上时要能查到哪些日期被清掉了
+        AppLog.workflow.notice(
+            "已清理过期事件文件: dates=\(expiredDateKeys.count); oldest=\(expiredDateKeys.first ?? "-", privacy: .public)"
+        )
     }
 
     private func keepsIdentifiers(for dateKey: String) -> Bool {

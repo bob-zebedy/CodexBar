@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import os
 import Sparkle
 import SwiftUI
 
@@ -54,6 +55,7 @@ final class AppUpdater: NSObject, ObservableObject {
             return
         }
 
+        AppLog.app.notice("开始检查更新")
         beginManualCheck()
         showSettingsStatusMessage("正在检查更新")
         updaterController.updater.checkForUpdateInformation()
@@ -76,6 +78,7 @@ final class AppUpdater: NSObject, ObservableObject {
             return
         }
 
+        AppLog.app.notice("自动检查更新已变更: enabled=\(isEnabled ? 1 : 0)")
         updaterController.updater.automaticallyChecksForUpdates = isEnabled
         refreshAutomaticCheckSetting()
     }

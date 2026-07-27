@@ -122,7 +122,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         } catch {
             let sentinelDirectoryPath = sentinelURL.deletingLastPathComponent().path
             helperLog.error(
-                "Helper 启动失败: 无法访问休眠设置目录; path=\(sentinelDirectoryPath, privacy: .public), detail=\(error.localizedDescription, privacy: .public)"
+                "Helper 启动失败: 无法访问休眠设置目录; path=\(sentinelDirectoryPath, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
             )
             exit(EXIT_FAILURE)
         }
@@ -224,17 +224,17 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
             break
         case let .unreadable(error):
             // 不能用当前的 SleepDisabled 覆写损坏的记录: 当前值可能正是我们自己禁用的结果
-            // 那会把「原本允许休眠」错记成「原本已禁用」, 让后续恢复永久跳过
+            // 那会把「原本允许休眠」错记成「原本已禁用」让后续恢复永久跳过
             let sentinelPath = sentinelURL.path
             helperLog.error(
-                "休眠记录损坏, 拒绝覆写: path=\(sentinelPath, privacy: .public), detail=\(error.localizedDescription, privacy: .public)"
+                "休眠记录损坏: path=\(sentinelPath, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
             )
             return -1
         case .absent:
             let current = PmsetRunner.currentSleepDisabled()
             guard current.result.exitCode == 0, let wasDisabled = current.value else {
                 helperLog.error(
-                    "读取休眠设置失败: error=\(current.result.exitCode) detail=\(current.result.output, privacy: .public)"
+                    "读取休眠设置失败: error=\(current.result.exitCode); detail=\(current.result.output, privacy: .public)"
                 )
                 return current.result.exitCode == 0 ? -1 : current.result.exitCode
             }
@@ -245,7 +245,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
             } catch {
                 let sentinelPath = sentinelURL.path
                 helperLog.error(
-                    "保存休眠设置失败: path=\(sentinelPath, privacy: .public), detail=\(error.localizedDescription, privacy: .public)"
+                    "保存休眠设置失败: path=\(sentinelPath, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
                 )
                 return -1
             }
@@ -257,7 +257,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
                 try? FileManager.default.removeItem(at: sentinelURL)
             }
             helperLog.error(
-                "关闭系统休眠失败: error=\(result.exitCode), detail=\(result.output, privacy: .public)"
+                "关闭系统休眠失败: error=\(result.exitCode); detail=\(result.output, privacy: .public)"
             )
             return result.exitCode
         }
@@ -271,6 +271,8 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         let previouslyDisabled: Bool
         switch sentinelState() {
         case .absent:
+            // 没接管过就没有要恢复的东西, 这个值只是占位, 不代表系统真实状态
+            // 必须保持 true: App 用它抑制补发合盖休眠, 换成实测值会让从未接管的这一轮把机器按睡
             return SleepRestoreResult(exitCode: 0, restoredSleepDisabled: true)
         case let .present(value):
             previouslyDisabled = value
@@ -278,7 +280,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
             // 读不出原值时按系统默认的「允许休眠」恢复
             // 宁可多恢复一次(pmset 幂等), 也不能把 SleepDisabled=1 永久留给用户
             helperLog.error(
-                "读取休眠记录失败, 按允许休眠恢复: reason=\(trigger.rawValue, privacy: .public), detail=\(error.localizedDescription, privacy: .public)"
+                "读取休眠记录失败: reason=\(trigger.rawValue, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
             )
             previouslyDisabled = false
         }
@@ -287,7 +289,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         let result = PmsetRunner.setSleepDisabled(previouslyDisabled)
         guard result.exitCode == 0 else {
             helperLog.error(
-                "恢复系统休眠失败: reason=\(trigger.rawValue, privacy: .public), SleepDisabled=\(previousValue), error=\(result.exitCode), detail=\(result.output, privacy: .public)"
+                "恢复系统休眠失败: reason=\(trigger.rawValue, privacy: .public); SleepDisabled=\(previousValue); error=\(result.exitCode); detail=\(result.output, privacy: .public)"
             )
             return SleepRestoreResult(
                 exitCode: result.exitCode,
@@ -297,7 +299,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
 
         try? FileManager.default.removeItem(at: sentinelURL)
         helperLog.notice(
-            "系统休眠已恢复: reason=\(trigger.rawValue, privacy: .public), SleepDisabled=\(previousValue)"
+            "系统休眠已恢复: reason=\(trigger.rawValue, privacy: .public); SleepDisabled=\(previousValue)"
         )
         return SleepRestoreResult(
             exitCode: 0,
@@ -333,7 +335,10 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
                 guard let self else {
                     exit(EXIT_SUCCESS)
                 }
-                _ = restoreSleep(trigger: .helperTermination)
+                // 和另外三个触发源一样先判断: 空闲态退出没有东西要恢复, 不必再 fork 一次 pmset
+                if sentinelNeedsRestore() {
+                    _ = restoreSleep(trigger: .helperTermination)
+                }
                 exit(EXIT_SUCCESS)
             }
             source.resume()
@@ -365,17 +370,17 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
     private func validateSentinelDirectory(_ info: stat) throws {
         guard info.st_mode & S_IFMT == S_IFDIR else {
             throw CodexBarHelperError.insecureSentinelDirectory(
-                "目录类型错误: actual=\(fileTypeName(info.st_mode)), expected=directory"
+                "目录类型错误: actual=\(fileTypeName(info.st_mode)); expected=directory"
             )
         }
         guard info.st_uid == 0 else {
             throw CodexBarHelperError.insecureSentinelDirectory(
-                "所有者错误: actual=\(info.st_uid), expected=0"
+                "所有者错误: actual=\(info.st_uid); expected=0"
             )
         }
         guard info.st_mode & 0o022 == 0 else {
             throw CodexBarHelperError.insecureSentinelDirectory(
-                "目录权限错误: actual=\(permissionString(info.st_mode)), forbidden=0022"
+                "目录权限错误: actual=\(permissionString(info.st_mode)); forbidden=0022"
             )
         }
     }
@@ -427,17 +432,17 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         }
         guard info.st_mode & S_IFMT == S_IFREG else {
             throw CodexBarHelperError.invalidSentinel(
-                "文件类型错误: actual=\(fileTypeName(info.st_mode)), expected=file"
+                "文件类型错误: actual=\(fileTypeName(info.st_mode)); expected=file"
             )
         }
         guard info.st_uid == 0 else {
             throw CodexBarHelperError.invalidSentinel(
-                "所有者错误: actual=\(info.st_uid), expected=0"
+                "所有者错误: actual=\(info.st_uid); expected=0"
             )
         }
         guard info.st_mode & 0o022 == 0 else {
             throw CodexBarHelperError.invalidSentinel(
-                "文件权限错误: actual=\(permissionString(info.st_mode)), forbidden=0022"
+                "文件权限错误: actual=\(permissionString(info.st_mode)); forbidden=0022"
             )
         }
 
@@ -451,7 +456,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         }
         guard let value = String(data: data, encoding: .utf8) else {
             throw CodexBarHelperError.invalidSentinel(
-                "文件编码错误: actual=unknown, expected=UTF-8"
+                "文件编码错误: actual=unknown; expected=UTF-8"
             )
         }
 
@@ -462,7 +467,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
             return true
         default:
             throw CodexBarHelperError.invalidSentinel(
-                "文件内容错误: actual=\(data.count), expected=0|1"
+                "文件内容错误: actual=\(data.count); expected=0|1"
             )
         }
     }
@@ -490,7 +495,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         var status = SecCodeCopySelf(SecCSFlags(), &runningCode)
         guard status == errSecSuccess, let runningCode else {
             throw CodexBarHelperError.codeSigningValidationFailed(
-                "读取运行签名失败: Operation=SecCodeCopySelf, Status=\(status)"
+                "读取运行签名失败: Operation=SecCodeCopySelf; Status=\(status)"
             )
         }
 
@@ -498,7 +503,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         status = SecCodeCopyStaticCode(runningCode, SecCSFlags(), &staticCode)
         guard status == errSecSuccess, let staticCode else {
             throw CodexBarHelperError.codeSigningValidationFailed(
-                "读取静态签名失败: Operation=SecCodeCopyStaticCode, Status=\(status)"
+                "读取静态签名失败: Operation=SecCodeCopyStaticCode; Status=\(status)"
             )
         }
 
@@ -510,7 +515,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         )
         guard status == errSecSuccess, let signingInformation else {
             throw CodexBarHelperError.codeSigningValidationFailed(
-                "读取签名信息失败: Operation=SecCodeCopySigningInformation, Status=\(status)"
+                "读取签名信息失败: Operation=SecCodeCopySigningInformation; Status=\(status)"
             )
         }
 
@@ -525,7 +530,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         let helperSuffix = CodexBarHelperIPC.helperBundleIdentifierSuffix
         guard helperIdentifier.hasSuffix(helperSuffix) else {
             throw CodexBarHelperError.codeSigningValidationFailed(
-                "Helper 标识符错误: actual=\(helperIdentifier), expected=*\(helperSuffix)"
+                "Helper 标识符错误: actual=\(helperIdentifier); expected=*\(helperSuffix)"
             )
         }
 

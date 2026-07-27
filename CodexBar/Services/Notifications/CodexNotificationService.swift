@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 import UserNotifications
 
 /// 集中式提醒服务: 订阅额度与实时活动, 负责触觉反馈; 阈值判定; 去重; 重置识别与本地通知发送
@@ -420,6 +421,7 @@ final class CodexNotificationService: NSObject {
 
     // MARK: - 发送与文案
 
+    /// 通知的 title 与 body 含项目名和任务信息, 一律不进日志, 只记 kind
     private func send(
         _ notification: CodexNotificationContent,
         sound: NotificationSoundOption,
@@ -428,9 +430,11 @@ final class CodexNotificationService: NSObject {
         isStillRelevant: (() -> Bool)? = nil,
         onSubmissionFailure: (() -> Void)? = nil
     ) {
+        let kind = notification.kind
         if let dedupKey {
             guard !sentDedupKeys.contains(dedupKey),
                   submittingDedupKeys.insert(dedupKey).inserted else {
+                AppLog.notification.notice("通知已跳过: kind=\(kind, privacy: .public); reason=duplicate")
                 return
             }
         }
@@ -458,23 +462,33 @@ final class CodexNotificationService: NSObject {
 
             for _ in 0 ... Self.notificationSubmissionRetryCount {
                 guard isStillRelevant?() != false else {
+                    AppLog.notification.notice(
+                        "通知已跳过: kind=\(kind, privacy: .public); reason=obsolete"
+                    )
                     return
                 }
                 do {
                     try await UNUserNotificationCenter.current().add(request)
                     guard isStillRelevant?() != false else {
+                        // 投递后任务状态又变了, 撤回避免用户看到过期提醒
+                        AppLog.notification.notice(
+                            "通知已撤回: kind=\(kind, privacy: .public); reason=obsolete"
+                        )
                         removeNotifications(withIdentifiers: [identifier])
                         return
                     }
                     if let dedupKey {
                         rememberSentDedupKey(dedupKey)
                     }
+                    AppLog.notification.notice("通知已发送: kind=\(kind, privacy: .public)")
                     return
                 } catch {
                     continue
                 }
             }
 
+            // 重试全部用尽才记, 循环内的单次失败会重试
+            AppLog.notification.error("通知发送失败: kind=\(kind, privacy: .public); reason=retryExhausted")
             onSubmissionFailure?()
         }
     }
@@ -547,6 +561,8 @@ final class CodexNotificationService: NSObject {
 }
 
 nonisolated struct CodexNotificationContent: Equatable {
+    /// 只用于日志分类, 由各静态工厂带出, 保证与实际内容不会错位
+    let kind: String
     let title: String
     let body: String
 
@@ -556,6 +572,7 @@ nonisolated struct CodexNotificationContent: Equatable {
         thresholdPercent: Int
     ) -> CodexNotificationContent {
         CodexNotificationContent(
+            kind: "lowQuota",
             title: "Codex 额度不足",
             body: "\(limitTitle) \(windowLabel) 剩余额度已低于 \(thresholdPercent)%"
         )
@@ -566,6 +583,7 @@ nonisolated struct CodexNotificationContent: Equatable {
         windowLabel: String
     ) -> CodexNotificationContent {
         CodexNotificationContent(
+            kind: "quotaReset",
             title: "额度已重置",
             body: "\(limitTitle) \(windowLabel)"
         )
@@ -574,6 +592,7 @@ nonisolated struct CodexNotificationContent: Equatable {
     static func taskCompleted(project: String?, duration: TimeInterval) -> CodexNotificationContent {
         let projectText = project.map { "「\($0)」" } ?? "Codex"
         return CodexNotificationContent(
+            kind: "longTask",
             title: "Codex 任务完成",
             body: "\(projectText) 任务完成, \(CodexActivityDisplayFormat.elapsedDurationFragment(for: duration))"
         )
@@ -583,6 +602,7 @@ nonisolated struct CodexNotificationContent: Equatable {
         let subject = project.map { "「\($0)」" } ?? "Codex"
         let action = toolName.map { "\($0) 操作" } ?? "下一步操作"
         return CodexNotificationContent(
+            kind: "taskWaiting",
             title: "Codex 等待批准",
             body: "\(subject) 正在等待批准 \(action)"
         )
@@ -590,6 +610,7 @@ nonisolated struct CodexNotificationContent: Equatable {
 
     static func creditExpiry(count: Int, expirationDate: Date) -> CodexNotificationContent {
         CodexNotificationContent(
+            kind: "creditExpiry",
             title: "重置即将过期",
             body: "有 \(count) 个重置次数将于 \(CodexDateFormat.localDisplayString(from: expirationDate)) 过期"
         )

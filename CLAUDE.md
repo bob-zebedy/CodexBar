@@ -35,6 +35,12 @@ swiftformat .
 # 即 Shared/ CodexBarHelper/ Scripts/ 不在 lint 范围内
 swiftlint
 
+# 查看系统日志; zsh 里 log 会和 shell 冲突, 必须写完整路径
+# Debug 版把 subsystem 换成 app.zabrian.codexbar.debug, helper 进程另带 .helper 后缀
+# BEGINSWITH 会同时命中 Debug 与 Release, 要分版本得用 == 或 IN
+/usr/bin/log stream --predicate 'subsystem == "app.zabrian.codexbar"' --style compact
+/usr/bin/log show --predicate 'subsystem == "app.zabrian.codexbar"' --last 30m --style compact
+
 # 发布流程 (需要 Developer ID 凭据, 不要当普通本地验证跑)
 Scripts/build.sh    # Release archive + Developer ID 导出 + notarize + staple + Gatekeeper 校验
 Scripts/dmg.sh      # 打包 DMG
@@ -70,7 +76,7 @@ Commit message: Conventional Commits 前缀 + 中文标题, 需要 body 时空�
 ```text
 fix: 修复 Codex 状态刷新
 
-    - 合并设置页 onAppear 和 didBecomeActive 的重复版本探测
+    - 合并设置页 onAppear 和 didBecomeActive 的重复版本检测
     - 保留当前运行版本与磁盘安装版本不一致时的更新提示
 ```
 
@@ -127,7 +133,9 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 调用方校验由 XPC 层强制; helper 启动时用 `SecCodeCopySelf` 读自身签名, 拼出形如 `anchor apple generic and certificate leaf[subject.OU] = "<team>" and identifier "<主 App identifier>"` 的 requirement 字符串, 交给 `NSXPCListener.setConnectionCodeSigningRequirement` 生效; 没有逐次连接的 audit token 检查, 改签名或改 bundle ID 会直接连不上
 - 恢复哨兵放在 `/Library/Application Support/CodexBar/<machService>.state` 这个路径, **必须保持 `absent` `present` `unreadable` 三态**, 把读取失败折叠成 nil 会让恢复流程以为无需恢复, 使 `SleepDisabled=1` 永久残留; watchdog 宽限 15 秒, 哨兵自检 60 秒一次
 - 切换失败按 2/4/8...256 秒重试, 列表耗尽 (约 8.5 分钟) 即放弃, 瞬时抖动能自愈, 权限类故障不该无限重试
-- 状态只呈现在主面板活动卡片右侧的咖啡杯标记, 由 `KeepAliveController.isActivelyPreventingSleep` 驱动, 卡片折叠成"暂无数据"时标记要跟着一起收
+- helper 回传的 `restoredSleepDisabled` 只有 `.present` 分支是实测值, `.absent` (本轮没接管过) 与 pmset 失败时都是占位的 `true`; App 侧靠 `canTrustRestoreResult` (接管到恢复之间连接未断) 判断可不可信, 这是从未接管的一轮里不误发 `IOPMSleepSystem` 的唯一屏障, 不要把 `.absent` 改成回实测值
+- 状态只呈现在主面板活动卡片右侧的咖啡杯标记 (带 tooltip), 由 `KeepAliveController.isActivelyPreventingSleep` 驱动, 卡片折叠成"暂无数据"时标记要跟着一起收
+- 设置页那一行说明只在异常或达到上限时出现, 正常运行时整行收起, `keepAliveCaption` 返回 nil 即代表收起
 - **菜单栏图标不承载防休眠状态**, 它要保持模板渲染让系统按菜单栏外观着色, 自行着色在深浅和带染色的菜单栏下都会失控
 
 ### 通知
@@ -150,6 +158,12 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 ### 错误处理原则
 
 - 菜单面板的 `CodexFetchOutcome` 只暴露有数据, 未登录, 初始化失败三种结果, 而启动失败, 超时, 断连, 解析失败等细节全部只进日志窗口, 由 `RequestLogStorage` 保存, 上限 500 条
+- app-server 之外的模块走 `Services/Support/AppLog.swift` 写系统日志, 用户可见文案只留步骤名, 错误码与 `localizedDescription` 这类细节进 os_log; 现有 category 为 `app` `keepalive` `activity` `workflow` `sync` `hooks` `codexcli` `settings` `notification`, helper 进程另用 `helper`
+- 日志的目标是出问题时能从中重建当时的状态, 所以不只记失败, 状态转换, 关键操作与决策依据同样要记; 启动时由 `logLaunchState` 记一条含全部开关的基线, 后续变更日志都是相对它的增量
+- 记日志要区分错误与运行时信息, 状态转换和降级决策用 `.notice`, 失败用 `.error`; 逐事件与逐快照这类高频路径一律不记, 例如两个 Reader 的 `try?` 文件 IO 失败是预期常态, 记了会刷屏
+- 文案只描述事实, 不写"用户做了什么"这类主语, 也不写推论; 字段一律 `名=值` 并用 `; ` 分隔, App 与 helper 两侧保持同一套格式
+- 成对的操作要留成对的日志, 例如 XPC 的发送与回复各记一条并带同一个 `generation`, 缺一条就说明请求丢在途中
+- `Logger` 的插值是 autoclosure, 里面直接访问属性会被要求显式 `self`, 而 `.swiftformat` 配了 `--self remove`, 两边会打架; 把属性先取到局部常量再插值即可, 不需要 lint 豁免
 - 账号有效时 rate limits 和 usage 允许单独失败, 复用同账号旧缓存并标记 stale, UI 显示为半透明, 无缓存则该区域不显示; 账号变化时整体丢弃缓存避免串号
 - 各 Settings 类把读取类错误与操作类错误分开存储, 定时 refresh 不能抹掉用户操作或校验的结论, 参见 `CodexHookSettings` 与 `KeepAliveController`
 - Hook 子进程任何失败都静默退出, 优先保证不拖慢 Codex
@@ -179,12 +193,14 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 只读查询打到 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 这一个地址, 也是全仓库唯一的 `URLSession` 调用点, 位于 `CodexResetCreditsService` 内; Sparkle 更新走 `https://codexbar.zabrian.app/appcast.xml` 这个 feed
 - 不展示 app-server stderr; 不展示或记录 Codex OAuth token 与 `auth.json` 内容; 不把原始敏感 RPC 响应写进文档
 - CloudKit 只同步去掉 `sessionIds` 与 `turnIds` 的 daily 聚合, 不同步原始 Hook events, 账号, 额度或 Token 用量
+- 系统日志不写用户数据: 额度与 Token 用量只记 `state=` 这类结果分类, 任务内容, 项目名, 会话与轮次标识一律不记; 可执行文件路径含用户名, 用 `source=global|bundled` 之类的标识代替
+- 事件数, 任务数, 日期这类聚合数字可以记, 它们是判断重建是否正确和定位哪天出问题的依据, 不含任何内容
 
 ## 代码修改原则
 
 - 优先贴合现有文件结构和类型职责, 不为小改动新建抽象
 - 改 shared controller, shared service, 模型解析或持久化 key 时, 要考虑旧数据和降级路径; 用户设置要保持默认值; 持久化 key 和旧版本迁移兼容
-- **任何兼容性问题都必须主动询问用户, 不要自行拍板**; 只要改动会影响新旧共存就适用, 不限于旧数据迁移或丢弃, 持久化 key 改名或改结构, 老版本升上来的降级路径, 最低系统版本与 API 可用性取舍, 云端记录格式变更; 先说清影响面和几种做法的代价, 等用户选定再动手
+- **任何兼容性问题都必须主动询问用户, 不要自行决定**; 只要改动会影响新旧共存就适用, 不限于旧数据迁移或丢弃, 持久化 key 改名或改结构, 老版本升上来的降级路径, 最低系统版本与 API 可用性取舍, 云端记录格式变更; 先说清影响面和几种做法的代价, 等用户选定再动手
 - 处理窗口, 菜单, 快捷键, App 激活或事件监听时, 特别注意 `LSUIElement` 应用特有的焦点行为
 - 注释保持克制, 只解释非显然的生命周期, 焦点, actor 或系统 API 约束; 现有注释多为解释为什么的类型, 沿用同样风格
 - 改动涉及菜单面板, 窗口焦点, Hook, 同步, 通知或防休眠时, 构建通过之外还要说明应手动覆盖的交互场景; 防休眠额外要验证 App 包内 helper 与 plist 位置, 签名, 首次系统授权, 运行/等待切换和异常退出后的恢复

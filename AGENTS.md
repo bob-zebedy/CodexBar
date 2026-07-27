@@ -2,17 +2,16 @@
 
 ## 项目结构与模块组织
 
-CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用, 使用 Swift 6, SwiftUI, AppKit 和 MVVM. 工程只有 `CodexBar` scheme, 包含主 App 与 `CodexBarHelper` 两个 target
+CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用, 使用 Swift 6, SwiftUI, AppKit 和 MVVM; 工程只有 `CodexBar` scheme, 包含主 App 与 `CodexBarHelper` 两个 target
 
-`CodexBar/` 按 `App/` `Views/` `Controllers/` `Models/` `Services/` 和 `Resources/` 分层. root LaunchDaemon 位于 `CodexBarHelper/` 目录, 跨 target XPC 接口位于 `Shared/` 目录. `Scripts/` 提供发布和 helper 清理工具, `Images/` 存放 README 资源
+`CodexBar/` 按 `App/` `Views/` `Controllers/` `Models/` `Services/` 和 `Resources/` 分层; root LaunchDaemon 位于 `CodexBarHelper/` 目录, 跨 target XPC 接口位于 `Shared/` 目录. `Scripts/` 提供发布和 helper 清理工具, `Images/` 存放 README 资源
 
 ## 构建, 测试与开发命令
 
-- `open CodexBar.xcodeproj` 在 Xcode 中运行 Debug scheme
-- `xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build` 执行日常构建验证
+- `xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build` 执行代码变更后的构建验证
 - `swiftformat .` 按 `.swiftformat` 格式化全部 Swift, 使用 Swift 6 和 4 空格缩进
-- `swiftlint` 按 `.swiftlint.yml` 检查 `CodexBar/`
-- `Scripts/cleanup.swift --help` 查看 KeepAlive helper 清理选项
+- `swiftlint` 按 `.swiftlint.yml` 检查
+- `/usr/bin/log stream --predicate 'subsystem == "app.zabrian.codexbar"' --style compact` 查看系统日志, Debug 版 subsystem 带 `.debug` 后缀
 
 `Scripts/build.sh` `dmg.sh` 和 `appcast.sh` 需要 Developer ID 与公证凭据, 不用于日常验证
 

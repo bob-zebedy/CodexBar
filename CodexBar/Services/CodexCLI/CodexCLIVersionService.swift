@@ -16,7 +16,7 @@ nonisolated struct CodexCLIVersionSnapshot: Equatable {
     )
 }
 
-/// 单个安装源的磁盘探测结果
+/// 单个安装源的磁盘检测结果
 nonisolated struct CodexCLIVersionItem: Equatable, Identifiable {
     let source: CodexCLIExecutableSource
     let path: String?
@@ -48,7 +48,7 @@ nonisolated struct CodexCLIVersionItem: Equatable, Identifiable {
     }
 }
 
-/// 合并磁盘探测版本和当前 app-server 握手版本
+/// 合并磁盘检测版本和当前 app-server 握手版本
 nonisolated struct CodexCLIVersionDisplay: Equatable {
     let source: CodexCLIExecutableSource
     let isCurrent: Bool
@@ -103,7 +103,7 @@ nonisolated struct CodexCLIVersionDisplay: Equatable {
     }
 }
 
-/// 并发探测 Codex CLI 与 Codex APP 内置 CLI 的磁盘版本
+/// 并发检测 Codex CLI 与 Codex APP 内置 CLI 的磁盘版本
 actor CodexCLIVersionService {
     private let timeout: TimeInterval
     private static let pipeDrainTimeout: TimeInterval = 0.25
@@ -121,7 +121,7 @@ actor CodexCLIVersionService {
         let environment = CodexCLIResolver.environment
         let installations = CodexCLIResolver.resolveInstallations(environment: environment)
 
-        // 两个安装源互不依赖, 并发探测避免两个超时串行叠加
+        // 两个安装源互不依赖, 并发检测避免两个超时串行叠加
         async let global = probeVersion(
             source: .global,
             path: installations.globalPath,
@@ -182,6 +182,9 @@ actor CodexCLIVersionService {
         } catch {
             process.terminationHandler = nil
             stopCollectors(outputCollector: outputCollector, errorCollector: errorCollector)
+            AppLog.codexCLI.error(
+                "版本检测启动失败: source=\(source.rawValue, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+            )
             return CodexCLIVersionItem(source: source, path: path, errorMessage: "启动失败")
         }
         defer {
@@ -194,6 +197,7 @@ actor CodexCLIVersionService {
                 outputCollector: outputCollector,
                 errorCollector: errorCollector
             )
+            AppLog.codexCLI.error("版本检测超时: source=\(source.rawValue, privacy: .public)")
             return CodexCLIVersionItem(source: source, path: path, errorMessage: "读取超时")
         }
 
@@ -201,17 +205,25 @@ actor CodexCLIVersionService {
         let errorOutput = collectedText(from: errorCollector, deadline: deadline)
 
         guard process.terminationStatus == 0 else {
+            AppLog.codexCLI.error(
+                "版本检测退出码非零: source=\(source.rawValue, privacy: .public); error=\(process.terminationStatus)"
+            )
             return CodexCLIVersionItem(source: source, path: path, errorMessage: "读取失败")
         }
 
         guard let version = firstLine(in: output) ?? firstLine(in: errorOutput) else {
+            AppLog.codexCLI.error("版本检测无法解析输出: source=\(source.rawValue, privacy: .public)")
             return CodexCLIVersionItem(source: source, path: path, errorMessage: "版本未知")
         }
 
+        let displayVersion = CodexCLIVersionReader.displayVersion(from: version)
+        AppLog.codexCLI.notice(
+            "版本检测完成: source=\(source.rawValue, privacy: .public); version=\(displayVersion, privacy: .public)"
+        )
         return CodexCLIVersionItem(
             source: source,
             path: path,
-            version: CodexCLIVersionReader.displayVersion(from: version)
+            version: displayVersion
         )
     }
 
@@ -316,14 +328,14 @@ nonisolated enum CodexCLIVersionReader {
     }
 }
 
-/// 设置页持有的版本探测状态, 负责节流和丢弃过期刷新结果
+/// 设置页持有的版本检测状态, 负责节流和丢弃过期刷新结果
 @MainActor
 final class CodexCLIVersionViewModel: ObservableObject {
     @Published private(set) var snapshot = CodexCLIVersionSnapshot.empty
     @Published private(set) var isRefreshing = false
 
     /// onAppear 和 didBecomeActive 常连发
-    /// 版本探测需要节流以避免频繁启动子进程
+    /// 版本检测需要节流以避免频繁启动子进程
     private static let refreshThrottle: TimeInterval = 60
 
     private let service: CodexCLIVersionService

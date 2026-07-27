@@ -13,38 +13,37 @@ final class SystemSleepService {
         }
     }
 
-    private static let idleSleepAssertionName = "CodexBar - Codex task running"
+    private static let assertionName = "CodexBar - Codex activity"
 
-    private var idleSleepAssertionID = IOPMAssertionID(kIOPMNullAssertionID)
+    private var assertionID = IOPMAssertionID(kIOPMNullAssertionID)
 
     func beginPreventingIdleSleep() -> IOReturn {
-        guard idleSleepAssertionID == IOPMAssertionID(kIOPMNullAssertionID) else {
+        guard assertionID == IOPMAssertionID(kIOPMNullAssertionID) else {
             return kIOReturnSuccess
         }
 
-        var assertionID = IOPMAssertionID(kIOPMNullAssertionID)
-        // 名称必须是 ASCII: 含中文时 pmset -g assertions 会把 named 显示成空串,
-        // 这条断言在诊断输出里就失去了标识, 只能靠进程名辨认
+        var createdAssertionID = IOPMAssertionID(kIOPMNullAssertionID)
+        // 名称必须是 ASCII: 含中文时 pmset -g assertions 的 named 会显示成空串, 这条断言就失去了标识
         let result = IOPMAssertionCreateWithName(
             kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
             IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            Self.idleSleepAssertionName as CFString,
-            &assertionID
+            Self.assertionName as CFString,
+            &createdAssertionID
         )
         if result == kIOReturnSuccess {
-            idleSleepAssertionID = assertionID
+            assertionID = createdAssertionID
         }
         return result
     }
 
     func endPreventingIdleSleep() -> IOReturn {
-        guard idleSleepAssertionID != IOPMAssertionID(kIOPMNullAssertionID) else {
+        guard assertionID != IOPMAssertionID(kIOPMNullAssertionID) else {
             return kIOReturnSuccess
         }
 
-        let result = IOPMAssertionRelease(idleSleepAssertionID)
+        let result = IOPMAssertionRelease(assertionID)
         if result == kIOReturnSuccess || result == kIOReturnNotFound {
-            idleSleepAssertionID = IOPMAssertionID(kIOPMNullAssertionID)
+            assertionID = IOPMAssertionID(kIOPMNullAssertionID)
         }
         return result == kIOReturnNotFound ? kIOReturnSuccess : result
     }

@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import os
 
 /// Codex TUI 通知设置, 通过 app-server 读写用户级 config.toml
 @MainActor
@@ -33,6 +34,7 @@ final class CodexCLINotificationSettings: ObservableObject {
     }
 
     func setEnabled(_ enabled: Bool) {
+        AppLog.settings.notice("Codex 通知配置已变更: enabled=\(enabled ? 1 : 0)")
         guard enabled != isEnabled else {
             return
         }
@@ -85,7 +87,10 @@ final class CodexCLINotificationSettings: ObservableObject {
                 guard isCurrentUpdate(generation) else {
                     return
                 }
-                errorMessage = "\(errorPrefix): \(error.localizedDescription)"
+                AppLog.settings.error(
+                    "\(errorPrefix, privacy: .public): detail=\(error.localizedDescription, privacy: .public)"
+                )
+                errorMessage = errorPrefix
             }
 
             finishUpdate(generation)

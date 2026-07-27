@@ -1,5 +1,6 @@
 import Carbon.HIToolbox
 import Foundation
+import os
 
 /// Carbon 全局快捷键注册器, 将系统回调桥接回 MainActor
 final class GlobalHotKeyController {
@@ -28,6 +29,7 @@ final class GlobalHotKeyController {
             userData,
             &installedHandlerRef
         ) == noErr else {
+            AppLog.settings.error("全局快捷键事件处理器安装失败")
             return false
         }
 
@@ -43,10 +45,13 @@ final class GlobalHotKeyController {
         )
 
         guard status == noErr else {
+            // 最常见的原因是快捷键已被其他 App 占用, 用户只会看到"按了没反应"
+            AppLog.settings.error("全局快捷键注册失败: error=\(status)")
             GlobalHotKeyRegistration.remove(hotKeyRef: nil, eventHandlerRef: installedHandlerRef)
             return false
         }
 
+        AppLog.settings.notice("全局快捷键已注册")
         clearCurrentRegistration()
 
         registration = GlobalHotKeyRegistration(

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// 合并工作流维护刷新中的同步请求, 避免频繁开关产生重复同步
 @MainActor
@@ -109,6 +110,7 @@ final class WorkflowSyncScheduler {
     }
 
     private func startMaintenance(synchronize: Bool) {
+        AppLog.workflow.notice("开始维护: synchronize=\(synchronize ? 1 : 0)")
         isRunning = true
         pendingLocalMaintenance = false
 
@@ -128,6 +130,7 @@ final class WorkflowSyncScheduler {
     }
 
     private func finishMaintenance(synchronize: Bool) {
+        AppLog.workflow.notice("维护结束: synchronize=\(synchronize ? 1 : 0)")
         isRunning = false
 
         if synchronize {
@@ -161,6 +164,9 @@ final class WorkflowSyncScheduler {
                     )
                 )
             } catch {
+                AppLog.workflow.error(
+                    "重建请求失败: dates=\(request.dateKeys.count); detail=\(error.localizedDescription, privacy: .public)"
+                )
                 result = .failure(error)
             }
 

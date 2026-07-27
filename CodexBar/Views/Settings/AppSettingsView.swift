@@ -435,30 +435,35 @@ private extension AppSettingsView {
                 }
             }
 
-            SettingsIndentedRow(alignment: .top) {
-                Text(caption.message)
-                    .font(.caption)
-                    .foregroundStyle(caption.isError ? .red : .secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.opacity)
+            if let caption {
+                SettingsIndentedRow(alignment: .top) {
+                    Text(caption.message)
+                        .font(.caption)
+                        .foregroundStyle(caption.isError ? .red : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .contentTransition(.opacity)
 
-                Spacer(minLength: 8)
+                    Spacer(minLength: 8)
 
-                if caption.showsSystemSettingsButton {
-                    Button("打开系统设置") {
-                        keepAliveController.openSystemSettings()
+                    if caption.showsSystemSettingsButton {
+                        Button("打开系统设置") {
+                            keepAliveController.openSystemSettings()
+                        }
+                        .controlSize(.small)
+                        .fixedSize()
+                        .transition(.opacity.combined(with: .move(edge: .trailing)))
                     }
-                    .controlSize(.small)
-                    .fixedSize()
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
+                .transition(.opacity)
             }
         }
         .animation(Metrics.statusAnimation, value: caption)
         .animation(Metrics.statusAnimation, value: keepAliveController.isEnabled)
     }
 
-    var keepAliveCaption: KeepAliveCaption {
+    /// 返回 nil 表示这一行整个收起
+    /// 正常运行时不必占一行说"一切正常", 是否正在阻止由主面板的咖啡杯标记呈现
+    var keepAliveCaption: KeepAliveCaption? {
         if let errorMessage = keepAliveController.errorMessage {
             return KeepAliveCaption(message: errorMessage, isError: true)
         }
@@ -478,18 +483,13 @@ private extension AppSettingsView {
         case .notRegistered, .notFound:
             return KeepAliveCaption(message: "CodexBarHelper 尚未注册")
         case .enabled:
-            if keepAliveController.hasReachedMaximumDuration {
-                let action = keepAliveController.isPreventingSleep
-                    ? "正恢复系统休眠"
-                    : "已允许系统休眠"
-                return KeepAliveCaption(
-                    message: "已达到阻止休眠上限 (\(keepAliveController.maximumDuration.title)); \(action)"
-                )
+            // 上限之外的运行态都收起; 达到上限要留一句, 否则开关开着却没生效无从解释
+            guard keepAliveController.hasReachedMaximumDuration else {
+                return nil
             }
-            if keepAliveController.isPreventingSleep {
-                return KeepAliveCaption(message: "当前阻止系统休眠")
-            }
-            return KeepAliveCaption(message: "当前允许系统休眠")
+            return KeepAliveCaption(
+                message: "已到阻止休眠上限 (\(keepAliveController.maximumDuration.title))"
+            )
         }
     }
 
@@ -861,7 +861,7 @@ private extension AppSettingsView {
     }
 
     func refreshCodexVersionSection() {
-        // 版本探测较慢且内部会合并并发请求; 连接信息只是缓存读取
+        // 版本检测较慢且内部会合并并发请求; 连接信息只是缓存读取
         codexVersions.refresh()
         statusViewModel.refreshCodexConnectionInfo()
     }

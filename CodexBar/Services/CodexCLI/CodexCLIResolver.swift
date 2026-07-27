@@ -30,7 +30,7 @@ nonisolated struct CodexCLIConnectionInfo: Equatable {
     let openedAt: Date
 }
 
-/// 一次 PATH 扫描得到的安装结果, 供启动和版本探测复用
+/// 一次 PATH 扫描得到的安装结果, 供启动和版本检测复用
 nonisolated struct CodexCLIInstallations: Equatable {
     let globalPath: String?
     let bundledPath: String?

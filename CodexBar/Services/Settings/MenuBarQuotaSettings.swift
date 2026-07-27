@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import os
 
 /// 菜单栏额度指示偏好
 @MainActor
@@ -35,6 +36,9 @@ final class MenuBarQuotaSettings: ObservableObject {
             return
         }
 
+        AppLog.settings.notice(
+            "菜单栏额度显示已变更: selection=\(selection.rawValue, privacy: .public)"
+        )
         saveSelection(selection)
         publishSelection(selection)
     }

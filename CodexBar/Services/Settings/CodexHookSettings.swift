@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import os
 
 /// 设置页的 Codex Hook 开关状态机, 同时管理 hooks.json 和 Codex 信任状态
 @MainActor
@@ -49,11 +50,15 @@ final class CodexHookSettings: ObservableObject {
             // 只有 I/O 失败和 JSON 格式错误会走到这里, 它们对「Hook 装没装」不提供信息
             // 文件不存在或配置里没有 CodexBar 都由 readConfigIfPresent 正常返回
             // 因此保留上次已知值, 不能把读取失败当成用户关闭了 Hook
-            readErrorMessage = "读取 Codex Hook 配置失败: \(error.localizedDescription)"
+            AppLog.hooks.error(
+                "读取 Hook 配置失败: detail=\(error.localizedDescription, privacy: .public)"
+            )
+            readErrorMessage = "读取 Codex Hook 配置失败"
         }
     }
 
     func setEnabled(_ enabled: Bool) {
+        AppLog.hooks.notice("Hook 开关已变更: enabled=\(enabled ? 1 : 0)")
         runLatestUpdate(showProgress: true) { settings, generation in
             await settings.applyEnabled(enabled, generation: generation)
         }
@@ -173,11 +178,17 @@ final class CodexHookSettings: ObservableObject {
 
         if let hookError = error as? HookConfigError,
            hookError.isPreflightFailure {
+            AppLog.hooks.error(
+                "前置检查未通过, 未改动配置: detail=\(hookError.localizedDescription, privacy: .public)"
+            )
             isEnabled = false
             operationErrorMessage = hookError.localizedDescription
         } else {
+            AppLog.hooks.error(
+                "设置 Hook 失败: detail=\(error.localizedDescription, privacy: .public)"
+            )
             refresh()
-            operationErrorMessage = "设置 Codex Hook 失败: \(error.localizedDescription)"
+            operationErrorMessage = "设置 Codex Hook 失败"
         }
     }
 }
@@ -309,6 +320,8 @@ private extension CodexHookSettings {
         }
 
         try write(config)
+        // 改的是用户自己的 ~/.codex/hooks.json, 每次写入都要留痕
+        AppLog.hooks.notice("已写入 Hook 配置: enabled=\(enabled ? 1 : 0)")
     }
 
     func codexBarHookTrustKeysFromAppServer() async throws -> Set<String> {
@@ -330,10 +343,14 @@ private extension CodexHookSettings {
             if !keys.isEmpty {
                 try await removeCodexBarHookTrust(keys)
                 try ensureCurrentUpdate(generation)
+                AppLog.hooks.notice("已清理 Hook 信任状态: keys=\(keys.count)")
             }
 
             if let discoveryError {
-                operationErrorMessage = "已关闭 Codex Hook, 清理信任状态失败: \(discoveryError.localizedDescription)"
+                AppLog.hooks.error(
+                    "清理信任状态失败: stage=discovery; detail=\(discoveryError.localizedDescription, privacy: .public)"
+                )
+                operationErrorMessage = "已关闭 Codex Hook, 清理信任状态失败"
             } else {
                 operationErrorMessage = nil
             }
@@ -344,7 +361,10 @@ private extension CodexHookSettings {
                 return
             }
 
-            operationErrorMessage = "已关闭 Codex Hook, 清理信任状态失败: \(error.localizedDescription)"
+            AppLog.hooks.error(
+                "清理信任状态失败: stage=remove; detail=\(error.localizedDescription, privacy: .public)"
+            )
+            operationErrorMessage = "已关闭 Codex Hook, 清理信任状态失败"
         }
     }
 

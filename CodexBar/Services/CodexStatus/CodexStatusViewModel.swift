@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import os
 
 /// UI 级状态; 更细的连接和接口错误由服务层归并到日志
 nonisolated enum CodexLoadState: Equatable {
@@ -99,6 +100,10 @@ final class CodexStatusViewModel: ObservableObject {
                     loadState = .initializationFailed
                 }
 
+                // 只记结果分类, 额度与用量是用户数据, 不进系统日志
+                // RPC 层面的请求响应细节仍然只进日志窗口
+                let state = loadState
+                AppLog.app.notice("额度信息刷新完成: state=\(String(describing: state), privacy: .public)")
                 codexConnectionInfo = result.connectionInfo
                 autoRefreshCountdownStartedAt = Date()
             }

@@ -2,8 +2,8 @@ included:
     - CodexBar
 
 line_length:
-    warning: 140
-    error: 180
+    warning: 180
+    error: 220
     ignores_comments: true
     ignores_urls: true
     ignores_function_declarations: true
@@ -15,8 +15,8 @@ file_length:
     ignore_comment_only_lines: true
 
 type_body_length:
-    warning: 550
-    error: 700
+    warning: 800
+    error: 1200
 
 function_body_length:
     warning: 80

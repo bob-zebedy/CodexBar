@@ -1,6 +1,7 @@
 import CloudKit
 import Combine
 import Foundation
+import os
 
 /// 设置页的工作流同步状态
 @MainActor
@@ -45,6 +46,9 @@ final class WorkflowSyncSettings: ObservableObject {
         }
 
         let previousValue = isEnabled
+        if previousValue != enabled {
+            AppLog.sync.notice("同步开关已变更: enabled=\(enabled ? 1 : 0)")
+        }
         defaults.set(enabled, forKey: Self.enabledKey)
         if enabled {
             defaults.set(true, forKey: Self.needsBackfillKey)
