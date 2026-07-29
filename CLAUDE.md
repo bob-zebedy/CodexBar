@@ -160,6 +160,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 菜单面板的 `CodexFetchOutcome` 只暴露有数据, 未登录, 初始化失败三种结果, 而启动失败, 超时, 断连, 解析失败等细节全部只进日志窗口, 由 `RequestLogStorage` 保存, 上限 500 条
 - app-server 之外的模块走 `Services/Support/AppLog.swift` 写系统日志, 用户可见文案只留步骤名, 错误码与 `localizedDescription` 这类细节进 os_log; 现有 category 为 `app` `keepalive` `activity` `workflow` `sync` `hooks` `codexcli` `settings` `notification`, helper 进程另用 `helper`
 - 日志的目标是出问题时能从中重建当时的状态, 所以不只记失败, 状态转换, 关键操作与决策依据同样要记; 启动时由 `logLaunchState` 记一条含全部开关的基线, 后续变更日志都是相对它的增量
+- 进程终止靠 `AppProcessDiagnostics` 补线索, 它和 `logLaunchState` 一样挂在 `app` category 下, ObjC 异常当场留痕, 其余终止方式靠下次启动补记一条 `App 上次非正常退出`
+- 那条补记只能用 `.notice` 级别, 因为 kill 与强制退出和真崩溃无法区分, 用 `.error` 会让按级别筛的排查开局就追一个不存在的故障
 - **级别只用 `.notice` 与 `.error`**, 状态转换和降级决策用 `.notice`, 失败用 `.error`; `.info` 与 `.debug` 只落在内存环形缓冲里, 事后 `log show` 捞不全, 一律不用
 - 详细度靠**结果字段化**而不是多记几条: 一次操作只留开始与收尾两条, 每一步的成功结果压成收尾那条里的一个字段, 只有失败才单独发一条 `.error` 带 `stage=` 与 `detail=`; 逐事件与逐快照这类高频路径仍然一律不记, 例如两个 Reader 的 `try?` 文件 IO 失败是预期常态, 记了会刷屏
 - 文案骨架是 `<主体><动作>: 字段=值; 字段=值`, 标题只说发生了什么, 理由进 `reason=`, 处置进 `action=`; 起止用 `开始` `完成` `失败`, 中间状态用 `已<动作>`
@@ -182,7 +184,9 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 菜单栏按钮左键切换主面板; 右键或 Control+点击打开上下文菜单; `⌘,` 打开自定义设置窗口, 菜单面板打开时 `⌘L` 打开日志窗口; 默认全局快捷键 `⌘⇧W` 由 `GlobalHotKeySettings` 与 `GlobalHotKeyController` 管理
 - 主面板是锚定 status item 的 `NSPopover` 弹窗, 锚点不可信时回退到 `FallbackPanelController` 提供的屏幕顶部居中 `NSPanel` 面板, 处理快捷键, 屏幕选择和焦点时要保留这两个分支
 - 关闭逻辑统一由 `MenuSurfaceDismissMonitor` 管理, 淡出由 `MenuSurfaceFadeCoordinator` 负责
-- 侧边详情面板 (热力图详情, 重置次数) 是主面板的 borderless nonactivating child panel, 公共能力集中在 `Controllers/SidePanelSupport.swift` 里, 含 `SidePanelContentHost` `SidePanelDrawerAnimator` panel 工厂和定位夹紧; 新增侧边面板优先复用, 不要另起一套
+- 侧边面板都是 borderless nonactivating child panel, 热力图详情, 重置次数和任务中心挂在主面板上, 通知选项挂在设置窗口上
+- 侧边面板公共能力集中在 `Controllers/SidePanelSupport.swift` 里, 含 `SidePanelDrawerPresenter` `SidePanelContentHost` `SidePanelDrawerAnimator` panel 工厂和定位夹紧; 新增面板优先复用 `SidePanelDrawerPresenter` 这一层, 不要另起一套
+- 主面板任务中心的显隐由 `MainPanelSettings.showsTaskCenter` 与 `codexHookSettings.isEnabled` 共同决定, Hook 未开启时设置页那一行显示为关闭并置灰, 不回写用户保存的开关值
 - 设置窗口 (通用/高级/关于三页) 和日志窗口复用 `HostingWindowController` 的行为, 可以成为 key window, 但不应成为 main window
 - 视觉风格统一走 `Views/Shared/LiquidGlassStyle.swift` 这一套, 避免引入与系统菜单栏工具不一致的重装饰 UI
 
