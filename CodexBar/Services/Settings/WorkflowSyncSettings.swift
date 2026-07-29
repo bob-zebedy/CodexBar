@@ -47,7 +47,7 @@ final class WorkflowSyncSettings: ObservableObject {
 
         let previousValue = isEnabled
         if previousValue != enabled {
-            AppLog.sync.notice("同步开关已变更: enabled=\(enabled ? 1 : 0)")
+            AppLog.sync.notice("同步开关变更: enabled=\(enabled ? 1 : 0)")
         }
         defaults.set(enabled, forKey: Self.enabledKey)
         if enabled {
@@ -65,8 +65,31 @@ final class WorkflowSyncSettings: ObservableObject {
     }
 
     /// "同步是否实际生效"的唯一判定: Hook 已启用且同步开关打开且 iCloud 可用
+    /// 按顺序返回第一个不满足的项, 日志的 reason= 直接取它的 rawValue
+    func activation(isHookEnabled: Bool) -> WorkflowSyncActivation {
+        activation(isHookEnabled: isHookEnabled, isSyncAvailable: isSyncAvailable)
+    }
+
+    /// 两项依赖都可以由调用方指定
+    /// @Published 的订阅回调跑在 willSet, 那时属性还是旧值, 只有回调参数是新值
+    func activation(
+        isHookEnabled: Bool,
+        isSyncAvailable: Bool
+    ) -> WorkflowSyncActivation {
+        if !isHookEnabled {
+            return .hookOff
+        }
+        if !isEnabled {
+            return .syncOff
+        }
+        if !isSyncAvailable {
+            return .unavailable
+        }
+        return .active
+    }
+
     func isEffectivelyActive(isHookEnabled: Bool) -> Bool {
-        isHookEnabled && isEnabled && isSyncAvailable
+        activation(isHookEnabled: isHookEnabled).isActive
     }
 
     var unavailableMessage: String? {
@@ -195,6 +218,18 @@ final class WorkflowSyncSettings: ObservableObject {
 
     private nonisolated static let enabledKey = "WorkflowSync.isEnabled"
     private nonisolated static let needsBackfillKey = "WorkflowSync.needsBackfill"
+}
+
+/// 同步没生效时缺的是哪一项, 同时充当日志里的 reason= 取值
+nonisolated enum WorkflowSyncActivation: String {
+    case active
+    case hookOff
+    case syncOff
+    case unavailable
+
+    var isActive: Bool {
+        self == .active
+    }
 }
 
 nonisolated enum WorkflowSyncAvailability: Equatable {

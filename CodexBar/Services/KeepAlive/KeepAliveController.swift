@@ -57,6 +57,33 @@ final class KeepAliveController: ObservableObject {
     private var isRefreshingHelper = false
     private var cancellables = Set<AnyCancellable>()
     private var isStarted = false
+    private var lastLoggedSleepConditions: SleepConditions?
+    /// codexHookSettings.isEnabled 的最新值, 由订阅维护
+    /// 不直接读那个属性: 订阅回调跑在 willSet, 那时它还是改动前的值
+    private var isHookEnabled: Bool
+
+    /// 阻止休眠没生效时缺的是哪一项, 同时充当日志里的 reason= 取值
+    private enum SleepBlockReason: String {
+        case notStarted
+        case userOff
+        case hookDisabled
+        case noTasks
+        case helperUnavailable
+        case helperRefreshing
+        case limitReached
+    }
+
+    /// shouldDisableSleep 的求值结果与它依赖的各项, 只用于变化检测与日志
+    /// blockReason 与 shouldDisableSleep 同源, 不会出现"字段都满足却报某项缺失"
+    private struct SleepConditions: Equatable {
+        let blockReason: SleepBlockReason?
+        let enabled: Bool
+        let hook: Bool
+        let tasks: Bool
+        let helper: HelperStatus
+        let refreshing: Bool
+        let limited: Bool
+    }
 
     init(
         activityMonitor: CodexActivityMonitor,
@@ -66,6 +93,7 @@ final class KeepAliveController: ObservableObject {
         self.activityMonitor = activityMonitor
         self.codexHookSettings = codexHookSettings
         self.defaults = defaults
+        isHookEnabled = codexHookSettings.isEnabled
         isEnabled = defaults.bool(forKey: Self.enabledKey)
         maximumDuration = (defaults.object(forKey: Self.maximumDurationKey) as? Int)
             .flatMap(MaximumDuration.init(rawValue:)) ?? .twelveHours
@@ -79,10 +107,13 @@ final class KeepAliveController: ObservableObject {
 
         // Hook 是本功能的依赖, 不是用户意图
         // 只重新求值当前该不该阻止休眠, 绝不改写用户保存的开关
+        // @Published 在 willSet 就发信号, 此刻回读 codexHookSettings.isEnabled 拿到的还是旧值
+        // 因此把新值先存进 isHookEnabled, 判定与日志都只认它
         codexHookSettings.$isEnabled
             .removeDuplicates()
-            .sink { [weak self] _ in
-                self?.reconcileSleepState()
+            .sink { [weak self] isEnabled in
+                self?.isHookEnabled = isEnabled
+                self?.reconcileSleepState(trigger: .hookChanged)
             }
             .store(in: &cancellables)
 
@@ -128,18 +159,19 @@ final class KeepAliveController: ObservableObject {
         if isEnabled || helperStatus.isRegisteredOrAwaitingApproval {
             ensureHelperRegistration(opensSystemSettings: false)
         }
-        reconcileSleepState()
+        reconcileSleepState(trigger: .statusRefresh)
     }
 
     func setEnabled(_ enabled: Bool) {
-        guard !enabled || codexHookSettings.isEnabled else {
+        // 与 sleepBlockReason 读同一份镜像, 类内只保留一个 Hook 状态的真相来源
+        guard !enabled || isHookEnabled else {
             return
         }
         guard enabled != isEnabled else {
             return
         }
 
-        AppLog.keepAlive.notice("阻止休眠开关已变更: enabled=\(enabled ? 1 : 0)")
+        AppLog.keepAlive.notice("KeepAlive 开关变更: enabled=\(enabled ? 1 : 0)")
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
         registrationErrorMessage = nil
@@ -150,7 +182,7 @@ final class KeepAliveController: ObservableObject {
         } else {
             resetMaximumDurationState()
         }
-        reconcileSleepState()
+        reconcileSleepState(trigger: .settings)
     }
 
     func setMaximumDuration(_ duration: MaximumDuration) {
@@ -158,7 +190,7 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
-        AppLog.keepAlive.notice("最长阻止时间已变更: duration=\(duration.title, privacy: .public)")
+        AppLog.keepAlive.notice("KeepAlive 上限变更: duration=\(duration.title, privacy: .public)")
         maximumDuration = duration
         defaults.set(duration.rawValue, forKey: Self.maximumDurationKey)
 
@@ -174,7 +206,7 @@ final class KeepAliveController: ObservableObject {
 
         hasReachedMaximumDuration = false
         scheduleMaximumDurationTask()
-        reconcileSleepState()
+        reconcileSleepState(trigger: .settings)
     }
 
     private func handleActivitySnapshot(_ snapshot: CodexActivitySnapshot) {
@@ -196,7 +228,7 @@ final class KeepAliveController: ObservableObject {
         } else if !newRunningTaskIDs.isEmpty || !resumedRunningTaskIDs.isEmpty {
             restartMaximumDurationPeriod()
         }
-        reconcileSleepState()
+        reconcileSleepState(trigger: .taskChanged)
     }
 
     private func restartMaximumDurationPeriod() {
@@ -234,14 +266,14 @@ final class KeepAliveController: ObservableObject {
             }
         }
 
-        AppLog.keepAlive.notice("开始注册服务")
+        AppLog.keepAlive.notice("Helper 注册开始")
         do {
             try service.register()
         } catch {
             refreshHelperStatus()
             if !helperStatus.isRegisteredOrAwaitingApproval {
                 AppLog.keepAlive.error(
-                    "注册服务失败: detail=\(error.localizedDescription, privacy: .public)"
+                    "Helper 注册失败: detail=\(error.localizedDescription, privacy: .public)"
                 )
                 registrationErrorMessage = "注册服务失败"
             }
@@ -294,7 +326,7 @@ final class KeepAliveController: ObservableObject {
                 recordHelperRegistrationIfCurrent()
             } else if let registrationError {
                 AppLog.keepAlive.error(
-                    "更新服务失败: detail=\(registrationError.localizedDescription, privacy: .public)"
+                    "Helper 注册更新失败: detail=\(registrationError.localizedDescription, privacy: .public)"
                 )
                 registrationErrorMessage = "更新服务失败"
             }
@@ -304,7 +336,7 @@ final class KeepAliveController: ObservableObject {
             if helperStatus == .requiresApproval, opensSystemSettings {
                 openSystemSettings()
             }
-            reconcileSleepState(force: true)
+            reconcileSleepState(trigger: .helperRegistered, force: true)
         }
     }
 
@@ -353,7 +385,7 @@ final class KeepAliveController: ObservableObject {
         let currentStatus = helperStatus
         if currentStatus != previousStatus {
             AppLog.keepAlive.notice(
-                "服务状态变化: from=\(String(describing: previousStatus), privacy: .public); to=\(String(describing: currentStatus), privacy: .public)"
+                "Helper 注册状态变化: from=\(String(describing: previousStatus), privacy: .public); to=\(String(describing: currentStatus), privacy: .public)"
             )
         }
         if helperStatus == .enabled {
@@ -366,8 +398,10 @@ final class KeepAliveController: ObservableObject {
         }
     }
 
-    private func reconcileSleepState(force: Bool = false) {
-        let wantsSleepDisabled = shouldDisableSleep
+    private func reconcileSleepState(trigger: LogTrigger, force: Bool = false) {
+        let blockReason = sleepBlockReason
+        let wantsSleepDisabled = blockReason == nil
+        logSleepConditionsIfChanged(blockReason: blockReason, trigger: trigger)
 
         guard wantsSleepDisabled else {
             cancelRetryTask()
@@ -385,6 +419,41 @@ final class KeepAliveController: ObservableObject {
         applySleepDisabled(true)
     }
 
+    /// 任何一项变了才记一条, 逐次求值不记
+    /// want 为 0 时这条是唯一能看出「是哪一项把它拉下来」的依据
+    private func logSleepConditionsIfChanged(
+        blockReason: SleepBlockReason?,
+        trigger: LogTrigger
+    ) {
+        let conditions = SleepConditions(
+            blockReason: blockReason,
+            enabled: isEnabled,
+            hook: isHookEnabled,
+            tasks: hasRunningTasks,
+            helper: helperStatus,
+            refreshing: isRefreshingHelper,
+            limited: hasReachedMaximumDuration
+        )
+        guard conditions != lastLoggedSleepConditions else {
+            return
+        }
+
+        let previous = lastLoggedSleepConditions
+        lastLoggedSleepConditions = conditions
+
+        let triggerName = trigger.rawValue
+        let helperName = String(describing: conditions.helper)
+        AppLog.keepAlive.notice(
+            "KeepAlive 条件变化: trigger=\(triggerName, privacy: .public); want=\(blockReason == nil ? 1 : 0); enabled=\(conditions.enabled ? 1 : 0); hook=\(conditions.hook ? 1 : 0); tasks=\(conditions.tasks ? 1 : 0); helper=\(helperName, privacy: .public); refreshing=\(conditions.refreshing ? 1 : 0); limited=\(conditions.limited ? 1 : 0)"
+        )
+
+        guard let previous, previous.blockReason == nil, let blockReason else {
+            return
+        }
+
+        AppLog.keepAlive.notice("KeepAlive 已解除: reason=\(blockReason.rawValue, privacy: .public)")
+    }
+
     private func applySleepDisabled(_ disabled: Bool) {
         guard appliedSleepDisabled != disabled else {
             return
@@ -393,7 +462,7 @@ final class KeepAliveController: ObservableObject {
         if disabled {
             let result = systemSleepService.beginPreventingIdleSleep()
             guard result == kIOReturnSuccess else {
-                AppLog.keepAlive.error("阻止空闲休眠失败: error=\(result)")
+                AppLog.keepAlive.error("空闲断言建立失败: code=\(result)")
                 operationErrorMessage = "阻止空闲休眠失败"
                 scheduleRetryIfNeeded(for: true)
                 return
@@ -407,7 +476,7 @@ final class KeepAliveController: ObservableObject {
         let generation = requestGeneration
         // 与下面的回复日志配成一对, 缺回复即说明请求丢在 XPC 途中或 helper 无响应
         AppLog.keepAlive.notice(
-            "发送休眠请求: disabled=\(disabled ? 1 : 0); generation=\(generation)"
+            "Helper XPC 请求已发送: op=\(disabled ? "disable" : "restore", privacy: .public); generation=\(generation)"
         )
 
         let errorHandler: (Error) -> Void = { [weak self] error in
@@ -430,13 +499,14 @@ final class KeepAliveController: ObservableObject {
                     return
                 }
                 self.requestInFlight = false
+                let replyResult = exitCode == 0 ? "ok" : "failed"
                 AppLog.keepAlive.notice(
-                    "收到休眠回复: generation=\(generation); error=\(exitCode); sleepDisabled=\(sleepDisabledAfterOperation ? 1 : 0)"
+                    "Helper XPC 回复已收到: generation=\(generation); result=\(replyResult, privacy: .public); exit=\(exitCode)"
                 )
                 guard exitCode == 0 else {
                     // invalidateConnection 会连同 assertion 一起收
                     self.invalidateConnection()
-                    AppLog.keepAlive.error("切换休眠状态失败: error=\(exitCode)")
+                    AppLog.keepAlive.error("系统休眠切换失败: generation=\(generation); exit=\(exitCode)")
                     self.operationErrorMessage = "切换休眠状态失败"
                     self.scheduleRetryIfNeeded(for: disabled)
                     return
@@ -446,7 +516,14 @@ final class KeepAliveController: ObservableObject {
                 self.isPreventingSleep = disabled
                 self.operationErrorMessage = nil
                 if disabled {
-                    AppLog.keepAlive.notice("已接管系统休眠")
+                    // lidCausesSleep=0 说明这一轮 pmset 是空转的, 真正在挡的只有空闲断言
+                    // 排查「开了却还是睡了」时先看这个字段
+                    let lidStatus = SystemSleepService.currentStatus()
+                    let lidCausesSleep = lidStatus
+                        .map { $0.lidClosureCausesSleep ? "1" : "0" } ?? "unknown"
+                    AppLog.keepAlive.notice(
+                        "系统休眠已关闭: generation=\(generation); lidCausesSleep=\(lidCausesSleep, privacy: .public)"
+                    )
                     self.canTrustRestoreResult = true
                     self.beginMaximumDurationCountdownIfNeeded()
                 } else {
@@ -504,15 +581,15 @@ final class KeepAliveController: ObservableObject {
         cancelMaximumDurationTask()
         hasReachedMaximumDuration = true
         let durationTitle = maximumDuration.title
-        AppLog.keepAlive.notice("已到阻止休眠上限: duration=\(durationTitle, privacy: .public)")
-        reconcileSleepState()
+        AppLog.keepAlive.notice("KeepAlive 已达上限: duration=\(durationTitle, privacy: .public)")
+        reconcileSleepState(trigger: .limitReached)
     }
 
     private func finishSleepRestore(sleepDisabledAfterOperation: Bool) {
         // assertion 无论回复可不可信都要释放, 与下面的判断无关
         let idleSleepResult = systemSleepService.endPreventingIdleSleep()
         if idleSleepResult != kIOReturnSuccess {
-            AppLog.keepAlive.error("恢复空闲休眠策略失败: error=\(idleSleepResult)")
+            AppLog.keepAlive.error("空闲断言释放失败: code=\(idleSleepResult)")
             operationErrorMessage = "恢复空闲休眠策略失败"
         }
 
@@ -521,32 +598,36 @@ final class KeepAliveController: ObservableObject {
         // 不能据此补发合盖休眠: 本轮可能压根不是我们禁用的休眠
         guard canTrustRestoreResult else {
             // 这条判断是防止误发强制休眠的唯一屏障, 生效时必须留痕, 否则误判无从追查
-            AppLog.keepAlive.notice("跳过恢复处理: 接管期间连接断开")
+            AppLog.keepAlive.notice("系统休眠恢复结果不可信: reason=connectionLost")
             return
         }
 
-        AppLog.keepAlive.notice("已恢复系统休眠: SleepDisabled=\(sleepDisabled)")
+        AppLog.keepAlive.notice("系统休眠已恢复: sleepDisabled=\(sleepDisabled)")
 
         let lidStatus = SystemSleepService.currentStatus()
         let shouldRequestSystemSleep = !sleepDisabledAfterOperation
             && lidStatus?.shouldSleepForLidClosure == true
 
-        let lidClosed = lidStatus.map { $0.isLidClosed ? "1" : "0" } ?? "unknown"
-        let lidCausesSleep = lidStatus.map { $0.lidClosureCausesSleep ? "1" : "0" } ?? "unknown"
-
+        // 合盖是边沿事件, 错过那一刻系统不会再评估
+        // 我们挡过一次就得在恢复后补一脚, 否则盖着的机器会一直醒着
         guard shouldRequestSystemSleep else {
+            let reason: String = if sleepDisabledAfterOperation {
+                "stillDisabled"
+            } else if let lidStatus {
+                lidStatus.isLidClosed ? "clamshellMode" : "lidOpen"
+            } else {
+                "unknown"
+            }
             AppLog.keepAlive.notice(
-                "不请求系统休眠: sleepDisabled=\(sleepDisabled); lidClosed=\(lidClosed, privacy: .public); lidCausesSleep=\(lidCausesSleep, privacy: .public)"
+                "休眠补发已跳过: reason=\(reason, privacy: .public)"
             )
             return
         }
 
-        AppLog.keepAlive.notice(
-            "请求系统休眠: sleepDisabled=\(sleepDisabled); lidClosed=\(lidClosed, privacy: .public); lidCausesSleep=\(lidCausesSleep, privacy: .public)"
-        )
+        AppLog.keepAlive.notice("休眠补发已请求")
         let result = SystemSleepService.requestSystemSleep()
         if result != kIOReturnSuccess {
-            AppLog.keepAlive.error("请求系统休眠失败: error=\(result)")
+            AppLog.keepAlive.error("休眠补发失败: code=\(result)")
             operationErrorMessage = "请求系统休眠失败"
         }
     }
@@ -595,7 +676,7 @@ final class KeepAliveController: ObservableObject {
         }
         connection.resume()
         self.connection = connection
-        AppLog.keepAlive.notice("已建立服务连接")
+        AppLog.keepAlive.notice("Helper XPC 已连接")
         return connection
     }
 
@@ -604,7 +685,7 @@ final class KeepAliveController: ObservableObject {
         let desiredSleepDisabled = shouldDisableSleep
         invalidateConnection()
         AppLog.keepAlive.error(
-            "连接服务失败: detail=\(error.localizedDescription, privacy: .public)"
+            "Helper XPC 连接失败: detail=\(error.localizedDescription, privacy: .public)"
         )
         operationErrorMessage = "连接服务失败"
         if shouldRetry {
@@ -621,7 +702,10 @@ final class KeepAliveController: ObservableObject {
         connection?.invalidate()
         // 无连接时也会走到这里, 只记真的断掉了一条, 避免空转刷屏
         if connection != nil {
-            AppLog.keepAlive.notice("服务连接已失效")
+            // trusted 记的是断开这一刻的可信度: 它一断, 后面那轮恢复回复就不再可信
+            // 也就不会补发休眠, 这是追查「任务结束了机器却没睡」的唯一线索
+            let trusted = canTrustRestoreResult ? 1 : 0
+            AppLog.keepAlive.notice("Helper XPC 已断开: trusted=\(trusted)")
         }
         // 所有能让我们在哨兵已删的情况下再发一次恢复请求的路径都汇到这里, 标志清在这里才严密
         canTrustRestoreResult = false
@@ -663,7 +747,7 @@ final class KeepAliveController: ObservableObject {
         // 固定 2 秒无上限重试会让持续失败的 helper 变成无限循环
         guard retryAttempt < Self.sleepToggleRetryDelays.count else {
             AppLog.keepAlive.error(
-                "阻止休眠多次失败, 已停止重试: attempts=\(Self.sleepToggleRetryDelays.count)"
+                "阻止休眠多次失败: attempts=\(Self.sleepToggleRetryDelays.count)"
             )
             operationErrorMessage = "阻止休眠多次失败, 已停止重试"
             return
@@ -672,8 +756,9 @@ final class KeepAliveController: ObservableObject {
         let delay = Self.sleepToggleRetryDelays[retryAttempt]
         retryAttempt += 1
         let attempt = retryAttempt
+        let wait = LogDuration.seconds(delay)
         AppLog.keepAlive.notice(
-            "安排重试: attempt=\(attempt); delay=\(delay.components.seconds)s; disabled=\(disabled ? 1 : 0)"
+            "休眠切换重试: attempt=\(attempt); delay=\(wait, privacy: .public); disabled=\(disabled ? 1 : 0)"
         )
 
         retryTask = Task { @MainActor [weak self] in
@@ -683,7 +768,7 @@ final class KeepAliveController: ObservableObject {
             }
             retryTask = nil
             guard disabled == shouldDisableSleep else {
-                reconcileSleepState()
+                reconcileSleepState(trigger: .retry)
                 return
             }
             appliedSleepDisabled = nil
@@ -694,13 +779,34 @@ final class KeepAliveController: ObservableObject {
     /// 用户意图 (isEnabled) 与依赖可用性在这里汇合
     /// 依赖不满足只让效果失效, 不回写 isEnabled
     private var shouldDisableSleep: Bool {
-        isStarted
-            && isEnabled
-            && codexHookSettings.isEnabled
-            && hasRunningTasks
-            && helperStatus == .enabled
-            && !isRefreshingHelper
-            && !hasReachedMaximumDuration
+        sleepBlockReason == nil
+    }
+
+    /// 按顺序返回第一个不满足的条件, 全部满足时为 nil
+    /// 判定与日志共用这一份顺序, 新增条件不会漏进日志
+    private var sleepBlockReason: SleepBlockReason? {
+        if !isStarted {
+            return .notStarted
+        }
+        if !isEnabled {
+            return .userOff
+        }
+        if !isHookEnabled {
+            return .hookDisabled
+        }
+        if !hasRunningTasks {
+            return .noTasks
+        }
+        if helperStatus != .enabled {
+            return .helperUnavailable
+        }
+        if isRefreshingHelper {
+            return .helperRefreshing
+        }
+        if hasReachedMaximumDuration {
+            return .limitReached
+        }
+        return nil
     }
 
     private static let enabledKey = "KeepAlive.isEnabled"

@@ -30,6 +30,10 @@ final class CodexActivityMonitor: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var isStarted = false
     private var isBootstrapping = false
+    /// 历史回放跨多个批次到达, 事件数累加到 bootstrapEnd 才一次记完
+    /// reader 每次重试都会重新发一遍 bootstrapStart, 所以事件数跟着重置, 但耗时要累计
+    private var bootstrapEventCount = 0
+    private var bootstrapDuration = LogDuration()
     private var sessionTransitionNotBefore: Date?
 
     init(codexHookSettings: CodexHookSettings) {
@@ -56,7 +60,9 @@ final class CodexActivityMonitor: ObservableObject {
                 guard let self else {
                     return
                 }
-                AppLog.activity.notice("系统唤醒, 立即重新读取")
+                AppLog.activity.notice(
+                    "事件重读已触发: trigger=\(LogTrigger.wake.rawValue, privacy: .public)"
+                )
                 if let reader = tailReader {
                     Task {
                         await reader.drainNow()
@@ -78,7 +84,7 @@ final class CodexActivityMonitor: ObservableObject {
 
     private func setMonitoringEnabled(_ enabled: Bool) {
         guard enabled else {
-            AppLog.activity.notice("已停止监控")
+            AppLog.activity.notice("任务监控已停止: reason=hookDisabled")
             stopReaderAndClearState()
             return
         }
@@ -87,7 +93,7 @@ final class CodexActivityMonitor: ObservableObject {
             return
         }
 
-        AppLog.activity.notice("已开始监控")
+        AppLog.activity.notice("任务监控已启动: reason=hookEnabled")
 
         tailReaderGeneration &+= 1
         let generation = tailReaderGeneration
@@ -171,6 +177,79 @@ final class CodexActivityMonitor: ObservableObject {
         }
     }
 
+    /// 把一条 rollout 生命周期状态合进当前任务, 返回是否改动过状态
+    /// 待确认终态的任务与在跑的任务走两条分支, 前者已经从 tasks 里挪走
+    private func applyLifecycleState(
+        _ state: CodexSessionTaskLifecycleState,
+        into transitions: inout [CodexActivityTransition]
+    ) -> Bool {
+        let key = CodexActivityTaskKey.turn(session: state.sessionId, turn: state.turnId)
+        if var pending = pendingTerminalTasks[key] {
+            let pendingDidChange = Self.mergeLifecycleBackfill(
+                from: state,
+                into: &pending.task
+            )
+
+            guard let terminal = state.terminal else {
+                guard pendingDidChange else {
+                    return false
+                }
+                pendingTerminalTasks[key] = pending
+                return true
+            }
+            pendingTerminalTasks.removeValue(forKey: key)
+            resolveTerminal(
+                terminal,
+                task: pending.task,
+                key: key,
+                abortFallback: pending.supersededAt,
+                into: &transitions
+            )
+            return true
+        }
+
+        guard var task = tasks[key] else {
+            return false
+        }
+
+        var taskDidChange = Self.mergeLifecycleBackfill(from: state, into: &task)
+
+        if let terminal = state.terminal {
+            tasks.removeValue(forKey: key)
+            if case .completed = terminal, recentCompletionDate(for: key) != nil {
+                // 迟到事件恢复出的任务不能被 rollout 再次完成
+                return true
+            }
+            resolveTerminal(
+                terminal,
+                task: task,
+                key: key,
+                abortFallback: Date(),
+                into: &transitions
+            )
+            return true
+        }
+
+        if let approvalReviewer = state.approvalReviewer,
+           task.approvalReviewer != approvalReviewer {
+            task.approvalReviewer = approvalReviewer
+            taskDidChange = true
+        }
+
+        if resolvePendingApprovalIfPossible(
+            for: &task,
+            into: &transitions
+        ) {
+            taskDidChange = true
+        }
+
+        guard taskDidChange else {
+            return false
+        }
+        tasks[key] = task
+        return true
+    }
+
     private func reconcileSessionLifecycles(generation: UInt64) async {
         guard generation == tailReaderGeneration,
               tailReader != nil,
@@ -194,72 +273,7 @@ final class CodexActivityMonitor: ObservableObject {
         var didChange = false
         var transitions: [CodexActivityTransition] = []
         for state in states {
-            let key = CodexActivityTaskKey.turn(session: state.sessionId, turn: state.turnId)
-            if var pending = pendingTerminalTasks[key] {
-                let pendingDidChange = Self.mergeLifecycleBackfill(
-                    from: state,
-                    into: &pending.task
-                )
-
-                guard let terminal = state.terminal else {
-                    if pendingDidChange {
-                        pendingTerminalTasks[key] = pending
-                        didChange = true
-                    }
-                    continue
-                }
-                pendingTerminalTasks.removeValue(forKey: key)
-                resolveTerminal(
-                    terminal,
-                    task: pending.task,
-                    key: key,
-                    abortFallback: pending.supersededAt,
-                    into: &transitions
-                )
-                didChange = true
-                continue
-            }
-
-            guard var task = tasks[key] else {
-                continue
-            }
-
-            var taskDidChange = Self.mergeLifecycleBackfill(from: state, into: &task)
-
-            if let terminal = state.terminal {
-                tasks.removeValue(forKey: key)
-                didChange = true
-                if case .completed = terminal, recentCompletionDate(for: key) != nil {
-                    // 迟到事件恢复出的任务不能被 rollout 再次完成
-                    continue
-                }
-                resolveTerminal(
-                    terminal,
-                    task: task,
-                    key: key,
-                    abortFallback: Date(),
-                    into: &transitions
-                )
-                continue
-            }
-
-            if let approvalReviewer = state.approvalReviewer,
-               task.approvalReviewer != approvalReviewer {
-                task.approvalReviewer = approvalReviewer
-                taskDidChange = true
-            }
-
-            if resolvePendingApprovalIfPossible(
-                for: &task,
-                into: &transitions
-            ) {
-                taskDidChange = true
-            }
-
-            if taskDidChange {
-                tasks[key] = task
-                didChange = true
-            }
+            didChange = applyLifecycleState(state, into: &transitions) || didChange
         }
 
         if didChange {
@@ -273,21 +287,38 @@ final class CodexActivityMonitor: ObservableObject {
     private func consume(_ batch: HookEventBatch) {
         switch batch {
         case .bootstrapStart:
+            // 重试会重放整段历史, 计时从第一次开始算才是用户等到的总时长
+            if !isBootstrapping {
+                bootstrapDuration = LogDuration()
+            }
             isBootstrapping = true
             sessionTransitionNotBefore = nil
+            bootstrapEventCount = 0
             clearCollectedActivityState()
         case let .bootstrapEvents(events):
+            bootstrapEventCount += events.count
             for event in events {
                 _ = apply(event)
             }
-        case .bootstrapEnd:
+        case let .bootstrapEnd(degraded, attempts):
             isBootstrapping = false
             sessionTransitionNotBefore = Date()
             refreshSnapshot(now: Date())
             refreshSessionLifecycleNow()
             backfillPromptStartTimesFromHistory()
             let activeCount = snapshot.activeCount
-            AppLog.activity.notice("历史回放完成: activeTasks=\(activeCount)")
+            let eventCount = bootstrapEventCount
+            let elapsed = bootstrapDuration.elapsed
+            guard !degraded else {
+                AppLog.activity.notice(
+                    "历史回放已降级: attempts=\(attempts); events=\(eventCount); activeTasks=\(activeCount); elapsed=\(elapsed, privacy: .public); reason=unstableBoundary; action=skipHistory"
+                )
+                return
+            }
+
+            AppLog.activity.notice(
+                "历史回放完成: attempts=\(attempts); events=\(eventCount); activeTasks=\(activeCount); elapsed=\(elapsed, privacy: .public)"
+            )
         case let .live(events):
             let pendingKeysBefore = Set(pendingTerminalTasks.keys)
             let activeCountBefore = snapshot.activeCount
@@ -304,7 +335,7 @@ final class CodexActivityMonitor: ObservableObject {
             let activeCountAfter = snapshot.activeCount
             if activeCountAfter != activeCountBefore || !transitions.isEmpty {
                 AppLog.activity.notice(
-                    "任务状态变化: from=\(activeCountBefore); to=\(activeCountAfter); transitions=\(transitions.count)"
+                    "任务数变化: from=\(activeCountBefore); to=\(activeCountAfter); transitions=\(transitions.count)"
                 )
             }
             publishLiveTransitions(transitions)

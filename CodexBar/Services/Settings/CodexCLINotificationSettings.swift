@@ -26,7 +26,7 @@ final class CodexCLINotificationSettings: ObservableObject {
             return
         }
 
-        runLatestUpdate(errorPrefix: "读取 Codex TUI 通知失败") { settings, generation in
+        runLatestUpdate(operation: .read) { settings, generation in
             let response = try await settings.codexStatusService.readCodexConfig()
             try settings.ensureCurrentUpdate(generation)
             return response.areTUINotificationsEnabled
@@ -34,12 +34,12 @@ final class CodexCLINotificationSettings: ObservableObject {
     }
 
     func setEnabled(_ enabled: Bool) {
-        AppLog.settings.notice("Codex 通知配置已变更: enabled=\(enabled ? 1 : 0)")
+        AppLog.settings.notice("Codex TUI 通知变更: enabled=\(enabled ? 1 : 0)")
         guard enabled != isEnabled else {
             return
         }
 
-        runLatestUpdate(errorPrefix: "设置 Codex TUI 通知失败") { settings, generation in
+        runLatestUpdate(operation: .write) { settings, generation in
             _ = try await settings.codexStatusService.writeCodexConfigBatch(
                 edits: [
                     .init(
@@ -60,9 +60,30 @@ final class CodexCLINotificationSettings: ObservableObject {
         }
     }
 
+    /// 一次操作的用户文案与日志标题由它一处派生, 不在调用点各写一份
+    /// 两者都是固定字面量, 日志标题仍然能直接 grep
+    private enum ConfigOperation {
+        case read
+        case write
+
+        var errorPrefix: String {
+            switch self {
+            case .read: "读取 Codex TUI 通知设置失败"
+            case .write: "写入 Codex TUI 通知设置失败"
+            }
+        }
+
+        var logStage: String {
+            switch self {
+            case .read: "read"
+            case .write: "write"
+            }
+        }
+    }
+
     private func runLatestUpdate(
-        errorPrefix: String,
-        operation: @escaping @MainActor (CodexCLINotificationSettings, Int) async throws -> Bool
+        operation: ConfigOperation,
+        body: @escaping @MainActor (CodexCLINotificationSettings, Int) async throws -> Bool
     ) {
         updateTask?.cancel()
         updateGeneration += 1
@@ -76,7 +97,7 @@ final class CodexCLINotificationSettings: ObservableObject {
             }
 
             do {
-                let isEnabled = try await operation(self, generation)
+                let isEnabled = try await body(self, generation)
                 guard isCurrentUpdate(generation) else {
                     return
                 }
@@ -87,10 +108,11 @@ final class CodexCLINotificationSettings: ObservableObject {
                 guard isCurrentUpdate(generation) else {
                     return
                 }
+                let logStage = operation.logStage
                 AppLog.settings.error(
-                    "\(errorPrefix, privacy: .public): detail=\(error.localizedDescription, privacy: .public)"
+                    "Codex TUI 通知失败: stage=\(logStage, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
                 )
-                errorMessage = errorPrefix
+                errorMessage = operation.errorPrefix
             }
 
             finishUpdate(generation)

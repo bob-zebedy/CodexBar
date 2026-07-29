@@ -26,6 +26,22 @@ final class CodexNotificationService: NSObject {
     /// 阈值穿越判定的会话内上一帧剩余比例, key 为 account|limitId|windowId
     private var lastRemainingPercents: [String: Int] = [:]
 
+    /// 低额度判定依据的两个设置项
+    /// 订阅回调跑在 @Published 的 willSet, 那时属性还是旧值, 只有回调参数是新的
+    /// 所以由调用方给出而不是在判定处回读 settings
+    private struct LowQuotaConditions {
+        let isEnabled: Bool
+        let thresholdPercent: Int
+    }
+
+    /// 额度刷新那条路径上设置没有在变, 现场取值就是最新的
+    private var currentLowQuotaConditions: LowQuotaConditions {
+        LowQuotaConditions(
+            isEnabled: settings.isLowQuotaEnabled,
+            thresholdPercent: settings.lowQuotaThresholdPercent
+        )
+    }
+
     /// 可信快照中每个额度窗口的重置观察状态; 窗口消失后重现会获得新的生命周期标记
     private var quotaWindowResetObservations: [String: QuotaWindowResetObservation] = [:]
 
@@ -65,8 +81,10 @@ final class CodexNotificationService: NSObject {
             settings.$lowQuotaThresholdPercent
         )
         .dropFirst()
-        .sink { [weak self] _, _ in
-            self?.reevaluateLowQuotaSettings()
+        .sink { [weak self] isEnabled, thresholdPercent in
+            self?.reevaluateLowQuota(
+                LowQuotaConditions(isEnabled: isEnabled, thresholdPercent: thresholdPercent)
+            )
         }
         .store(in: &cancellables)
 
@@ -201,7 +219,7 @@ final class CodexNotificationService: NSObject {
 
         // stale 快照是旧缓存, 不参与额度判定, 避免误报
         if !snapshot.isRateLimitsStale {
-            processQuotaWindows(snapshot)
+            processQuotaWindows(snapshot, lowQuota: currentLowQuotaConditions)
         }
 
         guard settings.canDeliver else {
@@ -212,14 +230,17 @@ final class CodexNotificationService: NSObject {
         processCreditExpirations(snapshot)
     }
 
-    private func processQuotaWindows(_ snapshot: CodexQuotaSnapshot) {
+    private func processQuotaWindows(
+        _ snapshot: CodexQuotaSnapshot,
+        lowQuota: LowQuotaConditions
+    ) {
         var observedWindowKeys = Set<String>()
         forEachQuotaWindowWithData(in: snapshot) { window, limit, stateKey in
             observedWindowKeys.insert(stateKey)
             if quotaWindowResetObservations[stateKey] == nil {
                 quotaWindowResetObservations[stateKey] = QuotaWindowResetObservation()
             }
-            processQuotaWindow(window, limit: limit, stateKey: stateKey)
+            processQuotaWindow(window, limit: limit, stateKey: stateKey, lowQuota: lowQuota)
         }
         quotaWindowResetObservations = quotaWindowResetObservations.filter {
             observedWindowKeys.contains($0.key)
@@ -244,16 +265,18 @@ final class CodexNotificationService: NSObject {
         }
     }
 
-    private func reevaluateLowQuotaSettings() {
+    /// 设置刚变就按新值重判一次, 不必等下一个刷新周期
+    /// 清掉上一帧观察是为了让新阈值能立刻穿越, 所以这里必须用新值判断, 否则清了也白清
+    private func reevaluateLowQuota(_ conditions: LowQuotaConditions) {
         guard settings.canDeliver,
-              settings.isLowQuotaEnabled,
+              conditions.isEnabled,
               let snapshot = latestQuotaSnapshot,
               !snapshot.isRateLimitsStale else {
             return
         }
 
         resetLowQuotaObservation(for: snapshot)
-        processQuotaWindows(snapshot)
+        processQuotaWindows(snapshot, lowQuota: conditions)
     }
 
     private func resetLowQuotaObservation(for snapshot: CodexQuotaSnapshot) {
@@ -265,7 +288,8 @@ final class CodexNotificationService: NSObject {
     private func processQuotaWindow(
         _ window: QuotaWindow,
         limit: CodexQuotaLimitSnapshot,
-        stateKey: String
+        stateKey: String,
+        lowQuota: LowQuotaConditions
     ) {
         guard let usedPercent = window.usedPercent else {
             return
@@ -286,24 +310,30 @@ final class CodexNotificationService: NSObject {
         lastRemainingPercents[stateKey] = window.remainingPercent
 
         guard let resetsAt = window.resetsAt,
-              window.remainingPercent <= settings.lowQuotaThresholdPercent,
-              settings.isLowQuotaEnabled else {
+              window.remainingPercent <= lowQuota.thresholdPercent,
+              lowQuota.isEnabled else {
             return
         }
 
         // 穿越判定: 上一帧高于阈值才提醒; 会话内首次观察即低于也视为穿越
         // (App 可能在跌破后才启动), 持久化去重键保证每周期只发一次
         if let previousRemainingPercent,
-           previousRemainingPercent <= settings.lowQuotaThresholdPercent {
+           previousRemainingPercent <= lowQuota.thresholdPercent {
             return
         }
+
+        // 阈值是用户设置值不是用量数据, 记它才能解释这条通知为什么会发出来
+        let threshold = lowQuota.thresholdPercent
+        AppLog.notification.notice(
+            "阈值已穿越: kind=lowQuota; threshold=\(threshold); direction=down"
+        )
 
         let dedupKey = "low|\(stateKey)|\(Self.epoch(resetsAt))"
         send(
             .lowQuota(
                 limitTitle: limit.title,
                 windowLabel: window.label,
-                thresholdPercent: settings.lowQuotaThresholdPercent
+                thresholdPercent: lowQuota.thresholdPercent
             ),
             sound: settings.lowQuotaSound,
             dedupKey: dedupKey,
@@ -332,6 +362,8 @@ final class CodexNotificationService: NSObject {
                   let lifecycleToken = quotaWindowResetObservations[stateKey]?.lifecycleToken else {
                 return
             }
+
+            AppLog.notification.notice("额度已重置: kind=quotaReset")
 
             let dedupKey = window.resetsAt.map { resetsAt in
                 "quotaReset|\(stateKey)|\(Self.epoch(resetsAt))"
@@ -488,7 +520,9 @@ final class CodexNotificationService: NSObject {
             }
 
             // 重试全部用尽才记, 循环内的单次失败会重试
-            AppLog.notification.error("通知发送失败: kind=\(kind, privacy: .public); reason=retryExhausted")
+            AppLog.notification.error(
+                "通知发送失败: kind=\(kind, privacy: .public); reason=retryExhausted"
+            )
             onSubmissionFailure?()
         }
     }

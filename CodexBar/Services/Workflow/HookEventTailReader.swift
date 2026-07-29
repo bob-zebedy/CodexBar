@@ -3,7 +3,9 @@ import Foundation
 nonisolated enum HookEventBatch {
     case bootstrapStart
     case bootstrapEvents([WorkflowHookEvent])
-    case bootstrapEnd
+    /// degraded 表示放弃回放直接跳到文件末尾, 这一轮的活跃任务是空的而不是真的没有
+    /// attempts 由 reader 给出, 它才知道循环跑了几轮以及放弃时补发过一次清场
+    case bootstrapEnd(degraded: Bool, attempts: Int)
     case live([WorkflowHookEvent])
 }
 
@@ -86,7 +88,7 @@ actor HookEventTailReader {
     }
 
     private func bootstrapRecentActivity() async {
-        for _ in 0 ..< Self.bootstrapAttemptLimit {
+        for attempt in 0 ..< Self.bootstrapAttemptLimit {
             guard isRunning, !Task.isCancelled else {
                 return
             }
@@ -94,19 +96,20 @@ actor HookEventTailReader {
                 activeDateKey = result.activeDateKey
                 activeFileOffset = result.activeFileOffset
                 activeFileIdentifier = result.activeFileIdentifier
-                await onBatch(.bootstrapEnd)
+                await onBatch(.bootstrapEnd(degraded: false, attempts: attempt + 1))
                 return
             }
         }
 
         // 连续读取失败时清空恢复态并跳过当前已有字节, 避免稍后误当 live 发送历史通知
+        // 代价是丢掉最多 24 小时的任务状态, 所以要让下游知道这一轮是降级而不是真的没有历史
         let dateKey = WorkflowStorage.dateKey(for: Date())
         let stat = WorkflowStorage.fileStat(at: WorkflowStorage.eventLogURL(for: dateKey))
         activeDateKey = dateKey
         activeFileOffset = stat?.size ?? 0
         activeFileIdentifier = stat?.identifier
         await onBatch(.bootstrapStart)
-        await onBatch(.bootstrapEnd)
+        await onBatch(.bootstrapEnd(degraded: true, attempts: Self.bootstrapAttemptLimit))
     }
 
     private func bootstrapAttempt(now: Date) async -> BootstrapResult? {

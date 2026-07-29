@@ -58,7 +58,7 @@ private extension CodexStatusMenuView {
                 isEmail: snapshot.account.hasEmail,
                 plan: snapshot.planLabel,
                 isRefreshing: viewModel.isRefreshing,
-                onRefresh: viewModel.refresh
+                onRefresh: { viewModel.refresh(trigger: .manual) }
             )
 
             activityCard
@@ -69,7 +69,7 @@ private extension CodexStatusMenuView {
             StatusAccountCard(
                 loadState: viewModel.loadState,
                 isRefreshing: viewModel.isRefreshing,
-                onRefresh: viewModel.refresh
+                onRefresh: { viewModel.refresh(trigger: .manual) }
             )
             activityCard
             EmptyDataPanel()

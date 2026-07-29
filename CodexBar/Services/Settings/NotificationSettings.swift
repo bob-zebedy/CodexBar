@@ -96,7 +96,7 @@ final class NotificationSettings: ObservableObject {
             return
         }
 
-        AppLog.notification.notice("通知总开关已变更: enabled=\(enabled ? 1 : 0)")
+        AppLog.notification.notice("通知总开关变更: enabled=\(enabled ? 1 : 0)")
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
         if enabled {
@@ -187,7 +187,7 @@ final class NotificationSettings: ObservableObject {
             let previousStatus = authorizationStatus
             if status != previousStatus {
                 AppLog.notification.notice(
-                    "通知授权状态变化: from=\(String(describing: previousStatus), privacy: .public); to=\(String(describing: status), privacy: .public)"
+                    "通知授权变化: from=\(String(describing: previousStatus), privacy: .public); to=\(String(describing: status), privacy: .public)"
                 )
             }
             authorizationStatus = status
@@ -220,7 +220,7 @@ final class NotificationSettings: ObservableObject {
 
             // 被拒时通知会静默不发, 这是最常见的"设置开了却收不到"来源, 必须留痕
             AppLog.notification.notice(
-                "通知授权请求结果: status=\(String(describing: status), privacy: .public)"
+                "通知授权结果: status=\(String(describing: status), privacy: .public)"
             )
             authorizationStatus = status
         }
@@ -233,7 +233,7 @@ final class NotificationSettings: ObservableObject {
 
         // 六个通知细项都走这里, 用持久化 key 区分是哪一项, 不必逐个 setter 铺日志
         AppLog.notification.notice(
-            "通知选项已变更: key=\(key, privacy: .public); enabled=\(value ? 1 : 0)"
+            "通知选项变更: key=\(key, privacy: .public); enabled=\(value ? 1 : 0)"
         )
         current = value
         defaults.set(value, forKey: key)

@@ -20,8 +20,49 @@ nonisolated enum AppLog {
     static let settings = Logger(subsystem: subsystem, category: "settings")
     /// codex 可执行文件检测与版本读取
     static let codexCLI = Logger(subsystem: subsystem, category: "codexcli")
-    /// 本地通知投递
+    /// 本地通知
     static let notification = Logger(subsystem: subsystem, category: "notification")
 
     private static let subsystem = Bundle.main.bundleIdentifier ?? "app.zabrian.codexbar"
+}
+
+/// 一次操作的触发来源, 作为日志里的 trigger 字段
+/// 同一条链路可能被用户动作 定时轮询 系统事件分别踢起来, 事后只有这个字段能区分
+nonisolated enum LogTrigger: String {
+    case manual
+    case panelOpen
+    case auto
+    case launch
+    case wake
+    case settings
+    case retry
+    /// Hook 开关转为开启后补跑同步
+    case hookEnabled
+    case hookChanged
+    case taskChanged
+    case helperRegistered
+    case limitReached
+    case statusRefresh
+}
+
+/// 日志里耗时字段的统一取值方式, 保留两位小数并带单位
+nonisolated struct LogDuration {
+    private let startedAt = ContinuousClock.now
+
+    var elapsed: String {
+        Self.seconds(startedAt.duration(to: .now))
+    }
+
+    /// 已经算好的秒数走这里, 保证和 elapsed 同一种写法
+    static func seconds(_ value: TimeInterval) -> String {
+        String(format: "%.2fs", max(0, value))
+    }
+
+    /// 重试间隔这类 Duration 走这里, 不必在调用点各写一遍换算
+    static func seconds(_ duration: Duration) -> String {
+        seconds(
+            Double(duration.components.seconds)
+                + Double(duration.components.attoseconds) / 1e18
+        )
+    }
 }

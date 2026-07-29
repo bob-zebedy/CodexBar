@@ -16,7 +16,7 @@ final class LoginItemSettings: ObservableObject {
     func setEnabled(_ enabled: Bool) {
         errorMessage = nil
 
-        AppLog.settings.notice("开机启动已变更: enabled=\(enabled ? 1 : 0)")
+        AppLog.settings.notice("开机自动启动变更: enabled=\(enabled ? 1 : 0)")
         do {
             if enabled {
                 try SMAppService.mainApp.register()
@@ -27,7 +27,7 @@ final class LoginItemSettings: ObservableObject {
             refresh()
         } catch {
             AppLog.settings.error(
-                "设置开机启动失败: enabled=\(enabled ? 1 : 0); detail=\(error.localizedDescription, privacy: .public)"
+                "开机自动启动失败: enabled=\(enabled ? 1 : 0); detail=\(error.localizedDescription, privacy: .public)"
             )
             refresh()
             errorMessage = "设置开机启动失败"

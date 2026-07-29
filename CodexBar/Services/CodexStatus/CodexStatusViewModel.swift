@@ -26,6 +26,9 @@ final class CodexStatusViewModel: ObservableObject {
     @Published private(set) var codexConnectionInfo: CodexCLIConnectionInfo?
     @Published private(set) var autoRefreshCountdownStartedAt: Date?
 
+    /// 统计维护挂在额度刷新完成事件上, 由它继承本次刷新的触发来源
+    private(set) var lastRefreshTrigger: LogTrigger = .launch
+
     var autoRefreshInterval: TimeInterval {
         Self.refreshInterval
     }
@@ -45,12 +48,12 @@ final class CodexStatusViewModel: ObservableObject {
         refreshCoordinator.cancel()
     }
 
-    func refreshIfNeeded() {
+    func refreshIfNeeded(trigger: LogTrigger) {
         guard Date().timeIntervalSince(autoRefreshCountdownStartedAt ?? .distantPast) > Self.refreshInterval else {
             return
         }
 
-        refresh()
+        refresh(trigger: trigger)
     }
 
     func startAutoRefresh() {
@@ -59,7 +62,7 @@ final class CodexStatusViewModel: ObservableObject {
         }
 
         autoRefreshTask = Task { [weak self] in
-            self?.refreshIfNeeded()
+            self?.refreshIfNeeded(trigger: .launch)
 
             // 每轮按剩余时间休眠, 手动刷新后倒计时会自然重新对齐
             while !Task.isCancelled {
@@ -68,27 +71,31 @@ final class CodexStatusViewModel: ObservableObject {
                     break
                 }
 
-                self?.refreshIfNeeded()
+                self?.refreshIfNeeded(trigger: .auto)
             }
         }
     }
 
-    func refresh() {
+    func refresh(trigger: LogTrigger) {
         guard !isRefreshing else {
             return
         }
 
+        lastRefreshTrigger = trigger
+        AppLog.app.notice("额度刷新开始: trigger=\(trigger.rawValue, privacy: .public)")
+        let duration = LogDuration()
+
         refreshCoordinator.run(
             setRefreshing: { [weak self] in self?.isRefreshing = $0 },
             operation: { [service = self.service] in
-                await (outcome: service.fetchOutcome(), connectionInfo: service.currentConnectionInfo())
+                await (fetch: service.fetchOutcome(), connectionInfo: service.currentConnectionInfo())
             },
             commit: { [weak self] result in
                 guard let self else {
                     return
                 }
 
-                switch result.outcome {
+                switch result.fetch.outcome {
                 case let .data(snapshot):
                     self.snapshot = snapshot
                     loadState = .loaded
@@ -100,14 +107,48 @@ final class CodexStatusViewModel: ObservableObject {
                     loadState = .initializationFailed
                 }
 
-                // 只记结果分类, 额度与用量是用户数据, 不进系统日志
+                // 只记各步结果分类, 额度与用量是用户数据, 不进系统日志
                 // RPC 层面的请求响应细节仍然只进日志窗口
-                let state = loadState
-                AppLog.app.notice("额度信息刷新完成: state=\(String(describing: state), privacy: .public)")
+                logRefreshOutcome(
+                    trigger: trigger,
+                    trace: result.fetch.trace,
+                    elapsed: duration.elapsed
+                )
                 codexConnectionInfo = result.connectionInfo
                 autoRefreshCountdownStartedAt = Date()
             }
         )
+    }
+
+    /// 成功路径把各步结果压进一条, 失败才带上定位到哪一步
+    private func logRefreshOutcome(
+        trigger: LogTrigger,
+        trace: CodexFetchTrace,
+        elapsed: String
+    ) {
+        let triggerName = trigger.rawValue
+        let state = String(describing: loadState)
+        switch loadState {
+        case .loaded:
+            let connection = trace.connection?.rawValue ?? "-"
+            let account = trace.account?.rawValue ?? "-"
+            let rateLimits = trace.rateLimits?.rawValue ?? "-"
+            let usage = trace.usage?.rawValue ?? "-"
+            let resetCredits = trace.resetCredits?.rawValue ?? "-"
+            AppLog.app.notice(
+                "额度刷新完成: trigger=\(triggerName, privacy: .public); state=\(state, privacy: .public); conn=\(connection, privacy: .public); account=\(account, privacy: .public); rateLimits=\(rateLimits, privacy: .public); usage=\(usage, privacy: .public); reset=\(resetCredits, privacy: .public); elapsed=\(elapsed, privacy: .public)"
+            )
+        case .notLoggedIn:
+            // 未登录是正常状态, 混进失败词根会让每分钟一条噪声盖掉真故障
+            AppLog.app.notice(
+                "额度刷新已跳过: trigger=\(triggerName, privacy: .public); reason=notLoggedIn; elapsed=\(elapsed, privacy: .public)"
+            )
+        case .initializationFailed, .loading:
+            let stage = trace.failureStage?.rawValue ?? "-"
+            AppLog.app.error(
+                "额度刷新失败: trigger=\(triggerName, privacy: .public); stage=\(stage, privacy: .public); state=\(state, privacy: .public); elapsed=\(elapsed, privacy: .public)"
+            )
+        }
     }
 
     func refreshCodexConnectionInfo() {

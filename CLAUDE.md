@@ -160,9 +160,18 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 菜单面板的 `CodexFetchOutcome` 只暴露有数据, 未登录, 初始化失败三种结果, 而启动失败, 超时, 断连, 解析失败等细节全部只进日志窗口, 由 `RequestLogStorage` 保存, 上限 500 条
 - app-server 之外的模块走 `Services/Support/AppLog.swift` 写系统日志, 用户可见文案只留步骤名, 错误码与 `localizedDescription` 这类细节进 os_log; 现有 category 为 `app` `keepalive` `activity` `workflow` `sync` `hooks` `codexcli` `settings` `notification`, helper 进程另用 `helper`
 - 日志的目标是出问题时能从中重建当时的状态, 所以不只记失败, 状态转换, 关键操作与决策依据同样要记; 启动时由 `logLaunchState` 记一条含全部开关的基线, 后续变更日志都是相对它的增量
-- 记日志要区分错误与运行时信息, 状态转换和降级决策用 `.notice`, 失败用 `.error`; 逐事件与逐快照这类高频路径一律不记, 例如两个 Reader 的 `try?` 文件 IO 失败是预期常态, 记了会刷屏
-- 文案只描述事实, 不写"用户做了什么"这类主语, 也不写推论; 字段一律 `名=值` 并用 `; ` 分隔, App 与 helper 两侧保持同一套格式
+- **级别只用 `.notice` 与 `.error`**, 状态转换和降级决策用 `.notice`, 失败用 `.error`; `.info` 与 `.debug` 只落在内存环形缓冲里, 事后 `log show` 捞不全, 一律不用
+- 详细度靠**结果字段化**而不是多记几条: 一次操作只留开始与收尾两条, 每一步的成功结果压成收尾那条里的一个字段, 只有失败才单独发一条 `.error` 带 `stage=` 与 `detail=`; 逐事件与逐快照这类高频路径仍然一律不记, 例如两个 Reader 的 `try?` 文件 IO 失败是预期常态, 记了会刷屏
+- 文案骨架是 `<主体><动作>: 字段=值; 字段=值`, 标题只说发生了什么, 理由进 `reason=`, 处置进 `action=`; 起止用 `开始` `完成` `失败`, 中间状态用 `已<动作>`
+- 字段顺序固定为 标识 (`trigger` `generation` `date`) 输入 结果 `elapsed` `reason`/`detail`; 公共字段有 `trigger` `result` `reason` `action` `detail` `code` (系统返回码) `exit` (进程退出码) `elapsed`, 其中 `code` 与 `exit` 必须分开, 不要用一个 `error=` 同时装 OSStatus IOReturn 和退出码
+- 文案只描述事实, 不写"用户做了什么"这类主语, 也不写推论; 字段值要可 grep, 用枚举 rawValue 而不是中文句子, App 与 helper 两侧保持同一套格式
+- 词根固定, 一个词能 grep 出整条链路: 额度, 统计刷新 (调度层), 事件汇总 (计算层), 同步, KeepAlive (防休眠决策层), 空闲断言 (进程内 `IOPMAssertion`), Helper 注册 (`SMAppService`), Helper XPC (`NSXPCConnection`), 系统休眠 (helper 的 pmset 效果), 任务, Hook, codex, 通知
+- 防休眠日志按两套机制分组: `KeepAlive` 是两套共用的决策层, `空闲断言` 是机制一, `Helper 注册` `Helper XPC` `系统休眠` 是机制二的授权 传输 效果三层, 故障定位就是在这几层里找
+- `trigger=` 由 `LogTrigger` 提供, 从 UI 入口透传到服务层, 用来区分同一条链路是被用户动作 定时轮询还是系统事件踢起来的; 统计维护挂在额度刷新完成事件上, 它的 trigger 继承那一次刷新
+- 变化检测类日志只在值真的变了才记, 例如 `KeepAlive 条件已变化` 与 `Hook 配置已变化` 各自存一份上次的值, 否则每次开面板都会刷一条
+- 设置项的变更日志照抄设置页那一行的标题, 例如 `菜单栏额度指示变更` `开机自动启动变更`, 用户说"我改了那个开关"时能直接对上; 只有本身带完整链路的才用链路词根, 例如 Hook 同步 通知 KeepAlive 快捷键
 - 成对的操作要留成对的日志, 例如 XPC 的发送与回复各记一条并带同一个 `generation`, 缺一条就说明请求丢在途中
+- 耗时用 `LogDuration` 取, 只加在收尾那一条上
 - `Logger` 的插值是 autoclosure, 里面直接访问属性会被要求显式 `self`, 而 `.swiftformat` 配了 `--self remove`, 两边会打架; 把属性先取到局部常量再插值即可, 不需要 lint 豁免
 - 账号有效时 rate limits 和 usage 允许单独失败, 复用同账号旧缓存并标记 stale, UI 显示为半透明, 无缓存则该区域不显示; 账号变化时整体丢弃缓存避免串号
 - 各 Settings 类把读取类错误与操作类错误分开存储, 定时 refresh 不能抹掉用户操作或校验的结论, 参见 `CodexHookSettings` 与 `KeepAliveController`

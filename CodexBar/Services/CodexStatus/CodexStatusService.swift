@@ -8,6 +8,43 @@ nonisolated enum CodexFetchOutcome {
     case initializationFailed
 }
 
+/// 一次刷新里各步的结果分类, 只用于日志
+/// 成功路径压进收尾那一条, 不为每步单独记一行
+nonisolated struct CodexFetchTrace {
+    enum ConnectionMode: String {
+        case reused
+        case new
+    }
+
+    enum StepResult: String {
+        case ok
+        case refreshed
+        case cached
+        case missing
+        case skipped
+        case failed
+    }
+
+    /// 失败时定位到哪一步, 成功时为 nil
+    enum FailureStage: String {
+        case connect
+        case account
+        case snapshot
+    }
+
+    var connection: ConnectionMode?
+    var account: StepResult?
+    var rateLimits: StepResult?
+    var usage: StepResult?
+    var resetCredits: StepResult?
+    var failureStage: FailureStage?
+}
+
+nonisolated struct CodexFetchResult {
+    let outcome: CodexFetchOutcome
+    let trace: CodexFetchTrace
+}
+
 private nonisolated enum ConnectionResolution {
     case ready(connection: AppServerConnection, reused: Bool)
     case notLoggedIn
@@ -34,7 +71,12 @@ private nonisolated enum FetchFailure: Error {
 
 private nonisolated struct CachedSupplementalRead<Value> {
     let value: Value?
-    let isStale: Bool
+    let step: CodexFetchTrace.StepResult
+
+    /// 只驱动 UI 的半透明展示; 新增 step 分支时要确认它算不算"给出的是旧数据"
+    var isStale: Bool {
+        step == .cached
+    }
 }
 
 /// 只缓存同一账号下的补充数据, 账号变化时整体丢弃避免串号
@@ -43,9 +85,13 @@ private nonisolated struct SupplementalDataCache {
     var rateLimits: AccountRateLimitsResponse?
     var usage: AccountUsageResponse?
 
-    mutating func useAccount(_ account: CodexAccount) {
-        guard self.account != account else { return }
+    /// 返回是否因为换账号而丢弃了缓存, 调用方据此记日志, 不必再比一遍账号
+    @discardableResult
+    mutating func useAccount(_ account: CodexAccount) -> Bool {
+        guard self.account != account else { return false }
+        let hadCachedAccount = self.account != nil
         self = Self(account: account)
+        return hadCachedAccount
     }
 }
 
@@ -87,6 +133,7 @@ actor CodexStatusService {
 
     private var connection: AppServerConnection?
     private var supplementalDataCache = SupplementalDataCache()
+    private var lastResolvedSource: CodexCLIExecutableSource?
 
     /// app-server 退出后继续写管道会触发 SIGPIPE
     /// 忽略信号, 让 write 抛错后走重建
@@ -98,8 +145,10 @@ actor CodexStatusService {
         _ = Self.ignoreBrokenPipeSignal
     }
 
-    func fetchOutcome() async -> CodexFetchOutcome {
-        await resolveOutcome(allowRebuild: true)
+    func fetchOutcome() async -> CodexFetchResult {
+        var trace = CodexFetchTrace()
+        let outcome = await resolveOutcome(allowRebuild: true, trace: &trace)
+        return CodexFetchResult(outcome: outcome, trace: trace)
     }
 
     func currentConnectionInfo() async -> CodexCLIConnectionInfo? {
@@ -143,15 +192,25 @@ actor CodexStatusService {
 
     /// 复用连接出现传输故障时只重建重试一次
     /// 避免故障状态下反复拉起进程
-    private func resolveOutcome(allowRebuild: Bool) async -> CodexFetchOutcome {
+    private func resolveOutcome(
+        allowRebuild: Bool,
+        trace: inout CodexFetchTrace
+    ) async -> CodexFetchOutcome {
         switch ensureConnection() {
         case .notLoggedIn:
+            trace.failureStage = .connect
             return .notLoggedIn
         case .initializationFailed:
+            trace.failureStage = .connect
             return .initializationFailed
         case let .ready(connection, reused):
+            trace.connection = reused ? .reused : .new
             do {
-                let snapshot = try await fetchData(using: connection, refreshAccountInfo: reused)
+                let snapshot = try await fetchData(
+                    using: connection,
+                    refreshAccountInfo: reused,
+                    trace: &trace
+                )
                 return .data(snapshot)
             } catch FetchFailure.notLoggedIn {
                 supplementalDataCache = SupplementalDataCache()
@@ -160,7 +219,8 @@ actor CodexStatusService {
             } catch FetchFailure.needsRebuild {
                 teardownConnection()
                 if reused, allowRebuild {
-                    return await resolveOutcome(allowRebuild: false)
+                    AppLog.app.notice("codex 连接已失效: reason=transportError")
+                    return await resolveOutcome(allowRebuild: false, trace: &trace)
                 }
                 return .initializationFailed
             } catch {
@@ -187,14 +247,32 @@ actor CodexStatusService {
             return .ready(connection: connection, reused: true)
         }
 
+        // 只记失效这个事实: 下面还可能解析不到 codex 或者开不起来
+        // 收尾由额度刷新那条的 conn=new 承载, 不必在这里再记一条
+        if let connection {
+            let reason = connection.session.process.isRunning ? "expired" : "processExited"
+            AppLog.app.notice("codex 连接已失效: reason=\(reason, privacy: .public)")
+        }
         teardownConnection()
 
         let command: AppServerCommand
         do {
             command = try CodexCLIResolver.resolveAppServerCommand(environment: Self.environment)
         } catch {
+            AppLog.app.error(
+                "codex 连接失败: stage=resolveCLI; detail=\(error.localizedDescription, privacy: .public)"
+            )
             RequestLogStorage.shared.recordFailure(message: error.localizedDescription)
             return .initializationFailed
+        }
+
+        // 可执行文件路径含用户名, 只记来源分类
+        // 每次新建连接都重新解析, 换了来源才值得记一条
+        if lastResolvedSource != command.source {
+            lastResolvedSource = command.source
+            AppLog.codexCLI.notice(
+                "codex 路径已解析: source=\(command.source.rawValue, privacy: .public)"
+            )
         }
 
         let resolution = Self.openConnection(
@@ -203,8 +281,13 @@ actor CodexStatusService {
             clientVersion: Self.clientVersion(),
             timeout: Self.requestTimeout
         )
-        if case let .ready(newConnection, _) = resolution {
+        switch resolution {
+        case let .ready(newConnection, _):
             connection = newConnection
+        case .initializationFailed:
+            AppLog.app.error("codex 连接失败: stage=open")
+        case .notLoggedIn:
+            break
         }
         return resolution
     }
@@ -217,7 +300,11 @@ actor CodexStatusService {
     /// 额度与用量独立读取
     /// 认证失败全程只刷新一次 token
     /// 传输故障交给外层重建连接
-    private func fetchData(using connection: AppServerConnection, refreshAccountInfo: Bool) async throws -> CodexQuotaSnapshot {
+    private func fetchData(
+        using connection: AppServerConnection,
+        refreshAccountInfo: Bool,
+        trace: inout CodexFetchTrace
+    ) async throws -> CodexQuotaSnapshot {
         var didRefresh = false
 
         func refreshTokenIfNeeded() throws {
@@ -251,6 +338,8 @@ actor CodexStatusService {
 
         // 新建连接已读过 account; 复用连接才刷新账户状态
 
+        // 失败定位随流程推进, 不靠事后从别的字段反推
+        trace.failureStage = .account
         if refreshAccountInfo {
             let accountResult: ReadResult<AccountReadResponse> = try readResultWithAuthRefresh {
                 Self.read("account/read", params: ["refreshToken": false], using: connection, as: AccountReadResponse.self)
@@ -259,30 +348,44 @@ actor CodexStatusService {
                 guard response.account != nil else { throw FetchFailure.notLoggedIn }
                 connection.accountResponse = response
             }
+            trace.account = Self.accountStepResult(response: accountResult.value, didRefresh: didRefresh)
+        } else {
+            trace.account = .skipped
         }
 
         guard let account = connection.accountResponse.account else {
             throw FetchFailure.notLoggedIn
         }
+        trace.failureStage = .snapshot
 
-        supplementalDataCache.useAccount(account)
+        if supplementalDataCache.useAccount(account) {
+            AppLog.app.notice("额度缓存已丢弃: reason=accountChanged")
+        }
 
         let rateLimitsRead = try readSupplemental(
             "account/rateLimits/read",
             as: AccountRateLimitsResponse.self,
             cache: &supplementalDataCache.rateLimits
         )
+        trace.rateLimits = rateLimitsRead.step
 
         let usageRead = try readSupplemental(
             "account/usage/read",
             as: AccountUsageResponse.self,
             cache: &supplementalDataCache.usage
         )
+        trace.usage = usageRead.step
 
+        let availableResetCredits = rateLimitsRead.value?.rateLimitResetCredits?.availableCount
         let resetCreditExpirationDates = await fetchResetCreditExpirationDates(
-            availableCount: rateLimitsRead.value?.rateLimitResetCredits?.availableCount,
+            availableCount: availableResetCredits,
             refreshTokenIfNeeded: refreshTokenIfNeeded
         )
+        if let availableResetCredits, availableResetCredits > 0 {
+            trace.resetCredits = resetCreditExpirationDates == nil ? .failed : .ok
+        } else {
+            trace.resetCredits = .skipped
+        }
 
         // rateLimits/usage 都可为空, 只要账户有效就让 UI 展示"暂无数据"
 
@@ -297,6 +400,7 @@ actor CodexStatusService {
             throw FetchFailure.notLoggedIn
         }
 
+        trace.failureStage = nil
         return snapshot
     }
 
@@ -333,9 +437,22 @@ actor CodexStatusService {
         }
     }
 
+    /// 读不到账号时后面会沿用连接上缓存的那份
+    /// 这种一轮记成 ok 的话, UI 展示的账号其实来自缓存这件事就无从发现
+    private static func accountStepResult(
+        response: AccountReadResponse?,
+        didRefresh: Bool
+    ) -> CodexFetchTrace.StepResult {
+        guard response != nil else {
+            return .cached
+        }
+        return didRefresh ? .refreshed : .ok
+    }
+
     /// 新值更新缓存
-    /// 本轮请求失败则回退到缓存并标记陈旧
-    /// 方法不支持/认证/断连一律视为无数据
+    /// 本轮请求失败则回退到缓存并标记陈旧, 没有缓存才算这一步失败
+    /// step 在这里判定而不是事后从 value 与 isStale 反推: 只有这里还看得到原始的 ReadResult
+    /// 反推会把"请求失败"和"codex 不支持这个方法"压成同一个值, 而两者的处置完全不同
     private func cachedRead<Value>(
         _ result: ReadResult<Value>,
         cache: inout Value?
@@ -343,11 +460,17 @@ actor CodexStatusService {
         switch result {
         case let .value(value):
             cache = value
-            return CachedSupplementalRead(value: value, isStale: false)
+            return CachedSupplementalRead(value: value, step: .ok)
         case .skipped(.requestFailed):
-            return CachedSupplementalRead(value: cache, isStale: cache != nil)
-        default:
-            return CachedSupplementalRead(value: nil, isStale: false)
+            guard let cachedValue = cache else {
+                return CachedSupplementalRead(value: nil, step: .failed)
+            }
+            return CachedSupplementalRead(value: cachedValue, step: .cached)
+        case .skipped(.methodUnsupported):
+            return CachedSupplementalRead(value: nil, step: .skipped)
+        case .authRequired, .broken:
+            // resultAfterAuthAttempt 已经把这两种上抛, 到不了这里, 写出来只为穷尽
+            return CachedSupplementalRead(value: nil, step: .missing)
         }
     }
 

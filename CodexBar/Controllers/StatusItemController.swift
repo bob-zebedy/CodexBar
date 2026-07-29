@@ -29,6 +29,8 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     private var notificationService: CodexNotificationService?
 
     func applicationDidFinishLaunching(_: Notification) {
+        // Hook 子进程模式绝不会走到这里, 干净退出标志因此不会被它改写
+        AppProcessDiagnostics.install()
         let controller = StatusItemController(
             viewModel: viewModel,
             workflowViewModel: workflowViewModel,
@@ -61,7 +63,8 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_: Notification) {
-        AppLog.app.notice("APP 即将退出")
+        AppLog.app.notice("App 即将退出: reason=userQuit")
+        AppProcessDiagnostics.recordCleanExit()
         statusItemController?.uninstall()
         keepAliveController.stop()
         activityMonitor.stop()
@@ -82,7 +85,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         let taskCenter = mainPanelSettings.showsTaskCenter ? 1 : 0
         let hotKey = globalHotKeySettings.shortcut == nil ? 0 : 1
         AppLog.app.notice(
-            "APP 已启动: version=\(version, privacy: .public); build=\(build, privacy: .public); hook=\(hook); keepAlive=\(keepAlive); keepAliveLimit=\(keepAliveLimit, privacy: .public); sync=\(sync); notification=\(notification); menuBarQuota=\(menuBarQuota, privacy: .public); taskCenter=\(taskCenter); hotKey=\(hotKey)"
+            "App 已启动: version=\(version, privacy: .public); build=\(build, privacy: .public); hook=\(hook); keepAlive=\(keepAlive); keepAliveLimit=\(keepAliveLimit, privacy: .public); sync=\(sync); notification=\(notification); menuBarQuota=\(menuBarQuota, privacy: .public); taskCenter=\(taskCenter); hotKey=\(hotKey)"
         )
     }
 
@@ -138,8 +141,9 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         keepAliveController: keepAliveController
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
-    } onSyncChanged: { [weak self] enabled in
-        self?.handleSyncChanged(enabled)
+    } onSyncChanged: { [weak self] _ in
+        // setEnabled 在回调之前已经写回属性, 现场求值就是新结论
+        self?.workflowSyncScheduler.requestSync(trigger: .settings)
     } onRebuildWorkflowData: { [weak self] dateKeys, completion in
         guard let self else {
             completion(.failure(CancellationError()))
@@ -154,8 +158,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
     private lazy var workflowSyncScheduler = WorkflowSyncScheduler(
         viewModel: workflowViewModel,
-        canSynchronize: { [weak self] in
-            self?.canSynchronizeWorkflow == true
+        syncActivation: { [weak self] in
+            self?.workflowSyncActivation ?? .syncOff
         }
     )
 
@@ -690,7 +694,11 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                 }
 
                 if isEnabled {
-                    workflowSyncScheduler.requestSync()
+                    // 回调跑在 willSet, codexHookSettings.isEnabled 此刻还是旧值, 只能用参数
+                    workflowSyncScheduler.requestSync(
+                        trigger: .hookEnabled,
+                        activation: syncSettings.activation(isHookEnabled: true)
+                    )
                 } else {
                     workflowSyncScheduler.clearPendingMaintenance()
                     activityCenterPanelController.hide(immediate: true)
@@ -701,7 +709,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         syncSettings.$syncAvailability
             .removeDuplicates()
             .sink { [weak self] availability in
-                self?.handleSyncChanged(availability.isAvailable)
+                self?.handleSyncChanged(isSyncAvailable: availability.isAvailable)
             }
             .store(in: &cancellables)
     }
@@ -1245,7 +1253,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                 return
             }
 
-            viewModel.refreshIfNeeded()
+            viewModel.refreshIfNeeded(trigger: .panelOpen)
         }
     }
 
@@ -1258,22 +1266,31 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         if performMaintenance {
-            workflowSyncScheduler.requestMaintenance(allowsSync: true)
+            // 统计维护挂在额度刷新完成事件上, 触发来源继承那一次刷新
+            workflowSyncScheduler.requestMaintenance(
+                allowsSync: true,
+                trigger: viewModel.lastRefreshTrigger
+            )
         } else {
             workflowViewModel.refreshIfNeeded()
         }
     }
 
-    private func handleSyncChanged(_ isEnabled: Bool) {
-        if isEnabled {
-            workflowSyncScheduler.requestSync()
-        } else {
-            workflowSyncScheduler.clearPendingSync()
-        }
+    /// isSyncAvailable 由调用方传入
+    /// 从 $syncAvailability 的订阅进来时 syncSettings.isSyncAvailable 还是旧值, 只有回调参数是新的
+    /// 不在这里判断该不该跳过: requestSync 的 guard 已经统一处理并记下 reason=
+    private func handleSyncChanged(isSyncAvailable: Bool) {
+        workflowSyncScheduler.requestSync(
+            trigger: .settings,
+            activation: syncSettings.activation(
+                isHookEnabled: codexHookSettings.isEnabled,
+                isSyncAvailable: isSyncAvailable
+            )
+        )
     }
 
-    private var canSynchronizeWorkflow: Bool {
-        syncSettings.isEffectivelyActive(isHookEnabled: codexHookSettings.isEnabled)
+    private var workflowSyncActivation: WorkflowSyncActivation {
+        syncSettings.activation(isHookEnabled: codexHookSettings.isEnabled)
     }
 
     private func updateHeatmapDetailPanel(_ context: UsageHeatmapHoverContext?) {

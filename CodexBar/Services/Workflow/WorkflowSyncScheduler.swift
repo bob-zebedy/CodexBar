@@ -10,43 +10,51 @@ final class WorkflowSyncScheduler {
     private static let syncCooldown: TimeInterval = 8
 
     private let viewModel: WorkflowViewModel
-    private let canSynchronize: () -> Bool
+    private let syncActivation: () -> WorkflowSyncActivation
     private var isRunning = false
-    private var pendingSync = false
-    private var pendingLocalMaintenance = false
     private var pendingRebuild: RebuildRequest?
     private var cooldownTask: Task<Void, Never>?
     private var lastSyncFinishedAt: Date?
+    /// 请求会被合并成一次执行, 触发来源跟着一起排队, 非 nil 即代表有一个请求在等
+    /// 合并时保留先到的那个, 它才是这一轮真正的起因
+    private var pendingSyncTrigger: LogTrigger?
+    private var pendingMaintenanceTrigger: LogTrigger?
 
     init(
         viewModel: WorkflowViewModel,
-        canSynchronize: @escaping () -> Bool
+        syncActivation: @escaping () -> WorkflowSyncActivation
     ) {
         self.viewModel = viewModel
-        self.canSynchronize = canSynchronize
+        self.syncActivation = syncActivation
     }
 
     deinit {
         cooldownTask?.cancel()
     }
 
-    func requestMaintenance(allowsSync: Bool) {
-        if allowsSync, canSynchronize() {
-            pendingSync = true
+    func requestMaintenance(allowsSync: Bool, trigger: LogTrigger) {
+        if allowsSync, syncActivation().isActive {
+            pendingSyncTrigger = pendingSyncTrigger ?? trigger
         } else {
-            pendingLocalMaintenance = true
+            pendingMaintenanceTrigger = pendingMaintenanceTrigger ?? trigger
         }
 
         drain()
     }
 
-    func requestSync() {
-        guard canSynchronize() else {
+    /// activation 传 nil 时现场求值
+    /// 从 @Published 的订阅里调用必须显式传入: 那时属性还是旧值, 现场求值会得到刚被改掉的那个结论
+    func requestSync(trigger: LogTrigger, activation overrideActivation: WorkflowSyncActivation? = nil) {
+        let activation = overrideActivation ?? syncActivation()
+        guard activation.isActive else {
+            AppLog.sync.notice(
+                "同步已跳过: trigger=\(trigger.rawValue, privacy: .public); reason=\(activation.rawValue, privacy: .public)"
+            )
             clearPendingSync()
             return
         }
 
-        pendingSync = true
+        pendingSyncTrigger = pendingSyncTrigger ?? trigger
         drain()
     }
 
@@ -61,14 +69,14 @@ final class WorkflowSyncScheduler {
     }
 
     func clearPendingSync() {
-        pendingSync = false
+        pendingSyncTrigger = nil
         cancelCooldownTask()
         drain()
     }
 
     func clearPendingMaintenance() {
-        pendingSync = false
-        pendingLocalMaintenance = false
+        pendingSyncTrigger = nil
+        pendingMaintenanceTrigger = nil
         cancelCooldownTask()
     }
 
@@ -88,34 +96,38 @@ final class WorkflowSyncScheduler {
             return
         }
 
-        let canSync = pendingSync && canSynchronize()
-        if canSync {
-            if remainingSyncCooldown() <= 0 {
+        var syncCooldownRemaining: TimeInterval?
+        if pendingSyncTrigger != nil, syncActivation().isActive {
+            let remaining = remainingSyncCooldown()
+            if remaining <= 0 {
                 startMaintenance(synchronize: true)
                 return
             }
+
+            syncCooldownRemaining = remaining
         } else {
-            pendingSync = false
+            pendingSyncTrigger = nil
             cancelCooldownTask()
         }
 
-        if pendingLocalMaintenance {
+        if pendingMaintenanceTrigger != nil {
             startMaintenance(synchronize: false)
             return
         }
 
-        if canSync {
-            scheduleCooldownDrain(after: remainingSyncCooldown())
+        if let syncCooldownRemaining {
+            scheduleCooldownDrain(after: syncCooldownRemaining)
         }
     }
 
     private func startMaintenance(synchronize: Bool) {
-        AppLog.workflow.notice("开始维护: synchronize=\(synchronize ? 1 : 0)")
+        let trigger = (synchronize ? pendingSyncTrigger : pendingMaintenanceTrigger) ?? .auto
+        let duration = LogDuration()
         isRunning = true
-        pendingLocalMaintenance = false
+        pendingMaintenanceTrigger = nil
 
         if synchronize {
-            pendingSync = false
+            pendingSyncTrigger = nil
             cancelCooldownTask()
         }
 
@@ -124,21 +136,39 @@ final class WorkflowSyncScheduler {
                 return
             }
 
-            await viewModel.refreshMaintenance(synchronize: synchronize)
-            finishMaintenance(synchronize: synchronize)
+            let counts = await viewModel.refreshMaintenance(
+                synchronize: synchronize,
+                trigger: trigger
+            )
+            finishMaintenance(
+                synchronize: synchronize,
+                trigger: trigger,
+                duration: duration,
+                counts: counts
+            )
         }
     }
 
-    private func finishMaintenance(synchronize: Bool) {
-        AppLog.workflow.notice("维护结束: synchronize=\(synchronize ? 1 : 0)")
+    private func finishMaintenance(
+        synchronize: Bool,
+        trigger: LogTrigger,
+        duration: LogDuration,
+        counts: WorkflowMaintenanceCounts?
+    ) {
+        logMaintenanceOutcome(
+            synchronize: synchronize,
+            trigger: trigger,
+            duration: duration,
+            counts: counts
+        )
         isRunning = false
 
         if synchronize {
             lastSyncFinishedAt = Date()
         }
 
-        if !canSynchronize() {
-            pendingSync = false
+        if !syncActivation().isActive {
+            pendingSyncTrigger = nil
             cancelCooldownTask()
         }
 
@@ -148,7 +178,7 @@ final class WorkflowSyncScheduler {
     private func startRebuild(_ request: RebuildRequest) {
         isRunning = true
         pendingRebuild = nil
-        let synchronize = canSynchronize()
+        let synchronize = syncActivation().isActive
 
         Task { @MainActor [weak self] in
             guard let self else {
@@ -165,7 +195,7 @@ final class WorkflowSyncScheduler {
                 )
             } catch {
                 AppLog.workflow.error(
-                    "重建请求失败: dates=\(request.dateKeys.count); detail=\(error.localizedDescription, privacy: .public)"
+                    "数据重建失败: stage=request; dates=\(request.dateKeys.count); detail=\(error.localizedDescription, privacy: .public)"
                 )
                 result = .failure(error)
             }
@@ -179,6 +209,27 @@ final class WorkflowSyncScheduler {
         }
     }
 
+    /// 空转的一轮什么都没改, 跟着 60 秒额度刷新记一条会把空闲机器的日志刷没
+    /// 同步自身的起止由 WorkflowSyncService 记, 这里只承载维护结果, 不给 sync 开后门
+    private func logMaintenanceOutcome(
+        synchronize: Bool,
+        trigger: LogTrigger,
+        duration: LogDuration,
+        counts: WorkflowMaintenanceCounts?
+    ) {
+        guard let counts else {
+            return
+        }
+
+        let triggerName = trigger.rawValue
+        let sync = synchronize ? 1 : 0
+        let range = counts.dateRange
+        let elapsed = duration.elapsed
+        AppLog.workflow.notice(
+            "统计刷新完成: trigger=\(triggerName, privacy: .public); sync=\(sync); idle=\(counts.idle); dates=\(counts.dates); range=\(range, privacy: .public); events=\(counts.events); written=\(counts.written); skipped=\(counts.skipped); failed=\(counts.failed); pruned=\(counts.pruned); elapsed=\(elapsed, privacy: .public)"
+        )
+    }
+
     private func remainingSyncCooldown() -> TimeInterval {
         guard let lastSyncFinishedAt else {
             return 0
@@ -188,10 +239,19 @@ final class WorkflowSyncScheduler {
         return max(0, Self.syncCooldown - elapsed)
     }
 
+    /// 冷却延后只在真的排上队时记一条
+    /// drain 一轮会被多个入口调用, 无条件记会把一次延后刷成好几条
+    /// 标题与 requestSync 的 已跳过 分开: 这里的请求冷却结束后照常执行, 不是被丢弃
     private func scheduleCooldownDrain(after delay: TimeInterval) {
         guard cooldownTask == nil else {
             return
         }
+
+        let trigger = pendingSyncTrigger ?? .auto
+        let remaining = LogDuration.seconds(delay)
+        AppLog.sync.notice(
+            "同步已延后: trigger=\(trigger.rawValue, privacy: .public); reason=cooldown; remaining=\(remaining, privacy: .public)"
+        )
 
         let milliseconds = max(1, Int((delay * 1000).rounded(.up)))
         cooldownTask = Task { @MainActor [weak self] in

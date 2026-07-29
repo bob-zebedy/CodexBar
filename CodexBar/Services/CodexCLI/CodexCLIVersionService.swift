@@ -183,7 +183,7 @@ actor CodexCLIVersionService {
             process.terminationHandler = nil
             stopCollectors(outputCollector: outputCollector, errorCollector: errorCollector)
             AppLog.codexCLI.error(
-                "版本检测启动失败: source=\(source.rawValue, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+                "版本检测失败: source=\(source.rawValue, privacy: .public); stage=launch; detail=\(error.localizedDescription, privacy: .public)"
             )
             return CodexCLIVersionItem(source: source, path: path, errorMessage: "启动失败")
         }
@@ -197,7 +197,7 @@ actor CodexCLIVersionService {
                 outputCollector: outputCollector,
                 errorCollector: errorCollector
             )
-            AppLog.codexCLI.error("版本检测超时: source=\(source.rawValue, privacy: .public)")
+            AppLog.codexCLI.error("版本检测失败: source=\(source.rawValue, privacy: .public); stage=timeout")
             return CodexCLIVersionItem(source: source, path: path, errorMessage: "读取超时")
         }
 
@@ -206,13 +206,13 @@ actor CodexCLIVersionService {
 
         guard process.terminationStatus == 0 else {
             AppLog.codexCLI.error(
-                "版本检测退出码非零: source=\(source.rawValue, privacy: .public); error=\(process.terminationStatus)"
+                "版本检测失败: source=\(source.rawValue, privacy: .public); stage=exit; exit=\(process.terminationStatus)"
             )
             return CodexCLIVersionItem(source: source, path: path, errorMessage: "读取失败")
         }
 
         guard let version = firstLine(in: output) ?? firstLine(in: errorOutput) else {
-            AppLog.codexCLI.error("版本检测无法解析输出: source=\(source.rawValue, privacy: .public)")
+            AppLog.codexCLI.error("版本检测失败: source=\(source.rawValue, privacy: .public); stage=parse")
             return CodexCLIVersionItem(source: source, path: path, errorMessage: "版本未知")
         }
 

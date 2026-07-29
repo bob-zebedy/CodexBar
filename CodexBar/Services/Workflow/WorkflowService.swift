@@ -4,6 +4,35 @@ import Darwin
 import Foundation
 import os
 
+/// 汇总失败时定位到哪一步, 只用于日志
+private nonisolated enum MaintenanceStage: String {
+    case prepare
+    case write
+    case prune
+}
+
+/// 一轮汇总的计数, 成功路径压进 WorkflowSyncScheduler 的收尾那一条日志, 不为每天单独记一行
+/// dates 由三个分支相加得出, 不额外存一份
+nonisolated struct WorkflowMaintenanceCounts {
+    var events = 0
+    var written = 0
+    var skipped = 0
+    var failed = 0
+    var pruned = 0
+    var dateRange = "-"
+    /// 这条之前连续空转了多少轮, 用来确认静默期是没事干而不是没跑
+    var idle = 0
+
+    var dates: Int {
+        written + skipped + failed
+    }
+
+    /// 这一轮有没有真的改变过状态
+    var hasWork: Bool {
+        dates > 0 || pruned > 0
+    }
+}
+
 /// 从 Hook 原始事件维护每日聚合, 对外只发布 UI 需要的统计快照
 actor WorkflowService {
     private let eventsDirectoryURL: URL
@@ -11,6 +40,8 @@ actor WorkflowService {
     private let syncService: WorkflowSyncService
     /// 上次归一化时 daily.jsonl 的 stat 与当天日期键
     private var lastNormalizedDailyLog: WorkflowDailyLogStamp?
+    /// 上一条维护日志之后连续空转的轮数, 记出去就清零
+    private var idleMaintenanceRounds = 0
     private static let eventReadChunkSize = 64 * 1024
 
     init(
@@ -24,25 +55,34 @@ actor WorkflowService {
     }
 
     func loadSnapshot(
-        performMaintenance: Bool = false,
-        synchronize: Bool = false
+        synchronize: Bool = false,
+        trigger: LogTrigger = .auto
     ) async -> WorkflowSnapshot {
-        if performMaintenance {
-            performMaintenanceIfNeeded()
-        }
-
-        return await makeSnapshot(
+        await makeSnapshot(
             localAggregates: loadDailyAggregates() ?? [],
-            synchronize: synchronize
+            synchronize: synchronize,
+            trigger: trigger
         )
+    }
+
+    /// 先跑一轮维护再取快照
+    /// counts 为 nil 表示这一轮空转, 由调用方决定记不记日志
+    func loadSnapshotWithMaintenance(
+        synchronize: Bool,
+        trigger: LogTrigger
+    ) async -> (snapshot: WorkflowSnapshot, counts: WorkflowMaintenanceCounts?) {
+        let counts = performMaintenanceIfNeeded()
+        let snapshot = await loadSnapshot(synchronize: synchronize, trigger: trigger)
+        return (snapshot, counts)
     }
 
     private func makeSnapshot(
         localAggregates: [WorkflowDailyAggregate],
-        synchronize: Bool
+        synchronize: Bool,
+        trigger: LogTrigger
     ) async -> WorkflowSnapshot {
         let syncSnapshot: WorkflowSyncSnapshot = if synchronize {
-            await syncService.synchronizeIfEnabled(localAggregates: localAggregates)
+            await syncService.synchronizeIfEnabled(localAggregates: localAggregates, trigger: trigger)
         } else {
             await syncService.snapshotFromCacheIfEnabled()
         }
@@ -63,6 +103,7 @@ actor WorkflowService {
         for dateKeys: [String],
         synchronize: Bool
     ) async throws -> WorkflowDataRebuildOutcome {
+        let duration = LogDuration()
         let normalizedDateKeys = Set(dateKeys).sorted()
         guard !normalizedDateKeys.isEmpty else {
             throw WorkflowDataRebuildError.sourceUnavailable
@@ -79,7 +120,7 @@ actor WorkflowService {
             } catch {
                 // 整批成功时这个原因不会往上抛, 摘要只带得走日期
                 AppLog.workflow.error(
-                    "重建失败: date=\(dateKey, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+                    "数据重建失败: stage=date; date=\(dateKey, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
                 )
                 failedDateKeys.append(dateKey)
                 if firstFailure == nil {
@@ -96,7 +137,7 @@ actor WorkflowService {
             try await syncService.markReplacementNeeded(for: normalizedDateKeys)
         } catch {
             AppLog.workflow.error(
-                "登记待替换记录失败: dates=\(normalizedDateKeys.count); detail=\(error.localizedDescription, privacy: .public)"
+                "数据重建失败: stage=replacementMarking; dates=\(normalizedDateKeys.count); detail=\(error.localizedDescription, privacy: .public)"
             )
             didFailReplacementMarking = true
         }
@@ -106,9 +147,11 @@ actor WorkflowService {
             throw firstFailure ?? WorkflowDataRebuildError.sourceUnavailable
         }
 
+        // 重建只由设置页的用户操作发起
         let snapshot = await makeSnapshot(
             localAggregates: loadDailyAggregates() ?? [],
-            synchronize: synchronize
+            synchronize: synchronize,
+            trigger: .manual
         )
         let summary = await WorkflowDataRebuildSummary(
             rebuiltDateCount: rebuildResults.count,
@@ -118,8 +161,9 @@ actor WorkflowService {
             failedDateKeys: failedDateKeys,
             didFailSyncReplacementMarking: didFailReplacementMarking
         )
+        let elapsed = duration.elapsed
         AppLog.workflow.notice(
-            "重建完成: dates=\(summary.rebuiltDateCount); events=\(summary.eventCount); corruptLines=\(summary.corruptLineCount); failedDates=\(failedDateKeys.count)"
+            "数据重建完成: dates=\(summary.rebuiltDateCount); events=\(summary.eventCount); corruptLines=\(summary.corruptLineCount); failedDates=\(failedDateKeys.count); elapsed=\(elapsed, privacy: .public)"
         )
         return WorkflowDataRebuildOutcome(snapshot: snapshot, summary: summary)
     }
@@ -198,38 +242,76 @@ actor WorkflowService {
         }) ?? false
     }
 
-    private func performMaintenanceIfNeeded() {
+    /// 空转的一轮返回 nil
+    /// 它跟着每 60 秒的额度刷新跑, 无条件记会让空闲机器每天多出上千条没有信息的日志
+    /// 收尾日志由 WorkflowSyncScheduler 统一记, 这里只负责判断有没有值得记的东西
+    private func performMaintenanceIfNeeded() -> WorkflowMaintenanceCounts? {
+        let duration = LogDuration()
+        var counts = WorkflowMaintenanceCounts()
+        var stage = MaintenanceStage.prepare
         do {
             let tasks = try prepareMaintenanceTasks()
-            let didWriteDailyLog = perform(tasks)
+            stage = .write
+            let didWriteDailyLog = perform(tasks, counts: &counts)
             // 每次落盘前都已整体归一化, 写入过就不必再做一轮全量解码比对
             if !didWriteDailyLog {
                 try normalizeDailyAggregatesIfNeeded()
             }
-            try pruneExpiredEventFiles()
+            stage = .prune
+            counts.pruned = try pruneExpiredEventFiles()
         } catch {
+            let elapsed = duration.elapsed
             AppLog.workflow.error(
-                "维护未完成: detail=\(error.localizedDescription, privacy: .public)"
+                "事件汇总失败: stage=\(stage.rawValue, privacy: .public); elapsed=\(elapsed, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
             )
-            return
+            idleMaintenanceRounds = 0
+            return nil
         }
+
+        guard counts.hasWork else {
+            idleMaintenanceRounds += 1
+            return nil
+        }
+
+        counts.idle = idleMaintenanceRounds
+        idleMaintenanceRounds = 0
+        return counts
     }
 
     /// 返回是否写入过 daily.jsonl; 批次内共享同一份内存聚合, 避免每个任务重新读盘
-    private func perform(_ tasks: [WorkflowMaintenanceTask]) -> Bool {
-        guard !tasks.isEmpty else {
+    private func perform(
+        _ tasks: [WorkflowMaintenanceTask],
+        counts: inout WorkflowMaintenanceCounts
+    ) -> Bool {
+        // 任务是 dirty 与 pending 两段拼接, 只在各自半边有序, 取首尾会得到反向区间
+        let dateKeys = tasks.map(\.dateKey)
+        guard let oldestDateKey = dateKeys.min(),
+              let newestDateKey = dateKeys.max() else {
             return false
         }
+
+        counts.dateRange = oldestDateKey == newestDateKey
+            ? oldestDateKey
+            : oldestDateKey + ".." + newestDateKey
 
         var aggregates = loadDailyAggregates() ?? []
         var didWrite = false
         for task in tasks {
             do {
                 let result = try buildDailyAggregate(for: task)
-                didWrite = try commit(result, aggregates: &aggregates) || didWrite
+                if try commit(result, aggregates: &aggregates) {
+                    didWrite = true
+                    counts.written += 1
+                    // 记本轮新摄入的量; 累加 eventCount 会变成当日总数, Hook 停写也看不出来
+                    // dirty 任务没有 base, 差值即整天重算的量, 与"这轮处理了多少"仍然一致
+                    counts.events += result.aggregate.eventCount - (task.baseAggregate?.eventCount ?? 0)
+                } else {
+                    counts.skipped += 1
+                }
             } catch {
+                counts.failed += 1
                 AppLog.workflow.error(
-                    "聚合失败, 已标记待重建: date=\(task.dateKey, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+                    "事件汇总失败: stage=daily; date=\(task.dateKey, privacy: .public); detail=\(error.localizedDescription, privacy: .public); action=markDirty"
                 )
                 markDirty(task.dateKey)
             }
@@ -753,14 +835,22 @@ actor WorkflowService {
     }
 
     private func markDirty(_ dateKey: String) {
-        try? WorkflowStorage.withExclusiveLock {
-            var state = WorkflowStorage.loadMaintenanceState()
-            state.markDirty(dateKey)
-            try WorkflowStorage.saveMaintenanceState(state)
+        do {
+            try WorkflowStorage.withExclusiveLock {
+                var state = WorkflowStorage.loadMaintenanceState()
+                state.markDirty(dateKey)
+                try WorkflowStorage.saveMaintenanceState(state)
+            }
+        } catch {
+            // 标记丢了下一轮就不会重建这天, 数据会静默缺一块
+            AppLog.workflow.error(
+                "事件汇总失败: stage=markDirty; date=\(dateKey, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
-    private func pruneExpiredEventFiles() throws {
+    @discardableResult
+    private func pruneExpiredEventFiles() throws -> Int {
         let cutoffDate = WorkflowStorage.retentionCutoffDate()
         let expiredDateKeys = eventDateKeys().filter { dateKey in
             guard let date = CodexDateFormat.dayDate(from: dateKey) else {
@@ -771,7 +861,7 @@ actor WorkflowService {
         }
 
         guard !expiredDateKeys.isEmpty else {
-            return
+            return 0
         }
 
         try WorkflowStorage.withExclusiveLock {
@@ -785,8 +875,9 @@ actor WorkflowService {
         }
         // 保留期到点会真的删掉原始事件文件, 数据对不上时要能查到哪些日期被清掉了
         AppLog.workflow.notice(
-            "已清理过期事件文件: dates=\(expiredDateKeys.count); oldest=\(expiredDateKeys.first ?? "-", privacy: .public)"
+            "过期事件已清理: dates=\(expiredDateKeys.count); oldest=\(expiredDateKeys.first ?? "-", privacy: .public)"
         )
+        return expiredDateKeys.count
     }
 
     private func keepsIdentifiers(for dateKey: String) -> Bool {
@@ -1318,20 +1409,25 @@ final class WorkflowViewModel: ObservableObject {
     }
 
     /// 由 WorkflowSyncScheduler 串行调度, 无需自行判断并发, 只执行一次明确的维护刷新
-    func refreshMaintenance(synchronize: Bool) async {
+    /// 返回这一轮的维护计数, 空转为 nil; 收尾日志由调用方按它决定记不记
+    func refreshMaintenance(
+        synchronize: Bool,
+        trigger: LogTrigger
+    ) async -> WorkflowMaintenanceCounts? {
         refreshCoordinator.cancel()
         isRefreshing = true
         defer {
             isRefreshing = false
         }
 
-        let snapshot = await service.loadSnapshot(
-            performMaintenance: true,
-            synchronize: synchronize
+        let result = await service.loadSnapshotWithMaintenance(
+            synchronize: synchronize,
+            trigger: trigger
         )
 
-        self.snapshot = snapshot
+        snapshot = result.snapshot
         lastRefreshedAt = Date()
+        return result.counts
     }
 
     func rebuildData(

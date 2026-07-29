@@ -29,7 +29,7 @@ final class GlobalHotKeyController {
             userData,
             &installedHandlerRef
         ) == noErr else {
-            AppLog.settings.error("全局快捷键事件处理器安装失败")
+            AppLog.settings.error("快捷键注册失败: stage=handler")
             return false
         }
 
@@ -46,12 +46,12 @@ final class GlobalHotKeyController {
 
         guard status == noErr else {
             // 最常见的原因是快捷键已被其他 App 占用, 用户只会看到"按了没反应"
-            AppLog.settings.error("全局快捷键注册失败: error=\(status)")
+            AppLog.settings.error("快捷键注册失败: stage=register; code=\(status)")
             GlobalHotKeyRegistration.remove(hotKeyRef: nil, eventHandlerRef: installedHandlerRef)
             return false
         }
 
-        AppLog.settings.notice("全局快捷键已注册")
+        AppLog.settings.notice("快捷键已注册")
         clearCurrentRegistration()
 
         registration = GlobalHotKeyRegistration(

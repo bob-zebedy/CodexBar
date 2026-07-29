@@ -28,7 +28,7 @@ final class MainPanelSettings: ObservableObject {
             return
         }
 
-        AppLog.settings.notice("任务中心显示已变更: enabled=\(showsTaskCenter ? 1 : 0)")
+        AppLog.settings.notice("主面板任务中心变更: enabled=\(showsTaskCenter ? 1 : 0)")
         defaults.set(showsTaskCenter, forKey: Self.showsTaskCenterKey)
         self.showsTaskCenter = showsTaskCenter
     }

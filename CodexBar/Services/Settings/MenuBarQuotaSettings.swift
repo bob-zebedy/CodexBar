@@ -37,7 +37,7 @@ final class MenuBarQuotaSettings: ObservableObject {
         }
 
         AppLog.settings.notice(
-            "菜单栏额度显示已变更: selection=\(selection.rawValue, privacy: .public)"
+            "菜单栏额度指示变更: selection=\(selection.rawValue, privacy: .public)"
         )
         saveSelection(selection)
         publishSelection(selection)

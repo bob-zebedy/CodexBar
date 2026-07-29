@@ -13,6 +13,15 @@ nonisolated enum WorkflowSyncCloudKit {
     }
 }
 
+/// 同步失败时定位到哪一步, 只用于日志
+private nonisolated enum WorkflowSyncStage: String {
+    case zone
+    case device
+    case fetch
+    case upload
+    case prune
+}
+
 /// 将本机 daily.jsonl 的脱敏聚合行同步到 CloudKit private database
 actor WorkflowSyncService {
     private let database: CKDatabase
@@ -65,12 +74,19 @@ actor WorkflowSyncService {
     }
 
     func synchronizeIfEnabled(
-        localAggregates: [WorkflowDailyAggregate]
+        localAggregates: [WorkflowDailyAggregate],
+        trigger: LogTrigger
     ) async -> WorkflowSyncSnapshot {
         guard WorkflowSyncSettings.isEnabled() else {
+            AppLog.sync.notice(
+                "同步已跳过: trigger=\(trigger.rawValue, privacy: .public); reason=syncOff"
+            )
             return .disabled
         }
 
+        AppLog.sync.notice("同步开始: trigger=\(trigger.rawValue, privacy: .public)")
+        let duration = LogDuration()
+        var stage = WorkflowSyncStage.zone
         var didSucceed = false
         var failureMessage: String?
         Self.postSyncNotification(.workflowSyncDidStart)
@@ -86,50 +102,52 @@ actor WorkflowSyncService {
 
         do {
             try await ensureSyncZoneExists()
+            stage = .device
             let deviceId = try await resolveCurrentDeviceId()
             try resetStateIfDeviceChanged(deviceId, state: &state)
             try await migrateStateIfNeeded(&state)
 
+            stage = .fetch
             let localByDate = Self.syncedAggregatesByDate(localAggregates)
-            if state.replacementDates.isEmpty {
-                try await refreshCacheFromRemote()
-            } else {
-                // 替换前全量拉取, 避免增量缓存遗漏同设备同日期的旧 generation
-                try await rebuildCacheFromRemote()
-                try await preparePendingReplacements(
-                    localByDate: localByDate,
-                    deviceId: deviceId,
-                    state: &state
-                )
-            }
+            try await refreshCacheBeforeUpload(
+                localByDate: localByDate,
+                deviceId: deviceId,
+                state: &state
+            )
 
+            stage = .upload
             let forceBackfill = WorkflowSyncSettings.needsBackfill()
             let confirmedDates = try await uploadChangedAggregates(
                 localByDate: localByDate,
                 remoteRecords: loadCachedRecords(),
                 state: &state
             )
-
-            let completedReplacementDates = Set(state.replacementDates).intersection(confirmedDates)
-            if !completedReplacementDates.isEmpty {
-                state.replacementDates.removeAll { completedReplacementDates.contains($0) }
-                try saveState(state)
-            }
-
-            if forceBackfill,
-               backfillCompleted(localByDate: localByDate, confirmedDates: confirmedDates) {
-                WorkflowSyncSettings.clearBackfillRequest()
-            }
+            try finalizeUpload(
+                confirmedDates: confirmedDates,
+                localByDate: localByDate,
+                forceBackfill: forceBackfill,
+                state: &state
+            )
 
             try await refreshCacheFromRemote()
-            try await pruneCurrentDeviceRecordsIfNeeded(deviceId: deviceId, state: &state)
+            stage = .prune
+            let deletedCount = try await pruneCurrentDeviceRecordsIfNeeded(
+                deviceId: deviceId,
+                state: &state
+            )
             try saveState(state)
             didSucceed = true
-            AppLog.sync.notice("同步完成")
+            // confirmed 是本地与远端已对齐的日期数, 含哈希未变而无需上传的那些
+            // 它小于 local 就说明这一轮还有日期没落到云上
+            let elapsed = duration.elapsed
+            AppLog.sync.notice(
+                "同步完成: trigger=\(trigger.rawValue, privacy: .public); local=\(localByDate.count); confirmed=\(confirmedDates.count); deleted=\(deletedCount); elapsed=\(elapsed, privacy: .public)"
+            )
         } catch {
             let reason = WorkflowSyncFailureReason.classify(error)
+            let elapsed = duration.elapsed
             AppLog.sync.error(
-                "同步失败: reason=\(reason.rawValue, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+                "同步失败: trigger=\(trigger.rawValue, privacy: .public); stage=\(stage.rawValue, privacy: .public); elapsed=\(elapsed, privacy: .public); reason=\(reason.rawValue, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
             )
             invalidateAccountScopedCaches()
             failureMessage = reason.message
@@ -138,6 +156,43 @@ actor WorkflowSyncService {
 
         let latestState = loadState()
         return snapshot(from: latestState)
+    }
+
+    private func refreshCacheBeforeUpload(
+        localByDate: [String: LocalSyncAggregate],
+        deviceId: String,
+        state: inout WorkflowSyncState
+    ) async throws {
+        guard !state.replacementDates.isEmpty else {
+            try await refreshCacheFromRemote()
+            return
+        }
+
+        // 替换前全量拉取, 避免增量缓存遗漏同设备同日期的旧 generation
+        try await rebuildCacheFromRemote()
+        try await preparePendingReplacements(
+            localByDate: localByDate,
+            deviceId: deviceId,
+            state: &state
+        )
+    }
+
+    private func finalizeUpload(
+        confirmedDates: Set<String>,
+        localByDate: [String: LocalSyncAggregate],
+        forceBackfill: Bool,
+        state: inout WorkflowSyncState
+    ) throws {
+        let completedReplacementDates = Set(state.replacementDates).intersection(confirmedDates)
+        if !completedReplacementDates.isEmpty {
+            state.replacementDates.removeAll { completedReplacementDates.contains($0) }
+            try saveState(state)
+        }
+
+        if forceBackfill,
+           backfillCompleted(localByDate: localByDate, confirmedDates: confirmedDates) {
+            WorkflowSyncSettings.clearBackfillRequest()
+        }
     }
 
     private func resetStateIfDeviceChanged(
@@ -297,16 +352,19 @@ private extension WorkflowSyncService {
             return []
         }
 
+        // 每个日期的 hash 是一次 JSON 编码加 SHA256, 本轮只算一次
+        // 既用来判定"和上次一样不必上传", 也直接填进待上传项
+        let localHashByDate = try localByDate.mapValues { try hash(for: $0.aggregate) }
+
         var confirmedDates = Set<String>()
-        for (date, local) in localByDate {
-            if try hash(for: local.aggregate) == state.hashByDate[date] {
-                confirmedDates.insert(date)
-            }
+        for (date, hash) in localHashByDate where state.hashByDate[date] == hash {
+            confirmedDates.insert(date)
         }
 
-        let pendingUploads = try makePendingUploads(
+        let pendingUploads = makePendingUploads(
             for: Set(localByDate.keys),
             localByDate: localByDate,
+            localHashByDate: localHashByDate,
             state: state
         )
         guard !pendingUploads.isEmpty else {
@@ -431,18 +489,17 @@ private extension WorkflowSyncService {
         try saveState(state)
     }
 
+    /// hash 由调用方一次算好传进来, 这里只做筛选
     func makePendingUploads(
         for candidateDates: Set<String>,
         localByDate: [String: LocalSyncAggregate],
+        localHashByDate: [String: String],
         state: WorkflowSyncState
-    ) throws -> [PendingUpload] {
-        try candidateDates.compactMap { date in
-            guard let local = localByDate[date] else {
-                return nil
-            }
-
-            let hash = try hash(for: local.aggregate)
-            guard state.hashByDate[date] != hash else {
+    ) -> [PendingUpload] {
+        candidateDates.compactMap { date in
+            guard let local = localByDate[date],
+                  let hash = localHashByDate[date],
+                  state.hashByDate[date] != hash else {
                 return nil
             }
 
@@ -454,6 +511,74 @@ private extension WorkflowSyncService {
             )
         }
         .sorted { $0.date < $1.date }
+    }
+
+    /// 单条待上传记录落到哪个 CKRecord 上, 或者本轮不需要上传
+    private enum UploadTarget {
+        case skip
+        case save(CKRecord)
+    }
+
+    /// 远端已有更完整的同源聚合, 或者同日已有记录且本地不是新鲜来源时都不覆盖
+    private func resolveUploadTarget(
+        _ pendingRecord: PendingRecord,
+        deviceId: String,
+        remoteRecords: [WorkflowSyncedDailyRecord],
+        existingRecords: [CKRecord.ID: Result<CKRecord, any Error>]
+    ) throws -> UploadTarget {
+        let legacyRecord = try Self.fetchedRecord(
+            from: existingRecords[pendingRecord.legacyRecordID]
+        )
+        let generationRecord: CKRecord? = if let recordID = pendingRecord.generationRecordID {
+            try Self.fetchedRecord(from: existingRecords[recordID])
+        } else {
+            nil
+        }
+        let fetchedRecords = [legacyRecord, generationRecord].compactMap(\.self)
+        let matchingRecord = fetchedRecords.first { record in
+            guard let remote = Self.remoteDailyRecord(from: record) else {
+                return false
+            }
+            return pendingRecord.upload.aggregate.matchesRemoteSource(remote.daily)
+        }
+
+        if let matchingRecord,
+           let remoteAggregate = Self.remoteDailyRecord(from: matchingRecord)?.daily,
+           remoteAggregate.eventCount > pendingRecord.upload.aggregate.eventCount,
+           pendingRecord.upload.aggregate.sourceGeneration != nil {
+            return .skip
+        }
+
+        if let matchingRecord {
+            return .save(matchingRecord)
+        }
+
+        // 上面两个分支都用不到它; 放在早退之后, 命中缓存的那些 pending 就不必扫一遍全量远端记录
+        var knownRemoteRecords = remoteRecords.filter {
+            $0.deviceId == deviceId && $0.date == pendingRecord.upload.date
+        }
+        for record in fetchedRecords.compactMap({ Self.remoteDailyRecord(from: $0) })
+            where !knownRemoteRecords.contains(where: { $0.id == record.id }) {
+            knownRemoteRecords.append(record)
+        }
+
+        if knownRemoteRecords.isEmpty {
+            return .save(CKRecord(
+                recordType: RecordTypes.dailyAggregate,
+                recordID: pendingRecord.generationRecordID ?? pendingRecord.legacyRecordID
+            ))
+        }
+
+        if pendingRecord.upload.sourceIsFresh,
+           let generationRecordID = pendingRecord.generationRecordID,
+           generationRecord == nil {
+            return .save(CKRecord(
+                recordType: RecordTypes.dailyAggregate,
+                recordID: generationRecordID
+            ))
+        }
+
+        return .skip
     }
 
     func processUploadBatch(
@@ -478,34 +603,13 @@ private extension WorkflowSyncService {
         var recordsToSave = [RecordToSave]()
 
         for pendingRecord in pendingRecords {
-            let legacyRecord = try Self.fetchedRecord(
-                from: existingRecords[pendingRecord.legacyRecordID]
-            )
-            let generationRecord: CKRecord? = if let recordID = pendingRecord.generationRecordID {
-                try Self.fetchedRecord(from: existingRecords[recordID])
-            } else {
-                nil
-            }
-            let fetchedRecords = [legacyRecord, generationRecord].compactMap(\.self)
-            let matchingRecord = fetchedRecords.first { record in
-                guard let remote = Self.remoteDailyRecord(from: record) else {
-                    return false
-                }
-                return pendingRecord.upload.aggregate.matchesRemoteSource(remote.daily)
-            }
-
-            var knownRemoteRecords = remoteRecords.filter {
-                $0.deviceId == deviceId && $0.date == pendingRecord.upload.date
-            }
-            for record in fetchedRecords.compactMap({ Self.remoteDailyRecord(from: $0) })
-                where !knownRemoteRecords.contains(where: { $0.id == record.id }) {
-                knownRemoteRecords.append(record)
-            }
-
-            if let matchingRecord,
-               let remoteAggregate = Self.remoteDailyRecord(from: matchingRecord)?.daily,
-               remoteAggregate.eventCount > pendingRecord.upload.aggregate.eventCount,
-               pendingRecord.upload.aggregate.sourceGeneration != nil {
+            switch try resolveUploadTarget(
+                pendingRecord,
+                deviceId: deviceId,
+                remoteRecords: remoteRecords,
+                existingRecords: existingRecords
+            ) {
+            case .skip:
                 confirmedHashes.append(
                     ConfirmedHash(
                         date: pendingRecord.upload.date,
@@ -513,39 +617,12 @@ private extension WorkflowSyncService {
                         didUpload: false
                     )
                 )
-                continue
+            case let .save(record):
+                apply(pendingRecord.upload.aggregate, deviceId: deviceId, to: record)
+                recordsToSave.append(
+                    RecordToSave(upload: pendingRecord.upload, record: record)
+                )
             }
-
-            let record: CKRecord
-            if let matchingRecord {
-                record = matchingRecord
-            } else if knownRemoteRecords.isEmpty {
-                record = CKRecord(
-                    recordType: RecordTypes.dailyAggregate,
-                    recordID: pendingRecord.generationRecordID ?? pendingRecord.legacyRecordID
-                )
-            } else if pendingRecord.upload.sourceIsFresh,
-                      let generationRecordID = pendingRecord.generationRecordID,
-                      generationRecord == nil {
-                record = CKRecord(
-                    recordType: RecordTypes.dailyAggregate,
-                    recordID: generationRecordID
-                )
-            } else {
-                confirmedHashes.append(
-                    ConfirmedHash(
-                        date: pendingRecord.upload.date,
-                        hash: pendingRecord.upload.hash,
-                        didUpload: false
-                    )
-                )
-                continue
-            }
-
-            apply(pendingRecord.upload.aggregate, deviceId: deviceId, to: record)
-            recordsToSave.append(
-                RecordToSave(upload: pendingRecord.upload, record: record)
-            )
         }
 
         guard !recordsToSave.isEmpty else {
@@ -595,7 +672,7 @@ private extension WorkflowSyncService {
         } catch {
             // 增量拉取退化成全量重建, 代价高得多, 反复出现说明游标或缓存有问题
             AppLog.sync.notice(
-                "增量拉取失败, 改为全量重建: detail=\(error.localizedDescription, privacy: .public)"
+                "增量拉取已降级: detail=\(error.localizedDescription, privacy: .public); action=fullRebuild"
             )
             try await rebuildCacheFromRemote()
         }
@@ -721,7 +798,7 @@ private extension WorkflowSyncService {
         } catch {
             // 丢掉游标, 下次同步会从头拉一遍
             AppLog.sync.notice(
-                "建立游标基线失败, 已丢弃游标: detail=\(error.localizedDescription, privacy: .public)"
+                "游标基线已降级: detail=\(error.localizedDescription, privacy: .public); action=dropCursor"
             )
             try? fileManager.removeItem(at: cursorURL)
         }
@@ -753,13 +830,14 @@ private extension WorkflowSyncService {
         }
     }
 
+    @discardableResult
     func pruneCurrentDeviceRecordsIfNeeded(
         deviceId: String,
         state: inout WorkflowSyncState
-    ) async throws {
+    ) async throws -> Int {
         let today = WorkflowStorage.dateKey(for: Date())
         guard state.lastPrunedDate != today else {
-            return
+            return 0
         }
 
         let cutoffKey = WorkflowStorage.dateKey(for: WorkflowStorage.retentionCutoffDate())
@@ -793,6 +871,7 @@ private extension WorkflowSyncService {
             state.hashByDate.removeValue(forKey: date)
         }
         state.lastPrunedDate = today
+        return recordIDs.count
     }
 
     func resolveCurrentDeviceId() async throws -> String {

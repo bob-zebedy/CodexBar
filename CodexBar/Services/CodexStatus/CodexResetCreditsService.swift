@@ -75,53 +75,53 @@ nonisolated enum CodexResetCreditsService {
     }
 }
 
-private nonisolated extension CodexResetCreditsService {
-    struct RateLimitResetCreditsResponse: Decodable {
-        let credits: [RateLimitResetCredit]
+/// DTO 与凭据放在文件级而不是 extension 内
+/// 套进类型里会让 CodingKeys 落到第二层嵌套
+private nonisolated struct RateLimitResetCreditsResponse: Decodable {
+    let credits: [RateLimitResetCredit]
+}
+
+private nonisolated struct RateLimitResetCredit: Decodable {
+    let status: String
+    let expiresAt: Date?
+
+    private enum CodingKeys: String, CodingKey {
+        case status
+        case expiresAt = "expires_at"
+    }
+}
+
+private nonisolated struct CodexOAuthCredentials {
+    let accessToken: String
+    let accountId: String?
+
+    static func load(environment: [String: String]) throws -> Self {
+        let authURL = authFileURL(environment: environment)
+        let data = try Data(contentsOf: authURL)
+        let authFile = try JSONDecoder().decode(CodexAuthFile.self, from: data)
+        guard let accessToken = authFile.tokens?.accessToken, !accessToken.isEmpty else {
+            throw CodexResetCreditsService.FetchError.invalidResponse
+        }
+
+        return Self(accessToken: accessToken, accountId: authFile.tokens?.accountId)
     }
 
-    struct RateLimitResetCredit: Decodable {
-        let status: String
-        let expiresAt: Date?
-
-        private enum CodingKeys: String, CodingKey {
-            case status
-            case expiresAt = "expires_at"
-        }
+    private static func authFileURL(environment: [String: String]) -> URL {
+        CodexCLIResolver.codexHomeDirectory(environment: environment)
+            .appendingPathComponent("auth.json")
     }
+}
 
-    struct CodexOAuthCredentials {
-        let accessToken: String
-        let accountId: String?
+private nonisolated struct CodexAuthFile: Decodable {
+    let tokens: CodexAuthTokens?
+}
 
-        static func load(environment: [String: String]) throws -> Self {
-            let authURL = authFileURL(environment: environment)
-            let data = try Data(contentsOf: authURL)
-            let authFile = try JSONDecoder().decode(CodexAuthFile.self, from: data)
-            guard let accessToken = authFile.tokens?.accessToken, !accessToken.isEmpty else {
-                throw FetchError.invalidResponse
-            }
+private nonisolated struct CodexAuthTokens: Decodable {
+    let accessToken: String?
+    let accountId: String?
 
-            return Self(accessToken: accessToken, accountId: authFile.tokens?.accountId)
-        }
-
-        private static func authFileURL(environment: [String: String]) -> URL {
-            CodexCLIResolver.codexHomeDirectory(environment: environment)
-                .appendingPathComponent("auth.json")
-        }
-    }
-
-    struct CodexAuthFile: Decodable {
-        let tokens: Tokens?
-
-        struct Tokens: Decodable {
-            let accessToken: String?
-            let accountId: String?
-
-            private enum CodingKeys: String, CodingKey {
-                case accessToken = "access_token"
-                case accountId = "account_id"
-            }
-        }
+    private enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case accountId = "account_id"
     }
 }
