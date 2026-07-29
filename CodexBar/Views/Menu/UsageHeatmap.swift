@@ -23,6 +23,8 @@ nonisolated struct UsageHeatmapSelection: Equatable {
     let row: Int
 }
 
+// MARK: - 摘要区
+
 /// token 摘要和近 30 周热力图的组合区
 struct UsageSummaryView: View {
     let usage: CodexUsageSnapshot
@@ -232,6 +234,8 @@ struct UsageSummaryView: View {
     }
 }
 
+// MARK: - 热力图与 hover 吸附
+
 /// 近 30 周 token 热力图, hover 时把指针吸附到最近的有效日期格
 struct UsageHeatmap: View {
     let days: [UsageHeatmapDay?]
@@ -429,6 +433,8 @@ extension UsageHeatmap {
         }
     }
 }
+
+// MARK: - 单元格
 
 /// 单个热力图方块, 蓝色透明度表示当天 token 强度
 private struct UsageHeatmapSquare: View {

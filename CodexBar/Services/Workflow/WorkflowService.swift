@@ -54,6 +54,8 @@ actor WorkflowService {
         self.syncService = syncService
     }
 
+    // MARK: - 快照读取
+
     func loadSnapshot(
         synchronize: Bool = false,
         trigger: LogTrigger = .auto
@@ -180,6 +182,8 @@ actor WorkflowService {
 
         return WorkflowDailyAggregate.normalized(aggregates: aggregates)
     }
+
+    // MARK: - 重建与维护调度
 
     private func rebuildLocalData(for dateKey: String) throws -> WorkflowMaintenanceResult {
         let task = try prepareRebuildTask(for: dateKey)
@@ -536,6 +540,8 @@ actor WorkflowService {
         )
     }
 
+    // MARK: - 事件文件读取与聚合
+
     private func eventLogURL(for dateKey: String) -> URL {
         WorkflowStorage.eventLogURL(for: dateKey, in: eventsDirectoryURL)
     }
@@ -686,6 +692,8 @@ actor WorkflowService {
         record(event)
         return 0
     }
+
+    // MARK: - 落盘与状态提交
 
     /// 返回是否写入了 daily.jsonl
     private func commit(
@@ -849,6 +857,8 @@ actor WorkflowService {
         }
     }
 
+    // MARK: - 保留期清理
+
     @discardableResult
     private func pruneExpiredEventFiles() throws -> Int {
         let cutoffDate = WorkflowStorage.retentionCutoffDate()
@@ -893,6 +903,8 @@ actor WorkflowService {
 nonisolated enum WorkflowStorage {
     private static let retentionDayCount = 210
     private static let identifierRetentionDayCount = 3
+
+    // MARK: - 存储路径
 
     static func eventsDirectoryURL() -> URL {
         directoryURL()

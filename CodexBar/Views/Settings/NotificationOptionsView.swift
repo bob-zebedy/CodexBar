@@ -1,12 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// 通知子选项面板, 挂在设置窗口右侧并与设置内容区底边对齐
+/// 通知子选项面板, 挂在设置窗口右侧, 顶边对齐设置页的通知主开关行
 /// 通知开启时展开音效子行, 关闭时连同占位一起收起
 struct NotificationOptionsView: View {
     @ObservedObject var notificationSettings: NotificationSettings
     @ObservedObject var codexHookSettings: CodexHookSettings
     @ObservedObject var codexCLINotificationSettings: CodexCLINotificationSettings
+    @ObservedObject var keepAliveController: KeepAliveController
     @State private var previewSound: NSSound?
 
     var body: some View {
@@ -16,6 +17,7 @@ struct NotificationOptionsView: View {
             lowQuotaRow
             quotaResetRow
             creditExpiryRow
+            lowBatteryRow
             taskHapticRow
             codexCLINotificationRow
         }
@@ -24,10 +26,6 @@ struct NotificationOptionsView: View {
         .frame(width: Metrics.panelWidth, alignment: .topLeading)
         .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
         .onDisappear(perform: stopPreview)
-    }
-
-    static var panelCornerRadius: CGFloat {
-        Metrics.cornerRadius
     }
 
     static var initialPanelSize: CGSize {
@@ -39,6 +37,8 @@ struct NotificationOptionsView: View {
                 + Metrics.rowSpacing * CGFloat(Metrics.totalRowCount - 1)
         )
     }
+
+    // MARK: - 各通知行
 
     private var lowQuotaRow: some View {
         notificationOptionRow(
@@ -152,6 +152,28 @@ struct NotificationOptionsView: View {
         )
     }
 
+    /// 低电量保护关着时显示为关闭并置灰, 不修改持久化的 isLowBatteryEnabled
+    /// 保护默认就是关的, 不置灰会让这一行在任何默认安装上都亮着, 而对应通知永远发不出来
+    /// "保护是不是真的在起作用"由 KeepAliveController 判定, 这里只读结论
+    /// 它同时覆盖了台式机: 那时防休眠面板整行隐藏低电量保护, 而阈值可能是从笔记本迁移过来的非 off 值
+    private var lowBatteryRow: some View {
+        let isProtectionOn = keepAliveController.isLowBatteryProtectionEnabled
+        let isDisplayedOn = isProtectionOn && notificationSettings.isLowBatteryEnabled
+
+        return notificationOptionRow(
+            title: "低电量保护通知",
+            isOn: Binding(
+                get: { isDisplayedOn },
+                set: { notificationSettings.setLowBatteryEnabled($0) }
+            ),
+            isEnabled: isProtectionOn,
+            sound: Binding(
+                get: { notificationSettings.lowBatterySound },
+                set: { notificationSettings.setLowBatterySound($0) }
+            )
+        )
+    }
+
     private var codexCLINotificationRow: some View {
         optionRow(
             title: "Codex TUI 通知",
@@ -173,6 +195,8 @@ struct NotificationOptionsView: View {
             }
         }
     }
+
+    // MARK: - 行构建器
 
     private func optionRow(
         title: String,
@@ -293,16 +317,16 @@ struct NotificationOptionsView: View {
         options: [Int],
         label: @escaping (Int) -> String
     ) -> some View {
-        Picker(title, selection: selection) {
-            ForEach(options, id: \.self) { option in
-                Text(label(option)).tag(option)
-            }
-        }
-        .labelsHidden()
-        .pickerStyle(.menu)
-        .controlSize(.small)
-        .frame(width: Metrics.pickerWidth)
+        SettingsOptionsPicker(
+            title: title,
+            selection: selection,
+            options: options,
+            label: label,
+            width: Metrics.pickerWidth
+        )
     }
+
+    // MARK: - 音效选择与试听
 
     private func soundMenu(selection: Binding<NotificationSoundOption>) -> some View {
         Menu {
@@ -377,21 +401,21 @@ struct NotificationOptionsView: View {
 
     private enum Metrics {
         static let panelWidth: CGFloat = 320
-        static let horizontalPadding: CGFloat = 12
-        static let verticalPadding: CGFloat = 10
-        static let notificationRowCount = 5
+        static let horizontalPadding = SettingsOptionsPanelMetrics.horizontalPadding
+        static let verticalPadding = SettingsOptionsPanelMetrics.verticalPadding
+        static let notificationRowCount = 6
         static let standardRowCount = 2
         static let totalRowCount = notificationRowCount + standardRowCount
-        static let rowSpacing: CGFloat = 5
-        static let rowHeight: CGFloat = 22
-        static let soundRowHeight: CGFloat = 18
+        static let rowSpacing = SettingsOptionsPanelMetrics.rowSpacing
+        static let rowHeight = SettingsOptionsPanelMetrics.rowHeight
+        static let soundRowHeight = SettingsOptionsPanelMetrics.secondaryRowHeight
         static let notificationRowHeight = rowHeight + soundRowHeight
-        static let notificationControlSpacing: CGFloat = 6
+        static let notificationControlSpacing = SettingsOptionsPanelMetrics.controlSpacing
         static let pickerWidth: CGFloat = 68
         static let soundMenuWidth: CGFloat = 160
         static let soundPreviewButtonSize: CGFloat = 18
         static let soundPreviewIconSize: CGFloat = 13
         static let statusIconSize: CGFloat = 16
-        static let cornerRadius: CGFloat = 12
+        static let cornerRadius = SettingsOptionsPanelMetrics.cornerRadius
     }
 }

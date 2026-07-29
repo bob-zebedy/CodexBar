@@ -150,6 +150,8 @@ actor CodexSessionLifecycleReader {
         recursiveFallbackSessionIds.removeAll()
     }
 
+    // MARK: - 会话文件定位
+
     private func cursor(for reference: CodexActivityTurnReference) -> SessionFileCursor? {
         if let cursor = cursorsBySession[reference.sessionId],
            fileManager.fileExists(atPath: cursor.url.path) {
@@ -288,6 +290,8 @@ actor CodexSessionLifecycleReader {
         return .notFound
     }
 
+    // MARK: - 增量扫描
+
     private func scanNewLifecycleEvents(into cursor: inout SessionFileCursor) {
         let stat = WorkflowStorage.fileStat(at: cursor.url)
         let size = stat?.size ?? 0
@@ -359,6 +363,8 @@ private nonisolated enum EffortBackfillResult {
     case notFound
     case unavailable
 }
+
+// MARK: - rollout 行解码
 
 /// Codex rollout JSONL 单行的共享解码模型
 /// Hook 子进程 (WorkflowTurnContextReader) 与 lifecycle reader 共用同一份 schema

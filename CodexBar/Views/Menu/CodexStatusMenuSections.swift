@@ -258,7 +258,6 @@ struct UpdatedAtRow: View {
                 .frame(width: Metrics.syncIconWidth)
                 .contentTransition(.opacity)
                 .help(syncDisplayState.helpText)
-                .accessibilityLabel(Text(syncDisplayState.helpText))
         }
         .animation(Metrics.statusAnimation, value: updateMessage)
         .animation(Metrics.statusAnimation, value: syncDisplayState)

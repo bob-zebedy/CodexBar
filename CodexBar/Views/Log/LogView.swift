@@ -75,6 +75,8 @@ struct LogView: View {
     }
 }
 
+// MARK: - 单条日志行
+
 /// 单条日志行, 摘要行可展开查看请求和响应预览
 private struct LogRow: View {
     let entry: RequestLogEntry
@@ -233,6 +235,8 @@ private struct LogRow: View {
     }()
 }
 
+// MARK: - 全文查看
+
 /// 预览弹窗数据源
 private struct FullLogTextItem: Identifiable {
     let id = UUID()
@@ -314,6 +318,8 @@ private struct FullLogTextView: View {
         }
     }
 }
+
+// MARK: - JSON 预览与高亮
 
 /// 日志预览文本, JSON 时会带基础语法高亮
 private struct LogCodePreview {

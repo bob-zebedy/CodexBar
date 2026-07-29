@@ -41,6 +41,8 @@ struct CodexActivityCenterPanelContext {
     let preferredSide: UsageHeatmapDetailSide
 }
 
+// MARK: - 任务中心面板
+
 /// 并发任务中心, 实时展示全部等待; 运行; 最近完成和最近终止任务
 struct CodexActivityCenterView: View {
     @ObservedObject var activityMonitor: CodexActivityMonitor
@@ -169,6 +171,8 @@ struct CodexActivityCenterView: View {
         }
         return components.joined(separator: " • ")
     }
+
+    // MARK: - 分区与行
 
     private func taskSection(
         title: String,

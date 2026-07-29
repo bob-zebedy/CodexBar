@@ -387,6 +387,23 @@ final class CodexNotificationService: NSObject {
         }
     }
 
+    // MARK: - 低电量保护
+
+    /// 由 KeepAliveController 在低电量导致休眠恢复成功之后调用, 恢复失败不会走到这里
+    /// 不做去重: 调用方自己保证同一轮低电量只发一次, 电量回到解除门槛以上才算下一轮
+    /// async 是为了让调用方能等提交完再补发休眠, 否则合着盖的机器会先睡下去
+    /// 返回是否真的发出去了: 调用方据此决定这一轮算不算已通知, 提交失败就不该占掉这一轮
+    func notifyLowBatteryProtection(percent: Int) async -> Bool {
+        guard settings.canDeliver, settings.isLowBatteryEnabled else {
+            return false
+        }
+
+        return await send(
+            .lowBattery(percent: percent),
+            sound: settings.lowBatterySound
+        )?.value ?? false
+    }
+
     // MARK: - 重置次数临期提醒
 
     private func processCreditExpirations(_ snapshot: CodexQuotaSnapshot) {
@@ -454,6 +471,10 @@ final class CodexNotificationService: NSObject {
     // MARK: - 发送与文案
 
     /// 通知的 title 与 body 含项目名和任务信息, 一律不进日志, 只记 kind
+    /// 返回提交任务, 需要等通知真的发出去再做下一步的调用方 await 它的 value
+    /// 只有这一个入口: 另开一条 async 通道会让它悄悄少掉去重 时效判定和失败回调三项能力
+    /// 去重判定留在同步段, 这样连续两次 send 的第二次一定被挡下, 不依赖 Task 的调度顺序
+    @discardableResult
     private func send(
         _ notification: CodexNotificationContent,
         sound: NotificationSoundOption,
@@ -461,13 +482,13 @@ final class CodexNotificationService: NSObject {
         dedupKey: String? = nil,
         isStillRelevant: (() -> Bool)? = nil,
         onSubmissionFailure: (() -> Void)? = nil
-    ) {
+    ) -> Task<Bool, Never>? {
         let kind = notification.kind
         if let dedupKey {
             guard !sentDedupKeys.contains(dedupKey),
                   submittingDedupKeys.insert(dedupKey).inserted else {
                 AppLog.notification.notice("通知已跳过: kind=\(kind, privacy: .public); reason=duplicate")
-                return
+                return nil
             }
         }
 
@@ -481,50 +502,64 @@ final class CodexNotificationService: NSObject {
             content: content,
             trigger: nil
         )
-        Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-
-            defer {
-                if let dedupKey {
-                    submittingDedupKeys.remove(dedupKey)
-                }
-            }
-
-            for _ in 0 ... Self.notificationSubmissionRetryCount {
-                guard isStillRelevant?() != false else {
-                    AppLog.notification.notice(
-                        "通知已跳过: kind=\(kind, privacy: .public); reason=obsolete"
-                    )
-                    return
-                }
-                do {
-                    try await UNUserNotificationCenter.current().add(request)
-                    guard isStillRelevant?() != false else {
-                        // 投递后任务状态又变了, 撤回避免用户看到过期提醒
-                        AppLog.notification.notice(
-                            "通知已撤回: kind=\(kind, privacy: .public); reason=obsolete"
-                        )
-                        removeNotifications(withIdentifiers: [identifier])
-                        return
-                    }
-                    if let dedupKey {
-                        rememberSentDedupKey(dedupKey)
-                    }
-                    AppLog.notification.notice("通知已发送: kind=\(kind, privacy: .public)")
-                    return
-                } catch {
-                    continue
-                }
-            }
-
-            // 重试全部用尽才记, 循环内的单次失败会重试
-            AppLog.notification.error(
-                "通知发送失败: kind=\(kind, privacy: .public); reason=retryExhausted"
-            )
-            onSubmissionFailure?()
+        return Task { @MainActor [weak self] in
+            await self?.deliver(
+                request,
+                kind: kind,
+                dedupKey: dedupKey,
+                isStillRelevant: isStillRelevant,
+                onSubmissionFailure: onSubmissionFailure
+            ) ?? false
         }
+    }
+
+    /// 返回值是"这条通知真的提交出去了", 调用方据此决定要不要记下已通知
+    private func deliver(
+        _ request: UNNotificationRequest,
+        kind: String,
+        dedupKey: String?,
+        isStillRelevant: (() -> Bool)?,
+        onSubmissionFailure: (() -> Void)?
+    ) async -> Bool {
+        defer {
+            if let dedupKey {
+                submittingDedupKeys.remove(dedupKey)
+            }
+        }
+
+        for _ in 0 ... Self.notificationSubmissionRetryCount {
+            guard isStillRelevant?() != false else {
+                AppLog.notification.notice(
+                    "通知已跳过: kind=\(kind, privacy: .public); reason=obsolete"
+                )
+                return false
+            }
+            do {
+                try await UNUserNotificationCenter.current().add(request)
+                guard isStillRelevant?() != false else {
+                    // 投递后任务状态又变了, 撤回避免用户看到过期提醒
+                    AppLog.notification.notice(
+                        "通知已撤回: kind=\(kind, privacy: .public); reason=obsolete"
+                    )
+                    removeNotifications(withIdentifiers: [request.identifier])
+                    return false
+                }
+                if let dedupKey {
+                    rememberSentDedupKey(dedupKey)
+                }
+                AppLog.notification.notice("通知已发送: kind=\(kind, privacy: .public)")
+                return true
+            } catch {
+                continue
+            }
+        }
+
+        // 重试全部用尽才记, 循环内的单次失败会重试
+        AppLog.notification.error(
+            "通知发送失败: kind=\(kind, privacy: .public); reason=retryExhausted"
+        )
+        onSubmissionFailure?()
+        return false
     }
 
     private func removeNotifications(withIdentifiers identifiers: [String]) {
@@ -647,6 +682,14 @@ nonisolated struct CodexNotificationContent: Equatable {
             kind: "creditExpiry",
             title: "重置即将过期",
             body: "有 \(count) 个重置次数将于 \(CodexDateFormat.localDisplayString(from: expirationDate)) 过期"
+        )
+    }
+
+    static func lowBattery(percent: Int) -> CodexNotificationContent {
+        CodexNotificationContent(
+            kind: "lowBattery",
+            title: "已恢复系统休眠",
+            body: "电量剩余 \(percent)%, 已停止防休眠"
         )
     }
 }

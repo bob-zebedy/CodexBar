@@ -42,6 +42,8 @@ nonisolated enum LogTrigger: String {
     case taskChanged
     case helperRegistered
     case limitReached
+    /// 电量或供电方式变化
+    case battery
     case statusRefresh
 }
 
@@ -60,9 +62,14 @@ nonisolated struct LogDuration {
 
     /// 重试间隔这类 Duration 走这里, 不必在调用点各写一遍换算
     static func seconds(_ duration: Duration) -> String {
-        seconds(
-            Double(duration.components.seconds)
-                + Double(duration.components.attoseconds) / 1e18
-        )
+        seconds(TimeInterval(duration))
+    }
+}
+
+nonisolated extension TimeInterval {
+    /// Duration 的 attosecond 分量换算成秒, 全仓库只留这一份
+    init(_ duration: Duration) {
+        self = Double(duration.components.seconds)
+            + Double(duration.components.attoseconds) / 1e18
     }
 }

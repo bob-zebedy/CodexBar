@@ -9,10 +9,24 @@ import ServiceManagement
 @MainActor
 final class KeepAliveController: ObservableObject {
     @Published private(set) var isEnabled: Bool
-    @Published private(set) var maximumDuration: MaximumDuration
     @Published private(set) var helperStatus = HelperStatus.notRegistered
     @Published private(set) var isPreventingSleep = false
-    @Published private(set) var hasReachedMaximumDuration = false
+    @Published private(set) var lowBatteryThreshold: LowBatteryThreshold
+    /// 确认没有内置电池时为 false, 设置页据此隐藏低电量那一行
+    @Published private(set) var hasBattery = true
+    /// 当前是否因低电量而停止防休眠, 带滞回所以不等于"电量低于阈值"
+    /// 会随电量自己翻转, 不需要外部清除, 与 hasReachedMaximumDuration 那种粘滞标志不是一回事
+    @Published private(set) var isLowBatteryActive = false
+    /// 低电量保护是不是真的在起作用: 阈值开着且这台机器确实有电池
+    /// 规则收在这里而不是各视图各写一遍: 通知面板要据此置灰那一行, 防休眠面板据此决定显不显示阈值
+    @Published private(set) var isLowBatteryProtectionEnabled = false
+
+    /// 低电量是不是当下唯一拦住防休眠的那一项
+    /// 由 reconcileSleepState 从 sleepBlockReason 派生, 见那里的说明
+    @Published private(set) var isLowBatteryBlocking = false
+    /// 子面板入口该不该出现: 用户开关开着且依赖已就绪
+    /// 同样从 sleepBlockReason 派生, 于是新增阻断条件时必然要在那个 switch 里表态, 不会漏配
+    @Published private(set) var canShowOptions = false
 
     /// helper 安装与注册状态的错误, 注册恢复正常时才清除
     @Published private var registrationErrorMessage: String?
@@ -25,6 +39,22 @@ final class KeepAliveController: ObservableObject {
         registrationErrorMessage ?? operationErrorMessage
     }
 
+    /// 时长上限的状态转发给 UI, 使调用方不必知道 limiter 的存在
+    var maximumDuration: MaximumDuration {
+        durationLimiter.duration
+    }
+
+    var hasReachedMaximumDuration: Bool {
+        durationLimiter.hasReached
+    }
+
+    /// 低电量导致休眠恢复之后回调一次, 参数是触及阈值时的电量; 由 AppDelegate 接到通知服务
+    /// 用事件回调而不是 @Published: 触发是一次性动作, 电量回升到解除门槛以上后再次跌破要能重新发一次
+    /// async 是为了让补发休眠等到通知真的提交完: 同步回调只把提交排进下一个 MainActor job,
+    /// 而 IOPMSleepSystem 就在当前这个 job 里, 机器会先睡下去
+    /// 返回值是通知有没有真的发出去, 决定这一轮算不算已通知
+    var onLowBatteryTriggered: ((Int) async -> Bool)?
+
     /// 用户开关仍开着, 且 helper 已经真的把休眠关掉
     /// isPreventingSleep 在稳态下已隐含 isEnabled (shouldDisableSleep 要求它)
     /// 叠这一层是为了关开关到 helper 回调之间的异步空窗: 用户意图先落地
@@ -36,6 +66,10 @@ final class KeepAliveController: ObservableObject {
     private let codexHookSettings: CodexHookSettings
     private let defaults: UserDefaults
     private let systemSleepService = SystemSleepService()
+    private let powerSourceMonitor = PowerSourceMonitor()
+    private let durationLimiter: KeepAliveDurationLimiter
+    /// 不加 @Published: 设置页在根上观察整个控制器, 任务每起停一次都会重算整页 body
+    /// 需要跟着它刷新的只有派生出去的 isLowBatteryBlocking 与 canShowOptions
     private var hasRunningTasks = false
     /// 保留仍活跃且已经进入过运行态的任务, 避免普通快照刷新被误判成新任务
     private var startedRunningTaskIDs = Set<UUID>()
@@ -51,10 +85,16 @@ final class KeepAliveController: ObservableObject {
     private var requestGeneration: UInt64 = 0
     private var retryTask: Task<Void, Never>?
     private var retryAttempt = 0
-    private var maximumDurationTask: Task<Void, Never>?
-    private var maximumDurationStartedAt: Date?
     private var helperRegistrationTask: Task<Void, Never>?
+    /// 与 hasRunningTasks 同理: 只经由派生状态影响 UI, 自己不发信号
     private var isRefreshingHelper = false
+    /// 已排队但还没发出的低电量通知, 值是触及阈值时的电量
+    /// 恢复休眠真的成功才发得出去: 恢复失败时机器仍不会睡, 那时说已恢复会把用户骗去合盖
+    private var pendingLowBatteryPercent: Int?
+    /// 本轮低电量已经通知过
+    /// 只看是否接电不足以收口: 适配器接触不良时供电状态会反复翻转, 每翻一次都会重发一条
+    /// 由电量回到解除门槛以上清除, 也就是电量真的回来了才算下一轮
+    private var hasNotifiedLowBattery = false
     private var cancellables = Set<AnyCancellable>()
     private var isStarted = false
     private var lastLoggedSleepConditions: SleepConditions?
@@ -62,7 +102,7 @@ final class KeepAliveController: ObservableObject {
     /// 不直接读那个属性: 订阅回调跑在 willSet, 那时它还是改动前的值
     private var isHookEnabled: Bool
 
-    /// 阻止休眠没生效时缺的是哪一项, 同时充当日志里的 reason= 取值
+    /// 防休眠没生效时缺的是哪一项, 同时充当日志里的 reason= 取值
     private enum SleepBlockReason: String {
         case notStarted
         case userOff
@@ -70,11 +110,13 @@ final class KeepAliveController: ObservableObject {
         case noTasks
         case helperUnavailable
         case helperRefreshing
+        case lowBattery
         case limitReached
     }
 
     /// shouldDisableSleep 的求值结果与它依赖的各项, 只用于变化检测与日志
     /// blockReason 与 shouldDisableSleep 同源, 不会出现"字段都满足却报某项缺失"
+    /// battery 只放布尔: 放电量百分比会让每掉 1% 都记一条
     private struct SleepConditions: Equatable {
         let blockReason: SleepBlockReason?
         let enabled: Bool
@@ -82,8 +124,11 @@ final class KeepAliveController: ObservableObject {
         let tasks: Bool
         let helper: HelperStatus
         let refreshing: Bool
+        let battery: Bool
         let limited: Bool
     }
+
+    // MARK: - 生命周期
 
     init(
         activityMonitor: CodexActivityMonitor,
@@ -93,10 +138,12 @@ final class KeepAliveController: ObservableObject {
         self.activityMonitor = activityMonitor
         self.codexHookSettings = codexHookSettings
         self.defaults = defaults
+        durationLimiter = KeepAliveDurationLimiter(defaults: defaults)
         isHookEnabled = codexHookSettings.isEnabled
         isEnabled = defaults.bool(forKey: Self.enabledKey)
-        maximumDuration = (defaults.object(forKey: Self.maximumDurationKey) as? Int)
-            .flatMap(MaximumDuration.init(rawValue:)) ?? .twelveHours
+        // 默认关闭: 老版本升上来的用户不该多出一条中断任务的路径
+        lowBatteryThreshold = (defaults.object(forKey: Self.lowBatteryThresholdKey) as? Int)
+            .flatMap(LowBatteryThreshold.init(rawValue:)) ?? .off
     }
 
     func start() {
@@ -106,7 +153,7 @@ final class KeepAliveController: ObservableObject {
         isStarted = true
 
         // Hook 是本功能的依赖, 不是用户意图
-        // 只重新求值当前该不该阻止休眠, 绝不改写用户保存的开关
+        // 只重新求值当前该不该防止系统休眠, 绝不改写用户保存的开关
         // @Published 在 willSet 就发信号, 此刻回读 codexHookSettings.isEnabled 拿到的还是旧值
         // 因此把新值先存进 isHookEnabled, 判定与日志都只认它
         codexHookSettings.$isEnabled
@@ -120,6 +167,22 @@ final class KeepAliveController: ObservableObject {
         activityMonitor.$snapshot
             .sink { [weak self] snapshot in
                 self?.handleActivitySnapshot(snapshot)
+            }
+            .store(in: &cancellables)
+
+        powerSourceMonitor.start { [weak self] in
+            self?.handlePowerSourceChange()
+        }
+        updateBatteryState()
+
+        durationLimiter.start()
+        durationLimiter.onStateChanged = { [weak self] trigger in
+            self?.reconcileSleepState(trigger: trigger)
+        }
+        // duration 与 hasReached 由计算属性转发, 变化要接力发出去才能刷新 UI
+        durationLimiter.objectWillChange
+            .sink { [weak self] in
+                self?.objectWillChange.send()
             }
             .store(in: &cancellables)
 
@@ -142,7 +205,10 @@ final class KeepAliveController: ObservableObject {
         cancelHelperRegistrationTask()
         startedRunningTaskIDs.removeAll()
         waitingTaskIDs.removeAll()
-        resetMaximumDurationState()
+        durationLimiter.stop()
+        powerSourceMonitor.stop()
+        assign(false, to: \.isLowBatteryActive)
+        clearPendingLowBatteryNotification()
 
         if connection != nil {
             applySleepDisabled(false)
@@ -151,6 +217,8 @@ final class KeepAliveController: ObservableObject {
     }
 
     func refresh() {
+        // 电源监听注册失败并降级成轮询时, 这是唯一还会即时重读电量的路径
+        powerSourceMonitor.refresh()
         refreshRegistrationAndSleepState()
     }
 
@@ -161,6 +229,8 @@ final class KeepAliveController: ObservableObject {
         }
         reconcileSleepState(trigger: .statusRefresh)
     }
+
+    // MARK: - 设置入口
 
     func setEnabled(_ enabled: Bool) {
         // 与 sleepBlockReason 读同一份镜像, 类内只保留一个 Hook 状态的真相来源
@@ -180,33 +250,137 @@ final class KeepAliveController: ObservableObject {
         if enabled {
             ensureHelperRegistration(opensSystemSettings: true)
         } else {
-            resetMaximumDurationState()
+            durationLimiter.reset()
         }
         reconcileSleepState(trigger: .settings)
     }
 
     func setMaximumDuration(_ duration: MaximumDuration) {
-        guard duration != maximumDuration else {
+        durationLimiter.setDuration(duration)
+    }
+
+    func setLowBatteryThreshold(_ threshold: LowBatteryThreshold) {
+        guard threshold != lowBatteryThreshold else {
             return
         }
 
-        AppLog.keepAlive.notice("KeepAlive 上限变更: duration=\(duration.title, privacy: .public)")
-        maximumDuration = duration
-        defaults.set(duration.rawValue, forKey: Self.maximumDurationKey)
-
-        guard let maximumDurationStartedAt else {
-            return
-        }
-
-        if let deadline = maximumDurationDeadline(from: maximumDurationStartedAt),
-           Date() >= deadline {
-            reachMaximumDuration()
-            return
-        }
-
-        hasReachedMaximumDuration = false
-        scheduleMaximumDurationTask()
+        AppLog.keepAlive.notice(
+            "KeepAlive 低电量阈值变更: threshold=\(threshold.rawValue)"
+        )
+        lowBatteryThreshold = threshold
+        defaults.set(threshold.rawValue, forKey: Self.lowBatteryThresholdKey)
+        // 换了阈值就是新的一轮: 旧阈值下打的锁存对新阈值不成立
+        // 留着它会让提高阈值后第一次真正触发的低电量不提醒
+        clearPendingLowBatteryNotification()
+        updateBatteryState()
         reconcileSleepState(trigger: .settings)
+    }
+
+    // MARK: - 电量与任务变化
+
+    private func handlePowerSourceChange() {
+        let wasBatteryLow = isLowBatteryActive
+        updateBatteryState()
+        guard isLowBatteryActive != wasBatteryLow else {
+            return
+        }
+
+        reconcileSleepState(trigger: .battery)
+    }
+
+    /// 纯条件判定: 只看当下, 不记"低过电"这笔账, 所以充上电会自动恢复
+    /// 滞回让解除门槛比触发门槛高一截, 否则电量在阈值附近抖动会反复切换休眠状态
+    /// 读不到电量时维持上一次的判定, 两种情形各有各的理由
+    /// 从没读到过时保持不触发: 误触发会当场断掉用户任务, 漏触发最坏也有系统强制休眠兜底
+    /// 已经在保护中时不清零: 一次瞬时失败不该让防休眠反复开关, 那还会绕过滞回并重发通知
+    private func updateBatteryState() {
+        let reading = powerSourceMonitor.reading
+        // 读失败时维持上一次的判定, 与下面 isLowBatteryActive 同一条规则
+        // unreadable.hasBattery 是 true (从没读到过时按"可能有"处理), 无条件赋值会让一次
+        // IOKit 缺口把已确认没有电池的台式机翻回有电池, 低电量那一行跟着闪进闪出
+        if reading != .unreadable {
+            assign(reading.hasBattery, to: \.hasBattery)
+        }
+        // 阈值与 hasBattery 都只在这条路径上变, 派生值跟着一起收在这里
+        assign(
+            hasBattery && lowBatteryThreshold != .off,
+            to: \.isLowBatteryProtectionEnabled
+        )
+
+        // 保护关掉了就没有可维持的状态, 这一条要排在读数判断之前
+        guard let threshold = lowBatteryThreshold.percent else {
+            assign(false, to: \.isLowBatteryActive)
+            clearPendingLowBatteryNotification()
+            return
+        }
+
+        // 读失败与确认没有电池必须分开: 后者该清零, 前者维持现状
+        guard reading != .unreadable else {
+            return
+        }
+
+        guard let status = reading.status else {
+            assign(false, to: \.isLowBatteryActive)
+            clearPendingLowBatteryNotification()
+            return
+        }
+
+        // 这一轮结束的标志是电量真的回来了, 不是接上了电源
+        // 排在供电状态之前: 充电期间也要能收口, 否则下一次拔线还算同一轮
+        if status.percent >= threshold + Self.lowBatteryHysteresis {
+            clearPendingLowBatteryNotification()
+        }
+
+        guard status.isOnBattery else {
+            assign(false, to: \.isLowBatteryActive)
+            return
+        }
+
+        let wasBatteryLow = isLowBatteryActive
+        let isLow = wasBatteryLow
+            ? status.percent < threshold + Self.lowBatteryHysteresis
+            : status.percent <= threshold
+        assign(isLow, to: \.isLowBatteryActive)
+        guard isLow, !wasBatteryLow else {
+            return
+        }
+
+        // 百分比只在这里记一次; 放进 SleepConditions 会让每掉 1% 刷一条
+        // 本来就没在挡休眠时这一跌不改变任何事, 但仍要记: 这是排查"为什么在这个电量断的"的唯一依据
+        let wasPreventingSleep = isActivelyPreventingSleep
+        AppLog.keepAlive.notice(
+            "KeepAlive 电量已触及阈值: percent=\(status.percent); threshold=\(threshold); action=\(wasPreventingSleep ? "release" : "none", privacy: .public)"
+        )
+
+        // 没挡过就不通知: "已恢复系统休眠"会变成一句空话, 启动时电量本就偏低的机器首当其冲
+        guard wasPreventingSleep, !hasNotifiedLowBattery else {
+            return
+        }
+
+        // 这里只排队不发: 休眠还没真的恢复, 恢复请求可能失败并耗尽重试
+        pendingLowBatteryPercent = status.percent
+    }
+
+    /// 排队的低电量通知在休眠真的恢复之后才发
+    /// 途中接上电源时拦下防休眠的已经不是低电量, 那条通知随即作废
+    private func flushPendingLowBatteryNotification() async {
+        guard let percent = pendingLowBatteryPercent else {
+            return
+        }
+
+        pendingLowBatteryPercent = nil
+        guard isLowBatteryBlocking else {
+            return
+        }
+
+        // 锁存要等通知真的发出去才打: 打在入队处或提交前, 都会让没送达的那一条吃掉整轮配额
+        // 使这一轮之后真正触发的低电量再也提醒不了
+        hasNotifiedLowBattery = await onLowBatteryTriggered?(percent) ?? false
+    }
+
+    private func clearPendingLowBatteryNotification() {
+        pendingLowBatteryPercent = nil
+        hasNotifiedLowBattery = false
     }
 
     private func handleActivitySnapshot(_ snapshot: CodexActivitySnapshot) {
@@ -222,26 +396,25 @@ final class KeepAliveController: ObservableObject {
         startedRunningTaskIDs.formUnion(runningTaskIDs)
         waitingTaskIDs = currentWaitingTaskIDs
 
-        hasRunningTasks = !runningTaskIDs.isEmpty
+        assign(!runningTaskIDs.isEmpty, to: \.hasRunningTasks)
         if activeTaskIDs.isEmpty {
-            resetMaximumDurationState()
+            durationLimiter.reset()
         } else if !newRunningTaskIDs.isEmpty || !resumedRunningTaskIDs.isEmpty {
             restartMaximumDurationPeriod()
         }
         reconcileSleepState(trigger: .taskChanged)
     }
 
+    /// 还没真正挡住休眠时只清零不起表, 等禁用成功后由 begin 补上
     private func restartMaximumDurationPeriod() {
         guard isEnabled else {
             return
         }
 
-        maximumDurationStartedAt = Date()
-        hasReachedMaximumDuration = false
-        if helperStatus == .enabled, !isRefreshingHelper {
-            scheduleMaximumDurationTask()
-        }
+        durationLimiter.restart(isPreventingSleep: isPreventingSleep)
     }
+
+    // MARK: - helper 注册
 
     func openSystemSettings() {
         SMAppService.openSystemSettingsLoginItems()
@@ -292,7 +465,7 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
-        isRefreshingHelper = true
+        assign(true, to: \.isRefreshingHelper)
         cancelRetryTask()
         invalidateConnection()
         // 连接已失效, 重试也取消了, 之前的操作类错误已经过期
@@ -331,7 +504,7 @@ final class KeepAliveController: ObservableObject {
                 registrationErrorMessage = "更新服务失败"
             }
 
-            isRefreshingHelper = false
+            assign(false, to: \.isRefreshingHelper)
             helperRegistrationTask = nil
             if helperStatus == .requiresApproval, opensSystemSettings {
                 openSystemSettings()
@@ -360,7 +533,8 @@ final class KeepAliveController: ObservableObject {
 
     /// @Published 在 willSet 无条件发信号, 不比较新旧值
     /// refreshHelperStatus 每次 App 激活跑, releaseSleepPrevention 每条活动快照都会经过
-    /// 同值赋值会让菜单面板和设置页反复空转, 所有 @Published 的写入都走这里
+    /// 同值赋值会让菜单面板和设置页反复空转, 所以反复求值路径上的写入都走这里
+    /// 用户动作与一次性的操作结果本来就不会重复, 直接赋值即可
     private func assign<Value: Equatable>(
         _ value: Value,
         to keyPath: ReferenceWritableKeyPath<KeepAliveController, Value>
@@ -394,13 +568,16 @@ final class KeepAliveController: ObservableObject {
             assign(nil, to: \.registrationErrorMessage)
         } else if helperStatus != .requiresApproval {
             releaseSleepPrevention()
-            resetMaximumDurationState()
+            durationLimiter.reset()
         }
     }
+
+    // MARK: - 决策与条件日志
 
     private func reconcileSleepState(trigger: LogTrigger, force: Bool = false) {
         let blockReason = sleepBlockReason
         let wantsSleepDisabled = blockReason == nil
+        publishDerivedState(blockReason: blockReason)
         logSleepConditionsIfChanged(blockReason: blockReason, trigger: trigger)
 
         guard wantsSleepDisabled else {
@@ -419,6 +596,25 @@ final class KeepAliveController: ObservableObject {
         applySleepDisabled(true)
     }
 
+    /// UI 关心的两个布尔都从 blockReason 派生, 且只在这里写
+    /// 这么做是因为 sleepBlockReason 里的输入 (任务, helper 刷新中) 变化远比结论频繁,
+    /// 让它们各自 @Published 会把整个设置页拖着一起重算
+    /// 新增阻断条件时 allowsOptions 那个 switch 必须表态, 于是不会出现"入口亮着却点不动"
+    private func publishDerivedState(blockReason: SleepBlockReason?) {
+        assign(blockReason == .lowBattery, to: \.isLowBatteryBlocking)
+        assign(Self.allowsOptions(blockReason), to: \.canShowOptions)
+    }
+
+    /// 缺依赖时收起入口, 只是没在防休眠 (没任务, 低电量, 已达上限) 时仍然要能改设置
+    private static func allowsOptions(_ blockReason: SleepBlockReason?) -> Bool {
+        switch blockReason {
+        case .notStarted, .userOff, .hookDisabled, .helperUnavailable:
+            false
+        case nil, .noTasks, .helperRefreshing, .lowBattery, .limitReached:
+            true
+        }
+    }
+
     /// 任何一项变了才记一条, 逐次求值不记
     /// want 为 0 时这条是唯一能看出「是哪一项把它拉下来」的依据
     private func logSleepConditionsIfChanged(
@@ -432,6 +628,7 @@ final class KeepAliveController: ObservableObject {
             tasks: hasRunningTasks,
             helper: helperStatus,
             refreshing: isRefreshingHelper,
+            battery: isLowBatteryActive,
             limited: hasReachedMaximumDuration
         )
         guard conditions != lastLoggedSleepConditions else {
@@ -444,7 +641,7 @@ final class KeepAliveController: ObservableObject {
         let triggerName = trigger.rawValue
         let helperName = String(describing: conditions.helper)
         AppLog.keepAlive.notice(
-            "KeepAlive 条件变化: trigger=\(triggerName, privacy: .public); want=\(blockReason == nil ? 1 : 0); enabled=\(conditions.enabled ? 1 : 0); hook=\(conditions.hook ? 1 : 0); tasks=\(conditions.tasks ? 1 : 0); helper=\(helperName, privacy: .public); refreshing=\(conditions.refreshing ? 1 : 0); limited=\(conditions.limited ? 1 : 0)"
+            "KeepAlive 条件变化: trigger=\(triggerName, privacy: .public); want=\(blockReason == nil ? 1 : 0); enabled=\(conditions.enabled ? 1 : 0); hook=\(conditions.hook ? 1 : 0); tasks=\(conditions.tasks ? 1 : 0); helper=\(helperName, privacy: .public); refreshing=\(conditions.refreshing ? 1 : 0); battery=\(conditions.battery ? 1 : 0); limited=\(conditions.limited ? 1 : 0)"
         )
 
         guard let previous, previous.blockReason == nil, let blockReason else {
@@ -453,6 +650,8 @@ final class KeepAliveController: ObservableObject {
 
         AppLog.keepAlive.notice("KeepAlive 已解除: reason=\(blockReason.rawValue, privacy: .public)")
     }
+
+    // MARK: - 休眠切换与恢复
 
     private func applySleepDisabled(_ disabled: Bool) {
         guard appliedSleepDisabled != disabled else {
@@ -463,7 +662,7 @@ final class KeepAliveController: ObservableObject {
             let result = systemSleepService.beginPreventingIdleSleep()
             guard result == kIOReturnSuccess else {
                 AppLog.keepAlive.error("空闲断言建立失败: code=\(result)")
-                operationErrorMessage = "阻止空闲休眠失败"
+                operationErrorMessage = "防止空闲休眠失败"
                 scheduleRetryIfNeeded(for: true)
                 return
             }
@@ -525,64 +724,24 @@ final class KeepAliveController: ObservableObject {
                         "系统休眠已关闭: generation=\(generation); lidCausesSleep=\(lidCausesSleep, privacy: .public)"
                     )
                     self.canTrustRestoreResult = true
-                    self.beginMaximumDurationCountdownIfNeeded()
+                    self.durationLimiter.begin()
                 } else {
+                    // 先收表再走恢复: finishSleepRestore 可能直接把机器送去睡
+                    self.durationLimiter.pause()
+                    // 通知同样要赶在补发休眠之前发出去, 理由与收表相同
+                    // 走到这里 pmset 已经恢复成功, 那句"已恢复系统休眠"才站得住
+                    await self.flushPendingLowBatteryNotification()
+                    // 上面这一步会挂起, 期间可能已经有新的禁用请求接管
+                    // 那时再走恢复会释放掉刚建立的空闲断言, 所以重新认一次代
+                    guard generation == self.requestGeneration else {
+                        return
+                    }
                     self.finishSleepRestore(
                         sleepDisabledAfterOperation: sleepDisabledAfterOperation
                     )
                 }
             }
         }
-    }
-
-    private func beginMaximumDurationCountdownIfNeeded() {
-        if maximumDurationStartedAt == nil {
-            maximumDurationStartedAt = Date()
-            hasReachedMaximumDuration = false
-        }
-        scheduleMaximumDurationTask()
-    }
-
-    private func scheduleMaximumDurationTask() {
-        cancelMaximumDurationTask()
-
-        guard isStarted,
-              let maximumDurationStartedAt,
-              !hasReachedMaximumDuration else {
-            return
-        }
-
-        guard let deadline = maximumDurationDeadline(from: maximumDurationStartedAt) else {
-            return
-        }
-
-        let remaining = deadline.timeIntervalSinceNow
-        guard remaining > 0 else {
-            reachMaximumDuration()
-            return
-        }
-
-        maximumDurationTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(remaining))
-            guard !Task.isCancelled, let self else {
-                return
-            }
-            maximumDurationTask = nil
-            reachMaximumDuration()
-        }
-    }
-
-    private func reachMaximumDuration() {
-        guard maximumDurationStartedAt != nil,
-              !hasReachedMaximumDuration else {
-            return
-        }
-
-        cancelMaximumDurationTask()
-        hasReachedMaximumDuration = true
-        let durationTitle = maximumDuration.title
-        AppLog.keepAlive.notice("KeepAlive 已达上限: duration=\(durationTitle, privacy: .public)")
-        reconcileSleepState(trigger: .limitReached)
     }
 
     private func finishSleepRestore(sleepDisabledAfterOperation: Bool) {
@@ -632,20 +791,7 @@ final class KeepAliveController: ObservableObject {
         }
     }
 
-    private func resetMaximumDurationState() {
-        cancelMaximumDurationTask()
-        maximumDurationStartedAt = nil
-        assign(false, to: \.hasReachedMaximumDuration)
-    }
-
-    private func cancelMaximumDurationTask() {
-        maximumDurationTask?.cancel()
-        maximumDurationTask = nil
-    }
-
-    private func maximumDurationDeadline(from startedAt: Date) -> Date? {
-        maximumDuration.timeInterval.map(startedAt.addingTimeInterval)
-    }
+    // MARK: - XPC 连接与重试
 
     private func makeConnection() -> NSXPCConnection {
         let connection = NSXPCConnection(
@@ -715,11 +861,13 @@ final class KeepAliveController: ObservableObject {
     }
 
     /// assertion 与 isPreventingSleep 同进同退的唯一出口
-    /// 两者必须一起收: 只清标志会让菜单栏图标显示成未防休眠, 而这条 assertion 仍在阻止空闲休眠,
+    /// 两者必须一起收: 只清标志会让菜单栏图标显示成未防休眠, 而这条 assertion 仍在防止空闲休眠,
     /// 且没有任何后续路径会释放它; 仍需要防休眠时由重试经 applySleepDisabled(true) 重建
     private func releaseSleepPrevention() {
         _ = systemSleepService.endPreventingIdleSleep()
         assign(false, to: \.isPreventingSleep)
+        // 收表跟着实际效果走: 这里之后休眠不再被挡, 那段时间不该占用户的上限
+        durationLimiter.pause()
     }
 
     private func cancelRetryTask() {
@@ -732,7 +880,7 @@ final class KeepAliveController: ObservableObject {
     private func cancelHelperRegistrationTask() {
         helperRegistrationTask?.cancel()
         helperRegistrationTask = nil
-        isRefreshingHelper = false
+        assign(false, to: \.isRefreshingHelper)
     }
 
     private func scheduleRetryIfNeeded(for disabled: Bool) {
@@ -747,9 +895,9 @@ final class KeepAliveController: ObservableObject {
         // 固定 2 秒无上限重试会让持续失败的 helper 变成无限循环
         guard retryAttempt < Self.sleepToggleRetryDelays.count else {
             AppLog.keepAlive.error(
-                "阻止休眠多次失败: attempts=\(Self.sleepToggleRetryDelays.count)"
+                "KeepAlive 切换重试已放弃: attempts=\(Self.sleepToggleRetryDelays.count)"
             )
-            operationErrorMessage = "阻止休眠多次失败, 已停止重试"
+            operationErrorMessage = "防休眠多次失败, 已停止重试"
             return
         }
 
@@ -775,6 +923,8 @@ final class KeepAliveController: ObservableObject {
             applySleepDisabled(disabled)
         }
     }
+
+    // MARK: - 防休眠条件判定
 
     /// 用户意图 (isEnabled) 与依赖可用性在这里汇合
     /// 依赖不满足只让效果失效, 不回写 isEnabled
@@ -803,14 +953,21 @@ final class KeepAliveController: ObservableObject {
         if isRefreshingHelper {
             return .helperRefreshing
         }
+        if isLowBatteryActive {
+            return .lowBattery
+        }
         if hasReachedMaximumDuration {
             return .limitReached
         }
         return nil
     }
 
+    // MARK: - 常量
+
     private static let enabledKey = "KeepAlive.isEnabled"
-    private static let maximumDurationKey = "KeepAlive.maximumContinuousDurationSeconds"
+    private static let lowBatteryThresholdKey = "KeepAlive.lowBatteryThresholdPercent"
+    /// 解除门槛比触发门槛高这么多个百分点, 避免电量在阈值附近抖动导致反复切换
+    private static let lowBatteryHysteresis = 5
     private static let helperRegistrationFingerprintKey =
         "KeepAlive.helperRegistrationFingerprint"
     private static let helperRegistrationRetryDelays: [Duration] = [
@@ -832,6 +989,8 @@ final class KeepAliveController: ObservableObject {
         .seconds(128),
         .seconds(256)
     ]
+
+    // MARK: - helper 资源与指纹
 
     private static var helperService: SMAppService {
         SMAppService.daemon(plistName: CodexBarHelperIPC.daemonPlistName)
@@ -888,71 +1047,6 @@ final class KeepAliveController: ObservableObject {
         appContentsURL
             .appending(path: "Library/LaunchDaemons", directoryHint: .isDirectory)
             .appending(path: CodexBarHelperIPC.daemonPlistName)
-    }
-}
-
-extension KeepAliveController {
-    enum MaximumDuration: Int, CaseIterable, Identifiable {
-        case oneHour = 3600
-        case twoHours = 7200
-        case fourHours = 14400
-        case eightHours = 28800
-        case twelveHours = 43200
-        case twentyFourHours = 86400
-        case unlimited = -1
-
-        var id: Int {
-            rawValue
-        }
-
-        var title: String {
-            switch self {
-            case .oneHour:
-                "1 小时"
-            case .twoHours:
-                "2 小时"
-            case .fourHours:
-                "4 小时"
-            case .eightHours:
-                "8 小时"
-            case .twelveHours:
-                "12 小时"
-            case .twentyFourHours:
-                "24 小时"
-            case .unlimited:
-                "无限制"
-            }
-        }
-
-        var timeInterval: TimeInterval? {
-            self == .unlimited ? nil : TimeInterval(rawValue)
-        }
-    }
-
-    enum HelperStatus: Equatable {
-        case notRegistered
-        case enabled
-        case requiresApproval
-        case notFound
-
-        var isRegisteredOrAwaitingApproval: Bool {
-            self == .enabled || self == .requiresApproval
-        }
-
-        init(_ status: SMAppService.Status) {
-            switch status {
-            case .notRegistered:
-                self = .notRegistered
-            case .enabled:
-                self = .enabled
-            case .requiresApproval:
-                self = .requiresApproval
-            case .notFound:
-                self = .notFound
-            @unknown default:
-                self = .notFound
-            }
-        }
     }
 }
 

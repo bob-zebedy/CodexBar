@@ -26,6 +26,8 @@ final class KeyableBorderlessPanel: NSPanel {
     }
 }
 
+// MARK: - 抽屉动效
+
 @MainActor
 final class SidePanelDrawerAnimator {
     private let contentViewProvider: @MainActor () -> NSView?
@@ -141,6 +143,8 @@ final class SidePanelDrawerAnimator {
         panel.alphaValue = 1
     }
 }
+
+// MARK: - 展开与收起
 
 /// 重置次数; 通知子选项和并发任务中心三类"一次性展开"抽屉面板共用的显隐状态机
 /// 负责 generation 竞态防护; 入退场动画和 child window 挂载/卸载
@@ -261,6 +265,8 @@ final class SidePanelDrawerPresenter {
     }
 }
 
+// MARK: - 内容宿主
+
 /// 侧边面板的内容宿主: 懒建 panel + hostingController, 统一"替换 rootView →
 /// configureLayers → setContentSize"的更新序列
 /// ⚠️ 每次更新都整树替换 rootView 是刻意行为 (见 CLAUDE.md 热力图详情面板的说明), 不要改成常驻状态推送
@@ -333,6 +339,8 @@ final class SidePanelContentHost<Root: View> {
     }
 }
 
+// MARK: - 面板工厂与定位
+
 @MainActor
 enum SidePanelSupport {
     /// 侧边面板共用的几何与抽屉动画常量
@@ -379,12 +387,15 @@ enum SidePanelSupport {
 
     /// 水平方向优先贴在请求侧, 空间不足时换边, 最后夹紧到屏幕可见区域
     /// 纵向由调用方给出期望位置, 这里统一夹紧
+    /// clampsToSurfaceBottom 为 true 时面板底边不低于宿主内容区底边, 适合锚点行随内容滚动的菜单面板
+    /// 设置窗口的子面板要严格贴住主开关行, 放不下时宁可让底边探出窗口, 所以传 false
     static func position(
         panelSize: CGSize,
         menuSurfaceFrame: CGRect,
         visibleFrame: CGRect,
         preferredSide: UsageHeatmapDetailSide,
-        proposedY: CGFloat
+        proposedY: CGFloat,
+        clampsToSurfaceBottom: Bool = true
     ) -> SidePanelPosition {
         let leftX = menuSurfaceFrame.minX - Metrics.panelGap - panelSize.width
         let rightX = menuSurfaceFrame.maxX + Metrics.panelGap
@@ -407,9 +418,10 @@ enum SidePanelSupport {
             lower: visibleFrame.minX + Metrics.screenPadding,
             upper: visibleFrame.maxX - panelSize.width - Metrics.screenPadding
         )
+        let screenBottom = visibleFrame.minY + Metrics.screenPadding
         let y = clamped(
             proposedY,
-            lower: max(visibleFrame.minY + Metrics.screenPadding, menuSurfaceFrame.minY),
+            lower: clampsToSurfaceBottom ? max(screenBottom, menuSurfaceFrame.minY) : screenBottom,
             upper: visibleFrame.maxY - panelSize.height - Metrics.screenPadding
         )
 
@@ -421,6 +433,35 @@ enum SidePanelSupport {
                 menuSurfaceFrame: menuSurfaceFrame,
                 fallback: horizontal.side
             )
+        )
+    }
+
+    /// 锚点对齐的完整定位: 先按锚点收窄可见区域, 再算出对齐锚点顶边的 y, 最后交给 position 夹紧
+    /// 三步顺序固定且必须一致, 拆开写过一次就会出现第二份, 加参数时也只会改到其中一份
+    static func anchoredPosition(
+        panelSize: CGSize,
+        menuSurfaceFrame: CGRect,
+        visibleFrame: CGRect,
+        screenFrame: CGRect?,
+        alignmentScreenFrame: CGRect?,
+        preferredSide: UsageHeatmapDetailSide,
+        clampsToSurfaceBottom: Bool = true
+    ) -> SidePanelPosition {
+        position(
+            panelSize: panelSize,
+            menuSurfaceFrame: menuSurfaceFrame,
+            visibleFrame: anchorAwareVisibleFrame(
+                visibleFrame: visibleFrame,
+                screenFrame: screenFrame,
+                alignmentScreenFrame: alignmentScreenFrame
+            ),
+            preferredSide: preferredSide,
+            proposedY: alignedProposedY(
+                panelSize: panelSize,
+                menuSurfaceFrame: menuSurfaceFrame,
+                alignmentScreenFrame: alignmentScreenFrame
+            ),
+            clampsToSurfaceBottom: clampsToSurfaceBottom
         )
     }
 
@@ -540,6 +581,18 @@ enum SidePanelSupport {
         }
 
         return screenFrame
+    }
+
+    /// 面板竖向夹回可见区域, 与 position 用同一条内边距和越界规则
+    /// 高度变化后重新定位要走这里, 否则重算出的位置会和初次展开的位置对不上
+    static func clampedVertically(_ frame: CGRect, in visibleFrame: CGRect) -> CGRect {
+        var frame = frame
+        frame.origin.y = clamped(
+            frame.origin.y,
+            lower: visibleFrame.minY + Metrics.screenPadding,
+            upper: visibleFrame.maxY - frame.height - Metrics.screenPadding
+        )
+        return frame
     }
 
     private static func clamped(_ value: CGFloat, lower: CGFloat, upper: CGFloat) -> CGFloat {

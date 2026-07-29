@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// 设置窗口控制器, 打开前刷新设置状态并按内容自适应高度
@@ -16,11 +17,10 @@ final class SettingsWindowController: HostingWindowController {
     private let keepAliveController: KeepAliveController
     private let onSyncChanged: (Bool) -> Void
     private let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
-    private lazy var notificationOptionsPanelController = NotificationOptionsPanelController(
-        notificationSettings: notificationSettings,
-        codexHookSettings: codexHookSettings,
-        codexCLINotificationSettings: codexCLINotificationSettings
-    )
+    /// 只在真的要展开时构造: 控制器一建就挂上内容变化订阅并常驻到 App 结束,
+    /// 而用户可能一次子面板都没开过
+    private var notificationOptionsPanelController: SettingsOptionsPanelController?
+    private var keepAliveOptionsPanelController: SettingsOptionsPanelController?
 
     init(
         viewModel: CodexStatusViewModel,
@@ -70,8 +70,8 @@ final class SettingsWindowController: HostingWindowController {
                 keepAliveController: keepAliveController,
                 onSyncChanged: onSyncChanged,
                 onRebuildWorkflowData: onRebuildWorkflowData,
-                onNotificationOptionsAction: { [weak self] action in
-                    self?.handleNotificationOptionsAction(action)
+                onOptionsAction: { [weak self] action in
+                    self?.handleOptionsAction(action)
                 },
                 onContentHeightChanged: { [weak self] height in
                     self?.resizeContentHeight(height)
@@ -113,20 +113,103 @@ final class SettingsWindowController: HostingWindowController {
         keepAliveController.refresh()
     }
 
-    private func handleNotificationOptionsAction(_ action: NotificationOptionsPanelAction) {
+    private func optionsPanelController(
+        _ panel: SettingsOptionsPanel
+    ) -> SettingsOptionsPanelController {
+        if let existing = existingOptionsPanelController(panel) {
+            return existing
+        }
+
+        let controller = makeOptionsPanelController(panel)
+        switch panel {
+        case .notification:
+            notificationOptionsPanelController = controller
+        case .keepAlive:
+            keepAliveOptionsPanelController = controller
+        }
+        return controller
+    }
+
+    /// 没建过就说明它不可能开着, 收起动作不必为此把它构造出来
+    private func existingOptionsPanelController(
+        _ panel: SettingsOptionsPanel
+    ) -> SettingsOptionsPanelController? {
+        switch panel {
+        case .notification:
+            notificationOptionsPanelController
+        case .keepAlive:
+            keepAliveOptionsPanelController
+        }
+    }
+
+    private func makeOptionsPanelController(
+        _ panel: SettingsOptionsPanel
+    ) -> SettingsOptionsPanelController {
+        switch panel {
+        case .notification:
+            SettingsOptionsPanelController(
+                animationKey: "CodexBar.notificationOptionsDrawerTransform",
+                initialPanelSize: NotificationOptionsView.initialPanelSize,
+                willShow: { [codexCLINotificationSettings] in
+                    codexCLINotificationSettings.refresh()
+                },
+                contentControllerProvider: { [notificationSettings, codexHookSettings, codexCLINotificationSettings, keepAliveController] in
+                    SettingsOptionsPanelController.makeContentController(
+                        NotificationOptionsView(
+                            notificationSettings: notificationSettings,
+                            codexHookSettings: codexHookSettings,
+                            codexCLINotificationSettings: codexCLINotificationSettings,
+                            keepAliveController: keepAliveController
+                        )
+                    )
+                },
+                // 音效子行随各开关增删, 低电量那一行还跟着防休眠的保护状态置灰
+                // 防休眠只订这一个派生值: 订整个控制器会让任务每起停一次都白重算一次高度
+                contentChanges: Publishers.MergeMany([
+                    notificationSettings.objectWillChange.eraseToAnyPublisher(),
+                    codexHookSettings.objectWillChange.eraseToAnyPublisher(),
+                    keepAliveController.$isLowBatteryProtectionEnabled
+                        .map { _ in () }
+                        .eraseToAnyPublisher()
+                ]).eraseToAnyPublisher()
+            )
+        case .keepAlive:
+            SettingsOptionsPanelController(
+                animationKey: "CodexBar.keepAliveOptionsDrawerTransform",
+                initialPanelSize: KeepAliveOptionsView.initialPanelSize,
+                contentControllerProvider: { [keepAliveController] in
+                    SettingsOptionsPanelController.makeContentController(
+                        KeepAliveOptionsView(keepAliveController: keepAliveController)
+                    )
+                },
+                // 面板里只有 hasBattery 会增删行, 两个 picker 的取值不改高度
+                contentChanges: keepAliveController.$hasBattery
+                    .map { _ in () }
+                    .eraseToAnyPublisher()
+            )
+        }
+    }
+
+    /// 子面板占设置窗口右侧同一位置, 展开一个必须先收掉其余的
+    /// 收旧面板用 immediate, 否则滑回与滑出在同一处交叠
+    /// 互斥规则只写在这里, 再加一个面板也不会漏掉某一对
+    private func handleOptionsAction(_ action: SettingsOptionsPanelAction) {
         switch action {
-        case .toggle:
-            notificationOptionsPanelController.toggle(
+        case let .toggle(panel, anchorProvider):
+            for other in SettingsOptionsPanel.allCases where other != panel {
+                existingOptionsPanelController(other)?.hide(immediate: true)
+            }
+            optionsPanelController(panel).toggle(
                 relativeTo: window,
-                contentView: window?.contentViewController?.view
+                contentView: window?.contentViewController?.view,
+                anchorProvider: anchorProvider
             )
-        case .open:
-            notificationOptionsPanelController.show(
-                relativeTo: window,
-                contentView: window?.contentViewController?.view
-            )
-        case .close:
-            notificationOptionsPanelController.hide()
+        case let .close(panel):
+            existingOptionsPanelController(panel)?.hide()
+        case .closeAll:
+            for panel in SettingsOptionsPanel.allCases {
+                existingOptionsPanelController(panel)?.hide()
+            }
         }
     }
 

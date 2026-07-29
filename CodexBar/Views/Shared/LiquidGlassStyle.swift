@@ -21,6 +21,8 @@ extension Color {
     }
 }
 
+// MARK: - View 修饰符
+
 /// 自绘 Liquid Glass 背景和 stale 状态修饰
 extension View {
     func liquidGlassSurface(
@@ -116,6 +118,8 @@ struct LiquidGlassDivider: View {
             .frame(height: 1)
     }
 }
+
+// MARK: - 表面绘制
 
 /// 自绘玻璃面板, 由底色, 高光, 纹理, 描边和阴影叠加组成
 private struct LiquidGlassSurface: View {

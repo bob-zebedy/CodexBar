@@ -87,6 +87,8 @@ actor HookEventTailReader {
         WorkflowStorage.eventLogURL(for: activeDateKey)
     }
 
+    // MARK: - bootstrap
+
     private func bootstrapRecentActivity() async {
         for attempt in 0 ..< Self.bootstrapAttemptLimit {
             guard isRunning, !Task.isCancelled else {
@@ -162,6 +164,8 @@ actor HookEventTailReader {
             activeFileIdentifier: activeBoundary?.fileIdentifier
         )
     }
+
+    // MARK: - 增量 tail
 
     private func drainNewLines() async {
         guard isRunning, !Task.isCancelled else {

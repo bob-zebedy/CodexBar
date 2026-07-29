@@ -41,6 +41,8 @@ final class CodexHookSettings: ObservableObject {
         updateTask?.cancel()
     }
 
+    // MARK: - 对外入口
+
     func refresh() {
         do {
             let config = try readConfigIfPresent()
@@ -84,6 +86,8 @@ final class CodexHookSettings: ObservableObject {
             await settings.verifyInstalledHooksWithAppServer(generation: generation)
         }
     }
+
+    // MARK: - 更新流程与并发控制
 
     private func applyEnabled(_ enabled: Bool, generation: Int) async {
         do {
@@ -317,6 +321,8 @@ private extension CodexHookSettings {
         }
     }
 
+    // MARK: - hooks.json 读写
+
     func writeCodexBarHookConfig(enabled: Bool) throws {
         var config = try readConfigIfPresent()
         try Self.removeCodexBarHooks(
@@ -344,6 +350,8 @@ private extension CodexHookSettings {
             hooksURL: hooksURL
         )
     }
+
+    // MARK: - Hook 信任状态
 
     func cleanupCodexHookTrust(
         removing keys: Set<String>,

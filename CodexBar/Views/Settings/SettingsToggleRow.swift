@@ -6,6 +6,42 @@ enum SettingsRowMetrics {
     static let spacing: CGFloat = 10
 }
 
+/// 设置窗口右侧两个子选项面板共用的度量
+/// 两个面板要看起来是同一套控件, 所以除了面板宽度和 picker 宽度以外都从这里取
+enum SettingsOptionsPanelMetrics {
+    static let horizontalPadding: CGFloat = 12
+    static let verticalPadding: CGFloat = 10
+    static let rowSpacing: CGFloat = 5
+    static let rowHeight: CGFloat = 22
+    /// 第二行的高度, 通知面板用于音效子行, 防休眠面板用于固定说明
+    static let secondaryRowHeight: CGFloat = 18
+    static let controlSpacing: CGFloat = 6
+    static let cornerRadius: CGFloat = 12
+}
+
+/// 两个子选项面板共用的下拉选择器
+/// 只有宽度和对齐各自定义, 其余样式必须同源, 否则两个面板看起来就不是同一套控件
+struct SettingsOptionsPicker<Option: Hashable>: View {
+    let title: String
+    @Binding var selection: Option
+    let options: [Option]
+    let label: (Option) -> String
+    let width: CGFloat
+    var alignment: Alignment = .center
+
+    var body: some View {
+        Picker(title, selection: $selection) {
+            ForEach(options, id: \.self) { option in
+                Text(label(option)).tag(option)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .controlSize(.small)
+        .frame(width: width, alignment: alignment)
+    }
+}
+
 /// 设置页通用开关行, accessory 插入在开关左侧
 struct SettingsToggleRow<Accessory: View>: View {
     let icon: String

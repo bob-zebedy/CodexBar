@@ -179,21 +179,13 @@ final class ActivityCenterPanelController {
             maximumHeight: min(screenMaximumHeight, menuMaximumHeight),
             snapshot: snapshot
         )
-        let positioningFrame = SidePanelSupport.anchorAwareVisibleFrame(
-            visibleFrame: visibleFrame,
-            screenFrame: screen?.frame,
-            alignmentScreenFrame: alignmentScreenFrame
-        )
-        let position = SidePanelSupport.position(
+        let position = SidePanelSupport.anchoredPosition(
             panelSize: panelSize,
             menuSurfaceFrame: menuSurfaceFrame,
-            visibleFrame: positioningFrame,
-            preferredSide: context.preferredSide,
-            proposedY: SidePanelSupport.alignedProposedY(
-                panelSize: panelSize,
-                menuSurfaceFrame: menuSurfaceFrame,
-                alignmentScreenFrame: alignmentScreenFrame
-            )
+            visibleFrame: visibleFrame,
+            screenFrame: screen?.frame,
+            alignmentScreenFrame: alignmentScreenFrame,
+            preferredSide: context.preferredSide
         )
 
         return (panelSize, position)

@@ -139,6 +139,8 @@ final class CodexActivityMonitor: ObservableObject {
         snapshot = .empty
     }
 
+    // MARK: - 会话生命周期
+
     private func startSessionLifecyclePolling(generation: UInt64) {
         guard sessionLifecyclePollTask == nil else {
             return
@@ -284,6 +286,8 @@ final class CodexActivityMonitor: ObservableObject {
         }
     }
 
+    // MARK: - Hook 事件消费
+
     private func consume(_ batch: HookEventBatch) {
         switch batch {
         case .bootstrapStart:
@@ -413,6 +417,8 @@ final class CodexActivityMonitor: ObservableObject {
         }
         return nil
     }
+
+    // MARK: - 任务状态转换
 
     private func startTask(from event: WorkflowHookEvent) {
         let key = CodexActivityTaskKey(event: event)
@@ -690,6 +696,8 @@ final class CodexActivityMonitor: ObservableObject {
         return tasks[anonymousKey] == nil ? nil : anonymousKey
     }
 
+    // MARK: - 快照与过期清理
+
     private func refreshSnapshot(now: Date) {
         pruneExpiredState(now: now)
 
@@ -813,6 +821,8 @@ final class CodexActivityMonitor: ObservableObject {
 }
 
 private extension CodexActivityMonitor {
+    // MARK: - 终态判定与记录
+
     /// PermissionRequest 表示进入审批流程; 只有 rollout 明确把审批路由给 user 时才是 UI 等待
     func resolvePendingApprovalIfPossible(
         for task: inout CodexActivityTask,
@@ -1065,6 +1075,8 @@ private extension CodexActivityMonitor {
         }
     }
 }
+
+// MARK: - 内部任务模型
 
 private enum CodexActivityTaskKey: Hashable {
     case turn(session: String, turn: String)

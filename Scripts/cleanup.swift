@@ -1,12 +1,22 @@
 #!/usr/bin/env swift
 
+import AppKit
 import Darwin
 import Foundation
 import ServiceManagement
 
-private enum CleanupBuildConfiguration: String {
-    case debug = "Debug"
+private enum CleanupBuildConfiguration: String, CaseIterable {
     case release = "Release"
+    case debug = "Debug"
+
+    var bundleIdentifier: String {
+        switch self {
+        case .release:
+            "app.zabrian.codexbar"
+        case .debug:
+            "app.zabrian.codexbar.debug"
+        }
+    }
 }
 
 private struct CleanupTarget {
@@ -46,14 +56,14 @@ private enum CleanupError: LocalizedError {
 }
 
 private struct CleanupOptions {
-    var releaseAppURL = URL(fileURLWithPath: "/Applications/CodexBar.app")
-    var debugAppURL: URL?
-    var cleansRelease = true
-    var cleansDebug = true
+    var selectedConfigurations: Set<CleanupBuildConfiguration> = []
     var signingIdentity = ProcessInfo.processInfo.environment["CODEXBAR_CLEANUP_SIGN_IDENTITY"]
         ?? "Apple Development"
-    var isDryRun = false
     var isCheckOnly = false
+
+    func includes(_ configuration: CleanupBuildConfiguration) -> Bool {
+        selectedConfigurations.isEmpty || selectedConfigurations.contains(configuration)
+    }
 }
 
 private final class KeepAliveCleanupCommand {
@@ -65,35 +75,18 @@ private final class KeepAliveCleanupCommand {
     }
 
     func run(arguments: [String]) throws {
-        var options = try parseOptions(arguments)
-        if options.cleansDebug, options.debugAppURL == nil {
-            options.debugAppURL = try resolveBuiltAppURL(configuration: .debug)
-        }
-
-        let requestedTargets = try makeTargets(options: options)
-        var targets: [CleanupTarget] = []
-        for target in requestedTargets {
-            guard try validate(target) else {
-                print(
-                    "清理跳过: bundle=\(target.bundleIdentifier), reason=App 不存在, path=\(target.appURL.path)"
-                )
-                continue
-            }
-            targets.append(target)
-            print("清理目标: bundle=\(target.bundleIdentifier), path=\(target.appURL.path)")
-        }
+        let options = try parseOptions(arguments)
+        let targets = try makeTargets(options: options)
 
         guard !targets.isEmpty else {
             print("清理完成: 没有可用目标")
             return
         }
 
-        if options.isDryRun {
-            return
-        }
-
-        if !options.isCheckOnly, isCodexBarRunning() {
-            throw CleanupError.message("CodexBar 仍在运行")
+        let runningTargets = runningTargets(in: targets)
+        if !options.isCheckOnly, !runningTargets.isEmpty {
+            let bundleIdentifiers = runningTargets.map(\.bundleIdentifier).joined(separator: ", ")
+            throw CleanupError.message("CodexBar 仍在运行, bundle=\(bundleIdentifiers)")
         }
 
         let temporaryRoot = fileManager.temporaryDirectory
@@ -118,55 +111,25 @@ private final class KeepAliveCleanupCommand {
                 isCheckOnly: options.isCheckOnly
             )
         }
-
-        if options.isCheckOnly {
-            print("清理验证完成: 后台服务未注销")
-        } else {
-            print("后台服务已注销: 系统设置记录可能延迟清除")
-        }
     }
 
     private func parseOptions(_ arguments: [String]) throws -> CleanupOptions {
         var options = CleanupOptions()
-        var index = 0
 
-        while index < arguments.count {
-            switch arguments[index] {
-            case "--release-app":
-                index += 1
-                guard index < arguments.count, !arguments[index].isEmpty else {
-                    throw CleanupError.message("选项参数缺失, option=--release-app")
-                }
-                options.releaseAppURL = URL(fileURLWithPath: arguments[index])
-            case "--debug-app":
-                index += 1
-                guard index < arguments.count, !arguments[index].isEmpty else {
-                    throw CleanupError.message("选项参数缺失, option=--debug-app")
-                }
-                options.debugAppURL = URL(fileURLWithPath: arguments[index])
-            case "--release-only":
-                options.cleansRelease = true
-                options.cleansDebug = false
-            case "--debug-only":
-                options.cleansRelease = false
-                options.cleansDebug = true
-            case "--sign-identity":
-                index += 1
-                guard index < arguments.count, !arguments[index].isEmpty else {
-                    throw CleanupError.message("选项参数缺失, option=--sign-identity")
-                }
-                options.signingIdentity = arguments[index]
-            case "--dry-run":
-                options.isDryRun = true
+        for argument in arguments {
+            switch argument {
+            case "--release":
+                options.selectedConfigurations.insert(.release)
+            case "--debug":
+                options.selectedConfigurations.insert(.debug)
             case "--check":
                 options.isCheckOnly = true
             case "-h", "--help":
                 printUsage()
                 Darwin.exit(EXIT_SUCCESS)
             default:
-                throw CleanupError.message("未知选项, value=\(arguments[index])")
+                throw CleanupError.message("未知选项, value=\(argument)")
             }
-            index += 1
         }
 
         return options
@@ -180,44 +143,76 @@ private final class KeepAliveCleanupCommand {
             仅注销 CodexBar 的 Release 和 Debug KeepAlive LaunchDaemon
 
             Options:
-              --release-app PATH       Release CodexBar.app, 默认 /Applications/CodexBar.app
-              --debug-app PATH         Debug CodexBar.app, 默认使用当前 Xcode Debug 产物
-              --release-only           只移除 Release Helper
-              --debug-only             只移除 Debug Helper
-              --sign-identity NAME     临时清理 App 的本机签名身份, 默认 Apple Development
-              --dry-run                只显示目标
-              --check                  只编译和验证临时清理 App, 不注销服务
-              -h, --help               显示帮助
+              --release       只移除 Release Helper
+              --debug         只移除 Debug Helper
+              --check         只检查目标
+              -h, --help      显示帮助
 
-            实际清理前请先退出所有 CodexBar 实例
+            不指定 --release 或 --debug 时同时处理两个目标
+            实际清理前请先退出待清理的 CodexBar 实例
             """
         )
     }
 
     private func makeTargets(options: CleanupOptions) throws -> [CleanupTarget] {
-        var targets: [CleanupTarget] = []
-        if options.cleansRelease {
-            targets.append(
-                CleanupTarget(
-                    appURL: options.releaseAppURL,
-                    bundleIdentifier: "app.zabrian.codexbar",
-                    buildConfiguration: .release
+        try CleanupBuildConfiguration.allCases
+            .filter(options.includes)
+            .compactMap { configuration in
+                let bundleIdentifier = configuration.bundleIdentifier
+                guard let appURL = try resolveAppURL(configuration: configuration) else {
+                    print("清理跳过: bundle=\(bundleIdentifier), reason=未找到 App")
+                    return nil
+                }
+
+                print("清理目标: bundle=\(bundleIdentifier), path=\(appURL.path)")
+                return CleanupTarget(
+                    appURL: appURL,
+                    bundleIdentifier: bundleIdentifier,
+                    buildConfiguration: configuration
                 )
-            )
-        }
-        if options.cleansDebug {
-            guard let debugAppURL = options.debugAppURL else {
-                throw CleanupError.message("无法定位 Xcode Debug App")
             }
-            targets.append(
-                CleanupTarget(
-                    appURL: debugAppURL,
-                    bundleIdentifier: "app.zabrian.codexbar.debug",
-                    buildConfiguration: .debug
-                )
-            )
+    }
+
+    /// 候选按可信度排序, 命中的唯一标准是 Info.plist 里的 CFBundleIdentifier 对得上
+    /// 这里就是唯一的 App 校验点: 读到 Info.plist 即说明是个目录, 标识符对上即说明是这个 App
+    private func resolveAppURL(configuration: CleanupBuildConfiguration) throws -> URL? {
+        let bundleIdentifier = configuration.bundleIdentifier
+        var candidates: [URL] = []
+        if configuration == .release {
+            candidates.append(URL(fileURLWithPath: "/Applications/CodexBar.app"))
         }
-        return targets
+        if let registeredURL = NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: bundleIdentifier
+        ) {
+            candidates.append(registeredURL)
+        }
+        if configuration == .release {
+            candidates.append(projectURL.appending(path: "build/CodexBar.app"))
+        }
+
+        for candidate in candidates {
+            if try appBundleIdentifier(at: candidate) == bundleIdentifier {
+                return candidate
+            }
+        }
+
+        // xcodebuild 定位不到是"查不到"而不是数据损坏, 保持非致命
+        guard let builtAppURL = try? resolveBuiltAppURL(configuration: configuration) else {
+            return nil
+        }
+        return try appBundleIdentifier(at: builtAppURL) == bundleIdentifier ? builtAppURL : nil
+    }
+
+    /// 返回 nil 只代表这个路径下没有 App, 属于正常跳过
+    /// 读到了却解析不了必须抛出去: 用 try? 折叠成 nil 会把损坏的安装当成"不是这个 App",
+    /// 于是一次什么都没清理的运行照样打印完成并以 0 退出
+    private func appBundleIdentifier(at appURL: URL) throws -> String? {
+        let infoURL = appURL.appending(path: "Contents/Info.plist")
+        guard fileManager.fileExists(atPath: infoURL.path) else {
+            return nil
+        }
+
+        return try propertyListDictionary(at: infoURL)["CFBundleIdentifier"] as? String
     }
 
     private func resolveBuiltAppURL(configuration: CleanupBuildConfiguration) throws -> URL {
@@ -251,27 +246,6 @@ private final class KeepAliveCleanupCommand {
             .map { String($0.dropFirst(prefix.count)) }
     }
 
-    private func validate(_ target: CleanupTarget) throws -> Bool {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: target.appURL.path, isDirectory: &isDirectory) else {
-            return false
-        }
-        guard isDirectory.boolValue else {
-            throw CleanupError.message(
-                "App 类型错误, actual=file, expected=directory, path=\(target.appURL.path)"
-            )
-        }
-
-        let info = try propertyListDictionary(at: target.appURL.appending(path: "Contents/Info.plist"))
-        let actualIdentifier = info["CFBundleIdentifier"] as? String ?? "missing"
-        guard actualIdentifier == target.bundleIdentifier else {
-            throw CleanupError.message(
-                "App 标识符错误, actual=\(actualIdentifier), expected=\(target.bundleIdentifier), path=\(target.appURL.path)"
-            )
-        }
-        return true
-    }
-
     private func resolveHelperSourceURL(for target: CleanupTarget) throws -> URL {
         let bundledHelperURL = helperURL(in: target.appURL)
         if fileManager.isExecutableFile(atPath: bundledHelperURL.path) {
@@ -292,8 +266,12 @@ private final class KeepAliveCleanupCommand {
         appURL.appending(path: "Contents/Resources/CodexBarHelper")
     }
 
-    private func isCodexBarRunning() -> Bool {
-        (try? run("/usr/bin/pgrep", ["-x", "CodexBar"], capturesOutput: true).status) == 0
+    private func runningTargets(in targets: [CleanupTarget]) -> [CleanupTarget] {
+        targets.filter { target in
+            !NSRunningApplication.runningApplications(
+                withBundleIdentifier: target.bundleIdentifier
+            ).isEmpty
+        }
     }
 
     private func prepareAndRun(
@@ -349,7 +327,7 @@ private final class KeepAliveCleanupCommand {
                 "--sign", signingIdentity,
                 destinationHelperURL.path
             ],
-            failureReason: "Helper 签名失败"
+            failureReason: "签名 Helper 失败"
         )
         try runCodeSigningChecked(
             [
@@ -359,7 +337,7 @@ private final class KeepAliveCleanupCommand {
                 "--sign", signingIdentity,
                 cleanupAppURL.path
             ],
-            failureReason: "清理 App 签名失败"
+            failureReason: "签名 App 失败"
         )
 
         let cleanupTeamIdentifier = try signingTeamIdentifier(for: cleanupAppURL)
@@ -370,7 +348,7 @@ private final class KeepAliveCleanupCommand {
         }
         try runCodeSigningChecked(
             ["--verify", "--strict", "--verbose=2", cleanupAppURL.path],
-            failureReason: "清理 App 验证失败"
+            failureReason: "验证 App 签名失败"
         )
 
         if isCheckOnly {

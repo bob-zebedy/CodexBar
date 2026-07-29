@@ -43,6 +43,8 @@ actor WorkflowSyncService {
         self.directoryURL = directoryURL
     }
 
+    // MARK: - 同步入口
+
     func snapshotFromCacheIfEnabled() -> WorkflowSyncSnapshot {
         guard WorkflowSyncSettings.isEnabled() else {
             return .disabled
@@ -342,6 +344,8 @@ private extension WorkflowSyncService {
     var cursorURL: URL {
         directoryURL.appendingPathComponent("cursor.data", isDirectory: false)
     }
+
+    // MARK: - 上传
 
     func uploadChangedAggregates(
         localByDate: [String: LocalSyncAggregate],
@@ -658,6 +662,8 @@ private extension WorkflowSyncService {
         return confirmedHashes
     }
 
+    // MARK: - 拉取与缓存
+
     func refreshCacheFromRemote() async throws {
         guard let token = try loadCursor() else {
             try await rebuildCacheFromRemote()
@@ -874,6 +880,8 @@ private extension WorkflowSyncService {
         return recordIDs.count
     }
 
+    // MARK: - 账号与设备标识
+
     func resolveCurrentDeviceId() async throws -> String {
         let salt = try await accountSalt()
         let uuid = try Self.ioPlatformUUID()
@@ -941,6 +949,8 @@ private extension WorkflowSyncService {
 
         throw WorkflowSyncError.missingAccountSalt
     }
+
+    // MARK: - 记录与 zone 维护
 
     func ensureSyncZoneExists() async throws {
         guard !isSyncZoneConfirmed else {

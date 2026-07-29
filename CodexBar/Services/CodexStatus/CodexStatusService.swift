@@ -145,6 +145,8 @@ actor CodexStatusService {
         _ = Self.ignoreBrokenPipeSignal
     }
 
+    // MARK: - 对外入口
+
     func fetchOutcome() async -> CodexFetchResult {
         var trace = CodexFetchTrace()
         let outcome = await resolveOutcome(allowRebuild: true, trace: &trace)
@@ -230,6 +232,8 @@ actor CodexStatusService {
         }
     }
 
+    // MARK: - 连接复用与重建
+
     private func readyConnection() throws -> AppServerConnection {
         switch ensureConnection() {
         case let .ready(connection, _):
@@ -296,6 +300,8 @@ actor CodexStatusService {
         connection?.close()
         connection = nil
     }
+
+    // MARK: - 数据抓取与缓存
 
     /// 额度与用量独立读取
     /// 认证失败全程只刷新一次 token

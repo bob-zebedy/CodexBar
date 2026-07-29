@@ -60,6 +60,8 @@ private enum SleepRestoreTrigger: String {
     case helperTermination
 }
 
+// MARK: - pmset 调用
+
 private enum PmsetRunner {
     static func setSleepDisabled(_ disabled: Bool) -> PmsetResult {
         run(arguments: ["-a", "disablesleep", disabled ? "1" : "0"])
@@ -174,6 +176,8 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         self.listener = listener
     }
 
+    // MARK: - XPC 接口
+
     func setSleepDisabled(
         _ disabled: Bool,
         reply: @escaping @Sendable (Int32, Bool) -> Void
@@ -239,6 +243,8 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
             )
         }
     }
+
+    // MARK: - 休眠切换与恢复
 
     private func disableSleep() -> Int32 {
         var didCreateSentinel = false
@@ -371,6 +377,8 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
             signalSources.append(source)
         }
     }
+
+    // MARK: - 恢复哨兵
 
     private func ensureSentinelDirectory() throws {
         let directoryURL = sentinelURL.deletingLastPathComponent()

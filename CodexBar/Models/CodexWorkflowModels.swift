@@ -56,6 +56,8 @@ private nonisolated enum WorkflowCountResolution {
     }
 }
 
+// MARK: - Hook 原始事件
+
 /// hooks 进程落盘的最小事件模型, 对历史字段缺失保持宽容
 nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     let timestamp: Date
@@ -189,6 +191,8 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     }
 }
 
+// MARK: - 每日聚合指标
+
 /// 热力图详情面板直接消费的每日统计
 nonisolated struct WorkflowDailyMetrics: Equatable, Identifiable {
     let startDate: String
@@ -290,6 +294,8 @@ nonisolated struct WorkflowDailyMetrics: Equatable, Identifiable {
         }
     }
 }
+
+// MARK: - 面板快照
 
 /// WorkflowService 发布给 UI 的近端快照
 nonisolated struct WorkflowSnapshot: Equatable {
@@ -397,6 +403,8 @@ nonisolated struct WorkflowSnapshot: Equatable {
         }
     }
 }
+
+// MARK: - 会话与轮次标识缓存
 
 /// 聚合时保留 Set 缓存, 避免同一会话或轮次重复计数
 nonisolated struct WorkflowDailyIdentifierCache {

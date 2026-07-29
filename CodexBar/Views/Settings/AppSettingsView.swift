@@ -16,11 +16,12 @@ struct AppSettingsView: View {
     @ObservedObject var keepAliveController: KeepAliveController
     let onSyncChanged: (Bool) -> Void
     let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
-    let onNotificationOptionsAction: (NotificationOptionsPanelAction) -> Void
+    let onOptionsAction: (SettingsOptionsPanelAction) -> Void
     let onContentHeightChanged: (CGFloat) -> Void
     @State private var selectedTab = SettingsTab.general
     @State private var isTabContentSettled = true
-    @State private var shouldOpenNotificationOptionsAfterAuthorization = false
+    @State private var notificationAnchorProvider = ScreenFrameProvider()
+    @State private var keepAliveAnchorProvider = ScreenFrameProvider()
     @State private var rebuildableDates = [String]()
     @State private var selectedRebuildRange: RebuildDateRange?
     @State private var isShowingRebuildConfirmation = false
@@ -89,8 +90,7 @@ struct AppSettingsView: View {
             clearRebuildStatus()
         }
         .onChange(of: selectedTab) { _, _ in
-            shouldOpenNotificationOptionsAfterAuthorization = false
-            onNotificationOptionsAction(.close)
+            onOptionsAction(.closeAll)
         }
         .task(id: selectedTab) {
             guard !isTabContentSettled else {
@@ -143,9 +143,8 @@ private extension AppSettingsView {
         static let tabVerticalPadding: CGFloat = 7
         static let tabContentSpacing = padding
         static let windowChromeHeight = padding * 2 + tabBarHeight + tabContentSpacing
-        static let notificationOptionsButtonSize: CGFloat = 22
+        static let optionsButtonSize: CGFloat = 22
         static let menuBarQuotaPickerWidth: CGFloat = 72
-        static let keepAliveDurationPickerWidth: CGFloat = 88
         static let syncStatusRowHeight: CGFloat = 16
         static let syncStatusValueWidth: CGFloat = 160
         static let tabContentInitialScale = 0.975
@@ -157,6 +156,8 @@ private extension AppSettingsView {
         )
         static let statusAnimation = Animation.codexStatus
     }
+
+    // MARK: - 分页骨架
 
     var settingsTabBar: some View {
         HStack(spacing: Metrics.tabSpacing) {
@@ -187,7 +188,6 @@ private extension AppSettingsView {
                 }
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity)
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
         .padding(Metrics.tabBarPadding)
@@ -275,6 +275,8 @@ private extension AppSettingsView {
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
         }
     }
+
+    // MARK: - 通用页各行
 
     var launchAtLoginRow: some View {
         SettingsToggleRow(
@@ -377,6 +379,8 @@ private extension AppSettingsView {
         )
     }
 
+    // MARK: - 高级页各行
+
     var codexHookRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
@@ -395,43 +399,25 @@ private extension AppSettingsView {
         }
     }
 
+    // MARK: - 防休眠
+
     var keepAliveRow: some View {
         let caption = keepAliveCaption
 
         return VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
                 icon: "moon.zzz",
-                title: "阻止系统休眠",
+                title: "防止系统休眠",
                 isOn: Binding(
                     get: { keepAliveController.isEnabled },
                     set: { keepAliveController.setEnabled($0) }
                 ),
                 isEnabled: codexHookSettings.isEnabled && !codexHookSettings.isUpdating
             ) {
-                if keepAliveController.isEnabled {
-                    HStack(spacing: 6) {
-                        Text("最长阻止时间")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize()
-
-                        Picker(
-                            "最长阻止时间",
-                            selection: Binding(
-                                get: { keepAliveController.maximumDuration },
-                                set: { keepAliveController.setMaximumDuration($0) }
-                            )
-                        ) {
-                            ForEach(KeepAliveController.MaximumDuration.allCases) { duration in
-                                Text(duration.title).tag(duration)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .controlSize(.small)
-                        .frame(width: Metrics.keepAliveDurationPickerWidth)
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                optionsButton(isAvailable: canShowKeepAliveOptions) {
+                    onOptionsAction(
+                        .toggle(panel: .keepAlive, anchorProvider: keepAliveAnchorProvider)
+                    )
                 }
             }
 
@@ -457,12 +443,42 @@ private extension AppSettingsView {
                 .transition(.opacity)
             }
         }
+        .background {
+            ScreenFrameReader(provider: keepAliveAnchorProvider)
+        }
         .animation(Metrics.statusAnimation, value: caption)
         .animation(Metrics.statusAnimation, value: keepAliveController.isEnabled)
+        .onChange(of: canShowKeepAliveOptions) { _, canShowOptions in
+            guard !canShowOptions else {
+                return
+            }
+
+            onOptionsAction(.close(panel: .keepAlive))
+        }
+    }
+
+    /// 两个子面板入口共用的滑杆按钮; 依赖没就绪时只隐藏入口, 不回写用户保存的开关
+    func optionsButton(isAvailable: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "slider.horizontal.3")
+        }
+        .buttonStyle(.plain)
+        .controlSize(.small)
+        .foregroundStyle(.tint)
+        .frame(width: Metrics.optionsButtonSize, height: Metrics.optionsButtonSize)
+        .opacity(isAvailable ? 1 : 0)
+        .disabled(!isAvailable)
+        .animation(Metrics.statusAnimation, value: isAvailable)
+    }
+
+    /// 判定收在 KeepAliveController 里由 sleepBlockReason 派生, 这里只读结论
+    /// 在 View 里手抄那几个条件会漏掉后来新增的阻断项, 入口会亮着但点开不生效
+    var canShowKeepAliveOptions: Bool {
+        keepAliveController.canShowOptions
     }
 
     /// 返回 nil 表示这一行整个收起
-    /// 正常运行时不必占一行说"一切正常", 是否正在阻止由主面板的咖啡杯标记呈现
+    /// 正常运行时不必占一行说"一切正常", 是否正在防休眠由主面板的咖啡杯标记呈现
     var keepAliveCaption: KeepAliveCaption? {
         if let errorMessage = keepAliveController.errorMessage {
             return KeepAliveCaption(message: errorMessage, isError: true)
@@ -471,7 +487,15 @@ private extension AppSettingsView {
             return KeepAliveCaption(message: "需要启用 CodexBar Hook")
         }
         guard keepAliveController.isEnabled else {
-            return KeepAliveCaption(message: "当有 Codex 任务运行时阻止系统休眠, 任务结束后自动恢复")
+            return KeepAliveCaption(message: "当有 Codex 任务运行时防止系统休眠, 任务结束后自动恢复")
+        }
+
+        // 低电量拦下时开关开着却不防休眠, 不留一句无从解释
+        // 判定用 isLowBatteryBlocking 而不是 isLowBatteryActive: 后者在没有任务时也成立, 那时无话可说
+        // 它成立即意味着 helper 已就绪, 所以排在下面那个 switch 之前不影响 helper 类问题的呈现
+        // 不写具体阈值: 滞回让保护一直持续到阈值加 5, 说死数字会与用户看到的电量对不上
+        if keepAliveController.isLowBatteryBlocking {
+            return KeepAliveCaption(message: "电量过低, 已恢复系统休眠")
         }
 
         switch keepAliveController.helperStatus {
@@ -488,7 +512,7 @@ private extension AppSettingsView {
                 return nil
             }
             return KeepAliveCaption(
-                message: "已到阻止休眠上限 (\(keepAliveController.maximumDuration.title))"
+                message: "已达到防休眠时间上限 (\(keepAliveController.maximumDuration.title))"
             )
         }
     }
@@ -553,7 +577,6 @@ private extension AppSettingsView {
                 }
                 .frame(height: Metrics.syncStatusRowHeight)
                 .opacity(showsSyncStatus ? 1 : 0)
-                .accessibilityHidden(!showsSyncStatus)
             }
         }
     }
@@ -567,6 +590,8 @@ private extension AppSettingsView {
             isSyncing: syncSettings.isSyncing
         )
     }
+
+    // MARK: - 数据重建
 
     var rebuildWorkflowDataRow: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -645,10 +670,11 @@ private extension AppSettingsView {
         rebuildableDates = WorkflowStorage.rebuildableEventDateKeys()
     }
 
+    /// 防休眠不在这里刷: 控制器自己订阅了 didBecomeActive, 窗口打开也走 refreshSettingsState
+    /// 再调一次会让每次激活都多跑一遍电源读取 helper 状态查询和 helper 二进制哈希
     func refreshStatusRows() {
         refreshCodexVersionSection()
         notificationSettings.refreshAuthorizationStatus()
-        keepAliveController.refresh()
         refreshRebuildableDates()
     }
 
@@ -724,6 +750,8 @@ private extension AppSettingsView {
         rebuildStatus = nil
     }
 
+    // MARK: - 通知
+
     /// 主开关行保留在设置窗口内, 子选项在右侧子面板中展开
     var notificationRow: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -732,26 +760,14 @@ private extension AppSettingsView {
                 title: "系统通知",
                 isOn: Binding(
                     get: { notificationSettings.isEnabled },
-                    set: { setNotificationsEnabled($0) }
+                    set: { notificationSettings.setEnabled($0) }
                 )
             ) {
-                Button {
-                    onNotificationOptionsAction(.toggle)
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
+                optionsButton(isAvailable: notificationSettings.canShowOptions) {
+                    onOptionsAction(
+                        .toggle(panel: .notification, anchorProvider: notificationAnchorProvider)
+                    )
                 }
-                .buttonStyle(.plain)
-                .controlSize(.small)
-                .foregroundStyle(.tint)
-                .frame(
-                    width: Metrics.notificationOptionsButtonSize,
-                    height: Metrics.notificationOptionsButtonSize
-                )
-                .opacity(notificationSettings.canShowOptions ? 1 : 0)
-                .disabled(!notificationSettings.canShowOptions)
-                .accessibilityHidden(!notificationSettings.canShowOptions)
-                .help("通知选项")
-                .animation(Metrics.statusAnimation, value: notificationSettings.canShowOptions)
             }
 
             if notificationSettings.isEnabled, notificationSettings.isAuthorizationDenied {
@@ -762,34 +778,16 @@ private extension AppSettingsView {
                     }
             }
         }
+        .background {
+            ScreenFrameReader(provider: notificationAnchorProvider)
+        }
+        // 关掉总开关或被系统拒授权都会让 canShowOptions 转假, 收面板只需要认这一个信号
         .onChange(of: notificationSettings.canShowOptions) { _, canShowOptions in
-            guard canShowOptions else {
-                onNotificationOptionsAction(.close)
+            guard !canShowOptions else {
                 return
             }
 
-            if shouldOpenNotificationOptionsAfterAuthorization {
-                shouldOpenNotificationOptionsAfterAuthorization = false
-                onNotificationOptionsAction(.open)
-            }
-        }
-        .onChange(of: notificationSettings.isAuthorizationDenied) { _, isDenied in
-            if isDenied {
-                shouldOpenNotificationOptionsAfterAuthorization = false
-                onNotificationOptionsAction(.close)
-            }
-        }
-    }
-
-    func setNotificationsEnabled(_ enabled: Bool) {
-        notificationSettings.setEnabled(enabled)
-        if enabled, notificationSettings.canShowOptions {
-            shouldOpenNotificationOptionsAfterAuthorization = false
-            onNotificationOptionsAction(.open)
-        } else {
-            shouldOpenNotificationOptionsAfterAuthorization = enabled
-                && !notificationSettings.isAuthorizationDenied
-            onNotificationOptionsAction(.close)
+            onOptionsAction(.close(panel: .notification))
         }
     }
 
@@ -808,6 +806,8 @@ private extension AppSettingsView {
             .fixedSize()
         }
     }
+
+    // MARK: - 关于页
 
     var versionRow: some View {
         let status = versionStatus

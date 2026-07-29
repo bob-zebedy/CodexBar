@@ -28,6 +28,8 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
     private var notificationService: CodexNotificationService?
 
+    // MARK: - App 生命周期
+
     func applicationDidFinishLaunching(_: Notification) {
         // Hook 子进程模式绝不会走到这里, 干净退出标志因此不会被它改写
         AppProcessDiagnostics.install()
@@ -57,6 +59,10 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         }
         notificationService.start()
         self.notificationService = notificationService
+        // 低电量触发会中断正在跑的任务, 得让用户知道是谁干的
+        keepAliveController.onLowBatteryTriggered = { [weak notificationService] percent in
+            await notificationService?.notifyLowBatteryProtection(percent: percent) ?? false
+        }
         activityMonitor.start()
         keepAliveController.start()
         logLaunchState()
@@ -78,14 +84,15 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-"
         let hook = codexHookSettings.isEnabled ? 1 : 0
         let keepAlive = keepAliveController.isEnabled ? 1 : 0
-        let keepAliveLimit = keepAliveController.maximumDuration.title
+        let keepAliveLimit = keepAliveController.maximumDuration.loggedHours
+        let keepAliveBattery = keepAliveController.lowBatteryThreshold.rawValue
         let sync = syncSettings.isEnabled ? 1 : 0
         let notification = notificationSettings.isEnabled ? 1 : 0
         let menuBarQuota = menuBarQuotaSettings.selection.rawValue
         let taskCenter = mainPanelSettings.showsTaskCenter ? 1 : 0
         let hotKey = globalHotKeySettings.shortcut == nil ? 0 : 1
         AppLog.app.notice(
-            "App 已启动: version=\(version, privacy: .public); build=\(build, privacy: .public); hook=\(hook); keepAlive=\(keepAlive); keepAliveLimit=\(keepAliveLimit, privacy: .public); sync=\(sync); notification=\(notification); menuBarQuota=\(menuBarQuota, privacy: .public); taskCenter=\(taskCenter); hotKey=\(hotKey)"
+            "App 已启动: version=\(version, privacy: .public); build=\(build, privacy: .public); hook=\(hook); keepAlive=\(keepAlive); keepAliveLimit=\(keepAliveLimit); keepAliveBattery=\(keepAliveBattery); sync=\(sync); notification=\(notification); menuBarQuota=\(menuBarQuota, privacy: .public); taskCenter=\(taskCenter); hotKey=\(hotKey)"
         )
     }
 
@@ -518,6 +525,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
+    // MARK: - 装配与对外入口
+
     func install() {
         configureStatusButton()
         configurePopover()
@@ -605,6 +614,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
         return hostingController
     }
+
+    // MARK: - 订阅与全局快捷键
 
     private func observeViewModel() {
         let hasQuotaSnapshot = viewModel.$snapshot
@@ -759,6 +770,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         return "快捷键已被占用"
     }
 
+    // MARK: - 菜单栏图标
+
     private func updateStatusImage(_ state: StatusIconState) {
         statusItem.button?.toolTip = state.toolTip(at: Date())
 
@@ -901,6 +914,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
+    // MARK: - 菜单面板开合
+
     private func toggleMenuSurface(relativeTo button: NSStatusBarButton) {
         toggleMenuSurface {
             openPopover(relativeTo: button)
@@ -1026,6 +1041,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         scheduleDelayedStatusRefresh()
     }
 
+    // MARK: - 右键菜单
+
     private func showContextMenu(relativeTo button: NSStatusBarButton) {
         closeMenuSurface(animated: false)
         presentStatusItemMenu(makeContextMenu(), relativeTo: button)
@@ -1101,6 +1118,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
+    // MARK: - 辅助窗口与焦点
+
     private func openLogFromShortcut() {
         closeMenuSurface(animated: false)
         openLog()
@@ -1149,6 +1168,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     @objc private func quit() {
         NSApplication.shared.terminate(nil)
     }
+
+    // MARK: - 关闭流程
 
     private func closeMenuSurface(animated: Bool = true) {
         if menuSurfaceState == .closing, animated {
@@ -1245,6 +1266,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         logWindowController.setAllowsKeyFocus(allowsKeyFocus)
     }
 
+    // MARK: - 刷新与同步
+
     private func scheduleDelayedStatusRefresh() {
         delayedStatusRefreshTask?.cancel()
         delayedStatusRefreshTask = Task { @MainActor [weak self] in
@@ -1292,6 +1315,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     private var workflowSyncActivation: WorkflowSyncActivation {
         syncSettings.activation(isHookEnabled: codexHookSettings.isEnabled)
     }
+
+    // MARK: - 侧边面板
 
     private func updateHeatmapDetailPanel(_ context: UsageHeatmapHoverContext?) {
         guard isActiveMenuSurfaceVisible,
