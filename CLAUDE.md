@@ -130,7 +130,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 关键约束
 
 - `shouldDisableSleep` 是用户意图与依赖可用性的唯一汇合点, 要求 `isStarted && isEnabled && isHookEnabled && hasRunningTasks && helperStatus == .enabled && !isRefreshingHelper && !isLowBatteryActive && !hasReachedMaximumDuration` 同时成立; **依赖不满足只让效果失效, 绝不回写用户保存的 `isEnabled`**
-- Hook 状态在类内只认 `isHookEnabled` 这份镜像, 不要回读 `codexHookSettings.isEnabled` 那个属性: 订阅回调跑在 `willSet`, 那一刻它还是改动前的值
+- Hook 状态在类内只认 `isHookEnabled` 这份镜像, 它跟的是 `codexHookSettings.isOperable`; 不要回读那个属性, 订阅回调跑在 `willSet`, 那一刻它的两个输入里正在变的那一项还是旧值, 只能认 `CombineLatest` 给的闭包参数
 - 新增拦截条件一律加进 `sleepBlockReason` 的顺序判断里, 它和 `shouldDisableSleep` 同源, 顺带保证日志的 `reason=` 不会漏项
 - UI 用的 `isLowBatteryBlocking` 与 `canShowOptions` 由 `reconcileSleepState` 从 `sleepBlockReason` 单点派生, 新增拦截条件时 `allowsOptions` 那个穷举 `switch` 会强制表态, 于是不会出现入口亮着却点不动
 - `hasRunningTasks` 与 `isRefreshingHelper` 都不带 `@Published` 标注, 它们变得比结论频繁, 各自发信号会把整个设置页拖着一起重算
@@ -171,7 +171,10 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `send` 是唯一的提交入口, 返回一个 `Task<Bool, Never>?` 值, 需要等通知真的发出去再做下一步的调用方 `await` 它的 `value` 即可; 不要另开一条 async 通道, 那会悄悄少掉去重 时效判定与提交失败回调三项能力
 - 去重判定留在 `send` 的同步段而不是挪进 `Task` 内部, 这样连续两次调用的第二次一定被挡下, 不依赖任务调度顺序
 - `NotificationSettings` 管 CodexBar 自身通知; `CodexCLINotificationSettings` 是另一回事, 它通过 app-server `config/read` 与 `config/batchWrite` 读写 Codex 自己的用户级 `config.toml`
-- 通知面板里带依赖的行一律显示为关闭并置灰而不是隐藏, 任务类看 `codexHookSettings.isEnabled`, 低电量保护通知看 `KeepAliveController.isLowBatteryProtectionEnabled` (阈值开着且这台机器确实有电池); 都不回写用户保存的开关
+- 通知面板里带依赖的行一律显示为关闭并置灰而不是隐藏, 任务类看 `codexHookSettings.isOperable`, 低电量保护通知看 `KeepAliveController.isLowBatteryProtectionEnabled` (防休眠可用, 阈值开着, 且这台机器确实有电池), 防休眠上限通知看 `KeepAliveController.isMaximumDurationEnabled` (防休眠可用且不是无限制); 都不回写用户保存的开关
+- 两条防休眠通知的依赖里都含"防休眠可用"这一层, 即防休眠开关与 Hook 都开着, 判定收在 `publishNotificationDependencies` 一处; 只判各自的子设置会让防休眠关着时这两行还亮着
+- 带依赖的行由 `KeepAliveController` 判定并派生成一个值, 视图只读结论, 不在各视图各写一遍 `!= .unlimited` 这类规则
+- 防休眠上限通知与低电量通知共用同一个发送时机; 达到上限是粘滞状态, 一个计时周期只发一次, 不需要低电量那种本轮已通知的锁存
 
 ### 并发与隔离
 
@@ -220,7 +223,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 两个子面板的顶边对齐各自主开关行, anchor 由设置页的 `ScreenFrameProvider` 随展开动作传出, 定位走 `SidePanelSupport.anchoredPosition` 而不是宿主底边
 - 设置窗口的子面板要传 `clampsToSurfaceBottom: false` 让底边可以探出窗口, 否则放不下时会把整个面板上推而错开主开关行; 主面板那三个面板走默认的 true
 - 两个子面板的高度都会变, 通知面板随音效行增删, 防休眠面板随 `hasBattery` 增删低电量那一行; resize 时要固定顶边向下生长, 直接改 size 会保持底边不动而把顶边顶离主开关行
-- 高度重算只订阅真正会改变行数的那几项, 通知面板订 `notificationSettings` 与 `codexHookSettings` 的 `objectWillChange` 再加 `KeepAliveController.$isLowBatteryProtectionEnabled` 一条, 防休眠面板只订 `$hasBattery` 一条; 订整个防休眠控制器会让任务每起停一次都白排一轮 resize
+- 高度重算只订阅真正会改变行数的那几项, 通知面板订 `notificationSettings` 与 `codexHookSettings` 的 `objectWillChange` 再加 `KeepAliveController.$isLowBatteryProtectionEnabled` 与 `$isMaximumDurationEnabled` 两条, 防休眠面板只订 `$hasBattery` 一条; 订整个防休眠控制器会让任务每起停一次都白排一轮 resize
+- 置灰也会改高度: 带音效的行置灰时音效子行跟着收起, 所以每个置灰依赖都要有一个对应的订阅源
 - 增删行或改行的显示条件时要同步补上对应的订阅源, 漏一项会让面板裁掉底部或留下空白
 - resize 的竖向夹紧走 `SidePanelSupport.clampedVertically`, 与初次展开的 `position` 同一条规则, 否则放不下时两边会把面板推向相反的边
 - 子面板入口只在开关开着且依赖就绪时出现, 通知看 `NotificationSettings.canShowOptions` 那个值, 防休眠看 `KeepAliveController.canShowOptions` 这个值; 两者都只控制入口显隐, 不回写用户保存的开关
@@ -237,8 +241,12 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 `~/.codex/hooks.json` 的读写全部在 `CodexHookSettings` 里完成, Codex 目录优先取 `CODEX_HOME` 环境变量, 找不到时回退真实用户 HOME 下的 `.codex` 目录
 
 - 只识别并移除 command 同时包含当前 CodexBar 可执行路径与 `--hook-event` 的 handler, 必须保留用户已有 Hook 以及其他 App 的 Hook 和同事件下的其他 handler
-- 写入前通过 app-server `config/read` 确认全局未禁用 Hook, 写入后用 `hooks/list` 验证
+- 写入前通过 app-server `config/read` 确认全局未禁用 Hook, 写入后用 `hooks/list` 验证; 两处读取共用 `readGlobalHookDisabled`, 开关流程与校验流程对"全局禁用"的判断不会分叉
 - 读取失败 (I/O 或 JSON 格式错误) 不提供 Hook 装没装的信息, 必须保留上次已知值, 不能当成用户关闭了 Hook
+- `isEnabled` 只表示 `hooks.json` 里装着, `isVerified` 是最近一次校验的明确结论, 两者与出来的 `isOperable` 才是"事件真的送得过来"; 依赖 Hook 的下游一律看 `isOperable`
+- `isVerified` 乐观默认为 true 且只由明确结论写入两个方向: 校验只在设置窗口打开与 App 激活时跑, 而 RPC 失败属于"验不了"不是"确认不通", 那时置灰会把好用的功能关掉
+- 全局禁用要排在 `hooks/list` 之前判: 它一关列表里必然找不到我们的 handler, 那时报"已不完整"会把用户引去翻本来就完好的 `hooks.json`
+- 校验不通过时防休眠那一行的说明写"CodexBar Hook 未生效"而不是"需要启用 CodexBar Hook", 后者会让用户去开一个已经开着的开关; 具体病因由 Hook 那一行自己的说明给出
 
 ## 隐私与数据边界
 

@@ -7,6 +7,18 @@ import os
 final class CodexHookSettings: ObservableObject {
     @Published private(set) var isEnabled = false
     @Published private(set) var isUpdating = false
+    /// 最近一次校验的明确结论: Codex 会不会真的执行 CodexBar 的 Hook
+    /// 乐观默认: 校验只在设置窗口打开时跑, 没有反证之前不能把依赖 Hook 的功能关掉
+    /// 只由明确结论写入两个方向, RPC 失败或被取消时保留上次的值:
+    /// 连不上 app-server 不说明 Hook 坏了, 那时置灰会把好用的功能关掉
+    @Published private(set) var isVerified = true
+
+    /// Hook 链路真的通不通: hooks.json 里装着, 且最近一次校验没有明确失败
+    /// 依赖 Hook 的下游 (防休眠, 任务类通知) 一律看这个
+    /// isEnabled 只说明装了, Codex 那边全局关掉 hooks 或者不信任我们的 handler 时它照样是 true
+    var isOperable: Bool {
+        isEnabled && isVerified
+    }
 
     /// 读取 hooks.json 失败, 由 refresh() 独立维护
     @Published private var readErrorMessage: String?
@@ -120,8 +132,19 @@ final class CodexHookSettings: ObservableObject {
 
     private func verifyInstalledHooksWithAppServer(generation: Int) async {
         do {
+            // 全局开关排在 hooks/list 之前: 它一关, 列表里必然找不到我们的 handler,
+            // 那时报"已不完整"会把用户引去翻本来就完好的 hooks.json
+            let globallyDisabled = try await readGlobalHookDisabled()
+            try ensureCurrentUpdate(generation)
+            guard !globallyDisabled else {
+                assignVerified(false, reason: .globallyDisabled)
+                operationErrorMessage = HookConfigError.hooksGloballyDisabled.localizedDescription
+                return
+            }
+
             try await validateInstalledHooksWithAppServer()
             try ensureCurrentUpdate(generation)
+            assignVerified(true, reason: .verified)
             operationErrorMessage = nil
         } catch is CancellationError {
             return
@@ -130,14 +153,32 @@ final class CodexHookSettings: ObservableObject {
                 return
             }
 
+            // HookConfigError 是明确结论: Codex 答复了, 只是答复说这条链路不通
+            assignVerified(false, reason: .validationFailed)
             operationErrorMessage = error.localizedDescription
         } catch {
             guard isCurrentUpdate(generation) else {
                 return
             }
 
+            // 这一支是"验不了"而不是"确认不通", isVerified 保留上次的值
             operationErrorMessage = "无法验证 Codex Hook: \(error.localizedDescription)"
         }
+    }
+
+    /// @Published 在 willSet 无条件发信号, 而每次 App 激活都会跑一次校验
+    /// 同值赋值会让设置页与两个子面板反复空转, 所以走这里
+    /// reason 是排查依据: 用户只会说"防休眠灰了", 那时得能从日志看出是全局禁用还是校验没过
+    /// "验不了"那一支不调这里, 结论保持不变也就不该记一条变化
+    private func assignVerified(_ verified: Bool, reason: HookVerificationReason) {
+        guard isVerified != verified else {
+            return
+        }
+
+        AppLog.hooks.notice(
+            "Hook 链路校验结论变化: verified=\(verified ? 1 : 0); reason=\(reason.rawValue, privacy: .public)"
+        )
+        isVerified = verified
     }
 
     private func runLatestUpdate(
@@ -237,6 +278,13 @@ private extension CodexHookSettings {
         static let empty = Self(keys: [], discoveryError: nil)
     }
 
+    /// Hook 链路校验结论的变化理由, 只用于日志的 reason= 取值
+    enum HookVerificationReason: String {
+        case globallyDisabled
+        case validationFailed
+        case verified
+    }
+
     enum HookConfigError: LocalizedError {
         case invalidFormat
         case hooksGloballyDisabled
@@ -276,9 +324,14 @@ private extension CodexHookSettings {
         fileManager.homeDirectoryForCurrentUser.path
     }
 
+    /// Codex 的 config.toml 里 features.hooks 是不是关着
+    /// 开关流程与校验流程共用这一处读取, 两边对"全局禁用"的判断不会分叉
+    func readGlobalHookDisabled() async throws -> Bool {
+        try await codexStatusService.readCodexConfig().hooksGloballyDisabled
+    }
+
     func ensureCodexHooksGloballyEnabled() async throws {
-        let response = try await codexStatusService.readCodexConfig()
-        if response.hooksGloballyDisabled {
+        if try await readGlobalHookDisabled() {
             throw HookConfigError.hooksGloballyDisabled
         }
     }

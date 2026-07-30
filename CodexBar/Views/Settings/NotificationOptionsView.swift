@@ -18,6 +18,7 @@ struct NotificationOptionsView: View {
             quotaResetRow
             creditExpiryRow
             lowBatteryRow
+            keepAliveLimitRow
             taskHapticRow
             codexCLINotificationRow
         }
@@ -78,9 +79,9 @@ struct NotificationOptionsView: View {
         )
     }
 
-    /// Hook 未开启时显示为关闭并置灰, 不修改持久化的 isLongTaskEnabled
+    /// Hook 未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isLongTaskEnabled
     private var longTaskRow: some View {
-        let isDisplayedOn = codexHookSettings.isEnabled && notificationSettings.isLongTaskEnabled
+        let isDisplayedOn = codexHookSettings.isOperable && notificationSettings.isLongTaskEnabled
 
         return notificationOptionRow(
             title: "任务完成通知",
@@ -88,7 +89,7 @@ struct NotificationOptionsView: View {
                 get: { isDisplayedOn },
                 set: { notificationSettings.setLongTaskEnabled($0) }
             ),
-            isEnabled: codexHookSettings.isEnabled,
+            isEnabled: codexHookSettings.isOperable,
             sound: Binding(
                 get: { notificationSettings.longTaskSound },
                 set: { notificationSettings.setLongTaskSound($0) }
@@ -106,9 +107,9 @@ struct NotificationOptionsView: View {
         }
     }
 
-    /// Hook 未开启时显示为关闭并置灰, 不修改持久化的 isTaskWaitingEnabled
+    /// Hook 未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isTaskWaitingEnabled
     private var taskWaitingRow: some View {
-        let isDisplayedOn = codexHookSettings.isEnabled && notificationSettings.isTaskWaitingEnabled
+        let isDisplayedOn = codexHookSettings.isOperable && notificationSettings.isTaskWaitingEnabled
 
         return notificationOptionRow(
             title: "任务等待通知",
@@ -116,7 +117,7 @@ struct NotificationOptionsView: View {
                 get: { isDisplayedOn },
                 set: { notificationSettings.setTaskWaitingEnabled($0) }
             ),
-            isEnabled: codexHookSettings.isEnabled,
+            isEnabled: codexHookSettings.isOperable,
             sound: Binding(
                 get: { notificationSettings.taskWaitingSound },
                 set: { notificationSettings.setTaskWaitingSound($0) }
@@ -124,9 +125,9 @@ struct NotificationOptionsView: View {
         )
     }
 
-    /// Hook 未开启时显示为关闭并置灰, 不修改持久化的 isTaskHapticEnabled
+    /// Hook 未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isTaskHapticEnabled
     private var taskHapticRow: some View {
-        let isDisplayedOn = codexHookSettings.isEnabled && notificationSettings.isTaskHapticEnabled
+        let isDisplayedOn = codexHookSettings.isOperable && notificationSettings.isTaskHapticEnabled
 
         return optionRow(
             title: "任务触觉反馈",
@@ -134,7 +135,7 @@ struct NotificationOptionsView: View {
                 get: { isDisplayedOn },
                 set: { notificationSettings.setTaskHapticEnabled($0) }
             ),
-            isEnabled: codexHookSettings.isEnabled
+            isEnabled: codexHookSettings.isOperable
         )
     }
 
@@ -152,7 +153,7 @@ struct NotificationOptionsView: View {
         )
     }
 
-    /// 低电量保护关着时显示为关闭并置灰, 不修改持久化的 isLowBatteryEnabled
+    /// 防休眠关着或低电量保护关着时显示为关闭并置灰, 不修改持久化的 isLowBatteryEnabled
     /// 保护默认就是关的, 不置灰会让这一行在任何默认安装上都亮着, 而对应通知永远发不出来
     /// "保护是不是真的在起作用"由 KeepAliveController 判定, 这里只读结论
     /// 它同时覆盖了台式机: 那时防休眠面板整行隐藏低电量保护, 而阈值可能是从笔记本迁移过来的非 off 值
@@ -170,6 +171,26 @@ struct NotificationOptionsView: View {
             sound: Binding(
                 get: { notificationSettings.lowBatterySound },
                 set: { notificationSettings.setLowBatterySound($0) }
+            )
+        )
+    }
+
+    /// 防休眠关着或选了无限制时显示为关闭并置灰, 不修改持久化的 isKeepAliveLimitEnabled
+    /// 与低电量那一行同一个做法, "上限会不会到点"由 KeepAliveController 判定, 这里只读结论
+    private var keepAliveLimitRow: some View {
+        let hasLimit = keepAliveController.isMaximumDurationEnabled
+        let isDisplayedOn = hasLimit && notificationSettings.isKeepAliveLimitEnabled
+
+        return notificationOptionRow(
+            title: "防休眠上限通知",
+            isOn: Binding(
+                get: { isDisplayedOn },
+                set: { notificationSettings.setKeepAliveLimitEnabled($0) }
+            ),
+            isEnabled: hasLimit,
+            sound: Binding(
+                get: { notificationSettings.keepAliveLimitSound },
+                set: { notificationSettings.setKeepAliveLimitSound($0) }
             )
         )
     }
@@ -403,7 +424,7 @@ struct NotificationOptionsView: View {
         static let panelWidth: CGFloat = 320
         static let horizontalPadding = SettingsOptionsPanelMetrics.horizontalPadding
         static let verticalPadding = SettingsOptionsPanelMetrics.verticalPadding
-        static let notificationRowCount = 6
+        static let notificationRowCount = 7
         static let standardRowCount = 2
         static let totalRowCount = notificationRowCount + standardRowCount
         static let rowSpacing = SettingsOptionsPanelMetrics.rowSpacing

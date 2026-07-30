@@ -63,6 +63,9 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         keepAliveController.onLowBatteryTriggered = { [weak notificationService] percent in
             await notificationService?.notifyLowBatteryProtection(percent: percent) ?? false
         }
+        keepAliveController.onKeepAliveLimitTriggered = { [weak notificationService] duration in
+            await notificationService?.notifyKeepAliveLimitReached(durationText: duration.title) ?? false
+        }
         activityMonitor.start()
         keepAliveController.start()
         logLaunchState()

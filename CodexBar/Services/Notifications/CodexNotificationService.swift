@@ -404,6 +404,21 @@ final class CodexNotificationService: NSObject {
         )?.value ?? false
     }
 
+    // MARK: - 防休眠时长上限
+
+    /// 由 KeepAliveController 在达到时长上限且休眠恢复成功之后调用
+    /// 调用时机与低电量通知相同, 必须赶在可能补发合盖休眠之前完成提交
+    func notifyKeepAliveLimitReached(durationText: String) async -> Bool {
+        guard settings.canDeliver, settings.isKeepAliveLimitEnabled else {
+            return false
+        }
+
+        return await send(
+            .keepAliveLimit(durationText: durationText),
+            sound: settings.keepAliveLimitSound
+        )?.value ?? false
+    }
+
     // MARK: - 重置次数临期提醒
 
     private func processCreditExpirations(_ snapshot: CodexQuotaSnapshot) {
@@ -690,6 +705,14 @@ nonisolated struct CodexNotificationContent: Equatable {
             kind: "lowBattery",
             title: "已恢复系统休眠",
             body: "电量剩余 \(percent)%, 已停止防休眠"
+        )
+    }
+
+    static func keepAliveLimit(durationText: String) -> CodexNotificationContent {
+        CodexNotificationContent(
+            kind: "keepAliveLimit",
+            title: "已恢复系统休眠",
+            body: "已达防休眠上限 \(durationText), 已停止防休眠"
         )
     }
 }

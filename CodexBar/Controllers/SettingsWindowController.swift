@@ -163,12 +163,16 @@ final class SettingsWindowController: HostingWindowController {
                         )
                     )
                 },
-                // 音效子行随各开关增删, 低电量那一行还跟着防休眠的保护状态置灰
-                // 防休眠只订这一个派生值: 订整个控制器会让任务每起停一次都白重算一次高度
+                // 音效子行随各开关增删, 低电量与上限那两行还跟着各自的依赖置灰
+                // 置灰会连带收起音效子行, 所以两个依赖的派生值都要订上
+                // 防休眠只订这两个派生值: 订整个控制器会让任务每起停一次都白重算一次高度
                 contentChanges: Publishers.MergeMany([
                     notificationSettings.objectWillChange.eraseToAnyPublisher(),
                     codexHookSettings.objectWillChange.eraseToAnyPublisher(),
                     keepAliveController.$isLowBatteryProtectionEnabled
+                        .map { _ in () }
+                        .eraseToAnyPublisher(),
+                    keepAliveController.$isMaximumDurationEnabled
                         .map { _ in () }
                         .eraseToAnyPublisher()
                 ]).eraseToAnyPublisher()

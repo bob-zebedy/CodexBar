@@ -412,7 +412,7 @@ private extension AppSettingsView {
                     get: { keepAliveController.isEnabled },
                     set: { keepAliveController.setEnabled($0) }
                 ),
-                isEnabled: codexHookSettings.isEnabled && !codexHookSettings.isUpdating
+                isEnabled: codexHookSettings.isOperable && !codexHookSettings.isUpdating
             ) {
                 optionsButton(isAvailable: canShowKeepAliveOptions) {
                     onOptionsAction(
@@ -485,6 +485,11 @@ private extension AppSettingsView {
         }
         guard codexHookSettings.isEnabled else {
             return KeepAliveCaption(message: "需要启用 CodexBar Hook")
+        }
+        // 装着但校验不通过时不能说"需要启用", 那句会让用户去开一个已经开着的开关
+        // 具体是全局禁用还是不被信任, 由上面 Hook 那一行的说明给出, 这里只说结果
+        guard codexHookSettings.isVerified else {
+            return KeepAliveCaption(message: "CodexBar Hook 未生效")
         }
         guard keepAliveController.isEnabled else {
             return KeepAliveCaption(message: "当有 Codex 任务运行时防止系统休眠, 任务结束后自动恢复")

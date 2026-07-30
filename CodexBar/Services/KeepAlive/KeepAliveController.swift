@@ -17,9 +17,13 @@ final class KeepAliveController: ObservableObject {
     /// 当前是否因低电量而停止防休眠, 带滞回所以不等于"电量低于阈值"
     /// 会随电量自己翻转, 不需要外部清除, 与 hasReachedMaximumDuration 那种粘滞标志不是一回事
     @Published private(set) var isLowBatteryActive = false
-    /// 低电量保护是不是真的在起作用: 阈值开着且这台机器确实有电池
+    /// 低电量保护是不是真的在起作用: 防休眠本身可用, 阈值开着, 且这台机器确实有电池
     /// 规则收在这里而不是各视图各写一遍: 通知面板要据此置灰那一行, 防休眠面板据此决定显不显示阈值
     @Published private(set) var isLowBatteryProtectionEnabled = false
+    /// 时长上限是不是真的会到点: 防休眠本身可用, 且没选无限制
+    /// 与 isLowBatteryProtectionEnabled 同一个用法, 视图只读结论, 不各自再判一次 unlimited
+    /// 只在跨越边界时发信号, 1 小时改 2 小时不必让通知面板白排一轮高度重算
+    @Published private(set) var isMaximumDurationEnabled = false
 
     /// 低电量是不是当下唯一拦住防休眠的那一项
     /// 由 reconcileSleepState 从 sleepBlockReason 派生, 见那里的说明
@@ -54,6 +58,13 @@ final class KeepAliveController: ObservableObject {
     /// 而 IOPMSleepSystem 就在当前这个 job 里, 机器会先睡下去
     /// 返回值是通知有没有真的发出去, 决定这一轮算不算已通知
     var onLowBatteryTriggered: ((Int) async -> Bool)?
+
+    /// 达到防休眠时长上限且休眠恢复成功之后回调一次
+    /// 时长上限本身是粘滞状态, 每个计时周期天然只会进入一次
+    /// 所以返回值用不上, 也不像低电量那条需要锁存: hasReached 粘滞且此刻已不在防休眠,
+    /// 同一个周期里排不进第二次, 周期边界本身就是重置点
+    /// 提交失败这一条就丢了, 重新 flush 需要再来一次休眠恢复, 而休眠已经恢复完了
+    var onKeepAliveLimitTriggered: ((MaximumDuration) async -> Bool)?
 
     /// 用户开关仍开着, 且 helper 已经真的把休眠关掉
     /// isPreventingSleep 在稳态下已隐含 isEnabled (shouldDisableSleep 要求它)
@@ -95,10 +106,12 @@ final class KeepAliveController: ObservableObject {
     /// 只看是否接电不足以收口: 适配器接触不良时供电状态会反复翻转, 每翻一次都会重发一条
     /// 由电量回到解除门槛以上清除, 也就是电量真的回来了才算下一轮
     private var hasNotifiedLowBattery = false
+    /// 达到时长上限后等待休眠恢复成功再发送, 恢复失败时保留给重试路径
+    private var pendingKeepAliveLimit: MaximumDuration?
     private var cancellables = Set<AnyCancellable>()
     private var isStarted = false
     private var lastLoggedSleepConditions: SleepConditions?
-    /// codexHookSettings.isEnabled 的最新值, 由订阅维护
+    /// codexHookSettings.isOperable 的最新值, 由订阅维护
     /// 不直接读那个属性: 订阅回调跑在 willSet, 那时它还是改动前的值
     private var isHookEnabled: Bool
 
@@ -139,7 +152,7 @@ final class KeepAliveController: ObservableObject {
         self.codexHookSettings = codexHookSettings
         self.defaults = defaults
         durationLimiter = KeepAliveDurationLimiter(defaults: defaults)
-        isHookEnabled = codexHookSettings.isEnabled
+        isHookEnabled = codexHookSettings.isOperable
         isEnabled = defaults.bool(forKey: Self.enabledKey)
         // 默认关闭: 老版本升上来的用户不该多出一条中断任务的路径
         lowBatteryThreshold = (defaults.object(forKey: Self.lowBatteryThresholdKey) as? Int)
@@ -154,12 +167,15 @@ final class KeepAliveController: ObservableObject {
 
         // Hook 是本功能的依赖, 不是用户意图
         // 只重新求值当前该不该防止系统休眠, 绝不改写用户保存的开关
-        // @Published 在 willSet 就发信号, 此刻回读 codexHookSettings.isEnabled 拿到的还是旧值
-        // 因此把新值先存进 isHookEnabled, 判定与日志都只认它
-        codexHookSettings.$isEnabled
+        // 看 isOperable 那两个输入而不是只看 isEnabled: Codex 那边全局关掉 hooks
+        // 或者不信任我们的 handler 时事件送不过来, 任务恒为空, 防休眠也就不该显示成可用
+        // @Published 在 willSet 就发信号, 此刻回读 codexHookSettings.isOperable 会拿到
+        // 正在变的那一项的旧值; CombineLatest 的两个参数都是各自的新值, 所以只认闭包参数
+        Publishers.CombineLatest(codexHookSettings.$isEnabled, codexHookSettings.$isVerified)
+            .map { $0 && $1 }
             .removeDuplicates()
-            .sink { [weak self] isEnabled in
-                self?.isHookEnabled = isEnabled
+            .sink { [weak self] isOperable in
+                self?.isHookEnabled = isOperable
                 self?.reconcileSleepState(trigger: .hookChanged)
             }
             .store(in: &cancellables)
@@ -209,6 +225,7 @@ final class KeepAliveController: ObservableObject {
         powerSourceMonitor.stop()
         assign(false, to: \.isLowBatteryActive)
         clearPendingLowBatteryNotification()
+        pendingKeepAliveLimit = nil
 
         if connection != nil {
             applySleepDisabled(false)
@@ -257,6 +274,8 @@ final class KeepAliveController: ObservableObject {
 
     func setMaximumDuration(_ duration: MaximumDuration) {
         durationLimiter.setDuration(duration)
+        // limiter 只在这一轮累计过时才回调, 所以派生值不能等 reconcileSleepState 来带
+        publishNotificationDependencies()
     }
 
     func setLowBatteryThreshold(_ threshold: LowBatteryThreshold) {
@@ -302,10 +321,9 @@ final class KeepAliveController: ObservableObject {
             assign(reading.hasBattery, to: \.hasBattery)
         }
         // 阈值与 hasBattery 都只在这条路径上变, 派生值跟着一起收在这里
-        assign(
-            hasBattery && lowBatteryThreshold != .off,
-            to: \.isLowBatteryProtectionEnabled
-        )
+        // 走这里而不是等 reconcileSleepState: handlePowerSourceChange 在低电量结论没变时就返回了,
+        // 而 hasBattery 可能在同一次读数里刚变过
+        publishNotificationDependencies()
 
         // 保护关掉了就没有可维持的状态, 这一条要排在读数判断之前
         guard let threshold = lowBatteryThreshold.percent else {
@@ -376,6 +394,29 @@ final class KeepAliveController: ObservableObject {
         // 锁存要等通知真的发出去才打: 打在入队处或提交前, 都会让没送达的那一条吃掉整轮配额
         // 使这一轮之后真正触发的低电量再也提醒不了
         hasNotifiedLowBattery = await onLowBatteryTriggered?(percent) ?? false
+    }
+
+    /// 恢复休眠成功之后按当下的拦截原因发对应的那一条, 顺带把另一条作废
+    /// 作废低电量只写 pendingLowBatteryPercent, 不能改走 clearPendingLowBatteryNotification:
+    /// 那个方法会连 hasNotifiedLowBattery 一起清, 而这一轮低电量还没结束 (电量没回到解除门槛),
+    /// 清了会让下一次跌破阈值重发第二条, 也就是供电状态反复翻转时每翻一次一条
+    private func flushPendingSleepRestoreNotification() async {
+        switch sleepBlockReason {
+        case .lowBattery:
+            pendingKeepAliveLimit = nil
+            await flushPendingLowBatteryNotification()
+        case .limitReached:
+            pendingLowBatteryPercent = nil
+            guard let duration = pendingKeepAliveLimit else {
+                return
+            }
+
+            pendingKeepAliveLimit = nil
+            _ = await onKeepAliveLimitTriggered?(duration)
+        default:
+            pendingLowBatteryPercent = nil
+            pendingKeepAliveLimit = nil
+        }
     }
 
     private func clearPendingLowBatteryNotification() {
@@ -577,6 +618,7 @@ final class KeepAliveController: ObservableObject {
     private func reconcileSleepState(trigger: LogTrigger, force: Bool = false) {
         let blockReason = sleepBlockReason
         let wantsSleepDisabled = blockReason == nil
+        updatePendingKeepAliveLimitNotification(for: blockReason)
         publishDerivedState(blockReason: blockReason)
         logSleepConditionsIfChanged(blockReason: blockReason, trigger: trigger)
 
@@ -596,6 +638,21 @@ final class KeepAliveController: ObservableObject {
         applySleepDisabled(true)
     }
 
+    /// 只有实际防休眠正在生效时达到上限才排队
+    /// 其他原因先解除防休眠时即使累计时长足够, 也不能把恢复动作归因给时长上限
+    private func updatePendingKeepAliveLimitNotification(for blockReason: SleepBlockReason?) {
+        guard blockReason == .limitReached else {
+            pendingKeepAliveLimit = nil
+            return
+        }
+
+        guard pendingKeepAliveLimit == nil, isActivelyPreventingSleep else {
+            return
+        }
+
+        pendingKeepAliveLimit = maximumDuration
+    }
+
     /// UI 关心的两个布尔都从 blockReason 派生, 且只在这里写
     /// 这么做是因为 sleepBlockReason 里的输入 (任务, helper 刷新中) 变化远比结论频繁,
     /// 让它们各自 @Published 会把整个设置页拖着一起重算
@@ -603,6 +660,22 @@ final class KeepAliveController: ObservableObject {
     private func publishDerivedState(blockReason: SleepBlockReason?) {
         assign(blockReason == .lowBattery, to: \.isLowBatteryBlocking)
         assign(Self.allowsOptions(blockReason), to: \.canShowOptions)
+        publishNotificationDependencies()
+    }
+
+    /// 通知面板那两行的置灰依据
+    /// 输入分散在三条路径上 (用户开关与 Hook 走 reconcileSleepState, 电量与阈值走 updateBatteryState,
+    /// 上限走 setMaximumDuration), 所以规则只写这一份, 三处都调它
+    private func publishNotificationDependencies() {
+        let isKeepAliveUsable = isEnabled && isHookEnabled
+        assign(
+            isKeepAliveUsable && hasBattery && lowBatteryThreshold != .off,
+            to: \.isLowBatteryProtectionEnabled
+        )
+        assign(
+            isKeepAliveUsable && maximumDuration != .unlimited,
+            to: \.isMaximumDurationEnabled
+        )
     }
 
     /// 缺依赖时收起入口, 只是没在防休眠 (没任务, 低电量, 已达上限) 时仍然要能改设置
@@ -730,7 +803,7 @@ final class KeepAliveController: ObservableObject {
                     self.durationLimiter.pause()
                     // 通知同样要赶在补发休眠之前发出去, 理由与收表相同
                     // 走到这里 pmset 已经恢复成功, 那句"已恢复系统休眠"才站得住
-                    await self.flushPendingLowBatteryNotification()
+                    await self.flushPendingSleepRestoreNotification()
                     // 上面这一步会挂起, 期间可能已经有新的禁用请求接管
                     // 那时再走恢复会释放掉刚建立的空闲断言, 所以重新认一次代
                     guard generation == self.requestGeneration else {
