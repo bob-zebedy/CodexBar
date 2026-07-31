@@ -72,7 +72,7 @@ final class NotificationSettings: ObservableObject {
         isQuotaResetEnabled = Self.bool(from: defaults, key: Self.quotaResetEnabledKey, defaultValue: true)
         isLongTaskEnabled = Self.bool(from: defaults, key: Self.longTaskEnabledKey, defaultValue: true)
         isTaskWaitingEnabled = Self.bool(from: defaults, key: Self.taskWaitingEnabledKey, defaultValue: true)
-        isTaskHapticEnabled = Self.bool(from: defaults, key: Self.taskHapticEnabledKey, defaultValue: true)
+        isTaskHapticEnabled = Self.bool(from: defaults, key: Self.taskHapticEnabledKey, defaultValue: false)
         isCreditExpiryEnabled = Self.bool(from: defaults, key: Self.creditExpiryEnabledKey, defaultValue: true)
         isLowBatteryEnabled = Self.bool(from: defaults, key: Self.lowBatteryEnabledKey, defaultValue: true)
         isKeepAliveLimitEnabled = Self.bool(from: defaults, key: Self.keepAliveLimitEnabledKey, defaultValue: true)
@@ -273,7 +273,7 @@ final class NotificationSettings: ObservableObject {
         }
 
         current = sound
-        defaults.set(sound.rawValue, forKey: key)
+        defaults.set(sound.id, forKey: key)
     }
 
     private static func bool(from defaults: UserDefaults, key: String, defaultValue: Bool) -> Bool {
@@ -292,9 +292,10 @@ final class NotificationSettings: ObservableObject {
         return value
     }
 
+    /// 存量值可能指向本机没有的声音, 例如换了机器或者用户删掉了自定义音, 这时回落默认音
     private static func sound(from defaults: UserDefaults, key: String) -> NotificationSoundOption {
-        guard let rawValue = defaults.string(forKey: key),
-              let sound = NotificationSoundOption(rawValue: rawValue) else {
+        guard let id = defaults.string(forKey: key),
+              let sound = NotificationSoundOption.option(forID: id) else {
             return .systemDefault
         }
 

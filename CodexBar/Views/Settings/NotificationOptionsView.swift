@@ -280,7 +280,7 @@ struct NotificationOptionsView: View {
         @ViewBuilder accessory: () -> some View
     ) -> some View {
         let showsSoundControls = isEnabled && isOn.wrappedValue
-        let canPreviewSound = sound.wrappedValue != .silent
+        let canPreviewSound = sound.wrappedValue.isPreviewable
 
         return VStack(spacing: 0) {
             HStack(spacing: Metrics.notificationControlSpacing) {
@@ -356,15 +356,11 @@ struct NotificationOptionsView: View {
 
             Divider()
 
-            Menu("经典提示音") {
-                ForEach(NotificationSoundOption.classicSounds) { sound in
-                    soundMenuButton(sound, selection: selection)
-                }
-            }
-
-            Menu("现代提示音") {
-                ForEach(NotificationSoundOption.modernSounds) { sound in
-                    soundMenuButton(sound, selection: selection)
+            ForEach(NotificationSoundOption.categories) { category in
+                Menu(category.title) {
+                    ForEach(category.sounds) { sound in
+                        soundMenuButton(sound, selection: selection)
+                    }
                 }
             }
         } label: {
@@ -399,16 +395,12 @@ struct NotificationOptionsView: View {
     private func playPreview(for sound: NotificationSoundOption) {
         stopPreview()
 
-        switch sound {
-        case .silent:
+        guard sound.isPreviewable else {
             return
-        case .systemDefault:
-            NSSound.beep()
-        default:
-            previewSound = sound.makePreviewSound()
-                ?? NSSound(named: NSSound.Name(sound.title))
-            previewSound?.play()
         }
+
+        previewSound = sound.makePreviewSound()
+        previewSound?.play()
     }
 
     private func stopPreview() {
