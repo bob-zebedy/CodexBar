@@ -14,7 +14,7 @@ final class CodexHookSettings: ObservableObject {
     @Published private(set) var isVerified = true
 
     /// Hook 链路真的通不通: hooks.json 里装着, 且最近一次校验没有明确失败
-    /// 依赖 Hook 的下游 (防休眠, 任务类通知) 一律看这个
+    /// 依赖 Hook 的下游 (防睡眠, 任务类通知) 一律看这个
     /// isEnabled 只说明装了, Codex 那边全局关掉 hooks 或者不信任我们的 handler 时它照样是 true
     var isOperable: Bool {
         isEnabled && isVerified
@@ -168,7 +168,7 @@ final class CodexHookSettings: ObservableObject {
 
     /// @Published 在 willSet 无条件发信号, 而每次 App 激活都会跑一次校验
     /// 同值赋值会让设置页与两个子面板反复空转, 所以走这里
-    /// reason 是排查依据: 用户只会说"防休眠灰了", 那时得能从日志看出是全局禁用还是校验没过
+    /// reason 是排查依据: 用户只会说"防睡眠灰了", 那时得能从日志看出是全局禁用还是校验没过
     /// "验不了"那一支不调这里, 结论保持不变也就不该记一条变化
     private func assignVerified(_ verified: Bool, reason: HookVerificationReason) {
         guard isVerified != verified else {

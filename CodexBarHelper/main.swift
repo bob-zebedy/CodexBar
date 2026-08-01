@@ -41,7 +41,7 @@ private enum SentinelState {
     case present(previouslyDisabled: Bool)
     case unreadable(Error)
 
-    /// 读取失败也必须进入恢复流程: 记录损坏时无法排除「休眠正被我们禁用着」
+    /// 读取失败也必须进入恢复流程: 记录损坏时无法排除「睡眠正被我们禁用着」
     var needsRestore: Bool {
         switch self {
         case .absent:
@@ -151,7 +151,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         }
         helperLog.notice("Helper 已启动: sentinel=\(sentinelName, privacy: .public)")
 
-        // 读取失败也必须进入恢复流程: 记录损坏时无法排除「休眠正被我们禁用着」
+        // 读取失败也必须进入恢复流程: 记录损坏时无法排除「睡眠正被我们禁用着」
         if startupSentinel.needsRestore {
             _ = restoreSleep(trigger: .helperStartup)
         }
@@ -244,7 +244,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         }
     }
 
-    // MARK: - 休眠切换与恢复
+    // MARK: - 睡眠切换与恢复
 
     private func disableSleep() -> Int32 {
         var didCreateSentinel = false
@@ -255,10 +255,10 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
             sentinelValue = previouslyDisabled ? "1" : "0"
         case let .unreadable(error):
             // 不能用当前的 SleepDisabled 覆写损坏的记录: 当前值可能正是我们自己禁用的结果
-            // 那会把「原本允许休眠」错记成「原本已禁用」让后续恢复永久跳过
+            // 那会把「原本允许睡眠」错记成「原本已禁用」让后续恢复永久跳过
             let sentinelPath = sentinelURL.path
             helperLog.error(
-                "休眠哨兵损坏: path=\(sentinelPath, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+                "睡眠哨兵损坏: path=\(sentinelPath, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
             )
             return -1
         case .absent:
@@ -277,7 +277,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
             } catch {
                 let sentinelPath = sentinelURL.path
                 helperLog.error(
-                    "休眠哨兵写入失败: path=\(sentinelPath, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+                    "睡眠哨兵写入失败: path=\(sentinelPath, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
                 )
                 return -1
             }
@@ -289,12 +289,12 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
                 try? FileManager.default.removeItem(at: sentinelURL)
             }
             helperLog.error(
-                "系统休眠关闭失败: exit=\(result.exitCode); detail=\(result.output, privacy: .public)"
+                "系统睡眠关闭失败: exit=\(result.exitCode); detail=\(result.output, privacy: .public)"
             )
             return result.exitCode
         }
 
-        helperLog.notice("系统休眠已关闭: sentinel=\(sentinelValue, privacy: .public)")
+        helperLog.notice("系统睡眠已关闭: sentinel=\(sentinelValue, privacy: .public)")
         return 0
     }
 
@@ -304,15 +304,15 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         switch sentinelState() {
         case .absent:
             // 没接管过就没有要恢复的东西, 这个值只是占位, 不代表系统真实状态
-            // 必须保持 true: App 用它抑制补发合盖休眠, 换成实测值会让从未接管的这一轮把机器按睡
+            // 必须保持 true: App 用它抑制补发合盖睡眠, 换成实测值会让从未接管的这一轮把机器按睡
             return SleepRestoreResult(exitCode: 0, restoredSleepDisabled: true)
         case let .present(value):
             previouslyDisabled = value
         case let .unreadable(error):
-            // 读不出原值时按系统默认的「允许休眠」恢复
+            // 读不出原值时按系统默认的「允许睡眠」恢复
             // 宁可多恢复一次(pmset 幂等), 也不能把 SleepDisabled=1 永久留给用户
             helperLog.error(
-                "休眠哨兵读取失败: trigger=\(trigger.rawValue, privacy: .public); detail=\(error.localizedDescription, privacy: .public); action=forceRestore"
+                "睡眠哨兵读取失败: trigger=\(trigger.rawValue, privacy: .public); detail=\(error.localizedDescription, privacy: .public); action=forceRestore"
             )
             previouslyDisabled = false
         }
@@ -321,7 +321,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
         let result = PmsetRunner.setSleepDisabled(previouslyDisabled)
         guard result.exitCode == 0 else {
             helperLog.error(
-                "系统休眠恢复失败: trigger=\(trigger.rawValue, privacy: .public); sleepDisabled=\(previousValue); exit=\(result.exitCode); detail=\(result.output, privacy: .public)"
+                "系统睡眠恢复失败: trigger=\(trigger.rawValue, privacy: .public); sleepDisabled=\(previousValue); exit=\(result.exitCode); detail=\(result.output, privacy: .public)"
             )
             return SleepRestoreResult(
                 exitCode: result.exitCode,
@@ -331,7 +331,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, Code
 
         try? FileManager.default.removeItem(at: sentinelURL)
         helperLog.notice(
-            "系统休眠已恢复: trigger=\(trigger.rawValue, privacy: .public); sleepDisabled=\(previousValue)"
+            "系统睡眠已恢复: trigger=\(trigger.rawValue, privacy: .public); sleepDisabled=\(previousValue)"
         )
         return SleepRestoreResult(
             exitCode: 0,
@@ -597,9 +597,9 @@ private enum CodexBarHelperError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .insecureSentinelDirectory(detail):
-            "休眠设置目录无效: \(detail)"
+            "睡眠设置目录无效: \(detail)"
         case let .invalidSentinel(detail):
-            "休眠设置记录无效: \(detail)"
+            "睡眠设置记录无效: \(detail)"
         case let .codeSigningValidationFailed(reason):
             "签名校验失败: \(reason)"
         }

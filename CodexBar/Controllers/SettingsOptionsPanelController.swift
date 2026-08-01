@@ -17,8 +17,30 @@ enum SettingsOptionsPanelAction {
     case closeAll
 }
 
+/// 子面板入场时的内容重建信号, 由 makeContentController 接进内容视图, 面板自己不必知道
+/// 原生 Switch 的 thumb 由 WindowPortal 投射, 面板首次布局那一轮建不起来也不会自愈, 只有重建补得上
+/// bump 排在 present 之后, 那时入场动画已经把内容 translation 到可视区外, 重建才看不见
+@MainActor
+final class SidePanelEntryCue: ObservableObject {
+    @Published private(set) var pass = 0
+
+    func bump() {
+        pass += 1
+    }
+}
+
+/// 把重建信号接到内容外面, 于是内容视图不必为这个宿主层的问题多带一个属性
+private struct SidePanelEntryRebuildHost<Content: View>: View {
+    @ObservedObject var cue: SidePanelEntryCue
+    let content: Content
+
+    var body: some View {
+        content.id(cue.pass)
+    }
+}
+
 /// 设置窗口右侧子选项面板的公共装配
-/// 通知与防休眠两个子面板只差内容视图和高度变化的来源, 定位 关闭 高度重算这套脚手架全在这里
+/// 通知与防睡眠两个子面板只差内容视图和高度变化的来源, 定位 关闭 高度重算这套脚手架全在这里
 /// 与重置次数面板不同: 内容是交互控件, 用常驻 hosting controller + ObservableObject 驱动更新, 不替换 rootView
 @MainActor
 final class SettingsOptionsPanelController {
@@ -26,7 +48,8 @@ final class SettingsOptionsPanelController {
     private let initialPanelSize: CGSize
     /// 展开前的准备动作, 例如刷新只在这个面板里露面的设置项
     private let willShow: (() -> Void)?
-    private let contentControllerProvider: () -> NSViewController
+    private let contentControllerProvider: (SidePanelEntryCue) -> NSViewController
+    private let entryCue = SidePanelEntryCue()
 
     private var panel: NSPanel?
     private var hostingController: NSViewController?
@@ -49,7 +72,7 @@ final class SettingsOptionsPanelController {
         animationKey: String,
         initialPanelSize: CGSize,
         willShow: (() -> Void)? = nil,
-        contentControllerProvider: @escaping () -> NSViewController,
+        contentControllerProvider: @escaping (SidePanelEntryCue) -> NSViewController,
         contentChanges: AnyPublisher<Void, Never>
     ) {
         self.animationKey = animationKey
@@ -67,8 +90,14 @@ final class SettingsOptionsPanelController {
     }
 
     /// sizingOptions 必须是 preferredContentSize: 面板的高度重算靠的就是它提交的 fitting size
-    static func makeContentController(_ content: some View) -> NSViewController {
-        let controller = NSHostingController(rootView: content)
+    /// 入场重建也在这里接上, 新增子面板照抄这一句即可, 内容视图不必知道 cue 的存在
+    static func makeContentController(
+        _ content: some View,
+        rebuiltBy cue: SidePanelEntryCue
+    ) -> NSViewController {
+        let controller = NSHostingController(
+            rootView: SidePanelEntryRebuildHost(cue: cue, content: content)
+        )
         controller.sizingOptions = [.preferredContentSize]
         return controller
     }
@@ -135,6 +164,8 @@ final class SettingsOptionsPanelController {
         }
 
         willShow?()
+        // 只有刚构造出来的那一次需要重建, hosting controller 之后常驻, portal 已经建好
+        let needsEntryRebuild = panel == nil
         let panel = ensurePanel()
         // 这里不必先布局: 下面 measuredPanelSize 走的 validFittingSize 第一句就是 layoutSubtreeIfNeeded,
         // 而中间两句只碰设置窗口那棵树, 不会把面板弄脏
@@ -169,6 +200,10 @@ final class SettingsOptionsPanelController {
             isEntryAnimationRunning = false
             scheduleResize()
         }
+        // 排在 present 之后: 入场动画先把内容 translation 到可视区外, 这一次重建落在那段里, 看不见
+        if needsEntryRebuild {
+            entryCue.bump()
+        }
     }
 
     private func ensurePanel() -> NSPanel {
@@ -181,7 +216,7 @@ final class SettingsOptionsPanelController {
             ignoresMouseEvents: false,
             keyable: true
         )
-        let hostingController = contentControllerProvider()
+        let hostingController = contentControllerProvider(entryCue)
         panel.contentViewController = hostingController
         SidePanelSupport.configureLayers(
             hostingView: hostingController.view,

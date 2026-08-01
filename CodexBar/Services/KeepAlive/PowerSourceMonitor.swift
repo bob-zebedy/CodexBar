@@ -40,7 +40,7 @@ nonisolated struct BatteryStatus: Equatable {
     let isOnBattery: Bool
 }
 
-/// 只读系统电源状态并在变化时通知外部, 不知道阈值也不知道防休眠
+/// 只读系统电源状态并在变化时通知外部, 不知道阈值也不知道防睡眠
 /// IOKit 的 C 接口和内存管理约定全部收在这里, 不漏到调用方
 @MainActor
 final class PowerSourceMonitor {
@@ -89,7 +89,7 @@ final class PowerSourceMonitor {
         reading = initialReading
 
         // 装在 source 之前: 注册失败时它已经就位, 与那条路的轮询兜底叠着用
-        // 休眠期间电量可能变化很大, 而系统不一定为此补发电源通知
+        // 睡眠期间电量可能变化很大, 而系统不一定为此补发电源通知
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
@@ -142,7 +142,7 @@ final class PowerSourceMonitor {
     }
 
     /// 注册失败后的兜底轮询
-    /// 只靠唤醒补读不够: 防休眠正在生效的机器按定义就不会睡, 那条通知永远不来
+    /// 只靠唤醒补读不够: 防睡眠正在生效的机器按定义就不会睡, 那条通知永远不来
     private func startPolling() {
         pollTask?.cancel()
         pollTask = Task { @MainActor [weak self] in

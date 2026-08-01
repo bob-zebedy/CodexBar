@@ -64,7 +64,7 @@ final class CodexStatusViewModel: ObservableObject {
         autoRefreshTask = Task { [weak self] in
             self?.refreshIfNeeded(trigger: .launch)
 
-            // 每轮按剩余时间休眠, 手动刷新后倒计时会自然重新对齐
+            // 每轮按剩余时间等待, 手动刷新后倒计时会自然重新对齐
             while !Task.isCancelled {
                 let delay = self?.autoRefreshDelay ?? Self.refreshInterval
                 if await (try? Task.sleep(for: .seconds(delay))) == nil {

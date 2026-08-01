@@ -25,7 +25,7 @@ struct CodexActivityCard: View {
     }
 
     /// 额度数据不可用时卡片整体退到"暂无数据", 徽标属于活动信息, 必须跟着一起收
-    /// 否则会出现"暂无数据"配上防休眠徽标的自相矛盾画面
+    /// 否则会出现"暂无数据"配上防睡眠徽标的自相矛盾画面
     private var showsKeepAliveBadge: Bool {
         keepAliveController.isActivelyPreventingSleep && !showsUnavailableState
     }
@@ -77,12 +77,12 @@ struct CodexActivityCard: View {
             Spacer(minLength: 0)
 
             if showsKeepAliveBadge {
-                // 防休眠只在任务运行期间生效, 所以状态挂在活动卡片上而不是单独占一行
+                // 防睡眠只在任务运行期间生效, 所以状态挂在活动卡片上而不是单独占一行
                 Image(systemName: "cup.and.saucer.fill")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color.teal)
                     .transition(.opacity)
-                    .help("已防止系统休眠")
+                    .help("已防止系统睡眠")
             }
 
             if content.otherTaskCount > 0 {

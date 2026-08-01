@@ -2,8 +2,8 @@ import Combine
 import Foundation
 import os
 
-/// 防休眠的时长上限计时
-/// 累计的是真正挡住休眠的那段时间: begin 起表, pause 收表, 收表之后机器睡着或被低电量拦下都不算
+/// 防睡眠的时长上限计时
+/// 累计的是真正挡住睡眠的那段时间: begin 起表, pause 收表, 收表之后机器睡着或被低电量拦下都不算
 /// 时钟用 SuspendingClock 而不是 Date: 后者受系统时间调整影响, 且系统睡眠期间照走
 /// hasReached 是粘滞标志: 累计只增不减, 到期之后每一秒都还成立
 /// 只有重新开始计时的入口能清除它, 这些清除全部收在 clearReached 里
@@ -15,7 +15,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
     @Published private(set) var duration: Duration
     @Published private(set) var hasReached = false
 
-    /// 状态变化后需要重新求值一次防休眠条件, 参数是这次变化的来源
+    /// 状态变化后需要重新求值一次防睡眠条件, 参数是这次变化的来源
     /// begin pause restart reset 不走这里: 它们的调用方本来就会紧接着求值
     var onStateChanged: ((LogTrigger) -> Void)?
 
@@ -48,7 +48,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
             return
         }
 
-        AppLog.keepAlive.notice("KeepAlive 防休眠时间上限变更: threshold=\(duration.loggedHours)")
+        AppLog.keepAlive.notice("KeepAlive 防睡眠时间上限变更: threshold=\(duration.loggedHours)")
         self.duration = duration
         defaults.set(duration.rawValue, forKey: Self.durationKey)
 
@@ -69,7 +69,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
         onStateChanged?(.settings)
     }
 
-    /// 防休眠真正生效后起表; 已经在走就保持这一段不变
+    /// 防睡眠真正生效后起表; 已经在走就保持这一段不变
     func begin() {
         if runningSince == nil {
             runningSince = .now
@@ -78,7 +78,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
         schedule()
     }
 
-    /// 防休眠解除时收表, 把这一段并进累计值
+    /// 防睡眠解除时收表, 把这一段并进累计值
     /// 收表之后的时间一律不算: 机器睡着, 低电量拦着, helper 断开都不该占用户的上限
     func pause() {
         guard let runningSince else {
@@ -91,7 +91,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
     }
 
     /// 有新任务或等待任务恢复运行时重新计时
-    /// isPreventingSleep 由调用方给出: 还没真正挡住休眠时只清零, 等 begin 起表
+    /// isPreventingSleep 由调用方给出: 还没真正挡住睡眠时只清零, 等 begin 起表
     func restart(isPreventingSleep: Bool) {
         cancelTask()
         accumulated = 0
@@ -121,7 +121,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
         hasReached = false
     }
 
-    /// 这一轮已经挡住休眠的总时长, 含当前还没收表的这一段
+    /// 这一轮已经挡住睡眠的总时长, 含当前还没收表的这一段
     private var elapsed: TimeInterval {
         guard let runningSince else {
             return accumulated

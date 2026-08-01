@@ -153,19 +153,20 @@ final class SettingsWindowController: HostingWindowController {
                 willShow: { [codexCLINotificationSettings] in
                     codexCLINotificationSettings.refresh()
                 },
-                contentControllerProvider: { [notificationSettings, codexHookSettings, codexCLINotificationSettings, keepAliveController] in
+                contentControllerProvider: { [notificationSettings, codexHookSettings, codexCLINotificationSettings, keepAliveController] entryCue in
                     SettingsOptionsPanelController.makeContentController(
                         NotificationOptionsView(
                             notificationSettings: notificationSettings,
                             codexHookSettings: codexHookSettings,
                             codexCLINotificationSettings: codexCLINotificationSettings,
                             keepAliveController: keepAliveController
-                        )
+                        ),
+                        rebuiltBy: entryCue
                     )
                 },
                 // 音效子行随各开关增删, 低电量与上限那两行还跟着各自的依赖置灰
                 // 置灰会连带收起音效子行, 所以两个依赖的派生值都要订上
-                // 防休眠只订这两个派生值: 订整个控制器会让任务每起停一次都白重算一次高度
+                // 防睡眠只订这两个派生值: 订整个控制器会让任务每起停一次都白重算一次高度
                 contentChanges: Publishers.MergeMany([
                     notificationSettings.objectWillChange.eraseToAnyPublisher(),
                     codexHookSettings.objectWillChange.eraseToAnyPublisher(),
@@ -181,12 +182,13 @@ final class SettingsWindowController: HostingWindowController {
             SettingsOptionsPanelController(
                 animationKey: "CodexBar.keepAliveOptionsDrawerTransform",
                 initialPanelSize: KeepAliveOptionsView.initialPanelSize,
-                contentControllerProvider: { [keepAliveController] in
+                contentControllerProvider: { [keepAliveController] entryCue in
                     SettingsOptionsPanelController.makeContentController(
-                        KeepAliveOptionsView(keepAliveController: keepAliveController)
+                        KeepAliveOptionsView(keepAliveController: keepAliveController),
+                        rebuiltBy: entryCue
                     )
                 },
-                // 面板里只有 hasBattery 会增删行, 两个 picker 的取值不改高度
+                // 面板里只有 hasBattery 会增删行, 其余各行的取值不改高度
                 contentChanges: keepAliveController.$hasBattery
                     .map { _ in () }
                     .eraseToAnyPublisher()

@@ -53,7 +53,7 @@ Scripts/appcast.sh  # sign_update 签名并写入 appcast.xml
 Scripts/cleanup.swift --help
 ```
 
-日常调试直接 `open CodexBar.xcodeproj` 用 Xcode 跑 Debug scheme; 注意 Debug 产物用的是 `app.zabrian.codexbar.debug` 这个 bundle ID, 与 Release 安装版可以共存, 排查防休眠问题时要确认自己看的是哪一套 helper
+日常调试直接 `open CodexBar.xcodeproj` 用 Xcode 跑 Debug scheme; 注意 Debug 产物用的是 `app.zabrian.codexbar.debug` 这个 bundle ID, 与 Release 安装版可以共存, 排查防睡眠问题时要确认自己看的是哪一套 helper
 
 `Scripts/build.sh` 会先清空 `build/` 目录, 成功后只留最终产物 `.app` 文件; 凭据推荐用 keychain profile, 先跑一次 `xcrun notarytool store-credentials "codexbar-notary" --apple-id "<Apple ID>" --team-id "<Team ID>"` 存好, 之后构建加上 `--notary-profile codexbar-notary`
 
@@ -111,19 +111,19 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 **链路三: 实时任务, 由 `CodexActivityMonitor` 驱动**
 
-`CodexActivityMonitor` 是菜单栏图标, 活动卡片, 通知, 触觉反馈和防休眠的**唯一任务状态来源**, 由两个 reader 供料
+`CodexActivityMonitor` 是菜单栏图标, 活动卡片, 通知, 触觉反馈和防睡眠的**唯一任务状态来源**, 由两个 reader 供料
 
 - `HookEventTailReader` (actor) 的 bootstrap 覆盖滚动 24 小时并作为单次事务发送, 之后按当日文件 offset 增量 tail
 - `CodexSessionLifecycleReader` (actor) 增量读取 `~/.codex/sessions` 与 `archived_sessions` 下的 rollout JSONL, 只提取 turn 生命周期字段, 不解码会话或工具内容
 
 系统唤醒时 `NSWorkspace.didWakeNotification` 会触发立即 drain 并重置生命周期解析回退
 
-### 防休眠 (KeepAlive) 与 root helper
+### 防睡眠 (KeepAlive) 与 root helper
 
 两套机制叠加, 职责不同
 
-- `SystemSleepService` 用进程内 `IOPMAssertion` 建立 `PreventUserIdleSystemSleep` 断言, 只挡空闲休眠, 不需要提权; 断言名必须是 ASCII, 否则 `pmset -g assertions` 显示不出标识
-- `CodexBarHelper` 是 root LaunchDaemon, 通过 XPC 接受 `setSleepDisabled` 请求, 执行 `/usr/bin/pmset -a disablesleep` 覆盖合盖休眠
+- `SystemSleepService` 用进程内 `IOPMAssertion` 建立 `PreventUserIdleSystemSleep` 断言, 只挡空闲睡眠, 不需要提权; 断言名必须是 ASCII, 否则 `pmset -g assertions` 显示不出标识
+- `CodexBarHelper` 是 root LaunchDaemon, 通过 XPC 接受 `setSleepDisabled` 请求, 执行 `/usr/bin/pmset -a disablesleep` 覆盖合盖睡眠
 
 链路: `KeepAliveController` (MainActor) 订阅 `activityMonitor.$snapshot` 与 `codexHookSettings.$isEnabled` -> `SMAppService.daemon(plistName:)` 注册 -> `NSXPCConnection` -> helper
 
@@ -137,21 +137,24 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - helper 只做一件事; 不要给 root helper 增加网络, 任意命令执行或其他文件访问能力
 - 调用方校验由 XPC 层强制; helper 启动时用 `SecCodeCopySelf` 读自身签名, 拼出形如 `anchor apple generic and certificate leaf[subject.OU] = "<team>" and identifier "<主 App identifier>"` 的 requirement 字符串, 交给 `NSXPCListener.setConnectionCodeSigningRequirement` 生效; 没有逐次连接的 audit token 检查, 改签名或改 bundle ID 会直接连不上
 - 恢复哨兵放在 `/Library/Application Support/CodexBar/<machService>.state` 这个路径, **必须保持 `absent` `present` `unreadable` 三态**, 把读取失败折叠成 nil 会让恢复流程以为无需恢复, 使 `SleepDisabled=1` 永久残留; watchdog 宽限 15 秒, 哨兵自检 60 秒一次
-- 切换失败按 2/4/8...256 秒重试, 列表耗尽 (约 8.5 分钟) 即放弃, 瞬时抖动能自愈, 权限类故障不该无限重试
+- 切换失败按 2/4/8...256 秒重试, 列表耗尽即放弃 (延时累计约 8.5 分钟, 每轮再等一次超时约 10 分钟), 瞬时抖动能自愈, 权限类故障不该无限重试
+- XPC 请求带超时并汇进同一条重试路径; launchd 拉不起 helper 时 `setSleepDisabled` 既不回复也不触发 errorHandler, 没有它界面会显示防睡眠开着而实际没生效, 日志里只剩没有配对回复的 `Helper XPC 请求已发送`
+- 超时取值放在 `CodexBarHelperIPC.requestTimeoutSeconds` 而不是控制器里, 它与 `watchdogGraceSeconds` 是一对: 必须更小, App 先放手 helper 才能靠 watchdog 兜底, 分处两个 module 会让人改了一边不知道另一边
+- 开发期间用 `xcodebuild` 覆盖正在运行的 App bundle 会让 launchd 记的 daemon 与磁盘上的 helper 对不上, helper 从此拉不起来; 重启 App 会由 `helperRegistrationNeedsRefresh` 的指纹比对自愈, 排查时先看这一条
 - helper 回传的 `restoredSleepDisabled` 只有 `.present` 分支是实测值, `.absent` (本轮没接管过) 与 pmset 失败时都是占位的 `true`; App 侧靠 `canTrustRestoreResult` (接管到恢复之间连接未断) 判断可不可信, 这是从未接管的一轮里不误发 `IOPMSleepSystem` 的唯一屏障, 不要把 `.absent` 改成回实测值
 - 低电量保护由 `PowerSourceMonitor` 供数, 它只报事实 (有没有内置电池, 电量, 是否靠电池供电), 不知道阈值; 读数保持 `unavailable` `unreadable` `present` 三态, 把读取失败折叠成"没有电池"会让设置项凭空消失且保护静默失效
 - 见过一次内置电池就记住 `hasSeenBattery`, 之后读到空列表只能返回 `unreadable`; 硬件不会中途消失, 空列表只是 IOKit 重新枚举时的缺口, 当成台式机会当场撤掉保护
 - `hasSeenBattery` 只活在进程内不持久化, 每次启动重新判定; 笔记本启动时撞上枚举缺口会短暂显示成没有电池, 由下一次电源通知自愈, 而持久化会让从笔记本备份恢复的台式机永远多出低电量设置项
-- `IOPSNotificationCreateRunLoopSource` 注册失败时降级成 60 秒轮询并记 `action=poll`; 只靠 `didWakeNotification` 补读不够, 防休眠生效的机器按定义就不会睡, 那条通知永远不来
+- `IOPSNotificationCreateRunLoopSource` 注册失败时降级成 60 秒轮询并记 `action=poll`; 只靠 `didWakeNotification` 补读不够, 防睡眠生效的机器按定义就不会睡, 那条通知永远不来
 - 首次读取在 `start()` 里单独判一次并记 `stage=start` 这条, 不能改走 `refresh()` 那条路: 后者按变化过滤, 而读数初始值就是 `unreadable` 本身, 首读失败会被静默吞掉, 之后只留下一条没有配对失败行的恢复日志
-- 防休眠上限累计的是**真正挡住休眠**的那段时间, `begin` 起表 `pause` 收表, 收表之后机器睡着或被低电量拦下都不占用户的上限
+- 防睡眠上限累计的是**真正挡住睡眠**的那段时间, `begin` 起表 `pause` 收表, 收表之后机器睡着或被低电量拦下都不占用户的上限
 - 上限计时用 `SuspendingClock` 而不是 `Date`, 后者受系统时间调整影响且系统睡眠期间照走; 排计时器的 `Task.sleep` 同样要传 `SuspendingClock`, 否则睡一夜醒来会当场判定到期
-- 低电量是**纯条件**判定, 不设"低过电"的粘滞标志: 电量会回升, 充上电就该自动恢复防休眠; `hasReachedMaximumDuration` 之所以是粘滞标志只因为累计只增不减, 两者不要照抄
+- 低电量是**纯条件**判定, 不设"低过电"的粘滞标志: 电量会回升, 充上电就该自动恢复防睡眠; `hasReachedMaximumDuration` 之所以是粘滞标志只因为累计只增不减, 两者不要照抄
 - 低电量必须同时满足在用电池与电量低于阈值, 只看百分比会让"剩 5% 插上电再跑任务"当场被判低电量; 判定用 `Power Source State`, 不能用 `Is Charging` (接电停充时它也是 false)
-- 电量读不到时维持上一次的判定, 从没读到过就是不触发: 误触发会当场断掉用户任务, 漏触发最坏也有系统强制休眠兜底
-- 已经在低电量保护中时读数失败不清零, 否则一次瞬时失败会绕过滞回, 让防休眠反复开关并重发通知
-- 低电量通知只在 `isActivelyPreventingSleep` 为真时排队, 没挡过就不说"已恢复系统休眠"; 日志无条件记并用 `action=release|none` 区分, 百分比只有那一条能看到
-- 排队的通知要等 helper 恢复休眠的 XPC 回复确认成功才发得出去, 恢复失败走重试直至放弃, 提前说"已恢复系统休眠"会把用户骗去合盖然后把电耗干
+- 电量读不到时维持上一次的判定, 从没读到过就是不触发: 误触发会当场断掉用户任务, 漏触发最坏也有系统强制睡眠兜底
+- 已经在低电量保护中时读数失败不清零, 否则一次瞬时失败会绕过滞回, 让防睡眠反复开关并重发通知
+- 低电量通知只在 `isActivelyPreventingSleep` 为真时排队, 没挡过就不说"已恢复系统睡眠"; 日志无条件记并用 `action=release|none` 区分, 百分比只有那一条能看到
+- 排队的通知要等 helper 恢复睡眠的 XPC 回复确认成功才发得出去, 恢复失败走重试直至放弃, 提前说"已恢复系统睡眠"会把用户骗去合盖然后把电耗干
 - 补发 `IOPMSleepSystem` 之前还要 `await` 到通知真的提交完成, 只把提交排进下一个 MainActor job 的话同一个 job 里的补发会抢在它前面
 - 那次 `await` 之后要重认一次 `generation` 再走 `finishSleepRestore` 这一步, 挂起期间可能已有新的禁用请求接管, 否则会释放掉刚建立的空闲断言
 - 设置页那句低电量说明看 `isLowBatteryBlocking` 而不是 `isLowBatteryActive`, 后者在没有任务时也成立, 那时无话可说
@@ -162,8 +165,12 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `SleepConditions` 里只放 `battery` 布尔, 放电量百分比会让每掉 1% 刷一条变化日志; 真实电量只在触发那一条单独记
 - 状态只呈现在主面板活动卡片右侧的咖啡杯标记 (带 tooltip), 由 `KeepAliveController.isActivelyPreventingSleep` 驱动, 卡片折叠成"暂无数据"时标记要跟着一起收
 - 设置页那一行说明只在异常, 低电量生效或达到上限时出现, 正常运行时整行收起, `keepAliveCaption` 返回 nil 即代表收起
-- 最长防休眠时间与低电量阈值都在防休眠子面板里, 台式机读不到电池时低电量那一行整行隐藏而不是置灰
-- **菜单栏图标不承载防休眠状态**, 它要保持模板渲染让系统按菜单栏外观着色, 自行着色在深浅和带染色的菜单栏下都会失控
+- 最长防睡眠时间与低电量阈值都在防睡眠子面板里, 台式机读不到电池时低电量那一行整行隐藏而不是置灰
+- 保持屏幕常亮跟 `isActivelyPreventingSleep` 走, 由 `reconcileDisplayAwake` 单点切换, 于是低电量拦下, 达到上限, 任务结束时屏幕都跟着放开
+- 显示断言只保证屏幕不睡, 屏保与闲置锁屏跟的是系统 idle 计时, 要靠 30 秒一次的 `IOPMAssertionDeclareUserActivity` 压住, 两者缺一不可
+- 声明用户活动复用同一个 assertion ID, 每次传 null 会新建一条, `pmset -g assertions` 里会堆成一串同名断言
+- 逐次声明不记日志, 建立与释放各一条就够还原状态; 两条断言都是进程级的, App 退出或崩溃时系统自动收回, 不经过 helper
+- **菜单栏图标不承载防睡眠状态**, 它要保持模板渲染让系统按菜单栏外观着色, 自行着色在深浅和带染色的菜单栏下都会失控
 
 ### 通知
 
@@ -171,10 +178,10 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `send` 是唯一的提交入口, 返回一个 `Task<Bool, Never>?` 值, 需要等通知真的发出去再做下一步的调用方 `await` 它的 `value` 即可; 不要另开一条 async 通道, 那会悄悄少掉去重 时效判定与提交失败回调三项能力
 - 去重判定留在 `send` 的同步段而不是挪进 `Task` 内部, 这样连续两次调用的第二次一定被挡下, 不依赖任务调度顺序
 - `NotificationSettings` 管 CodexBar 自身通知; `CodexCLINotificationSettings` 是另一回事, 它通过 app-server `config/read` 与 `config/batchWrite` 读写 Codex 自己的用户级 `config.toml`
-- 通知面板里带依赖的行一律显示为关闭并置灰而不是隐藏, 任务类看 `codexHookSettings.isOperable`, 低电量保护通知看 `KeepAliveController.isLowBatteryProtectionEnabled` (防休眠可用, 阈值开着, 且这台机器确实有电池), 防休眠上限通知看 `KeepAliveController.isMaximumDurationEnabled` (防休眠可用且不是无限制); 都不回写用户保存的开关
-- 两条防休眠通知的依赖里都含"防休眠可用"这一层, 即防休眠开关与 Hook 都开着, 判定收在 `publishNotificationDependencies` 一处; 只判各自的子设置会让防休眠关着时这两行还亮着
+- 通知面板里带依赖的行一律显示为关闭并置灰而不是隐藏, 任务类看 `codexHookSettings.isOperable`, 低电量保护通知看 `KeepAliveController.isLowBatteryProtectionEnabled` (防睡眠可用, 阈值开着, 且这台机器确实有电池), 防睡眠上限通知看 `KeepAliveController.isMaximumDurationEnabled` (防睡眠可用且不是无限制); 都不回写用户保存的开关
+- 两条防睡眠通知的依赖里都含"防睡眠可用"这一层, 即防睡眠开关与 Hook 都开着, 判定收在 `publishNotificationDependencies` 一处; 只判各自的子设置会让防睡眠关着时这两行还亮着
 - 带依赖的行由 `KeepAliveController` 判定并派生成一个值, 视图只读结论, 不在各视图各写一遍 `!= .unlimited` 这类规则
-- 防休眠上限通知与低电量通知共用同一个发送时机; 达到上限是粘滞状态, 一个计时周期只发一次, 不需要低电量那种本轮已通知的锁存
+- 防睡眠上限通知与低电量通知共用同一个发送时机; 达到上限是粘滞状态, 一个计时周期只发一次, 不需要低电量那种本轮已通知的锁存
 
 ### 并发与隔离
 
@@ -200,8 +207,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 文案骨架是 `<主体><动作>: 字段=值; 字段=值`, 标题只说发生了什么, 理由进 `reason=`, 处置进 `action=`; 起止用 `开始` `完成` `失败`, 中间状态用 `已<动作>`
 - 字段顺序固定为 标识 (`trigger` `generation` `date`) 输入 结果 `elapsed` `reason`/`detail`; 公共字段有 `trigger` `result` `reason` `action` `detail` `code` (系统返回码) `exit` (进程退出码) `elapsed`, 其中 `code` 与 `exit` 必须分开, 不要用一个 `error=` 同时装 OSStatus IOReturn 和退出码
 - 文案只描述事实, 不写"用户做了什么"这类主语, 也不写推论; 字段值要可 grep, 用枚举 rawValue 而不是中文句子, App 与 helper 两侧保持同一套格式
-- 词根固定, 一个词能 grep 出整条链路: 额度, 统计刷新 (调度层), 事件汇总 (计算层), 同步, KeepAlive (防休眠决策层), 空闲断言 (进程内 `IOPMAssertion`), Helper 注册 (`SMAppService`), Helper XPC (`NSXPCConnection`), 系统休眠 (helper 的 pmset 效果), 电源监听 (`PowerSourceMonitor`), 任务, Hook, codex, 通知
-- 防休眠日志按两套机制分组: `KeepAlive` 是两套共用的决策层, `空闲断言` 是机制一, `Helper 注册` `Helper XPC` `系统休眠` 是机制二的授权 传输 效果三层, 故障定位就是在这几层里找
+- 词根固定, 一个词能 grep 出整条链路: 额度, 统计刷新 (调度层), 事件汇总 (计算层), 同步, KeepAlive (防睡眠决策层), 空闲断言 (进程内 `IOPMAssertion`), 显示断言 (屏幕常亮那条 `IOPMAssertion`), Helper 注册 (`SMAppService`), Helper XPC (`NSXPCConnection`), 系统睡眠 (helper 的 pmset 效果), 电源监听 (`PowerSourceMonitor`), 任务, Hook, codex, 通知
+- 防睡眠日志按两套机制分组: `KeepAlive` 是两套共用的决策层, `空闲断言` 与 `显示断言` 是机制一, `Helper 注册` `Helper XPC` `系统睡眠` 是机制二的授权 传输 效果三层, 故障定位就是在这几层里找
 - `trigger=` 由 `LogTrigger` 提供, 从 UI 入口透传到服务层, 用来区分同一条链路是被用户动作 定时轮询还是系统事件踢起来的; 统计维护挂在额度刷新完成事件上, 它的 trigger 继承那一次刷新
 - 变化检测类日志只在值真的变了才记, 例如 `KeepAlive 条件已变化` 与 `Hook 配置已变化` 各自存一份上次的值, 否则每次开面板都会刷一条
 - 设置项的变更日志照抄设置页那一行的标题, 例如 `菜单栏额度指示变更` `开机自动启动变更`, 用户说"我改了那个开关"时能直接对上; 只有本身带完整链路的才用链路词根, 例如 Hook 同步 通知 KeepAlive 快捷键
@@ -217,21 +224,24 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 菜单栏按钮左键切换主面板; 右键或 Control+点击打开上下文菜单; `⌘,` 打开自定义设置窗口, 菜单面板打开时 `⌘L` 打开日志窗口; 默认全局快捷键 `⌘⇧W` 由 `GlobalHotKeySettings` 与 `GlobalHotKeyController` 管理
 - 主面板是锚定 status item 的 `NSPopover` 弹窗, 锚点不可信时回退到 `FallbackPanelController` 提供的屏幕顶部居中 `NSPanel` 面板, 处理快捷键, 屏幕选择和焦点时要保留这两个分支
 - 关闭逻辑统一由 `MenuSurfaceDismissMonitor` 管理, 淡出由 `MenuSurfaceFadeCoordinator` 负责
-- 侧边面板都是 borderless nonactivating child panel, 热力图详情, 重置次数和任务中心挂在主面板上, 通知选项和防休眠选项挂在设置窗口上
+- 侧边面板都是 borderless nonactivating child panel, 热力图详情, 重置次数和任务中心挂在主面板上, 通知选项和防睡眠选项挂在设置窗口上
 - 设置窗口的子面板占同一位置, 展开一个必须先 `hide(immediate: true)` 收掉其余的; 动作走 `SettingsOptionsPanelAction` 并带上目标 `SettingsOptionsPanel`, 互斥与 `closeAll` 都只写在 `SettingsWindowController.handleOptionsAction` 一处, 加第三个面板不会漏配对
 - 面板控制器只在首次展开时构造, 收起动作走 `existingOptionsPanelController` 而不触发构造: 它一建就挂上内容变化订阅并常驻到 App 结束, 而用户可能一次子面板都没开过
 - 两个子面板的顶边对齐各自主开关行, anchor 由设置页的 `ScreenFrameProvider` 随展开动作传出, 定位走 `SidePanelSupport.anchoredPosition` 而不是宿主底边
 - 设置窗口的子面板要传 `clampsToSurfaceBottom: false` 让底边可以探出窗口, 否则放不下时会把整个面板上推而错开主开关行; 主面板那三个面板走默认的 true
-- 两个子面板的高度都会变, 通知面板随音效行增删, 防休眠面板随 `hasBattery` 增删低电量那一行; resize 时要固定顶边向下生长, 直接改 size 会保持底边不动而把顶边顶离主开关行
-- 高度重算只订阅真正会改变行数的那几项, 通知面板订 `notificationSettings` 与 `codexHookSettings` 的 `objectWillChange` 再加 `KeepAliveController.$isLowBatteryProtectionEnabled` 与 `$isMaximumDurationEnabled` 两条, 防休眠面板只订 `$hasBattery` 一条; 订整个防休眠控制器会让任务每起停一次都白排一轮 resize
+- 两个子面板的高度都会变, 通知面板随音效行增删, 防睡眠面板随 `hasBattery` 增删低电量那一行; resize 时要固定顶边向下生长, 直接改 size 会保持底边不动而把顶边顶离主开关行
+- 高度重算只订阅真正会改变行数的那几项, 通知面板订 `notificationSettings` 与 `codexHookSettings` 的 `objectWillChange` 再加 `KeepAliveController.$isLowBatteryProtectionEnabled` 与 `$isMaximumDurationEnabled` 两条, 防睡眠面板只订 `$hasBattery` 一条; 订整个防睡眠控制器会让任务每起停一次都白排一轮 resize
 - 置灰也会改高度: 带音效的行置灰时音效子行跟着收起, 所以每个置灰依赖都要有一个对应的订阅源
 - 增删行或改行的显示条件时要同步补上对应的订阅源, 漏一项会让面板裁掉底部或留下空白
 - resize 的竖向夹紧走 `SidePanelSupport.clampedVertically`, 与初次展开的 `position` 同一条规则, 否则放不下时两边会把面板推向相反的边
-- 子面板入口只在开关开着且依赖就绪时出现, 通知看 `NotificationSettings.canShowOptions` 那个值, 防休眠看 `KeepAliveController.canShowOptions` 这个值; 两者都只控制入口显隐, 不回写用户保存的开关
+- 子面板入口只在开关开着且依赖就绪时出现, 通知看 `NotificationSettings.canShowOptions` 那个值, 防睡眠看 `KeepAliveController.canShowOptions` 这个值; 两者都只控制入口显隐, 不回写用户保存的开关
 - 两个子面板都只由滑杆按钮展开, 动作只有 toggle 与 close 两种, 开启主开关不自动弹出
 - 侧边面板公共能力集中在 `Controllers/SidePanelSupport.swift` 里, 含 `SidePanelDrawerPresenter` `SidePanelContentHost` `SidePanelDrawerAnimator` panel 工厂和定位夹紧; 挂在主面板上的那三个面板优先复用 `SidePanelDrawerPresenter` 这一层, 不要另起一套
 - 设置窗口的子面板直接复用 `Controllers/SettingsOptionsPanelController.swift`, 它在 presenter 之上补齐了装配, 两套关闭观察者, 顶边对齐定位和高度重算; 新增设置子面板只要给它内容工厂与内容变化来源, 不要再写一层壳
 - 两个设置子面板的行高与间距从 `SettingsOptionsPanelMetrics` 取, 下拉控件共用 `SettingsOptionsPicker` 这一个, 只有面板宽度和 picker 宽度各自定义, 这样两个面板看起来才是同一套控件
+- 设置子面板的内容工厂必须走 `SettingsOptionsPanelController.makeContentController(_:rebuiltBy:)`, 否则首次展开时原生 Switch 只剩一条空轨道; 重建信号由它接在内容外面, 内容视图不必知道 `SidePanelEntryCue`
+- 原因是 thumb 由 `WindowPortal` 投射而不是画在开关上, 面板首次布局那一轮 portal 建不起来, 而且不会自愈, 只有一次内容重建才补得上; 第二次展开正常是因为 hosting controller 常驻, 复用了已经建好的那份
+- 不要再用 `@_optimize(none)` 规避这个漏绘: 它当年在通知子面板管用只是因为逼着 body 重算时判定那些行变过, 与优化等级无关, 换个写法就失效; `SidePanelSupport` 里剩下那一处标注规避的是编译器崩溃, 与此无关
 - 主面板任务中心的显隐由 `MainPanelSettings.showsTaskCenter` 与 `codexHookSettings.isEnabled` 共同决定, Hook 未开启时设置页那一行显示为关闭并置灰, 不回写用户保存的开关值
 - 设置窗口 (通用/高级/关于三页) 和日志窗口复用 `HostingWindowController` 的行为, 可以成为 key window, 但不应成为 main window
 - 视觉风格统一走 `Views/Shared/LiquidGlassStyle.swift` 这一套, 避免引入与系统菜单栏工具不一致的重装饰 UI
@@ -246,7 +256,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `isEnabled` 只表示 `hooks.json` 里装着, `isVerified` 是最近一次校验的明确结论, 两者与出来的 `isOperable` 才是"事件真的送得过来"; 依赖 Hook 的下游一律看 `isOperable`
 - `isVerified` 乐观默认为 true 且只由明确结论写入两个方向: 校验只在设置窗口打开与 App 激活时跑, 而 RPC 失败属于"验不了"不是"确认不通", 那时置灰会把好用的功能关掉
 - 全局禁用要排在 `hooks/list` 之前判: 它一关列表里必然找不到我们的 handler, 那时报"已不完整"会把用户引去翻本来就完好的 `hooks.json`
-- 校验不通过时防休眠那一行的说明写"CodexBar Hook 未生效"而不是"需要启用 CodexBar Hook", 后者会让用户去开一个已经开着的开关; 具体病因由 Hook 那一行自己的说明给出
+- 校验不通过时防睡眠那一行的说明写"CodexBar Hook 未生效"而不是"需要启用 CodexBar Hook", 后者会让用户去开一个已经开着的开关; 具体病因由 Hook 那一行自己的说明给出
 
 ## 隐私与数据边界
 
@@ -266,5 +276,5 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - **任何兼容性问题都必须主动询问用户, 不要自行决定**; 只要改动会影响新旧共存就适用, 不限于旧数据迁移或丢弃, 持久化 key 改名或改结构, 老版本升上来的降级路径, 最低系统版本与 API 可用性取舍, 云端记录格式变更; 先说清影响面和几种做法的代价, 等用户选定再动手
 - 处理窗口, 菜单, 快捷键, App 激活或事件监听时, 特别注意 `LSUIElement` 应用特有的焦点行为
 - 注释保持克制, 只解释非显然的生命周期, 焦点, actor 或系统 API 约束; 现有注释多为解释为什么的类型, 沿用同样风格
-- 改动涉及菜单面板, 窗口焦点, Hook, 同步, 通知或防休眠时, 构建通过之外还要说明应手动覆盖的交互场景; 防休眠额外要验证 App 包内 helper 与 plist 位置, 签名, 首次系统授权, 运行/等待切换和异常退出后的恢复
+- 改动涉及菜单面板, 窗口焦点, Hook, 同步, 通知或防睡眠时, 构建通过之外还要说明应手动覆盖的交互场景; 防睡眠额外要验证 App 包内 helper 与 plist 位置, 签名, 首次系统授权, 运行/等待切换和异常退出后的恢复
 - 不要把发布产物, DerivedData, 临时 DMG, 签名文件或个人凭据提交进仓库

@@ -88,7 +88,7 @@ final class CodexNotificationService: NSObject {
         }
         .store(in: &cancellables)
 
-        // 休眠可能错过重置次数的临期检查, 唤醒时补检
+        // 睡眠可能错过重置次数的临期检查, 唤醒时补检
         NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.didWakeNotification)
             .receive(on: DispatchQueue.main)
@@ -389,9 +389,9 @@ final class CodexNotificationService: NSObject {
 
     // MARK: - 低电量保护
 
-    /// 由 KeepAliveController 在低电量导致休眠恢复成功之后调用, 恢复失败不会走到这里
+    /// 由 KeepAliveController 在低电量导致睡眠恢复成功之后调用, 恢复失败不会走到这里
     /// 不做去重: 调用方自己保证同一轮低电量只发一次, 电量回到解除门槛以上才算下一轮
-    /// async 是为了让调用方能等提交完再补发休眠, 否则合着盖的机器会先睡下去
+    /// async 是为了让调用方能等提交完再补发睡眠, 否则合着盖的机器会先睡下去
     /// 返回是否真的发出去了: 调用方据此决定这一轮算不算已通知, 提交失败就不该占掉这一轮
     func notifyLowBatteryProtection(percent: Int) async -> Bool {
         guard settings.canDeliver, settings.isLowBatteryEnabled else {
@@ -404,10 +404,10 @@ final class CodexNotificationService: NSObject {
         )?.value ?? false
     }
 
-    // MARK: - 防休眠时长上限
+    // MARK: - 防睡眠时长上限
 
-    /// 由 KeepAliveController 在达到时长上限且休眠恢复成功之后调用
-    /// 调用时机与低电量通知相同, 必须赶在可能补发合盖休眠之前完成提交
+    /// 由 KeepAliveController 在达到时长上限且睡眠恢复成功之后调用
+    /// 调用时机与低电量通知相同, 必须赶在可能补发合盖睡眠之前完成提交
     func notifyKeepAliveLimitReached(durationText: String) async -> Bool {
         guard settings.canDeliver, settings.isKeepAliveLimitEnabled else {
             return false
@@ -703,16 +703,16 @@ nonisolated struct CodexNotificationContent: Equatable {
     static func lowBattery(percent: Int) -> CodexNotificationContent {
         CodexNotificationContent(
             kind: "lowBattery",
-            title: "已恢复系统休眠",
-            body: "电量剩余 \(percent)%, 已停止防休眠"
+            title: "已恢复系统睡眠",
+            body: "电量剩余 \(percent)%, 已停止防睡眠"
         )
     }
 
     static func keepAliveLimit(durationText: String) -> CodexNotificationContent {
         CodexNotificationContent(
             kind: "keepAliveLimit",
-            title: "已恢复系统休眠",
-            body: "已达防休眠上限 \(durationText), 已停止防休眠"
+            title: "已恢复系统睡眠",
+            body: "已达防睡眠上限 \(durationText), 已停止防睡眠"
         )
     }
 }

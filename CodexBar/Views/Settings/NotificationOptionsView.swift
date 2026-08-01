@@ -34,7 +34,7 @@ struct NotificationOptionsView: View {
             width: Metrics.panelWidth,
             height: Metrics.verticalPadding * 2
                 + Metrics.notificationRowHeight * CGFloat(Metrics.notificationRowCount)
-                + Metrics.rowHeight * CGFloat(Metrics.standardRowCount)
+                + Metrics.captionedRowHeight * CGFloat(Metrics.captionedRowCount)
                 + Metrics.rowSpacing * CGFloat(Metrics.totalRowCount - 1)
         )
     }
@@ -129,14 +129,18 @@ struct NotificationOptionsView: View {
     private var taskHapticRow: some View {
         let isDisplayedOn = codexHookSettings.isOperable && notificationSettings.isTaskHapticEnabled
 
-        return optionRow(
-            title: "任务触觉反馈",
-            isOn: Binding(
-                get: { isDisplayedOn },
-                set: { notificationSettings.setTaskHapticEnabled($0) }
-            ),
-            isEnabled: codexHookSettings.isOperable
-        )
+        return VStack(spacing: 0) {
+            optionRow(
+                title: "任务触觉反馈",
+                isOn: Binding(
+                    get: { isDisplayedOn },
+                    set: { notificationSettings.setTaskHapticEnabled($0) }
+                ),
+                isEnabled: codexHookSettings.isOperable
+            )
+
+            captionRow("任务完成或等待批准时触发触摸板震动")
+        }
     }
 
     private var creditExpiryRow: some View {
@@ -153,10 +157,10 @@ struct NotificationOptionsView: View {
         )
     }
 
-    /// 防休眠关着或低电量保护关着时显示为关闭并置灰, 不修改持久化的 isLowBatteryEnabled
+    /// 防睡眠关着或低电量保护关着时显示为关闭并置灰, 不修改持久化的 isLowBatteryEnabled
     /// 保护默认就是关的, 不置灰会让这一行在任何默认安装上都亮着, 而对应通知永远发不出来
     /// "保护是不是真的在起作用"由 KeepAliveController 判定, 这里只读结论
-    /// 它同时覆盖了台式机: 那时防休眠面板整行隐藏低电量保护, 而阈值可能是从笔记本迁移过来的非 off 值
+    /// 它同时覆盖了台式机: 那时防睡眠面板整行隐藏低电量保护, 而阈值可能是从笔记本迁移过来的非 off 值
     private var lowBatteryRow: some View {
         let isProtectionOn = keepAliveController.isLowBatteryProtectionEnabled
         let isDisplayedOn = isProtectionOn && notificationSettings.isLowBatteryEnabled
@@ -175,14 +179,14 @@ struct NotificationOptionsView: View {
         )
     }
 
-    /// 防休眠关着或选了无限制时显示为关闭并置灰, 不修改持久化的 isKeepAliveLimitEnabled
+    /// 防睡眠关着或选了无限制时显示为关闭并置灰, 不修改持久化的 isKeepAliveLimitEnabled
     /// 与低电量那一行同一个做法, "上限会不会到点"由 KeepAliveController 判定, 这里只读结论
     private var keepAliveLimitRow: some View {
         let hasLimit = keepAliveController.isMaximumDurationEnabled
         let isDisplayedOn = hasLimit && notificationSettings.isKeepAliveLimitEnabled
 
         return notificationOptionRow(
-            title: "防休眠上限通知",
+            title: "防睡眠上限通知",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { notificationSettings.setKeepAliveLimitEnabled($0) }
@@ -196,24 +200,28 @@ struct NotificationOptionsView: View {
     }
 
     private var codexCLINotificationRow: some View {
-        optionRow(
-            title: "Codex TUI 通知",
-            isOn: Binding(
-                get: { codexCLINotificationSettings.isEnabled },
-                set: { codexCLINotificationSettings.setEnabled($0) }
-            ),
-            isEnabled: !codexCLINotificationSettings.isUpdating
-        ) {
-            if codexCLINotificationSettings.isUpdating {
-                ProgressView()
-                    .controlSize(.mini)
-                    .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
-            } else if let errorMessage = codexCLINotificationSettings.errorMessage {
-                Image(systemName: "exclamationmark.circle")
-                    .foregroundStyle(.orange)
-                    .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
-                    .help(errorMessage)
+        VStack(spacing: 0) {
+            optionRow(
+                title: "Codex TUI 通知",
+                isOn: Binding(
+                    get: { codexCLINotificationSettings.isEnabled },
+                    set: { codexCLINotificationSettings.setEnabled($0) }
+                ),
+                isEnabled: !codexCLINotificationSettings.isUpdating
+            ) {
+                if codexCLINotificationSettings.isUpdating {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
+                } else if let errorMessage = codexCLINotificationSettings.errorMessage {
+                    Image(systemName: "exclamationmark.circle")
+                        .foregroundStyle(.orange)
+                        .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
+                        .help(errorMessage)
+                }
             }
+
+            captionRow("Codex TUI 通知, 独立于 CodexBar 通知")
         }
     }
 
@@ -229,8 +237,6 @@ struct NotificationOptionsView: View {
         }
     }
 
-    /// Swift 6.3.3 在 -O 下会让这两个行构建器中的原生 mini Switch 漏绘 thumb
-    @_optimize(none)
     private func optionRow(
         title: String,
         isOn: Binding<Bool>,
@@ -255,6 +261,17 @@ struct NotificationOptionsView: View {
         .frame(height: Metrics.rowHeight)
     }
 
+    private func captionRow(_ caption: String) -> some View {
+        HStack(spacing: 0) {
+            Text(caption)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+
+            Spacer(minLength: 0)
+        }
+        .frame(height: Metrics.secondaryRowHeight)
+    }
+
     private func notificationOptionRow(
         title: String,
         isOn: Binding<Bool>,
@@ -271,7 +288,6 @@ struct NotificationOptionsView: View {
         }
     }
 
-    @_optimize(none)
     private func notificationOptionRow(
         title: String,
         isOn: Binding<Bool>,
@@ -417,12 +433,14 @@ struct NotificationOptionsView: View {
         static let horizontalPadding = SettingsOptionsPanelMetrics.horizontalPadding
         static let verticalPadding = SettingsOptionsPanelMetrics.verticalPadding
         static let notificationRowCount = 7
-        static let standardRowCount = 2
-        static let totalRowCount = notificationRowCount + standardRowCount
+        static let captionedRowCount = 2
+        static let totalRowCount = notificationRowCount + captionedRowCount
         static let rowSpacing = SettingsOptionsPanelMetrics.rowSpacing
         static let rowHeight = SettingsOptionsPanelMetrics.rowHeight
-        static let soundRowHeight = SettingsOptionsPanelMetrics.secondaryRowHeight
+        static let secondaryRowHeight = SettingsOptionsPanelMetrics.secondaryRowHeight
+        static let soundRowHeight = secondaryRowHeight
         static let notificationRowHeight = rowHeight + soundRowHeight
+        static let captionedRowHeight = rowHeight + secondaryRowHeight
         static let notificationControlSpacing = SettingsOptionsPanelMetrics.controlSpacing
         static let pickerWidth: CGFloat = 68
         static let soundMenuWidth: CGFloat = 160

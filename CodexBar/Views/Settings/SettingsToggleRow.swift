@@ -13,7 +13,7 @@ enum SettingsOptionsPanelMetrics {
     static let verticalPadding: CGFloat = 10
     static let rowSpacing: CGFloat = 5
     static let rowHeight: CGFloat = 22
-    /// 第二行的高度, 通知面板用于音效子行, 防休眠面板用于固定说明
+    /// 第二行的高度, 通知面板用于音效子行, 防睡眠面板用于固定说明
     static let secondaryRowHeight: CGFloat = 18
     static let controlSpacing: CGFloat = 6
     static let cornerRadius: CGFloat = 12

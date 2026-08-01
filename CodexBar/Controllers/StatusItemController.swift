@@ -89,13 +89,15 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         let keepAlive = keepAliveController.isEnabled ? 1 : 0
         let keepAliveLimit = keepAliveController.maximumDuration.loggedHours
         let keepAliveBattery = keepAliveController.lowBatteryThreshold.rawValue
+        let keepAliveWaiting = keepAliveController.keepsAwakeWhileWaiting ? 1 : 0
+        let keepAliveDisplay = keepAliveController.keepsDisplayAwake ? 1 : 0
         let sync = syncSettings.isEnabled ? 1 : 0
         let notification = notificationSettings.isEnabled ? 1 : 0
         let menuBarQuota = menuBarQuotaSettings.selection.rawValue
         let taskCenter = mainPanelSettings.showsTaskCenter ? 1 : 0
         let hotKey = globalHotKeySettings.shortcut == nil ? 0 : 1
         AppLog.app.notice(
-            "App 已启动: version=\(version, privacy: .public); build=\(build, privacy: .public); hook=\(hook); keepAlive=\(keepAlive); keepAliveLimit=\(keepAliveLimit); keepAliveBattery=\(keepAliveBattery); sync=\(sync); notification=\(notification); menuBarQuota=\(menuBarQuota, privacy: .public); taskCenter=\(taskCenter); hotKey=\(hotKey)"
+            "App 已启动: version=\(version, privacy: .public); build=\(build, privacy: .public); hook=\(hook); keepAlive=\(keepAlive); keepAliveLimit=\(keepAliveLimit); keepAliveBattery=\(keepAliveBattery); keepAliveWaiting=\(keepAliveWaiting); keepAliveDisplay=\(keepAliveDisplay); sync=\(sync); notification=\(notification); menuBarQuota=\(menuBarQuota, privacy: .public); taskCenter=\(taskCenter); hotKey=\(hotKey)"
         )
     }
 

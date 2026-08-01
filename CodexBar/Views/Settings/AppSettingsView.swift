@@ -399,7 +399,7 @@ private extension AppSettingsView {
         }
     }
 
-    // MARK: - 防休眠
+    // MARK: - 防睡眠
 
     var keepAliveRow: some View {
         let caption = keepAliveCaption
@@ -407,7 +407,7 @@ private extension AppSettingsView {
         return VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
                 icon: "moon.zzz",
-                title: "防止系统休眠",
+                title: "防止系统睡眠",
                 isOn: Binding(
                     get: { keepAliveController.isEnabled },
                     set: { keepAliveController.setEnabled($0) }
@@ -478,7 +478,7 @@ private extension AppSettingsView {
     }
 
     /// 返回 nil 表示这一行整个收起
-    /// 正常运行时不必占一行说"一切正常", 是否正在防休眠由主面板的咖啡杯标记呈现
+    /// 正常运行时不必占一行说"一切正常", 是否正在防睡眠由主面板的咖啡杯标记呈现
     var keepAliveCaption: KeepAliveCaption? {
         if let errorMessage = keepAliveController.errorMessage {
             return KeepAliveCaption(message: errorMessage, isError: true)
@@ -492,15 +492,15 @@ private extension AppSettingsView {
             return KeepAliveCaption(message: "CodexBar Hook 未生效")
         }
         guard keepAliveController.isEnabled else {
-            return KeepAliveCaption(message: "当有 Codex 任务运行时防止系统休眠, 任务结束后自动恢复")
+            return KeepAliveCaption(message: "当有 Codex 任务运行时防止系统睡眠, 任务结束后自动恢复")
         }
 
-        // 低电量拦下时开关开着却不防休眠, 不留一句无从解释
+        // 低电量拦下时开关开着却不防睡眠, 不留一句无从解释
         // 判定用 isLowBatteryBlocking 而不是 isLowBatteryActive: 后者在没有任务时也成立, 那时无话可说
         // 它成立即意味着 helper 已就绪, 所以排在下面那个 switch 之前不影响 helper 类问题的呈现
         // 不写具体阈值: 滞回让保护一直持续到阈值加 5, 说死数字会与用户看到的电量对不上
         if keepAliveController.isLowBatteryBlocking {
-            return KeepAliveCaption(message: "电量过低, 已恢复系统休眠")
+            return KeepAliveCaption(message: "电量过低, 已恢复系统睡眠")
         }
 
         switch keepAliveController.helperStatus {
@@ -517,7 +517,7 @@ private extension AppSettingsView {
                 return nil
             }
             return KeepAliveCaption(
-                message: "已达到防休眠时间上限 (\(keepAliveController.maximumDuration.title))"
+                message: "已达到防睡眠时间上限 (\(keepAliveController.maximumDuration.title))"
             )
         }
     }
@@ -675,7 +675,7 @@ private extension AppSettingsView {
         rebuildableDates = WorkflowStorage.rebuildableEventDateKeys()
     }
 
-    /// 防休眠不在这里刷: 控制器自己订阅了 didBecomeActive, 窗口打开也走 refreshSettingsState
+    /// 防睡眠不在这里刷: 控制器自己订阅了 didBecomeActive, 窗口打开也走 refreshSettingsState
     /// 再调一次会让每次激活都多跑一遍电源读取 helper 状态查询和 helper 二进制哈希
     func refreshStatusRows() {
         refreshCodexVersionSection()
