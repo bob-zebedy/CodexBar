@@ -14,6 +14,10 @@ xcuserdata/
 *.xcuserstate
 *.xcscmblueprint
 
+# sourcekit-lsp / xcode-build-server
+buildServer.json
+.compile
+
 # Swift Package Manager
 .build/
 .swiftpm/
@@ -33,6 +37,9 @@ codesign2
 
 # Logs
 *.log
+
+# Editor
+.zed/
 
 # Agent Tools
 .agents/
