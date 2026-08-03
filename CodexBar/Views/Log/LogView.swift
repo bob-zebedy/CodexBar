@@ -29,7 +29,7 @@ struct LogView: View {
             Text("Codex app-server 日志")
                 .font(.headline)
 
-            Text("\(entries.count)")
+            Text(verbatim: "\(entries.count)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 7)
@@ -97,7 +97,12 @@ private struct LogRow: View {
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
                     if let request = entry.request {
-                        payloadBlock(caption: "请求", time: entry.requestedAt, text: request, color: .primary)
+                        payloadBlock(
+                            caption: "请求",
+                            time: entry.requestedAt,
+                            text: request,
+                            color: .primary
+                        )
                     }
 
                     if let detail = entry.detail {
@@ -108,7 +113,7 @@ private struct LogRow: View {
                             color: entry.kind == .failure ? .red : .primary
                         )
                     } else if entry.kind == .pending {
-                        Text("等待响应…")
+                        Text("等待响应")
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                     }
@@ -166,7 +171,13 @@ private struct LogRow: View {
         .contentShape(Rectangle())
     }
 
-    private func payloadBlock(caption: String, time: Date?, text: String, color: Color) -> some View {
+    private func payloadBlock(
+        caption: LocalizedStringResource,
+        time: Date?,
+        text: String,
+        color: Color
+    ) -> some View {
+        let caption = String(localized: caption)
         let hasText = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let displayText = RequestLogEntry.singleLinePreview(
             text,
@@ -189,7 +200,7 @@ private struct LogRow: View {
                     LogHeaderActionButton(
                         title: "预览",
                         systemImage: "doc.text.magnifyingglass",
-                        help: "预览完整\(caption)"
+                        help: String(localized: "预览完整\(caption)")
                     ) {
                         fullTextItem = FullLogTextItem(title: caption, text: text)
                     }
@@ -197,7 +208,7 @@ private struct LogRow: View {
                     LogHeaderActionButton(
                         title: "复制",
                         systemImage: "doc.on.doc",
-                        help: "复制完整\(caption)"
+                        help: String(localized: "复制完整\(caption)")
                     ) {
                         PasteboardWriter.copy(text)
                     }
@@ -216,7 +227,7 @@ private struct LogRow: View {
         }
     }
 
-    private var detailCaption: String {
+    private var detailCaption: LocalizedStringResource {
         switch entry.kind {
         case .response, .emptyResponse:
             "响应"
@@ -246,7 +257,7 @@ private struct FullLogTextItem: Identifiable {
 
 /// 复制/预览按钮的统一样式入口
 private struct LogHeaderActionButton: View {
-    let title: String
+    let title: LocalizedStringResource
     let systemImage: String
     let help: String
     let action: () -> Void
@@ -276,7 +287,7 @@ private struct FullLogTextView: View {
                 Text(item.title)
                     .font(.headline)
 
-                Text("\(item.text.count)")
+                Text(verbatim: "\(item.text.count)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
 
@@ -514,7 +525,7 @@ private struct LogCodePreviewView: NSViewRepresentable {
 }
 
 private extension RequestLogEntry.Kind {
-    var label: String {
+    var label: LocalizedStringResource {
         switch self {
         case .pending:
             "进行"

@@ -68,8 +68,8 @@ final class CodexCLINotificationSettings: ObservableObject {
 
         var errorPrefix: String {
             switch self {
-            case .read: "读取 Codex TUI 通知设置失败"
-            case .write: "写入 Codex TUI 通知设置失败"
+            case .read: String(localized: "读取 Codex TUI 通知设置失败")
+            case .write: String(localized: "写入 Codex TUI 通知设置失败")
             }
         }
 
@@ -143,7 +143,7 @@ final class CodexCLINotificationSettings: ObservableObject {
         case verificationFailed
 
         var errorDescription: String? {
-            "Codex TUI 通知状态与设置不一致"
+            String(localized: "Codex TUI 通知状态与设置不一致")
         }
     }
 

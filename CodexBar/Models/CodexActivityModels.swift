@@ -144,18 +144,32 @@ nonisolated enum CodexActivityTransition: Equatable {
     case completed(CodexActivityCompletion)
 }
 
-nonisolated enum CodexActivityDurationFormat {
-    static func text(for interval: TimeInterval) -> String {
+nonisolated enum CodexDurationFormat {
+    static func activityText(for interval: TimeInterval) -> String {
         let totalSeconds = max(0, Int(interval.rounded()))
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        if minutes >= 60 {
-            return "\(minutes / 60) 小时 \(minutes % 60) 分"
+        let duration = Duration.seconds(Double(totalSeconds))
+        let allowedUnits: Set<Duration.UnitsFormatStyle.Unit> = if totalSeconds >= 3600 {
+            [.hours, .minutes]
+        } else if totalSeconds >= 60 {
+            [.minutes, .seconds]
+        } else {
+            [.seconds]
         }
-        if minutes > 0 {
-            return "\(minutes) 分 \(seconds) 秒"
-        }
-        return "\(seconds) 秒"
+        return abbreviated(duration, allowedUnits: allowedUnits)
+    }
+
+    static func abbreviated(
+        _ duration: Duration,
+        allowedUnits: Set<Duration.UnitsFormatStyle.Unit>
+    ) -> String {
+        duration.formatted(
+            .units(
+                allowed: allowedUnits,
+                width: .abbreviated,
+                zeroValueUnits: .show(length: 1),
+                fractionalPart: .hide(rounded: .down)
+            )
+        )
     }
 }
 
@@ -168,43 +182,48 @@ nonisolated enum CodexActivityDisplayFormat {
     static func eventText(for task: CodexActivityTaskSnapshot) -> String {
         switch task.latestEvent {
         case .promptSubmitted:
-            "正在思考"
+            String(localized: "正在思考")
         case .toolStarted:
-            task.toolName.map { "调用工具 \($0)" } ?? "调用工具"
+            task.toolName.map { String(localized: "调用工具 \($0)") }
+                ?? String(localized: "调用工具")
         case .toolFinished:
-            task.toolName.map { "调用工具 \($0) 完成" } ?? "调用工具完成"
+            task.toolName.map { String(localized: "调用工具 \($0) 完成") }
+                ?? String(localized: "调用工具完成")
         case .compactionStarted:
-            "压缩上下文"
+            String(localized: "压缩上下文")
         case .compactionFinished:
-            "上下文压缩完成"
+            String(localized: "上下文压缩完成")
         case .subagentStarted:
-            "启动子智能体"
+            String(localized: "启动子智能体")
         case .subagentFinished:
-            "子智能体完成"
+            String(localized: "子智能体完成")
         case .approvalRequested:
-            "等待批准"
+            String(localized: "等待批准")
         }
     }
 
     static func completionRelativeText(_ completedAt: Date, now: Date) -> String {
-        relativeText(since: completedAt, now: now, action: "完成")
+        relativeText(since: completedAt, now: now, action: .completed)
     }
 
     static func terminationRelativeText(_ terminatedAt: Date, now: Date) -> String {
-        relativeText(since: terminatedAt, now: now, action: "终止")
+        relativeText(since: terminatedAt, now: now, action: .terminated)
     }
 
     /// 活动卡片, 任务中心, 菜单栏 tooltip 和系统通知共用的时长片段
     static func waitingDurationFragment(since stateChangedAt: Date, now: Date) -> String {
-        "已等待 \(CodexActivityDurationFormat.text(for: now.timeIntervalSince(stateChangedAt)))"
+        let duration = CodexDurationFormat.activityText(for: now.timeIntervalSince(stateChangedAt))
+        return String(localized: "已等待 \(duration)")
     }
 
     static func runningDurationFragment(since startedAt: Date, now: Date) -> String {
-        "已运行 \(CodexActivityDurationFormat.text(for: now.timeIntervalSince(startedAt)))"
+        let duration = CodexDurationFormat.activityText(for: now.timeIntervalSince(startedAt))
+        return String(localized: "已运行 \(duration)")
     }
 
     static func elapsedDurationFragment(for duration: TimeInterval) -> String {
-        "耗时 \(CodexActivityDurationFormat.text(for: duration))"
+        let durationText = CodexDurationFormat.activityText(for: duration)
+        return String(localized: "耗时 \(durationText)")
     }
 
     /// 活动卡片和任务中心共用同一份文案片段
@@ -213,7 +232,7 @@ nonisolated enum CodexActivityDisplayFormat {
         now: Date
     ) -> [String] {
         [
-            task.toolName ?? "等待下一步操作",
+            task.toolName ?? String(localized: "等待下一步操作"),
             waitingDurationFragment(since: task.stateChangedAt, now: now)
         ]
     }
@@ -225,7 +244,7 @@ nonisolated enum CodexActivityDisplayFormat {
         let duration = if task.showsPreciseDuration, let startedAt = task.startedAt {
             runningDurationFragment(since: startedAt, now: now)
         } else {
-            "正在运行"
+            String(localized: "正在运行")
         }
         return [duration, eventText(for: task)]
     }
@@ -242,15 +261,22 @@ nonisolated enum CodexActivityDisplayFormat {
         return components
     }
 
-    private static func relativeText(since date: Date, now: Date, action: String) -> String {
+    private static func relativeText(since date: Date, now: Date, action: RelativeAction) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
-        if seconds < 10 {
-            return "刚刚\(action)"
+        switch (action, seconds) {
+        case (.completed, ..<10):
+            return String(localized: "刚刚完成")
+        case (.terminated, ..<10):
+            return String(localized: "刚刚终止")
+        case (.completed, ..<60):
+            return String(localized: "\(seconds) 秒前完成")
+        case (.terminated, ..<60):
+            return String(localized: "\(seconds) 秒前终止")
+        case (.completed, _):
+            return String(localized: "\(seconds / 60) 分钟前完成")
+        case (.terminated, _):
+            return String(localized: "\(seconds / 60) 分钟前终止")
         }
-        if seconds < 60 {
-            return "\(seconds) 秒前\(action)"
-        }
-        return "\(seconds / 60) 分钟前\(action)"
     }
 
     private static func normalizedText(_ value: String?) -> String? {
@@ -259,5 +285,10 @@ nonisolated enum CodexActivityDisplayFormat {
         }
         let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedValue.isEmpty ? nil : trimmedValue
+    }
+
+    private enum RelativeAction {
+        case completed
+        case terminated
     }
 }

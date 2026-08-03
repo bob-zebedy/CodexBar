@@ -435,14 +435,16 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         func toolTip(at now: Date) -> String? {
             var lines: [String] = []
             if usesErrorImage {
-                lines.append("Codex 账号异常")
+                lines.append(String(localized: "Codex 账号异常"))
             }
 
             if let activityText = activityToolTip(at: now) {
                 lines.append(activityText)
             }
             if activity.activeCount > 1 {
-                lines.append("等待 \(activity.waitingCount) • 运行 \(activity.runningCount)")
+                lines.append(
+                    String(localized: "等待 \(activity.waitingCount) • 运行 \(activity.runningCount)")
+                )
             }
             if let progress {
                 lines.append(progress.toolTip)
@@ -453,7 +455,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         private func activityToolTip(at now: Date) -> String? {
             switch activity.primaryActivity {
             case let .waiting(task):
-                var text = "Codex 等待批准"
+                var text = String(localized: "Codex 等待批准")
                 if let projectName = task.projectName {
                     text += " • \(projectName)"
                 }
@@ -463,7 +465,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                 text += " • \(CodexActivityDisplayFormat.waitingDurationFragment(since: task.stateChangedAt, now: now))"
                 return text
             case let .running(task):
-                var text = "Codex 正在运行"
+                var text = String(localized: "Codex 正在运行")
                 if let projectName = task.projectName {
                     text += " • \(projectName)"
                 }
@@ -472,7 +474,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
                 }
                 return text
             case .completed(let completion, highlighted: true):
-                var text = "Codex 刚刚完成"
+                var text = String(localized: "Codex 刚刚完成")
                 if let projectName = completion.projectName {
                     text += " • \(projectName)"
                 }
@@ -513,7 +515,8 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         let isStale: Bool
 
         var toolTip: String {
-            "\(label) 剩余 \(percent)%"
+            let percentText = CodexPercentageFormat.string(from: percent)
+            return String(localized: "\(label) 剩余 \(percentText)")
         }
 
         init?(snapshot: CodexQuotaSnapshot?, selection: MenuBarQuotaSelection) {
@@ -769,10 +772,10 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func hotKeyConflictMessage(for shortcut: GlobalHotKeyShortcut) -> String {
         if shortcut == .default {
-            return "默认快捷键 \(shortcut.label) 已被占用"
+            return String(localized: "默认快捷键 \(shortcut.label) 已被占用")
         }
 
-        return "快捷键已被占用"
+        return String(localized: "快捷键已被占用")
     }
 
     // MARK: - 菜单栏图标
@@ -1096,13 +1099,13 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func menuItem(
-        title: String,
+        title: LocalizedStringResource,
         action: Selector,
         keyEquivalent: String,
         symbolName: String
     ) -> NSMenuItem {
         let item = NSMenuItem(
-            title: title,
+            title: String(localized: title),
             action: action,
             keyEquivalent: keyEquivalent
         )

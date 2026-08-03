@@ -41,10 +41,16 @@ nonisolated struct CodexCLIVersionItem: Equatable, Identifiable {
 
     var displayVersion: String {
         if path == nil {
-            return "未找到 \(source.displayName)"
+            return String(
+                localized: "codex-cli.version.not-found",
+                defaultValue: "未找到 \(source.displayName)"
+            )
         }
 
-        return version ?? errorMessage ?? "未知版本"
+        return version ?? errorMessage ?? String(
+            localized: "codex-cli.version.unknown",
+            defaultValue: "未知版本"
+        )
     }
 }
 
@@ -185,7 +191,7 @@ actor CodexCLIVersionService {
             AppLog.codexCLI.error(
                 "版本检测失败: source=\(source.rawValue, privacy: .public); stage=launch; detail=\(error.localizedDescription, privacy: .public)"
             )
-            return CodexCLIVersionItem(source: source, path: path, errorMessage: "启动失败")
+            return failedVersionItem(source: source, path: path, failure: .launch)
         }
         defer {
             process.terminationHandler = nil
@@ -198,7 +204,7 @@ actor CodexCLIVersionService {
                 errorCollector: errorCollector
             )
             AppLog.codexCLI.error("版本检测失败: source=\(source.rawValue, privacy: .public); stage=timeout")
-            return CodexCLIVersionItem(source: source, path: path, errorMessage: "读取超时")
+            return failedVersionItem(source: source, path: path, failure: .timeout)
         }
 
         let output = collectedText(from: outputCollector, deadline: deadline)
@@ -208,12 +214,12 @@ actor CodexCLIVersionService {
             AppLog.codexCLI.error(
                 "版本检测失败: source=\(source.rawValue, privacy: .public); stage=exit; exit=\(process.terminationStatus)"
             )
-            return CodexCLIVersionItem(source: source, path: path, errorMessage: "读取失败")
+            return failedVersionItem(source: source, path: path, failure: .read)
         }
 
         guard let version = firstLine(in: output) ?? firstLine(in: errorOutput) else {
             AppLog.codexCLI.error("版本检测失败: source=\(source.rawValue, privacy: .public); stage=parse")
-            return CodexCLIVersionItem(source: source, path: path, errorMessage: "版本未知")
+            return failedVersionItem(source: source, path: path, failure: .parse)
         }
 
         let displayVersion = CodexCLIVersionReader.displayVersion(from: version)
@@ -240,6 +246,14 @@ actor CodexCLIVersionService {
         stopCollectors(outputCollector: outputCollector, errorCollector: errorCollector)
     }
 
+    private static func failedVersionItem(
+        source: CodexCLIExecutableSource,
+        path: String,
+        failure: VersionProbeFailure
+    ) -> CodexCLIVersionItem {
+        CodexCLIVersionItem(source: source, path: path, errorMessage: failure.message)
+    }
+
     private static func stopCollectors(outputCollector: PipeReadBuffer, errorCollector: PipeReadBuffer) {
         _ = outputCollector.stopAndRead()
         _ = errorCollector.stopAndRead()
@@ -256,6 +270,26 @@ actor CodexCLIVersionService {
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
+    }
+
+    private enum VersionProbeFailure {
+        case launch
+        case timeout
+        case read
+        case parse
+
+        var message: String {
+            switch self {
+            case .launch:
+                String(localized: "codex-cli.version.launch-failed", defaultValue: "启动失败")
+            case .timeout:
+                String(localized: "codex-cli.version.read-timeout", defaultValue: "读取超时")
+            case .read:
+                String(localized: "codex-cli.version.read-failed", defaultValue: "读取失败")
+            case .parse:
+                String(localized: "codex-cli.version.parse-failed", defaultValue: "版本未知")
+            }
+        }
     }
 }
 

@@ -83,8 +83,8 @@ struct KeepAliveOptionsView: View {
     }
 
     private func pickerRow<Option: Hashable>(
-        title: String,
-        caption: String,
+        title: LocalizedStringResource,
+        caption: LocalizedStringResource,
         selection: Binding<Option>,
         options: [Option],
         label: KeyPath<Option, String>
@@ -103,8 +103,8 @@ struct KeepAliveOptionsView: View {
 
     /// 开关的修饰链与通知子面板的 optionRow 保持一致, 两个面板才是同一套控件
     private func toggleRow(
-        title: String,
-        caption: String,
+        title: LocalizedStringResource,
+        caption: LocalizedStringResource,
         isOn: Binding<Bool>
     ) -> some View {
         row(title: title, caption: caption) {
@@ -117,8 +117,8 @@ struct KeepAliveOptionsView: View {
 
     /// 面板里每一行都是控件行加一句固定说明, 说明那行与通知子面板的音效子行同一套字号和层级
     private func row(
-        title: String,
-        caption: String,
+        title: LocalizedStringResource,
+        caption: LocalizedStringResource,
         @ViewBuilder control: () -> some View
     ) -> some View {
         VStack(spacing: 0) {

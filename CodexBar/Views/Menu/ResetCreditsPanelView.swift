@@ -141,7 +141,7 @@ struct ResetCreditsPanelView: View {
         expirationText(group.expirationText)
             .hidden()
             .overlay {
-                HStack(alignment: .center, spacing: 8) {
+                HStack(alignment: .center, spacing: 0) {
                     Text("过期时间")
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.secondary)

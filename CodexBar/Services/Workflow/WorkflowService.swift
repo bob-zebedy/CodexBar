@@ -1370,9 +1370,15 @@ private nonisolated enum WorkflowDataRebuildError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .sourceUnavailable:
-            "没有可重建的本地数据"
+            String(
+                localized: "workflow.rebuild.error.source-unavailable",
+                defaultValue: "没有可重建的本地数据"
+            )
         case .sourceChanged:
-            "本地数据发生变化, 请重试"
+            String(
+                localized: "workflow.rebuild.error.source-changed",
+                defaultValue: "本地数据发生变化, 请重试"
+            )
         }
     }
 }

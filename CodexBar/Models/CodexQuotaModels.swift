@@ -1,5 +1,16 @@
 import Foundation
 
+nonisolated enum CodexPercentageFormat {
+    static func string(from percent: Int) -> String {
+        percent.formatted(
+            .percent
+                .scale(1)
+                .precision(.fractionLength(0))
+                .locale(.autoupdatingCurrent)
+        )
+    }
+}
+
 /// 由 account/rateLimits/usage 三路 app-server 响应合成的菜单面板快照
 nonisolated struct CodexQuotaSnapshot: Equatable {
     let account: CodexAccount
@@ -109,7 +120,7 @@ nonisolated struct QuotaWindow: Equatable, Identifiable {
 
     private static func windowLabel(for minutes: Int?) -> String {
         guard let minutes, minutes > 0 else {
-            return "额度"
+            return String(localized: "quota.window.fallback", defaultValue: "额度")
         }
 
         if minutes.isMultiple(of: 1440) {

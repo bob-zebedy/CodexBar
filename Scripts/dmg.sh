@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/Build}"
+VERSION_CONFIG="${PROJECT_DIR}/Config/Version.xcconfig"
 
 APP_PATH="${1:-}"
 OUTPUT_PATH="${2:-}"
@@ -47,51 +48,19 @@ if [[ ! -d "${APP_PATH}" || "${APP_PATH}" != *.app ]]; then
 fi
 
 APP_NAME="$(basename "${APP_PATH}" .app)"
-PLIST_PATH="${APP_PATH}/Contents/Info.plist"
-XCODE_PROJECT="${XCODE_PROJECT:-}"
-XCODE_SCHEME="${XCODE_SCHEME:-${APP_NAME}}"
-VERSION=""
-
-if [[ -z "${XCODE_PROJECT}" ]]; then
-    while IFS= read -r project; do
-        XCODE_PROJECT="${project}"
-        break
-    done < <(find "${PROJECT_DIR}" -maxdepth 1 -type d -name "*.xcodeproj" | sort)
-elif [[ "${XCODE_PROJECT}" != /* ]]; then
-    XCODE_PROJECT="${PROJECT_DIR}/${XCODE_PROJECT}"
-fi
-
-if [[ -n "${XCODE_PROJECT}" && -d "${XCODE_PROJECT}" ]]; then
-    VERSION="$(
-        xcodebuild \
-        -project "${XCODE_PROJECT}" \
-        -scheme "${XCODE_SCHEME}" \
-        -configuration Release \
-        -showBuildSettings 2>/dev/null |
-        awk -F= '/MARKETING_VERSION/ {gsub(/[[:space:]]/, "", $2); print $2; exit}' ||
-        true
-    )"
-fi
-
-if [[ -z "${VERSION}" && -n "${XCODE_PROJECT}" && -d "${XCODE_PROJECT}" ]]; then
-    VERSION="$(
-        awk -F= '
-      /MARKETING_VERSION/ {
+VERSION="$(
+    awk -F= '
+      $1 ~ /^[[:space:]]*MARKETING_VERSION[[:space:]]*$/ {
         value = $2
-        gsub(/[[:space:];]/, "", value)
+        gsub(/^[[:space:]]+|[[:space:];]+$/, "", value)
         print value
         exit
       }
-        ' "${XCODE_PROJECT}/project.pbxproj" 2>/dev/null || true
-    )"
-fi
-
-if [[ -z "${VERSION}" && -f "${PLIST_PATH}" ]]; then
-    VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${PLIST_PATH}" 2>/dev/null || true)"
-fi
+    ' "${VERSION_CONFIG}" 2>/dev/null || true
+)"
 
 if [[ -z "${VERSION}" ]]; then
-    echo "error: 无法从 Xcode 或 Info.plist 读取版本号" >&2
+    echo "error: 无法从 Config/Version.xcconfig 读取 MARKETING_VERSION" >&2
     exit 1
 fi
 

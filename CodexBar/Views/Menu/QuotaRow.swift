@@ -29,6 +29,8 @@ struct QuotaRow: View {
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .allowsTightening(true)
                 .frame(width: Metrics.resetWidth, alignment: .trailing)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -59,7 +61,7 @@ private extension QuotaRow {
             return "--"
         }
 
-        return "\(remainingPercent)%"
+        return CodexPercentageFormat.string(from: remainingPercent)
     }
 
     var remainingPercent: Int? {
@@ -76,8 +78,9 @@ private extension QuotaRow {
 
     static let resetFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "MM-dd HH:mm"
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("MMddjmm")
         return formatter
     }()
 }

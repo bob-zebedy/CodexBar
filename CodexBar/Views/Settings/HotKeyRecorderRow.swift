@@ -73,10 +73,10 @@ struct HotKeyRecorderRow: View {
 
     private var shortcutLabel: String {
         if isRecording {
-            return "请设置快捷键"
+            return String(localized: "请设置快捷键")
         }
 
-        return settings.shortcut?.label ?? "未设置"
+        return settings.shortcut?.label ?? String(localized: "未设置")
     }
 
     private var canStartRecording: Bool {
@@ -119,7 +119,7 @@ struct HotKeyRecorderRow: View {
         }
 
         guard let shortcut = GlobalHotKeyShortcut(event: event) else {
-            settings.setRegistrationError("无法识别该快捷键")
+            settings.setRegistrationError(String(localized: "无法识别该快捷键"))
             stopRecording()
             return
         }
@@ -130,7 +130,7 @@ struct HotKeyRecorderRow: View {
 
     private func iconButton(
         systemName: String,
-        help: String,
+        help: LocalizedStringResource,
         isDisabled: Bool,
         action: @escaping () -> Void
     ) -> some View {

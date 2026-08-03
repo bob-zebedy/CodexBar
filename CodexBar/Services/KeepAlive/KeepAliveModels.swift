@@ -16,7 +16,9 @@ extension KeepAliveController {
         }
 
         var title: String {
-            self == .off ? "关闭" : "\(rawValue)%"
+            self == .off
+                ? String(localized: "keep-alive.low-battery.off", defaultValue: "关闭")
+                : CodexPercentageFormat.string(from: rawValue)
         }
 
         /// nil 表示不启用保护
@@ -39,22 +41,18 @@ extension KeepAliveController {
         }
 
         var title: String {
-            switch self {
-            case .oneHour:
-                "1 小时"
-            case .twoHours:
-                "2 小时"
-            case .fourHours:
-                "4 小时"
-            case .eightHours:
-                "8 小时"
-            case .twelveHours:
-                "12 小时"
-            case .twentyFourHours:
-                "24 小时"
-            case .unlimited:
-                "无限制"
+            guard self != .unlimited else {
+                return String(
+                    localized: "keep-alive.duration.unlimited",
+                    defaultValue: "无限制"
+                )
             }
+
+            let hours = rawValue / 3600
+            return String(
+                localized: "keep-alive.duration.hours",
+                defaultValue: "\(hours) 小时"
+            )
         }
 
         /// 日志用的小时数, 与 LowBatteryThreshold 的百分比同一种可读形式, 无限制同样记 -1

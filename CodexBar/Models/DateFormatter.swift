@@ -58,6 +58,11 @@ nonisolated enum CodexDateFormat {
         localDisplayFormatter.string(from: date)
     }
 
+    /// yyyy-MM-dd, 日期选择器和日期范围只展示日期部分
+    static func localDayDisplayString(from date: Date) -> String {
+        dayString(from: date)
+    }
+
     /// ISO8601 internet date-time, 带或不带小数秒均可解析
     static func iso8601Date(from string: String) -> Date? {
         try? Date(string, strategy: .iso8601)

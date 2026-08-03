@@ -95,19 +95,28 @@ struct UsageSummaryView: View {
         HStack(alignment: .firstTextBaseline, spacing: Metrics.metricSpacing) {
             tokenMetric(label: "全时累计", value: usage.summary.lifetimeTokens)
             tokenMetric(label: "单日峰值", value: usage.summary.peakDailyTokens)
-            textMetric(label: "当前连胜", value: Self.dayText(usage.summary.currentStreakDays))
-            textMetric(label: "最长连胜", value: Self.dayText(usage.summary.longestStreakDays))
-            textMetric(label: "最长任务", value: Self.durationText(seconds: usage.summary.longestRunningTurnSec))
+            textMetric(
+                label: "当前连胜",
+                value: Self.dayText(usage.summary.currentStreakDays)
+            )
+            textMetric(
+                label: "最长连胜",
+                value: Self.dayText(usage.summary.longestStreakDays)
+            )
+            textMetric(
+                label: "最长任务",
+                value: Self.durationText(seconds: usage.summary.longestRunningTurnSec)
+            )
         }
     }
 
-    private func tokenMetric(label: String, value: Int) -> some View {
+    private func tokenMetric(label: LocalizedStringResource, value: Int) -> some View {
         metric(label: label) {
             TokenCountText(tokens: value)
         }
     }
 
-    private func textMetric(label: String, value: String) -> some View {
+    private func textMetric(label: LocalizedStringResource, value: String) -> some View {
         metric(label: label) {
             Text(value)
                 .font(.caption.monospacedDigit().weight(.semibold))
@@ -117,7 +126,7 @@ struct UsageSummaryView: View {
     }
 
     private func metric(
-        label: String,
+        label: LocalizedStringResource,
         @ViewBuilder value: () -> some View
     ) -> some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -137,7 +146,7 @@ struct UsageSummaryView: View {
             return "--"
         }
 
-        return "\(max(days, 0))天"
+        return String(localized: "\(max(days, 0))天")
     }
 
     private static func durationText(seconds: Int?) -> String {
@@ -145,25 +154,18 @@ struct UsageSummaryView: View {
             return "--"
         }
 
-        let duration = max(seconds, 0)
-        let days = duration / 86400
-        let hours = duration % 86400 / 3600
-        let minutes = duration % 3600 / 60
-        let remainingSeconds = duration % 60
-
-        if days > 0 {
-            return "\(days) 天 \(hours) 时 \(minutes) 分 \(remainingSeconds) 秒"
+        let totalSeconds = max(seconds, 0)
+        let duration = Duration.seconds(Double(totalSeconds))
+        let allowedUnits: Set<Duration.UnitsFormatStyle.Unit> = if totalSeconds >= 86400 {
+            [.days, .hours, .minutes, .seconds]
+        } else if totalSeconds >= 3600 {
+            [.hours, .minutes, .seconds]
+        } else if totalSeconds >= 60 {
+            [.minutes, .seconds]
+        } else {
+            [.seconds]
         }
-
-        if hours > 0 {
-            return "\(hours) 时 \(minutes) 分 \(remainingSeconds) 秒"
-        }
-
-        if minutes > 0 {
-            return "\(minutes) 分 \(remainingSeconds) 秒"
-        }
-
-        return "\(remainingSeconds) 秒"
+        return CodexDurationFormat.abbreviated(duration, allowedUnits: allowedUnits)
     }
 
     private enum Metrics {
@@ -327,7 +329,16 @@ struct UsageHeatmap: View {
             return nil
         }
 
-        return "\(firstDate) ~ \(lastDate)"
+        let firstText = localDayText(firstDate)
+        let lastText = localDayText(lastDate)
+        return String(localized: "\(firstText) ~ \(lastText)")
+    }
+
+    private func localDayText(_ dayKey: String) -> String {
+        guard let date = CodexDateFormat.dayDate(from: dayKey) else {
+            return dayKey
+        }
+        return CodexDateFormat.localDayDisplayString(from: date)
     }
 
     private func updatePointerLocation(_ point: CGPoint) {
@@ -627,12 +638,39 @@ struct UsageHeatmapDayDetailView: View {
 
     private var workflowMetricRows: [WorkflowMetricRow] {
         [
-            WorkflowMetricRow(label: "会话总数", value: context.day.workflow.sessionCount, tint: .green),
-            WorkflowMetricRow(label: "对话轮次", value: context.day.workflow.turnCount, tint: .teal),
-            WorkflowMetricRow(label: "子智能体", value: context.day.workflow.subagentCount, tint: .indigo),
-            WorkflowMetricRow(label: "调用工具", value: context.day.workflow.toolCallCount, tint: .orange),
-            WorkflowMetricRow(label: "权限请求", value: context.day.workflow.permissionRequestCount, tint: .red),
-            WorkflowMetricRow(label: "上下文压缩", value: context.day.workflow.contextCompactionCount, tint: .purple)
+            WorkflowMetricRow(
+                label: String(localized: "会话总数"),
+                value: context.day.workflow.sessionCount,
+                tint: .green
+            ),
+            WorkflowMetricRow(
+                label: String(localized: "对话轮次"),
+                value: context.day.workflow.turnCount,
+                tint: .teal
+            ),
+            WorkflowMetricRow(
+                label: String(localized: "子智能体"),
+                value: context.day.workflow.subagentCount,
+                tint: .indigo
+            ),
+            WorkflowMetricRow(
+                label: String(
+                    localized: "workflow.metric.tool-calls",
+                    defaultValue: "调用工具"
+                ),
+                value: context.day.workflow.toolCallCount,
+                tint: .orange
+            ),
+            WorkflowMetricRow(
+                label: String(localized: "权限请求"),
+                value: context.day.workflow.permissionRequestCount,
+                tint: .red
+            ),
+            WorkflowMetricRow(
+                label: String(localized: "上下文压缩"),
+                value: context.day.workflow.contextCompactionCount,
+                tint: .purple
+            )
         ]
     }
 
@@ -816,7 +854,7 @@ private struct HeatmapTokenText: View {
             )
             .foregroundStyle(Color.codexLabel)
         } else {
-            Text("--")
+            Text(verbatim: "--")
                 .font(font)
                 .foregroundStyle(Color.codexLabel)
         }
@@ -875,7 +913,7 @@ private struct HeatmapTokenText: View {
     }
 }
 
-/// 日期拆成三段以获得更自然的数字滚动过渡
+/// 日期拆成三段以固定 yyyy-MM-dd 格式并保留自然的数字滚动过渡
 private struct AnimatedDateText: View {
     let startDate: String
     let font: Font
@@ -883,16 +921,16 @@ private struct AnimatedDateText: View {
     var body: some View {
         if let components {
             HStack(spacing: 0) {
-                Text(components.year)
-                Text("-")
-                Text(components.month)
-                Text("-")
-                Text(components.day)
+                Text(verbatim: components.year)
+                Text(verbatim: "-")
+                Text(verbatim: components.month)
+                Text(verbatim: "-")
+                Text(verbatim: components.day)
             }
             .font(font)
             .numericRollTransition(value: dateValue(components))
         } else {
-            Text(startDate)
+            Text(verbatim: startDate)
                 .font(font)
                 .contentTransition(.numericText())
         }

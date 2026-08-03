@@ -86,7 +86,7 @@ private enum TokenCountFormatter {
     private static let formatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.locale = .autoupdatingCurrent
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 2
         return formatter

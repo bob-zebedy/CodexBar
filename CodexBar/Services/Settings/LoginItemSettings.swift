@@ -30,7 +30,7 @@ final class LoginItemSettings: ObservableObject {
                 "开机自动启动失败: enabled=\(enabled ? 1 : 0); detail=\(error.localizedDescription, privacy: .public)"
             )
             refresh()
-            errorMessage = "设置开机启动失败"
+            errorMessage = String(localized: "设置开机启动失败")
         }
     }
 }

@@ -13,19 +13,37 @@ nonisolated enum CodexStatusError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .executableNotFound:
-            "找不到 Codex CLI 或 Codex APP"
+            String(
+                localized: "codex-status.error.executable-not-found",
+                defaultValue: "找不到 Codex CLI 或 Codex APP"
+            )
         case .serverTimeout:
-            "Codex app-server 等待响应超时"
+            String(
+                localized: "codex-status.error.server-timeout",
+                defaultValue: "Codex app-server 等待响应超时"
+            )
         case .serverConnectionClosed:
-            "Codex app-server 连接已经断开"
+            String(
+                localized: "codex-status.error.connection-closed",
+                defaultValue: "Codex app-server 连接已经断开"
+            )
         case .invalidServerResponse:
-            "Codex app-server 无法解析响应"
+            String(
+                localized: "codex-status.error.invalid-response",
+                defaultValue: "Codex app-server 无法解析响应"
+            )
         case let .serverError(message):
             message
         case .unsupportedMethod:
-            "Codex app-server 不支持该接口"
+            String(
+                localized: "codex-status.error.unsupported-method",
+                defaultValue: "Codex app-server 不支持该接口"
+            )
         case .notLoggedIn:
-            "Codex 未登录"
+            String(
+                localized: "codex-status.error.not-logged-in",
+                defaultValue: "Codex 未登录"
+            )
         }
     }
 

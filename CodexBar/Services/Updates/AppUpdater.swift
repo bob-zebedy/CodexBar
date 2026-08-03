@@ -21,7 +21,10 @@ final class AppUpdater: NSObject, ObservableObject {
     private var isManualCheckInProgress = false
     private var manualCheckTimeoutTask: Task<Void, Never>?
 
-    private static let missingUpdateConfigurationMessage = "未配置更新资源"
+    private static let missingUpdateConfigurationMessage = String(
+        localized: "updater.status.missing-configuration",
+        defaultValue: "未配置更新资源"
+    )
     /// Sparkle 可能既不回调 didFindValidUpdate / didNotFindUpdate 也不回调 didAbortWithError
     /// (后台检查已在进行, 或 feed 请求被放弃), 超时复位避免永久停留在手动检查态
     private static let manualCheckTimeout = Duration.seconds(30)
@@ -57,7 +60,9 @@ final class AppUpdater: NSObject, ObservableObject {
 
         AppLog.app.notice("更新检查开始: trigger=\(LogTrigger.manual.rawValue, privacy: .public)")
         beginManualCheck()
-        showSettingsStatusMessage("正在检查更新")
+        showSettingsStatusMessage(
+            String(localized: "updater.status.checking", defaultValue: "正在检查更新")
+        )
         updaterController.updater.checkForUpdateInformation()
     }
 
@@ -145,10 +150,13 @@ final class AppUpdater: NSObject, ObservableObject {
 
 extension AppUpdater: SPUUpdaterDelegate {
     func updater(_: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        let message = "发现新版本: v\(item.displayVersionString)"
+        let version = item.displayVersionString
+        let message = String(
+            localized: "updater.status.update-available",
+            defaultValue: "发现新版本: v\(version)"
+        )
         availableUpdateMessage = message
         let trigger = checkTrigger.rawValue
-        let version = item.displayVersionString
         AppLog.app.notice(
             "更新检查完成: trigger=\(trigger, privacy: .public); result=available; version=\(version, privacy: .public)"
         )
@@ -171,7 +179,10 @@ extension AppUpdater: SPUUpdaterDelegate {
         )
 
         if isManualCheckInProgress {
-            showSettingsStatusMessage("没有可用更新", autoDismissDelay: .milliseconds(1000))
+            showSettingsStatusMessage(
+                String(localized: "updater.status.up-to-date", defaultValue: "没有可用更新"),
+                autoDismissDelay: .milliseconds(1000)
+            )
         }
 
         finishManualCheck()
@@ -191,7 +202,9 @@ extension AppUpdater: SPUUpdaterDelegate {
             return
         }
 
-        showSettingsStatusMessage("检查更新失败")
+        showSettingsStatusMessage(
+            String(localized: "updater.status.check-failed", defaultValue: "检查更新失败")
+        )
         finishManualCheck()
     }
 }

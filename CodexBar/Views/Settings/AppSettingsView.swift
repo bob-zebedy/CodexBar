@@ -484,15 +484,17 @@ private extension AppSettingsView {
             return KeepAliveCaption(message: errorMessage, isError: true)
         }
         guard codexHookSettings.isEnabled else {
-            return KeepAliveCaption(message: "需要启用 CodexBar Hook")
+            return KeepAliveCaption(message: String(localized: "需要启用 CodexBar Hook"))
         }
         // 装着但校验不通过时不能说"需要启用", 那句会让用户去开一个已经开着的开关
         // 具体是全局禁用还是不被信任, 由上面 Hook 那一行的说明给出, 这里只说结果
         guard codexHookSettings.isVerified else {
-            return KeepAliveCaption(message: "CodexBar Hook 未生效")
+            return KeepAliveCaption(message: String(localized: "CodexBar Hook 未生效"))
         }
         guard keepAliveController.isEnabled else {
-            return KeepAliveCaption(message: "当有 Codex 任务运行时防止系统睡眠, 任务结束后自动恢复")
+            return KeepAliveCaption(
+                message: String(localized: "当有 Codex 任务运行时防止系统睡眠, 任务结束后自动恢复")
+            )
         }
 
         // 低电量拦下时开关开着却不防睡眠, 不留一句无从解释
@@ -500,24 +502,25 @@ private extension AppSettingsView {
         // 它成立即意味着 helper 已就绪, 所以排在下面那个 switch 之前不影响 helper 类问题的呈现
         // 不写具体阈值: 滞回让保护一直持续到阈值加 5, 说死数字会与用户看到的电量对不上
         if keepAliveController.isLowBatteryBlocking {
-            return KeepAliveCaption(message: "电量过低, 已恢复系统睡眠")
+            return KeepAliveCaption(message: String(localized: "电量过低, 已恢复系统睡眠"))
         }
 
         switch keepAliveController.helperStatus {
         case .requiresApproval:
             return KeepAliveCaption(
-                message: "需要授权允许 CodexBar 后台运行",
+                message: String(localized: "需要授权允许 CodexBar 后台运行"),
                 showsSystemSettingsButton: true
             )
         case .notRegistered, .notFound:
-            return KeepAliveCaption(message: "CodexBarHelper 尚未注册")
+            return KeepAliveCaption(message: String(localized: "CodexBarHelper 尚未注册"))
         case .enabled:
             // 上限之外的运行态都收起; 达到上限要留一句, 否则开关开着却没生效无从解释
             guard keepAliveController.hasReachedMaximumDuration else {
                 return nil
             }
+            let duration = keepAliveController.maximumDuration.title
             return KeepAliveCaption(
-                message: "已达到防睡眠时间上限 (\(keepAliveController.maximumDuration.title))"
+                message: String(localized: "已达到防睡眠时间上限 (\(duration))")
             )
         }
     }
@@ -625,13 +628,13 @@ private extension AppSettingsView {
                 if isRebuildingWorkflowData {
                     ProgressView()
                         .controlSize(.small)
-                        .frame(width: RebuildLayoutMetrics.actionWidth)
+                        .frame(minWidth: RebuildLayoutMetrics.actionMinimumWidth)
                 } else {
                     Button("重建") {
                         isShowingRebuildConfirmation = true
                     }
                     .controlSize(.small)
-                    .frame(width: RebuildLayoutMetrics.actionWidth)
+                    .frame(minWidth: RebuildLayoutMetrics.actionMinimumWidth)
                     .disabled(selectedRebuildDateKeys.isEmpty)
                 }
             }
@@ -650,16 +653,22 @@ private extension AppSettingsView {
             return rebuildStatus
         }
         guard let selectedRebuildRange else {
-            return RebuildStatus(message: "未选择重建日期范围", isError: false)
+            return RebuildStatus(message: String(localized: "未选择重建日期范围"), isError: false)
         }
         guard selectedRebuildRange.isComplete else {
-            return RebuildStatus(message: "选择结束日期", isError: false)
+            return RebuildStatus(message: String(localized: "选择结束日期"), isError: false)
         }
         if selectedRebuildDateKeys.isEmpty {
-            return RebuildStatus(message: "没有可重建的本地数据", isError: true)
+            return RebuildStatus(
+                message: String(
+                    localized: "workflow.rebuild.error.source-unavailable",
+                    defaultValue: "没有可重建的本地数据"
+                ),
+                isError: true
+            )
         }
         return RebuildStatus(
-            message: "已选择 \(selectedRebuildRange.dayCount) 天",
+            message: String(localized: "已选择 \(selectedRebuildRange.dayCount) 天"),
             isError: false
         )
     }
@@ -712,7 +721,7 @@ private extension AppSettingsView {
                 }
 
                 rebuildStatus = RebuildStatus(
-                    message: "重建失败: \(error.localizedDescription)",
+                    message: String(localized: "重建失败: \(error.localizedDescription)"),
                     isError: true
                 )
             }
@@ -727,25 +736,32 @@ private extension AppSettingsView {
         for summary: WorkflowDataRebuildSummary,
         autoRetryAvailable: Bool
     ) -> String {
-        var message = "已重建 \(summary.rebuiltDateCount) 天, 包含 \(summary.eventCount) 条数据"
+        var message = String(
+            localized: "已重建 \(summary.rebuiltDateCount) 天, 包含 \(summary.eventCount) 条数据"
+        )
         if summary.corruptLineCount > 0 {
-            message += ", 跳过 \(summary.corruptLineCount) 条无效数据"
+            message += String(localized: ", 跳过 \(summary.corruptLineCount) 条无效数据")
         }
 
         if !summary.failedDateKeys.isEmpty {
             let listed = summary.failedDateKeys.prefix(rebuildFailedDateListLimit)
             var dates = listed.joined(separator: ", ")
             if summary.failedDateKeys.count > listed.count {
-                dates += " 等"
+                dates += String(localized: " 等")
             }
-            message += "; \(summary.failedDateKeys.count) 天未完成 (\(dates))"
-            message += autoRetryAvailable ? ", 稍后会自动重试" : ", 开启 CodexBar Hook 后会自动重试"
+            message += String(localized: "; \(summary.failedDateKeys.count) 天未完成 (\(dates))")
+            message += autoRetryAvailable
+                ? String(localized: ", 稍后会自动重试")
+                : String(localized: ", 开启 CodexBar Hook 后会自动重试")
         }
 
         if summary.didFailSyncReplacementMarking {
-            message += "; 云端替换未能登记, 请稍后重新重建这些日期"
+            message += String(
+                localized: "workflow.rebuild.summary.sync-replacement-marking-failed",
+                defaultValue: "; 云端替换未能完成, 请稍后重新重建这些数据"
+            )
         } else if summary.isSyncReplacementPending {
-            message += "; 云端替换将在同步可用后继续"
+            message += String(localized: "; 云端替换将在同步可用后继续")
         }
 
         return message
@@ -906,7 +922,7 @@ private extension AppSettingsView {
 private enum RebuildLayoutMetrics {
     static let pickerWidth: CGFloat = 190
     static let controlHeight: CGFloat = 26
-    static let actionWidth: CGFloat = 42
+    static let actionMinimumWidth: CGFloat = 42
 }
 
 private struct RebuildDatePicker: View {
@@ -929,8 +945,6 @@ private struct RebuildDatePicker: View {
         repeating: GridItem(.fixed(Metrics.daySize), spacing: Metrics.columnSpacing),
         count: 7
     )
-    private static let weekdaySymbols = ["一", "二", "三", "四", "五", "六", "日"]
-
     var body: some View {
         Button {
             let focusedDateKey = selection?.endDateKey ?? selection?.startDateKey
@@ -945,11 +959,17 @@ private struct RebuildDatePicker: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.tint)
 
-                Text(selection?.displayText ?? "选择日期范围")
-                    .font(.caption.monospacedDigit().weight(.medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
+                Group {
+                    if let selection {
+                        Text(verbatim: selection.displayText)
+                    } else {
+                        Text("选择日期范围")
+                    }
+                }
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.9)
 
                 Spacer(minLength: 0)
 
@@ -981,7 +1001,9 @@ private struct RebuildDatePicker: View {
     }
 
     private var calendarPopover: some View {
-        VStack(spacing: 10) {
+        let weekdaySymbols = weekdaySymbols
+
+        return VStack(spacing: 10) {
             HStack(spacing: 8) {
                 monthNavigationButton(
                     systemImage: "chevron.left",
@@ -1005,8 +1027,8 @@ private struct RebuildDatePicker: View {
             }
 
             LazyVGrid(columns: Self.columns, spacing: 5) {
-                ForEach(Self.weekdaySymbols, id: \.self) { symbol in
-                    Text(symbol)
+                ForEach(weekdaySymbols.indices, id: \.self) { index in
+                    Text(verbatim: weekdaySymbols[index])
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: Metrics.daySize, height: 18)
@@ -1017,11 +1039,17 @@ private struct RebuildDatePicker: View {
                 }
             }
 
-            Text(selection?.isComplete == false ? "选择结束日期" : "选择开始日期")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(height: 14)
+            Group {
+                if selection?.isComplete == false {
+                    Text("选择结束日期")
+                } else {
+                    Text("选择开始日期")
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .frame(height: 14)
         }
         .padding(12)
         .frame(width: Metrics.popoverWidth, height: Metrics.popoverHeight)
@@ -1029,7 +1057,7 @@ private struct RebuildDatePicker: View {
 
     private func monthNavigationButton(
         systemImage: String,
-        help: String,
+        help: LocalizedStringResource,
         offset: Int
     ) -> some View {
         Button {
@@ -1100,11 +1128,7 @@ private struct RebuildDatePicker: View {
     }
 
     private var monthTitle: String {
-        let components = calendar.dateComponents([.year, .month], from: displayedMonth)
-        guard let year = components.year, let month = components.month else {
-            return ""
-        }
-        return String(format: "%04d-%02d", year, month)
+        Self.monthFormatter.string(from: displayedMonth)
     }
 
     private var monthDates: [Date] {
@@ -1120,7 +1144,7 @@ private struct RebuildDatePicker: View {
             return []
         }
 
-        let visibleDayCount = Self.weekdaySymbols.count * Metrics.visibleWeekCount
+        let visibleDayCount = Self.columns.count * Metrics.visibleWeekCount
         return (0 ..< visibleDayCount).compactMap { dayOffset in
             calendar.date(byAdding: .day, value: dayOffset, to: gridStart)
         }
@@ -1128,11 +1152,26 @@ private struct RebuildDatePicker: View {
 
     private var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.locale = Locale(identifier: "zh_CN")
+        calendar.locale = .autoupdatingCurrent
         calendar.timeZone = .autoupdatingCurrent
-        calendar.firstWeekday = 2
         return calendar
     }
+
+    private var weekdaySymbols: [String] {
+        let symbols = calendar.veryShortStandaloneWeekdaySymbols
+
+        let firstIndex = max(0, min(symbols.count - 1, calendar.firstWeekday - 1))
+        return Array(symbols[firstIndex...] + symbols[..<firstIndex])
+    }
+
+    private static let monthFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.setLocalizedDateFormatFromTemplate("yyyyMMMM")
+        return formatter
+    }()
 
     private var selectableDateRange: ClosedRange<Date> {
         let today = calendar.startOfDay(for: Date())
@@ -1219,12 +1258,19 @@ private struct RebuildDateRange: Equatable {
     }
 
     var displayText: String {
-        guard let endDateKey else {
-            return "\(startDateKey) ~"
+        guard let startDate = CodexDateFormat.dayDate(from: startDateKey) else {
+            return startDateKey
         }
-        return startDateKey == endDateKey
-            ? startDateKey
-            : "\(startDateKey) ~ \(endDateKey)"
+        let startText = CodexDateFormat.localDayDisplayString(from: startDate)
+        guard let endDateKey else {
+            return String(localized: "\(startText) ~")
+        }
+        guard startDateKey != endDateKey,
+              let endDate = CodexDateFormat.dayDate(from: endDateKey) else {
+            return startText
+        }
+        let endText = CodexDateFormat.localDayDisplayString(from: endDate)
+        return String(localized: "\(startText) ~ \(endText)")
     }
 
     func completing(with dateKey: String) -> RebuildDateRange {
@@ -1262,7 +1308,7 @@ private enum SettingsTab: CaseIterable, Identifiable {
         self
     }
 
-    var title: String {
+    var title: LocalizedStringResource {
         switch self {
         case .general:
             "通用"

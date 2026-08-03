@@ -18,7 +18,7 @@ final class LogWindowController: HostingWindowController {
         let hostingController = NSHostingController(rootView: LogView(store: store))
 
         let window = AuxiliaryHostingWindow(contentViewController: hostingController)
-        window.title = "CodexBar 日志"
+        window.title = String(localized: "CodexBar 日志")
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.contentMinSize = Metrics.minimumContentSize
         window.setContentSize(Metrics.defaultContentSize)

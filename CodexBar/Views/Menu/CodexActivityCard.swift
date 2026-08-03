@@ -86,7 +86,7 @@ struct CodexActivityCard: View {
             }
 
             if content.otherTaskCount > 0 {
-                Text("+\(content.otherTaskCount)")
+                Text(verbatim: "+\(content.otherTaskCount)")
                     .font(.caption2.monospacedDigit().weight(.semibold))
                     // 必须是具体 Color, 层级样式在 numericText 的过渡层里会被重新解析成别的层级
                     .foregroundStyle(Color.codexSecondaryLabel)
@@ -191,7 +191,9 @@ struct CodexActivityCard: View {
             return ActivityCardContent(
                 symbolName: "moon.zzz.fill",
                 tint: .secondary,
-                title: showsUnavailableState ? "暂无数据" : "暂无 Codex 活动",
+                title: showsUnavailableState
+                    ? String(localized: "暂无数据")
+                    : String(localized: "暂无 Codex 活动"),
                 detail: nil,
                 otherTaskCount: 0
             )
@@ -202,14 +204,14 @@ struct CodexActivityCard: View {
         modelName: String?,
         effort: String?,
         projectName: String?,
-        fallback: String
+        fallback: LocalizedStringResource
     ) -> String {
         [
             CodexActivityDisplayFormat.modelMetadata(
                 modelName: modelName,
                 effort: effort
             ),
-            projectName ?? fallback
+            projectName ?? String(localized: fallback)
         ]
         .compactMap(\.self)
         .joined(separator: " • ")
@@ -223,7 +225,7 @@ struct CodexActivityCard: View {
             return components
         }
         var result = components
-        result.insert("\(count) 个子 Agent", at: min(1, result.count))
+        result.insert(String(localized: "\(count) 个子 Agent"), at: min(1, result.count))
         return result
     }
 

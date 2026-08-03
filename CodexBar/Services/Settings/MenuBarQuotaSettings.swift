@@ -136,7 +136,14 @@ nonisolated enum MenuBarQuotaSelection: String, Identifiable {
     }
 
     var fallbackTitle: String {
-        rawValue
+        switch self {
+        case .off:
+            String(localized: "menu-bar-quota.selection.off", defaultValue: "关闭")
+        case .primary:
+            String(localized: "menu-bar-quota.selection.primary", defaultValue: "主额度")
+        case .secondary:
+            String(localized: "menu-bar-quota.selection.secondary", defaultValue: "次额度")
+        }
     }
 
     var windowKind: QuotaWindowKind? {

@@ -78,7 +78,7 @@ final class CodexHookSettings: ObservableObject {
             AppLog.hooks.error(
                 "Hook 读取失败: detail=\(error.localizedDescription, privacy: .public); action=keepLastKnown"
             )
-            readErrorMessage = "读取 Codex Hook 配置失败"
+            readErrorMessage = String(localized: "读取 Codex Hook 配置失败")
         }
     }
 
@@ -162,7 +162,7 @@ final class CodexHookSettings: ObservableObject {
             }
 
             // 这一支是"验不了"而不是"确认不通", isVerified 保留上次的值
-            operationErrorMessage = "无法验证 Codex Hook: \(error.localizedDescription)"
+            operationErrorMessage = String(localized: "无法验证 Codex Hook: \(error.localizedDescription)")
         }
     }
 
@@ -245,7 +245,7 @@ final class CodexHookSettings: ObservableObject {
                 "Hook 写入失败: detail=\(error.localizedDescription, privacy: .public)"
             )
             refresh()
-            operationErrorMessage = "设置 Codex Hook 失败"
+            operationErrorMessage = String(localized: "设置 Codex Hook 失败")
         }
     }
 }
@@ -293,9 +293,9 @@ private extension CodexHookSettings {
         var errorDescription: String? {
             switch self {
             case .invalidFormat:
-                "hooks.json 文件格式错误"
+                String(localized: "hooks.json 文件格式错误")
             case .hooksGloballyDisabled:
-                "Codex 配置已禁用 Hook"
+                String(localized: "Codex 配置已禁用 Hook")
             case let .hookValidationFailed(message):
                 message
             }
@@ -423,7 +423,7 @@ private extension CodexHookSettings {
                 AppLog.hooks.error(
                     "Hook 信任清理失败: stage=discovery; detail=\(discoveryError.localizedDescription, privacy: .public)"
                 )
-                operationErrorMessage = "已关闭 Codex Hook, 清理信任状态失败"
+                operationErrorMessage = String(localized: "已关闭 Codex Hook, 清理信任状态失败")
             } else {
                 operationErrorMessage = nil
             }
@@ -437,7 +437,7 @@ private extension CodexHookSettings {
             AppLog.hooks.error(
                 "Hook 信任清理失败: stage=remove; detail=\(error.localizedDescription, privacy: .public)"
             )
-            operationErrorMessage = "已关闭 Codex Hook, 清理信任状态失败"
+            operationErrorMessage = String(localized: "已关闭 Codex Hook, 清理信任状态失败")
         }
     }
 
@@ -598,7 +598,7 @@ private extension CodexHookSettings {
         hooksURL: URL
     ) -> String? {
         guard !response.data.isEmpty else {
-            return "Codex 没有返回任何结果"
+            return String(localized: "Codex 没有返回任何结果")
         }
 
         let entries = response.data
@@ -628,22 +628,22 @@ private extension CodexHookSettings {
         }
 
         if !errors.isEmpty {
-            return "Codex 返回错误"
+            return String(localized: "Codex 返回错误")
         }
         if hasDisabledHook {
-            return "CodexBar Hook 已被禁用"
+            return String(localized: "CodexBar Hook 已被禁用")
         }
         if hasUntrustedHook {
-            return "CodexBar Hook 未被信任"
+            return String(localized: "CodexBar Hook 未被信任")
         }
         if hasMissingEvent {
-            return "CodexBar Hook 已不完整"
+            return String(localized: "CodexBar Hook 已不完整")
         }
         if hasUnexpectedSource {
-            return "CodexBar Hook 意外来源"
+            return String(localized: "CodexBar Hook 意外来源")
         }
         if !warnings.isEmpty {
-            return "Codex 返回警告"
+            return String(localized: "Codex 返回警告")
         }
 
         return nil

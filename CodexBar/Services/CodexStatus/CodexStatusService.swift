@@ -552,7 +552,12 @@ actor CodexStatusService {
         do {
             try process.run()
         } catch {
-            RequestLogStorage.shared.recordFailure(message: "app-server 启动失败: \(error.localizedDescription)")
+            RequestLogStorage.shared.recordFailure(
+                message: String(
+                    localized: "request-log.error.launch-failed",
+                    defaultValue: "app-server 启动失败: \(error.localizedDescription)"
+                )
+            )
             return .initializationFailed
         }
         let openedAt = Date()
@@ -609,7 +614,10 @@ actor CodexStatusService {
         } catch {
             // app-server 链路的细节按既有分工进日志窗口, 不重复写系统日志
             RequestLogStorage.shared.recordFailure(
-                message: "app-server 会话初始化失败: \(error.localizedDescription)"
+                message: String(
+                    localized: "request-log.error.initialization-failed",
+                    defaultValue: "app-server 会话初始化失败: \(error.localizedDescription)"
+                )
             )
             session.close()
             return .initializationFailed

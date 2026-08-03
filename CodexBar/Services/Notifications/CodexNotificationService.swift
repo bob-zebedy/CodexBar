@@ -655,10 +655,17 @@ nonisolated struct CodexNotificationContent: Equatable {
         windowLabel: String,
         thresholdPercent: Int
     ) -> CodexNotificationContent {
-        CodexNotificationContent(
+        let thresholdText = CodexPercentageFormat.string(from: thresholdPercent)
+        return CodexNotificationContent(
             kind: "lowQuota",
-            title: "Codex 额度不足",
-            body: "\(limitTitle) \(windowLabel) 剩余额度已低于 \(thresholdPercent)%"
+            title: String(
+                localized: "notification.low-quota.title",
+                defaultValue: "Codex 额度不足"
+            ),
+            body: String(
+                localized: "notification.low-quota.body",
+                defaultValue: "\(limitTitle) \(windowLabel) 剩余额度已低于 \(thresholdText)"
+            )
         )
     }
 
@@ -668,51 +675,116 @@ nonisolated struct CodexNotificationContent: Equatable {
     ) -> CodexNotificationContent {
         CodexNotificationContent(
             kind: "quotaReset",
-            title: "额度已重置",
-            body: "\(limitTitle) \(windowLabel)"
+            title: String(
+                localized: "notification.quota-reset.title",
+                defaultValue: "额度已重置"
+            ),
+            body: String(
+                localized: "notification.quota-reset.body",
+                defaultValue: "\(limitTitle) \(windowLabel)"
+            )
         )
     }
 
     static func taskCompleted(project: String?, duration: TimeInterval) -> CodexNotificationContent {
-        let projectText = project.map { "「\($0)」" } ?? "Codex"
+        let durationText = CodexActivityDisplayFormat.elapsedDurationFragment(for: duration)
+        let body = if let project {
+            String(
+                localized: "notification.task-completed.body.project",
+                defaultValue: "「\(project)」任务完成, \(durationText)"
+            )
+        } else {
+            String(
+                localized: "notification.task-completed.body.codex",
+                defaultValue: "Codex 任务完成, \(durationText)"
+            )
+        }
+
         return CodexNotificationContent(
             kind: "longTask",
-            title: "Codex 任务完成",
-            body: "\(projectText) 任务完成, \(CodexActivityDisplayFormat.elapsedDurationFragment(for: duration))"
+            title: String(
+                localized: "notification.task-completed.title",
+                defaultValue: "Codex 任务完成"
+            ),
+            body: body
         )
     }
 
     static func taskWaiting(project: String?, toolName: String?) -> CodexNotificationContent {
-        let subject = project.map { "「\($0)」" } ?? "Codex"
-        let action = toolName.map { "\($0) 操作" } ?? "下一步操作"
+        let body = switch (project, toolName) {
+        case let (project?, toolName?):
+            String(
+                localized: "notification.task-waiting.body.project-tool",
+                defaultValue: "「\(project)」正在等待批准 \(toolName) 操作"
+            )
+        case let (project?, nil):
+            String(
+                localized: "notification.task-waiting.body.project",
+                defaultValue: "「\(project)」正在等待批准下一步操作"
+            )
+        case let (nil, toolName?):
+            String(
+                localized: "notification.task-waiting.body.codex-tool",
+                defaultValue: "Codex 正在等待批准 \(toolName) 操作"
+            )
+        case (nil, nil):
+            String(
+                localized: "notification.task-waiting.body.codex",
+                defaultValue: "Codex 正在等待批准下一步操作"
+            )
+        }
+
         return CodexNotificationContent(
             kind: "taskWaiting",
-            title: "Codex 等待批准",
-            body: "\(subject) 正在等待批准 \(action)"
+            title: String(
+                localized: "notification.task-waiting.title",
+                defaultValue: "Codex 等待批准"
+            ),
+            body: body
         )
     }
 
     static func creditExpiry(count: Int, expirationDate: Date) -> CodexNotificationContent {
-        CodexNotificationContent(
+        let expirationText = CodexDateFormat.localDisplayString(from: expirationDate)
+        return CodexNotificationContent(
             kind: "creditExpiry",
-            title: "重置即将过期",
-            body: "有 \(count) 个重置次数将于 \(CodexDateFormat.localDisplayString(from: expirationDate)) 过期"
+            title: String(
+                localized: "notification.credit-expiry.title",
+                defaultValue: "重置即将过期"
+            ),
+            body: String(
+                localized: "notification.credit-expiry.body",
+                defaultValue: "有 \(count) 个重置次数将于 \(expirationText) 过期"
+            )
         )
     }
 
     static func lowBattery(percent: Int) -> CodexNotificationContent {
-        CodexNotificationContent(
+        let percentText = CodexPercentageFormat.string(from: percent)
+        return CodexNotificationContent(
             kind: "lowBattery",
-            title: "已恢复系统睡眠",
-            body: "电量剩余 \(percent)%, 已停止防睡眠"
+            title: String(
+                localized: "notification.keep-alive-ended.title",
+                defaultValue: "已恢复系统睡眠"
+            ),
+            body: String(
+                localized: "notification.keep-alive-ended.low-battery",
+                defaultValue: "电量剩余 \(percentText), 已停止防睡眠"
+            )
         )
     }
 
     static func keepAliveLimit(durationText: String) -> CodexNotificationContent {
         CodexNotificationContent(
             kind: "keepAliveLimit",
-            title: "已恢复系统睡眠",
-            body: "已达防睡眠上限 \(durationText), 已停止防睡眠"
+            title: String(
+                localized: "notification.keep-alive-ended.title",
+                defaultValue: "已恢复系统睡眠"
+            ),
+            body: String(
+                localized: "notification.keep-alive-ended.duration-limit",
+                defaultValue: "已达防睡眠上限 \(durationText), 已停止防睡眠"
+            )
         )
     }
 }

@@ -156,17 +156,21 @@ struct CodexActivityCenterView: View {
         let snapshot = activityMonitor.snapshot
         var components = [String]()
         if snapshot.waitingCount > 0 {
-            components.append("等待 \(snapshot.waitingCount)")
+            components.append(String(localized: "等待 \(snapshot.waitingCount)"))
         }
         if snapshot.runningCount > 0 {
-            components.append("运行 \(snapshot.runningCount)")
+            components.append(String(localized: "运行 \(snapshot.runningCount)"))
         }
         if snapshot.activeCount == 0 {
             if !snapshot.recentCompletions.isEmpty {
-                components.append("最近完成 \(snapshot.recentCompletions.count)")
+                components.append(
+                    String(localized: "最近完成 \(snapshot.recentCompletions.count)")
+                )
             }
             if !snapshot.recentTerminations.isEmpty {
-                components.append("最近终止 \(snapshot.recentTerminations.count)")
+                components.append(
+                    String(localized: "最近终止 \(snapshot.recentTerminations.count)")
+                )
             }
         }
         return components.joined(separator: " • ")
@@ -175,7 +179,7 @@ struct CodexActivityCenterView: View {
     // MARK: - 分区与行
 
     private func taskSection(
-        title: String,
+        title: LocalizedStringResource,
         symbolName: String,
         tint: Color,
         tasks: [CodexActivityTaskSnapshot],
@@ -196,7 +200,10 @@ struct CodexActivityCenterView: View {
     }
 
     private func completionSection(now: Date) -> some View {
-        section(title: "最近完成", count: activityMonitor.snapshot.recentCompletions.count) {
+        section(
+            title: "最近完成",
+            count: activityMonitor.snapshot.recentCompletions.count
+        ) {
             ForEach(activityMonitor.snapshot.recentCompletions) { completion in
                 completionRow(completion, now: now)
             }
@@ -204,7 +211,10 @@ struct CodexActivityCenterView: View {
     }
 
     private func terminationSection(now: Date) -> some View {
-        section(title: "最近终止", count: activityMonitor.snapshot.recentTerminations.count) {
+        section(
+            title: "最近终止",
+            count: activityMonitor.snapshot.recentTerminations.count
+        ) {
             ForEach(activityMonitor.snapshot.recentTerminations) { termination in
                 terminationRow(termination, now: now)
             }
@@ -212,7 +222,7 @@ struct CodexActivityCenterView: View {
     }
 
     private func section(
-        title: String,
+        title: LocalizedStringResource,
         count: Int,
         @ViewBuilder content: () -> some View
     ) -> some View {
@@ -222,7 +232,7 @@ struct CodexActivityCenterView: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
 
-                Text("\(count)")
+                Text(verbatim: "\(count)")
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
             }

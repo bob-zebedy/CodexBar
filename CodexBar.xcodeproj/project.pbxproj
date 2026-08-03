@@ -202,10 +202,11 @@
 				};
 			};
 			buildConfigurationList = C4A0FD902FD9302E000263A7 /* Build configuration list for PBXProject "CodexBar" */;
-			developmentRegion = en;
+			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				"zh-Hans",
 				Base,
 			);
 			mainGroup = C4A0FD8C2FD9302E000263A7;

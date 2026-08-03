@@ -22,7 +22,7 @@ enum SettingsOptionsPanelMetrics {
 /// 两个子选项面板共用的下拉选择器
 /// 只有宽度和对齐各自定义, 其余样式必须同源, 否则两个面板看起来就不是同一套控件
 struct SettingsOptionsPicker<Option: Hashable>: View {
-    let title: String
+    let title: LocalizedStringResource
     @Binding var selection: Option
     let options: [Option]
     let label: (Option) -> String
@@ -45,14 +45,14 @@ struct SettingsOptionsPicker<Option: Hashable>: View {
 /// 设置页通用开关行, accessory 插入在开关左侧
 struct SettingsToggleRow<Accessory: View>: View {
     let icon: String
-    let title: String
+    let title: LocalizedStringResource
     let isOn: Binding<Bool>
     let isEnabled: Bool
     private let accessory: Accessory
 
     init(
         icon: String,
-        title: String,
+        title: LocalizedStringResource,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
         @ViewBuilder accessory: () -> Accessory
@@ -88,7 +88,7 @@ struct SettingsToggleRow<Accessory: View>: View {
 extension SettingsToggleRow where Accessory == EmptyView {
     init(
         icon: String,
-        title: String,
+        title: LocalizedStringResource,
         isOn: Binding<Bool>,
         isEnabled: Bool = true
     ) {

@@ -111,7 +111,7 @@ struct StatusAccountCard: View {
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
     }
 
-    private var statusDisplay: (text: String?, color: Color) {
+    private var statusDisplay: (text: LocalizedStringResource?, color: Color) {
         switch loadState {
         case .notLoggedIn:
             ("未登录", .orange)
@@ -194,7 +194,7 @@ struct QuotaLimitsSection: View {
 
     @ViewBuilder
     private func creditsBalance(value: String, credits: RateLimitCreditsSnapshot) -> some View {
-        let capsule = metadataCapsule("积分: \(value)")
+        let capsule = metadataCapsule(String(localized: "积分: \(value)"))
 
         if let helpText = creditsHelpText(value: value, credits: credits) {
             capsule.help(helpText)
@@ -205,14 +205,14 @@ struct QuotaLimitsSection: View {
 
     private func creditsDisplayValue(_ credits: RateLimitCreditsSnapshot) -> String? {
         if credits.unlimited {
-            return "无限"
+            return String(localized: "无限")
         }
 
         if let balance = normalizedCreditsBalance(credits.balance) {
             return compactCreditsBalance(balance)
         }
 
-        return credits.hasCredits ? "可用" : nil
+        return credits.hasCredits ? String(localized: "可用") : nil
     }
 
     private func creditsHelpText(value: String, credits: RateLimitCreditsSnapshot) -> String? {
@@ -270,7 +270,7 @@ struct QuotaLimitsSection: View {
                 )
             )
         } label: {
-            metadataCapsule("重置次数: \(count)")
+            metadataCapsule(String(localized: "重置次数: \(count)"))
         }
         .buttonStyle(.plain)
     }
@@ -363,8 +363,10 @@ struct UpdatedAtRow: View {
 
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "HH:mm:ss"
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateStyle = .none
+        formatter.timeStyle = .medium
         return formatter
     }()
 
@@ -410,20 +412,21 @@ struct WorkflowSyncDisplayState: Equatable {
         WorkflowSyncDisplayState(
             symbolName: "icloud",
             tint: .codexSecondaryLabel,
-            helpText: lastSyncText.map { "最近同步: \($0)" } ?? "暂无同步记录"
+            helpText: lastSyncText.map { String(localized: "最近同步: \($0)") }
+                ?? String(localized: "暂无同步记录")
         )
     }
 
     private static let disabled = WorkflowSyncDisplayState(
         symbolName: "icloud.slash",
         tint: .codexSecondaryLabel,
-        helpText: "同步未开启"
+        helpText: String(localized: "同步未开启")
     )
 
     private static let syncing = WorkflowSyncDisplayState(
         symbolName: "arrow.trianglehead.clockwise.icloud",
         tint: .blue,
-        helpText: "正在同步"
+        helpText: String(localized: "正在同步")
     )
 
     private static func failed(message: String?) -> WorkflowSyncDisplayState {

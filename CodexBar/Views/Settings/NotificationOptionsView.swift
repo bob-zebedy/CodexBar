@@ -60,7 +60,7 @@ struct NotificationOptionsView: View {
                     set: { notificationSettings.setLowQuotaThresholdPercent($0) }
                 ),
                 options: NotificationSettings.lowQuotaThresholdOptions,
-                label: { "\($0)%" }
+                label: { CodexPercentageFormat.string(from: $0) }
             )
         }
     }
@@ -228,7 +228,7 @@ struct NotificationOptionsView: View {
     // MARK: - 行构建器
 
     private func optionRow(
-        title: String,
+        title: LocalizedStringResource,
         isOn: Binding<Bool>,
         isEnabled: Bool = true
     ) -> some View {
@@ -238,7 +238,7 @@ struct NotificationOptionsView: View {
     }
 
     private func optionRow(
-        title: String,
+        title: LocalizedStringResource,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
         @ViewBuilder accessory: () -> some View
@@ -261,7 +261,7 @@ struct NotificationOptionsView: View {
         .frame(height: Metrics.rowHeight)
     }
 
-    private func captionRow(_ caption: String) -> some View {
+    private func captionRow(_ caption: LocalizedStringResource) -> some View {
         HStack(spacing: 0) {
             Text(caption)
                 .font(.caption2)
@@ -273,7 +273,7 @@ struct NotificationOptionsView: View {
     }
 
     private func notificationOptionRow(
-        title: String,
+        title: LocalizedStringResource,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
         sound: Binding<NotificationSoundOption>
@@ -289,7 +289,7 @@ struct NotificationOptionsView: View {
     }
 
     private func notificationOptionRow(
-        title: String,
+        title: LocalizedStringResource,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
         sound: Binding<NotificationSoundOption>,
@@ -349,7 +349,7 @@ struct NotificationOptionsView: View {
     }
 
     private func optionPicker(
-        title: String,
+        title: LocalizedStringResource,
         selection: Binding<Int>,
         options: [Int],
         label: @escaping (Int) -> String
@@ -380,7 +380,7 @@ struct NotificationOptionsView: View {
                 }
             }
         } label: {
-            Text(selection.wrappedValue.title)
+            Text(selection.wrappedValue.localizedTitle)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -401,9 +401,9 @@ struct NotificationOptionsView: View {
             playPreview(for: sound)
         } label: {
             if sound == selection.wrappedValue {
-                Label(sound.title, systemImage: "checkmark")
+                Label(sound.localizedTitle, systemImage: "checkmark")
             } else {
-                Text(sound.title)
+                Text(sound.localizedTitle)
             }
         }
     }
@@ -425,7 +425,9 @@ struct NotificationOptionsView: View {
     }
 
     private static func longTaskOptionLabel(_ seconds: Int) -> String {
-        seconds < 60 ? "\(seconds) 秒" : "\(seconds / 60) 分钟"
+        seconds < 60
+            ? String(localized: "\(seconds) 秒")
+            : String(localized: "\(seconds / 60) 分钟")
     }
 
     private enum Metrics {

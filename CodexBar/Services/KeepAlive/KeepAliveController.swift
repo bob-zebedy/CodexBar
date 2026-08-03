@@ -511,7 +511,7 @@ final class KeepAliveController: ObservableObject {
             return
         case .notRegistered, .notFound:
             guard Self.helperAssetsArePresent else {
-                registrationErrorMessage = "服务异常, 请重新安装 CodexBar"
+                registrationErrorMessage = KeepAliveLocalizedMessage.helperAssetsMissing
                 return
             }
         }
@@ -525,7 +525,7 @@ final class KeepAliveController: ObservableObject {
                 AppLog.keepAlive.error(
                     "Helper 注册失败: detail=\(error.localizedDescription, privacy: .public)"
                 )
-                registrationErrorMessage = "注册服务失败"
+                registrationErrorMessage = KeepAliveLocalizedMessage.registrationFailed
             }
         }
 
@@ -578,7 +578,7 @@ final class KeepAliveController: ObservableObject {
                 AppLog.keepAlive.error(
                     "Helper 注册更新失败: detail=\(registrationError.localizedDescription, privacy: .public)"
                 )
-                registrationErrorMessage = "更新服务失败"
+                registrationErrorMessage = KeepAliveLocalizedMessage.updateFailed
             }
 
             assign(false, to: \.isRefreshingHelper)
@@ -773,7 +773,7 @@ final class KeepAliveController: ObservableObject {
             let result = systemSleepService.beginPreventingIdleSleep()
             guard result == kIOReturnSuccess else {
                 AppLog.keepAlive.error("空闲断言建立失败: code=\(result)")
-                operationErrorMessage = "防止空闲睡眠失败"
+                operationErrorMessage = KeepAliveLocalizedMessage.preventIdleSleepFailed
                 scheduleRetryIfNeeded(for: true)
                 return
             }
@@ -819,7 +819,7 @@ final class KeepAliveController: ObservableObject {
                     // invalidateConnection 会连同 assertion 一起收
                     self.invalidateConnection()
                     AppLog.keepAlive.error("系统睡眠切换失败: generation=\(generation); exit=\(exitCode)")
-                    self.operationErrorMessage = "切换睡眠状态失败"
+                    self.operationErrorMessage = KeepAliveLocalizedMessage.toggleSleepFailed
                     self.scheduleRetryIfNeeded(for: disabled)
                     return
                 }
@@ -864,7 +864,7 @@ final class KeepAliveController: ObservableObject {
         let idleSleepResult = systemSleepService.endPreventingIdleSleep()
         if idleSleepResult != kIOReturnSuccess {
             AppLog.keepAlive.error("空闲断言释放失败: code=\(idleSleepResult)")
-            operationErrorMessage = "恢复空闲睡眠策略失败"
+            operationErrorMessage = KeepAliveLocalizedMessage.restoreIdleSleepFailed
         }
 
         let sleepDisabled = sleepDisabledAfterOperation ? 1 : 0
@@ -902,7 +902,7 @@ final class KeepAliveController: ObservableObject {
         let result = SystemSleepService.requestSystemSleep()
         if result != kIOReturnSuccess {
             AppLog.keepAlive.error("睡眠补发失败: code=\(result)")
-            operationErrorMessage = "请求系统睡眠失败"
+            operationErrorMessage = KeepAliveLocalizedMessage.requestSystemSleepFailed
         }
     }
 
@@ -948,7 +948,7 @@ final class KeepAliveController: ObservableObject {
         AppLog.keepAlive.error(
             "Helper XPC 连接失败: detail=\(error.localizedDescription, privacy: .public)"
         )
-        operationErrorMessage = "连接服务失败"
+        operationErrorMessage = KeepAliveLocalizedMessage.connectionFailed
         if shouldRetry {
             scheduleRetryIfNeeded(for: desiredSleepDisabled)
         }
@@ -972,7 +972,7 @@ final class KeepAliveController: ObservableObject {
             )
             // 连接已经不可信, 收掉它再走既有的重试阶梯, 与切换失败同一条路径
             invalidateConnection()
-            operationErrorMessage = "服务无响应"
+            operationErrorMessage = KeepAliveLocalizedMessage.noResponse
             scheduleRetryIfNeeded(for: disabled)
         }
     }
@@ -1075,7 +1075,7 @@ final class KeepAliveController: ObservableObject {
             AppLog.keepAlive.error(
                 "KeepAlive 切换重试已放弃: attempts=\(Self.sleepToggleRetryDelays.count)"
             )
-            operationErrorMessage = "防睡眠多次失败, 已停止重试"
+            operationErrorMessage = KeepAliveLocalizedMessage.retryLimitReached
             return
         }
 
@@ -1239,16 +1239,67 @@ final class KeepAliveController: ObservableObject {
     }
 }
 
-private enum KeepAliveError: LocalizedError {
+private nonisolated enum KeepAliveLocalizedMessage {
+    static let helperAssetsMissing = String(
+        localized: "keep-alive.error.helper-assets-missing",
+        defaultValue: "服务异常, 请重新安装 CodexBar"
+    )
+    static let registrationFailed = String(
+        localized: "keep-alive.error.registration-failed",
+        defaultValue: "注册服务失败"
+    )
+    static let updateFailed = String(
+        localized: "keep-alive.error.update-failed",
+        defaultValue: "更新服务失败"
+    )
+    static let preventIdleSleepFailed = String(
+        localized: "keep-alive.error.prevent-idle-sleep-failed",
+        defaultValue: "防止空闲睡眠失败"
+    )
+    static let toggleSleepFailed = String(
+        localized: "keep-alive.error.toggle-sleep-failed",
+        defaultValue: "切换睡眠状态失败"
+    )
+    static let restoreIdleSleepFailed = String(
+        localized: "keep-alive.error.restore-idle-sleep-failed",
+        defaultValue: "恢复空闲睡眠策略失败"
+    )
+    static let requestSystemSleepFailed = String(
+        localized: "keep-alive.error.request-system-sleep-failed",
+        defaultValue: "请求系统睡眠失败"
+    )
+    static let connectionFailed = String(
+        localized: "keep-alive.error.connection-failed",
+        defaultValue: "连接服务失败"
+    )
+    static let noResponse = String(
+        localized: "keep-alive.error.no-response",
+        defaultValue: "服务无响应"
+    )
+    static let retryLimitReached = String(
+        localized: "keep-alive.error.retry-limit-reached",
+        defaultValue: "防睡眠多次失败, 已停止重试"
+    )
+    static let invalidHelperInterface = String(
+        localized: "keep-alive.error.invalid-helper-interface",
+        defaultValue: "服务接口无效"
+    )
+    static let connectionInterrupted = String(
+        localized: "keep-alive.error.connection-interrupted",
+        defaultValue: "服务连接中断"
+    )
+}
+
+private nonisolated enum KeepAliveError: LocalizedError {
     case invalidHelperProxy
     case connectionInterrupted
 
     var errorDescription: String? {
         switch self {
         case .invalidHelperProxy:
-            "服务接口无效"
+            KeepAliveLocalizedMessage.invalidHelperInterface
         case .connectionInterrupted:
-            "服务连接中断"
+            KeepAliveLocalizedMessage.connectionInterrupted
         }
     }
 }

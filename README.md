@@ -12,7 +12,7 @@
 [![Downloads](https://img.shields.io/github/downloads/bob-zebedy/CodexBar/total?color=2EA043)](https://github.com/bob-zebedy/CodexBar/releases)
 [![License](https://img.shields.io/github/license/bob-zebedy/CodexBar?color=8957E5)](LICENSE)
 
-[安装](#安装) | [使用](#使用) | [隐私](#隐私) | [实现](#实现)
+[安装](#安装) | [使用](#使用) | [语言](#语言) | [隐私](#隐私) | [实现](#实现)
 
 <img src="Images/preview.gif" width="640" alt="CodexBar 预览">
 
@@ -20,7 +20,7 @@
 
 ---
 
-CodexBar 把 Codex 的运行状态收进菜单栏: 账户信息, 剩余额度, 任务状态, 重置时间, Token 用量, 使用详细信息等
+CodexBar 把 Codex 的运行状态收进菜单栏: 账户信息, 剩余额度, 任务状态, 重置时间, Token 用量, 使用详细信息等, 并提供简体中文和英文界面
 
 ## 特性
 
@@ -69,6 +69,7 @@ CodexBar 把 Codex 的运行状态收进菜单栏: 账户信息, 剩余额度, �
 
 ### 系统集成
 
+- 简体中文和英文界面, 日期 时间 时长和百分比按当前语言与地区格式显示
 - 全局快捷键唤起
 - 内置日志窗口保留最近 500 条 app-server 请求记录
 
@@ -101,6 +102,12 @@ brew install --cask bob-zebedy/tap/codexbar
 | `⌘⇧W`               | 全局唤起主面板, 可在设置中改键 |
 | `⌘,`                | 打开设置窗口                   |
 | `⌘L`                | 主面板打开时, 打开日志窗口     |
+
+### 语言
+
+CodexBar 提供简体中文和英文界面, 默认跟随 macOS 的 App 语言偏好
+
+需要单独切换时, 可在 macOS 系统设置的语言与地区中为 CodexBar 指定 App 语言. 日期 时间 时长和百分比会继续按照当前地区格式显示
 
 ### 关于 Hook
 
