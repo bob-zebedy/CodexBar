@@ -80,7 +80,7 @@ final class SettingsOptionsPanelController {
         self.willShow = willShow
         self.contentControllerProvider = contentControllerProvider
         // 内容行数随开关增删, 高度得跟着重算
-        // 订阅整个 ObservableObject 而不是逐个 @Published: 那种列表漏一项就会让面板裁掉底部或留下空白,
+        // 订阅整个 ObservableObject 而不是逐个 @Published: 那种列表漏一项就会让面板裁掉底部或留下空白
         // 而多余的触发在面板收着时被 scheduleResize 的守卫挡掉, 展开时也只是一次尺寸相同的空转
         contentChanges
             .sink { [weak self] in
@@ -167,7 +167,7 @@ final class SettingsOptionsPanelController {
         // 只有刚构造出来的那一次需要重建, hosting controller 之后常驻, portal 已经建好
         let needsEntryRebuild = panel == nil
         let panel = ensurePanel()
-        // 这里不必先布局: 下面 measuredPanelSize 走的 validFittingSize 第一句就是 layoutSubtreeIfNeeded,
+        // 这里不必先布局: 下面 measuredPanelSize 走的 validFittingSize 第一句就是 layoutSubtreeIfNeeded
         // 而中间两句只碰设置窗口那棵树, 不会把面板弄脏
         let windowSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: window) ?? window.frame
         let screen = window.screen ?? NSScreen.main

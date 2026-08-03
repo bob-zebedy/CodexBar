@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build}"
+BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/Build}"
 
 DMG_PATH="${1:-}"
 APPCAST_PATH="${APPCAST_PATH:-${PROJECT_DIR}/appcast.xml}"
@@ -25,7 +25,7 @@ usage: Scripts/appcast.sh [CodexBar-vX.Y.Z.dmg]
 
 Environment:
   BUILD_DIR               Directory used for default DMG lookup.
-                           Defaults to build/.
+                           Defaults to Build/.
   APPCAST_PATH            Path to appcast.xml. Defaults to appcast.xml.
   DOWNLOAD_BASE_URL       Base URL for DMG downloads.
                            Defaults to https://codexbar.zabrian.app/download.

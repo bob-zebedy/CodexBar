@@ -7,7 +7,7 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 XCODE_PROJECT="${PROJECT_DIR}/CodexBar.xcodeproj"
 XCODE_SCHEME="CodexBar"
 CONFIGURATION="Release"
-BUILD_DIR="${PROJECT_DIR}/build"
+BUILD_DIR="${PROJECT_DIR}/Build"
 DERIVED_DATA_PATH=""
 ARCHIVE_PATH=""
 EXPORT_OPTIONS_PLIST=""
@@ -28,17 +28,16 @@ usage() {
 usage: Scripts/build.sh [options] [Output.app]
 
 Builds a Release archive, exports a Developer ID app, submits it to Apple
-notarization, staples the ticket, validates the result, and writes the final app to build/.
-After a successful build, build/ keeps only the final .app.
+notarization, staples the ticket, validates the result, and writes the final app to build/
 
 Options:
   --project PATH                 Xcode project. Defaults to CodexBar.xcodeproj.
   --scheme NAME                  Xcode scheme. Defaults to CodexBar.
   --configuration NAME           Xcode configuration. Defaults to Release.
-  --build-dir DIR                Build output directory. Defaults to build/.
+  --build-dir DIR                Build output directory. Defaults to Build/.
                                   Cleaned before each build.
-  --derived-data PATH            DerivedData path. Defaults to build/DerivedData.
-  --archive-path PATH            Archive path. Defaults to build/<scheme>.xcarchive.
+  --derived-data PATH            DerivedData path. Defaults to Build/DerivedData.
+  --archive-path PATH            Archive path. Defaults to Build/<scheme>.xcarchive.
   --export-options PATH          Export options plist. Generated when unset.
   --team-id ID                   Apple Developer team ID. Defaults to the
                                   DEVELOPMENT_TEAM build setting.
@@ -49,7 +48,7 @@ Options:
   --notary-password PASSWORD     App-specific password fallback. Prefer profile.
   --skip-notarization            Build/export without notarytool and stapling.
   --skip-spctl-assess            Skip final Gatekeeper spctl assessment.
-  --output-app PATH              Final app path. Defaults to build/CodexBar.app.
+  --output-app PATH              Final app path. Defaults to Build/CodexBar.app.
   -h, --help                     Show this help.
 
 Recommended credential setup:

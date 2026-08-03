@@ -3,7 +3,7 @@
 
 # Xcode
 DerivedData/
-build/
+Build/
 *.xcarchive
 *.xcresult
 *.dSYM

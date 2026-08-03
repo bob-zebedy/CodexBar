@@ -17,7 +17,7 @@ final class SettingsWindowController: HostingWindowController {
     private let keepAliveController: KeepAliveController
     private let onSyncChanged: (Bool) -> Void
     private let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
-    /// 只在真的要展开时构造: 控制器一建就挂上内容变化订阅并常驻到 App 结束,
+    /// 只在真的要展开时构造: 控制器一建就挂上内容变化订阅并常驻到 App 结束
     /// 而用户可能一次子面板都没开过
     private var notificationOptionsPanelController: SettingsOptionsPanelController?
     private var keepAliveOptionsPanelController: SettingsOptionsPanelController?

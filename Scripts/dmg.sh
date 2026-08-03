@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/build}"
+BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/Build}"
 
 APP_PATH="${1:-}"
 OUTPUT_PATH="${2:-}"

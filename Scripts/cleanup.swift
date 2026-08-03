@@ -187,7 +187,7 @@ private final class KeepAliveCleanupCommand {
             candidates.append(registeredURL)
         }
         if configuration == .release {
-            candidates.append(projectURL.appending(path: "build/CodexBar.app"))
+            candidates.append(projectURL.appending(path: "Build/CodexBar.app"))
         }
 
         for candidate in candidates {

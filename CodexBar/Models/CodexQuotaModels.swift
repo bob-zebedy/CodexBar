@@ -4,6 +4,7 @@ import Foundation
 nonisolated struct CodexQuotaSnapshot: Equatable {
     let account: CodexAccount
     let planType: String?
+    let credits: RateLimitCreditsSnapshot?
     let resetCreditsAvailableCount: Int?
     let resetCreditExpirationDates: [Date]?
     let generatedAt: Date
@@ -142,6 +143,14 @@ nonisolated struct RateLimitSnapshot: Decodable {
     let planType: String?
     let primary: RateLimitWindow?
     let secondary: RateLimitWindow?
+    let credits: RateLimitCreditsSnapshot?
+}
+
+/// app-server 返回的 Credits 余额状态
+nonisolated struct RateLimitCreditsSnapshot: Decodable, Equatable {
+    let balance: String?
+    let hasCredits: Bool
+    let unlimited: Bool
 }
 
 /// resetsAt 是 Unix 时间戳, 在模型层先转成 Date 方便 UI 格式化
@@ -186,6 +195,7 @@ nonisolated extension CodexQuotaSnapshot {
         self.init(
             account: account,
             planType: rateLimitsResponse?.rateLimits.planType,
+            credits: rateLimitsResponse.flatMap { Self.primaryCredits(from: $0) },
             resetCreditsAvailableCount: rateLimitsResponse?.rateLimitResetCredits?.availableCount,
             resetCreditExpirationDates: resetCreditExpirationDates,
             generatedAt: generatedAt,
@@ -194,6 +204,11 @@ nonisolated extension CodexQuotaSnapshot {
             isRateLimitsStale: isRateLimitsStale,
             isUsageStale: isUsageStale
         )
+    }
+
+    private static func primaryCredits(from response: AccountRateLimitsResponse) -> RateLimitCreditsSnapshot? {
+        let primaryLimitId = response.rateLimits.limitId ?? "codex"
+        return response.rateLimitsByLimitId?[primaryLimitId]?.credits ?? response.rateLimits.credits
     }
 
     // 展示顺序: 顶层 rateLimits 指向的主 limit 置顶, 其余按名称排序

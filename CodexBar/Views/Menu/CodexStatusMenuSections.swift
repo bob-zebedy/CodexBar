@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 /// 菜单面板内共享的固定尺寸, 保持各分区对齐
@@ -137,6 +138,7 @@ struct EmptyDataPanel: View {
 /// 多个 limit 的额度区, 使用 stale 透明度标记缓存回退数据
 struct QuotaLimitsSection: View {
     let limits: [CodexQuotaLimitSnapshot]
+    let credits: RateLimitCreditsSnapshot?
     let resetCreditsAvailableCount: Int?
     let resetCreditExpirationDates: [Date]?
     let isStale: Bool
@@ -151,7 +153,7 @@ struct QuotaLimitsSection: View {
                     LiquidGlassDivider()
                 }
 
-                quotaLimitSection(limit, showsResetCredits: isPrimary)
+                quotaLimitSection(limit, showsPrimaryMetadata: isPrimary)
             }
         }
         .markStale(isStale)
@@ -162,7 +164,7 @@ struct QuotaLimitsSection: View {
         }
     }
 
-    private func quotaLimitSection(_ limit: CodexQuotaLimitSnapshot, showsResetCredits: Bool) -> some View {
+    private func quotaLimitSection(_ limit: CodexQuotaLimitSnapshot, showsPrimaryMetadata: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(limit.title)
@@ -173,7 +175,11 @@ struct QuotaLimitsSection: View {
 
                 Spacer(minLength: 8)
 
-                if showsResetCredits, let resetCreditsAvailableCount, resetCreditsAvailableCount > 0 {
+                if showsPrimaryMetadata, let credits, let value = creditsDisplayValue(credits) {
+                    creditsBalance(value: value, credits: credits)
+                }
+
+                if showsPrimaryMetadata, let resetCreditsAvailableCount, resetCreditsAvailableCount > 0 {
                     resetCreditsButton(count: resetCreditsAvailableCount)
                 }
             }
@@ -186,6 +192,74 @@ struct QuotaLimitsSection: View {
         }
     }
 
+    @ViewBuilder
+    private func creditsBalance(value: String, credits: RateLimitCreditsSnapshot) -> some View {
+        let capsule = metadataCapsule("积分: \(value)")
+
+        if let helpText = creditsHelpText(value: value, credits: credits) {
+            capsule.help(helpText)
+        } else {
+            capsule
+        }
+    }
+
+    private func creditsDisplayValue(_ credits: RateLimitCreditsSnapshot) -> String? {
+        if credits.unlimited {
+            return "无限"
+        }
+
+        if let balance = normalizedCreditsBalance(credits.balance) {
+            return compactCreditsBalance(balance)
+        }
+
+        return credits.hasCredits ? "可用" : nil
+    }
+
+    private func creditsHelpText(value: String, credits: RateLimitCreditsSnapshot) -> String? {
+        guard value.hasSuffix("K") || value.hasSuffix("M"),
+              let balance = normalizedCreditsBalance(credits.balance) else {
+            return nil
+        }
+
+        return balance
+    }
+
+    private func normalizedCreditsBalance(_ balance: String?) -> String? {
+        guard let balance = balance?.trimmingCharacters(in: .whitespacesAndNewlines), !balance.isEmpty else {
+            return nil
+        }
+
+        return balance
+    }
+
+    private func compactCreditsBalance(_ balance: String) -> String {
+        guard let amount = Double(balance), amount.isFinite else {
+            return truncatedCreditsBalance(balance)
+        }
+
+        let magnitude = abs(amount)
+        guard magnitude >= Self.compactCreditsThreshold else {
+            return truncatedCreditsBalance(balance)
+        }
+
+        guard let unit = Self.compactCreditsUnits.first(where: { magnitude >= $0.divisor }),
+              let formattedAmount = Self.compactCreditsFormatter.string(
+                  from: NSNumber(value: amount / unit.divisor)
+              ) else {
+            return truncatedCreditsBalance(balance)
+        }
+
+        return truncatedCreditsBalance("\(formattedAmount)\(unit.suffix)")
+    }
+
+    private func truncatedCreditsBalance(_ balance: String) -> String {
+        guard balance.count > Self.maximumFallbackCreditsCharacters else {
+            return balance
+        }
+
+        return "\(balance.prefix(Self.maximumFallbackCreditsCharacters - 3))..."
+    }
+
     private func resetCreditsButton(count: Int) -> some View {
         Button {
             onResetCreditsTap(
@@ -196,17 +270,41 @@ struct QuotaLimitsSection: View {
                 )
             )
         } label: {
-            Text("重置次数: \(count)")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.green)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .liquidGlassCapsule(tint: .green)
+            metadataCapsule("重置次数: \(count)")
         }
         .buttonStyle(.plain)
     }
+
+    private func metadataCapsule(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2.weight(.medium))
+            .monospacedDigit()
+            .foregroundStyle(.green)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .liquidGlassCapsule(tint: .green)
+    }
+
+    private static let compactCreditsThreshold = 10000.0
+    private static let maximumFallbackCreditsCharacters = 12
+    private static let compactCreditsUnits: [(divisor: Double, suffix: String)] = [
+        (1000000000000, "T"),
+        (1000000000, "B"),
+        (1000000, "M"),
+        (1000, "K")
+    ]
+
+    private static let compactCreditsFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = false
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 1
+        return formatter
+    }()
 }
 
 /// 底部更新时间行, 同时承载 Sparkle 被动更新提示

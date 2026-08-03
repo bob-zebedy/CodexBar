@@ -55,7 +55,7 @@ Scripts/cleanup.swift --help
 
 日常调试直接 `open CodexBar.xcodeproj` 用 Xcode 跑 Debug scheme; 注意 Debug 产物用的是 `app.zabrian.codexbar.debug` 这个 bundle ID, 与 Release 安装版可以共存, 排查防睡眠问题时要确认自己看的是哪一套 helper
 
-`Scripts/build.sh` 会先清空 `build/` 目录, 成功后只留最终产物 `.app` 文件; 凭据推荐用 keychain profile, 先跑一次 `xcrun notarytool store-credentials "codexbar-notary" --apple-id "<Apple ID>" --team-id "<Team ID>"` 存好, 之后构建加上 `--notary-profile codexbar-notary`
+`Scripts/build.sh` 会先清空 `Build/` 目录, 成功后只留最终产物 `.app` 文件; 凭据推荐用 keychain profile, 先跑一次 `xcrun notarytool store-credentials "codexbar-notary" --apple-id "<Apple ID>" --team-id "<Team ID>"` 存好, 之后构建加上 `--notary-profile codexbar-notary`
 
 Debug 与 Release 使用不同 bundle ID, 分别是 `app.zabrian.codexbar.debug` 与 `app.zabrian.codexbar` 两个, helper 相应带 `.debug.helper` 与 `.helper` 后缀, 所以 `CodexBarHelper/` 下有两份 LaunchDaemon plist, `cleanup.swift` 也需要同时处理两套
 

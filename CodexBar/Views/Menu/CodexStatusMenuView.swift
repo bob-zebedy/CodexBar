@@ -104,6 +104,7 @@ private extension CodexStatusMenuView {
             if !snapshot.limits.isEmpty {
                 QuotaLimitsSection(
                     limits: snapshot.limits,
+                    credits: snapshot.credits,
                     resetCreditsAvailableCount: snapshot.resetCreditsAvailableCount,
                     resetCreditExpirationDates: snapshot.resetCreditExpirationDates,
                     isStale: snapshot.isRateLimitsStale,

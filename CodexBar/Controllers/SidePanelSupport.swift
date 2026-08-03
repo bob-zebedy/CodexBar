@@ -267,8 +267,7 @@ final class SidePanelDrawerPresenter {
 
 // MARK: - 内容宿主
 
-/// 侧边面板的内容宿主: 懒建 panel + hostingController, 统一"替换 rootView →
-/// configureLayers → setContentSize"的更新序列
+/// 侧边面板的内容宿主: 懒建 panel + hostingController, 统一"替换 rootView → configureLayers → setContentSize"的更新序列
 /// ⚠️ 每次更新都整树替换 rootView 是刻意行为 (见 CLAUDE.md 热力图详情面板的说明), 不要改成常驻状态推送
 @MainActor
 final class SidePanelContentHost<Root: View> {
