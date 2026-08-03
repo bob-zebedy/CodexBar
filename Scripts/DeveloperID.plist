@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <dict>
+        <key>method</key>
+        <string>developer-id</string>
+
+        <key>signingStyle</key>
+        <string>manual</string>
+
+        <key>signingCertificate</key>
+        <string>47D8800DC4EF9812EC701D25D53C849DE0FE923C</string>
+
+        <key>teamID</key>
+        <string>4KJ362VJW5</string>
+
+        <key>iCloudContainerEnvironment</key>
+        <string>Production</string>
+
+        <key>provisioningProfiles</key>
+        <dict>
+            <key>app.zabrian.codexbar</key>
+            <string>75a955c2-1c78-4e49-a0f0-a07f3d5c50c4</string>
+        </dict>
+
+        <key>stripSwiftSymbols</key>
+        <true/>
+    </dict>
+</plist>

@@ -7,12 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		B10000000000000000000001 /* CodexBarHelperXPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* CodexBarHelperXPC.swift */; };
-		B10000000000000000000002 /* CodexBarHelperXPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* CodexBarHelperXPC.swift */; };
-		B10000000000000000000003 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000012 /* main.swift */; };
-		B10000000000000000000004 /* app.zabrian.codexbar.helper.plist in Copy LaunchDaemons */ = {isa = PBXBuildFile; fileRef = B10000000000000000000013 /* app.zabrian.codexbar.helper.plist */; };
 		B10000000000000000000005 /* CodexBarHelper in Embed CodexBar Helper */ = {isa = PBXBuildFile; fileRef = B10000000000000000000014 /* CodexBarHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		B10000000000000000000006 /* app.zabrian.codexbar.debug.helper.plist in Copy LaunchDaemons */ = {isa = PBXBuildFile; fileRef = B10000000000000000000015 /* app.zabrian.codexbar.debug.helper.plist */; };
 		C42A52F12FDACDEC004A2B53 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C42A52F02FDACDEC004A2B53 /* Sparkle */; };
 /* End PBXBuildFile section */
 
@@ -41,19 +36,14 @@
 			dstPath = Contents/Library/LaunchDaemons;
 			dstSubfolder = Wrapper;
 			files = (
-				B10000000000000000000004 /* app.zabrian.codexbar.helper.plist in Copy LaunchDaemons */,
-				B10000000000000000000006 /* app.zabrian.codexbar.debug.helper.plist in Copy LaunchDaemons */,
 			);
 			name = "Copy LaunchDaemons";
 		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		B10000000000000000000011 /* CodexBarHelperXPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexBarHelperXPC.swift; sourceTree = "<group>"; };
-		B10000000000000000000012 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
-		B10000000000000000000013 /* app.zabrian.codexbar.helper.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = app.zabrian.codexbar.helper.plist; sourceTree = "<group>"; };
 		B10000000000000000000014 /* CodexBarHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = CodexBarHelper; sourceTree = BUILT_PRODUCTS_DIR; };
-		B10000000000000000000015 /* app.zabrian.codexbar.debug.helper.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = app.zabrian.codexbar.debug.helper.plist; sourceTree = "<group>"; };
+		C449FB5030203E0000ED2123 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
 		C4A0FD952FD9302E000263A7 /* CodexBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CodexBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -67,6 +57,17 @@
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
+/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+		C449FB4C302038A300ED2123 /* Exceptions for "CodexBarHelper" folder in "Copy LaunchDaemons" phase from "CodexBar" target */ = {
+			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
+			buildPhase = B10000000000000000000024 /* Copy LaunchDaemons */;
+			membershipExceptions = (
+				app.zabrian.codexbar.debug.helper.plist,
+				app.zabrian.codexbar.helper.plist,
+			);
+		};
+/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9E664A4C2FDD47530016B96E /* CodexBar */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -74,6 +75,19 @@
 				9E664A582FDD47540016B96E /* Exceptions for "CodexBar" folder in "CodexBar" target */,
 			);
 			path = CodexBar;
+			sourceTree = "<group>";
+		};
+		C449FB3A3020367500ED2123 /* CodexBarHelper */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C449FB4C302038A300ED2123 /* Exceptions for "CodexBarHelper" folder in "Copy LaunchDaemons" phase from "CodexBar" target */,
+			);
+			path = CodexBarHelper;
+			sourceTree = "<group>";
+		};
+		C449FB4E30203A1100ED2123 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -93,30 +107,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		B10000000000000000000041 /* Shared */ = {
+		C449FB5130203E0000ED2123 /* Config */ = {
 			isa = PBXGroup;
 			children = (
-				B10000000000000000000011 /* CodexBarHelperXPC.swift */,
+				C449FB5030203E0000ED2123 /* Version.xcconfig */,
 			);
-			path = Shared;
-			sourceTree = "<group>";
-		};
-		B10000000000000000000042 /* CodexBarHelper */ = {
-			isa = PBXGroup;
-			children = (
-				B10000000000000000000012 /* main.swift */,
-				B10000000000000000000015 /* app.zabrian.codexbar.debug.helper.plist */,
-				B10000000000000000000013 /* app.zabrian.codexbar.helper.plist */,
-			);
-			path = CodexBarHelper;
+			path = Config;
 			sourceTree = "<group>";
 		};
 		C4A0FD8C2FD9302E000263A7 = {
 			isa = PBXGroup;
 			children = (
 				9E664A4C2FDD47530016B96E /* CodexBar */,
-				B10000000000000000000041 /* Shared */,
-				B10000000000000000000042 /* CodexBarHelper */,
+				C449FB4E30203A1100ED2123 /* Shared */,
+				C449FB3A3020367500ED2123 /* CodexBarHelper */,
+				C449FB5130203E0000ED2123 /* Config */,
 				C4A0FD962FD9302E000263A7 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -142,6 +147,10 @@
 			);
 			buildRules = (
 			);
+			fileSystemSynchronizedGroups = (
+				C449FB3A3020367500ED2123 /* CodexBarHelper */,
+				C449FB4E30203A1100ED2123 /* Shared */,
+			);
 			name = CodexBarHelper;
 			productName = CodexBarHelper;
 			productReference = B10000000000000000000014 /* CodexBarHelper */;
@@ -164,6 +173,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				9E664A4C2FDD47530016B96E /* CodexBar */,
+				C449FB4E30203A1100ED2123 /* Shared */,
 			);
 			name = CodexBar;
 			packageProductDependencies = (
@@ -226,14 +236,11 @@
 		B10000000000000000000021 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
-				B10000000000000000000002 /* CodexBarHelperXPC.swift in Sources */,
-				B10000000000000000000003 /* main.swift in Sources */,
 			);
 		};
 		C4A0FD912FD9302E000263A7 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
-				B10000000000000000000001 /* CodexBarHelperXPC.swift in Sources */,
 			);
 		};
 /* End PBXSourcesBuildPhase section */
@@ -253,7 +260,6 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
-				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 4KJ362VJW5;
 				ENABLE_APP_SANDBOX = NO;
@@ -274,7 +280,6 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
-				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 4KJ362VJW5;
 				ENABLE_APP_SANDBOX = NO;
@@ -291,6 +296,7 @@
 		};
 		C4A0FD9E2FD9302E000263A7 /* Debug configuration for PBXProject "CodexBar" */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C449FB5030203E0000ED2123 /* Version.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -358,6 +364,7 @@
 		};
 		C4A0FD9F2FD9302E000263A7 /* Release configuration for PBXProject "CodexBar" */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C449FB5030203E0000ED2123 /* Version.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -389,6 +396,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
@@ -424,7 +432,6 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 64;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 4KJ362VJW5;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
@@ -441,7 +448,6 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 3.5.10;
 				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -461,10 +467,8 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = CodexBar/Resources/CodexBar.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 64;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = 4KJ362VJW5;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
@@ -481,7 +485,6 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 3.5.10;
 				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
