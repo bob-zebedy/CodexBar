@@ -5,12 +5,14 @@ import Foundation
 nonisolated enum WorkflowHookEventRecorder {
     static let hookArgument = "--hook-event"
 
-    /// 写进 hooks.json 的 handler 超时, 超时后 Codex 会杀掉本子进程
-    /// 定义在这里而不是 CodexHookSettings: 需要据此推算下面的等锁预算, 两者必须一起改
-    static let hookTimeoutSeconds = 5
+    /// SessionEnd 在 Codex 中最多允许 3 秒, 其他事件沿用 5 秒
+    /// 超时定义在这里而不是 CodexHookSettings: 写配置与下面的等锁预算必须同源
+    private static let defaultHookTimeoutSeconds = 5
+    private static let sessionEndHookTimeoutSeconds = 3
 
-    /// 留出余量在被 Codex 杀掉之前主动收工: 被杀可能发生在写入中途并留下半截坏行
-    private static let lockWaitLimitSeconds = Double(hookTimeoutSeconds) - 2
+    static func hookTimeoutSeconds(for event: CodexHookEvent) -> Int {
+        event == .sessionEnd ? sessionEndHookTimeoutSeconds : defaultHookTimeoutSeconds
+    }
 
     static func handleIfRequested() -> Bool {
         guard CommandLine.arguments.contains(hookArgument) else {
@@ -31,6 +33,7 @@ nonisolated enum WorkflowHookEventRecorder {
     }
 
     private static func record(payload: WorkflowHookPayload, eventName: String) throws {
+        let hookEvent = CodexHookEvent(eventName: eventName)
         let timestamp = payload.date(for: "timestamp") ?? Date()
         let cwd = payload.string(for: "cwd") ?? FileManager.default.currentDirectoryPath
         let tool = payload.string(for: "tool_name")
@@ -41,7 +44,7 @@ nonisolated enum WorkflowHookEventRecorder {
         let agentId = payload.string(for: "agent_id")
         let turnContext = readTurnContext(
             from: payload,
-            eventName: eventName,
+            hookEvent: hookEvent,
             turnId: turnId
         )
         let event = WorkflowHookEvent(
@@ -58,15 +61,18 @@ nonisolated enum WorkflowHookEventRecorder {
             agentId: agentId
         )
 
-        try recordWorkflowTransaction(event: event)
+        try recordWorkflowTransaction(
+            event: event,
+            lockWaitLimitSeconds: lockWaitLimitSeconds(for: hookEvent)
+        )
     }
 
     private static func readTurnContext(
         from payload: WorkflowHookPayload,
-        eventName: String,
+        hookEvent: CodexHookEvent?,
         turnId: String?
     ) -> WorkflowTurnContext? {
-        guard let hookEvent = CodexHookEvent(eventName: eventName),
+        guard let hookEvent,
               hookEvent == .userPromptSubmit || hookEvent == .permissionRequest,
               let turnId,
               let transcriptPath = payload.string(for: "transcript_path") else {
@@ -78,7 +84,16 @@ nonisolated enum WorkflowHookEventRecorder {
         )
     }
 
-    private static func recordWorkflowTransaction(event: WorkflowHookEvent) throws {
+    /// 留出 2 秒在 Codex 杀掉子进程前主动收工, 避免写入中途留下半截坏行
+    private static func lockWaitLimitSeconds(for event: CodexHookEvent?) -> TimeInterval {
+        let timeout = event.map(hookTimeoutSeconds(for:)) ?? defaultHookTimeoutSeconds
+        return max(0, Double(timeout) - 2)
+    }
+
+    private static func recordWorkflowTransaction(
+        event: WorkflowHookEvent,
+        lockWaitLimitSeconds: TimeInterval
+    ) throws {
         try WorkflowStorage.withExclusiveLock(waitLimitSeconds: lockWaitLimitSeconds) {
             let dateKey = WorkflowStorage.dateKey(for: event.timestamp)
             let eventLogURL = WorkflowStorage.eventLogURL(for: dateKey)

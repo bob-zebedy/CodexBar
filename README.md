@@ -114,7 +114,13 @@ CodexBar 提供简体中文和英文界面, 默认跟随 macOS 的 App 语言偏
 实时任务展示, 热力图统计数据与防睡眠都依赖 CodexBar Hook
 
 > [!NOTE]
-> 不会影响任何原本的 Codex Hook
+> CodexBar Hook 需要 Codex 0.145.0 或更高版本. CodexBar 按当前连接的 app-server 运行版本校验, 更新 Codex 后如果仍提示版本过低, 请先重启 CodexBar 以建立新连接
+
+> [!NOTE]
+> CodexBar 只增删自己的 handler, 不会影响用户或其他 App 原本的 Codex Hook
+
+> [!TIP]
+> 升级后如果设置页提示 `CodexBar Hook 已不完整`, 将 CodexBar Hook 关闭后重新开启即可补齐新增事件
 
 ### 关于防睡眠
 
@@ -132,7 +138,7 @@ CodexBar 对外网络请求只有以下四项
 | 与本机 `codex app-server` 通信 | 获取账户, 额度信息, 获取&修改本机 codex 配置等 |
 | 查询额度重置次数和过期时间     | 请求 OpenAI 接口获取数据                       |
 | Sparkle 更新检查               | 获取 appcast 检查新版本                        |
-| CloudKit 同步                  | 私有数据: 同步用量数据                         |
+| CloudKit 同步                  | 私有数据: 同步脱敏的每日 Hook 聚合数据         |
 
 ## 实现
 
@@ -172,6 +178,10 @@ flowchart LR
 **Hook 子进程模式**
 
 App 使用 `--hook-event` 参数启动时不初始化任何 UI, 只从 stdin 读一行 JSON, 在文件锁内追加到当日 JSONL 后立即退出
+
+**历史聚合**
+
+原始 Hook 事件与每日聚合保留 210 天, 会话和轮次 ID 只保留 3 天; 聚合算法版本变化或已压缩日期收到新事件时, 会从仍在保留期内的原始 JSONL 统一完整重建
 
 **root helper 权限**
 

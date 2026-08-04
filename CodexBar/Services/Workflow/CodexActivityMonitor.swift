@@ -46,10 +46,11 @@ final class CodexActivityMonitor: ObservableObject {
         }
         isStarted = true
 
-        codexHookSettings.$isEnabled
+        Publishers.CombineLatest(codexHookSettings.$isEnabled, codexHookSettings.$isVerified)
+            .map { $0 && $1 }
             .removeDuplicates()
-            .sink { [weak self] isEnabled in
-                self?.setMonitoringEnabled(isEnabled)
+            .sink { [weak self] isOperable in
+                self?.setMonitoringEnabled(isOperable)
             }
             .store(in: &cancellables)
 
@@ -82,9 +83,9 @@ final class CodexActivityMonitor: ObservableObject {
         stopReaderAndClearState()
     }
 
-    private func setMonitoringEnabled(_ enabled: Bool) {
-        guard enabled else {
-            AppLog.activity.notice("任务监控已停止: reason=hookDisabled")
+    private func setMonitoringEnabled(_ isOperable: Bool) {
+        guard isOperable else {
+            AppLog.activity.notice("任务监控已停止: reason=hookInoperable")
             stopReaderAndClearState()
             return
         }
@@ -93,7 +94,7 @@ final class CodexActivityMonitor: ObservableObject {
             return
         }
 
-        AppLog.activity.notice("任务监控已启动: reason=hookEnabled")
+        AppLog.activity.notice("任务监控已启动: reason=hookOperable")
 
         tailReaderGeneration &+= 1
         let generation = tailReaderGeneration
@@ -412,6 +413,8 @@ final class CodexActivityMonitor: ObservableObject {
             return waitForApproval(from: event)
         case .stop:
             return completeTask(from: event)
+        case .sessionEnd:
+            terminateSession(from: event)
         case .sessionStart, .none:
             break
         }
@@ -674,6 +677,38 @@ final class CodexActivityMonitor: ObservableObject {
         recordCompletedTask(eventKey, at: event.timestamp)
         recordCompletedTask(key, at: event.timestamp)
         return .completed(completion)
+    }
+
+    /// SessionEnd 没有 turn_id, 以 session 为边界把活跃任务移入终态确认窗口
+    /// 任务会立即退出活跃列表, rollout 仍有 5 秒补回准确的完成或终止分类
+    private func terminateSession(from event: WorkflowHookEvent) {
+        guard let sessionId = event.sessionId else {
+            return
+        }
+
+        let deadline = Date().addingTimeInterval(Self.supersededTerminalGracePeriod)
+        let matchingPendingTasks = pendingTerminalTasks.filter { key, pending in
+            key.sessionId == sessionId && pending.task.lastActivityAt <= event.timestamp
+        }
+        for (key, pending) in matchingPendingTasks {
+            pendingTerminalTasks[key] = PendingTerminalTask(
+                task: pending.task,
+                supersededAt: max(pending.supersededAt, event.timestamp),
+                deadline: min(pending.deadline, deadline)
+            )
+        }
+
+        let matchingActiveTasks = tasks.filter { key, task in
+            key.sessionId == sessionId && task.lastActivityAt <= event.timestamp
+        }
+        for (key, task) in matchingActiveTasks {
+            tasks.removeValue(forKey: key)
+            pendingTerminalTasks[key] = PendingTerminalTask(
+                task: task,
+                supersededAt: event.timestamp,
+                deadline: deadline
+            )
+        }
     }
 
     /// 精确 turn 失败后回退同 session 最近活动, 再回退同项目匿名任务

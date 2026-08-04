@@ -157,7 +157,7 @@ actor WorkflowService {
         )
         let summary = await WorkflowDataRebuildSummary(
             rebuiltDateCount: rebuildResults.count,
-            eventCount: rebuildResults.reduce(0) { $0 + $1.aggregate.eventCount },
+            eventCount: rebuildResults.reduce(0) { $0 + ($1.aggregate.eventCount ?? 0) },
             corruptLineCount: rebuildResults.reduce(0) { $0 + $1.corrupt },
             isSyncReplacementPending: syncService.hasPendingReplacement(for: normalizedDateKeys),
             failedDateKeys: failedDateKeys,
@@ -186,8 +186,14 @@ actor WorkflowService {
     // MARK: - 重建与维护调度
 
     private func rebuildLocalData(for dateKey: String) throws -> WorkflowMaintenanceResult {
-        let task = try prepareRebuildTask(for: dateKey)
         var aggregates = loadDailyAggregates() ?? []
+        let hookCountAvailability = aggregates
+            .first(where: { $0.date == dateKey })?
+            .hookCountAvailability ?? .all
+        let task = try prepareRebuildTask(
+            for: dateKey,
+            hookCountAvailability: hookCountAvailability
+        )
 
         do {
             let result = try buildDailyAggregate(for: task)
@@ -202,7 +208,10 @@ actor WorkflowService {
         }
     }
 
-    private func prepareRebuildTask(for dateKey: String) throws -> WorkflowMaintenanceTask {
+    private func prepareRebuildTask(
+        for dateKey: String,
+        hookCountAvailability: WorkflowHookCountAvailability
+    ) throws -> WorkflowMaintenanceTask {
         let retentionCutoffKey = WorkflowStorage.dateKey(for: WorkflowStorage.retentionCutoffDate())
         guard WorkflowStorage.isValidDateKey(dateKey), dateKey >= retentionCutoffKey else {
             throw WorkflowDataRebuildError.sourceUnavailable
@@ -225,7 +234,12 @@ actor WorkflowService {
             guard let day = state.days[dateKey] else {
                 throw WorkflowDataRebuildError.sourceUnavailable
             }
-            return dirtyTask(for: dateKey, day: day, size: stat.size)
+            return dirtyTask(
+                for: dateKey,
+                day: day,
+                size: stat.size,
+                hookCountAvailability: hookCountAvailability
+            )
         }
     }
 
@@ -256,9 +270,9 @@ actor WorkflowService {
         do {
             let tasks = try prepareMaintenanceTasks()
             stage = .write
-            let didWriteDailyLog = perform(tasks, counts: &counts)
-            // 每次落盘前都已整体归一化, 写入过就不必再做一轮全量解码比对
-            if !didWriteDailyLog {
+            let didCommitDailyLog = perform(tasks, counts: &counts)
+            // 成功提交前已整体归一化, 没有完整提交时再做一次稳态检查
+            if !didCommitDailyLog {
                 try normalizeDailyAggregatesIfNeeded()
             }
             stage = .prune
@@ -282,7 +296,8 @@ actor WorkflowService {
         return counts
     }
 
-    /// 返回是否写入过 daily.jsonl; 批次内共享同一份内存聚合, 避免每个任务重新读盘
+    /// 返回是否至少完整提交一个聚合与维护状态
+    /// 批次内共享同一份内存聚合, 避免每个任务重新读盘
     private func perform(
         _ tasks: [WorkflowMaintenanceTask],
         counts: inout WorkflowMaintenanceCounts
@@ -299,16 +314,16 @@ actor WorkflowService {
             : oldestDateKey + ".." + newestDateKey
 
         var aggregates = loadDailyAggregates() ?? []
-        var didWrite = false
+        var didCommit = false
         for task in tasks {
             do {
                 let result = try buildDailyAggregate(for: task)
                 if try commit(result, aggregates: &aggregates) {
-                    didWrite = true
+                    didCommit = true
                     counts.written += 1
                     // 记本轮新摄入的量; 累加 eventCount 会变成当日总数, Hook 停写也看不出来
                     // dirty 任务没有 base, 差值即整天重算的量, 与"这轮处理了多少"仍然一致
-                    counts.events += result.aggregate.eventCount - (task.baseAggregate?.eventCount ?? 0)
+                    counts.events += (result.aggregate.eventCount ?? 0) - task.baseEventCount
                 } else {
                     counts.skipped += 1
                 }
@@ -321,7 +336,7 @@ actor WorkflowService {
             }
         }
 
-        return didWrite
+        return didCommit
     }
 
     private func prepareMaintenanceTasks() throws -> [WorkflowMaintenanceTask] {
@@ -366,9 +381,9 @@ actor WorkflowService {
     ) -> Bool {
         var changed = false
 
-        if state.schema != WorkflowMaintenanceState.currentSchema {
+        if state.schema != WorkflowMaintenanceState.currentAggregationSchema {
             changed = state.markDirty(contentsOf: eventDateKeys) || changed
-            state.schema = WorkflowMaintenanceState.currentSchema
+            state.schema = WorkflowMaintenanceState.currentAggregationSchema
             changed = true
         }
 
@@ -471,7 +486,12 @@ actor WorkflowService {
             guard let day = state.days[dateKey] else {
                 return nil
             }
-            return dirtyTask(for: dateKey, day: day)
+            return dirtyTask(
+                for: dateKey,
+                day: day,
+                hookCountAvailability: dailyByDate[dateKey]?
+                    .hookCountAvailability ?? .all
+            )
         }
 
         for dateKey in state.pending where !dirty.contains(dateKey) {
@@ -483,11 +503,33 @@ actor WorkflowService {
                 continue
             }
 
-            guard let baseAggregate = dailyByDate[dateKey],
+            let existingAggregate = dailyByDate[dateKey]
+            guard let baseAggregate = existingAggregate,
                   baseAggregate.sourceGeneration == day.sourceGeneration else {
                 state.markDirty(dateKey)
                 changedState = true
-                tasks.append(dirtyTask(for: dateKey, day: day, size: size))
+                tasks.append(dirtyTask(
+                    for: dateKey,
+                    day: day,
+                    size: size,
+                    hookCountAvailability: existingAggregate?
+                        .hookCountAvailability ?? .all
+                ))
+                continue
+            }
+
+            // ID 已压缩的聚合无法判断追加事件是否属于已有 session 或 turn
+            // 任何不能证明与全量结果等价的增量任务都降级为完整重建
+            guard retainsIdentifiers(for: dateKey),
+                  baseAggregate.supportsIncrementalAggregation else {
+                state.markDirty(dateKey)
+                changedState = true
+                tasks.append(dirtyTask(
+                    for: dateKey,
+                    day: day,
+                    size: size,
+                    hookCountAvailability: baseAggregate.hookCountAvailability
+                ))
                 continue
             }
 
@@ -507,14 +549,15 @@ actor WorkflowService {
     private func dirtyTask(
         for dateKey: String,
         day: WorkflowDayMaintenanceState,
-        size: UInt64? = nil
+        size: UInt64? = nil,
+        hookCountAvailability: WorkflowHookCountAvailability = .all
     ) -> WorkflowMaintenanceTask {
         let stat = WorkflowStorage.fileStat(at: eventLogURL(for: dateKey))
         return WorkflowMaintenanceTask(
             dateKey: dateKey,
             startOffset: 0,
             size: size ?? stat?.size ?? 0,
-            baseAggregate: nil,
+            mode: .rebuild(hookCountAvailability),
             existingCorrupt: 0,
             sourceGeneration: day.sourceGeneration,
             sourceIsFresh: day.sourceIsFresh,
@@ -532,7 +575,7 @@ actor WorkflowService {
             dateKey: dateKey,
             startOffset: day.offset,
             size: size,
-            baseAggregate: baseAggregate,
+            mode: .append(baseAggregate),
             existingCorrupt: day.corrupt,
             sourceGeneration: day.sourceGeneration,
             sourceIsFresh: day.sourceIsFresh,
@@ -590,30 +633,35 @@ actor WorkflowService {
     private func buildDailyAggregate(
         for task: WorkflowMaintenanceTask
     ) throws -> WorkflowMaintenanceResult {
-        var aggregate = task.baseAggregate ?? WorkflowDailyAggregate(
-            date: task.dateKey,
-            sourceGeneration: task.sourceGeneration,
-            sourceIsFresh: task.sourceIsFresh
-        )
-        aggregate.sourceGeneration = task.sourceGeneration
-        aggregate.sourceIsFresh = task.sourceIsFresh
+        var accumulator = switch task.mode {
+        case let .rebuild(hookCountAvailability):
+            WorkflowDailyAccumulator(
+                rebuilding: task.dateKey,
+                sourceGeneration: task.sourceGeneration,
+                sourceIsFresh: task.sourceIsFresh,
+                hookCountAvailability: hookCountAvailability
+            )
+        case let .append(baseAggregate):
+            WorkflowDailyAccumulator(
+                appending: baseAggregate,
+                sourceGeneration: task.sourceGeneration,
+                sourceIsFresh: task.sourceIsFresh
+            )
+        }
         var corrupt = task.existingCorrupt
-        var identifierCache = WorkflowDailyIdentifierCache(aggregate: aggregate)
-        let keepsIdentifiers = keepsIdentifiers(for: task.dateKey)
 
         corrupt += try readEvents(
             at: eventLogURL(for: task.dateKey),
             from: task.startOffset,
             upTo: task.size
         ) { event in
-            aggregate.record(
-                event,
-                keepsIdentifiers: keepsIdentifiers,
-                identifierCache: &identifierCache
-            )
+            accumulator.record(event)
         }
 
-        aggregate.compactIdentifiersIfNeeded(keepsIdentifiers: keepsIdentifiers)
+        let identifierStorage: WorkflowIdentifierStorage = retainsIdentifiers(for: task.dateKey)
+            ? .retained
+            : .compacted
+        let aggregate = accumulator.finalized(identifierStorage: identifierStorage)
         return try WorkflowMaintenanceResult(
             dateKey: task.dateKey,
             aggregate: aggregate,
@@ -695,7 +743,7 @@ actor WorkflowService {
 
     // MARK: - 落盘与状态提交
 
-    /// 返回是否写入了 daily.jsonl
+    /// 返回聚合与维护状态是否都基于同一份事件源完成提交
     private func commit(
         _ result: WorkflowMaintenanceResult,
         aggregates: inout [WorkflowDailyAggregate]
@@ -707,8 +755,7 @@ actor WorkflowService {
         // daily.jsonl 和 maintenance.json 分开写
         // 每次提交前后都检查事件文件是否被并发追加
         try writeDailyAggregate(result.aggregate, into: &aggregates)
-        try commitMaintenanceState(result)
-        return true
+        return try commitMaintenanceState(result)
     }
 
     private func eventLogSourceIsValid(for result: WorkflowMaintenanceResult) throws -> Bool {
@@ -805,12 +852,13 @@ actor WorkflowService {
         }
     }
 
-    private func commitMaintenanceState(_ result: WorkflowMaintenanceResult) throws {
+    /// 返回第二次源校验后是否真正推进了维护状态
+    private func commitMaintenanceState(_ result: WorkflowMaintenanceResult) throws -> Bool {
         try WorkflowStorage.withExclusiveLock {
             var state = WorkflowStorage.loadMaintenanceState()
 
             guard let currentSize = try validatedEventLogSize(for: result, state: &state) else {
-                return
+                return false
             }
 
             state.days[result.dateKey] = WorkflowDayMaintenanceState(
@@ -831,6 +879,7 @@ actor WorkflowService {
             }
 
             try WorkflowStorage.saveMaintenanceState(state)
+            return true
         }
     }
 
@@ -890,7 +939,7 @@ actor WorkflowService {
         return expiredDateKeys.count
     }
 
-    private func keepsIdentifiers(for dateKey: String) -> Bool {
+    private func retainsIdentifiers(for dateKey: String) -> Bool {
         guard let date = CodexDateFormat.dayDate(from: dateKey) else {
             return true
         }
@@ -1166,7 +1215,8 @@ nonisolated struct WorkflowDayMaintenanceState: Codable, Equatable {
 
 /// maintenance.json 的全局状态, pending 表示可增量, dirty 表示需全量重建
 nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
-    static let currentSchema = 4
+    /// 原始事件到每日聚合的算法版本, 变化时统一从原始 JSONL 重建
+    static let currentAggregationSchema = 5
 
     var schema: Int
     var pending: [String]
@@ -1174,7 +1224,7 @@ nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
     var days: [String: WorkflowDayMaintenanceState]
 
     init(
-        schema: Int = Self.currentSchema,
+        schema: Int = Self.currentAggregationSchema,
         pending: [String] = [],
         dirty: [String] = [],
         days: [String: WorkflowDayMaintenanceState] = [:]
@@ -1187,7 +1237,8 @@ nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        schema = try container.decodeIfPresent(Int.self, forKey: .schema) ?? Self.currentSchema
+        // 缺少版本只能说明来源更旧, 不能乐观视为当前算法
+        schema = try container.decodeIfPresent(Int.self, forKey: .schema) ?? 0
         pending = try Self.normalizedDates(container.decodeIfPresent([String].self, forKey: .pending) ?? [])
         dirty = try Self.normalizedDates(container.decodeIfPresent([String].self, forKey: .dirty) ?? [])
         days = try container.decodeIfPresent([String: WorkflowDayMaintenanceState].self, forKey: .days) ?? [:]
@@ -1326,16 +1377,31 @@ private nonisolated struct WorkflowDailyLogStamp: Equatable {
     let dayKey: String
 }
 
+/// 全量重建与安全增量使用不同初始状态, 避免用 nil 隐含任务语义
+private nonisolated enum WorkflowMaintenanceMode {
+    case rebuild(WorkflowHookCountAvailability)
+    case append(WorkflowDailyAggregate)
+}
+
 // 单次维护任务: 从 startOffset 读到 size, 可基于已有聚合继续追加
 private nonisolated struct WorkflowMaintenanceTask {
     let dateKey: String
     let startOffset: UInt64
     let size: UInt64
-    let baseAggregate: WorkflowDailyAggregate?
+    let mode: WorkflowMaintenanceMode
     let existingCorrupt: Int
     let sourceGeneration: String?
     let sourceIsFresh: Bool
     let fileIdentifier: UInt64?
+
+    var baseEventCount: Int {
+        switch mode {
+        case .rebuild:
+            0
+        case let .append(aggregate):
+            aggregate.eventCount ?? 0
+        }
+    }
 }
 
 /// 维护任务的提交结果, corrupt 统计保留给后续诊断

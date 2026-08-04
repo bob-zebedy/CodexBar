@@ -81,7 +81,7 @@ fix: 修复 Codex 状态刷新
     - 保留当前运行版本与磁盘安装版本不一致时的更新提示
 ```
 
-Tag 名 `v{MARKETING_VERSION}` 里的版本号从 Xcode build settings 读取, 使用附注 tag `git tag -a v3.x.y -m "Release v3.x.y"`
+Tag 名 `v{MARKETING_VERSION}` 里的版本号从 `Config/Version.xcconfig` 读取, 使用附注 tag `git tag -a v3.x.y -m "Release v3.x.y"`
 
 ## 架构
 
@@ -89,7 +89,8 @@ Tag 名 `v{MARKETING_VERSION}` 里的版本号从 Xcode build settings 读取, �
 
 `CodexBar/App/CodexBarApp.swift` 的 `init()` 最先调用 `WorkflowHookEventRecorder.handleIfRequested()`
 
-- 带 `--hook-event` 启动 -> **Hook 子进程模式**: 从 stdin 读 JSON payload, 在 `flock` 锁内追加一行 JSONL 后立即 `exit(EXIT_SUCCESS)` 退出, 绝不初始化菜单栏 UI; 写入失败静默吞掉, 不阻断 Codex; Hook handler 超时由 `hookTimeoutSeconds` 定为 5 秒, 等锁预算据此推算为 3 秒, 两者必须一起改
+- 带 `--hook-event` 启动 -> **Hook 子进程模式**: 从 stdin 读 JSON payload, 在 `flock` 锁内追加一行 JSONL 后立即 `exit(EXIT_SUCCESS)` 退出, 绝不初始化菜单栏 UI; 写入失败静默吞掉, 不阻断 Codex
+- Hook handler 超时统一由 `WorkflowHookEventRecorder.hookTimeoutSeconds(for:)` 提供, `SessionEnd` 是 3 秒, 其他事件是 5 秒; 等锁预算固定比对应事件超时少 2 秒, 当前分别是 1 秒和 3 秒
 - 普通启动 -> `CodexBarAppDelegate` 创建全部长期对象, 它在 `Controllers/StatusItemController.swift` 内, 再由 `StatusItemController.install()` 装配菜单栏; AppDelegate 是唯一的装配点, 新增服务在这里注入
 
 ### 三条数据链路
@@ -107,7 +108,12 @@ Tag 名 `v{MARKETING_VERSION}` 里的版本号从 Xcode build settings 读取, �
 
 Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/events/YYYY-MM-DD.jsonl` 这类文件, 主 App 的 `WorkflowService` (actor) 增量聚合出 `daily.jsonl` 与 `WorkflowSnapshot` 供热力图详情面板展示; 可选跨设备同步由 `WorkflowSyncScheduler` (唯一调度者) 与 `WorkflowSyncService` 负责, 走 `iCloud.app.zabrian.codexbar` 容器的 CloudKit private database, 只上传脱敏 daily 聚合
 
-`WorkflowStorage` 管理的存储目录含 `events/` `daily.jsonl` `stats.lock` `maintenance.json` `Sync/` 五项; 保留期 210 天, 对原始事件文件和 daily 聚合同时生效, 清理由 `pruneExpiredEventFiles` 执行; 聚合里的会话与轮次标识额外只保留 3 天, 过期后被 compact 掉
+- `WorkflowStorage` 管理的存储目录含 `events/` `daily.jsonl` `stats.lock` `maintenance.json` `Sync/` 五项
+- 原始事件文件与 daily 聚合统一保留 210 天, 聚合里的会话与轮次标识只保留 3 天, 到期后只留下去重计数
+- `WorkflowDailyAccumulator` 的全量与增量路径始终在内存收集完整 ID, 只有 `finalized(identifierStorage:)` 才决定保留或压缩; 已压缩的日期收到新事件时不能安全去重, 必须降级为从原始 JSONL 完整重建
+- `WorkflowMaintenanceState.currentAggregationSchema` 是原始事件到 daily 聚合的算法版本; 缺少版本按 0 处理, 版本不一致时把仍有原始事件的日期全部标脏并走通用完整重建, 不写字段级历史迁移
+- 需要从原始事件重新计算的聚合算法, 输出字段, 字段含义或去重规则变化时必须递增 `currentAggregationSchema`, 统一走相同的完整重建入口
+- daily 与 CloudKit 中的 Hook 计数字段都是可选值; `nil` 表示来源版本没有提供或无法确认, 明确的 `0` 才表示已知没有对应事件, 解码和重建都不能把两者混为一谈
 
 **链路三: 实时任务, 由 `CodexActivityMonitor` 驱动**
 
@@ -115,6 +121,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 - `HookEventTailReader` (actor) 的 bootstrap 覆盖滚动 24 小时并作为单次事务发送, 之后按当日文件 offset 增量 tail
 - `CodexSessionLifecycleReader` (actor) 增量读取 `~/.codex/sessions` 与 `archived_sessions` 下的 rollout JSONL, 只提取 turn 生命周期字段, 不解码会话或工具内容
+- 任务监控只在 `codexHookSettings.isOperable` 为 true 时运行, 即本地已安装且最近一次明确校验没有失败; 链路失效时立即停 reader 并清空实时状态
+- `SessionEnd` 没有 `turn_id`, 收到后按 session 把对应任务立即移出活跃列表并放进 5 秒终态确认窗口; rollout 在窗口内补回准确的完成或终止分类, 超时后按终止处理
 
 系统唤醒时 `NSWorkspace.didWakeNotification` 会触发立即 drain 并重置生命周期解析回退
 
@@ -125,7 +133,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `SystemSleepService` 用进程内 `IOPMAssertion` 建立 `PreventUserIdleSystemSleep` 断言, 只挡空闲睡眠, 不需要提权; 断言名必须是 ASCII, 否则 `pmset -g assertions` 显示不出标识
 - `CodexBarHelper` 是 root LaunchDaemon, 通过 XPC 接受 `setSleepDisabled` 请求, 执行 `/usr/bin/pmset -a disablesleep` 覆盖合盖睡眠
 
-链路: `KeepAliveController` (MainActor) 订阅 `activityMonitor.$snapshot` 与 `codexHookSettings.$isEnabled` -> `SMAppService.daemon(plistName:)` 注册 -> `NSXPCConnection` -> helper
+链路: `KeepAliveController` (MainActor) 订阅 `activityMonitor.$snapshot` 以及合成 `codexHookSettings.isOperable` 的两个发布值 -> `SMAppService.daemon(plistName:)` 注册 -> `NSXPCConnection` -> helper
 
 关键约束
 
@@ -251,11 +259,15 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 `~/.codex/hooks.json` 的读写全部在 `CodexHookSettings` 里完成, Codex 目录优先取 `CODEX_HOME` 环境变量, 找不到时回退真实用户 HOME 下的 `.codex` 目录
 
 - 只识别并移除 command 同时包含当前 CodexBar 可执行路径与 `--hook-event` 的 handler, 必须保留用户已有 Hook 以及其他 App 的 Hook 和同事件下的其他 handler
+- 每个 `CodexHookEvent.allCases` 事件追加一个独立 group, handler 超时从 `WorkflowHookEventRecorder.hookTimeoutSeconds(for:)` 取得; 新增事件时不得复制一份超时常量
+- 启用和校验 Hook 前要求当前 app-server 握手版本至少为 `0.145.0`; 必须检查 `readyConnectionInfo()` 返回的实际连接版本, 不能用磁盘版本代替, 否则升级后尚未重连的旧进程会被误判为可用
 - 写入前通过 app-server `config/read` 确认全局未禁用 Hook, 写入后用 `hooks/list` 验证; 两处读取共用 `readGlobalHookDisabled`, 开关流程与校验流程对"全局禁用"的判断不会分叉
 - 读取失败 (I/O 或 JSON 格式错误) 不提供 Hook 装没装的信息, 必须保留上次已知值, 不能当成用户关闭了 Hook
-- `isEnabled` 只表示 `hooks.json` 里装着, `isVerified` 是最近一次校验的明确结论, 两者与出来的 `isOperable` 才是"事件真的送得过来"; 依赖 Hook 的下游一律看 `isOperable`
+- `isEnabled` 只表示 `hooks.json` 里至少装着一个当前 CodexBar handler, `isVerified` 是最近一次校验的明确结论, 两者合成的 `isOperable` 才表示事件链路可用
+- 实时任务, 防睡眠和任务类通知必须看 `isOperable`; 历史聚合与同步仍可消费已落盘数据, 其调度只看 `isEnabled`, 不要把两类依赖混在一起
 - `isVerified` 乐观默认为 true 且只由明确结论写入两个方向: 校验只在设置窗口打开与 App 激活时跑, 而 RPC 失败属于"验不了"不是"确认不通", 那时置灰会把好用的功能关掉
 - 全局禁用要排在 `hooks/list` 之前判: 它一关列表里必然找不到我们的 handler, 那时报"已不完整"会把用户引去翻本来就完好的 `hooks.json`
+- `refresh()` 只判断是否存在任一当前 CodexBar handler, `hooks/list` 校验才要求所有事件完整; 新增事件后旧配置不会自动补齐, 当前恢复方式是让用户关闭再开启 Hook
 - 校验不通过时防睡眠那一行的说明写"CodexBar Hook 未生效"而不是"需要启用 CodexBar Hook", 后者会让用户去开一个已经开着的开关; 具体病因由 Hook 那一行自己的说明给出
 
 ## 隐私与数据边界
@@ -266,6 +278,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 只读查询打到 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 这一个地址, 也是全仓库唯一的 `URLSession` 调用点, 位于 `CodexResetCreditsService` 内; Sparkle 更新走 `https://codexbar.zabrian.app/appcast.xml` 这个 feed
 - 不展示 app-server stderr; 不展示或记录 Codex OAuth token 与 `auth.json` 内容; 不把原始敏感 RPC 响应写进文档
 - CloudKit 只同步去掉 `sessionIds` 与 `turnIds` 的 daily 聚合, 不同步原始 Hook events, 账号, 额度或 Token 用量
+- CloudKit 的 `sessionEndCount` `userPromptSubmitCount` 与其他 Hook 计数字段保持可选, 远端缺失表示历史来源没有提供, 不能在读取时补成 0; 改变远端格式时同时评估并更新 `syncSchemaVersion`
 - 系统日志不写用户数据: 额度与 Token 用量只记 `state=` 这类结果分类, 任务内容, 项目名, 会话与轮次标识一律不记; 可执行文件路径含用户名, 用 `source=global|bundled` 之类的标识代替
 - 事件数, 任务数, 日期这类聚合数字可以记, 它们是判断重建是否正确和定位哪天出问题的依据, 不含任何内容
 

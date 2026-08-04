@@ -161,6 +161,11 @@ actor CodexStatusService {
         return connection.commandInfo
     }
 
+    /// 需要以实际运行版本做能力检查时建立或复用连接
+    func readyConnectionInfo() throws -> CodexCLIConnectionInfo {
+        try readyConnection().commandInfo
+    }
+
     func readCodexConfig() async throws -> CodexConfigReadResponse {
         let connection = try readyConnection()
         return try connection.session.request(

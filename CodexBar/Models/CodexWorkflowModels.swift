@@ -29,6 +29,15 @@ private nonisolated enum WorkflowJSON {
         }
         return text
     }
+
+    static func presentCountFields(_ values: [(String, Int?)]) throws -> [String] {
+        try values.compactMap { name, value in
+            guard let value else {
+                return nil
+            }
+            return try field(name, value)
+        }
+    }
 }
 
 private nonisolated enum WorkflowCountResolution {
@@ -40,11 +49,11 @@ private nonisolated enum WorkflowCountResolution {
             return compactedCount
         }
 
-        guard let identifiers, !identifiers.isEmpty else {
-            return nil
+        if let identifiers, !identifiers.isEmpty {
+            return Set(identifiers).count
         }
 
-        return Set(identifiers).count
+        return compactedCount == 0 ? 0 : nil
     }
 
     static func resolvedCount(
@@ -358,7 +367,7 @@ nonisolated struct WorkflowSnapshot: Equatable {
         }
 
         if let matchingIndex,
-           remoteRecords[matchingIndex].daily.eventCount > local.eventCount {
+           (remoteRecords[matchingIndex].daily.eventCount ?? 0) > (local.eventCount ?? 0) {
             merge(remoteRecords[matchingIndex].daily.metrics, into: &metricsByDate)
         } else {
             merge(local.metrics, into: &metricsByDate)
@@ -404,16 +413,138 @@ nonisolated struct WorkflowSnapshot: Equatable {
     }
 }
 
-// MARK: - 会话与轮次标识缓存
+// MARK: - 每日事件聚合
 
-/// 聚合时保留 Set 缓存, 避免同一会话或轮次重复计数
-nonisolated struct WorkflowDailyIdentifierCache {
-    var sessionIds: Set<String>
-    var turnIds: Set<String>
+/// ID 保留期限只决定最终存储形态, 不能影响聚合结果
+nonisolated enum WorkflowIdentifierStorage {
+    case retained
+    case compacted
+}
 
-    init(aggregate: WorkflowDailyAggregate) {
+/// 从原始事件生成每日聚合的纯内存累加器
+/// 全量和增量路径都收集 ID, 只有 finalize 时才按保留策略决定是否落盘
+nonisolated struct WorkflowDailyAccumulator {
+    private var aggregate: WorkflowDailyAggregate
+    private var sessionIds: Set<String> = []
+    private var turnIds: Set<String> = []
+
+    init(
+        rebuilding date: String,
+        sourceGeneration: String?,
+        sourceIsFresh: Bool,
+        hookCountAvailability: WorkflowHookCountAvailability
+    ) {
+        aggregate = WorkflowDailyAggregate(
+            date: date,
+            sourceGeneration: sourceGeneration,
+            sourceIsFresh: sourceIsFresh,
+            hookCountAvailability: hookCountAvailability
+        )
+    }
+
+    init(
+        appending aggregate: WorkflowDailyAggregate,
+        sourceGeneration: String?,
+        sourceIsFresh: Bool
+    ) {
+        var aggregate = aggregate
+        aggregate.sourceGeneration = sourceGeneration
+        aggregate.sourceIsFresh = sourceIsFresh
+        self.aggregate = aggregate
         sessionIds = Set(aggregate.sessionIds ?? [])
         turnIds = Set(aggregate.turnIds ?? [])
+    }
+
+    mutating func record(_ event: WorkflowHookEvent) {
+        Self.increment(&aggregate.eventCount)
+
+        switch event.hookEvent {
+        case .sessionStart: Self.increment(&aggregate.sessionStartCount)
+        case .sessionEnd: Self.increment(&aggregate.sessionEndCount)
+        case .userPromptSubmit: Self.increment(&aggregate.userPromptSubmitCount)
+        case .stop: Self.increment(&aggregate.stopCount)
+        case .preToolUse: Self.increment(&aggregate.preToolUseCount)
+        case .postToolUse: Self.increment(&aggregate.postToolUseCount)
+        case .permissionRequest: Self.increment(&aggregate.permissionRequestCount)
+        case .preCompact: Self.increment(&aggregate.preCompactCount)
+        case .postCompact: Self.increment(&aggregate.postCompactCount)
+        case .subagentStart: Self.increment(&aggregate.subagentStartCount)
+        case .subagentStop: Self.increment(&aggregate.subagentStopCount)
+        case .none: break
+        }
+
+        if let sessionId = event.sessionId {
+            sessionIds.insert(sessionId)
+        }
+        if let turnId = event.turnId {
+            turnIds.insert(turnId)
+        }
+
+        if let projectDisplayName = event.projectDisplayName {
+            aggregate.projectCounts[projectDisplayName, default: 0] += 1
+        }
+        if let modelName = event.modelName {
+            aggregate.modelCounts[modelName, default: 0] += 1
+        }
+    }
+
+    func finalized(identifierStorage: WorkflowIdentifierStorage) -> WorkflowDailyAggregate {
+        var aggregate = aggregate
+        switch identifierStorage {
+        case .retained:
+            aggregate.sessionCount = nil
+            aggregate.turnCount = nil
+            aggregate.sessionIds = Self.normalizedIdentifiers(sessionIds)
+            aggregate.turnIds = Self.normalizedIdentifiers(turnIds)
+        case .compacted:
+            aggregate.sessionCount = sessionIds.isEmpty
+                ? aggregate.sessionStartCount
+                : sessionIds.count
+            aggregate.turnCount = turnIds.isEmpty
+                ? aggregate.stopCount
+                : turnIds.count
+            aggregate.sessionIds = nil
+            aggregate.turnIds = nil
+        }
+        return aggregate
+    }
+
+    private static func increment(_ count: inout Int?) {
+        count = (count ?? 0) + 1
+    }
+
+    private static func normalizedIdentifiers(_ identifiers: Set<String>) -> [String]? {
+        let normalized = identifiers.sorted()
+        return normalized.isEmpty ? nil : normalized
+    }
+}
+
+/// 全量重放时保留每个 Hook 计数字段原有的可用性
+nonisolated struct WorkflowHookCountAvailability {
+    static let all = WorkflowHookCountAvailability(
+        includesEventCount: true,
+        events: Set(CodexHookEvent.allCases)
+    )
+
+    private let includesEventCount: Bool
+    private let events: Set<CodexHookEvent>
+
+    init(aggregate: WorkflowDailyAggregate) {
+        includesEventCount = aggregate.eventCount != nil
+        events = Set(CodexHookEvent.allCases.filter { aggregate.hookCount(for: $0) != nil })
+    }
+
+    private init(includesEventCount: Bool, events: Set<CodexHookEvent>) {
+        self.includesEventCount = includesEventCount
+        self.events = events
+    }
+
+    var initialEventCount: Int? {
+        includesEventCount ? 0 : nil
+    }
+
+    func initialCount(for event: CodexHookEvent) -> Int? {
+        events.contains(event) ? 0 : nil
     }
 }
 
@@ -422,16 +553,18 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     let date: String
     var sourceGeneration: String?
     var sourceIsFresh: Bool
-    var eventCount: Int
-    var sessionStartCount: Int
-    var stopCount: Int
-    var preToolUseCount: Int
-    var postToolUseCount: Int
-    var permissionRequestCount: Int
-    var preCompactCount: Int
-    var postCompactCount: Int
-    var subagentStartCount: Int
-    var subagentStopCount: Int
+    var eventCount: Int?
+    var sessionStartCount: Int?
+    var sessionEndCount: Int?
+    var userPromptSubmitCount: Int?
+    var stopCount: Int?
+    var preToolUseCount: Int?
+    var postToolUseCount: Int?
+    var permissionRequestCount: Int?
+    var preCompactCount: Int?
+    var postCompactCount: Int?
+    var subagentStartCount: Int?
+    var subagentStopCount: Int?
     var sessionCount: Int?
     var turnCount: Int?
     var projectCounts: [String: Int]
@@ -443,24 +576,32 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         date
     }
 
+    /// 增量路径只有在完整 ID 集合仍然存在时才能继续安全去重
+    var supportsIncrementalAggregation: Bool {
+        sessionCount == nil && turnCount == nil
+    }
+
     init(
         date: String,
         sourceGeneration: String? = nil,
-        sourceIsFresh: Bool = false
+        sourceIsFresh: Bool = false,
+        hookCountAvailability: WorkflowHookCountAvailability = .all
     ) {
         self.date = date
         self.sourceGeneration = sourceGeneration
         self.sourceIsFresh = sourceIsFresh
-        eventCount = 0
-        sessionStartCount = 0
-        stopCount = 0
-        preToolUseCount = 0
-        postToolUseCount = 0
-        permissionRequestCount = 0
-        preCompactCount = 0
-        postCompactCount = 0
-        subagentStartCount = 0
-        subagentStopCount = 0
+        eventCount = hookCountAvailability.initialEventCount
+        sessionStartCount = hookCountAvailability.initialCount(for: .sessionStart)
+        sessionEndCount = hookCountAvailability.initialCount(for: .sessionEnd)
+        userPromptSubmitCount = hookCountAvailability.initialCount(for: .userPromptSubmit)
+        stopCount = hookCountAvailability.initialCount(for: .stop)
+        preToolUseCount = hookCountAvailability.initialCount(for: .preToolUse)
+        postToolUseCount = hookCountAvailability.initialCount(for: .postToolUse)
+        permissionRequestCount = hookCountAvailability.initialCount(for: .permissionRequest)
+        preCompactCount = hookCountAvailability.initialCount(for: .preCompact)
+        postCompactCount = hookCountAvailability.initialCount(for: .postCompact)
+        subagentStartCount = hookCountAvailability.initialCount(for: .subagentStart)
+        subagentStopCount = hookCountAvailability.initialCount(for: .subagentStop)
         sessionCount = nil
         turnCount = nil
         projectCounts = [:]
@@ -474,16 +615,18 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         date = try container.decode(String.self, forKey: .date)
         sourceGeneration = try container.decodeIfPresent(String.self, forKey: .sourceGeneration)
         sourceIsFresh = try container.decodeIfPresent(Bool.self, forKey: .sourceIsFresh) ?? false
-        eventCount = try container.decodeIfPresent(Int.self, forKey: .eventCount) ?? 0
-        sessionStartCount = try container.decodeIfPresent(Int.self, forKey: .sessionStartCount) ?? 0
-        stopCount = try container.decodeIfPresent(Int.self, forKey: .stopCount) ?? 0
-        preToolUseCount = try container.decodeIfPresent(Int.self, forKey: .preToolUseCount) ?? 0
-        postToolUseCount = try container.decodeIfPresent(Int.self, forKey: .postToolUseCount) ?? 0
-        permissionRequestCount = try container.decodeIfPresent(Int.self, forKey: .permissionRequestCount) ?? 0
-        preCompactCount = try container.decodeIfPresent(Int.self, forKey: .preCompactCount) ?? 0
-        postCompactCount = try container.decodeIfPresent(Int.self, forKey: .postCompactCount) ?? 0
-        subagentStartCount = try container.decodeIfPresent(Int.self, forKey: .subagentStartCount) ?? 0
-        subagentStopCount = try container.decodeIfPresent(Int.self, forKey: .subagentStopCount) ?? 0
+        eventCount = try container.decodeIfPresent(Int.self, forKey: .eventCount)
+        sessionStartCount = try container.decodeIfPresent(Int.self, forKey: .sessionStartCount)
+        sessionEndCount = try container.decodeIfPresent(Int.self, forKey: .sessionEndCount)
+        userPromptSubmitCount = try container.decodeIfPresent(Int.self, forKey: .userPromptSubmitCount)
+        stopCount = try container.decodeIfPresent(Int.self, forKey: .stopCount)
+        preToolUseCount = try container.decodeIfPresent(Int.self, forKey: .preToolUseCount)
+        postToolUseCount = try container.decodeIfPresent(Int.self, forKey: .postToolUseCount)
+        permissionRequestCount = try container.decodeIfPresent(Int.self, forKey: .permissionRequestCount)
+        preCompactCount = try container.decodeIfPresent(Int.self, forKey: .preCompactCount)
+        postCompactCount = try container.decodeIfPresent(Int.self, forKey: .postCompactCount)
+        subagentStartCount = try container.decodeIfPresent(Int.self, forKey: .subagentStartCount)
+        subagentStopCount = try container.decodeIfPresent(Int.self, forKey: .subagentStopCount)
         sessionCount = try container.decodeIfPresent(Int.self, forKey: .sessionCount)
         turnCount = try container.decodeIfPresent(Int.self, forKey: .turnCount)
         projectCounts = try container.decodeIfPresent([String: Int].self, forKey: .projectCounts) ?? [:]
@@ -492,66 +635,31 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         turnIds = try container.decodeIfPresent([String].self, forKey: .turnIds)
     }
 
-    mutating func record(
-        _ event: WorkflowHookEvent,
-        keepsIdentifiers: Bool,
-        identifierCache: inout WorkflowDailyIdentifierCache
-    ) {
-        eventCount += 1
-
-        switch event.hookEvent {
-        case .sessionStart: sessionStartCount += 1
-        case .stop: stopCount += 1
-        case .preToolUse: preToolUseCount += 1
-        case .postToolUse: postToolUseCount += 1
-        case .permissionRequest: permissionRequestCount += 1
-        case .preCompact: preCompactCount += 1
-        case .postCompact: postCompactCount += 1
-        case .subagentStart: subagentStartCount += 1
-        case .subagentStop: subagentStopCount += 1
-        case .userPromptSubmit:
-            break
-        case .none: break
-        }
-
-        if keepsIdentifiers {
-            if let sessionId = event.sessionId {
-                Self.append(sessionId, to: &sessionIds, using: &identifierCache.sessionIds)
-            }
-
-            if let turnId = event.turnId {
-                Self.append(turnId, to: &turnIds, using: &identifierCache.turnIds)
-            }
-        }
-
-        if let projectDisplayName = event.projectDisplayName {
-            projectCounts[projectDisplayName, default: 0] += 1
-        }
-
-        if let modelName = event.modelName {
-            modelCounts[modelName, default: 0] += 1
-        }
-    }
-
-    mutating func compactIdentifiersIfNeeded(keepsIdentifiers: Bool) {
-        guard !keepsIdentifiers else {
+    mutating func normalizeIdentifierStorage(retainsIdentifiers: Bool) {
+        guard !retainsIdentifiers else {
             sessionIds = Self.normalizedIdentifiers(sessionIds)
             turnIds = Self.normalizedIdentifiers(turnIds)
             return
         }
 
-        sessionCount = resolvedSessionCount
-        turnCount = resolvedTurnCount
+        sessionCount = WorkflowCountResolution.preferredCount(
+            compactedCount: sessionCount,
+            identifiers: sessionIds
+        ) ?? sessionStartCount
+        turnCount = WorkflowCountResolution.preferredCount(
+            compactedCount: turnCount,
+            identifiers: turnIds
+        ) ?? stopCount
         sessionIds = nil
         turnIds = nil
     }
 
-    /// 只有正数压缩计数或非空 ID 集合是有效去重结果, 否则使用起止事件计数兜底
+    /// 正数压缩计数和非空 ID 集合优先, 明确的 0 在没有 ID 时同样有效
     private var resolvedSessionCount: Int {
         WorkflowCountResolution.resolvedCount(
             compactedCount: sessionCount,
             identifiers: sessionIds,
-            fallback: sessionStartCount
+            fallback: sessionStartCount ?? 0
         )
     }
 
@@ -559,7 +667,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         WorkflowCountResolution.resolvedCount(
             compactedCount: turnCount,
             identifiers: turnIds,
-            fallback: stopCount
+            fallback: stopCount ?? 0
         )
     }
 
@@ -568,13 +676,13 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
             startDate: date,
             sessionCount: resolvedSessionCount,
             turnCount: resolvedTurnCount,
-            preToolUseCount: preToolUseCount,
-            postToolUseCount: postToolUseCount,
-            permissionRequestCount: permissionRequestCount,
-            preCompactCount: preCompactCount,
-            postCompactCount: postCompactCount,
-            subagentStartCount: subagentStartCount,
-            subagentStopCount: subagentStopCount,
+            preToolUseCount: preToolUseCount ?? 0,
+            postToolUseCount: postToolUseCount ?? 0,
+            permissionRequestCount: permissionRequestCount ?? 0,
+            preCompactCount: preCompactCount ?? 0,
+            postCompactCount: postCompactCount ?? 0,
+            subagentStartCount: subagentStartCount ?? 0,
+            subagentStopCount: subagentStopCount ?? 0,
             modelCounts: modelCounts
         )
     }
@@ -593,7 +701,9 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
             }
 
             var mutableAggregate = aggregate
-            mutableAggregate.compactIdentifiersIfNeeded(keepsIdentifiers: date >= identifierCutoffDate)
+            mutableAggregate.normalizeIdentifierStorage(
+                retainsIdentifiers: date >= identifierCutoffDate
+            )
             return mutableAggregate
         }
         .sorted { $0.date < $1.date }
@@ -606,29 +716,42 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     }
 
     func jsonLineData() throws -> Data {
-        let fields = try [
+        var fields = try [
             WorkflowJSON.field("date", date),
             WorkflowJSON.field("sourceGeneration", sourceGeneration),
-            WorkflowJSON.field("sourceIsFresh", sourceIsFresh),
-            WorkflowJSON.field("eventCount", eventCount),
-            WorkflowJSON.field("sessionStartCount", sessionStartCount),
-            WorkflowJSON.field("stopCount", stopCount),
-            WorkflowJSON.field("preToolUseCount", preToolUseCount),
-            WorkflowJSON.field("postToolUseCount", postToolUseCount),
-            WorkflowJSON.field("permissionRequestCount", permissionRequestCount),
-            WorkflowJSON.field("preCompactCount", preCompactCount),
-            WorkflowJSON.field("postCompactCount", postCompactCount),
-            WorkflowJSON.field("subagentStartCount", subagentStartCount),
-            WorkflowJSON.field("subagentStopCount", subagentStopCount),
+            WorkflowJSON.field("sourceIsFresh", sourceIsFresh)
+        ]
+        try fields.append(contentsOf: WorkflowJSON.presentCountFields(hookCountFields))
+        try fields.append(contentsOf: [
             WorkflowJSON.field("sessionCount", sessionCount),
             WorkflowJSON.field("turnCount", turnCount),
             WorkflowJSON.field("projectCounts", projectCounts),
             WorkflowJSON.field("modelCounts", modelCounts),
             WorkflowJSON.field("sessionIds", sessionIds),
             WorkflowJSON.field("turnIds", turnIds)
-        ]
+        ])
 
         return WorkflowJSON.lineData(fields)
+    }
+
+    var hookCountAvailability: WorkflowHookCountAvailability {
+        WorkflowHookCountAvailability(aggregate: self)
+    }
+
+    func hookCount(for event: CodexHookEvent) -> Int? {
+        switch event {
+        case .sessionStart: sessionStartCount
+        case .sessionEnd: sessionEndCount
+        case .userPromptSubmit: userPromptSubmitCount
+        case .stop: stopCount
+        case .preToolUse: preToolUseCount
+        case .postToolUse: postToolUseCount
+        case .permissionRequest: permissionRequestCount
+        case .preCompact: preCompactCount
+        case .postCompact: postCompactCount
+        case .subagentStart: subagentStartCount
+        case .subagentStop: subagentStopCount
+        }
     }
 
     var syncedAggregate: WorkflowSyncedDailyAggregate {
@@ -637,6 +760,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
             sourceGeneration: sourceGeneration,
             eventCount: eventCount,
             sessionStartCount: sessionStartCount,
+            sessionEndCount: sessionEndCount,
+            userPromptSubmitCount: userPromptSubmitCount,
             stopCount: stopCount,
             preToolUseCount: preToolUseCount,
             postToolUseCount: postToolUseCount,
@@ -666,19 +791,21 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         )
     }
 
-    private static func append(
-        _ identifier: String,
-        to identifiers: inout [String]?,
-        using identifierSet: inout Set<String>
-    ) {
-        guard identifierSet.insert(identifier).inserted else {
-            return
-        }
-
-        if identifiers == nil {
-            identifiers = []
-        }
-        identifiers?.append(identifier)
+    private var hookCountFields: [(String, Int?)] {
+        [
+            ("eventCount", eventCount),
+            ("sessionStartCount", sessionStartCount),
+            ("sessionEndCount", sessionEndCount),
+            ("userPromptSubmitCount", userPromptSubmitCount),
+            ("stopCount", stopCount),
+            ("preToolUseCount", preToolUseCount),
+            ("postToolUseCount", postToolUseCount),
+            ("permissionRequestCount", permissionRequestCount),
+            ("preCompactCount", preCompactCount),
+            ("postCompactCount", postCompactCount),
+            ("subagentStartCount", subagentStartCount),
+            ("subagentStopCount", subagentStopCount)
+        ]
     }
 
     private static func normalizedIdentifiers(_ identifiers: [String]?) -> [String]? {
@@ -696,6 +823,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
         case sourceIsFresh
         case eventCount
         case sessionStartCount
+        case sessionEndCount
+        case userPromptSubmitCount
         case stopCount
         case preToolUseCount
         case postToolUseCount
@@ -717,20 +846,22 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
 nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiable {
     let date: String
     var sourceGeneration: String?
-    var eventCount: Int
-    var sessionStartCount: Int
-    var stopCount: Int
-    var preToolUseCount: Int
-    var postToolUseCount: Int
-    var permissionRequestCount: Int
-    var preCompactCount: Int
-    var postCompactCount: Int
-    var subagentStartCount: Int
-    var subagentStopCount: Int
+    var eventCount: Int?
+    var sessionStartCount: Int?
+    var sessionEndCount: Int?
+    var userPromptSubmitCount: Int?
+    var stopCount: Int?
+    var preToolUseCount: Int?
+    var postToolUseCount: Int?
+    var permissionRequestCount: Int?
+    var preCompactCount: Int?
+    var postCompactCount: Int?
+    var subagentStartCount: Int?
+    var subagentStopCount: Int?
     var sessionCount: Int?
     var turnCount: Int?
     var projectCounts: [String: Int]
-    var modelCounts: [String: Int]?
+    var modelCounts: [String: Int]
 
     var id: String {
         date
@@ -741,44 +872,54 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiabl
             startDate: date,
             sessionCount: WorkflowCountResolution.resolvedCount(
                 compactedCount: sessionCount,
-                fallback: sessionStartCount
+                fallback: sessionStartCount ?? 0
             ),
             turnCount: WorkflowCountResolution.resolvedCount(
                 compactedCount: turnCount,
-                fallback: stopCount
+                fallback: stopCount ?? 0
             ),
-            preToolUseCount: preToolUseCount,
-            postToolUseCount: postToolUseCount,
-            permissionRequestCount: permissionRequestCount,
-            preCompactCount: preCompactCount,
-            postCompactCount: postCompactCount,
-            subagentStartCount: subagentStartCount,
-            subagentStopCount: subagentStopCount,
-            modelCounts: modelCounts ?? [:]
+            preToolUseCount: preToolUseCount ?? 0,
+            postToolUseCount: postToolUseCount ?? 0,
+            permissionRequestCount: permissionRequestCount ?? 0,
+            preCompactCount: preCompactCount ?? 0,
+            postCompactCount: postCompactCount ?? 0,
+            subagentStartCount: subagentStartCount ?? 0,
+            subagentStopCount: subagentStopCount ?? 0,
+            modelCounts: modelCounts
         )
     }
 
     func jsonLineData() throws -> Data {
-        let fields = try [
+        var fields = try [
             WorkflowJSON.field("date", date),
-            WorkflowJSON.field("sourceGeneration", sourceGeneration),
-            WorkflowJSON.field("eventCount", eventCount),
-            WorkflowJSON.field("sessionStartCount", sessionStartCount),
-            WorkflowJSON.field("stopCount", stopCount),
-            WorkflowJSON.field("preToolUseCount", preToolUseCount),
-            WorkflowJSON.field("postToolUseCount", postToolUseCount),
-            WorkflowJSON.field("permissionRequestCount", permissionRequestCount),
-            WorkflowJSON.field("preCompactCount", preCompactCount),
-            WorkflowJSON.field("postCompactCount", postCompactCount),
-            WorkflowJSON.field("subagentStartCount", subagentStartCount),
-            WorkflowJSON.field("subagentStopCount", subagentStopCount),
+            WorkflowJSON.field("sourceGeneration", sourceGeneration)
+        ]
+        try fields.append(contentsOf: WorkflowJSON.presentCountFields(hookCountFields))
+        try fields.append(contentsOf: [
             WorkflowJSON.field("sessionCount", sessionCount),
             WorkflowJSON.field("turnCount", turnCount),
             WorkflowJSON.field("projectCounts", projectCounts),
             WorkflowJSON.field("modelCounts", modelCounts)
-        ]
+        ])
 
         return WorkflowJSON.lineData(fields)
+    }
+
+    private var hookCountFields: [(String, Int?)] {
+        [
+            ("eventCount", eventCount),
+            ("sessionStartCount", sessionStartCount),
+            ("sessionEndCount", sessionEndCount),
+            ("userPromptSubmitCount", userPromptSubmitCount),
+            ("stopCount", stopCount),
+            ("preToolUseCount", preToolUseCount),
+            ("postToolUseCount", postToolUseCount),
+            ("permissionRequestCount", permissionRequestCount),
+            ("preCompactCount", preCompactCount),
+            ("postCompactCount", postCompactCount),
+            ("subagentStartCount", subagentStartCount),
+            ("subagentStopCount", subagentStopCount)
+        ]
     }
 
     func hasSameContent(as other: WorkflowSyncedDailyAggregate) -> Bool {
@@ -795,6 +936,51 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiabl
             return true
         }
         return remote.sourceGeneration == nil && hasSameContent(as: remote)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case date
+        case sourceGeneration
+        case eventCount
+        case sessionStartCount
+        case sessionEndCount
+        case userPromptSubmitCount
+        case stopCount
+        case preToolUseCount
+        case postToolUseCount
+        case permissionRequestCount
+        case preCompactCount
+        case postCompactCount
+        case subagentStartCount
+        case subagentStopCount
+        case sessionCount
+        case turnCount
+        case projectCounts
+        case modelCounts
+    }
+}
+
+extension WorkflowSyncedDailyAggregate {
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        date = try container.decode(String.self, forKey: .date)
+        sourceGeneration = try container.decodeIfPresent(String.self, forKey: .sourceGeneration)
+        eventCount = try container.decodeIfPresent(Int.self, forKey: .eventCount)
+        sessionStartCount = try container.decodeIfPresent(Int.self, forKey: .sessionStartCount)
+        sessionEndCount = try container.decodeIfPresent(Int.self, forKey: .sessionEndCount)
+        userPromptSubmitCount = try container.decodeIfPresent(Int.self, forKey: .userPromptSubmitCount)
+        stopCount = try container.decodeIfPresent(Int.self, forKey: .stopCount)
+        preToolUseCount = try container.decodeIfPresent(Int.self, forKey: .preToolUseCount)
+        postToolUseCount = try container.decodeIfPresent(Int.self, forKey: .postToolUseCount)
+        permissionRequestCount = try container.decodeIfPresent(Int.self, forKey: .permissionRequestCount)
+        preCompactCount = try container.decodeIfPresent(Int.self, forKey: .preCompactCount)
+        postCompactCount = try container.decodeIfPresent(Int.self, forKey: .postCompactCount)
+        subagentStartCount = try container.decodeIfPresent(Int.self, forKey: .subagentStartCount)
+        subagentStopCount = try container.decodeIfPresent(Int.self, forKey: .subagentStopCount)
+        sessionCount = try container.decodeIfPresent(Int.self, forKey: .sessionCount)
+        turnCount = try container.decodeIfPresent(Int.self, forKey: .turnCount)
+        projectCounts = try container.decodeIfPresent([String: Int].self, forKey: .projectCounts) ?? [:]
+        modelCounts = try container.decodeIfPresent([String: Int].self, forKey: .modelCounts) ?? [:]
     }
 }
 

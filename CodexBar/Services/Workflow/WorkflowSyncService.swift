@@ -282,7 +282,7 @@ private extension WorkflowSyncService {
     }
 
     enum Metrics {
-        static let syncSchemaVersion = 4
+        static let syncSchemaVersion = 5
         static let syncZoneName = "CodexBarZone"
         static let saltByteCount = 32
         static let recordFetchLimit = 200
@@ -304,6 +304,8 @@ private extension WorkflowSyncService {
         static let sourceGeneration = "sourceGeneration"
         static let eventCount = "eventCount"
         static let sessionStartCount = "sessionStartCount"
+        static let sessionEndCount = "sessionEndCount"
+        static let userPromptSubmitCount = "userPromptSubmitCount"
         static let stopCount = "stopCount"
         static let preToolUseCount = "preToolUseCount"
         static let postToolUseCount = "postToolUseCount"
@@ -548,7 +550,7 @@ private extension WorkflowSyncService {
 
         if let matchingRecord,
            let remoteAggregate = Self.remoteDailyRecord(from: matchingRecord)?.daily,
-           remoteAggregate.eventCount > pendingRecord.upload.aggregate.eventCount,
+           (remoteAggregate.eventCount ?? 0) > (pendingRecord.upload.aggregate.eventCount ?? 0),
            pendingRecord.upload.aggregate.sourceGeneration != nil {
             return .skip
         }
@@ -997,20 +999,22 @@ private extension WorkflowSyncService {
         record[FieldKeys.deviceId] = deviceId as CKRecordValue
         record[FieldKeys.date] = aggregate.date as CKRecordValue
         record[FieldKeys.sourceGeneration] = aggregate.sourceGeneration as CKRecordValue?
-        record[FieldKeys.eventCount] = aggregate.eventCount as CKRecordValue
-        record[FieldKeys.sessionStartCount] = aggregate.sessionStartCount as CKRecordValue
-        record[FieldKeys.stopCount] = aggregate.stopCount as CKRecordValue
-        record[FieldKeys.preToolUseCount] = aggregate.preToolUseCount as CKRecordValue
-        record[FieldKeys.postToolUseCount] = aggregate.postToolUseCount as CKRecordValue
-        record[FieldKeys.permissionRequestCount] = aggregate.permissionRequestCount as CKRecordValue
-        record[FieldKeys.preCompactCount] = aggregate.preCompactCount as CKRecordValue
-        record[FieldKeys.postCompactCount] = aggregate.postCompactCount as CKRecordValue
-        record[FieldKeys.subagentStartCount] = aggregate.subagentStartCount as CKRecordValue
-        record[FieldKeys.subagentStopCount] = aggregate.subagentStopCount as CKRecordValue
+        record[FieldKeys.eventCount] = aggregate.eventCount as CKRecordValue?
+        record[FieldKeys.sessionStartCount] = aggregate.sessionStartCount as CKRecordValue?
+        record[FieldKeys.sessionEndCount] = aggregate.sessionEndCount as CKRecordValue?
+        record[FieldKeys.userPromptSubmitCount] = aggregate.userPromptSubmitCount as CKRecordValue?
+        record[FieldKeys.stopCount] = aggregate.stopCount as CKRecordValue?
+        record[FieldKeys.preToolUseCount] = aggregate.preToolUseCount as CKRecordValue?
+        record[FieldKeys.postToolUseCount] = aggregate.postToolUseCount as CKRecordValue?
+        record[FieldKeys.permissionRequestCount] = aggregate.permissionRequestCount as CKRecordValue?
+        record[FieldKeys.preCompactCount] = aggregate.preCompactCount as CKRecordValue?
+        record[FieldKeys.postCompactCount] = aggregate.postCompactCount as CKRecordValue?
+        record[FieldKeys.subagentStartCount] = aggregate.subagentStartCount as CKRecordValue?
+        record[FieldKeys.subagentStopCount] = aggregate.subagentStopCount as CKRecordValue?
         record[FieldKeys.sessionCount] = aggregate.sessionCount as CKRecordValue?
         record[FieldKeys.turnCount] = aggregate.turnCount as CKRecordValue?
         record[FieldKeys.projectCounts] = Self.countsData(aggregate.projectCounts) as CKRecordValue
-        record[FieldKeys.modelCounts] = Self.countsData(aggregate.modelCounts ?? [:]) as CKRecordValue
+        record[FieldKeys.modelCounts] = Self.countsData(aggregate.modelCounts) as CKRecordValue
         record[FieldKeys.updatedAt] = Date() as CKRecordValue
     }
 
@@ -1196,16 +1200,18 @@ private extension WorkflowSyncService {
         let aggregate = WorkflowSyncedDailyAggregate(
             date: date,
             sourceGeneration: record[FieldKeys.sourceGeneration] as? String,
-            eventCount: intValue(record[FieldKeys.eventCount]),
-            sessionStartCount: intValue(record[FieldKeys.sessionStartCount]),
-            stopCount: intValue(record[FieldKeys.stopCount]),
-            preToolUseCount: intValue(record[FieldKeys.preToolUseCount]),
-            postToolUseCount: intValue(record[FieldKeys.postToolUseCount]),
-            permissionRequestCount: intValue(record[FieldKeys.permissionRequestCount]),
-            preCompactCount: intValue(record[FieldKeys.preCompactCount]),
-            postCompactCount: intValue(record[FieldKeys.postCompactCount]),
-            subagentStartCount: intValue(record[FieldKeys.subagentStartCount]),
-            subagentStopCount: intValue(record[FieldKeys.subagentStopCount]),
+            eventCount: optionalIntValue(record[FieldKeys.eventCount]),
+            sessionStartCount: optionalIntValue(record[FieldKeys.sessionStartCount]),
+            sessionEndCount: optionalIntValue(record[FieldKeys.sessionEndCount]),
+            userPromptSubmitCount: optionalIntValue(record[FieldKeys.userPromptSubmitCount]),
+            stopCount: optionalIntValue(record[FieldKeys.stopCount]),
+            preToolUseCount: optionalIntValue(record[FieldKeys.preToolUseCount]),
+            postToolUseCount: optionalIntValue(record[FieldKeys.postToolUseCount]),
+            permissionRequestCount: optionalIntValue(record[FieldKeys.permissionRequestCount]),
+            preCompactCount: optionalIntValue(record[FieldKeys.preCompactCount]),
+            postCompactCount: optionalIntValue(record[FieldKeys.postCompactCount]),
+            subagentStartCount: optionalIntValue(record[FieldKeys.subagentStartCount]),
+            subagentStopCount: optionalIntValue(record[FieldKeys.subagentStopCount]),
             sessionCount: optionalIntValue(record[FieldKeys.sessionCount]),
             turnCount: optionalIntValue(record[FieldKeys.turnCount]),
             projectCounts: counts(from: record[FieldKeys.projectCounts]),
@@ -1249,10 +1255,6 @@ private extension WorkflowSyncService {
             .reduce(into: [String: WorkflowSyncedDailyRecord]()) { result, record in
                 result[record.id] = record
             }
-    }
-
-    static func intValue(_ value: CKRecordValue?) -> Int {
-        optionalIntValue(value) ?? 0
     }
 
     static func optionalIntValue(_ value: CKRecordValue?) -> Int? {

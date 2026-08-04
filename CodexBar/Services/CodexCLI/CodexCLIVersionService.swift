@@ -360,6 +360,105 @@ nonisolated enum CodexCLIVersionReader {
             .first { $0.first?.isNumber == true }
             .map(String.init) ?? output
     }
+
+    /// 返回 nil 表示任一版本不是可识别的语义版本
+    static func isVersion(_ version: String, atLeast minimumVersion: String) -> Bool? {
+        guard let parsedVersion = SemanticVersion(version),
+              let parsedMinimumVersion = SemanticVersion(minimumVersion) else {
+            return nil
+        }
+
+        return parsedVersion >= parsedMinimumVersion
+    }
+
+    private struct SemanticVersion: Comparable {
+        let core: [Int]
+        let prerelease: [PrereleaseIdentifier]?
+
+        init?(_ rawValue: String) {
+            let displayVersion = CodexCLIVersionReader.displayVersion(from: rawValue)
+            let versionWithoutBuild = displayVersion.split(
+                separator: "+",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            )[0]
+            let versionParts = versionWithoutBuild.split(
+                separator: "-",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            )
+            let coreParts = versionParts[0].split(
+                separator: ".",
+                omittingEmptySubsequences: false
+            )
+            guard coreParts.count == 3 else {
+                return nil
+            }
+
+            let core = coreParts.compactMap { Int($0) }
+            guard core.count == coreParts.count else {
+                return nil
+            }
+            self.core = core
+
+            guard versionParts.count == 2 else {
+                prerelease = nil
+                return
+            }
+
+            let identifiers = versionParts[1].split(
+                separator: ".",
+                omittingEmptySubsequences: false
+            )
+            guard !identifiers.isEmpty, identifiers.allSatisfy({ !$0.isEmpty }) else {
+                return nil
+            }
+            prerelease = identifiers.map(PrereleaseIdentifier.init)
+        }
+
+        static func < (lhs: Self, rhs: Self) -> Bool {
+            if lhs.core != rhs.core {
+                return lhs.core.lexicographicallyPrecedes(rhs.core)
+            }
+
+            switch (lhs.prerelease, rhs.prerelease) {
+            case (nil, nil):
+                return false
+            case (nil, _?):
+                return false
+            case (_?, nil):
+                return true
+            case let (lhsIdentifiers?, rhsIdentifiers?):
+                return lhsIdentifiers.lexicographicallyPrecedes(rhsIdentifiers)
+            }
+        }
+    }
+
+    private enum PrereleaseIdentifier: Comparable {
+        case numeric(Int)
+        case text(String)
+
+        init(_ value: Substring) {
+            if let number = Int(value) {
+                self = .numeric(number)
+            } else {
+                self = .text(String(value))
+            }
+        }
+
+        static func < (lhs: Self, rhs: Self) -> Bool {
+            switch (lhs, rhs) {
+            case let (.numeric(lhsValue), .numeric(rhsValue)):
+                lhsValue < rhsValue
+            case (.numeric, .text):
+                true
+            case (.text, .numeric):
+                false
+            case let (.text(lhsValue), .text(rhsValue)):
+                lhsValue < rhsValue
+            }
+        }
+    }
 }
 
 /// 设置页持有的版本检测状态, 负责节流和丢弃过期刷新结果

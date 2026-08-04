@@ -5,6 +5,8 @@ import os
 /// 设置页的 Codex Hook 开关状态机, 同时管理 hooks.json 和 Codex 信任状态
 @MainActor
 final class CodexHookSettings: ObservableObject {
+    static let minimumSupportedCodexVersion = "0.145.0"
+
     @Published private(set) var isEnabled = false
     @Published private(set) var isUpdating = false
     /// 最近一次校验的明确结论: Codex 会不会真的执行 CodexBar 的 Hook
@@ -104,6 +106,8 @@ final class CodexHookSettings: ObservableObject {
     private func applyEnabled(_ enabled: Bool, generation: Int) async {
         do {
             if enabled {
+                try await ensureCodexHookVersionSupported()
+                try ensureCurrentUpdate(generation)
                 try await ensureCodexHooksGloballyEnabled()
                 try ensureCurrentUpdate(generation)
             }
@@ -132,6 +136,9 @@ final class CodexHookSettings: ObservableObject {
 
     private func verifyInstalledHooksWithAppServer(generation: Int) async {
         do {
+            try await ensureCodexHookVersionSupported()
+            try ensureCurrentUpdate(generation)
+
             // 全局开关排在 hooks/list 之前: 它一关, 列表里必然找不到我们的 handler,
             // 那时报"已不完整"会把用户引去翻本来就完好的 hooks.json
             let globallyDisabled = try await readGlobalHookDisabled()
@@ -259,7 +266,6 @@ private extension CodexHookSettings {
     static let hookCommandKey = "command"
     static let hookTimeoutKey = "timeout"
     static let hookCommandType = "command"
-    static let hookTimeout = WorkflowHookEventRecorder.hookTimeoutSeconds
     static let configMergeStrategyReplace = "replace"
     static let configMergeStrategyUpsert = "upsert"
     static let hookTrustStateKeyPath = "hooks.state"
@@ -288,6 +294,8 @@ private extension CodexHookSettings {
     enum HookConfigError: LocalizedError {
         case invalidFormat
         case hooksGloballyDisabled
+        case codexVersionUnavailable(minimum: String)
+        case unsupportedCodexVersion(minimum: String)
         case hookValidationFailed(String)
 
         var errorDescription: String? {
@@ -296,16 +304,28 @@ private extension CodexHookSettings {
                 String(localized: "hooks.json 文件格式错误")
             case .hooksGloballyDisabled:
                 String(localized: "Codex 配置已禁用 Hook")
+            case let .codexVersionUnavailable(minimum):
+                String(
+                    localized: "codex-hook.version.unavailable",
+                    defaultValue: "启用 CodexBar Hook 需要 Codex \(minimum) 或更高版本"
+                )
+            case let .unsupportedCodexVersion(minimum):
+                String(
+                    localized: "codex-hook.version.unsupported",
+                    defaultValue: "启用 CodexBar Hook 需要 \(minimum) 或更高版本"
+                )
             case let .hookValidationFailed(message):
                 message
             }
         }
 
         var isPreflightFailure: Bool {
-            if case .hooksGloballyDisabled = self {
-                return true
+            switch self {
+            case .hooksGloballyDisabled, .codexVersionUnavailable, .unsupportedCodexVersion:
+                true
+            case .invalidFormat, .hookValidationFailed:
+                false
             }
-            return false
         }
     }
 
@@ -333,6 +353,27 @@ private extension CodexHookSettings {
     func ensureCodexHooksGloballyEnabled() async throws {
         if try await readGlobalHookDisabled() {
             throw HookConfigError.hooksGloballyDisabled
+        }
+    }
+
+    /// 检查实际用于 hooks/list 的 app-server 握手版本
+    /// 不能只看磁盘版本, 否则升级后尚未重连的旧进程会被误判为可用
+    func ensureCodexHookVersionSupported() async throws {
+        let minimumVersion = Self.minimumSupportedCodexVersion
+        let connectionInfo = try await codexStatusService.readyConnectionInfo()
+        guard let currentVersion = connectionInfo.version,
+              let isSupported = CodexCLIVersionReader.isVersion(
+                  currentVersion,
+                  atLeast: minimumVersion
+              ) else {
+            throw HookConfigError.codexVersionUnavailable(minimum: minimumVersion)
+        }
+
+        guard isSupported else {
+            AppLog.hooks.notice(
+                "Hook 版本不支持: current=\(currentVersion, privacy: .public); minimum=\(minimumVersion, privacy: .public)"
+            )
+            throw HookConfigError.unsupportedCodexVersion(minimum: minimumVersion)
         }
     }
 
@@ -549,7 +590,7 @@ private extension CodexHookSettings {
         for event in CodexHookEvent.allCases {
             var groups = try eventGroups(named: event.configName, from: hooks)
             groups.append([
-                hooksKey: [codexBarHookHandler(executablePath: executablePath)]
+                hooksKey: [codexBarHookHandler(for: event, executablePath: executablePath)]
             ])
             hooks[event.configName] = groups
         }
@@ -841,11 +882,14 @@ private extension CodexHookSettings {
         return command
     }
 
-    static func codexBarHookHandler(executablePath: String) -> JSONObject {
+    static func codexBarHookHandler(
+        for event: CodexHookEvent,
+        executablePath: String
+    ) -> JSONObject {
         [
             hookTypeKey: hookCommandType,
             hookCommandKey: hookCommand(executablePath: executablePath),
-            hookTimeoutKey: hookTimeout
+            hookTimeoutKey: WorkflowHookEventRecorder.hookTimeoutSeconds(for: event)
         ]
     }
 
