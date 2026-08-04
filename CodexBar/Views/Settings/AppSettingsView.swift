@@ -157,6 +157,8 @@ private extension AppSettingsView {
         static let statusAnimation = Animation.codexStatus
     }
 
+    static let githubProjectURL = URL(string: "https://github.com/bob-zebedy/CodexBar")!
+
     // MARK: - 分页骨架
 
     var settingsTabBar: some View {
@@ -262,6 +264,8 @@ private extension AppSettingsView {
                 codexVersionSection
                 LiquidGlassDivider()
                 versionRow
+                LiquidGlassDivider()
+                githubProjectRow
             }
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
@@ -879,6 +883,27 @@ private extension AppSettingsView {
             snapshot: codexVersions.snapshot,
             connectionInfo: statusViewModel.codexConnectionInfo
         )
+    }
+
+    var githubProjectRow: some View {
+        Link(destination: Self.githubProjectURL) {
+            HStack(spacing: SettingsRowMetrics.spacing) {
+                Image(systemName: "globe")
+                    .frame(width: SettingsRowMetrics.iconWidth)
+                    .foregroundStyle(.tint)
+
+                Text("GitHub 项目")
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                Image(systemName: "arrow.up.right")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     func refreshCodexVersionSection() {

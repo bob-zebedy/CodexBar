@@ -914,6 +914,22 @@
         }
       }
     },
+    "GitHub 项目" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub Project"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub 项目"
+          }
+        }
+      }
+    },
     "CodexBar 设置" : {
       "localizations" : {
         "en" : {
