@@ -22,6 +22,7 @@ APPLE_ID=""
 NOTARYTOOL_PASSWORD=""
 TEAM_ID=""
 OUTPUT_APP_PATH=""
+ARCHIVE_SIGNING_FLAGS=()
 
 usage() {
     cat >&2 <<USAGE
@@ -53,7 +54,7 @@ Options:
 
 Recommended credential setup:
   xcrun notarytool store-credentials "codexbar-notary" --apple-id "<Apple ID>" --team-id "<Team ID>" --sync
-  Scripts/build.sh --export-options Scripts/DeveloperID.plist --no-provisioning-updates --notary-profile codexbar-notary
+  Scripts/build.sh --export-options Scripts/DeveloperID.plist --notary-profile codexbar-notary
 USAGE
 }
 
@@ -374,18 +375,53 @@ read_plist_value() {
     /usr/libexec/PlistBuddy -c "Print :${key_path}" "${plist_path}" 2>/dev/null || true
 }
 
+read_plist_compact_value() {
+    local plist_path="$1"
+    local key_path="$2"
+    local raw_value=""
+
+    if ! raw_value="$(/usr/libexec/PlistBuddy -c "Print :${key_path}" "${plist_path}" 2>/dev/null)"; then
+        return 0
+    fi
+
+    printf '%s\n' "${raw_value}" |
+        awk '
+          /^[[:space:]]*(Array|Dict) \{$/ || /^[[:space:]]*\}$/ { next }
+          {
+            value = $0
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            if (value == "") next
+            output = output separator value
+            separator = ", "
+          }
+          END { if (output != "") print output }
+        '
+}
+
 certificate_sha1() {
     local certificate_path="$1"
 
     shasum -a 1 "${certificate_path}" | awk '{print toupper($1)}'
 }
 
-print_indented() {
-    sed 's/^/    /'
-}
-
 supports_color() {
     [[ -t "$1" && -z "${NO_COLOR:-}" && "${TERM:-}" != "dumb" ]]
+}
+
+validation_section() {
+    printf '\n'
+    if supports_color 1; then
+        printf '  \033[1m%s\033[0m\n' "$1"
+    else
+        printf '  %s\n' "$1"
+    fi
+}
+
+validation_field() {
+    local label="$1"
+    local value="${2:-none}"
+
+    printf '    %-28s %s\n' "${label}:" "${value}"
 }
 
 validation_pass() {
@@ -414,6 +450,15 @@ validation_fail() {
 
 validation_skip() {
     printf '    - %s: skipped\n' "$1"
+}
+
+validation_summary() {
+    printf '\n'
+    if supports_color 1; then
+        printf '  \033[1;32m✓ %s\033[0m\n' "$1"
+    else
+        printf '  ✓ %s\n' "$1"
+    fi
 }
 
 validate_final_app() {
@@ -457,11 +502,17 @@ validate_final_app() {
     local helper_signing_certificate_sha1=""
     local expected_signing_certificate=""
     local normalized_expected_certificate=""
+    local export_certificate_selector=""
     local main_application_identifier=""
     local helper_application_identifier=""
+    local main_team_identifier=""
     local debugger_entitlement=""
     local helper_debugger_entitlement=""
+    local app_debugger_status="disabled"
+    local helper_debugger_status="disabled"
+    local icloud_environment=""
     local icloud_containers=""
+    local icloud_services=""
     local launch_daemon_count="0"
     local launch_daemon_plist=""
     local launch_daemon_label=""
@@ -477,10 +528,18 @@ validate_final_app() {
     local profile_certificate_path=""
     local profile_certificate_sha1=""
     local profile_certificate_match_count="0"
+    local -a profile_certificate_sha1s=()
+    local profile_icloud_environment=""
+    local profile_icloud_containers=""
+    local profile_icloud_services=""
+    local profile_ubiquity_containers=""
+    local profile_ubiquity_kvstore=""
+    local profile_keychain_access_groups=""
     local expected_profile=""
     local gatekeeper_source=""
 
     echo "==> Validating final app"
+    validation_section "Bundle"
 
     if [[ ! -d "${app_path}" || ! -f "${info_plist}" || ! -x "${executable_path}" ]]; then
         validation_fail "App bundle structure" "Missing app directory, Info.plist, or executable at ${app_path}"
@@ -513,28 +572,28 @@ validate_final_app() {
         validation_fail "App architectures" "lipo could not inspect the main executable" "${architectures}"
         return 1
     fi
-    validation_pass "App architectures: ${architectures}"
 
     if ! helper_architectures="$(lipo -archs "${helper_path}" 2>&1)"; then
         validation_fail "Helper architectures" "lipo could not inspect the helper executable" "${helper_architectures}"
         return 1
     fi
-    validation_pass "Helper architectures: ${helper_architectures}"
+    validation_pass "Architectures inspected"
 
-    echo "  Bundle"
-    printf '    Path: %s\n' "${app_path}"
-    printf '    Display name: %s\n' "${display_name}"
-    printf '    Bundle identifier: %s\n' "${bundle_identifier}"
-    printf '    Version: %s (%s)\n' "${short_version}" "${build_version}"
-    printf '    Minimum macOS: %s\n' "${minimum_system_version}"
-    printf '    LSUIElement: %s\n' "${ui_element}"
-    printf '    Architectures: %s\n' "${architectures}"
+    validation_field "Path" "${app_path}"
+    validation_field "Display name" "${display_name}"
+    validation_field "Bundle identifier" "${bundle_identifier}"
+    validation_field "Version" "${short_version} (${build_version})"
+    validation_field "Minimum macOS" "${minimum_system_version}"
+    validation_field "LSUIElement" "${ui_element}"
+    validation_field "App architectures" "${architectures}"
+    validation_field "Helper architectures" "${helper_architectures}"
+
+    validation_section "Code signature"
 
     if ! command_output="$(codesign --verify --deep --strict --verbose=4 "${app_path}" 2>&1)"; then
         validation_fail "Deep strict app signature" "codesign rejected the app bundle" "${command_output}"
         return 1
     fi
-    echo "  Code signature"
     validation_pass "Deep strict app signature"
 
     for architecture in ${architectures}; do
@@ -542,14 +601,13 @@ validate_final_app() {
             validation_fail "App ${architecture} signature" "codesign rejected the ${architecture} slice" "${command_output}"
             return 1
         fi
-        validation_pass "App ${architecture} signature"
     done
+    validation_pass "App signature slices: ${architectures}"
 
     if ! command_output="$(codesign --verify --strict --verbose=4 "${helper_path}" 2>&1)"; then
         validation_fail "Helper signature" "codesign rejected the helper executable" "${command_output}"
         return 1
     fi
-    printf '    Helper architectures: %s\n' "${helper_architectures}"
     validation_pass "Helper signature"
 
     for architecture in ${helper_architectures}; do
@@ -557,8 +615,8 @@ validate_final_app() {
             validation_fail "Helper ${architecture} signature" "codesign rejected the helper ${architecture} slice" "${command_output}"
             return 1
         fi
-        validation_pass "Helper ${architecture} signature"
     done
+    validation_pass "Helper signature slices: ${helper_architectures}"
 
     if ! signature_details="$(codesign -d --verbose=4 "${app_path}" 2>&1)"; then
         validation_fail "App signature metadata" "codesign could not read the app signature" "${signature_details}"
@@ -628,15 +686,6 @@ validate_final_app() {
     fi
     validation_pass "App and helper certificate match"
 
-    printf '    Identifier: %s\n' "${signature_identifier}"
-    printf '    Helper identifier: %s\n' "${helper_signature_identifier}"
-    printf '    Authority: %s\n' "${signing_authority}"
-    printf '    Team identifier: %s\n' "${signing_team}"
-    printf '    Certificate SHA-1: %s\n' "${signing_certificate_sha1}"
-    printf '    Helper certificate SHA-1: %s\n' "${helper_signing_certificate_sha1}"
-    printf '    Timestamp: %s\n' "${signing_timestamp:-none}"
-    printf '    CDHash: %s\n' "${signing_cdhash}"
-
     expected_signing_certificate="$(read_plist_value "${EXPORT_OPTIONS_PLIST}" signingCertificate)"
     normalized_expected_certificate="$(printf '%s' "${expected_signing_certificate}" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
     if [[ "${normalized_expected_certificate}" =~ ^[0-9A-F]{40}$ ]]; then
@@ -648,8 +697,22 @@ validate_final_app() {
         fi
         validation_pass "Export certificate match"
     elif [[ -n "${expected_signing_certificate}" ]]; then
-        printf '    Export certificate selector: %s\n' "${expected_signing_certificate}"
+        export_certificate_selector="${expected_signing_certificate}"
     fi
+
+    validation_field "App identifier" "${signature_identifier}"
+    validation_field "Helper identifier" "${helper_signature_identifier}"
+    validation_field "Authority" "${signing_authority}"
+    validation_field "Team identifier" "${signing_team}"
+    validation_field "App certificate SHA-1" "${signing_certificate_sha1}"
+    validation_field "Helper certificate SHA-1" "${helper_signing_certificate_sha1}"
+    validation_field "Timestamp" "${signing_timestamp:-none}"
+    validation_field "CDHash" "${signing_cdhash}"
+    if [[ -n "${export_certificate_selector}" ]]; then
+        validation_field "Export certificate selector" "${export_certificate_selector}"
+    fi
+
+    validation_section "Entitlements"
 
     if ! codesign --display --entitlements="${main_entitlements}" --xml "${app_path}" >/dev/null 2>&1 || [[ ! -s "${main_entitlements}" ]]; then
         validation_fail "App entitlements" "codesign did not return an app entitlements plist"
@@ -665,9 +728,18 @@ validate_final_app() {
 
     main_application_identifier="$(read_plist_value "${main_entitlements}" com.apple.application-identifier)"
     helper_application_identifier="$(read_plist_value "${helper_entitlements}" com.apple.application-identifier)"
+    main_team_identifier="$(read_plist_value "${main_entitlements}" com.apple.developer.team-identifier)"
     debugger_entitlement="$(read_plist_value "${main_entitlements}" com.apple.security.get-task-allow)"
     helper_debugger_entitlement="$(read_plist_value "${helper_entitlements}" com.apple.security.get-task-allow)"
-    icloud_containers="$(read_plist_value "${main_entitlements}" com.apple.developer.icloud-container-identifiers)"
+    icloud_environment="$(read_plist_compact_value "${main_entitlements}" com.apple.developer.icloud-container-environment)"
+    icloud_containers="$(read_plist_compact_value "${main_entitlements}" com.apple.developer.icloud-container-identifiers)"
+    icloud_services="$(read_plist_compact_value "${main_entitlements}" com.apple.developer.icloud-services)"
+    if [[ "${debugger_entitlement}" == "true" || "${debugger_entitlement}" == "1" ]]; then
+        app_debugger_status="allowed"
+    fi
+    if [[ "${helper_debugger_entitlement}" == "true" || "${helper_debugger_entitlement}" == "1" ]]; then
+        helper_debugger_status="allowed"
+    fi
 
     if [[ "${main_application_identifier}" != "${signing_team}.${bundle_identifier}" ||
         "${helper_application_identifier}" != "${signing_team}.${bundle_identifier}.helper" ]]; then
@@ -679,37 +751,34 @@ validate_final_app() {
     validation_pass "Entitlement application identifiers"
 
     if [[ "${CONFIGURATION}" == "Release" &&
-        ("${debugger_entitlement}" == "true" || "${debugger_entitlement}" == "1" ||
-        "${helper_debugger_entitlement}" == "true" || "${helper_debugger_entitlement}" == "1") ]]; then
+        ("${app_debugger_status}" == "allowed" || "${helper_debugger_status}" == "allowed") ]]; then
         validation_fail \
             "Release debugger attachment" \
             "get-task-allow is enabled for app=${debugger_entitlement:-false}, helper=${helper_debugger_entitlement:-false}"
         return 1
     fi
 
-    echo "  App entitlements"
     if ! command_output="$(plutil -p "${main_entitlements}" 2>&1)"; then
-        validation_fail "App entitlements" "Unable to display app entitlements" "${command_output}"
+        validation_fail "App entitlements" "Unable to read app entitlements" "${command_output}"
         return 1
-    fi
-    printf '%s\n' "${command_output}" | print_indented
-    if [[ "${debugger_entitlement}" == "true" || "${debugger_entitlement}" == "1" ]]; then
-        validation_pass "App debugger attachment: allowed"
-    else
-        validation_pass "App debugger attachment: disabled"
     fi
 
-    echo "  Helper entitlements"
     if ! command_output="$(plutil -p "${helper_entitlements}" 2>&1)"; then
-        validation_fail "Helper entitlements" "Unable to display helper entitlements" "${command_output}"
+        validation_fail "Helper entitlements" "Unable to read helper entitlements" "${command_output}"
         return 1
     fi
-    printf '%s\n' "${command_output}" | print_indented
-    if [[ "${helper_debugger_entitlement}" == "true" || "${helper_debugger_entitlement}" == "1" ]]; then
-        validation_pass "Helper debugger attachment: allowed"
-    else
-        validation_pass "Helper debugger attachment: disabled"
-    fi
+    validation_pass "Debugger attachment policy"
+
+    validation_field "App identifier" "${main_application_identifier}"
+    validation_field "Helper identifier" "${helper_application_identifier}"
+    validation_field "Team identifier" "${main_team_identifier}"
+    validation_field "iCloud environment" "${icloud_environment}"
+    validation_field "iCloud containers" "${icloud_containers}"
+    validation_field "iCloud services" "${icloud_services}"
+    validation_field "App debugger attachment" "${app_debugger_status}"
+    validation_field "Helper debugger attachment" "${helper_debugger_status}"
+
+    validation_section "LaunchDaemon"
 
     if [[ ! -d "${launch_daemons_path}" ]]; then
         validation_fail "LaunchDaemon directory" "Missing ${launch_daemons_path}"
@@ -740,11 +809,12 @@ validate_final_app() {
     fi
     validation_pass "LaunchDaemon configuration"
 
-    echo "  LaunchDaemon"
-    printf '    File: %s\n' "$(basename "${launch_daemon_plist}")"
-    printf '    Label: %s\n' "${launch_daemon_label}"
-    printf '    Associated bundle: %s\n' "${launch_daemon_bundle_identifier}"
-    printf '    Program: %s\n' "${launch_daemon_program}"
+    validation_field "File" "$(basename "${launch_daemon_plist}")"
+    validation_field "Label" "${launch_daemon_label}"
+    validation_field "Associated bundle" "${launch_daemon_bundle_identifier}"
+    validation_field "Program" "${launch_daemon_program}"
+
+    validation_section "Provisioning profile"
 
     if [[ -f "${embedded_profile}" ]]; then
         if ! security cms -D -i "${embedded_profile}" > "${profile_plist}" 2> "${profile_decode_error}"; then
@@ -782,14 +852,6 @@ validate_final_app() {
             return 1
         fi
 
-        echo "  Provisioning profile"
-        printf '    Name: %s\n' "${profile_name}"
-        printf '    UUID: %s\n' "${profile_uuid}"
-        printf '    Team identifier: %s\n' "${profile_team}"
-        printf '    Application identifier: %s\n' "${profile_application_identifier}"
-        printf '    Expiration: %s\n' "${profile_expiration}"
-        printf '    Authorized certificates: %s\n' "${profile_certificate_count}"
-
         for ((profile_certificate_index = 0; profile_certificate_index < profile_certificate_count; profile_certificate_index++)); do
             profile_certificate_path="${validation_dir}/profile-certificate-${profile_certificate_index}.der"
             if ! plutil -extract "DeveloperCertificates.${profile_certificate_index}" raw -o - "${profile_plist}" |
@@ -805,7 +867,7 @@ validate_final_app() {
                     "Unable to calculate the certificate SHA-1"
                 return 1
             fi
-            printf '    Certificate %s SHA-1: %s\n' "$((profile_certificate_index + 1))" "${profile_certificate_sha1}"
+            profile_certificate_sha1s+=("${profile_certificate_sha1}")
             if [[ "${profile_certificate_sha1}" == "${signing_certificate_sha1}" ]]; then
                 profile_certificate_match_count=$((profile_certificate_match_count + 1))
             fi
@@ -835,19 +897,43 @@ validate_final_app() {
             validation_fail "Profile entitlements" "Unable to extract authorized entitlements" "${command_output}"
             return 1
         fi
-        echo "    Authorized entitlements"
         if ! command_output="$(plutil -p "${profile_entitlements}" 2>&1)"; then
-            validation_fail "Profile entitlements" "Unable to display authorized entitlements" "${command_output}"
+            validation_fail "Profile entitlements" "Unable to read authorized entitlements" "${command_output}"
             return 1
         fi
-        printf '%s\n' "${command_output}" | print_indented
+        profile_icloud_environment="$(read_plist_compact_value "${profile_entitlements}" com.apple.developer.icloud-container-environment)"
+        profile_icloud_containers="$(read_plist_compact_value "${profile_entitlements}" com.apple.developer.icloud-container-identifiers)"
+        profile_icloud_services="$(read_plist_compact_value "${profile_entitlements}" com.apple.developer.icloud-services)"
+        profile_ubiquity_containers="$(read_plist_compact_value "${profile_entitlements}" com.apple.developer.ubiquity-container-identifiers)"
+        profile_ubiquity_kvstore="$(read_plist_compact_value "${profile_entitlements}" com.apple.developer.ubiquity-kvstore-identifier)"
+        profile_keychain_access_groups="$(read_plist_compact_value "${profile_entitlements}" keychain-access-groups)"
         validation_pass "Profile entitlements"
+
+        validation_field "Name" "${profile_name}"
+        validation_field "UUID" "${profile_uuid}"
+        validation_field "Team identifier" "${profile_team}"
+        validation_field "Application identifier" "${profile_application_identifier}"
+        validation_field "Expiration" "${profile_expiration}"
+        validation_field "Authorized certificates" "${profile_certificate_count}"
+        for ((profile_certificate_index = 0; profile_certificate_index < profile_certificate_count; profile_certificate_index++)); do
+            validation_field \
+                "Certificate $((profile_certificate_index + 1)) SHA-1" \
+                "${profile_certificate_sha1s[${profile_certificate_index}]}"
+        done
+        validation_field "iCloud environment" "${profile_icloud_environment}"
+        validation_field "iCloud containers" "${profile_icloud_containers}"
+        validation_field "iCloud services" "${profile_icloud_services}"
+        validation_field "Ubiquity containers" "${profile_ubiquity_containers}"
+        validation_field "Ubiquity KV store" "${profile_ubiquity_kvstore}"
+        validation_field "Keychain access groups" "${profile_keychain_access_groups}"
     elif [[ -n "${icloud_containers}" ]]; then
         validation_fail "Embedded provisioning profile" "CloudKit entitlements require embedded.provisionprofile"
         return 1
     else
         validation_pass "Provisioning profile not required"
     fi
+
+    validation_section "Distribution"
 
     if [[ "${SKIP_NOTARIZATION}" == "1" ]]; then
         validation_skip "Notarization ticket"
@@ -866,13 +952,13 @@ validate_final_app() {
             fi
             gatekeeper_source="$(printf '%s\n' "${command_output}" | awk -F= '/^source=/ {print substr($0, index($0, "=") + 1); exit}')"
             validation_pass "Gatekeeper assessment"
-            printf '    Gatekeeper source: %s\n' "${gatekeeper_source}"
+            validation_field "Gatekeeper source" "${gatekeeper_source}"
         else
             validation_skip "Gatekeeper assessment"
         fi
     fi
 
-    validation_pass "Final app validation passed"
+    validation_summary "Final app validation passed"
 }
 
 safe_remove_path() {
@@ -987,6 +1073,46 @@ PLIST
     } > "${path}"
 }
 
+configure_archive_signing() {
+    local signing_style=""
+    local signing_certificate=""
+    local provisioning_profile=""
+    local bundle_identifier=""
+
+    signing_style="$(read_plist_value "${EXPORT_OPTIONS_PLIST}" signingStyle)"
+    if [[ "${signing_style}" != "manual" ]]; then
+        return
+    fi
+
+    bundle_identifier="$(read_build_setting PRODUCT_BUNDLE_IDENTIFIER)"
+    if [[ -z "${bundle_identifier}" ]]; then
+        echo "error: unable to read PRODUCT_BUNDLE_IDENTIFIER for manual signing" >&2
+        exit 1
+    fi
+
+    signing_certificate="$(read_plist_value "${EXPORT_OPTIONS_PLIST}" signingCertificate)"
+    provisioning_profile="$(
+        read_plist_value \
+            "${EXPORT_OPTIONS_PLIST}" \
+            "provisioningProfiles:${bundle_identifier}"
+    )"
+    if [[ -z "${provisioning_profile}" ]]; then
+        echo "error: manual export options do not specify a profile for ${bundle_identifier}" >&2
+        exit 1
+    fi
+
+    # exportArchive 不会下载缺失的手动 profile, 在 archive 阶段解析才能触发 Xcode 账户同步
+    ARCHIVE_SIGNING_FLAGS=(
+    "CODE_SIGN_STYLE=Manual"
+    "CODEXBAR_PROVISIONING_PROFILE_SPECIFIER=${provisioning_profile}"
+    )
+    if [[ -n "${signing_certificate}" ]]; then
+        ARCHIVE_SIGNING_FLAGS+=("CODE_SIGN_IDENTITY=${signing_certificate}")
+    fi
+
+    echo "==> Resolving provisioning profile ${provisioning_profile} during archive"
+}
+
 parse_args "$@"
 
 XCODE_PROJECT="$(absolute_path "${XCODE_PROJECT}")"
@@ -1096,6 +1222,8 @@ elif [[ ! -f "${EXPORT_OPTIONS_PLIST}" ]]; then
     exit 1
 fi
 
+configure_archive_signing
+
 PROVISIONING_FLAGS=()
 if [[ "${ALLOW_PROVISIONING_UPDATES}" == "1" ]]; then
     PROVISIONING_FLAGS=(-allowProvisioningUpdates)
@@ -1127,6 +1255,7 @@ xcodebuild \
     -derivedDataPath "${DERIVED_DATA_PATH}" \
     -archivePath "${ARCHIVE_PATH}" \
     "${PROVISIONING_FLAGS[@]+"${PROVISIONING_FLAGS[@]}"}" \
+    "${ARCHIVE_SIGNING_FLAGS[@]+"${ARCHIVE_SIGNING_FLAGS[@]}"}" \
     archive
 
 mkdir -p "${EXPORT_DIR}"
