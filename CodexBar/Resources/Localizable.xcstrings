@@ -4215,7 +4215,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Expiring Reset Credits"
+            "value" : "Expiring Reset"
           }
         },
         "zh-Hans" : {
@@ -4231,7 +4231,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reset credits: %lld"
+            "value" : "Reset: %lld"
           }
         },
         "zh-Hans" : {
