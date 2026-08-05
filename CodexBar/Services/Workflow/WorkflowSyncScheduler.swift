@@ -47,9 +47,11 @@ final class WorkflowSyncScheduler {
     func requestSync(trigger: LogTrigger, activation overrideActivation: WorkflowSyncActivation? = nil) {
         let activation = overrideActivation ?? syncActivation()
         guard activation.isActive else {
-            AppLog.sync.notice(
-                "同步已跳过: trigger=\(trigger.rawValue, privacy: .public); reason=\(activation.rawValue, privacy: .public)"
+            let details = LogFields.joined(
+                "trigger=\(trigger.rawValue)",
+                "reason=\(activation.rawValue)"
             )
+            AppLog.sync.notice("同步已跳过: \(details, privacy: .public)")
             clearPendingSync()
             return
         }
@@ -194,9 +196,12 @@ final class WorkflowSyncScheduler {
                     )
                 )
             } catch {
-                AppLog.workflow.error(
-                    "数据重建失败: stage=request; dates=\(request.dateKeys.count); detail=\(error.localizedDescription, privacy: .public)"
+                let details = LogFields.joined(
+                    "stage=request",
+                    "dates=\(request.dateKeys.count)",
+                    "detail=\(error.localizedDescription)"
                 )
+                AppLog.workflow.error("数据重建失败: \(details, privacy: .public)")
                 result = .failure(error)
             }
 
@@ -225,9 +230,20 @@ final class WorkflowSyncScheduler {
         let sync = synchronize ? 1 : 0
         let range = counts.dateRange
         let elapsed = duration.elapsed
-        AppLog.workflow.notice(
-            "统计刷新完成: trigger=\(triggerName, privacy: .public); sync=\(sync); idle=\(counts.idle); dates=\(counts.dates); range=\(range, privacy: .public); events=\(counts.events); written=\(counts.written); skipped=\(counts.skipped); failed=\(counts.failed); pruned=\(counts.pruned); elapsed=\(elapsed, privacy: .public)"
+        let details = LogFields.joined(
+            "trigger=\(triggerName)",
+            "sync=\(sync)",
+            "idle=\(counts.idle)",
+            "dates=\(counts.dates)",
+            "range=\(range)",
+            "events=\(counts.events)",
+            "written=\(counts.written)",
+            "skipped=\(counts.skipped)",
+            "failed=\(counts.failed)",
+            "pruned=\(counts.pruned)",
+            "elapsed=\(elapsed)"
         )
+        AppLog.workflow.notice("统计刷新完成: \(details, privacy: .public)")
     }
 
     private func remainingSyncCooldown() -> TimeInterval {
@@ -249,9 +265,12 @@ final class WorkflowSyncScheduler {
 
         let trigger = pendingSyncTrigger ?? .auto
         let remaining = LogDuration.seconds(delay)
-        AppLog.sync.notice(
-            "同步已延后: trigger=\(trigger.rawValue, privacy: .public); reason=cooldown; remaining=\(remaining, privacy: .public)"
+        let details = LogFields.joined(
+            "trigger=\(trigger.rawValue)",
+            "reason=cooldown",
+            "remaining=\(remaining)"
         )
+        AppLog.sync.notice("同步已延后: \(details, privacy: .public)")
 
         let milliseconds = max(1, Int((delay * 1000).rounded(.up)))
         cooldownTask = Task { @MainActor [weak self] in

@@ -30,6 +30,15 @@ struct CodexActivityCard: View {
         keepAliveController.isActivelyPreventingSleep && !showsUnavailableState
     }
 
+    private var keepAliveHelp: String {
+        switch keepAliveController.sleepPreventionSource {
+        case .external:
+            String(localized: "系统睡眠已由其他来源关闭")
+        case .codexBar, .none:
+            String(localized: "已防止系统睡眠")
+        }
+    }
+
     var body: some View {
         Group {
             if snapshot.hasTaskCenterContent {
@@ -82,7 +91,7 @@ struct CodexActivityCard: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color.teal)
                     .transition(.opacity)
-                    .help("已防止系统睡眠")
+                    .help(keepAliveHelp)
             }
 
             if content.otherTaskCount > 0 {

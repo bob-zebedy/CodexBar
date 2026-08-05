@@ -3522,6 +3522,22 @@
         }
       }
     },
+    "系统睡眠已由其他来源关闭" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "System sleep is disabled by another source"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "系统睡眠已由其他来源关闭"
+          }
+        }
+      }
+    },
     "系统通知" : {
       "localizations" : {
         "en" : {

@@ -12,7 +12,7 @@ struct NotificationOptionsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
-            longTaskRow
+            taskCompletionRow
             taskWaitingRow
             lowQuotaRow
             quotaResetRow
@@ -79,30 +79,30 @@ struct NotificationOptionsView: View {
         )
     }
 
-    /// Hook 未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isLongTaskEnabled
-    private var longTaskRow: some View {
-        let isDisplayedOn = codexHookSettings.isOperable && notificationSettings.isLongTaskEnabled
+    /// Hook 未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isTaskCompletionEnabled
+    private var taskCompletionRow: some View {
+        let isDisplayedOn = codexHookSettings.isOperable && notificationSettings.isTaskCompletionEnabled
 
         return notificationOptionRow(
             title: "任务完成通知",
             isOn: Binding(
                 get: { isDisplayedOn },
-                set: { notificationSettings.setLongTaskEnabled($0) }
+                set: { notificationSettings.setTaskCompletionEnabled($0) }
             ),
             isEnabled: codexHookSettings.isOperable,
             sound: Binding(
-                get: { notificationSettings.longTaskSound },
-                set: { notificationSettings.setLongTaskSound($0) }
+                get: { notificationSettings.taskCompletionSound },
+                set: { notificationSettings.setTaskCompletionSound($0) }
             )
         ) {
             optionPicker(
                 title: "任务时长",
                 selection: Binding(
-                    get: { notificationSettings.longTaskThresholdSeconds },
-                    set: { notificationSettings.setLongTaskThresholdSeconds($0) }
+                    get: { notificationSettings.taskCompletionMinimumDurationSeconds },
+                    set: { notificationSettings.setTaskCompletionMinimumDurationSeconds($0) }
                 ),
-                options: NotificationSettings.longTaskThresholdOptions,
-                label: { Self.longTaskOptionLabel($0) }
+                options: NotificationSettings.taskCompletionDurationOptions,
+                label: { Self.taskCompletionDurationLabel($0) }
             )
         }
     }
@@ -424,7 +424,7 @@ struct NotificationOptionsView: View {
         previewSound = nil
     }
 
-    private static func longTaskOptionLabel(_ seconds: Int) -> String {
+    private static func taskCompletionDurationLabel(_ seconds: Int) -> String {
         seconds < 60
             ? String(localized: "\(seconds) 秒")
             : String(localized: "\(seconds / 60) 分钟")

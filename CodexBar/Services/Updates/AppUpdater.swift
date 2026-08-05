@@ -157,9 +157,12 @@ extension AppUpdater: SPUUpdaterDelegate {
         )
         availableUpdateMessage = message
         let trigger = checkTrigger.rawValue
-        AppLog.app.notice(
-            "更新检查完成: trigger=\(trigger, privacy: .public); result=available; version=\(version, privacy: .public)"
+        let details = LogFields.joined(
+            "trigger=\(trigger)",
+            "result=available",
+            "version=\(version)"
         )
+        AppLog.app.notice("更新检查完成: \(details, privacy: .public)")
 
         if isManualCheckInProgress {
             showSettingsStatusMessage(message, autoDismissDelay: nil)
@@ -174,9 +177,11 @@ extension AppUpdater: SPUUpdaterDelegate {
         availableUpdateMessage = nil
         panelUpdateMessage = nil
         let trigger = checkTrigger.rawValue
-        AppLog.app.notice(
-            "更新检查完成: trigger=\(trigger, privacy: .public); result=upToDate"
+        let details = LogFields.joined(
+            "trigger=\(trigger)",
+            "result=upToDate"
         )
+        AppLog.app.notice("更新检查完成: \(details, privacy: .public)")
 
         if isManualCheckInProgress {
             showSettingsStatusMessage(
@@ -193,9 +198,11 @@ extension AppUpdater: SPUUpdaterDelegate {
         // 这一轮的结果已由 updaterDidNotFindUpdate 记成 result=upToDate
         if (error as NSError).code != Int(SUError.noUpdateError.rawValue) {
             let trigger = checkTrigger.rawValue
-            AppLog.app.error(
-                "更新检查失败: trigger=\(trigger, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+            let details = LogFields.joined(
+                "trigger=\(trigger)",
+                "detail=\(error.localizedDescription)"
             )
+            AppLog.app.error("更新检查失败: \(details, privacy: .public)")
         }
 
         guard isManualCheckInProgress else {

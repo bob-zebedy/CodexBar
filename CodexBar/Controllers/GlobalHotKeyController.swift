@@ -46,7 +46,11 @@ final class GlobalHotKeyController {
 
         guard status == noErr else {
             // 最常见的原因是快捷键已被其他 App 占用, 用户只会看到"按了没反应"
-            AppLog.settings.error("快捷键注册失败: stage=register; code=\(status)")
+            let details = LogFields.joined(
+                "stage=register",
+                "code=\(status)"
+            )
+            AppLog.settings.error("快捷键注册失败: \(details, privacy: .public)")
             GlobalHotKeyRegistration.remove(hotKeyRef: nil, eventHandlerRef: installedHandlerRef)
             return false
         }

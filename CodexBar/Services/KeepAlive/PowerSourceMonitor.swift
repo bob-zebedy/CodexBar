@@ -113,9 +113,11 @@ final class PowerSourceMonitor {
             }
         }, context)?.takeRetainedValue() else {
             // action= 记的是降级后还剩什么, 否则只知道注册失败, 不知道保护是不是全没了
-            AppLog.keepAlive.error(
-                "电源监听注册失败: stage=createRunLoopSource; action=poll"
+            let details = LogFields.joined(
+                "stage=createRunLoopSource",
+                "action=poll"
             )
+            AppLog.keepAlive.error("电源监听注册失败: \(details, privacy: .public)")
             startPolling()
             return
         }

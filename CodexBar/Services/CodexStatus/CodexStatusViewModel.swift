@@ -135,19 +135,34 @@ final class CodexStatusViewModel: ObservableObject {
             let rateLimits = trace.rateLimits?.rawValue ?? "-"
             let usage = trace.usage?.rawValue ?? "-"
             let resetCredits = trace.resetCredits?.rawValue ?? "-"
-            AppLog.app.notice(
-                "额度刷新完成: trigger=\(triggerName, privacy: .public); state=\(state, privacy: .public); conn=\(connection, privacy: .public); account=\(account, privacy: .public); rateLimits=\(rateLimits, privacy: .public); usage=\(usage, privacy: .public); reset=\(resetCredits, privacy: .public); elapsed=\(elapsed, privacy: .public)"
+            let details = LogFields.joined(
+                "trigger=\(triggerName)",
+                "state=\(state)",
+                "conn=\(connection)",
+                "account=\(account)",
+                "rateLimits=\(rateLimits)",
+                "usage=\(usage)",
+                "reset=\(resetCredits)",
+                "elapsed=\(elapsed)"
             )
+            AppLog.app.notice("额度刷新完成: \(details, privacy: .public)")
         case .notLoggedIn:
             // 未登录是正常状态, 混进失败词根会让每分钟一条噪声盖掉真故障
-            AppLog.app.notice(
-                "额度刷新已跳过: trigger=\(triggerName, privacy: .public); reason=notLoggedIn; elapsed=\(elapsed, privacy: .public)"
+            let details = LogFields.joined(
+                "trigger=\(triggerName)",
+                "reason=notLoggedIn",
+                "elapsed=\(elapsed)"
             )
+            AppLog.app.notice("额度刷新已跳过: \(details, privacy: .public)")
         case .initializationFailed, .loading:
             let stage = trace.failureStage?.rawValue ?? "-"
-            AppLog.app.error(
-                "额度刷新失败: trigger=\(triggerName, privacy: .public); stage=\(stage, privacy: .public); state=\(state, privacy: .public); elapsed=\(elapsed, privacy: .public)"
+            let details = LogFields.joined(
+                "trigger=\(triggerName)",
+                "stage=\(stage)",
+                "state=\(state)",
+                "elapsed=\(elapsed)"
             )
+            AppLog.app.error("额度刷新失败: \(details, privacy: .public)")
         }
     }
 

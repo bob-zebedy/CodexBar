@@ -26,6 +26,16 @@ nonisolated enum AppLog {
     private static let subsystem = Bundle.main.bundleIdentifier ?? "app.zabrian.codexbar"
 }
 
+nonisolated enum LogFields {
+    static func joined(_ fields: String...) -> String {
+        fields.joined(separator: "; ")
+    }
+
+    static func joined(_ fields: [String]) -> String {
+        fields.joined(separator: "; ")
+    }
+}
+
 /// 一次操作的触发来源, 作为日志里的 trigger 字段
 /// 同一条链路可能被用户动作 定时轮询 系统事件分别踢起来, 事后只有这个字段能区分
 nonisolated enum LogTrigger: String {
@@ -41,6 +51,7 @@ nonisolated enum LogTrigger: String {
     case hookChanged
     case taskChanged
     case helperRegistered
+    case termination
     case limitReached
     /// 电量或供电方式变化
     case battery

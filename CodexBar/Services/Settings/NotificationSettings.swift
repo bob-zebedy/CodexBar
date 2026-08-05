@@ -11,17 +11,17 @@ final class NotificationSettings: ObservableObject {
     @Published private(set) var isEnabled: Bool
     @Published private(set) var isLowQuotaEnabled: Bool
     @Published private(set) var isQuotaResetEnabled: Bool
-    @Published private(set) var isLongTaskEnabled: Bool
+    @Published private(set) var isTaskCompletionEnabled: Bool
     @Published private(set) var isTaskWaitingEnabled: Bool
     @Published private(set) var isTaskHapticEnabled: Bool
     @Published private(set) var isCreditExpiryEnabled: Bool
     @Published private(set) var isLowBatteryEnabled: Bool
     @Published private(set) var isKeepAliveLimitEnabled: Bool
     @Published private(set) var lowQuotaThresholdPercent: Int
-    @Published private(set) var longTaskThresholdSeconds: Int
+    @Published private(set) var taskCompletionMinimumDurationSeconds: Int
     @Published private(set) var lowQuotaSound: NotificationSoundOption
     @Published private(set) var quotaResetSound: NotificationSoundOption
-    @Published private(set) var longTaskSound: NotificationSoundOption
+    @Published private(set) var taskCompletionSound: NotificationSoundOption
     @Published private(set) var taskWaitingSound: NotificationSoundOption
     @Published private(set) var creditExpirySound: NotificationSoundOption
     @Published private(set) var lowBatterySound: NotificationSoundOption
@@ -60,7 +60,7 @@ final class NotificationSettings: ObservableObject {
     }
 
     static let lowQuotaThresholdOptions = [5, 10, 25]
-    static let longTaskThresholdOptions = [30, 60, 120, 300]
+    static let taskCompletionDurationOptions = [30, 60, 120, 300]
 
     private let defaults: UserDefaults
     private var authorizationTask: Task<Void, Never>?
@@ -70,7 +70,11 @@ final class NotificationSettings: ObservableObject {
         isEnabled = defaults.bool(forKey: Self.enabledKey)
         isLowQuotaEnabled = Self.bool(from: defaults, key: Self.lowQuotaEnabledKey, defaultValue: true)
         isQuotaResetEnabled = Self.bool(from: defaults, key: Self.quotaResetEnabledKey, defaultValue: true)
-        isLongTaskEnabled = Self.bool(from: defaults, key: Self.longTaskEnabledKey, defaultValue: true)
+        isTaskCompletionEnabled = Self.bool(
+            from: defaults,
+            key: Self.taskCompletionEnabledKey,
+            defaultValue: true
+        )
         isTaskWaitingEnabled = Self.bool(from: defaults, key: Self.taskWaitingEnabledKey, defaultValue: true)
         isTaskHapticEnabled = Self.bool(from: defaults, key: Self.taskHapticEnabledKey, defaultValue: false)
         isCreditExpiryEnabled = Self.bool(from: defaults, key: Self.creditExpiryEnabledKey, defaultValue: true)
@@ -81,14 +85,14 @@ final class NotificationSettings: ObservableObject {
             in: Self.lowQuotaThresholdOptions,
             defaultValue: 10
         )
-        longTaskThresholdSeconds = Self.option(
-            defaults.object(forKey: Self.longTaskThresholdKey) as? Int,
-            in: Self.longTaskThresholdOptions,
+        taskCompletionMinimumDurationSeconds = Self.option(
+            defaults.object(forKey: Self.taskCompletionMinimumDurationKey) as? Int,
+            in: Self.taskCompletionDurationOptions,
             defaultValue: 60
         )
         lowQuotaSound = Self.sound(from: defaults, key: Self.lowQuotaSoundKey)
         quotaResetSound = Self.sound(from: defaults, key: Self.quotaResetSoundKey)
-        longTaskSound = Self.sound(from: defaults, key: Self.longTaskSoundKey)
+        taskCompletionSound = Self.sound(from: defaults, key: Self.taskCompletionSoundKey)
         taskWaitingSound = Self.sound(from: defaults, key: Self.taskWaitingSoundKey)
         creditExpirySound = Self.sound(from: defaults, key: Self.creditExpirySoundKey)
         lowBatterySound = Self.sound(from: defaults, key: Self.lowBatterySoundKey)
@@ -120,8 +124,8 @@ final class NotificationSettings: ObservableObject {
         setBool(enabled, current: &isQuotaResetEnabled, key: Self.quotaResetEnabledKey)
     }
 
-    func setLongTaskEnabled(_ enabled: Bool) {
-        setBool(enabled, current: &isLongTaskEnabled, key: Self.longTaskEnabledKey)
+    func setTaskCompletionEnabled(_ enabled: Bool) {
+        setBool(enabled, current: &isTaskCompletionEnabled, key: Self.taskCompletionEnabledKey)
     }
 
     func setTaskWaitingEnabled(_ enabled: Bool) {
@@ -154,14 +158,14 @@ final class NotificationSettings: ObservableObject {
         defaults.set(percent, forKey: Self.lowQuotaThresholdKey)
     }
 
-    func setLongTaskThresholdSeconds(_ seconds: Int) {
-        guard Self.longTaskThresholdOptions.contains(seconds),
-              seconds != longTaskThresholdSeconds else {
+    func setTaskCompletionMinimumDurationSeconds(_ seconds: Int) {
+        guard Self.taskCompletionDurationOptions.contains(seconds),
+              seconds != taskCompletionMinimumDurationSeconds else {
             return
         }
 
-        longTaskThresholdSeconds = seconds
-        defaults.set(seconds, forKey: Self.longTaskThresholdKey)
+        taskCompletionMinimumDurationSeconds = seconds
+        defaults.set(seconds, forKey: Self.taskCompletionMinimumDurationKey)
     }
 
     func setLowQuotaSound(_ sound: NotificationSoundOption) {
@@ -172,8 +176,8 @@ final class NotificationSettings: ObservableObject {
         setSound(sound, current: &quotaResetSound, key: Self.quotaResetSoundKey)
     }
 
-    func setLongTaskSound(_ sound: NotificationSoundOption) {
-        setSound(sound, current: &longTaskSound, key: Self.longTaskSoundKey)
+    func setTaskCompletionSound(_ sound: NotificationSoundOption) {
+        setSound(sound, current: &taskCompletionSound, key: Self.taskCompletionSoundKey)
     }
 
     func setTaskWaitingSound(_ sound: NotificationSoundOption) {
@@ -210,9 +214,11 @@ final class NotificationSettings: ObservableObject {
 
             let previousStatus = authorizationStatus
             if status != previousStatus {
-                AppLog.notification.notice(
-                    "通知授权变化: from=\(String(describing: previousStatus), privacy: .public); to=\(String(describing: status), privacy: .public)"
+                let details = LogFields.joined(
+                    "from=\(String(describing: previousStatus))",
+                    "to=\(String(describing: status))"
                 )
+                AppLog.notification.notice("通知授权变化: \(details, privacy: .public)")
             }
             authorizationStatus = status
         }
@@ -256,9 +262,11 @@ final class NotificationSettings: ObservableObject {
         }
 
         // 七个通知细项都走这里, 用持久化 key 区分是哪一项, 不必逐个 setter 铺日志
-        AppLog.notification.notice(
-            "通知选项变更: key=\(key, privacy: .public); enabled=\(value ? 1 : 0)"
+        let details = LogFields.joined(
+            "key=\(key)",
+            "enabled=\(value ? 1 : 0)"
         )
+        AppLog.notification.notice("通知选项变更: \(details, privacy: .public)")
         current = value
         defaults.set(value, forKey: key)
     }
@@ -305,17 +313,17 @@ final class NotificationSettings: ObservableObject {
     private static let enabledKey = "Notification.enabled"
     private static let lowQuotaEnabledKey = "Notification.lowQuotaEnabled"
     private static let quotaResetEnabledKey = "Notification.quotaResetEnabled"
-    private static let longTaskEnabledKey = "Notification.longTaskEnabled"
+    private static let taskCompletionEnabledKey = "Notification.taskCompletionEnabled"
     private static let taskWaitingEnabledKey = "Notification.taskWaitingEnabled"
     private static let taskHapticEnabledKey = "Notification.taskHapticEnabled"
     private static let creditExpiryEnabledKey = "Notification.creditExpiryEnabled"
     private static let lowBatteryEnabledKey = "Notification.lowBatteryEnabled"
     private static let keepAliveLimitEnabledKey = "Notification.keepAliveLimitEnabled"
     private static let lowQuotaThresholdKey = "Notification.lowQuotaThresholdPercent"
-    private static let longTaskThresholdKey = "Notification.longTaskThresholdSeconds"
+    private static let taskCompletionMinimumDurationKey = "Notification.taskCompletionMinimumDurationSeconds"
     private static let lowQuotaSoundKey = "Notification.lowQuotaSound"
     private static let quotaResetSoundKey = "Notification.quotaResetSound"
-    private static let longTaskSoundKey = "Notification.longTaskSound"
+    private static let taskCompletionSoundKey = "Notification.taskCompletionSound"
     private static let taskWaitingSoundKey = "Notification.taskWaitingSound"
     private static let creditExpirySoundKey = "Notification.creditExpirySound"
     private static let lowBatterySoundKey = "Notification.lowBatterySound"

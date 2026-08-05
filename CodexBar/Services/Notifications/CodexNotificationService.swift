@@ -142,14 +142,14 @@ final class CodexNotificationService: NSObject {
                 }
             )
         case let .completed(completion):
-            guard settings.isLongTaskEnabled,
+            guard settings.isTaskCompletionEnabled,
                   let duration = completion.duration,
-                  duration >= TimeInterval(settings.longTaskThresholdSeconds) else {
+                  duration >= TimeInterval(settings.taskCompletionMinimumDurationSeconds) else {
                 return
             }
             send(
                 .taskCompleted(project: completion.projectName, duration: duration),
-                sound: settings.longTaskSound
+                sound: settings.taskCompletionSound
             )
         }
     }
@@ -324,9 +324,12 @@ final class CodexNotificationService: NSObject {
 
         // 阈值是用户设置值不是用量数据, 记它才能解释这条通知为什么会发出来
         let threshold = lowQuota.thresholdPercent
-        AppLog.notification.notice(
-            "阈值已穿越: kind=lowQuota; threshold=\(threshold); direction=down"
+        let details = LogFields.joined(
+            "kind=lowQuota",
+            "threshold=\(threshold)",
+            "direction=down"
         )
+        AppLog.notification.notice("阈值已穿越: \(details, privacy: .public)")
 
         let dedupKey = "low|\(stateKey)|\(Self.epoch(resetsAt))"
         send(
@@ -502,7 +505,11 @@ final class CodexNotificationService: NSObject {
         if let dedupKey {
             guard !sentDedupKeys.contains(dedupKey),
                   submittingDedupKeys.insert(dedupKey).inserted else {
-                AppLog.notification.notice("通知已跳过: kind=\(kind, privacy: .public); reason=duplicate")
+                let details = LogFields.joined(
+                    "kind=\(kind)",
+                    "reason=duplicate"
+                )
+                AppLog.notification.notice("通知已跳过: \(details, privacy: .public)")
                 return nil
             }
         }
@@ -544,18 +551,22 @@ final class CodexNotificationService: NSObject {
 
         for _ in 0 ... Self.notificationSubmissionRetryCount {
             guard isStillRelevant?() != false else {
-                AppLog.notification.notice(
-                    "通知已跳过: kind=\(kind, privacy: .public); reason=obsolete"
+                let details = LogFields.joined(
+                    "kind=\(kind)",
+                    "reason=obsolete"
                 )
+                AppLog.notification.notice("通知已跳过: \(details, privacy: .public)")
                 return false
             }
             do {
                 try await UNUserNotificationCenter.current().add(request)
                 guard isStillRelevant?() != false else {
                     // 投递后任务状态又变了, 撤回避免用户看到过期提醒
-                    AppLog.notification.notice(
-                        "通知已撤回: kind=\(kind, privacy: .public); reason=obsolete"
+                    let details = LogFields.joined(
+                        "kind=\(kind)",
+                        "reason=obsolete"
                     )
+                    AppLog.notification.notice("通知已撤回: \(details, privacy: .public)")
                     removeNotifications(withIdentifiers: [request.identifier])
                     return false
                 }
@@ -570,9 +581,11 @@ final class CodexNotificationService: NSObject {
         }
 
         // 重试全部用尽才记, 循环内的单次失败会重试
-        AppLog.notification.error(
-            "通知发送失败: kind=\(kind, privacy: .public); reason=retryExhausted"
+        let details = LogFields.joined(
+            "kind=\(kind)",
+            "reason=retryExhausted"
         )
+        AppLog.notification.error("通知发送失败: \(details, privacy: .public)")
         onSubmissionFailure?()
         return false
     }
@@ -701,7 +714,7 @@ nonisolated struct CodexNotificationContent: Equatable {
         }
 
         return CodexNotificationContent(
-            kind: "longTask",
+            kind: "taskCompleted",
             title: String(
                 localized: "notification.task-completed.title",
                 defaultValue: "Codex 任务完成"

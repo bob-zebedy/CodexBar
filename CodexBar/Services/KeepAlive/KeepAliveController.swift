@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import CryptoKit
 import Foundation
 import IOKit
 import os
@@ -11,6 +10,7 @@ final class KeepAliveController: ObservableObject {
     @Published private(set) var isEnabled: Bool
     @Published private(set) var helperStatus = HelperStatus.notRegistered
     @Published private(set) var isPreventingSleep = false
+    @Published private(set) var sleepPreventionSource = CodexBarSleepPreventionSource.none
     @Published private(set) var lowBatteryThreshold: LowBatteryThreshold
     /// 等待批准的任务算不算"有任务", 决定审批期间要不要继续挡住睡眠
     @Published private(set) var keepsAwakeWhileWaiting: Bool
@@ -91,16 +91,18 @@ final class KeepAliveController: ObservableObject {
     /// 最近一份快照中的等待任务, 用于识别等待批准后恢复运行的状态转换
     /// 开着 keepsAwakeWhileWaiting 时它同时是"有没有任务撑着防睡眠"的另一半输入
     private var waitingTaskIDs = Set<UUID>()
+    /// 同一 App 进程内跨 XPC 重连保持不变, helper 据此把连接变化与租约所有权分开
+    private let helperClientSessionID = UUID().uuidString
     private var connection: NSXPCConnection?
-    /// 本轮接管以来连接没有断过, helper 那边的哨兵必然还在
-    /// 断过就可能是 helper 已经自行恢复并清掉哨兵, 那之后拿到的回复只是占位值, 不是实测状态
-    /// 能这样判断是因为哨兵只由 helper 侧的恢复删除, 而那些路径都要求连接已断
-    private var canTrustRestoreResult = false
-    private var appliedSleepDisabled: Bool?
+    private var appliedSleepPreventionRequested: Bool?
+    /// true 请求可能已被 helper 接收却丢了回复, 只有一次成功的 false 才能清除这个可能性
+    private var mayHaveHelperLease = false
     private var requestInFlight = false
     private var requestGeneration: UInt64 = 0
+    private var pendingRequestCompletion: ((Bool) -> Void)?
     private var retryTask: Task<Void, Never>?
     private var requestTimeoutTask: Task<Void, Never>?
+    private let helperRuntimeStatusMonitor = HelperRuntimeStatusMonitor()
     private var retryAttempt = 0
     private var helperRegistrationTask: Task<Void, Never>?
     /// 与 hasRunningTasks 同理: 只经由派生状态影响 UI, 自己不发信号
@@ -116,6 +118,7 @@ final class KeepAliveController: ObservableObject {
     private var pendingKeepAliveLimit: MaximumDuration?
     private var cancellables = Set<AnyCancellable>()
     private var isStarted = false
+    private var isPreparingForTermination = false
     private var lastLoggedSleepConditions: SleepConditions?
     /// codexHookSettings.isOperable 的最新值, 由订阅维护
     /// 不直接读那个属性: 订阅回调跑在 willSet, 那时它还是改动前的值
@@ -129,6 +132,7 @@ final class KeepAliveController: ObservableObject {
         case noTasks
         case helperUnavailable
         case helperRefreshing
+        case terminating
         case lowBattery
         case limitReached
     }
@@ -229,6 +233,7 @@ final class KeepAliveController: ObservableObject {
         cancellables.removeAll()
         cancelRetryTask()
         cancelHelperRegistrationTask()
+        cancelExternalObservation()
         startedRunningTaskIDs.removeAll()
         waitingTaskIDs.removeAll()
         durationLimiter.stop()
@@ -237,10 +242,32 @@ final class KeepAliveController: ObservableObject {
         clearPendingLowBatteryNotification()
         pendingKeepAliveLimit = nil
 
-        if connection != nil {
-            applySleepDisabled(false)
-        }
         invalidateConnection()
+    }
+
+    /// App 退出时先等 root 侧把已取得的所有权恢复为 0
+    /// 如果本轮只是外部来源, helper 会成功回复但不写 pmset
+    func prepareForTermination() async -> Bool {
+        guard isStarted else {
+            return true
+        }
+        guard !isPreparingForTermination else {
+            return false
+        }
+
+        isPreparingForTermination = true
+        cancelRetryTask()
+        cancelHelperRegistrationTask()
+        cancelExternalObservation()
+        let success = await releaseHelperLeaseIfNeeded(trigger: .termination)
+        guard !success else {
+            return true
+        }
+
+        // 退出被取消时恢复正常状态, 不能让一次失败把运行中的任务永久放开
+        isPreparingForTermination = false
+        reconcileSleepState(trigger: .termination, force: true)
+        return false
     }
 
     func refresh() {
@@ -250,6 +277,11 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func refreshRegistrationAndSleepState() {
+        guard helperRegistrationTask == nil else {
+            reconcileSleepState(trigger: .statusRefresh)
+            return
+        }
+
         refreshHelperStatus()
         if isEnabled || helperStatus.isRegisteredOrAwaitingApproval {
             ensureHelperRegistration(opensSystemSettings: false)
@@ -402,9 +434,13 @@ final class KeepAliveController: ObservableObject {
         // 百分比只在这里记一次; 放进 SleepConditions 会让每掉 1% 刷一条
         // 本来就没在挡睡眠时这一跌不改变任何事, 但仍要记: 这是排查"为什么在这个电量断的"的唯一依据
         let wasPreventingSleep = isActivelyPreventingSleep
-        AppLog.keepAlive.notice(
-            "KeepAlive 电量已触及阈值: percent=\(status.percent); threshold=\(threshold); action=\(wasPreventingSleep ? "release" : "none", privacy: .public)"
+            && sleepPreventionSource == .codexBar
+        let details = LogFields.joined(
+            "percent=\(status.percent)",
+            "threshold=\(threshold)",
+            "action=\(wasPreventingSleep ? "release" : "none")"
         )
+        AppLog.keepAlive.notice("KeepAlive 电量已触及阈值: \(details, privacy: .public)")
 
         // 没挡过就不通知: "已恢复系统睡眠"会变成一句空话, 启动时电量本就偏低的机器首当其冲
         guard wasPreventingSleep, !hasNotifiedLowBattery else {
@@ -498,19 +534,28 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func ensureHelperRegistration(opensSystemSettings: Bool) {
-        let service = Self.helperService
+        guard helperRegistrationTask == nil else {
+            return
+        }
+
+        let service = KeepAliveHelperConfiguration.service
         refreshHelperStatus()
 
         switch helperStatus {
         case .enabled, .requiresApproval:
-            if helperRegistrationNeedsRefresh {
+            if KeepAliveHelperConfiguration.registrationNeedsRefresh(defaults: defaults) {
                 refreshRegisteredHelper(opensSystemSettings: opensSystemSettings)
+            } else if helperStatus == .enabled,
+                      let updateIdentifier = KeepAliveHelperConfiguration.pendingUpdateIdentifier(
+                          defaults: defaults
+                      ) {
+                completePendingHelperUpdate(updateIdentifier)
             } else if helperStatus == .requiresApproval, opensSystemSettings {
                 openSystemSettings()
             }
             return
         case .notRegistered, .notFound:
-            guard Self.helperAssetsArePresent else {
+            guard KeepAliveHelperConfiguration.assetsArePresent else {
                 registrationErrorMessage = KeepAliveLocalizedMessage.helperAssetsMissing
                 return
             }
@@ -530,35 +575,50 @@ final class KeepAliveController: ObservableObject {
         }
 
         refreshHelperStatus()
-        recordHelperRegistrationIfCurrent()
+        KeepAliveHelperConfiguration.recordRegistration(defaults: defaults, status: helperStatus)
+        if helperStatus == .enabled,
+           let updateIdentifier = KeepAliveHelperConfiguration.pendingUpdateIdentifier(
+               defaults: defaults
+           ) {
+            completePendingHelperUpdate(updateIdentifier)
+        }
         if helperStatus == .requiresApproval, opensSystemSettings {
             openSystemSettings()
         }
     }
 
     private func refreshRegisteredHelper(opensSystemSettings: Bool) {
+        let requiresSleepReset = helperStatus == .enabled
         guard helperRegistrationTask == nil,
-              Self.helperAssetsArePresent else {
+              KeepAliveHelperConfiguration.assetsArePresent,
+              let updateIdentifier = KeepAliveHelperConfiguration.beginUpdate(
+                  defaults: defaults,
+                  requiresSleepReset: requiresSleepReset
+              ) else {
             return
         }
 
         assign(true, to: \.isRefreshingHelper)
         cancelRetryTask()
+        cancelExternalObservation()
         invalidateConnection()
-        // 连接已失效, 重试也取消了, 之前的操作类错误已经过期
+        // 刷新期间已冻结新接管, 旧 helper 由 unregister 终止
         registrationErrorMessage = nil
         operationErrorMessage = nil
 
-        let service = Self.helperService
+        let service = KeepAliveHelperConfiguration.service
         helperRegistrationTask = Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
 
+            var didUnregisterHelper = false
             var registrationError: Error?
             do {
                 try Task.checkCancellation()
                 try await service.unregister()
+                didUnregisterHelper = true
+                mayHaveHelperLease = false
                 try Task.checkCancellation()
                 try await registerRefreshedHelper(service)
             } catch is CancellationError {
@@ -572,16 +632,31 @@ final class KeepAliveController: ObservableObject {
             }
 
             refreshHelperStatus()
-            if helperStatus.isRegisteredOrAwaitingApproval {
-                recordHelperRegistrationIfCurrent()
-            } else if let registrationError {
+            var helperWasUpdated = false
+            if didUnregisterHelper, helperStatus.isRegisteredOrAwaitingApproval {
+                KeepAliveHelperConfiguration.recordRegistration(
+                    defaults: defaults,
+                    status: helperStatus
+                )
+                if !requiresSleepReset {
+                    helperWasUpdated = true
+                } else if helperStatus == .enabled {
+                    helperWasUpdated = await completeHelperUpdate(updateIdentifier)
+                } else {
+                    // 从 enabled 更新后若需要系统批准, 一次性重置会在批准后继续
+                    helperWasUpdated = true
+                }
+            }
+
+            if !helperWasUpdated {
+                let detail = registrationError?.localizedDescription ?? "readinessFailed"
                 AppLog.keepAlive.error(
-                    "Helper 注册更新失败: detail=\(registrationError.localizedDescription, privacy: .public)"
+                    "Helper 注册更新失败: detail=\(detail, privacy: .public)"
                 )
                 registrationErrorMessage = KeepAliveLocalizedMessage.updateFailed
             }
 
-            assign(false, to: \.isRefreshingHelper)
+            assign(!helperWasUpdated && helperStatus == .enabled, to: \.isRefreshingHelper)
             helperRegistrationTask = nil
             if helperStatus == .requiresApproval, opensSystemSettings {
                 openSystemSettings()
@@ -593,13 +668,17 @@ final class KeepAliveController: ObservableObject {
     private func registerRefreshedHelper(_ service: SMAppService) async throws {
         await Task.yield()
 
-        var retryDelays = Self.helperRegistrationRetryDelays.makeIterator()
+        var retryDelays = KeepAliveHelperConfiguration.registrationRetryDelays.makeIterator()
         while true {
             do {
                 try service.register()
                 return
             } catch {
-                guard Self.isTransientHelperRegistrationError(error),
+                let status = HelperStatus(service.status)
+                if status.isRegisteredOrAwaitingApproval {
+                    return
+                }
+                guard KeepAliveHelperConfiguration.isTransientRegistrationError(error),
                       let retryDelay = retryDelays.next() else {
                     throw error
                 }
@@ -622,22 +701,18 @@ final class KeepAliveController: ObservableObject {
         self[keyPath: keyPath] = value
     }
 
-    private static func isTransientHelperRegistrationError(_ error: Error) -> Bool {
-        let error = error as NSError
-        return error.domain == SMAppServiceErrorDomain
-            && error.code == operationNotPermittedErrorCode
-    }
-
     private func refreshHelperStatus() {
         let previousStatus = helperStatus
-        assign(HelperStatus(Self.helperService.status), to: \.helperStatus)
+        assign(HelperStatus(KeepAliveHelperConfiguration.service.status), to: \.helperStatus)
         // 每次 App 激活都会跑, 只记真正的迁移, 否则日志会被无变化的求值淹没
         // 取局部量再插值: Logger 的插值是 autoclosure, 直接写属性会被要求显式 self, 与 --self remove 冲突
         let currentStatus = helperStatus
         if currentStatus != previousStatus {
-            AppLog.keepAlive.notice(
-                "Helper 注册状态变化: from=\(String(describing: previousStatus), privacy: .public); to=\(String(describing: currentStatus), privacy: .public)"
+            let details = LogFields.joined(
+                "from=\(String(describing: previousStatus))",
+                "to=\(String(describing: currentStatus))"
             )
+            AppLog.keepAlive.notice("Helper 注册状态变化: \(details, privacy: .public)")
         }
         if helperStatus == .enabled {
             // 注册已正常, 只撤回注册类抱怨
@@ -660,10 +735,17 @@ final class KeepAliveController: ObservableObject {
         reconcileDisplayAwake()
         logSleepConditionsIfChanged(blockReason: blockReason, trigger: trigger)
 
+        // Helper 刷新只允许 unregister/register, 普通租约请求必须等新 Helper 就绪后再恢复
+        guard !isRefreshingHelper else {
+            cancelRetryTask()
+            releaseSleepPrevention()
+            return
+        }
+
         guard wantsSleepDisabled else {
             cancelRetryTask()
-            if connection != nil, appliedSleepDisabled != false || isPreventingSleep {
-                applySleepDisabled(false)
+            if mayHaveHelperLease || isPreventingSleep {
+                applySleepPreventionRequested(false)
             } else {
                 releaseSleepPrevention()
             }
@@ -671,9 +753,9 @@ final class KeepAliveController: ObservableObject {
         }
 
         if force {
-            appliedSleepDisabled = nil
+            appliedSleepPreventionRequested = nil
         }
-        applySleepDisabled(true)
+        applySleepPreventionRequested(true)
     }
 
     /// 只有实际防睡眠正在生效时达到上限才排队
@@ -684,7 +766,9 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
-        guard pendingKeepAliveLimit == nil, isActivelyPreventingSleep else {
+        guard pendingKeepAliveLimit == nil,
+              isActivelyPreventingSleep,
+              sleepPreventionSource == .codexBar else {
             return
         }
 
@@ -719,7 +803,7 @@ final class KeepAliveController: ObservableObject {
     /// 缺依赖时收起入口, 只是没在防睡眠 (没任务, 低电量, 已达上限) 时仍然要能改设置
     private static func allowsOptions(_ blockReason: SleepBlockReason?) -> Bool {
         switch blockReason {
-        case .notStarted, .userOff, .hookDisabled, .helperUnavailable:
+        case .notStarted, .userOff, .hookDisabled, .helperUnavailable, .terminating:
             false
         case nil, .noTasks, .helperRefreshing, .lowBattery, .limitReached:
             true
@@ -751,9 +835,18 @@ final class KeepAliveController: ObservableObject {
 
         let triggerName = trigger.rawValue
         let helperName = String(describing: conditions.helper)
-        AppLog.keepAlive.notice(
-            "KeepAlive 条件变化: trigger=\(triggerName, privacy: .public); want=\(blockReason == nil ? 1 : 0); enabled=\(conditions.enabled ? 1 : 0); hook=\(conditions.hook ? 1 : 0); tasks=\(conditions.tasks ? 1 : 0); helper=\(helperName, privacy: .public); refreshing=\(conditions.refreshing ? 1 : 0); battery=\(conditions.battery ? 1 : 0); limited=\(conditions.limited ? 1 : 0)"
+        let details = LogFields.joined(
+            "trigger=\(triggerName)",
+            "want=\(blockReason == nil ? 1 : 0)",
+            "enabled=\(conditions.enabled ? 1 : 0)",
+            "hook=\(conditions.hook ? 1 : 0)",
+            "tasks=\(conditions.tasks ? 1 : 0)",
+            "helper=\(helperName)",
+            "refreshing=\(conditions.refreshing ? 1 : 0)",
+            "battery=\(conditions.battery ? 1 : 0)",
+            "limited=\(conditions.limited ? 1 : 0)"
         )
+        AppLog.keepAlive.notice("KeepAlive 条件变化: \(details, privacy: .public)")
 
         guard let previous, previous.blockReason == nil, let blockReason else {
             return
@@ -764,31 +857,48 @@ final class KeepAliveController: ObservableObject {
 
     // MARK: - 睡眠切换与恢复
 
-    private func applySleepDisabled(_ disabled: Bool) {
-        guard appliedSleepDisabled != disabled else {
+    private func applySleepPreventionRequested(
+        _ requested: Bool,
+        force: Bool = false,
+        isObservation: Bool = false,
+        completion: ((Bool) -> Void)? = nil
+    ) {
+        guard force || appliedSleepPreventionRequested != requested else {
+            completion?(true)
             return
         }
 
-        if disabled {
+        if requested, !isPreventingSleep {
             let result = systemSleepService.beginPreventingIdleSleep()
             guard result == kIOReturnSuccess else {
                 AppLog.keepAlive.error("空闲断言建立失败: code=\(result)")
                 operationErrorMessage = KeepAliveLocalizedMessage.preventIdleSleepFailed
                 scheduleRetryIfNeeded(for: true)
+                completion?(false)
                 return
             }
         }
 
+        helperRuntimeStatusMonitor.cancelRequest()
+        completePendingRequest(success: false)
         let connection = connection ?? makeConnection()
-        appliedSleepDisabled = disabled
+        appliedSleepPreventionRequested = requested
+        if requested {
+            // 发出后就要按可能被 helper 接收处理, 不能等回复才记这笔租约
+            mayHaveHelperLease = true
+        }
         requestInFlight = true
         requestGeneration &+= 1
         let generation = requestGeneration
-        // 与下面的回复日志配成一对, 缺回复即说明请求丢在 XPC 途中或 helper 无响应
-        AppLog.keepAlive.notice(
-            "Helper XPC 请求已发送: op=\(disabled ? "disable" : "restore", privacy: .public); generation=\(generation)"
-        )
-        scheduleRequestTimeout(for: disabled, generation: generation)
+        pendingRequestCompletion = completion
+        if !isObservation {
+            let details = LogFields.joined(
+                "op=\(requested ? "acquire" : "release")",
+                "generation=\(generation)"
+            )
+            AppLog.keepAlive.notice("Helper XPC 请求已发送: \(details, privacy: .public)")
+        }
+        scheduleRequestTimeout(for: requested, generation: generation)
 
         let errorHandler: (Error) -> Void = { [weak self] error in
             Task { @MainActor in
@@ -804,63 +914,168 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
-        helper.setSleepDisabled(disabled) { [weak self] exitCode, sleepDisabledAfterOperation in
-            Task { @MainActor in
-                guard let self, generation == self.requestGeneration else {
-                    return
-                }
-                self.requestInFlight = false
-                self.cancelRequestTimeout()
-                let replyResult = exitCode == 0 ? "ok" : "failed"
-                AppLog.keepAlive.notice(
-                    "Helper XPC 回复已收到: generation=\(generation); result=\(replyResult, privacy: .public); exit=\(exitCode)"
+        let reply: @Sendable (Int32, Int, Bool) -> Void = { [weak self] exitCode, sourceRawValue, sleepDisabledAfterOperation in
+            Task { @MainActor [weak self] in
+                await self?.handleSleepPreventionReply(
+                    exitCode: exitCode,
+                    sourceRawValue: sourceRawValue,
+                    sleepDisabledAfterOperation: sleepDisabledAfterOperation,
+                    requested: requested,
+                    generation: generation,
+                    isObservation: isObservation
                 )
-                guard exitCode == 0 else {
-                    // invalidateConnection 会连同 assertion 一起收
-                    self.invalidateConnection()
-                    AppLog.keepAlive.error("系统睡眠切换失败: generation=\(generation); exit=\(exitCode)")
-                    self.operationErrorMessage = KeepAliveLocalizedMessage.toggleSleepFailed
-                    self.scheduleRetryIfNeeded(for: disabled)
-                    return
-                }
-
-                self.cancelRetryTask()
-                self.isPreventingSleep = disabled
-                self.operationErrorMessage = nil
-                // 屏幕跟着实际效果走, 这里是它唯一的建立时机
-                self.reconcileDisplayAwake()
-                if disabled {
-                    // lidCausesSleep=0 说明这一轮 pmset 是空转的, 真正在挡的只有空闲断言
-                    // 排查「开了却还是睡了」时先看这个字段
-                    let lidStatus = SystemSleepService.currentStatus()
-                    let lidCausesSleep = lidStatus
-                        .map { $0.lidClosureCausesSleep ? "1" : "0" } ?? "unknown"
-                    AppLog.keepAlive.notice(
-                        "系统睡眠已关闭: generation=\(generation); lidCausesSleep=\(lidCausesSleep, privacy: .public)"
-                    )
-                    self.canTrustRestoreResult = true
-                    self.durationLimiter.begin()
-                } else {
-                    // 先收表再走恢复: finishSleepRestore 可能直接把机器送去睡
-                    self.durationLimiter.pause()
-                    // 通知同样要赶在补发睡眠之前发出去, 理由与收表相同
-                    // 走到这里 pmset 已经恢复成功, 那句"已恢复系统睡眠"才站得住
-                    await self.flushPendingSleepRestoreNotification()
-                    // 上面这一步会挂起, 期间可能已经有新的禁用请求接管
-                    // 那时再走恢复会释放掉刚建立的空闲断言, 所以重新认一次代
-                    guard generation == self.requestGeneration else {
-                        return
-                    }
-                    self.finishSleepRestore(
-                        sleepDisabledAfterOperation: sleepDisabledAfterOperation
-                    )
-                }
             }
+        }
+        helper.setSleepPreventionRequested(
+            requested,
+            clientSessionID: helperClientSessionID,
+            generation: generation,
+            reply: reply
+        )
+    }
+
+    private func handleSleepPreventionReply(
+        exitCode: Int32,
+        sourceRawValue: Int,
+        sleepDisabledAfterOperation: Bool,
+        requested: Bool,
+        generation: UInt64,
+        isObservation: Bool
+    ) async {
+        guard generation == requestGeneration else {
+            return
+        }
+        requestInFlight = false
+        cancelRequestTimeout()
+        let replyResult = exitCode == 0 ? "ok" : "failed"
+        if !isObservation || exitCode != 0 {
+            let details = LogFields.joined(
+                "generation=\(generation)",
+                "result=\(replyResult)",
+                "exit=\(exitCode)"
+            )
+            AppLog.keepAlive.notice("Helper XPC 回复已收到: \(details, privacy: .public)")
+        }
+        guard exitCode == 0 else {
+            handleSleepPreventionFailure(
+                requested: requested,
+                generation: generation,
+                detail: "exit=\(exitCode)"
+            )
+            return
+        }
+        guard let source = CodexBarSleepPreventionSource(rawValue: sourceRawValue),
+              !requested || (source != .none && sleepDisabledAfterOperation) else {
+            let details = LogFields.joined(
+                "source=\(sourceRawValue)",
+                "sleepDisabled=\(sleepDisabledAfterOperation ? 1 : 0)"
+            )
+            handleSleepPreventionFailure(
+                requested: requested,
+                generation: generation,
+                detail: details
+            )
+            return
+        }
+
+        cancelRetryTask()
+        isPreventingSleep = requested
+        operationErrorMessage = nil
+        let previousSource = sleepPreventionSource
+        updateSleepPreventionSource(source, requested: requested)
+        reconcileDisplayAwake()
+
+        if requested {
+            finishSleepPreventionAcquire(
+                source: source,
+                previousSource: previousSource,
+                generation: generation,
+                isObservation: isObservation
+            )
+        } else {
+            await finishSleepPreventionRelease(
+                source: source,
+                sleepDisabledAfterOperation: sleepDisabledAfterOperation,
+                generation: generation
+            )
         }
     }
 
-    private func finishSleepRestore(sleepDisabledAfterOperation: Bool) {
-        // assertion 无论回复可不可信都要释放, 与下面的判断无关
+    private func handleSleepPreventionFailure(
+        requested: Bool,
+        generation: UInt64,
+        detail: String
+    ) {
+        invalidateConnection()
+        let details = LogFields.joined(
+            "generation=\(generation)",
+            "detail=\(detail)"
+        )
+        AppLog.keepAlive.error("系统睡眠切换失败: \(details, privacy: .public)")
+        operationErrorMessage = KeepAliveLocalizedMessage.toggleSleepFailed
+        scheduleRetryIfNeeded(for: requested)
+    }
+
+    private func updateSleepPreventionSource(
+        _ source: CodexBarSleepPreventionSource,
+        requested: Bool
+    ) {
+        if requested {
+            assign(source, to: \.sleepPreventionSource)
+            reconcileExternalObservation()
+        } else {
+            mayHaveHelperLease = false
+            cancelExternalObservation()
+            assign(.none, to: \.sleepPreventionSource)
+        }
+    }
+
+    private func finishSleepPreventionAcquire(
+        source: CodexBarSleepPreventionSource,
+        previousSource: CodexBarSleepPreventionSource,
+        generation: UInt64,
+        isObservation: Bool
+    ) {
+        let lidStatus = SystemSleepService.currentStatus()
+        let lidCausesSleep = lidStatus.map { $0.lidClosureCausesSleep ? "1" : "0" } ?? "unknown"
+        if !isObservation || source != previousSource {
+            let details = LogFields.joined(
+                "generation=\(generation)",
+                "source=\(String(describing: source))",
+                "lidCausesSleep=\(lidCausesSleep)"
+            )
+            AppLog.keepAlive.notice("系统睡眠已防止: \(details, privacy: .public)")
+        }
+        durationLimiter.begin()
+        completePendingRequest(success: true)
+    }
+
+    private func finishSleepPreventionRelease(
+        source: CodexBarSleepPreventionSource,
+        sleepDisabledAfterOperation: Bool,
+        generation: UInt64
+    ) async {
+        durationLimiter.pause()
+        if source == .codexBar, !sleepDisabledAfterOperation {
+            await flushPendingSleepRestoreNotification()
+        } else {
+            pendingLowBatteryPercent = nil
+            pendingKeepAliveLimit = nil
+        }
+        guard generation == requestGeneration else {
+            return
+        }
+        finishSleepRestore(
+            source: source,
+            sleepDisabledAfterOperation: sleepDisabledAfterOperation
+        )
+        completePendingRequest(success: true)
+    }
+
+    private func finishSleepRestore(
+        source: CodexBarSleepPreventionSource,
+        sleepDisabledAfterOperation: Bool
+    ) {
         let idleSleepResult = systemSleepService.endPreventingIdleSleep()
         if idleSleepResult != kIOReturnSuccess {
             AppLog.keepAlive.error("空闲断言释放失败: code=\(idleSleepResult)")
@@ -868,11 +1083,12 @@ final class KeepAliveController: ObservableObject {
         }
 
         let sleepDisabled = sleepDisabledAfterOperation ? 1 : 0
-        // 连接断过时 helper 可能已自行恢复并清掉哨兵, 这份回复不带实测状态
-        // 不能据此补发合盖睡眠: 本轮可能压根不是我们禁用的睡眠
-        guard canTrustRestoreResult else {
-            // 这条判断是防止误发强制睡眠的唯一屏障, 生效时必须留痕, 否则误判无从追查
-            AppLog.keepAlive.notice("系统睡眠恢复结果不可信: reason=connectionLost")
+        guard source == .codexBar else {
+            let details = LogFields.joined(
+                "source=\(String(describing: source))",
+                "sleepDisabled=\(sleepDisabled)"
+            )
+            AppLog.keepAlive.notice("系统睡眠未修改: \(details, privacy: .public)")
             return
         }
 
@@ -883,7 +1099,7 @@ final class KeepAliveController: ObservableObject {
             && lidStatus?.shouldSleepForLidClosure == true
 
         // 合盖是边沿事件, 错过那一刻系统不会再评估
-        // 我们挡过一次就得在恢复后补一脚, 否则盖着的机器会一直醒着
+        // 只有 CodexBar 自己挡过并恢复为 0 才补发, 外部来源不属于我们的合盖边沿
         guard shouldRequestSystemSleep else {
             let reason: String = if sleepDisabledAfterOperation {
                 "stillDisabled"
@@ -906,6 +1122,75 @@ final class KeepAliveController: ObservableObject {
         }
     }
 
+    private func completePendingRequest(success: Bool) {
+        let completion = pendingRequestCompletion
+        pendingRequestCompletion = nil
+        completion?(success)
+    }
+
+    private func fetchHelperRuntimeStatus() async -> HelperRuntimeStatus? {
+        guard !requestInFlight, !helperRuntimeStatusMonitor.isRequestInFlight else {
+            return nil
+        }
+        let connection = connection ?? makeConnection()
+        return await helperRuntimeStatusMonitor.fetch(
+            connection: connection,
+            timeout: KeepAliveHelperConfiguration.requestTimeout,
+            onConnectionFailure: { [weak self] error in
+                self?.handleConnectionFailure(error)
+            },
+            onTimeout: { [weak self] in
+                self?.handleHelperStatusTimeout()
+            }
+        )
+    }
+
+    private func resetSleepAfterHelperUpdate(_ updateIdentifier: String) async -> Bool {
+        guard !requestInFlight, !helperRuntimeStatusMonitor.isRequestInFlight else {
+            return false
+        }
+        let connection = connection ?? makeConnection()
+        return await helperRuntimeStatusMonitor.resetSleepAfterUpdate(
+            connection: connection,
+            updateIdentifier: updateIdentifier,
+            timeout: KeepAliveHelperConfiguration.requestTimeout,
+            onConnectionFailure: { [weak self] error in
+                self?.handleConnectionFailure(error)
+            },
+            onTimeout: { [weak self] in
+                self?.handleHelperStatusTimeout()
+            }
+        )
+    }
+
+    private func handleHelperStatusTimeout() {
+        let shouldRetry = isPreventingSleep
+        let desiredSleepPrevention = shouldDisableSleep
+        invalidateConnection()
+        operationErrorMessage = KeepAliveLocalizedMessage.noResponse
+        if shouldRetry {
+            scheduleRetryIfNeeded(for: desiredSleepPrevention)
+        }
+    }
+
+    private func releaseHelperLeaseIfNeeded(trigger: LogTrigger) async -> Bool {
+        let blockReason = sleepBlockReason
+        publishDerivedState(blockReason: blockReason)
+        reconcileDisplayAwake()
+        logSleepConditionsIfChanged(blockReason: blockReason, trigger: trigger)
+
+        guard mayHaveHelperLease || isPreventingSleep else {
+            releaseSleepPrevention()
+            return true
+        }
+
+        return await withCheckedContinuation { continuation in
+            applySleepPreventionRequested(false, force: true) { success in
+                continuation.resume(returning: success)
+            }
+        }
+    }
+
     // MARK: - XPC 连接与重试
 
     private func makeConnection() -> NSXPCConnection {
@@ -922,11 +1207,11 @@ final class KeepAliveController: ObservableObject {
                     return
                 }
                 let shouldRetry = self.requestInFlight || self.isPreventingSleep
-                let desiredSleepDisabled = self.shouldDisableSleep
+                let desiredSleepPrevention = self.shouldDisableSleep
                 // 复用统一清理: 连接失效同样要释放 assertion, 否则空闲睡眠会被永久阻止
                 self.invalidateConnection()
                 if shouldRetry {
-                    self.scheduleRetryIfNeeded(for: desiredSleepDisabled)
+                    self.scheduleRetryIfNeeded(for: desiredSleepPrevention)
                 }
             }
         }
@@ -943,37 +1228,40 @@ final class KeepAliveController: ObservableObject {
 
     private func handleConnectionFailure(_ error: Error) {
         let shouldRetry = requestInFlight || isPreventingSleep
-        let desiredSleepDisabled = shouldDisableSleep
+        let desiredSleepPrevention = shouldDisableSleep
         invalidateConnection()
         AppLog.keepAlive.error(
             "Helper XPC 连接失败: detail=\(error.localizedDescription, privacy: .public)"
         )
         operationErrorMessage = KeepAliveLocalizedMessage.connectionFailed
         if shouldRetry {
-            scheduleRetryIfNeeded(for: desiredSleepDisabled)
+            scheduleRetryIfNeeded(for: desiredSleepPrevention)
         }
     }
 
-    /// helper 起不来时 setSleepDisabled 既不回复也不触发 errorHandler, 请求就那么挂着
+    /// helper 起不来时 XPC 方法既不回复也不触发 errorHandler, 请求就那么挂着
     /// 没有这道超时, 界面会显示防睡眠开着而实际没生效, 日志里只剩一条没有配对回复的请求已发送
-    private func scheduleRequestTimeout(for disabled: Bool, generation: UInt64) {
+    private func scheduleRequestTimeout(for requested: Bool, generation: UInt64) {
         requestTimeoutTask?.cancel()
         requestTimeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.helperRequestTimeout)
+            try? await Task.sleep(for: KeepAliveHelperConfiguration.requestTimeout)
             // 认状态而不是认取消位: 每条取消路径都同时推进了 generation 或清了 in-flight,
             // 认状态就不必依赖将来每个新路径都记得 cancel
             guard let self, generation == requestGeneration, requestInFlight else {
                 return
             }
 
-            let timeout = LogDuration.seconds(Self.helperRequestTimeout)
-            AppLog.keepAlive.error(
-                "Helper XPC 请求超时: op=\(disabled ? "disable" : "restore", privacy: .public); generation=\(generation); timeout=\(timeout, privacy: .public)"
+            let timeout = LogDuration.seconds(KeepAliveHelperConfiguration.requestTimeout)
+            let details = LogFields.joined(
+                "op=\(requested ? "acquire" : "release")",
+                "generation=\(generation)",
+                "timeout=\(timeout)"
             )
+            AppLog.keepAlive.error("Helper XPC 请求超时: \(details, privacy: .public)")
             // 连接已经不可信, 收掉它再走既有的重试阶梯, 与切换失败同一条路径
             invalidateConnection()
             operationErrorMessage = KeepAliveLocalizedMessage.noResponse
-            scheduleRetryIfNeeded(for: disabled)
+            scheduleRetryIfNeeded(for: requested)
         }
     }
 
@@ -984,36 +1272,92 @@ final class KeepAliveController: ObservableObject {
 
     private func invalidateConnection() {
         cancelRequestTimeout()
+        cancelExternalObservation()
+        helperRuntimeStatusMonitor.cancelRequest()
         requestGeneration &+= 1
         let connection = connection
         self.connection = nil
         connection?.invalidationHandler = nil
         connection?.interruptionHandler = nil
         connection?.invalidate()
+        completePendingRequest(success: false)
         // 无连接时也会走到这里, 只记真的断掉了一条, 避免空转刷屏
         if connection != nil {
-            // trusted 记的是断开这一刻的可信度: 它一断, 后面那轮恢复回复就不再可信
-            // 也就不会补发睡眠, 这是追查「任务结束了机器却没睡」的唯一线索
-            let trusted = canTrustRestoreResult ? 1 : 0
-            AppLog.keepAlive.notice("Helper XPC 已断开: trusted=\(trusted)")
+            let mayHaveLease = mayHaveHelperLease ? 1 : 0
+            AppLog.keepAlive.notice("Helper XPC 已断开: mayHaveLease=\(mayHaveLease)")
         }
-        // 所有能让我们在哨兵已删的情况下再发一次恢复请求的路径都汇到这里, 标志清在这里才严密
-        canTrustRestoreResult = false
-        appliedSleepDisabled = nil
+        // 断连不能清 mayHaveHelperLease, 请求可能已在 helper 执行只是回复丢了
+        appliedSleepPreventionRequested = nil
         requestInFlight = false
         releaseSleepPrevention()
     }
 
     /// assertion 与 isPreventingSleep 同进同退的唯一出口
     /// 两者必须一起收: 只清标志会让菜单栏图标显示成未防睡眠, 而这条 assertion 仍在防止空闲睡眠,
-    /// 且没有任何后续路径会释放它; 仍需要防睡眠时由重试经 applySleepDisabled(true) 重建
+    /// 且没有任何后续路径会释放它; 仍需要防睡眠时由重试重建
     private func releaseSleepPrevention() {
         _ = systemSleepService.endPreventingIdleSleep()
+        cancelExternalObservation()
         assign(false, to: \.isPreventingSleep)
+        assign(.none, to: \.sleepPreventionSource)
         // 空闲断言与屏幕成对: 这里之后睡眠不再被挡, 屏幕也没有留住的理由
         reconcileDisplayAwake()
         // 收表跟着实际效果走: 这里之后睡眠不再被挡, 那段时间不该占用户的上限
         durationLimiter.pause()
+    }
+
+    /// pmset 轮询统一由 helper 执行, App 这里只读取缓存状态来刷新来源显示
+    private func reconcileExternalObservation() {
+        guard sleepPreventionSource == .external,
+              isPreventingSleep,
+              shouldDisableSleep else {
+            cancelExternalObservation()
+            return
+        }
+        helperRuntimeStatusMonitor.startObservation(
+            interval: KeepAliveHelperConfiguration.externalObservationInterval
+        ) { [weak self] in
+            guard let self,
+                  sleepPreventionSource == .external,
+                  isPreventingSleep,
+                  shouldDisableSleep else {
+                self?.cancelExternalObservation()
+                return
+            }
+            guard !requestInFlight,
+                  let status = await fetchHelperRuntimeStatus() else {
+                return
+            }
+            handleExternalObservation(status)
+        }
+    }
+
+    private func handleExternalObservation(_ status: HelperRuntimeStatus) {
+        guard sleepPreventionSource == .external,
+              isPreventingSleep,
+              shouldDisableSleep else {
+            return
+        }
+
+        switch status.externalObservationAction {
+        case .sourceBecameCodexBar:
+            let previousSource = sleepPreventionSource
+            updateSleepPreventionSource(.codexBar, requested: true)
+            finishSleepPreventionAcquire(
+                source: .codexBar,
+                previousSource: previousSource,
+                generation: requestGeneration,
+                isObservation: true
+            )
+        case .reacquireLease:
+            applySleepPreventionRequested(true, force: true, isObservation: true)
+        case .none:
+            break
+        }
+    }
+
+    private func cancelExternalObservation() {
+        helperRuntimeStatusMonitor.cancelObservation()
     }
 
     // MARK: - 屏幕常亮
@@ -1061,31 +1405,34 @@ final class KeepAliveController: ObservableObject {
         assign(false, to: \.isRefreshingHelper)
     }
 
-    private func scheduleRetryIfNeeded(for disabled: Bool) {
+    private func scheduleRetryIfNeeded(for requested: Bool) {
         guard isStarted,
               helperStatus == .enabled,
-              disabled == shouldDisableSleep,
+              requested == shouldDisableSleep,
               retryTask == nil else {
             return
         }
 
         // 每次重试都会重建特权连接并以 root 拉起 pmset
         // 固定 2 秒无上限重试会让持续失败的 helper 变成无限循环
-        guard retryAttempt < Self.sleepToggleRetryDelays.count else {
+        guard retryAttempt < KeepAliveHelperConfiguration.sleepToggleRetryDelays.count else {
             AppLog.keepAlive.error(
-                "KeepAlive 切换重试已放弃: attempts=\(Self.sleepToggleRetryDelays.count)"
+                "KeepAlive 切换重试已放弃: attempts=\(KeepAliveHelperConfiguration.sleepToggleRetryDelays.count)"
             )
             operationErrorMessage = KeepAliveLocalizedMessage.retryLimitReached
             return
         }
 
-        let delay = Self.sleepToggleRetryDelays[retryAttempt]
+        let delay = KeepAliveHelperConfiguration.sleepToggleRetryDelays[retryAttempt]
         retryAttempt += 1
         let attempt = retryAttempt
         let wait = LogDuration.seconds(delay)
-        AppLog.keepAlive.notice(
-            "睡眠切换重试: attempt=\(attempt); delay=\(wait, privacy: .public); disabled=\(disabled ? 1 : 0)"
+        let details = LogFields.joined(
+            "attempt=\(attempt)",
+            "delay=\(wait)",
+            "requested=\(requested ? 1 : 0)"
         )
+        AppLog.keepAlive.notice("睡眠切换重试: \(details, privacy: .public)")
 
         retryTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
@@ -1093,12 +1440,12 @@ final class KeepAliveController: ObservableObject {
                 return
             }
             retryTask = nil
-            guard disabled == shouldDisableSleep else {
+            guard requested == shouldDisableSleep else {
                 reconcileSleepState(trigger: .retry)
                 return
             }
-            appliedSleepDisabled = nil
-            applySleepDisabled(disabled)
+            appliedSleepPreventionRequested = nil
+            applySleepPreventionRequested(requested)
         }
     }
 
@@ -1120,6 +1467,9 @@ final class KeepAliveController: ObservableObject {
     private var sleepBlockReason: SleepBlockReason? {
         if !isStarted {
             return .notStarted
+        }
+        if isPreparingForTermination {
+            return .terminating
         }
         if !isEnabled {
             return .userOff
@@ -1153,153 +1503,63 @@ final class KeepAliveController: ObservableObject {
     private static let keepsDisplayAwakeKey = "KeepAlive.keepsDisplayAwake"
     /// 解除门槛比触发门槛高这么多个百分点, 避免电量在阈值附近抖动导致反复切换
     private static let lowBatteryHysteresis = 5
-    private static let helperRegistrationFingerprintKey = "KeepAlive.helperRegistrationFingerprint"
-    private static let helperRegistrationRetryDelays: [Duration] = [
-        .milliseconds(500),
-        .seconds(1),
-        .seconds(2)
-    ]
-    private static let operationNotPermittedErrorCode = 1
+}
 
-    /// 与 helper 的 watchdog 宽限是一对, 取值和理由都在 CodexBarHelperIPC 那边
-    private static let helperRequestTimeout = Duration.seconds(
-        CodexBarHelperIPC.requestTimeoutSeconds
-    )
-
-    /// 切换睡眠状态失败后的重试节奏, 逐次翻倍
-    /// 列表耗尽即放弃 (延时累计约 8.5 分钟, 每轮再等一次超时约 10 分钟): 瞬时抖动能自愈, 权限类故障不会无限重试
-    private static let sleepToggleRetryDelays: [Duration] = [
-        .seconds(2),
-        .seconds(4),
-        .seconds(8),
-        .seconds(16),
-        .seconds(32),
-        .seconds(64),
-        .seconds(128),
-        .seconds(256)
-    ]
-
-    // MARK: - helper 资源与指纹
-
-    private static var helperService: SMAppService {
-        SMAppService.daemon(plistName: CodexBarHelperIPC.daemonPlistName)
-    }
-
-    private static var helperAssetsArePresent: Bool {
-        FileManager.default.fileExists(atPath: daemonPlistURL.path)
-            && FileManager.default.isExecutableFile(atPath: helperExecutableURL.path)
-    }
-
-    private var helperRegistrationNeedsRefresh: Bool {
-        guard let fingerprint = Self.helperRegistrationFingerprint else {
-            return false
-        }
-        return defaults.string(forKey: Self.helperRegistrationFingerprintKey) != fingerprint
-    }
-
-    private func recordHelperRegistrationIfCurrent() {
-        guard helperStatus.isRegisteredOrAwaitingApproval,
-              let fingerprint = Self.helperRegistrationFingerprint else {
+private extension KeepAliveController {
+    func completePendingHelperUpdate(_ updateIdentifier: String) {
+        guard helperRegistrationTask == nil else {
             return
         }
-        defaults.set(fingerprint, forKey: Self.helperRegistrationFingerprintKey)
-    }
 
-    private static var helperRegistrationFingerprint: String? {
-        guard let helperData = try? Data(contentsOf: helperExecutableURL, options: .mappedIfSafe),
-              let daemonPlistData = try? Data(contentsOf: daemonPlistURL, options: .mappedIfSafe) else {
-            return nil
+        assign(true, to: \.isRefreshingHelper)
+        cancelRetryTask()
+        cancelExternalObservation()
+        registrationErrorMessage = nil
+        operationErrorMessage = nil
+
+        helperRegistrationTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            let succeeded = await completeHelperUpdate(updateIdentifier)
+            guard isStarted, !Task.isCancelled else {
+                return
+            }
+            if !succeeded {
+                registrationErrorMessage = KeepAliveLocalizedMessage.updateFailed
+            }
+
+            assign(!succeeded && helperStatus == .enabled, to: \.isRefreshingHelper)
+            helperRegistrationTask = nil
+            reconcileSleepState(trigger: .helperRegistered, force: true)
         }
+    }
 
-        var hasher = SHA256()
-        for (name, data) in [
-            (helperExecutableURL.lastPathComponent, helperData),
-            (daemonPlistURL.lastPathComponent, daemonPlistData)
-        ] {
-            hasher.update(data: Data("\(name)\n\(data.count)\n".utf8))
-            hasher.update(data: data)
+    func completeHelperUpdate(_ updateIdentifier: String) async -> Bool {
+        for delay in KeepAliveHelperConfiguration.updateCompletionRetryDelays {
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+            }
+            guard !Task.isCancelled else {
+                return false
+            }
+
+            refreshHelperStatus()
+            guard helperStatus == .enabled else {
+                continue
+            }
+            if await resetSleepAfterHelperUpdate(updateIdentifier) {
+                KeepAliveHelperConfiguration.completeUpdate(
+                    updateIdentifier,
+                    defaults: defaults
+                )
+                mayHaveHelperLease = false
+                appliedSleepPreventionRequested = nil
+                operationErrorMessage = nil
+                return true
+            }
         }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
-    }
-
-    private static var appContentsURL: URL {
-        Bundle.main.bundleURL.appending(path: "Contents", directoryHint: .isDirectory)
-    }
-
-    private static var helperExecutableURL: URL {
-        appContentsURL
-            .appending(path: "Resources", directoryHint: .isDirectory)
-            .appending(path: "CodexBarHelper")
-    }
-
-    private static var daemonPlistURL: URL {
-        appContentsURL
-            .appending(path: "Library/LaunchDaemons", directoryHint: .isDirectory)
-            .appending(path: CodexBarHelperIPC.daemonPlistName)
-    }
-}
-
-private nonisolated enum KeepAliveLocalizedMessage {
-    static let helperAssetsMissing = String(
-        localized: "keep-alive.error.helper-assets-missing",
-        defaultValue: "服务异常, 请重新安装 CodexBar"
-    )
-    static let registrationFailed = String(
-        localized: "keep-alive.error.registration-failed",
-        defaultValue: "注册服务失败"
-    )
-    static let updateFailed = String(
-        localized: "keep-alive.error.update-failed",
-        defaultValue: "更新服务失败"
-    )
-    static let preventIdleSleepFailed = String(
-        localized: "keep-alive.error.prevent-idle-sleep-failed",
-        defaultValue: "防止空闲睡眠失败"
-    )
-    static let toggleSleepFailed = String(
-        localized: "keep-alive.error.toggle-sleep-failed",
-        defaultValue: "切换睡眠状态失败"
-    )
-    static let restoreIdleSleepFailed = String(
-        localized: "keep-alive.error.restore-idle-sleep-failed",
-        defaultValue: "恢复空闲睡眠策略失败"
-    )
-    static let requestSystemSleepFailed = String(
-        localized: "keep-alive.error.request-system-sleep-failed",
-        defaultValue: "请求系统睡眠失败"
-    )
-    static let connectionFailed = String(
-        localized: "keep-alive.error.connection-failed",
-        defaultValue: "连接服务失败"
-    )
-    static let noResponse = String(
-        localized: "keep-alive.error.no-response",
-        defaultValue: "服务无响应"
-    )
-    static let retryLimitReached = String(
-        localized: "keep-alive.error.retry-limit-reached",
-        defaultValue: "防睡眠多次失败, 已停止重试"
-    )
-    static let invalidHelperInterface = String(
-        localized: "keep-alive.error.invalid-helper-interface",
-        defaultValue: "服务接口无效"
-    )
-    static let connectionInterrupted = String(
-        localized: "keep-alive.error.connection-interrupted",
-        defaultValue: "服务连接中断"
-    )
-}
-
-private nonisolated enum KeepAliveError: LocalizedError {
-    case invalidHelperProxy
-    case connectionInterrupted
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidHelperProxy:
-            KeepAliveLocalizedMessage.invalidHelperInterface
-        case .connectionInterrupted:
-            KeepAliveLocalizedMessage.connectionInterrupted
-        }
+        return false
     }
 }

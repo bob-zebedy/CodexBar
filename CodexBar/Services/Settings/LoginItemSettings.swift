@@ -26,9 +26,11 @@ final class LoginItemSettings: ObservableObject {
 
             refresh()
         } catch {
-            AppLog.settings.error(
-                "开机自动启动失败: enabled=\(enabled ? 1 : 0); detail=\(error.localizedDescription, privacy: .public)"
+            let details = LogFields.joined(
+                "enabled=\(enabled ? 1 : 0)",
+                "detail=\(error.localizedDescription)"
             )
+            AppLog.settings.error("开机自动启动失败: \(details, privacy: .public)")
             refresh()
             errorMessage = String(localized: "设置开机启动失败")
         }

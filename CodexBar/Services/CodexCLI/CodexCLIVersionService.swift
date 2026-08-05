@@ -188,8 +188,10 @@ actor CodexCLIVersionService {
         } catch {
             process.terminationHandler = nil
             stopCollectors(outputCollector: outputCollector, errorCollector: errorCollector)
-            AppLog.codexCLI.error(
-                "版本检测失败: source=\(source.rawValue, privacy: .public); stage=launch; detail=\(error.localizedDescription, privacy: .public)"
+            logVersionDetectionFailure(
+                source: source,
+                stage: "launch",
+                detail: error.localizedDescription
             )
             return failedVersionItem(source: source, path: path, failure: .launch)
         }
@@ -203,7 +205,7 @@ actor CodexCLIVersionService {
                 outputCollector: outputCollector,
                 errorCollector: errorCollector
             )
-            AppLog.codexCLI.error("版本检测失败: source=\(source.rawValue, privacy: .public); stage=timeout")
+            logVersionDetectionFailure(source: source, stage: "timeout")
             return failedVersionItem(source: source, path: path, failure: .timeout)
         }
 
@@ -211,26 +213,57 @@ actor CodexCLIVersionService {
         let errorOutput = collectedText(from: errorCollector, deadline: deadline)
 
         guard process.terminationStatus == 0 else {
-            AppLog.codexCLI.error(
-                "版本检测失败: source=\(source.rawValue, privacy: .public); stage=exit; exit=\(process.terminationStatus)"
+            logVersionDetectionFailure(
+                source: source,
+                stage: "exit",
+                exitCode: process.terminationStatus
             )
             return failedVersionItem(source: source, path: path, failure: .read)
         }
 
         guard let version = firstLine(in: output) ?? firstLine(in: errorOutput) else {
-            AppLog.codexCLI.error("版本检测失败: source=\(source.rawValue, privacy: .public); stage=parse")
+            logVersionDetectionFailure(source: source, stage: "parse")
             return failedVersionItem(source: source, path: path, failure: .parse)
         }
 
         let displayVersion = CodexCLIVersionReader.displayVersion(from: version)
-        AppLog.codexCLI.notice(
-            "版本检测完成: source=\(source.rawValue, privacy: .public); version=\(displayVersion, privacy: .public)"
-        )
+        logVersionDetectionCompleted(source: source, version: displayVersion)
         return CodexCLIVersionItem(
             source: source,
             path: path,
             version: displayVersion
         )
+    }
+
+    private static func logVersionDetectionFailure(
+        source: CodexCLIExecutableSource,
+        stage: String,
+        exitCode: Int32? = nil,
+        detail: String? = nil
+    ) {
+        var fields = [
+            "source=\(source.rawValue)",
+            "stage=\(stage)"
+        ]
+        if let exitCode {
+            fields.append("exit=\(exitCode)")
+        }
+        if let detail {
+            fields.append("detail=\(detail)")
+        }
+        let details = LogFields.joined(fields)
+        AppLog.codexCLI.error("版本检测失败: \(details, privacy: .public)")
+    }
+
+    private static func logVersionDetectionCompleted(
+        source: CodexCLIExecutableSource,
+        version: String
+    ) {
+        let details = LogFields.joined(
+            "source=\(source.rawValue)",
+            "version=\(version)"
+        )
+        AppLog.codexCLI.notice("版本检测完成: \(details, privacy: .public)")
     }
 
     private static func terminateTimedOutProbe(

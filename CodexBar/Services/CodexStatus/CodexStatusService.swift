@@ -268,9 +268,11 @@ actor CodexStatusService {
         do {
             command = try CodexCLIResolver.resolveAppServerCommand(environment: Self.environment)
         } catch {
-            AppLog.app.error(
-                "codex 连接失败: stage=resolveCLI; detail=\(error.localizedDescription, privacy: .public)"
+            let details = LogFields.joined(
+                "stage=resolveCLI",
+                "detail=\(error.localizedDescription)"
             )
+            AppLog.app.error("codex 连接失败: \(details, privacy: .public)")
             RequestLogStorage.shared.recordFailure(message: error.localizedDescription)
             return .initializationFailed
         }
@@ -433,17 +435,21 @@ actor CodexStatusService {
             do {
                 try refreshTokenIfNeeded()
             } catch {
-                AppLog.app.error(
-                    "重置次数查询失败: stage=refreshToken; detail=\(error.localizedDescription, privacy: .public)"
+                let details = LogFields.joined(
+                    "stage=refreshToken",
+                    "detail=\(error.localizedDescription)"
                 )
+                AppLog.app.error("重置次数查询失败: \(details, privacy: .public)")
                 return nil
             }
 
             return try? await fetchExpirationDates()
         } catch {
-            AppLog.app.error(
-                "重置次数查询失败: stage=fetch; detail=\(error.localizedDescription, privacy: .public)"
+            let details = LogFields.joined(
+                "stage=fetch",
+                "detail=\(error.localizedDescription)"
             )
+            AppLog.app.error("重置次数查询失败: \(details, privacy: .public)")
             return nil
         }
     }

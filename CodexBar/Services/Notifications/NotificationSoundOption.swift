@@ -76,9 +76,13 @@ struct NotificationSoundOption: Identifiable, Hashable {
     /// 降级本身没有用户可见的痕迹, 通知照常弹出只是换了个声音, 这条日志是事后唯一的线索
     /// 记 id 是定位所需, 它是选项标识而不是文件路径, 用户自定义音也只会暴露文件名本身
     private static func degraded(id: String, source: String) -> UNNotificationSound {
-        AppLog.notification.notice(
-            "通知音已降级: id=\(id, privacy: .public); source=\(source, privacy: .public); reason=missing; action=default"
+        let details = LogFields.joined(
+            "id=\(id)",
+            "source=\(source)",
+            "reason=missing",
+            "action=default"
         )
+        AppLog.notification.notice("通知音已降级: \(details, privacy: .public)")
         return .default
     }
 

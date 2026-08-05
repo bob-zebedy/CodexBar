@@ -80,9 +80,7 @@ actor WorkflowSyncService {
         trigger: LogTrigger
     ) async -> WorkflowSyncSnapshot {
         guard WorkflowSyncSettings.isEnabled() else {
-            AppLog.sync.notice(
-                "同步已跳过: trigger=\(trigger.rawValue, privacy: .public); reason=syncOff"
-            )
+            logSyncSkipped(trigger: trigger)
             return .disabled
         }
 
@@ -142,14 +140,22 @@ actor WorkflowSyncService {
             // confirmed 是本地与远端已对齐的日期数, 含哈希未变而无需上传的那些
             // 它小于 local 就说明这一轮还有日期没落到云上
             let elapsed = duration.elapsed
-            AppLog.sync.notice(
-                "同步完成: trigger=\(trigger.rawValue, privacy: .public); local=\(localByDate.count); confirmed=\(confirmedDates.count); deleted=\(deletedCount); elapsed=\(elapsed, privacy: .public)"
+            logSyncCompleted(
+                trigger: trigger,
+                localCount: localByDate.count,
+                confirmedCount: confirmedDates.count,
+                deletedCount: deletedCount,
+                elapsed: elapsed
             )
         } catch {
             let reason = WorkflowSyncFailureReason.classify(error)
             let elapsed = duration.elapsed
-            AppLog.sync.error(
-                "同步失败: trigger=\(trigger.rawValue, privacy: .public); stage=\(stage.rawValue, privacy: .public); elapsed=\(elapsed, privacy: .public); reason=\(reason.rawValue, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+            logSyncFailed(
+                trigger: trigger,
+                stage: stage,
+                elapsed: elapsed,
+                reason: reason,
+                detail: error.localizedDescription
             )
             invalidateAccountScopedCaches()
             failureMessage = reason.message
@@ -158,6 +164,48 @@ actor WorkflowSyncService {
 
         let latestState = loadState()
         return snapshot(from: latestState)
+    }
+
+    private func logSyncSkipped(trigger: LogTrigger) {
+        let details = LogFields.joined(
+            "trigger=\(trigger.rawValue)",
+            "reason=syncOff"
+        )
+        AppLog.sync.notice("同步已跳过: \(details, privacy: .public)")
+    }
+
+    private func logSyncCompleted(
+        trigger: LogTrigger,
+        localCount: Int,
+        confirmedCount: Int,
+        deletedCount: Int,
+        elapsed: String
+    ) {
+        let details = LogFields.joined(
+            "trigger=\(trigger.rawValue)",
+            "local=\(localCount)",
+            "confirmed=\(confirmedCount)",
+            "deleted=\(deletedCount)",
+            "elapsed=\(elapsed)"
+        )
+        AppLog.sync.notice("同步完成: \(details, privacy: .public)")
+    }
+
+    private func logSyncFailed(
+        trigger: LogTrigger,
+        stage: WorkflowSyncStage,
+        elapsed: String,
+        reason: WorkflowSyncFailureReason,
+        detail: String
+    ) {
+        let details = LogFields.joined(
+            "trigger=\(trigger.rawValue)",
+            "stage=\(stage.rawValue)",
+            "elapsed=\(elapsed)",
+            "reason=\(reason.rawValue)",
+            "detail=\(detail)"
+        )
+        AppLog.sync.error("同步失败: \(details, privacy: .public)")
     }
 
     private func refreshCacheBeforeUpload(
@@ -679,9 +727,11 @@ private extension WorkflowSyncService {
             )
         } catch {
             // 增量拉取退化成全量重建, 代价高得多, 反复出现说明游标或缓存有问题
-            AppLog.sync.notice(
-                "增量拉取已降级: detail=\(error.localizedDescription, privacy: .public); action=fullRebuild"
+            let details = LogFields.joined(
+                "detail=\(error.localizedDescription)",
+                "action=fullRebuild"
             )
+            AppLog.sync.notice("增量拉取已降级: \(details, privacy: .public)")
             try await rebuildCacheFromRemote()
         }
     }
@@ -805,9 +855,11 @@ private extension WorkflowSyncService {
             )
         } catch {
             // 丢掉游标, 下次同步会从头拉一遍
-            AppLog.sync.notice(
-                "游标基线已降级: detail=\(error.localizedDescription, privacy: .public); action=dropCursor"
+            let details = LogFields.joined(
+                "detail=\(error.localizedDescription)",
+                "action=dropCursor"
             )
+            AppLog.sync.notice("游标基线已降级: \(details, privacy: .public)")
             try? fileManager.removeItem(at: cursorURL)
         }
     }

@@ -131,25 +131,35 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 两套机制叠加, 职责不同
 
 - `SystemSleepService` 用进程内 `IOPMAssertion` 建立 `PreventUserIdleSystemSleep` 断言, 只挡空闲睡眠, 不需要提权; 断言名必须是 ASCII, 否则 `pmset -g assertions` 显示不出标识
-- `CodexBarHelper` 是 root LaunchDaemon, 通过 XPC 接受 `setSleepDisabled` 请求, 执行 `/usr/bin/pmset -a disablesleep` 覆盖合盖睡眠
+- `CodexBarHelper` 是 root LaunchDaemon, 通过 XPC 接受 `setSleepPreventionRequested` 请求, 执行 `/usr/bin/pmset -a disablesleep` 覆盖合盖睡眠
 
 链路: `KeepAliveController` (MainActor) 订阅 `activityMonitor.$snapshot` 以及合成 `codexHookSettings.isOperable` 的两个发布值 -> `SMAppService.daemon(plistName:)` 注册 -> `NSXPCConnection` -> helper
 
 关键约束
 
-- `shouldDisableSleep` 是用户意图与依赖可用性的唯一汇合点, 要求 `isStarted && isEnabled && isHookEnabled && hasRunningTasks && helperStatus == .enabled && !isRefreshingHelper && !isLowBatteryActive && !hasReachedMaximumDuration` 同时成立; **依赖不满足只让效果失效, 绝不回写用户保存的 `isEnabled`**
+- `shouldDisableSleep` 是用户意图与依赖可用性的唯一汇合点, 要求 `isStarted && !isPreparingForTermination && isEnabled && isHookEnabled && hasRunningTasks && helperStatus == .enabled && !isRefreshingHelper && !isLowBatteryActive && !hasReachedMaximumDuration` 同时成立; **依赖不满足只让效果失效, 绝不回写用户保存的 `isEnabled`**
 - Hook 状态在类内只认 `isHookEnabled` 这份镜像, 它跟的是 `codexHookSettings.isOperable`; 不要回读那个属性, 订阅回调跑在 `willSet`, 那一刻它的两个输入里正在变的那一项还是旧值, 只能认 `CombineLatest` 给的闭包参数
 - 新增拦截条件一律加进 `sleepBlockReason` 的顺序判断里, 它和 `shouldDisableSleep` 同源, 顺带保证日志的 `reason=` 不会漏项
 - UI 用的 `isLowBatteryBlocking` 与 `canShowOptions` 由 `reconcileSleepState` 从 `sleepBlockReason` 单点派生, 新增拦截条件时 `allowsOptions` 那个穷举 `switch` 会强制表态, 于是不会出现入口亮着却点不动
 - `hasRunningTasks` 与 `isRefreshingHelper` 都不带 `@Published` 标注, 它们变得比结论频繁, 各自发信号会把整个设置页拖着一起重算
 - helper 只做一件事; 不要给 root helper 增加网络, 任意命令执行或其他文件访问能力
 - 调用方校验由 XPC 层强制; helper 启动时用 `SecCodeCopySelf` 读自身签名, 拼出形如 `anchor apple generic and certificate leaf[subject.OU] = "<team>" and identifier "<主 App identifier>"` 的 requirement 字符串, 交给 `NSXPCListener.setConnectionCodeSigningRequirement` 生效; 没有逐次连接的 audit token 检查, 改签名或改 bundle ID 会直接连不上
-- 恢复哨兵放在 `/Library/Application Support/CodexBar/<machService>.state` 这个路径, **必须保持 `absent` `present` `unreadable` 三态**, 把读取失败折叠成 nil 会让恢复流程以为无需恢复, 使 `SleepDisabled=1` 永久残留; watchdog 宽限 15 秒, 哨兵自检 60 秒一次
+- 所有权记录固定放在 `/Library/Application Support/CodexBar/sleep-ownership.json`, 由 root 在同目录写临时文件, 完成 `F_FULLFSYNC` 后原子替换并同步目录, 权限固定为 `0600`; 只持久化 `idle` `owned` `restoring` 三态, `external` 只是任务期间的运行态, 不落盘也不承担恢复责任
+- 当前值为 0 时必须先写 `owned` 再写 `pmset 1`; 释放时必须先写 `restoring` 再写 `pmset 0`; 两次 pmset 都要重新读取 `pmset -g` 确认实际值, 只有确认为 0 才能记回 `idle`
+- 任务开始时实际值已为 1 就返回 `external`, 不写 pmset; helper 每 5 秒观察一次, 如果其他来源在任务期间改回 0, helper 立即按上一条顺序取得所有权
+- helper 取得所有权后每 5 秒检查一次实际值与磁盘 transaction, 值被改成 0 时重新写回 1, 记录缺失, 损坏或 transaction 不一致时先修复记录; 修复失败也必须继续尝试恢复为 0
+- 没有活跃租约时停止短轮询, 只保留 60 秒异常恢复检查; 所有短轮询使用 1 秒 leeway
+- 每个 App 进程持有一个跨 XPC 重连不变的 client session ID, 请求再带单调递增的 generation; helper 只释放对应进程的租约并拒绝延迟到达的旧 generation, 不允许旧连接覆盖新状态
+- 异常断连后租约宽限 15 秒; 同一 App 在宽限内重连会续上原租约, watchdog 只会释放仍处于断连状态的那一个 client session
+- helper 以 `owned` 或 `restoring` 启动时先恢复为 0 再接受新接管; 以 `idle` 启动时不修改当前值, 因为那个值可能属于其他来源
+- 更新 helper 前 App 先释放自己的租约, helper 原子确认全局没有活跃客户端且所有权为 `idle`, 再用短期更新准备锁拒绝新的接管; 注册新 helper 后必须收到状态查询回复才记录新指纹, 系统仍在等待首次批准时除外
 - 切换失败按 2/4/8...256 秒重试, 列表耗尽即放弃 (延时累计约 8.5 分钟, 每轮再等一次超时约 10 分钟), 瞬时抖动能自愈, 权限类故障不该无限重试
-- XPC 请求带超时并汇进同一条重试路径; launchd 拉不起 helper 时 `setSleepDisabled` 既不回复也不触发 errorHandler, 没有它界面会显示防睡眠开着而实际没生效, 日志里只剩没有配对回复的 `Helper XPC 请求已发送`
+- XPC 请求带超时并汇进同一条重试路径; launchd 拉不起 helper 时 XPC 方法既不回复也不触发 errorHandler, 没有它界面会显示防睡眠开着而实际没生效, 日志里只剩没有配对回复的 `Helper XPC 请求已发送`
 - 超时取值放在 `CodexBarHelperIPC.requestTimeoutSeconds` 而不是控制器里, 它与 `watchdogGraceSeconds` 是一对: 必须更小, App 先放手 helper 才能靠 watchdog 兜底, 分处两个 module 会让人改了一边不知道另一边
 - 开发期间用 `xcodebuild` 覆盖正在运行的 App bundle 会让 launchd 记的 daemon 与磁盘上的 helper 对不上, helper 从此拉不起来; 重启 App 会由 `helperRegistrationNeedsRefresh` 的指纹比对自愈, 排查时先看这一条
-- helper 回传的 `restoredSleepDisabled` 只有 `.present` 分支是实测值, `.absent` (本轮没接管过) 与 pmset 失败时都是占位的 `true`; App 侧靠 `canTrustRestoreResult` (接管到恢复之间连接未断) 判断可不可信, 这是从未接管的一轮里不误发 `IOPMSleepSystem` 的唯一屏障, 不要把 `.absent` 改成回实测值
+- helper 回传 `none` `external` `codexBar` 来源与操作后的实测值; App 只能在 `codexBar` 且实测为 0 时宣称系统睡眠已恢复或补发 `IOPMSleepSystem`, `external` 和 `none` 都只释放进程内断言
+- App 退出由 `applicationShouldTerminate` 返回 `terminateLater`, 先冻结新接管并等 helper 释放回复再继续退出; helper 刷新同样先释放, 旧 helper 无响应时由新 helper 的启动恢复兜底
+- `pmset` 是没有来源和引用计数的全局布尔值; CodexBar 取得所有权后如果另一个 App 也开始依赖这个 1, 释放时仍会恢复为 0, 系统层没有无歧义的方法判断另一个 App 的意图
 - 低电量保护由 `PowerSourceMonitor` 供数, 它只报事实 (有没有内置电池, 电量, 是否靠电池供电), 不知道阈值; 读数保持 `unavailable` `unreadable` `present` 三态, 把读取失败折叠成"没有电池"会让设置项凭空消失且保护静默失效
 - 见过一次内置电池就记住 `hasSeenBattery`, 之后读到空列表只能返回 `unreadable`; 硬件不会中途消失, 空列表只是 IOKit 重新枚举时的缺口, 当成台式机会当场撤掉保护
 - `hasSeenBattery` 只活在进程内不持久化, 每次启动重新判定; 笔记本启动时撞上枚举缺口会短暂显示成没有电池, 由下一次电源通知自愈, 而持久化会让从笔记本备份恢复的台式机永远多出低电量设置项
@@ -161,7 +171,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 低电量必须同时满足在用电池与电量低于阈值, 只看百分比会让"剩 5% 插上电再跑任务"当场被判低电量; 判定用 `Power Source State`, 不能用 `Is Charging` (接电停充时它也是 false)
 - 电量读不到时维持上一次的判定, 从没读到过就是不触发: 误触发会当场断掉用户任务, 漏触发最坏也有系统强制睡眠兜底
 - 已经在低电量保护中时读数失败不清零, 否则一次瞬时失败会绕过滞回, 让防睡眠反复开关并重发通知
-- 低电量通知只在 `isActivelyPreventingSleep` 为真时排队, 没挡过就不说"已恢复系统睡眠"; 日志无条件记并用 `action=release|none` 区分, 百分比只有那一条能看到
+- 低电量通知只在 `isActivelyPreventingSleep` 为真且来源是 `codexBar` 时排队, 外部来源不说"已恢复系统睡眠"; 日志无条件记并用 `action=release|none` 区分, 百分比只有那一条能看到
 - 排队的通知要等 helper 恢复睡眠的 XPC 回复确认成功才发得出去, 恢复失败走重试直至放弃, 提前说"已恢复系统睡眠"会把用户骗去合盖然后把电耗干
 - 补发 `IOPMSleepSystem` 之前还要 `await` 到通知真的提交完成, 只把提交排进下一个 MainActor job 的话同一个 job 里的补发会抢在它前面
 - 那次 `await` 之后要重认一次 `generation` 再走 `finishSleepRestore` 这一步, 挂起期间可能已有新的禁用请求接管, 否则会释放掉刚建立的空闲断言
@@ -171,8 +181,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `hasNotifiedLowBattery` 只在通知真的提交成功之后才置位, 打在入队处或提交前都会让没送达的那一条吃掉整轮配额, 使这一轮之后真正触发的低电量再也提醒不了
 - `hasNotifiedLowBattery` 只管通知不管判定, 与上面"纯条件"不冲突: 电量回到解除门槛以下再跌破仍算同一轮, 不会重复提醒
 - `SleepConditions` 里只放 `battery` 布尔, 放电量百分比会让每掉 1% 刷一条变化日志; 真实电量只在触发那一条单独记
-- 状态只呈现在主面板活动卡片右侧的咖啡杯标记 (带 tooltip), 由 `KeepAliveController.isActivelyPreventingSleep` 驱动, 卡片折叠成"暂无数据"时标记要跟着一起收
-- 设置页那一行说明只在异常, 低电量生效或达到上限时出现, 正常运行时整行收起, `keepAliveCaption` 返回 nil 即代表收起
+- 状态只呈现在主面板活动卡片右侧的咖啡杯标记 (带 tooltip), 由 `KeepAliveController.isActivelyPreventingSleep` 驱动, `sleepPreventionSource` 区分外部来源与 CodexBar 所有权, 卡片折叠成"暂无数据"时标记要跟着一起收
+- 设置页那一行说明只在异常, 外部来源, 低电量生效或达到上限时出现, CodexBar 自己正常持有所有权时整行收起, `keepAliveCaption` 返回 nil 即代表收起
 - 最长防睡眠时间与低电量阈值都在防睡眠子面板里, 台式机读不到电池时低电量那一行整行隐藏而不是置灰
 - 保持屏幕常亮跟 `isActivelyPreventingSleep` 走, 由 `reconcileDisplayAwake` 单点切换, 于是低电量拦下, 达到上限, 任务结束时屏幕都跟着放开
 - 显示断言只保证屏幕不睡, 屏保与闲置锁屏跟的是系统 idle 计时, 要靠 30 秒一次的 `IOPMAssertionDeclareUserActivity` 压住, 两者缺一不可

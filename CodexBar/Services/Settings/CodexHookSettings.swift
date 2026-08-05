@@ -77,9 +77,11 @@ final class CodexHookSettings: ObservableObject {
             // 只有 I/O 失败和 JSON 格式错误会走到这里, 它们对「Hook 装没装」不提供信息
             // 文件不存在或配置里没有 CodexBar 都由 readConfigIfPresent 正常返回
             // 因此保留上次已知值, 不能把读取失败当成用户关闭了 Hook
-            AppLog.hooks.error(
-                "Hook 读取失败: detail=\(error.localizedDescription, privacy: .public); action=keepLastKnown"
+            let details = LogFields.joined(
+                "detail=\(error.localizedDescription)",
+                "action=keepLastKnown"
             )
+            AppLog.hooks.error("Hook 读取失败: \(details, privacy: .public)")
             readErrorMessage = String(localized: "读取 Codex Hook 配置失败")
         }
     }
@@ -182,9 +184,11 @@ final class CodexHookSettings: ObservableObject {
             return
         }
 
-        AppLog.hooks.notice(
-            "Hook 链路校验结论变化: verified=\(verified ? 1 : 0); reason=\(reason.rawValue, privacy: .public)"
+        let details = LogFields.joined(
+            "verified=\(verified ? 1 : 0)",
+            "reason=\(reason.rawValue)"
         )
+        AppLog.hooks.notice("Hook 链路校验结论变化: \(details, privacy: .public)")
         isVerified = verified
     }
 
@@ -370,9 +374,11 @@ private extension CodexHookSettings {
         }
 
         guard isSupported else {
-            AppLog.hooks.notice(
-                "Hook 版本不支持: current=\(currentVersion, privacy: .public); minimum=\(minimumVersion, privacy: .public)"
+            let details = LogFields.joined(
+                "current=\(currentVersion)",
+                "minimum=\(minimumVersion)"
             )
+            AppLog.hooks.notice("Hook 版本不支持: \(details, privacy: .public)")
             throw HookConfigError.unsupportedCodexVersion(minimum: minimumVersion)
         }
     }
@@ -461,9 +467,11 @@ private extension CodexHookSettings {
             }
 
             if let discoveryError {
-                AppLog.hooks.error(
-                    "Hook 信任清理失败: stage=discovery; detail=\(discoveryError.localizedDescription, privacy: .public)"
+                let details = LogFields.joined(
+                    "stage=discovery",
+                    "detail=\(discoveryError.localizedDescription)"
                 )
+                AppLog.hooks.error("Hook 信任清理失败: \(details, privacy: .public)")
                 operationErrorMessage = String(localized: "已关闭 Codex Hook, 清理信任状态失败")
             } else {
                 operationErrorMessage = nil
@@ -475,9 +483,11 @@ private extension CodexHookSettings {
                 return
             }
 
-            AppLog.hooks.error(
-                "Hook 信任清理失败: stage=remove; detail=\(error.localizedDescription, privacy: .public)"
+            let details = LogFields.joined(
+                "stage=remove",
+                "detail=\(error.localizedDescription)"
             )
+            AppLog.hooks.error("Hook 信任清理失败: \(details, privacy: .public)")
             operationErrorMessage = String(localized: "已关闭 Codex Hook, 清理信任状态失败")
         }
     }

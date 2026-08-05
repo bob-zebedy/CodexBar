@@ -109,9 +109,11 @@ final class CodexCLINotificationSettings: ObservableObject {
                     return
                 }
                 let logStage = operation.logStage
-                AppLog.settings.error(
-                    "Codex TUI 通知失败: stage=\(logStage, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+                let details = LogFields.joined(
+                    "stage=\(logStage)",
+                    "detail=\(error.localizedDescription)"
                 )
+                AppLog.settings.error("Codex TUI 通知失败: \(details, privacy: .public)")
                 errorMessage = operation.errorPrefix
             }
 

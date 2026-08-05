@@ -92,3 +92,68 @@ extension KeepAliveController {
         }
     }
 }
+
+nonisolated enum KeepAliveLocalizedMessage {
+    static let helperAssetsMissing = String(
+        localized: "keep-alive.error.helper-assets-missing",
+        defaultValue: "服务异常, 请重新安装 CodexBar"
+    )
+    static let registrationFailed = String(
+        localized: "keep-alive.error.registration-failed",
+        defaultValue: "注册服务失败"
+    )
+    static let updateFailed = String(
+        localized: "keep-alive.error.update-failed",
+        defaultValue: "更新服务失败"
+    )
+    static let preventIdleSleepFailed = String(
+        localized: "keep-alive.error.prevent-idle-sleep-failed",
+        defaultValue: "防止空闲睡眠失败"
+    )
+    static let toggleSleepFailed = String(
+        localized: "keep-alive.error.toggle-sleep-failed",
+        defaultValue: "切换睡眠状态失败"
+    )
+    static let restoreIdleSleepFailed = String(
+        localized: "keep-alive.error.restore-idle-sleep-failed",
+        defaultValue: "恢复空闲睡眠策略失败"
+    )
+    static let requestSystemSleepFailed = String(
+        localized: "keep-alive.error.request-system-sleep-failed",
+        defaultValue: "请求系统睡眠失败"
+    )
+    static let connectionFailed = String(
+        localized: "keep-alive.error.connection-failed",
+        defaultValue: "连接服务失败"
+    )
+    static let noResponse = String(
+        localized: "keep-alive.error.no-response",
+        defaultValue: "服务无响应"
+    )
+    static let retryLimitReached = String(
+        localized: "keep-alive.error.retry-limit-reached",
+        defaultValue: "防睡眠多次失败, 已停止重试"
+    )
+    static let invalidHelperInterface = String(
+        localized: "keep-alive.error.invalid-helper-interface",
+        defaultValue: "服务接口无效"
+    )
+    static let connectionInterrupted = String(
+        localized: "keep-alive.error.connection-interrupted",
+        defaultValue: "服务连接中断"
+    )
+}
+
+nonisolated enum KeepAliveError: LocalizedError {
+    case invalidHelperProxy
+    case connectionInterrupted
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidHelperProxy:
+            KeepAliveLocalizedMessage.invalidHelperInterface
+        case .connectionInterrupted:
+            KeepAliveLocalizedMessage.connectionInterrupted
+        }
+    }
+}

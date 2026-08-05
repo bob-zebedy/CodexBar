@@ -27,6 +27,8 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItemController: StatusItemController?
     private var notificationService: CodexNotificationService?
+    private var terminationPreparationTask: Task<Void, Never>?
+    private var hasPreparedForTermination = false
 
     // MARK: - App 生命周期
 
@@ -73,10 +75,36 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_: Notification) {
         AppLog.app.notice("App 即将退出: reason=userQuit")
+        terminationPreparationTask?.cancel()
+        terminationPreparationTask = nil
         AppProcessDiagnostics.recordCleanExit()
         statusItemController?.uninstall()
         keepAliveController.stop()
         activityMonitor.stop()
+    }
+
+    func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
+        if hasPreparedForTermination {
+            return .terminateNow
+        }
+        if terminationPreparationTask != nil {
+            return .terminateLater
+        }
+
+        terminationPreparationTask = Task { @MainActor [weak self] in
+            guard let self else {
+                NSApplication.shared.reply(toApplicationShouldTerminate: false)
+                return
+            }
+            let success = await keepAliveController.prepareForTermination()
+            guard !Task.isCancelled else {
+                return
+            }
+            terminationPreparationTask = nil
+            hasPreparedForTermination = success
+            NSApplication.shared.reply(toApplicationShouldTerminate: success)
+        }
+        return .terminateLater
     }
 
     /// 启动时把各开关的初始值记成一条基线, 之后的变更日志都是相对这条基线的增量
@@ -96,9 +124,22 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         let menuBarQuota = menuBarQuotaSettings.selection.rawValue
         let taskCenter = mainPanelSettings.showsTaskCenter ? 1 : 0
         let hotKey = globalHotKeySettings.shortcut == nil ? 0 : 1
-        AppLog.app.notice(
-            "App 已启动: version=\(version, privacy: .public); build=\(build, privacy: .public); hook=\(hook); keepAlive=\(keepAlive); keepAliveLimit=\(keepAliveLimit); keepAliveBattery=\(keepAliveBattery); keepAliveWaiting=\(keepAliveWaiting); keepAliveDisplay=\(keepAliveDisplay); sync=\(sync); notification=\(notification); menuBarQuota=\(menuBarQuota, privacy: .public); taskCenter=\(taskCenter); hotKey=\(hotKey)"
+        let state = LogFields.joined(
+            "version=\(version)",
+            "build=\(build)",
+            "hook=\(hook)",
+            "keepAlive=\(keepAlive)",
+            "keepAliveLimit=\(keepAliveLimit)",
+            "keepAliveBattery=\(keepAliveBattery)",
+            "keepAliveWaiting=\(keepAliveWaiting)",
+            "keepAliveDisplay=\(keepAliveDisplay)",
+            "sync=\(sync)",
+            "notification=\(notification)",
+            "menuBarQuota=\(menuBarQuota)",
+            "taskCenter=\(taskCenter)",
+            "hotKey=\(hotKey)"
         )
+        AppLog.app.notice("App 已启动: \(state, privacy: .public)")
     }
 
     func openSettingsFromCommand() {

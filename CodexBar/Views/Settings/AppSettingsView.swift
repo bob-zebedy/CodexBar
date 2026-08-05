@@ -501,6 +501,13 @@ private extension AppSettingsView {
             )
         }
 
+        if keepAliveController.isActivelyPreventingSleep,
+           keepAliveController.sleepPreventionSource == .external {
+            return KeepAliveCaption(
+                message: String(localized: "系统睡眠已由其他来源关闭")
+            )
+        }
+
         // 低电量拦下时开关开着却不防睡眠, 不留一句无从解释
         // 判定用 isLowBatteryBlocking 而不是 isLowBatteryActive: 后者在没有任务时也成立, 那时无话可说
         // 它成立即意味着 helper 已就绪, 所以排在下面那个 switch 之前不影响 helper 类问题的呈现

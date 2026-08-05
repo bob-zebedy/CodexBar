@@ -185,7 +185,9 @@ App 使用 `--hook-event` 参数启动时不初始化任何 UI, 只从 stdin 读
 
 **root helper 权限**
 
-`CodexBarHelper` 是随 App 嵌入的 LaunchDaemon, 只暴露一个 XPC 方法, 只执行 `pmset -a disablesleep`
+`CodexBarHelper` 是随 App 嵌入的 LaunchDaemon, 只暴露防睡眠租约与状态查询 XPC, 只执行 `pmset -a disablesleep`
+
+helper 只在 CodexBar 自己将 `SleepDisabled` 从 0 改为 1 时取得所有权, 取得所有权后任务结束始终恢复为 0; 任务开始时已经为 1 则视为其他来源, 不修改它, 该值在任务期间恢复为 0 时再由 CodexBar 接管
 
 签名强制校验: helper 启动时读取自身签名拼出 requirement 交给 XPC listener, 修改签名或 bundle ID 都会导致连接被拒
 

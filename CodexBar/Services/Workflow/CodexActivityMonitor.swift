@@ -315,15 +315,25 @@ final class CodexActivityMonitor: ObservableObject {
             let eventCount = bootstrapEventCount
             let elapsed = bootstrapDuration.elapsed
             guard !degraded else {
-                AppLog.activity.notice(
-                    "历史回放已降级: attempts=\(attempts); events=\(eventCount); activeTasks=\(activeCount); elapsed=\(elapsed, privacy: .public); reason=unstableBoundary; action=skipHistory"
+                let details = LogFields.joined(
+                    "attempts=\(attempts)",
+                    "events=\(eventCount)",
+                    "activeTasks=\(activeCount)",
+                    "elapsed=\(elapsed)",
+                    "reason=unstableBoundary",
+                    "action=skipHistory"
                 )
+                AppLog.activity.notice("历史回放已降级: \(details, privacy: .public)")
                 return
             }
 
-            AppLog.activity.notice(
-                "历史回放完成: attempts=\(attempts); events=\(eventCount); activeTasks=\(activeCount); elapsed=\(elapsed, privacy: .public)"
+            let details = LogFields.joined(
+                "attempts=\(attempts)",
+                "events=\(eventCount)",
+                "activeTasks=\(activeCount)",
+                "elapsed=\(elapsed)"
             )
+            AppLog.activity.notice("历史回放完成: \(details, privacy: .public)")
         case let .live(events):
             let pendingKeysBefore = Set(pendingTerminalTasks.keys)
             let activeCountBefore = snapshot.activeCount
@@ -339,9 +349,12 @@ final class CodexActivityMonitor: ObservableObject {
             // 只看活跃数会漏掉 running 转 waitingApproval, 那一进一出恒抵消为零
             let activeCountAfter = snapshot.activeCount
             if activeCountAfter != activeCountBefore || !transitions.isEmpty {
-                AppLog.activity.notice(
-                    "任务数变化: from=\(activeCountBefore); to=\(activeCountAfter); transitions=\(transitions.count)"
+                let details = LogFields.joined(
+                    "from=\(activeCountBefore)",
+                    "to=\(activeCountAfter)",
+                    "transitions=\(transitions.count)"
                 )
+                AppLog.activity.notice("任务数变化: \(details, privacy: .public)")
             }
             publishLiveTransitions(transitions)
             if !pendingTerminalTasks.isEmpty {

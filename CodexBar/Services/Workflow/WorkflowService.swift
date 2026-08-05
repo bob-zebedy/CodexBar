@@ -121,9 +121,12 @@ actor WorkflowService {
                 try rebuildResults.append(rebuildLocalData(for: dateKey))
             } catch {
                 // 整批成功时这个原因不会往上抛, 摘要只带得走日期
-                AppLog.workflow.error(
-                    "数据重建失败: stage=date; date=\(dateKey, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+                let details = LogFields.joined(
+                    "stage=date",
+                    "date=\(dateKey)",
+                    "detail=\(error.localizedDescription)"
                 )
+                AppLog.workflow.error("数据重建失败: \(details, privacy: .public)")
                 failedDateKeys.append(dateKey)
                 if firstFailure == nil {
                     firstFailure = error
@@ -138,9 +141,12 @@ actor WorkflowService {
         do {
             try await syncService.markReplacementNeeded(for: normalizedDateKeys)
         } catch {
-            AppLog.workflow.error(
-                "数据重建失败: stage=replacementMarking; dates=\(normalizedDateKeys.count); detail=\(error.localizedDescription, privacy: .public)"
+            let details = LogFields.joined(
+                "stage=replacementMarking",
+                "dates=\(normalizedDateKeys.count)",
+                "detail=\(error.localizedDescription)"
             )
+            AppLog.workflow.error("数据重建失败: \(details, privacy: .public)")
             didFailReplacementMarking = true
         }
 
@@ -164,9 +170,14 @@ actor WorkflowService {
             didFailSyncReplacementMarking: didFailReplacementMarking
         )
         let elapsed = duration.elapsed
-        AppLog.workflow.notice(
-            "数据重建完成: dates=\(summary.rebuiltDateCount); events=\(summary.eventCount); corruptLines=\(summary.corruptLineCount); failedDates=\(failedDateKeys.count); elapsed=\(elapsed, privacy: .public)"
+        let details = LogFields.joined(
+            "dates=\(summary.rebuiltDateCount)",
+            "events=\(summary.eventCount)",
+            "corruptLines=\(summary.corruptLineCount)",
+            "failedDates=\(failedDateKeys.count)",
+            "elapsed=\(elapsed)"
         )
+        AppLog.workflow.notice("数据重建完成: \(details, privacy: .public)")
         return WorkflowDataRebuildOutcome(snapshot: snapshot, summary: summary)
     }
 
@@ -279,9 +290,12 @@ actor WorkflowService {
             counts.pruned = try pruneExpiredEventFiles()
         } catch {
             let elapsed = duration.elapsed
-            AppLog.workflow.error(
-                "事件汇总失败: stage=\(stage.rawValue, privacy: .public); elapsed=\(elapsed, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+            let details = LogFields.joined(
+                "stage=\(stage.rawValue)",
+                "elapsed=\(elapsed)",
+                "detail=\(error.localizedDescription)"
             )
+            AppLog.workflow.error("事件汇总失败: \(details, privacy: .public)")
             idleMaintenanceRounds = 0
             return nil
         }
@@ -329,9 +343,13 @@ actor WorkflowService {
                 }
             } catch {
                 counts.failed += 1
-                AppLog.workflow.error(
-                    "事件汇总失败: stage=daily; date=\(task.dateKey, privacy: .public); detail=\(error.localizedDescription, privacy: .public); action=markDirty"
+                let details = LogFields.joined(
+                    "stage=daily",
+                    "date=\(task.dateKey)",
+                    "detail=\(error.localizedDescription)",
+                    "action=markDirty"
                 )
+                AppLog.workflow.error("事件汇总失败: \(details, privacy: .public)")
                 markDirty(task.dateKey)
             }
         }
@@ -900,9 +918,12 @@ actor WorkflowService {
             }
         } catch {
             // 标记丢了下一轮就不会重建这天, 数据会静默缺一块
-            AppLog.workflow.error(
-                "事件汇总失败: stage=markDirty; date=\(dateKey, privacy: .public); detail=\(error.localizedDescription, privacy: .public)"
+            let details = LogFields.joined(
+                "stage=markDirty",
+                "date=\(dateKey)",
+                "detail=\(error.localizedDescription)"
             )
+            AppLog.workflow.error("事件汇总失败: \(details, privacy: .public)")
         }
     }
 
@@ -933,9 +954,11 @@ actor WorkflowService {
             try WorkflowStorage.saveMaintenanceState(state)
         }
         // 保留期到点会真的删掉原始事件文件, 数据对不上时要能查到哪些日期被清掉了
-        AppLog.workflow.notice(
-            "过期事件已清理: dates=\(expiredDateKeys.count); oldest=\(expiredDateKeys.first ?? "-", privacy: .public)"
+        let details = LogFields.joined(
+            "dates=\(expiredDateKeys.count)",
+            "oldest=\(expiredDateKeys.first ?? "-")"
         )
+        AppLog.workflow.notice("过期事件已清理: \(details, privacy: .public)")
         return expiredDateKeys.count
     }
 

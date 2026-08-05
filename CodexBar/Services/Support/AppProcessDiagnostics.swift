@@ -19,9 +19,11 @@ nonisolated enum AppProcessDiagnostics {
         NSSetUncaughtExceptionHandler { exception in
             let name = exception.name.rawValue
             let reason = exception.reason ?? "-"
-            AppLog.app.error(
-                "未捕获异常: name=\(name, privacy: .public); reason=\(reason, privacy: .public)"
+            let details = LogFields.joined(
+                "name=\(name)",
+                "reason=\(reason)"
             )
+            AppLog.app.error("未捕获异常: \(details, privacy: .public)")
         }
     }
 
