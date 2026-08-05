@@ -171,6 +171,7 @@ final class KeepAliveController: ObservableObject {
         keepsAwakeWhileWaiting = defaults.bool(forKey: Self.keepsAwakeWhileWaitingKey)
         // 默认关闭: 它会让人离开后机器一直停在解锁状态, 这个取舍只能由用户自己做
         keepsDisplayAwake = defaults.bool(forKey: Self.keepsDisplayAwakeKey)
+        activityMonitor.setActivityProtectionEnabled(isEnabled)
     }
 
     func start() {
@@ -303,6 +304,7 @@ final class KeepAliveController: ObservableObject {
         AppLog.keepAlive.notice("KeepAlive 开关变更: enabled=\(enabled ? 1 : 0)")
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
+        activityMonitor.setActivityProtectionEnabled(enabled)
         registrationErrorMessage = nil
         operationErrorMessage = nil
 
@@ -1044,7 +1046,7 @@ final class KeepAliveController: ObservableObject {
                 "source=\(String(describing: source))",
                 "lidCausesSleep=\(lidCausesSleep)"
             )
-            AppLog.keepAlive.notice("系统睡眠已防止: \(details, privacy: .public)")
+            AppLog.keepAlive.notice("已防止系统睡眠: \(details, privacy: .public)")
         }
         durationLimiter.begin()
         completePendingRequest(success: true)

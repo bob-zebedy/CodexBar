@@ -16,6 +16,7 @@ final class CodexNotificationService: NSObject {
     private var cancellables = Set<AnyCancellable>()
     private var taskHapticFeedbackTask: Task<Void, Never>?
     private var taskWaitingNotificationIdentifiers = Set<String>()
+    private var activityProtectionNotificationIdentifiers = Set<String>()
     private let creditExpiryReminderScheduler = ReminderCheckScheduler()
     private var latestQuotaSnapshot: CodexQuotaSnapshot?
 
@@ -203,6 +204,56 @@ final class CodexNotificationService: NSObject {
 
             self?.taskHapticFeedbackTask = nil
         }
+    }
+
+    // MARK: - 异常任务保护
+
+    func notifyActivityProtection(_ notice: CodexActivityProtectionNotice) async -> Bool {
+        guard settings.canDeliver else {
+            return false
+        }
+
+        let identifier = Self.activityProtectionNotificationIdentifier(
+            taskID: notice.taskID,
+            attemptID: notice.attemptID
+        )
+        activityProtectionNotificationIdentifiers.insert(identifier)
+        let deliveryTask = send(
+            .activityProtection(
+                project: notice.projectName,
+                inactivityDurationText: notice.inactivityDurationText
+            ),
+            sound: .systemDefault,
+            identifier: identifier,
+            isStillRelevant: { [weak self] in
+                self?.activityMonitor.isInactivityProtectionNoticeRelevant(
+                    taskID: notice.taskID,
+                    attemptID: notice.attemptID,
+                    progressGeneration: notice.progressGeneration,
+                    inactivityDurationSeconds: notice.inactivityDurationSeconds
+                ) ?? false
+            },
+            onSubmissionFailure: { [weak self] in
+                self?.activityProtectionNotificationIdentifiers.remove(identifier)
+            },
+            retryCount: 0
+        )
+        let wasSubmitted = await deliveryTask?.value ?? false
+        if !wasSubmitted {
+            activityProtectionNotificationIdentifiers.remove(identifier)
+        }
+        return wasSubmitted
+    }
+
+    func invalidateActivityProtectionNotification(taskID: UUID, attemptID: UUID) {
+        let identifier = Self.activityProtectionNotificationIdentifier(
+            taskID: taskID,
+            attemptID: attemptID
+        )
+        guard activityProtectionNotificationIdentifiers.remove(identifier) != nil else {
+            return
+        }
+        removeNotifications(withIdentifiers: [identifier])
     }
 
     // MARK: - 快照处理
@@ -499,7 +550,8 @@ final class CodexNotificationService: NSObject {
         identifier: String = UUID().uuidString,
         dedupKey: String? = nil,
         isStillRelevant: (() -> Bool)? = nil,
-        onSubmissionFailure: (() -> Void)? = nil
+        onSubmissionFailure: (() -> Void)? = nil,
+        retryCount: Int = CodexNotificationService.notificationSubmissionRetryCount
     ) -> Task<Bool, Never>? {
         let kind = notification.kind
         if let dedupKey {
@@ -530,7 +582,8 @@ final class CodexNotificationService: NSObject {
                 kind: kind,
                 dedupKey: dedupKey,
                 isStillRelevant: isStillRelevant,
-                onSubmissionFailure: onSubmissionFailure
+                onSubmissionFailure: onSubmissionFailure,
+                retryCount: retryCount
             ) ?? false
         }
     }
@@ -541,7 +594,8 @@ final class CodexNotificationService: NSObject {
         kind: String,
         dedupKey: String?,
         isStillRelevant: (() -> Bool)?,
-        onSubmissionFailure: (() -> Void)?
+        onSubmissionFailure: (() -> Void)?,
+        retryCount: Int
     ) async -> Bool {
         defer {
             if let dedupKey {
@@ -549,7 +603,7 @@ final class CodexNotificationService: NSObject {
             }
         }
 
-        for _ in 0 ... Self.notificationSubmissionRetryCount {
+        for _ in 0 ... max(0, retryCount) {
             guard isStillRelevant?() != false else {
                 let details = LogFields.joined(
                     "kind=\(kind)",
@@ -606,6 +660,13 @@ final class CodexNotificationService: NSObject {
 
     private nonisolated static func taskWaitingNotificationIdentifier(for taskID: UUID) -> String {
         "taskWaiting|\(taskID.uuidString)"
+    }
+
+    private nonisolated static func activityProtectionNotificationIdentifier(
+        taskID: UUID,
+        attemptID: UUID
+    ) -> String {
+        "activityProtection|\(taskID.uuidString)|\(attemptID.uuidString)"
     }
 
     private nonisolated static func quotaWindowStateKey(
@@ -752,6 +813,32 @@ nonisolated struct CodexNotificationContent: Equatable {
             title: String(
                 localized: "notification.task-waiting.title",
                 defaultValue: "Codex 等待批准"
+            ),
+            body: body
+        )
+    }
+
+    static func activityProtection(
+        project: String?,
+        inactivityDurationText: String
+    ) -> CodexNotificationContent {
+        let body = if let project {
+            String(
+                localized: "notification.activity-protection.body.project",
+                defaultValue: "\(project) 已静默 \(inactivityDurationText), 已隐藏并停止参与防睡眠"
+            )
+        } else {
+            String(
+                localized: "notification.activity-protection.body.codex",
+                defaultValue: "Codex 任务已静默 \(inactivityDurationText), 已隐藏并停止参与防睡眠"
+            )
+        }
+
+        return CodexNotificationContent(
+            kind: "activityProtection",
+            title: String(
+                localized: "notification.activity-protection.title",
+                defaultValue: "Codex 任务长时间无进展"
             ),
             body: body
         )

@@ -7,6 +7,13 @@ nonisolated enum HookEventBatch {
     /// attempts 由 reader 给出, 它才知道循环跑了几轮以及放弃时补发过一次清场
     case bootstrapEnd(degraded: Bool, attempts: Int)
     case live([WorkflowHookEvent])
+    case sourceHealthChanged(Bool)
+}
+
+nonisolated enum HookEventDrainResult: Sendable {
+    case completed
+    case sourceUnavailable
+    case cancelled
 }
 
 /// 在独立 actor 中按完整 JSONL 行读取 HookEvents/events
@@ -14,6 +21,7 @@ nonisolated enum HookEventBatch {
 actor HookEventTailReader {
     private let onBatch: @MainActor @Sendable (HookEventBatch) -> Void
     private var pollTask: Task<Void, Never>?
+    private var readProcessingTask: Task<Void, Never>?
     private var isRunning = false
     // actor 会在 await 期间重入; 所有外部读取请求通过这两个标记合并为单一读取流程
     private var isProcessingReads = false
@@ -21,6 +29,14 @@ actor HookEventTailReader {
     private var activeDateKey = ""
     private var activeFileOffset: UInt64 = 0
     private var activeFileIdentifier: UInt64?
+    private var lastReportedSourceHealth: Bool?
+    private var requestedDrainGeneration: UInt64 = 0
+    private var drainWaiters: [
+        UUID: (
+            generation: UInt64,
+            continuation: CheckedContinuation<HookEventDrainResult, Never>
+        )
+    ] = [:]
 
     init(onBatch: @escaping @MainActor @Sendable (HookEventBatch) -> Void) {
         self.onBatch = onBatch
@@ -48,7 +64,7 @@ actor HookEventTailReader {
                 guard !Task.isCancelled else {
                     return
                 }
-                await self?.drainNow()
+                _ = await self?.drainNow()
             }
         }
     }
@@ -58,29 +74,90 @@ actor HookEventTailReader {
         hasPendingDrain = false
         pollTask?.cancel()
         pollTask = nil
+        readProcessingTask?.cancel()
+        readProcessingTask = nil
+        completeAllDrainWaiters(with: .cancelled)
     }
 
-    func drainNow() async {
+    /// 每个调用方等待一轮在本次请求之后开始的读取, 已经在途的旧读取不能提前满足该请求
+    func drainNow() async -> HookEventDrainResult {
         guard isRunning, !Task.isCancelled else {
-            return
+            return .cancelled
         }
+
+        requestedDrainGeneration &+= 1
+        let generation = requestedDrainGeneration
+        let waiterID = UUID()
         hasPendingDrain = true
 
-        guard !isProcessingReads else {
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                drainWaiters[waiterID] = (generation, continuation)
+                startPendingReadIfNeeded()
+            }
+        } onCancel: {
+            Task {
+                await self.cancelDrainWaiter(waiterID)
+            }
+        }
+    }
+
+    private func startPendingReadIfNeeded() {
+        guard isRunning, !isProcessingReads else {
             return
         }
         isProcessingReads = true
-        defer {
-            isProcessingReads = false
+        readProcessingTask = Task { [weak self] in
+            await self?.processPendingReads()
         }
+    }
+
+    private func processPendingReads() async {
         await drainPendingRequests()
+        isProcessingReads = false
+        readProcessingTask = nil
+
+        // 最后一轮完成后没有 await 空窗, 正常不会遗漏请求; 这里仍保留自愈以约束未来改动
+        if isRunning, hasPendingDrain {
+            startPendingReadIfNeeded()
+        }
     }
 
     private func drainPendingRequests() async {
         while isRunning, hasPendingDrain, !Task.isCancelled {
             hasPendingDrain = false
-            await drainNewLines()
+            let generation = requestedDrainGeneration
+            let result = await drainNewLines()
+            completeDrainWaiters(through: generation, with: result)
         }
+
+        if !isRunning || Task.isCancelled {
+            completeAllDrainWaiters(with: .cancelled)
+        }
+    }
+
+    private func completeDrainWaiters(
+        through generation: UInt64,
+        with result: HookEventDrainResult
+    ) {
+        let completedWaiterIDs = drainWaiters.compactMap { waiterID, waiter in
+            waiter.generation <= generation ? waiterID : nil
+        }
+        for waiterID in completedWaiterIDs {
+            drainWaiters.removeValue(forKey: waiterID)?.continuation.resume(returning: result)
+        }
+    }
+
+    private func completeAllDrainWaiters(with result: HookEventDrainResult) {
+        let waiters = Array(drainWaiters.values)
+        drainWaiters.removeAll()
+        for waiter in waiters {
+            waiter.continuation.resume(returning: result)
+        }
+    }
+
+    private func cancelDrainWaiter(_ waiterID: UUID) {
+        drainWaiters.removeValue(forKey: waiterID)?.continuation.resume(returning: .cancelled)
     }
 
     private var activeFileURL: URL {
@@ -99,6 +176,7 @@ actor HookEventTailReader {
                 activeFileOffset = result.activeFileOffset
                 activeFileIdentifier = result.activeFileIdentifier
                 await onBatch(.bootstrapEnd(degraded: false, attempts: attempt + 1))
+                await reportSourceHealth(true)
                 return
             }
         }
@@ -112,6 +190,7 @@ actor HookEventTailReader {
         activeFileIdentifier = stat?.identifier
         await onBatch(.bootstrapStart)
         await onBatch(.bootstrapEnd(degraded: true, attempts: Self.bootstrapAttemptLimit))
+        await reportSourceHealth(false)
     }
 
     private func bootstrapAttempt(now: Date) async -> BootstrapResult? {
@@ -167,9 +246,9 @@ actor HookEventTailReader {
 
     // MARK: - 增量 tail
 
-    private func drainNewLines() async {
+    private func drainNewLines() async -> HookEventDrainResult {
         guard isRunning, !Task.isCancelled else {
-            return
+            return .cancelled
         }
 
         let todayKey = WorkflowStorage.dateKey(for: Date())
@@ -177,7 +256,10 @@ actor HookEventTailReader {
             // 跨零点先读完旧文件尾部, 再切到新日期文件
             guard await readAppendedLines() else {
                 // bootstrap 已经完成切日; 临时失败则保留旧日期, 下一轮继续重试
-                return
+                return currentDrainResult()
+            }
+            guard isRunning, !Task.isCancelled else {
+                return .cancelled
             }
             activeDateKey = todayKey
             activeFileOffset = 0
@@ -185,6 +267,14 @@ actor HookEventTailReader {
         }
 
         _ = await readAppendedLines()
+        guard isRunning, !Task.isCancelled else {
+            return .cancelled
+        }
+        return currentDrainResult()
+    }
+
+    private func currentDrainResult() -> HookEventDrainResult {
+        lastReportedSourceHealth == true ? .completed : .sourceUnavailable
     }
 
     /// 返回是否读到当前文件上界; 触发重新 bootstrap 或读取中断时为 false
@@ -206,6 +296,7 @@ actor HookEventTailReader {
         }
 
         guard size > activeFileOffset else {
+            await reportSourceHealth(true)
             return true
         }
 
@@ -217,7 +308,16 @@ actor HookEventTailReader {
             makeBatch: HookEventBatch.live
         )
         activeFileOffset = streamResult.completeOffset
+        await reportSourceHealth(streamResult.didReachUpperBound)
         return streamResult.didReachUpperBound
+    }
+
+    private func reportSourceHealth(_ isHealthy: Bool) async {
+        guard isHealthy != lastReportedSourceHealth else {
+            return
+        }
+        lastReportedSourceHealth = isHealthy
+        await onBatch(.sourceHealthChanged(isHealthy))
     }
 
     /// 返回已处理完整行的绝对 offset 和是否读完固定上界; 后续失败时保留此前进度

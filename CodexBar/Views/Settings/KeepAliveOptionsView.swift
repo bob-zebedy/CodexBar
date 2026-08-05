@@ -4,12 +4,14 @@ import SwiftUI
 /// 行样式与度量沿用通知子面板, 只有面板宽度按内容收窄
 struct KeepAliveOptionsView: View {
     @ObservedObject var keepAliveController: KeepAliveController
+    @ObservedObject var activityProtectionSettings: ActivityProtectionSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
             waitingApprovalRow
             displayAwakeRow
             maximumDurationRow
+            activityProtectionRow
 
             // 台式机读不到电池, 这一行整个收起而不是置灰
             if keepAliveController.hasBattery {
@@ -41,6 +43,19 @@ struct KeepAliveOptionsView: View {
                 set: { keepAliveController.setMaximumDuration($0) }
             ),
             options: KeepAliveController.MaximumDuration.allCases,
+            label: \.title
+        )
+    }
+
+    private var activityProtectionRow: some View {
+        pickerRow(
+            title: "异常会话保护",
+            caption: "长时间没有进展时隐藏任务并停止参与防睡眠",
+            selection: Binding(
+                get: { activityProtectionSettings.inactivityDuration },
+                set: { activityProtectionSettings.setInactivityDuration($0) }
+            ),
+            options: ActivityProtectionSettings.InactivityDuration.allCases,
             label: \.title
         )
     }
@@ -147,7 +162,7 @@ struct KeepAliveOptionsView: View {
     private enum Metrics {
         static let panelWidth: CGFloat = 250
         /// 有内置电池的设备时行数, 无内置电池设备少一行低电量保护
-        static let maximumRowCount = 4
+        static let maximumRowCount = 5
         static let horizontalPadding = SettingsOptionsPanelMetrics.horizontalPadding
         static let verticalPadding = SettingsOptionsPanelMetrics.verticalPadding
         static let rowSpacing = SettingsOptionsPanelMetrics.rowSpacing

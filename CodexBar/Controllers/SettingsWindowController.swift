@@ -14,6 +14,7 @@ final class SettingsWindowController: HostingWindowController {
     private let menuBarQuotaSettings: MenuBarQuotaSettings
     private let mainPanelSettings: MainPanelSettings
     private let notificationSettings: NotificationSettings
+    private let activityProtectionSettings: ActivityProtectionSettings
     private let keepAliveController: KeepAliveController
     private let onSyncChanged: (Bool) -> Void
     private let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
@@ -32,6 +33,7 @@ final class SettingsWindowController: HostingWindowController {
         menuBarQuotaSettings: MenuBarQuotaSettings,
         mainPanelSettings: MainPanelSettings,
         notificationSettings: NotificationSettings,
+        activityProtectionSettings: ActivityProtectionSettings,
         keepAliveController: KeepAliveController,
         screenProvider: @escaping () -> NSScreen?,
         onSyncChanged: @escaping (Bool) -> Void,
@@ -46,6 +48,7 @@ final class SettingsWindowController: HostingWindowController {
         self.menuBarQuotaSettings = menuBarQuotaSettings
         self.mainPanelSettings = mainPanelSettings
         self.notificationSettings = notificationSettings
+        self.activityProtectionSettings = activityProtectionSettings
         self.keepAliveController = keepAliveController
         self.onSyncChanged = onSyncChanged
         self.onRebuildWorkflowData = onRebuildWorkflowData
@@ -110,6 +113,7 @@ final class SettingsWindowController: HostingWindowController {
         syncSettings.refresh()
         menuBarQuotaSettings.refresh()
         mainPanelSettings.refresh()
+        activityProtectionSettings.refresh()
         keepAliveController.refresh()
     }
 
@@ -182,9 +186,12 @@ final class SettingsWindowController: HostingWindowController {
             SettingsOptionsPanelController(
                 animationKey: "CodexBar.keepAliveOptionsDrawerTransform",
                 initialPanelSize: KeepAliveOptionsView.initialPanelSize,
-                contentControllerProvider: { [keepAliveController] entryCue in
+                contentControllerProvider: { [keepAliveController, activityProtectionSettings] entryCue in
                     SettingsOptionsPanelController.makeContentController(
-                        KeepAliveOptionsView(keepAliveController: keepAliveController),
+                        KeepAliveOptionsView(
+                            keepAliveController: keepAliveController,
+                            activityProtectionSettings: activityProtectionSettings
+                        ),
                         rebuiltBy: entryCue
                     )
                 },

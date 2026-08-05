@@ -289,6 +289,38 @@
         }
       }
     },
+    "activity-protection.duration.hours" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld hr"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 小时"
+          }
+        }
+      }
+    },
+    "activity-protection.duration.thirty-minutes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "30 min"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "30 分钟"
+          }
+        }
+      }
+    },
     "app.command.settings" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1294,6 +1326,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "次额度"
+          }
+        }
+      }
+    },
+    "notification.activity-protection.body.codex" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Codex task progress for %@; hidden and excluded from keep-awake"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 任务已静默 %@, 已隐藏并停止参与防睡眠"
+          }
+        }
+      }
+    },
+    "notification.activity-protection.body.project" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No progress in “%1$@” for %2$@; hidden and excluded from keep-awake"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 已静默 %2$@, 已隐藏并停止参与防睡眠"
+          }
+        }
+      }
+    },
+    "notification.activity-protection.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Task Has No Progress"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 任务长时间无进展"
           }
         }
       }
@@ -2318,6 +2398,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最近终止 %lld"
+          }
+        }
+      }
+    },
+    "异常会话保护" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inactive Task Protection"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "异常会话保护"
+          }
+        }
+      }
+    },
+    "长时间没有进展时隐藏任务并停止参与防睡眠" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide inactive tasks and exclude them from keep-awake"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "长时间没有进展时隐藏任务并停止参与防睡眠"
           }
         }
       }

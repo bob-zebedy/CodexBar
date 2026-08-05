@@ -49,7 +49,7 @@ actor CodexSessionLifecycleReader {
                 continue
             }
 
-            scanNewLifecycleEvents(into: &cursor)
+            scanNewLifecycleEvents(into: &cursor, fallbackReference: reference)
             pruneEffortBackfillState(
                 in: &cursor,
                 activeTurnIds: Set(sessionReferences.map(\.turnId))
@@ -98,6 +98,7 @@ actor CodexSessionLifecycleReader {
                         startedAt: lifecycle.startedAt,
                         approvalReviewer: lifecycle.approvalReviewer,
                         effort: lifecycle.effort,
+                        lastProgressAt: lifecycle.lastProgressAt,
                         terminal: lifecycle.terminal
                     )
                 )
@@ -292,7 +293,10 @@ actor CodexSessionLifecycleReader {
 
     // MARK: - 增量扫描
 
-    private func scanNewLifecycleEvents(into cursor: inout SessionFileCursor) {
+    private func scanNewLifecycleEvents(
+        into cursor: inout SessionFileCursor,
+        fallbackReference: CodexActivityTurnReference
+    ) {
         let stat = WorkflowStorage.fileStat(at: cursor.url)
         let size = stat?.size ?? 0
         let identifier = stat?.identifier
@@ -331,12 +335,12 @@ actor CodexSessionLifecycleReader {
         }
 
         for envelope in JSONLines.decode(CodexRolloutLineEnvelope.self, from: completeData) {
-            guard let event = envelope.lifecycleEvent else {
-                continue
+            if let event = envelope.progressEvent(fallbackReference: fallbackReference) {
+                cursor.apply(event)
             }
-            var lifecycle = cursor.lifecycleByTurnId[event.turnId] ?? SessionTurnLifecycle()
-            lifecycle.apply(event.change)
-            cursor.lifecycleByTurnId[event.turnId] = lifecycle
+            if let event = envelope.lifecycleEvent {
+                cursor.apply(event)
+            }
         }
     }
 
@@ -356,6 +360,12 @@ private nonisolated struct SessionFileCursor {
     let hasUnscannedHistoricalPrefix: Bool
     var completedEffortBackfillTurnIds: Set<String>
     var lastEffortBackfillAttemptByTurnId: [String: Date]
+
+    mutating func apply(_ event: SessionLifecycleEvent) {
+        var lifecycle = lifecycleByTurnId[event.turnId] ?? SessionTurnLifecycle()
+        lifecycle.apply(event.change)
+        lifecycleByTurnId[event.turnId] = lifecycle
+    }
 }
 
 private nonisolated enum EffortBackfillResult {
@@ -403,6 +413,24 @@ nonisolated struct CodexRolloutLinePayload: Decodable {
 }
 
 private nonisolated extension CodexRolloutLineEnvelope {
+    func progressEvent(
+        fallbackReference: CodexActivityTurnReference
+    ) -> SessionLifecycleEvent? {
+        let eventDate = timestamp.flatMap(CodexDateFormat.iso8601Date)
+            ?? payload?.completedAt.flatMap(Self.date)
+            ?? payload?.startedAt.flatMap(Self.date)
+        guard let eventDate,
+              eventDate >= fallbackReference.startedAt.addingTimeInterval(-1) else {
+            return nil
+        }
+
+        let turnId = payload?.turnId ?? fallbackReference.turnId
+        guard !turnId.isEmpty else {
+            return nil
+        }
+        return SessionLifecycleEvent(turnId: turnId, change: .progress(at: eventDate))
+    }
+
     var lifecycleEvent: SessionLifecycleEvent? {
         guard let payload,
               let turnId = payload.turnId,
@@ -466,6 +494,7 @@ private nonisolated struct SessionLifecycleEvent {
 }
 
 private nonisolated enum SessionLifecycleChange {
+    case progress(at: Date)
     case started(at: Date)
     case context(approvalReviewer: CodexApprovalReviewer?, effort: String?)
     case completed(at: Date, duration: TimeInterval?)
@@ -476,10 +505,13 @@ private nonisolated struct SessionTurnLifecycle {
     var startedAt: Date?
     var approvalReviewer: CodexApprovalReviewer?
     var effort: String?
+    var lastProgressAt: Date?
     var terminal: CodexSessionTaskTerminalState?
 
     mutating func apply(_ change: SessionLifecycleChange) {
         switch change {
+        case let .progress(at):
+            lastProgressAt = max(lastProgressAt ?? .distantPast, at)
         case let .started(at):
             if let currentStartedAt = startedAt {
                 startedAt = min(currentStartedAt, at)
@@ -503,6 +535,7 @@ nonisolated struct CodexSessionTaskLifecycleState {
     let startedAt: Date?
     let approvalReviewer: CodexApprovalReviewer?
     let effort: String?
+    let lastProgressAt: Date?
     let terminal: CodexSessionTaskTerminalState?
 }
 

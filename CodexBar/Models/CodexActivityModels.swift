@@ -59,6 +59,16 @@ nonisolated struct CodexActivityTermination: Equatable, Identifiable {
     let duration: TimeInterval?
 }
 
+/// 实时越过静默阈值时交给通知服务的最小信息, 不包含原始 session 或 turn ID
+nonisolated struct CodexActivityProtectionNotice: Equatable, Sendable {
+    let taskID: UUID
+    let attemptID: UUID
+    let projectName: String?
+    let inactivityDurationText: String
+    let inactivityDurationSeconds: Int
+    let progressGeneration: UInt64
+}
+
 /// UI 只消费该快照, 不直接读取或解释 Hook 事件
 nonisolated struct CodexActivitySnapshot: Equatable {
     let waitingTasks: [CodexActivityTaskSnapshot]

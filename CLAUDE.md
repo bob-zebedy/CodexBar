@@ -119,12 +119,28 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 `CodexActivityMonitor` 是菜单栏图标, 活动卡片, 通知, 触觉反馈和防睡眠的**唯一任务状态来源**, 由两个 reader 供料
 
-- `HookEventTailReader` (actor) 的 bootstrap 覆盖滚动 24 小时并作为单次事务发送, 之后按当日文件 offset 增量 tail
-- `CodexSessionLifecycleReader` (actor) 增量读取 `~/.codex/sessions` 与 `archived_sessions` 下的 rollout JSONL, 只提取 turn 生命周期字段, 不解码会话或工具内容
+- `HookEventTailReader` (actor) 的 bootstrap 覆盖滚动 24 小时并作为单次事务发送, 之后按当日文件 offset 增量 tail, 同时向下游报告数据源健康状态
+- `CodexSessionLifecycleReader` (actor) 增量读取 `~/.codex/sessions` 与 `archived_sessions` 下的 rollout JSONL, 只提取 turn 生命周期与最近进展时间, 不解码会话或工具内容
 - 任务监控只在 `codexHookSettings.isOperable` 为 true 时运行, 即本地已安装且最近一次明确校验没有失败; 链路失效时立即停 reader 并清空实时状态
 - `SessionEnd` 没有 `turn_id`, 收到后按 session 把对应任务立即移出活跃列表并放进 5 秒终态确认窗口; rollout 在窗口内补回准确的完成或终止分类, 超时后按终止处理
+- `HookEventTailReader.drainNow()` 是读取屏障, 每个调用方等待一轮在本次请求之后开始的读取, 返回 `completed` `sourceUnavailable` 或 `cancelled`
 
-系统唤醒时 `NSWorkspace.didWakeNotification` 会触发立即 drain 并重置生命周期解析回退
+系统唤醒时 `NSWorkspace.didWakeNotification` 先暂停异常会话保护. 读取屏障成功时重置生命周期解析回退并完成 rollout 对账后恢复判定; 数据源不可用时继续由 source health 门槛暂停, reader generation 变化时旧结果直接丢弃
+
+#### 异常会话保护
+
+- `CodexActivityProtection.swift` 管理异常会话保护状态机, `ActivityProtectionSettings` 只保存静默阈值; 保护开关跟随用户保存的 KeepAlive 主开关, 不依赖 helper 是否已获系统授权
+- 静默阈值可选 30 分钟, 1, 2 或 4 小时, 默认 1 小时, UserDefaults key 固定为 `KeepAlive.abnormalTaskInactivitySeconds`
+- 候选只包含 `.running` 任务, `.waitingApproval` 不参与异常判定; `lastProgressAt` 同时吸收 Hook 顶层事件, 子 Agent 事件与 rollout 行时间
+- 达到阈值后先持久化候选记录并尝试提交本地通知, 通知使用系统默认声音且不重试; 最多等待 3 秒后无论通知是否提交成功都隐藏任务
+- 通知以 task ID 与 attempt ID 共同标识, 候选失效或任务恢复, 终止, 完成, 过期时会撤回仍可识别的待处理和已送达通知; 迟到的提交结果不得影响新的 attempt
+- 隐藏任务不进入 `CodexActivitySnapshot` 的运行中与等待批准列表, 因而不参与 UI 和 KeepAlive 的活跃任务计算; 后续进展会恢复任务并清除保护记录
+- KeepAlive 关闭时恢复当前进程内所有隐藏任务并撤回通知, 已经隐藏任务的持久化记录保留; 再次开启后按当前阈值和最近进展时间无通知对账
+- 判定要求监控已启动, KeepAlive 已开启, reader 存在, bootstrap 已结束, 不在睡眠或唤醒恢复阶段且 Hook 数据源健康; 进入不满足条件的阶段时会取消计时器和在途通知 attempt
+- 静默定时器使用 `SuspendingClock`, 系统时间变化由 `NSSystemClockDidChange` 触发无通知重算; 系统睡眠期间暂停判定, 唤醒完成 Hook 读取和 rollout 对账后再恢复
+- `ActivityProtectionStateStore` 把记录写入 `~/Library/Application Support/CodexBar/ActivityProtection/state.json`, 字段只有 SHA-256 任务标识与 `lastProgressAt` `markedAt` `expiresAt`, 最长保留到最后进展后的 24 小时
+- Debug 与 Release 共用状态文件, actor 串行化进程内访问, `flock` 保护跨进程读写, 文件权限固定为 `0600`, 当前 schema 为 1; 状态在 task reader 启动前完成加载
+- 持久化操作按 `activityProtectionPersistenceTask` 串行排队, 条件删除用 `markedAt` 防止旧 attempt 删除新记录, 终态与保留期清理执行无条件删除
 
 ### 防睡眠 (KeepAlive) 与 root helper
 
@@ -138,6 +154,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 关键约束
 
 - `shouldDisableSleep` 是用户意图与依赖可用性的唯一汇合点, 要求 `isStarted && !isPreparingForTermination && isEnabled && isHookEnabled && hasRunningTasks && helperStatus == .enabled && !isRefreshingHelper && !isLowBatteryActive && !hasReachedMaximumDuration` 同时成立; **依赖不满足只让效果失效, 绝不回写用户保存的 `isEnabled`**
+- `hasRunningTasks` 只消费 `CodexActivitySnapshot` 中仍可见的运行中任务与按设置纳入的等待批准任务, 被异常会话保护隐藏的任务不参与防睡眠
 - Hook 状态在类内只认 `isHookEnabled` 这份镜像, 它跟的是 `codexHookSettings.isOperable`; 不要回读那个属性, 订阅回调跑在 `willSet`, 那一刻它的两个输入里正在变的那一项还是旧值, 只能认 `CombineLatest` 给的闭包参数
 - 新增拦截条件一律加进 `sleepBlockReason` 的顺序判断里, 它和 `shouldDisableSleep` 同源, 顺带保证日志的 `reason=` 不会漏项
 - UI 用的 `isLowBatteryBlocking` 与 `canShowOptions` 由 `reconcileSleepState` 从 `sleepBlockReason` 单点派生, 新增拦截条件时 `allowsOptions` 那个穷举 `switch` 会强制表态, 于是不会出现入口亮着却点不动
@@ -183,7 +200,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `SleepConditions` 里只放 `battery` 布尔, 放电量百分比会让每掉 1% 刷一条变化日志; 真实电量只在触发那一条单独记
 - 状态只呈现在主面板活动卡片右侧的咖啡杯标记 (带 tooltip), 由 `KeepAliveController.isActivelyPreventingSleep` 驱动, `sleepPreventionSource` 区分外部来源与 CodexBar 所有权, 卡片折叠成"暂无数据"时标记要跟着一起收
 - 设置页那一行说明只在异常, 外部来源, 低电量生效或达到上限时出现, CodexBar 自己正常持有所有权时整行收起, `keepAliveCaption` 返回 nil 即代表收起
-- 最长防睡眠时间与低电量阈值都在防睡眠子面板里, 台式机读不到电池时低电量那一行整行隐藏而不是置灰
+- 最长防睡眠时间, 异常会话保护阈值与低电量阈值都在防睡眠子面板里, 台式机读不到电池时低电量那一行整行隐藏而不是置灰
 - 保持屏幕常亮跟 `isActivelyPreventingSleep` 走, 由 `reconcileDisplayAwake` 单点切换, 于是低电量拦下, 达到上限, 任务结束时屏幕都跟着放开
 - 显示断言只保证屏幕不睡, 屏保与闲置锁屏跟的是系统 idle 计时, 要靠 30 秒一次的 `IOPMAssertionDeclareUserActivity` 压住, 两者缺一不可
 - 声明用户活动复用同一个 assertion ID, 每次传 null 会新建一条, `pmset -g assertions` 里会堆成一串同名断言
@@ -195,6 +212,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `CodexNotificationService` 是集中式的 MainActor 服务, 订阅额度快照与实时活动, 负责阈值穿越判定, 去重, 额度重置识别, 触觉反馈和本地通知; dedup key 落 UserDefaults
 - `send` 是唯一的提交入口, 返回一个 `Task<Bool, Never>?` 值, 需要等通知真的发出去再做下一步的调用方 `await` 它的 `value` 即可; 不要另开一条 async 通道, 那会悄悄少掉去重 时效判定与提交失败回调三项能力
 - 去重判定留在 `send` 的同步段而不是挪进 `Task` 内部, 这样连续两次调用的第二次一定被挡下, 不依赖任务调度顺序
+- 异常会话保护通知只依赖通知总开关与系统授权, 使用系统默认声音, `retryCount` 为 0; 提交前后都调用 monitor 的 relevance 检查, 过期通知立即撤回
 - `NotificationSettings` 管 CodexBar 自身通知; `CodexCLINotificationSettings` 是另一回事, 它通过 app-server `config/read` 与 `config/batchWrite` 读写 Codex 自己的用户级 `config.toml`
 - 通知面板里带依赖的行一律显示为关闭并置灰而不是隐藏, 任务类看 `codexHookSettings.isOperable`, 低电量保护通知看 `KeepAliveController.isLowBatteryProtectionEnabled` (防睡眠可用, 阈值开着, 且这台机器确实有电池), 防睡眠上限通知看 `KeepAliveController.isMaximumDurationEnabled` (防睡眠可用且不是无限制); 都不回写用户保存的开关
 - 两条防睡眠通知的依赖里都含"防睡眠可用"这一层, 即防睡眠开关与 Hook 都开着, 判定收在 `publishNotificationDependencies` 一处; 只判各自的子设置会让防睡眠关着时这两行还亮着
@@ -206,7 +224,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 工程开启 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` 设置, 所有类型默认 MainActor 隔离
 
 - UI, 控制器, ViewModel, Settings, 更新类直接依赖默认隔离, 不需要额外标注
-- 服务共享状态用 actor 管理, 包括 `CodexStatusService` `WorkflowService` `WorkflowSyncService` `CodexCLIVersionService` `HookEventTailReader` `CodexSessionLifecycleReader`
+- 服务共享状态用 actor 管理, 包括 `CodexStatusService` `WorkflowService` `WorkflowSyncService` `CodexCLIVersionService` `HookEventTailReader` `CodexSessionLifecycleReader` `ActivityProtectionStateStore`
 - DTO, 纯模型, 静态工具, 跨 actor 传递的类型必须显式标注 `nonisolated`
 - 跨进程写统计文件用 `stats.lock` 加 `flock` 保护, Hook 子进程有等待上限, 主 App 无限等待; `RequestLogStorage` 用 `OSAllocatedUnfairLock`
 - 非 Sendable 的管道 IO 集中在 `PipeReadBuffer` 里, `JSONLineReader` 与 `PipeDrain` 复用它
@@ -288,6 +306,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 只读查询打到 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 这一个地址, 也是全仓库唯一的 `URLSession` 调用点, 位于 `CodexResetCreditsService` 内; Sparkle 更新走 `https://codexbar.zabrian.app/appcast.xml` 这个 feed
 - 不展示 app-server stderr; 不展示或记录 Codex OAuth token 与 `auth.json` 内容; 不把原始敏感 RPC 响应写进文档
 - CloudKit 只同步去掉 `sessionIds` 与 `turnIds` 的 daily 聚合, 不同步原始 Hook events, 账号, 额度或 Token 用量
+- 异常会话保护状态只保存在本机, 不同步 CloudKit; 记录不含原始 session ID, turn ID, 项目名或任务内容
 - CloudKit 的 `sessionEndCount` `userPromptSubmitCount` 与其他 Hook 计数字段保持可选, 远端缺失表示历史来源没有提供, 不能在读取时补成 0; 改变远端格式时同时评估并更新 `syncSchemaVersion`
 - 系统日志不写用户数据: 额度与 Token 用量只记 `state=` 这类结果分类, 任务内容, 项目名, 会话与轮次标识一律不记; 可执行文件路径含用户名, 用 `source=global|bundled` 之类的标识代替
 - 事件数, 任务数, 日期这类聚合数字可以记, 它们是判断重建是否正确和定位哪天出问题的依据, 不含任何内容

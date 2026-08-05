@@ -13,7 +13,11 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     lazy var codexCLINotificationSettings = CodexCLINotificationSettings(
         codexStatusService: codexStatusService
     )
-    lazy var activityMonitor = CodexActivityMonitor(codexHookSettings: codexHookSettings)
+    let activityProtectionSettings = ActivityProtectionSettings()
+    lazy var activityMonitor = CodexActivityMonitor(
+        codexHookSettings: codexHookSettings,
+        activityProtectionSettings: activityProtectionSettings
+    )
     lazy var keepAliveController = KeepAliveController(
         activityMonitor: activityMonitor,
         codexHookSettings: codexHookSettings
@@ -68,6 +72,12 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         keepAliveController.onKeepAliveLimitTriggered = { [weak notificationService] duration in
             await notificationService?.notifyKeepAliveLimitReached(durationText: duration.title) ?? false
         }
+        activityMonitor.onInactivityProtectionTriggered = { [weak notificationService] notice in
+            await notificationService?.notifyActivityProtection(notice) ?? false
+        }
+        activityMonitor.onInactivityProtectionInvalidated = { [weak notificationService] taskID, attemptID in
+            notificationService?.invalidateActivityProtectionNotification(taskID: taskID, attemptID: attemptID)
+        }
         activityMonitor.start()
         keepAliveController.start()
         logLaunchState()
@@ -110,34 +120,22 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     /// 启动时把各开关的初始值记成一条基线, 之后的变更日志都是相对这条基线的增量
     /// 排查时先看这条就知道当时的配置, 不必让用户逐项回忆
     private func logLaunchState() {
-        // 全部先落到局部量再插值: Logger 的插值是 autoclosure, 直接写属性会与 --self remove 打架
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-"
-        let hook = codexHookSettings.isEnabled ? 1 : 0
-        let keepAlive = keepAliveController.isEnabled ? 1 : 0
-        let keepAliveLimit = keepAliveController.maximumDuration.loggedHours
-        let keepAliveBattery = keepAliveController.lowBatteryThreshold.rawValue
-        let keepAliveWaiting = keepAliveController.keepsAwakeWhileWaiting ? 1 : 0
-        let keepAliveDisplay = keepAliveController.keepsDisplayAwake ? 1 : 0
-        let sync = syncSettings.isEnabled ? 1 : 0
-        let notification = notificationSettings.isEnabled ? 1 : 0
-        let menuBarQuota = menuBarQuotaSettings.selection.rawValue
-        let taskCenter = mainPanelSettings.showsTaskCenter ? 1 : 0
-        let hotKey = globalHotKeySettings.shortcut == nil ? 0 : 1
+        // 先拼成普通字符串再交给 Logger, 避免在日志 autoclosure 中直接捕获属性
         let state = LogFields.joined(
-            "version=\(version)",
-            "build=\(build)",
-            "hook=\(hook)",
-            "keepAlive=\(keepAlive)",
-            "keepAliveLimit=\(keepAliveLimit)",
-            "keepAliveBattery=\(keepAliveBattery)",
-            "keepAliveWaiting=\(keepAliveWaiting)",
-            "keepAliveDisplay=\(keepAliveDisplay)",
-            "sync=\(sync)",
-            "notification=\(notification)",
-            "menuBarQuota=\(menuBarQuota)",
-            "taskCenter=\(taskCenter)",
-            "hotKey=\(hotKey)"
+            "version=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-")",
+            "build=\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-")",
+            "hook=\(codexHookSettings.isEnabled ? 1 : 0)",
+            "keepAlive=\(keepAliveController.isEnabled ? 1 : 0)",
+            "keepAliveLimit=\(keepAliveController.maximumDuration.loggedHours)",
+            "keepAliveBattery=\(keepAliveController.lowBatteryThreshold.rawValue)",
+            "keepAliveWaiting=\(keepAliveController.keepsAwakeWhileWaiting ? 1 : 0)",
+            "keepAliveDisplay=\(keepAliveController.keepsDisplayAwake ? 1 : 0)",
+            "activityProtectionMinutes=\(activityProtectionSettings.inactivityDuration.loggedMinutes)",
+            "sync=\(syncSettings.isEnabled ? 1 : 0)",
+            "notification=\(notificationSettings.isEnabled ? 1 : 0)",
+            "menuBarQuota=\(menuBarQuotaSettings.selection.rawValue)",
+            "taskCenter=\(mainPanelSettings.showsTaskCenter ? 1 : 0)",
+            "hotKey=\(globalHotKeySettings.shortcut == nil ? 0 : 1)"
         )
         AppLog.app.notice("App 已启动: \(state, privacy: .public)")
     }
@@ -191,6 +189,7 @@ private final class StatusItemController: NSObject, NSMenuDelegate {
         menuBarQuotaSettings: menuBarQuotaSettings,
         mainPanelSettings: mainPanelSettings,
         notificationSettings: notificationSettings,
+        activityProtectionSettings: activityMonitor.activityProtectionSettings,
         keepAliveController: keepAliveController
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
