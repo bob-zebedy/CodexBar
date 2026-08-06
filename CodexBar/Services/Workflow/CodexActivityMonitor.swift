@@ -1018,6 +1018,7 @@ final class CodexActivityMonitor: ObservableObject {
         let duration = task?.preciseDuration(until: event.timestamp)
 
         let completion = storeCompletion(
+            for: key,
             projectName: event.projectDisplayName ?? task?.projectName,
             modelName: event.modelName ?? task?.modelName,
             effort: event.effort ?? task?.effort,

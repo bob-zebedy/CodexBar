@@ -85,6 +85,11 @@ struct CodexActivityCard: View {
 
             Spacer(minLength: 0)
 
+            if content.isAnonymous {
+                CodexActivityAnonymousIcon()
+                    .transition(.opacity)
+            }
+
             if showsKeepAliveBadge {
                 // 防睡眠只在任务运行期间生效, 所以状态挂在活动卡片上而不是单独占一行
                 Image(systemName: "cup.and.saucer.fill")
@@ -104,10 +109,11 @@ struct CodexActivityCard: View {
                     .padding(.vertical, 3)
                     .background(.secondary.opacity(0.12), in: Capsule())
                     .transition(.opacity)
-                    .help("另有 \(content.otherTaskCount) 个任务")
+                    .help(String(localized: "另有 \(content.otherTaskCount) 个任务"))
             }
         }
         .animation(.codexStatus, value: showsKeepAliveBadge)
+        .animation(.codexStatus, value: content.isAnonymous)
         // 任务数变化会让 +N 增删, 咖啡杯跟着横移; 两者一起纳入动画上下文才不会跳
         .animation(.codexStatus, value: content.otherTaskCount)
         .padding(.horizontal, MenuMetrics.panelPadding)
@@ -129,38 +135,26 @@ struct CodexActivityCard: View {
     private func content(at now: Date) -> ActivityCardContent {
         switch snapshot.primaryActivity {
         case let .waiting(task):
-            let details = activeDetailComponents(
-                CodexActivityDisplayFormat.waitingDetailComponents(for: task, now: now),
-                task: task
-            )
-            return ActivityCardContent(
+            return activeContent(
+                for: task,
                 symbolName: "hand.raised.fill",
                 tint: .orange,
-                title: activityTitle(
-                    modelName: task.modelName,
-                    effort: task.effort,
-                    projectName: task.projectName,
-                    fallback: "Codex 等待批准"
-                ),
-                detail: details.joined(separator: " • "),
-                otherTaskCount: otherTaskCount
+                fallback: "Codex 等待批准",
+                detailComponents: CodexActivityDisplayFormat.waitingDetailComponents(
+                    for: task,
+                    now: now
+                )
             )
         case let .running(task):
-            let details = activeDetailComponents(
-                CodexActivityDisplayFormat.runningDetailComponents(for: task, now: now),
-                task: task
-            )
-            return ActivityCardContent(
+            return activeContent(
+                for: task,
                 symbolName: "bolt.fill",
                 tint: .blue,
-                title: activityTitle(
-                    modelName: task.modelName,
-                    effort: task.effort,
-                    projectName: task.projectName,
-                    fallback: "Codex"
-                ),
-                detail: details.joined(separator: " • "),
-                otherTaskCount: otherTaskCount
+                fallback: "Codex",
+                detailComponents: CodexActivityDisplayFormat.runningDetailComponents(
+                    for: task,
+                    now: now
+                )
             )
         case let .completed(completion, _):
             let details = CodexActivityDisplayFormat.historyDetailComponents(
@@ -177,7 +171,8 @@ struct CodexActivityCard: View {
                     fallback: "Codex 任务已完成"
                 ),
                 detail: details.joined(separator: " • "),
-                otherTaskCount: 0
+                otherTaskCount: 0,
+                isAnonymous: completion.isAnonymous
             )
         case let .terminated(termination):
             let details = CodexActivityDisplayFormat.historyDetailComponents(
@@ -194,7 +189,8 @@ struct CodexActivityCard: View {
                     fallback: "Codex 任务已终止"
                 ),
                 detail: details.joined(separator: " • "),
-                otherTaskCount: 0
+                otherTaskCount: 0,
+                isAnonymous: termination.isAnonymous
             )
         case .idle:
             return ActivityCardContent(
@@ -204,9 +200,33 @@ struct CodexActivityCard: View {
                     ? String(localized: "暂无数据")
                     : String(localized: "暂无 Codex 活动"),
                 detail: nil,
-                otherTaskCount: 0
+                otherTaskCount: 0,
+                isAnonymous: false
             )
         }
+    }
+
+    private func activeContent(
+        for task: CodexActivityTaskSnapshot,
+        symbolName: String,
+        tint: Color,
+        fallback: LocalizedStringResource,
+        detailComponents: [String]
+    ) -> ActivityCardContent {
+        let details = activeDetailComponents(detailComponents, task: task)
+        return ActivityCardContent(
+            symbolName: symbolName,
+            tint: tint,
+            title: activityTitle(
+                modelName: task.modelName,
+                effort: task.effort,
+                projectName: task.projectName,
+                fallback: fallback
+            ),
+            detail: details.joined(separator: " • "),
+            otherTaskCount: otherTaskCount,
+            isAnonymous: task.isAnonymous
+        )
     }
 
     private func activityTitle(
@@ -260,4 +280,15 @@ private struct ActivityCardContent {
     let title: String
     let detail: String?
     let otherTaskCount: Int
+    let isAnonymous: Bool
+}
+
+struct CodexActivityAnonymousIcon: View {
+    var body: some View {
+        Image(systemName: "person.crop.circle.dashed")
+            // 虚线圆形 symbol 留白较多, 13 pt 与 11 pt 咖啡图标的视觉面积更接近
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Color.orange)
+            .help(String(localized: "匿名任务不参与防睡眠"))
+    }
 }

@@ -27,6 +27,7 @@ nonisolated struct CodexActivityPromptReference: Hashable {
 /// 正在运行或等待批准的任务摘要, 不对 UI 暴露原始会话 ID
 nonisolated struct CodexActivityTaskSnapshot: Equatable, Identifiable {
     let id: UUID
+    let isAnonymous: Bool
     let latestEvent: CodexActivityEvent
     let projectName: String?
     let modelName: String?
@@ -42,6 +43,7 @@ nonisolated struct CodexActivityTaskSnapshot: Equatable, Identifiable {
 /// 最近确认结束的任务; 完成只表示一轮任务结束, 不代表执行成功
 nonisolated struct CodexActivityCompletion: Equatable, Identifiable {
     let id: UUID
+    let isAnonymous: Bool
     let projectName: String?
     let modelName: String?
     let effort: String?
@@ -52,6 +54,7 @@ nonisolated struct CodexActivityCompletion: Equatable, Identifiable {
 /// 最近确认终止的任务; 终止不会被视为完成, 也不会触发完成提醒
 nonisolated struct CodexActivityTermination: Equatable, Identifiable {
     let id: UUID
+    let isAnonymous: Bool
     let projectName: String?
     let modelName: String?
     let effort: String?
@@ -152,6 +155,13 @@ nonisolated enum CodexPrimaryActivity: Equatable {
 nonisolated enum CodexActivityTransition: Equatable {
     case waitingApproval(CodexActivityTaskSnapshot)
     case completed(CodexActivityCompletion)
+
+    var isAnonymous: Bool {
+        switch self {
+        case let .waitingApproval(task): task.isAnonymous
+        case let .completed(completion): completion.isAnonymous
+        }
+    }
 }
 
 nonisolated enum CodexDurationFormat {

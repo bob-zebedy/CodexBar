@@ -37,14 +37,15 @@ enum CodexActivityTaskKey: Hashable {
         return false
     }
 
-    var activityProtectionIdentifier: String {
-        let value = switch self {
+    var activityProtectionIdentifier: String? {
+        let value: String
+        switch self {
         case let .turn(session, turn):
-            "turn\u{0}\(session)\u{0}\(turn)"
+            value = "turn\u{0}\(session)\u{0}\(turn)"
         case let .session(session):
-            "session\u{0}\(session)"
-        case let .anonymous(project):
-            "anonymous\u{0}\(project)"
+            value = "session\u{0}\(session)"
+        case .anonymous:
+            return nil
         }
         let data = Data("CodexBar.ActivityProtection.v1\u{0}\(value)".utf8)
         return SHA256.hash(data: data).map {
@@ -171,6 +172,7 @@ struct CodexActivityTask {
     var snapshot: CodexActivityTaskSnapshot {
         CodexActivityTaskSnapshot(
             id: displayID,
+            isAnonymous: key.isAnonymous,
             latestEvent: latestEvent,
             projectName: projectName,
             modelName: modelName,

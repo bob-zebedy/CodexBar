@@ -82,6 +82,8 @@ Reset Credits 数量大于 `0` 时，App 读取现有 `auth.json` access token�
 
 最近 3 天的日聚合可以保留 session 和 turn ID 明细用于准确去重。更早数据只保留计数。
 
+匿名任务不生成异常会话保护标识, 因此不会写入 `ActivityProtection/state.json`
+
 ### UserDefaults
 
 UserDefaults 保存：

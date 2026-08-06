@@ -124,6 +124,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 任务监控只在 `codexHookSettings.isOperable` 为 true 时运行, 即本地已安装且最近一次明确校验没有失败; 链路失效时立即停 reader 并清空实时状态
 - `SessionEnd` 没有 `turn_id`, 收到后按 session 把对应任务立即移出活跃列表并放进 5 秒终态确认窗口; rollout 在窗口内补回准确的完成或终止分类, 超时后按终止处理
 - `HookEventTailReader.drainNow()` 是读取屏障, 每个调用方等待一轮在本次请求之后开始的读取, 返回 `completed` `sourceUnavailable` 或 `cancelled`
+- 缺少 session ID 的 Hook 事件使用匿名 project key, `isAnonymous` 会保留到活动快照, 完成记录和终止记录; 活动卡片和任务中心显示橙色 `person.crop.circle.dashed` 图标, help 为 `匿名任务不参与防睡眠`, `+N` 只显示其他活跃任务总数
+- 匿名任务不向通知消费者发布等待或完成 transition, 不触发触觉反馈, 不参与 KeepAlive 或异常会话保护, `activityProtectionIdentifier` 为 nil
 
 系统唤醒时 `NSWorkspace.didWakeNotification` 先暂停异常会话保护. 读取屏障成功时重置生命周期解析回退并完成 rollout 对账后恢复判定; 数据源不可用时继续由 source health 门槛暂停, reader generation 变化时旧结果直接丢弃
 
@@ -131,7 +133,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 - `CodexActivityProtection.swift` 管理异常会话保护状态机, `ActivityProtectionSettings` 只保存静默阈值; 保护开关跟随用户保存的 KeepAlive 主开关, 不依赖 helper 是否已获系统授权
 - 静默阈值可选 30 分钟, 1, 2 或 4 小时, 默认 1 小时, UserDefaults key 固定为 `KeepAlive.abnormalTaskInactivitySeconds`
-- 候选只包含 `.running` 任务, `.waitingApproval` 不参与异常判定; `lastProgressAt` 同时吸收 Hook 顶层事件, 子 Agent 事件与 rollout 行时间
+- 候选只包含非匿名 `.running` 任务, `.waitingApproval` 不参与异常判定; `lastProgressAt` 同时吸收 Hook 顶层事件, 子 Agent 事件与 rollout 行时间
 - 达到阈值后先持久化候选记录并尝试提交本地通知, 通知使用系统默认声音且不重试; 最多等待 3 秒后无论通知是否提交成功都隐藏任务
 - 通知以 task ID 与 attempt ID 共同标识, 候选失效或任务恢复, 终止, 完成, 过期时会撤回仍可识别的待处理和已送达通知; 迟到的提交结果不得影响新的 attempt
 - 隐藏任务不进入 `CodexActivitySnapshot` 的运行中与等待批准列表, 因而不参与 UI 和 KeepAlive 的活跃任务计算; 后续进展会恢复任务并清除保护记录
@@ -154,7 +156,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 关键约束
 
 - `shouldDisableSleep` 是用户意图与依赖可用性的唯一汇合点, 要求 `isStarted && !isPreparingForTermination && isEnabled && isHookEnabled && hasRunningTasks && helperStatus == .enabled && !isRefreshingHelper && !isLowBatteryActive && !hasReachedMaximumDuration` 同时成立; **依赖不满足只让效果失效, 绝不回写用户保存的 `isEnabled`**
-- `hasRunningTasks` 只消费 `CodexActivitySnapshot` 中仍可见的运行中任务与按设置纳入的等待批准任务, 被异常会话保护隐藏的任务不参与防睡眠
+- `hasRunningTasks` 只消费 `CodexActivitySnapshot` 中非匿名且仍可见的运行中任务与按设置纳入的等待批准任务, 被异常会话保护隐藏的任务也不参与防睡眠
 - Hook 状态在类内只认 `isHookEnabled` 这份镜像, 它跟的是 `codexHookSettings.isOperable`; 不要回读那个属性, 订阅回调跑在 `willSet`, 那一刻它的两个输入里正在变的那一项还是旧值, 只能认 `CombineLatest` 给的闭包参数
 - 新增拦截条件一律加进 `sleepBlockReason` 的顺序判断里, 它和 `shouldDisableSleep` 同源, 顺带保证日志的 `reason=` 不会漏项
 - UI 用的 `isLowBatteryBlocking` 与 `canShowOptions` 由 `reconcileSleepState` 从 `sleepBlockReason` 单点派生, 新增拦截条件时 `allowsOptions` 那个穷举 `switch` 会强制表态, 于是不会出现入口亮着却点不动
@@ -210,6 +212,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 ### 通知
 
 - `CodexNotificationService` 是集中式的 MainActor 服务, 订阅额度快照与实时活动, 负责阈值穿越判定, 去重, 额度重置识别, 触觉反馈和本地通知; dedup key 落 UserDefaults
+- 匿名任务在 transition 入口被过滤, 不发送完成或等待批准通知, 也不触发任务触觉反馈
 - `send` 是唯一的提交入口, 返回一个 `Task<Bool, Never>?` 值, 需要等通知真的发出去再做下一步的调用方 `await` 它的 `value` 即可; 不要另开一条 async 通道, 那会悄悄少掉去重 时效判定与提交失败回调三项能力
 - 去重判定留在 `send` 的同步段而不是挪进 `Task` 内部, 这样连续两次调用的第二次一定被挡下, 不依赖任务调度顺序
 - 异常会话保护通知只依赖通知总开关与系统授权, 使用系统默认声音, `retryCount` 为 0; 提交前后都调用 monitor 的 relevance 检查, 过期通知立即撤回

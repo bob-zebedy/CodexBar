@@ -114,6 +114,9 @@ final class CodexNotificationService: NSObject {
     // MARK: - Hook 任务提醒
 
     private func handleActivityTransition(_ transition: CodexActivityTransition) {
+        guard !transition.isAnonymous else {
+            return
+        }
         performTaskHapticFeedbackIfEnabled()
 
         guard settings.canDeliver else {

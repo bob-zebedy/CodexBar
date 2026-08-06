@@ -2050,6 +2050,22 @@
         }
       }
     },
+    "匿名任务不参与防睡眠" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No keep-awake for anonymous tasks"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "匿名任务不参与防睡眠"
+          }
+        }
+      }
+    },
     "任务中心" : {
       "localizations" : {
         "en" : {

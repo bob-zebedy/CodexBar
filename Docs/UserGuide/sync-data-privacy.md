@@ -67,6 +67,8 @@
 
 CodexBarHelper 所有权文件由 root 持有，用于 App 或 CodexBarHelper 异常退出后的睡眠状态恢复。
 
+匿名任务不参与异常会话保护, 因此不会生成哈希任务标识或写入保护状态文件
+
 ## CloudKit 上传字段
 
 每条每日聚合记录可能包含以下内容：

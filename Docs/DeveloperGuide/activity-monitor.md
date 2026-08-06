@@ -78,6 +78,16 @@ Hook 的 `Stop` 只是完成候选。rollout 中的 terminal 状态用于区分�
 
 subagent 事件更新父任务的 subagent 活动，不创建独立顶层任务卡片。
 
+### 匿名任务
+
+`WorkflowHookEvent.sessionId` 缺失时, task key 使用匿名 project key. `isAnonymous` 会保留到 `CodexActivityTaskSnapshot`, `CodexActivityCompletion` 和 `CodexActivityTermination`
+
+匿名任务仍进入活动快照和最近终态记录. 活动卡片与任务中心统一显示橙色 `person.crop.circle.dashed` 图标, help 为 `匿名任务不参与防睡眠`. 活动卡片的 `+N` 只表示其他活跃任务总数
+
+匿名运行任务不展示精确运行时长, 匿名完成和终止记录也不包含精确耗时
+
+匿名任务不向通知消费者发布等待批准或完成 transition, 不触发任务触觉反馈, 不进入 KeepAlive 的运行中或等待任务集合, 不参与异常会话保护. `activityProtectionIdentifier` 对匿名 key 返回 nil, 保护状态文件不会保存匿名任务记录
+
 ## 状态机
 
 内部活动任务主要有以下状态：
@@ -129,7 +139,7 @@ subagent 事件更新父任务的 subagent 活动，不创建独立顶层任务�
 
 ## 异常会话保护
 
-异常会话保护只在防睡眠主开关开启时工作，只处理 `running` 任务。
+异常会话保护只在防睡眠主开关开启时工作, 只处理非匿名 `running` 任务
 
 等待批准任务不参与静默阈值判断。原因是等待批准本身就是一个合法的无进展状态。
 
@@ -171,7 +181,7 @@ subagent 事件更新父任务的 subagent 活动，不创建独立顶层任务�
 - Debug 与 Release 通过 `flock` 共用文件
 - 记录最长保留到最后进展后的 24 小时
 
-任务身份使用 SHA-256 摘要，不把 session ID 或 turn ID 原文写入该状态文件。
+任务身份使用 SHA-256 摘要, 不把 session ID 或 turn ID 原文写入该状态文件. 匿名任务没有保护标识, 不写入该文件
 
 ## 代际和旧结果隔离
 

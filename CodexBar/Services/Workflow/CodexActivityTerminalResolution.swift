@@ -19,6 +19,7 @@ extension CodexActivityMonitor {
             let wasWaiting = task.state == .waitingApproval
             task.confirmPendingApproval()
             if !wasWaiting,
+               !task.key.isAnonymous,
                let sessionTransitionNotBefore,
                requestedAt >= sessionTransitionNotBefore {
                 transitions.append(.waitingApproval(task.snapshot))
@@ -55,7 +56,8 @@ extension CodexActivityMonitor {
                 completedAt: completedAt,
                 reportedDuration: duration
             )
-            if let sessionTransitionNotBefore,
+            if !completion.isAnonymous,
+               let sessionTransitionNotBefore,
                completion.completedAt >= sessionTransitionNotBefore {
                 transitions.append(.completed(completion))
             }
@@ -101,6 +103,7 @@ extension CodexActivityMonitor {
         // rollout 时间戳是整秒, 避免因为同一秒内的 Hook 毫秒时间戳而把完成时间记在最后活动之前
         let recordedCompletedAt = max(completedAt, task.lastActivityAt)
         let completion = storeCompletion(
+            for: key,
             projectName: projectName ?? task.projectName,
             modelName: modelName ?? task.modelName,
             effort: effort ?? task.effort,
@@ -112,6 +115,7 @@ extension CodexActivityMonitor {
     }
 
     func storeCompletion(
+        for key: CodexActivityTaskKey,
         projectName: String?,
         modelName: String?,
         effort: String?,
@@ -120,6 +124,7 @@ extension CodexActivityMonitor {
     ) -> CodexActivityCompletion {
         let completion = CodexActivityCompletion(
             id: UUID(),
+            isAnonymous: key.isAnonymous,
             projectName: projectName,
             modelName: modelName,
             effort: effort,
@@ -137,6 +142,7 @@ extension CodexActivityMonitor {
     ) {
         let termination = CodexActivityTermination(
             id: UUID(),
+            isAnonymous: task.key.isAnonymous,
             projectName: task.projectName,
             modelName: task.modelName,
             effort: task.effort,
@@ -259,14 +265,16 @@ extension CodexActivityMonitor {
         for (index, transition) in transitions.enumerated() {
             switch transition {
             case let .waitingApproval(key):
-                guard lastWaitingIndexByKey[key] == index,
+                guard !key.isAnonymous,
+                      lastWaitingIndexByKey[key] == index,
                       let task = tasks[key],
                       task.state == .waitingApproval else {
                     continue
                 }
                 transitionSubject.send(.waitingApproval(task.snapshot))
             case let .completed(completion):
-                guard publishedCompletionIDs.insert(completion.id).inserted else {
+                guard !completion.isAnonymous,
+                      publishedCompletionIDs.insert(completion.id).inserted else {
                     continue
                 }
                 transitionSubject.send(.completed(completion))

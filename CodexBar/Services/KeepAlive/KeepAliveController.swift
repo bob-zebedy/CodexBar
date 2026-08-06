@@ -499,8 +499,8 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func handleActivitySnapshot(_ snapshot: CodexActivitySnapshot) {
-        let runningTaskIDs = Set(snapshot.runningTasks.map(\.id))
-        let currentWaitingTaskIDs = Set(snapshot.waitingTasks.map(\.id))
+        let runningTaskIDs = keepAliveTaskIDs(in: snapshot.runningTasks)
+        let currentWaitingTaskIDs = keepAliveTaskIDs(in: snapshot.waitingTasks)
         let activeTaskIDs = runningTaskIDs.union(currentWaitingTaskIDs)
 
         startedRunningTaskIDs.formIntersection(activeTaskIDs)
@@ -518,6 +518,10 @@ final class KeepAliveController: ObservableObject {
             restartMaximumDurationPeriod()
         }
         reconcileSleepState(trigger: .taskChanged)
+    }
+
+    private func keepAliveTaskIDs(in tasks: [CodexActivityTaskSnapshot]) -> Set<UUID> {
+        Set(tasks.lazy.filter { !$0.isAnonymous }.map(\.id))
     }
 
     /// 还没真正挡住睡眠时只清零不起表, 等禁用成功后由 begin 补上

@@ -255,6 +255,7 @@ struct CodexActivityCenterView: View {
             projectName: task.projectName,
             modelName: task.modelName,
             effort: task.effort,
+            isAnonymous: task.isAnonymous,
             detail: taskDetail(task, now: now, isWaiting: isWaiting)
         )
     }
@@ -266,6 +267,7 @@ struct CodexActivityCenterView: View {
             projectName: completion.projectName,
             modelName: completion.modelName,
             effort: completion.effort,
+            isAnonymous: completion.isAnonymous,
             detail: historyDetail(
                 duration: completion.duration,
                 relativeText: CodexActivityDisplayFormat.completionRelativeText(
@@ -283,6 +285,7 @@ struct CodexActivityCenterView: View {
             projectName: termination.projectName,
             modelName: termination.modelName,
             effort: termination.effort,
+            isAnonymous: termination.isAnonymous,
             detail: historyDetail(
                 duration: termination.duration,
                 relativeText: CodexActivityDisplayFormat.terminationRelativeText(
@@ -299,13 +302,19 @@ struct CodexActivityCenterView: View {
         projectName: String?,
         modelName: String?,
         effort: String?,
+        isAnonymous: Bool,
         detail: String
     ) -> some View {
         HStack(alignment: .top, spacing: 9) {
-            Image(systemName: symbolName)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: Metrics.symbolWidth, height: Metrics.titleLineHeight)
+            if isAnonymous {
+                CodexActivityAnonymousIcon()
+                    .frame(width: Metrics.symbolWidth, height: Metrics.titleLineHeight)
+            } else {
+                Image(systemName: symbolName)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: Metrics.symbolWidth, height: Metrics.titleLineHeight)
+            }
 
             VStack(alignment: .leading, spacing: 3) {
                 titleLine(

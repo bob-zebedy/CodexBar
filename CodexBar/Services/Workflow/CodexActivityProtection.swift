@@ -70,8 +70,8 @@ extension CodexActivityMonitor {
         }
 
         for (key, var task) in tasks {
-            let identifier = key.activityProtectionIdentifier
-            guard let record = activityProtectionRecords[identifier] else {
+            guard let identifier = key.activityProtectionIdentifier,
+                  let record = activityProtectionRecords[identifier] else {
                 continue
             }
 
@@ -107,7 +107,8 @@ extension CodexActivityMonitor {
 
         let threshold = activityProtectionSettings.inactivityDuration.timeInterval
         let restorableKeys = tasks.compactMap { key, task -> CodexActivityTaskKey? in
-            guard task.state == .suppressed,
+            guard !key.isAnonymous,
+                  task.state == .suppressed,
                   task.lastProgressAt.addingTimeInterval(threshold) > now else {
                 return nil
             }
@@ -118,7 +119,8 @@ extension CodexActivityMonitor {
         }
 
         let overdueKeys = tasks.compactMap { key, task -> CodexActivityTaskKey? in
-            guard task.state == .running,
+            guard !key.isAnonymous,
+                  task.state == .running,
                   task.lastProgressAt.addingTimeInterval(threshold) <= now else {
                 return nil
             }
@@ -138,7 +140,8 @@ extension CodexActivityMonitor {
 
         let threshold = activityProtectionSettings.inactivityDuration.timeInterval
         let nextDeadline = tasks.compactMap { key, task -> Date? in
-            guard task.state == .running,
+            guard !key.isAnonymous,
+                  task.state == .running,
                   activityProtectionAttempts[key] == nil else {
                 return nil
             }
@@ -183,7 +186,8 @@ extension CodexActivityMonitor {
 
         let threshold = activityProtectionSettings.inactivityDuration.timeInterval
         let candidates = tasks.compactMap { key, task -> ActivityProtectionCandidate? in
-            guard task.state == .running,
+            guard !key.isAnonymous,
+                  task.state == .running,
                   activityProtectionAttempts[key] == nil,
                   task.lastProgressAt.addingTimeInterval(threshold) <= now else {
                 return nil
@@ -305,7 +309,9 @@ extension CodexActivityMonitor {
         markedAt: Date
     ) {
         cancelActivityProtectionAttempt(for: key)
-        guard var task = tasks[key], task.state == .running else {
+        guard !key.isAnonymous,
+              var task = tasks[key],
+              task.state == .running else {
             return
         }
 
@@ -324,7 +330,8 @@ extension CodexActivityMonitor {
         _ key: CodexActivityTaskKey,
         now: Date
     ) {
-        guard isStarted,
+        guard !key.isAnonymous,
+              isStarted,
               isActivityProtectionEnabled,
               tailReader != nil,
               !isBootstrapping,
@@ -385,7 +392,8 @@ extension CodexActivityMonitor {
         _ candidate: ActivityProtectionCandidate,
         now: Date
     ) -> Bool {
-        guard canEvaluateActivityProtection,
+        guard !candidate.key.isAnonymous,
+              canEvaluateActivityProtection,
               activityProtectionSettings.inactivityDuration == candidate.inactivityDuration,
               let task = tasks[candidate.key],
               task.displayID == candidate.taskID,
@@ -414,7 +422,8 @@ extension CodexActivityMonitor {
         }
 
         let now = Date()
-        guard let task = tasks[attempt.candidate.key] else {
+        guard !attempt.candidate.key.isAnonymous,
+              let task = tasks[attempt.candidate.key] else {
             return false
         }
         return task.displayID == taskID
@@ -429,7 +438,8 @@ extension CodexActivityMonitor {
         for key: CodexActivityTaskKey,
         progressAt: Date
     ) -> Bool {
-        guard let record = activityProtectionRecords[key.activityProtectionIdentifier] else {
+        guard let identifier = key.activityProtectionIdentifier,
+              let record = activityProtectionRecords[identifier] else {
             return true
         }
         return progressAt > record.lastProgressAt
@@ -441,9 +451,8 @@ extension CodexActivityMonitor {
         reason: ActivityProtectionClearReason
     ) {
         cancelActivityProtectionAttempt(for: key)
-        let identifier = key.activityProtectionIdentifier
-        let record = activityProtectionRecords.removeValue(forKey: identifier)
-        if let record {
+        if let identifier = key.activityProtectionIdentifier,
+           let record = activityProtectionRecords.removeValue(forKey: identifier) {
             let matchingMarkedAt: Date? = switch reason {
             case .progress, .thresholdChange: record.markedAt
             case .terminal, .retention: nil
@@ -492,8 +501,8 @@ extension CodexActivityMonitor {
         attempt.timeoutTask.cancel()
         activityProtectionAttempts.removeValue(forKey: key)
 
-        let identifier = key.activityProtectionIdentifier
-        if let record = activityProtectionRecords[identifier],
+        if let identifier = key.activityProtectionIdentifier,
+           let record = activityProtectionRecords[identifier],
            record.markedAt == attempt.markedAt {
             activityProtectionRecords.removeValue(forKey: identifier)
             enqueueActivityProtectionPersistence(
@@ -540,8 +549,11 @@ extension CodexActivityMonitor {
         lastProgressAt: Date,
         markedAt: Date
     ) {
+        guard let taskIdentifier = key.activityProtectionIdentifier else {
+            return
+        }
         let record = ActivityProtectionRecord(
-            taskIdentifier: key.activityProtectionIdentifier,
+            taskIdentifier: taskIdentifier,
             lastProgressAt: lastProgressAt,
             markedAt: markedAt,
             expiresAt: lastProgressAt.addingTimeInterval(Self.activityRetention)

@@ -35,7 +35,9 @@ CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用, 使用 Swift 6, 
 
 保持三条数据链路独立: app-server 额度与用量, Hook 历史聚合, `CodexActivityMonitor` 实时任务; helper 只能控制睡眠, 不得增加网络, 任意命令执行或额外文件访问; 修改 Hook 配置时必须保留用户和其他应用已有的 handler; 启用和校验 Hook 必须检查当前 app-server 的实际版本不低于 `0.145.0`; 新增网络访问, 日志数据或 CloudKit 字段前先核对隐私边界
 
-`CodexActivityMonitor` 的异常会话保护跟随防睡眠主开关, 只判定运行中任务, 等待批准任务不参与判定. 静默阈值可选 30 分钟, 1, 2 或 4 小时, 默认 1 小时. Hook bootstrap, 系统睡眠, 唤醒恢复或 Hook 数据源不可用期间必须暂停判定, 数据恢复后统一无通知对账
+缺少 session ID 的 Hook 事件使用匿名 project key. 匿名任务保留在实时快照和 UI 中, 活动卡片与任务中心统一显示橙色 `person.crop.circle.dashed` 图标, help 为 `匿名任务不参与防睡眠`; 不发布任务通知或触觉反馈, 不参与防睡眠和异常会话保护, 不生成保护状态持久化标识. 活动卡片的 `+N` 只显示其他活跃任务总数
+
+`CodexActivityMonitor` 的异常会话保护跟随防睡眠主开关, 只判定非匿名运行中任务, 等待批准任务不参与判定. 静默阈值可选 30 分钟, 1, 2 或 4 小时, 默认 1 小时. Hook bootstrap, 系统睡眠, 唤醒恢复或 Hook 数据源不可用期间必须暂停判定, 数据恢复后统一无通知对账
 
 `HookEventTailReader.drainNow()` 是读取屏障, 每个调用方必须等待一轮在本次请求之后开始的读取. 系统唤醒只有在该轮读取成功后才执行 rollout 生命周期对账并恢复异常会话保护判定; reader 更换时丢弃旧结果, 数据源不可用或任务取消时不得使用旧快照继续判定
 
