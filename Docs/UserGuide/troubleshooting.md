@@ -9,7 +9,7 @@
 
 ## 主面板显示未登录
 
-1. 打开当前正在使用的 Codex CLI，ChatGPT App 或 Codex App
+1. 打开当前正在使用的 Codex CLI, ChatGPT App 或 Codex App
 2. 完成 Codex 登录
 3. 双击 CodexBar 主面板中的账户图标刷新
 4. 仍然未登录时退出并重新打开 CodexBar
@@ -44,7 +44,7 @@ CodexBar 优先使用全局 Codex CLI，关于页面的 `当前使用` 标记可
 | CodexBar Hook 已不完整 | 至少一个必要事件缺少当前 handler | 关闭后重新开启 CodexBar Hook |
 | CodexBar Hook 未被信任 | Codex 仍把 handler 判定为未信任或已修改 | 重新开启 Hook 并检查 Codex 配置 |
 | CodexBar Hook 意外来源 | app-server 返回的来源不是当前配置文件 | 检查 `CODEX_HOME` 和当前 Codex 来源 |
-| hooks.json 文件格式错误 | 顶层或 `hooks` 结构不是有效 JSON | 修复 JSON 后重新操作 |
+| `hooks.json` 文件格式错误 | 顶层或 `hooks` 结构不是有效 JSON | 修复 JSON 后重新操作 |
 | 无法验证 Codex Hook | app-server 暂时不可用或校验失败 | 查看日志并在 Codex 可用后重新打开设置 |
 
 Hook 配置位于 `$CODEX_HOME/hooks.json`，未设置 `CODEX_HOME` 时位于 `~/.codex/hooks.json`
@@ -121,7 +121,7 @@ Hook 配置位于 `$CODEX_HOME/hooks.json`，未设置 `CODEX_HOME` 时位于 `~
 
 日志窗口保留当前进程最近 500 条 app-server 请求。
 
-每条记录包含请求时间，方法，状态和响应时间，展开后可以查看请求，响应或错误预览。
+每条记录包含请求时间、方法、状态和响应时间，展开后可以查看请求、响应或错误预览。
 
 完整内容可以在独立窗口中查看或复制，清空或退出 App 后不会恢复。
 
@@ -133,7 +133,7 @@ Hook 配置位于 `$CODEX_HOME/hooks.json`，未设置 `CODEX_HOME` 时位于 `~
 /usr/bin/log stream --predicate 'subsystem == "app.zabrian.codexbar"' --style compact
 ```
 
-Debug 版本的 subsystem 使用 `.debug` 后缀。
+Debug 版本的 `subsystem` 使用 `.debug` 后缀。
 
 提交问题时请描述复现步骤和可见错误，分享日志前先检查 App 内交互日志是否包含不希望公开的请求内容。
 

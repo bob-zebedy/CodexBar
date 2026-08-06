@@ -1,8 +1,8 @@
-# 数据，同步与隐私
+# 数据、同步与隐私
 
 ## 跨设备同步的内容
 
-跨设备同步用于合并多台 Mac 的每日 Hook 聚合，不同步账户，额度或 Token 用量。
+跨设备同步用于合并多台 Mac 的每日 Hook 聚合，不同步账户、额度或 Token 用量。
 
 启用条件如下：
 
@@ -25,7 +25,7 @@
 | 同步未开启 | 用户没有开启同步或 CodexBar Hook 已关闭 |
 | 正在同步 | 正在读取或写入 CloudKit |
 | 已同步 | 最近一轮同步成功 |
-| 同步失败 | 网络，iCloud 账户或服务暂时不可用 |
+| 同步失败 | 网络、iCloud 账户或服务暂时不可用 |
 
 设置页还会显示最近一次成功上传时间。
 
@@ -48,26 +48,26 @@
 4. 无法解析的行会跳过并计入结果
 5. 开启同步时，重建日期会在后续同步中替换当前设备对应日期的云端贡献
 
-重建不会修改 Codex 账户，额度或 Token 用量。
+重建不会修改 Codex 账户、额度或 Token 用量。
 
 ## 本机保存的数据
 
 | 数据 | 内容 | 位置或生命周期 |
 | --- | --- | --- |
 | Hook 原始事件 | 选定的结构化事件字段 | `~/Library/Application Support/CodexBar/HookEvents/events`，保留 210 天 |
-| Hook 每日聚合 | 事件计数，会话与轮次，项目名计数和模型计数 | `~/Library/Application Support/CodexBar/HookEvents/daily.jsonl`，保留 210 天 |
-| Hook 维护状态 | 文件 offset，generation 和待处理日期 | `~/Library/Application Support/CodexBar/HookEvents/maintenance.json` |
-| 同步缓存 | CloudKit 缓存，游标和上传状态 | `~/Library/Application Support/CodexBar/HookEvents/Sync` |
+| Hook 每日聚合 | 事件计数、会话与轮次、项目名计数和模型计数 | `~/Library/Application Support/CodexBar/HookEvents/daily.jsonl`，保留 210 天 |
+| Hook 维护状态 | 文件 `offset`、`generation` 和待处理日期 | `~/Library/Application Support/CodexBar/HookEvents/maintenance.json` |
+| 同步缓存 | CloudKit 缓存、游标和上传状态 | `~/Library/Application Support/CodexBar/HookEvents/Sync` |
 | 异常会话保护 | 哈希任务标识和时间戳 | `~/Library/Application Support/CodexBar/ActivityProtection/state.json`，最长 24 小时 |
 | CodexBarHelper 所有权 | 睡眠所有权状态和恢复事务 | `/Library/Application Support/CodexBar/helper-state.json` |
-| App 偏好 | 开关，阈值，快捷键和通知去重状态 | macOS UserDefaults |
+| App 偏好 | 开关、阈值、快捷键和通知去重状态 | macOS UserDefaults |
 | app-server 交互日志 | 最近 500 条请求和响应 | 只存在当前 App 进程内存 |
 
 每日聚合只在最近 3 天保留 session 和 turn ID 列表，更早日期转换为计数并删除列表。
 
 CodexBarHelper 所有权文件由 root 持有，用于 App 或 CodexBarHelper 异常退出后的睡眠状态恢复。
 
-匿名任务不参与异常会话保护, 因此不会生成哈希任务标识或写入保护状态文件
+匿名任务不参与异常会话保护，因此不会生成哈希任务标识或写入保护状态文件。
 
 ## CloudKit 上传字段
 
@@ -75,7 +75,7 @@ CodexBarHelper 所有权文件由 root 持有，用于 App 或 CodexBarHelper �
 
 - iCloud 账户范围内的设备伪标识
 - 日期
-- 本机 Hook 数据来源 generation
+- 本机 Hook 数据来源 `generation`
 - 各类 Hook 事件计数
 - 会话数和对话轮次数
 - 项目显示名计数
@@ -87,10 +87,10 @@ CodexBarHelper 所有权文件由 root 持有，用于 App 或 CodexBarHelper �
 ## CloudKit 不上传的内容
 
 - 原始 Hook 事件文件
-- session ID，turn ID 和 agent ID
+- session ID、turn ID 和 agent ID
 - 完整工作目录路径
-- prompt，Codex 回复，工具参数或工具输出
-- Codex 账户，额度和 Token 用量
+- prompt、Codex 回复、工具参数或工具输出
+- Codex 账户、额度和 Token 用量
 - app-server 交互日志
 - 异常会话保护记录
 - Codex 认证 token
@@ -101,12 +101,12 @@ CodexBarHelper 所有权文件由 root 持有，用于 App 或 CodexBarHelper �
 
 CodexBar 会读取以下本机数据：
 
-- 通过本机 app-server 获取账户，额度，Token 用量和 Codex 配置
+- 通过本机 app-server 获取账户、额度、Token 用量和 Codex 配置
 - 读取 Hook 原始事件以生成统计和实时任务
 - 读取本机 Codex rollout 的生命周期字段以区分完成与终止并补充进展时间
 - 在查询手动重置次数过期时间时读取 Codex `auth.json` 中的现有凭据
 
-rollout 读取只提取生命周期，时间和推理强度等字段，不展示或保存会话正文和工具内容。
+rollout 读取只提取生命周期、时间和推理强度等字段，不展示或保存会话正文和工具内容。
 
 CodexBar 不复制或持久化 Codex 认证 token。
 
@@ -118,13 +118,13 @@ CodexBar 不复制或持久化 Codex 认证 token。
 | Sparkle 更新源 | 检查并安装 CodexBar 更新 | 自动检查开启或用户手动检查时 |
 | CloudKit private database | 同步多设备每日 Hook 聚合 | 用户开启跨设备同步时 |
 
-账户，额度和 Token 用量通过本机 app-server 的 stdio 通信获取，不是由 CodexBar 直接请求对应 OpenAI 接口。
+账户、额度和 Token 用量通过本机 app-server 的 stdio 通信获取，不是由 CodexBar 直接请求对应 OpenAI 接口。
 
 ## 日志隐私
 
-系统日志只记录操作结果，状态分类，计数和错误阶段。
+系统日志只记录操作结果、状态分类、计数和错误阶段。
 
-系统日志不应记录账户额度数值，Token 用量，项目名，任务内容，session ID，turn ID 或 OAuth token。
+系统日志不应记录账户额度数值、Token 用量、项目名、任务内容、session ID、turn ID 或 OAuth token。
 
 App 内 app-server 交互日志可能包含请求和响应内容，但只存在当前进程内存，只有用户主动打开日志窗口时才显示。
 

@@ -2,15 +2,15 @@
 
 ## Hook 解决什么问题
 
-账户，额度和 Token 用量是周期性快照，无法说明一轮 Codex 任务正在运行，等待批准还是已经结束。
+账户、额度和 Token 用量是周期性快照，无法说明一轮 Codex 任务正在运行、等待批准还是已经结束。
 
 CodexBar Hook 会在 Codex 的关键事件发生时记录少量结构化字段，为 CodexBar 提供以下能力：
 
 - 菜单栏任务状态点和任务提示
 - 主面板活动卡片和并发任务中心
-- 任务完成，等待批准和异常会话提醒
+- 任务完成、等待批准和异常会话提醒
 - 任务触觉反馈
-- 每日会话，轮次，工具调用，权限请求，上下文压缩和子 Agent 统计
+- 每日会话、轮次、工具调用、权限请求、上下文压缩和子 Agent 统计
 - 按实时任务自动防止系统睡眠
 - 跨设备同步每日 Hook 聚合
 - 从原始事件重建历史聚合
@@ -46,12 +46,12 @@ CodexBar 使用 `$CODEX_HOME/hooks.json`，未设置 `CODEX_HOME` 时使用 `~/.
 
 1. 读取并保留已有配置
 2. 为 CodexBar 追加独立的 command handler
-3. 让 Codex 校验事件列表，来源和信任状态
+3. 让 Codex 校验事件列表、来源和信任状态
 4. 只更新与当前 CodexBar handler 匹配的信任项
 
 关闭时只删除同时匹配当前 CodexBar 可执行路径和 `--hook-event` 参数的 handler。
 
-用户自己的 handler，其他 App 的 handler，未识别字段和无关信任项都会保留。
+用户自己的 handler、其他 App 的 handler、未识别字段和无关信任项都会保留。
 
 ## 任务状态如何理解
 
@@ -69,20 +69,20 @@ CodexBar 使用 `$CODEX_HOME/hooks.json`，未设置 `CODEX_HOME` 时使用 `~/.
 
 子 Agent 事件会更新所属顶层任务，不会独立显示为另一条并发任务。
 
-Hook 事件缺少 session ID 时, CodexBar 会按项目显示匿名任务. 匿名任务仍可出现在运行中, 等待批准, 最近完成和最近终止列表中, 但不触发任务通知或触觉反馈, 不参与防睡眠和异常会话保护
+Hook 事件缺少 session ID 时，CodexBar 会按项目显示匿名任务。匿名任务仍可出现在运行中、等待批准、最近完成和最近终止列表中，但不触发任务通知或触觉反馈，不参与防睡眠和异常会话保护。
 
-活动卡片和任务中心使用橙色匿名图标标记这类任务, 悬停显示 `匿名任务不参与防睡眠`
+活动卡片和任务中心使用橙色匿名图标标记这类任务，悬停时显示 `匿名任务不参与防睡眠`
 
 ## Hook 事件与用途
 
 | 事件 | 主要用途 |
 | --- | --- |
-| `SessionStart` 和 `SessionEnd` | 会话生命周期，会话统计和任务收尾 |
-| `UserPromptSubmit` 和 `Stop` | 对话轮次，任务开始和完成候选 |
+| `SessionStart` 和 `SessionEnd` | 会话生命周期、会话统计和任务收尾 |
+| `UserPromptSubmit` 和 `Stop` | 对话轮次、任务开始和完成候选 |
 | `PreToolUse` 和 `PostToolUse` | 工具调用统计和任务进展 |
 | `PermissionRequest` | 用户等待状态和权限请求统计 |
 | `PreCompact` 和 `PostCompact` | 上下文压缩统计和任务进展 |
-| `SubagentStart` 和 `SubagentStop` | 子 Agent 数量，状态和任务进展 |
+| `SubagentStart` 和 `SubagentStop` | 子 Agent 数量、状态和任务进展 |
 
 ## 每日统计如何计算
 
@@ -109,14 +109,14 @@ Hook 事件缺少 session ID 时, CodexBar 会按项目显示匿名任务. 匿�
 - 防止系统睡眠
 - 跨设备 Hook 聚合同步
 
-账户，额度，Token 热力图，更新检查和日志窗口仍然可以使用。
+账户、额度、Token 热力图、更新检查和日志窗口仍然可以使用。
 
 ## 数据边界
 
-Hook 原始事件只保存时间，事件名，模型，推理强度，权限模式，reviewer，session，turn，agent，工具名和工作目录等结构化字段。
+Hook 原始事件只保存时间、事件名、模型、推理强度、权限模式、`reviewer`、`session`、`turn`、`agent`、工具名和工作目录等结构化字段。
 
-CodexBar 不保存 prompt 文本，Codex 回复，工具参数或工具输出。
+CodexBar 不保存 prompt 文本、Codex 回复、工具参数或工具输出。
 
-完整存储和同步边界见 [数据，同步与隐私](sync-data-privacy.md)
+完整存储和同步边界见 [数据、同步与隐私](sync-data-privacy.md)
 
 返回 [用户手册](README.md)
