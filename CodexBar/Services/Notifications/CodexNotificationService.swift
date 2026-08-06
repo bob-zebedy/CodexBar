@@ -382,7 +382,7 @@ final class CodexNotificationService: NSObject {
         )
         AppLog.notification.notice("阈值已穿越: \(details, privacy: .public)")
 
-        let dedupKey = "low|\(stateKey)|\(Self.epoch(resetsAt))"
+        let dedupKey = lowQuotaDedupKey(stateKey: stateKey, resetsAt: resetsAt)
         send(
             .lowQuota(
                 limitTitle: limit.title,
@@ -527,6 +527,29 @@ final class CodexNotificationService: NSObject {
     }
 
     // MARK: - 去重与持久化
+
+    /// app-server 的重置时间可能在连接重建后出现秒级漂移, 误差不超过容差时复用旧 key
+    private func lowQuotaDedupKey(stateKey: String, resetsAt: Date) -> String {
+        let prefix = "low|\(stateKey)|"
+        let resetEpoch = Self.epoch(resetsAt)
+        let matchesReset: (String) -> Bool = { key in
+            guard key.hasPrefix(prefix),
+                  let existingEpoch = Int(key.dropFirst(prefix.count)) else {
+                return false
+            }
+
+            return abs(TimeInterval(existingEpoch) - TimeInterval(resetEpoch)) <= Self.lowQuotaResetTolerance
+        }
+
+        if let existingKey = sentDedupKeys.first(where: matchesReset) {
+            return existingKey
+        }
+        if let existingKey = submittingDedupKeys.first(where: matchesReset) {
+            return existingKey
+        }
+
+        return "\(prefix)\(resetEpoch)"
+    }
 
     private func rememberSentDedupKey(_ key: String) {
         sentDedupKeys.append(key)
@@ -705,6 +728,7 @@ final class CodexNotificationService: NSObject {
     private static let taskHapticPulseCount = 10
     private static let taskHapticPulseInterval = Duration.milliseconds(100)
     private static let notificationSubmissionRetryCount = 1
+    private static let lowQuotaResetTolerance: TimeInterval = 60
     private static let sentKeysLimit = 300
     private static let sentKeysKey = "Notification.sentKeys"
     private static let legacyResetDedupKeyPrefix = "reset|"
