@@ -4,6 +4,8 @@
 
 CodexBar 的核心挑战不是绘制菜单栏界面，而是在一个长期运行的 `LSUIElement` App 中同时协调短命 Hook 子进程、本机 app-server、持续追加的文件、CloudKit、系统通知和 root helper。
 
+完整的组件关系、数据链路和源码依据可在 [交互式运行时架构图](https://codexbar.zabrian.app/architecture) 中查看。
+
 架构需要持续满足以下目标：
 
 - 任意一条数据链路失败时，不连带关闭其他功能
