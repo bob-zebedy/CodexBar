@@ -109,7 +109,7 @@ Tag 名 `v{MARKETING_VERSION}` 里的版本号从 `Config/Version.xcconfig` 读�
 
 - 带 `--hook-event` 启动 -> **Hook 子进程模式**：从 `stdin` 读取 JSON payload，在 `flock` 锁内追加一行 JSONL 后立即调用 `exit(EXIT_SUCCESS)` 退出，绝不初始化菜单栏 UI；写入失败时静默吞掉，不阻断 Codex
 - Hook handler 超时统一由 `WorkflowHookEventRecorder.hookTimeoutSeconds(for:)` 提供，`SessionEnd` 是 3 秒，其他事件是 5 秒；等锁预算固定比对应事件超时少 2 秒，当前分别是 1 秒和 3 秒
-- 普通启动 -> `CodexBarAppDelegate` 创建全部长期对象，它在 `Controllers/StatusItemController.swift` 内，再由 `StatusItemController.install()` 装配菜单栏；AppDelegate 是唯一的装配点，新增服务在这里注入
+- 普通启动 -> `Controllers/CodexBarAppDelegate.swift` 中的 `CodexBarAppDelegate` 创建全部长期对象，再由 `StatusItemController.install()` 装配菜单栏；AppDelegate 是唯一的装配点，新增服务在这里注入
 
 ### 三条数据链路
 
@@ -281,21 +281,21 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 菜单栏按钮左键切换主面板；右键或 Control+点击打开上下文菜单；`⌘,` 打开自定义设置窗口，菜单面板打开时 `⌘L` 打开日志窗口；默认全局快捷键 `⌘⇧W` 由 `GlobalHotKeySettings` 与 `GlobalHotKeyController` 管理
 - 主面板是锚定 status item 的 `NSPopover` 弹窗，锚点不可信时回退到 `FallbackPanelController` 提供的屏幕顶部居中 `NSPanel` 面板，处理快捷键、屏幕选择和焦点时要保留这两个分支
 - 关闭逻辑统一由 `MenuSurfaceDismissMonitor` 管理，淡出由 `MenuSurfaceFadeCoordinator` 负责
-- 侧边面板都是 borderless nonactivating child panel，热力图详情、重置次数和任务中心挂在主面板上，通知选项和防睡眠选项挂在设置窗口上
-- 设置窗口的子面板占同一位置，展开一个必须先 `hide(immediate: true)` 收掉其余的；动作走 `SettingsOptionsPanelAction` 并带上目标 `SettingsOptionsPanel`，互斥与 `closeAll` 都只写在 `SettingsWindowController.handleOptionsAction` 一处，加第三个面板不会漏配对
+- 侧边面板都是 borderless nonactivating child panel，热力图详情、重置次数和任务中心挂在主面板上，通知、自动使用临期重置和防睡眠选项挂在设置窗口上
+- 设置窗口的子面板占同一位置，展开一个必须先 `hide(immediate: true)` 收掉其余的；动作走 `SettingsOptionsPanelAction` 并带上目标 `SettingsOptionsPanel`，互斥与 `closeAll` 都只写在 `SettingsWindowController.handleOptionsAction` 一处，新增面板不会漏配对
 - 面板控制器只在首次展开时构造，收起动作走 `existingOptionsPanelController` 而不触发构造：它一建就挂上内容变化订阅并常驻到 App 结束，而用户可能一次子面板都没开过
-- 两个子面板的顶边对齐各自主开关行，anchor 由设置页的 `ScreenFrameProvider` 随展开动作传出，定位走 `SidePanelSupport.anchoredPosition` 而不是宿主底边
+- 三个设置子面板的顶边对齐各自主开关行，anchor 由设置页的 `ScreenFrameProvider` 随展开动作传出，定位走 `SidePanelSupport.anchoredPosition` 而不是宿主底边
 - 设置窗口的子面板要传 `clampsToSurfaceBottom: false` 让底边可以探出窗口，否则放不下时会把整个面板上推而错开主开关行；主面板那三个面板走默认的 `true`
-- 两个子面板的高度都会变，通知面板随音效行增删，防睡眠面板随 `hasBattery` 增删低电量那一行；resize 时要固定顶边向下生长，直接改 size 会保持底边不动而把顶边顶离主开关行
-- 高度重算只订阅真正会改变行数的那几项，通知面板订 `notificationSettings` 与 `codexHookSettings` 的 `objectWillChange` 再加 `KeepAliveController.$isLowBatteryProtectionEnabled` 与 `$isMaximumDurationEnabled` 两条，防睡眠面板只订 `$hasBattery` 一条；订整个防睡眠控制器会让任务每起停一次都白排一轮 resize
+- 通知和防睡眠面板的高度会动态变化，前者随音效行增删，后者随 `hasBattery` 增删低电量那一行；自动使用临期重置面板只有固定的一行；resize 时要固定顶边向下生长，直接改 size 会保持底边不动而把顶边顶离主开关行
+- 内容变化订阅要保持最小：通知面板订 `notificationSettings` 与 `codexHookSettings` 的 `objectWillChange`，再加 `resetCreditAutomationSettings.$isEnabled`、`KeepAliveController.$isLowBatteryProtectionEnabled` 与 `$isMaximumDurationEnabled`；自动使用临期重置面板只订 `resetCreditAutomationSettings.objectWillChange`；防睡眠面板只订 `$hasBattery`；订整个防睡眠控制器会让任务每起停一次都白排一轮 resize
 - 置灰也会改高度：带音效的行置灰时音效子行跟着收起，所以每个置灰依赖都要有一个对应的订阅源
 - 增删行或改行的显示条件时要同步补上对应的订阅源，漏一项会让面板裁掉底部或留下空白
 - resize 的竖向夹紧走 `SidePanelSupport.clampedVertically`，与初次展开的 `position` 同一条规则，否则放不下时两边会把面板推向相反的边
-- 子面板入口只在开关开着且依赖就绪时出现，通知看 `NotificationSettings.canShowOptions` 那个值，防睡眠看 `KeepAliveController.canShowOptions` 这个值；两者都只控制入口显隐，不回写用户保存的开关
-- 两个子面板都只由滑杆按钮展开，动作只有 `toggle` 与 `close` 两种，开启主开关不自动弹出
+- 子面板入口只在开关开着且依赖就绪时出现，通知看 `NotificationSettings.canShowOptions`，自动使用临期重置看 `ResetCreditAutomationSettings.isEnabled`，防睡眠看 `KeepAliveController.canShowOptions`；这些值只控制入口显隐，不回写用户保存的开关
+- 三个设置子面板都只由滑杆按钮展开，动作只有 `toggle` 与 `close` 两种，开启主开关不自动弹出
 - 侧边面板公共能力集中在 `Controllers/SidePanelSupport.swift` 里，含 `SidePanelDrawerPresenter`、`SidePanelContentHost`、`SidePanelDrawerAnimator`、panel 工厂和定位夹紧；挂在主面板上的那三个面板优先复用 `SidePanelDrawerPresenter` 这一层，不要另起一套
 - 设置窗口的子面板直接复用 `Controllers/SettingsOptionsPanelController.swift`，它在 presenter 之上补齐了装配、两套关闭观察者、顶边对齐定位和高度重算；新增设置子面板只要给它内容工厂与内容变化来源，不要再写一层壳
-- 两个设置子面板的行高与间距从 `SettingsOptionsPanelMetrics` 取，下拉控件共用 `SettingsOptionsPicker` 这一个，只有面板宽度和 picker 宽度各自定义，这样两个面板看起来才是同一套控件
+- 三个设置子面板的行高与间距从 `SettingsOptionsPanelMetrics` 取，下拉控件共用 `SettingsOptionsPicker`，只有面板宽度和 picker 宽度各自定义，这样三个面板看起来才是同一套控件
 - 设置子面板的内容工厂必须走 `SettingsOptionsPanelController.makeContentController(_:rebuiltBy:)`，否则首次展开时原生 Switch 只剩一条空轨道；重建信号由它接在内容外面，内容视图不必知道 `SidePanelEntryCue`
 - 原因是 thumb 由 `WindowPortal` 投射而不是画在开关上，面板首次布局那一轮 portal 建不起来，而且不会自愈，只有一次内容重建才补得上；第二次展开正常是因为 hosting controller 常驻，复用了已经建好的那份
 - 不要再用 `@_optimize(none)` 规避这个漏绘：它当年在通知子面板管用只是因为逼着 body 重算时判定那些行变过，与优化等级无关，换个写法就失效；`SidePanelSupport` 里剩下那一处标注规避的是编译器崩溃，与此无关
@@ -323,9 +323,9 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 改动涉及网络、日志或同步时必须遵守：
 
-- App 只有四类出网行为，分别是本机 app-server stdio 通信（不算网络）、重置机会过期时间只读查询、Sparkle 更新、用户显式开启后的 CloudKit 同步；新增网络请求需要非常明确的理由
-- 只读查询打到 `https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 这一个地址，也是全仓库唯一的 `URLSession` 调用点，位于 `CodexResetCreditsService` 内；Sparkle 更新走 `https://codexbar.zabrian.app/appcast.xml` 这个 feed
-- 不展示 app-server stderr；不展示或记录 Codex OAuth token 与 `auth.json` 内容；不把原始敏感 RPC 响应写进文档
+- App 只有三类外部通信行为，分别是本机 app-server stdio 通信（不算网络）、Sparkle 更新、用户显式开启后的 CloudKit 同步；新增网络请求需要非常明确的理由
+- 账户、额度、Token 用量和 Reset Credits 明细统一通过本机 app-server 获取；Sparkle 更新走 `https://codexbar.zabrian.app/appcast.xml` 这个 feed
+- 不展示 app-server stderr；不展示或记录 Codex OAuth token；不把原始敏感 RPC 响应写进文档
 - CloudKit 只同步去掉 `sessionIds` 与 `turnIds` 的 daily 聚合，不同步原始 Hook events、账号、额度或 Token 用量
 - 异常会话保护状态只保存在本机，不同步 CloudKit；记录不含原始 session ID、turn ID、项目名或任务内容
 - CloudKit 的 `sessionEndCount`、`userPromptSubmitCount` 与其他 Hook 计数字段保持可选，远端缺失表示历史来源没有提供，不能在读取时补成 `0`；改变远端格式时同时评估并更新 `syncSchemaVersion`

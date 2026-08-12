@@ -4,7 +4,7 @@ import Foundation
 import os
 import UserNotifications
 
-/// 通知偏好: 总开关; 七类通知子开关及声音; 任务触觉开关; 两个阈值和系统授权状态镜像
+/// 通知偏好: 总开关; 八类通知子开关及声音; 任务触觉开关; 两个阈值和系统授权状态镜像
 /// 授权请求/查询集中在这里, 通知与触觉反馈判定在 CodexNotificationService
 @MainActor
 final class NotificationSettings: ObservableObject {
@@ -15,6 +15,7 @@ final class NotificationSettings: ObservableObject {
     @Published private(set) var isTaskWaitingEnabled: Bool
     @Published private(set) var isTaskHapticEnabled: Bool
     @Published private(set) var isCreditExpiryEnabled: Bool
+    @Published private(set) var isResetCreditAutoUseEnabled: Bool
     @Published private(set) var isLowBatteryEnabled: Bool
     @Published private(set) var isKeepAliveLimitEnabled: Bool
     @Published private(set) var lowQuotaThresholdPercent: Int
@@ -24,6 +25,7 @@ final class NotificationSettings: ObservableObject {
     @Published private(set) var taskCompletionSound: NotificationSoundOption
     @Published private(set) var taskWaitingSound: NotificationSoundOption
     @Published private(set) var creditExpirySound: NotificationSoundOption
+    @Published private(set) var resetCreditAutoUseSound: NotificationSoundOption
     @Published private(set) var lowBatterySound: NotificationSoundOption
     @Published private(set) var keepAliveLimitSound: NotificationSoundOption
     @Published private(set) var authorizationStatus: UNAuthorizationStatus = .notDetermined
@@ -78,6 +80,11 @@ final class NotificationSettings: ObservableObject {
         isTaskWaitingEnabled = Self.bool(from: defaults, key: Self.taskWaitingEnabledKey, defaultValue: true)
         isTaskHapticEnabled = Self.bool(from: defaults, key: Self.taskHapticEnabledKey, defaultValue: false)
         isCreditExpiryEnabled = Self.bool(from: defaults, key: Self.creditExpiryEnabledKey, defaultValue: true)
+        isResetCreditAutoUseEnabled = Self.bool(
+            from: defaults,
+            key: Self.resetCreditAutoUseEnabledKey,
+            defaultValue: true
+        )
         isLowBatteryEnabled = Self.bool(from: defaults, key: Self.lowBatteryEnabledKey, defaultValue: true)
         isKeepAliveLimitEnabled = Self.bool(from: defaults, key: Self.keepAliveLimitEnabledKey, defaultValue: true)
         lowQuotaThresholdPercent = Self.option(
@@ -95,6 +102,7 @@ final class NotificationSettings: ObservableObject {
         taskCompletionSound = Self.sound(from: defaults, key: Self.taskCompletionSoundKey)
         taskWaitingSound = Self.sound(from: defaults, key: Self.taskWaitingSoundKey)
         creditExpirySound = Self.sound(from: defaults, key: Self.creditExpirySoundKey)
+        resetCreditAutoUseSound = Self.sound(from: defaults, key: Self.resetCreditAutoUseSoundKey)
         lowBatterySound = Self.sound(from: defaults, key: Self.lowBatterySoundKey)
         keepAliveLimitSound = Self.sound(from: defaults, key: Self.keepAliveLimitSoundKey)
     }
@@ -138,6 +146,10 @@ final class NotificationSettings: ObservableObject {
 
     func setCreditExpiryEnabled(_ enabled: Bool) {
         setBool(enabled, current: &isCreditExpiryEnabled, key: Self.creditExpiryEnabledKey)
+    }
+
+    func setResetCreditAutoUseEnabled(_ enabled: Bool) {
+        setBool(enabled, current: &isResetCreditAutoUseEnabled, key: Self.resetCreditAutoUseEnabledKey)
     }
 
     func setLowBatteryEnabled(_ enabled: Bool) {
@@ -186,6 +198,10 @@ final class NotificationSettings: ObservableObject {
 
     func setCreditExpirySound(_ sound: NotificationSoundOption) {
         setSound(sound, current: &creditExpirySound, key: Self.creditExpirySoundKey)
+    }
+
+    func setResetCreditAutoUseSound(_ sound: NotificationSoundOption) {
+        setSound(sound, current: &resetCreditAutoUseSound, key: Self.resetCreditAutoUseSoundKey)
     }
 
     func setLowBatterySound(_ sound: NotificationSoundOption) {
@@ -261,7 +277,7 @@ final class NotificationSettings: ObservableObject {
             return
         }
 
-        // 七个通知细项都走这里, 用持久化 key 区分是哪一项, 不必逐个 setter 铺日志
+        // 八个通知细项都走这里, 用持久化 key 区分是哪一项, 不必逐个 setter 铺日志
         let details = LogFields.joined(
             "key=\(key)",
             "enabled=\(value ? 1 : 0)"
@@ -317,6 +333,7 @@ final class NotificationSettings: ObservableObject {
     private static let taskWaitingEnabledKey = "Notification.taskWaitingEnabled"
     private static let taskHapticEnabledKey = "Notification.taskHapticEnabled"
     private static let creditExpiryEnabledKey = "Notification.creditExpiryEnabled"
+    private static let resetCreditAutoUseEnabledKey = "Notification.resetCreditAutoUseEnabled"
     private static let lowBatteryEnabledKey = "Notification.lowBatteryEnabled"
     private static let keepAliveLimitEnabledKey = "Notification.keepAliveLimitEnabled"
     private static let lowQuotaThresholdKey = "Notification.lowQuotaThresholdPercent"
@@ -326,6 +343,7 @@ final class NotificationSettings: ObservableObject {
     private static let taskCompletionSoundKey = "Notification.taskCompletionSound"
     private static let taskWaitingSoundKey = "Notification.taskWaitingSound"
     private static let creditExpirySoundKey = "Notification.creditExpirySound"
+    private static let resetCreditAutoUseSoundKey = "Notification.resetCreditAutoUseSound"
     private static let lowBatterySoundKey = "Notification.lowBatterySound"
     private static let keepAliveLimitSoundKey = "Notification.keepAliveLimitSound"
 }

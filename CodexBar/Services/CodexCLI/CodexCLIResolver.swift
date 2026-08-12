@@ -77,7 +77,7 @@ nonisolated enum CodexCLIResolver {
     }
 
     /// Codex 配置目录: 优先 CODEX_HOME, 回退真实用户 HOME 下的 .codex
-    /// auth.json / hooks.json 等配置文件统一从这里解析
+    /// hooks.json 等配置文件统一从这里解析
     static func codexHomeDirectory(environment: [String: String] = environment) -> URL {
         if let codexHome = nonEmptyEnvironmentValue("CODEX_HOME", in: environment) {
             return URL(fileURLWithPath: codexHome, isDirectory: true)

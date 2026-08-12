@@ -8,7 +8,7 @@ CodexBar 不重新实现 Codex 登录、token 刷新和账户协议，而是把�
 
 - 认证和服务端协议由 Codex 自己维护，CodexBar 不复制一套容易漂移的客户端
 - App 通过 stdio 与本机子进程通信，账户主链路不需要直接暴露额外网络实现
-- 当前真正运行的 Codex 版本可以从 handshake 获得，能用于 Hook 能力判断
+- 当前真正运行的 Codex 版本可以从 handshake 获得，能用于全局和 Hook 能力判断
 - 全局 CLI 与 App 内置 CLI 可以共享同一套上层数据模型
 
 代价是菜单栏 App 必须自己解决 shell 环境缺失、子进程生命周期、pipe 背压、混杂 stdout、超时和升级后的连接换代。
@@ -81,9 +81,9 @@ resolver 会做 3 层归一化：
 
 ### 磁盘版本和运行版本为什么分开
 
-设置页可以读取磁盘上两个候选 CLI 的版本，但 Hook 能力检查只使用 `initialize` 返回的 app-server `userAgent`
+设置页可以读取磁盘上两个候选 CLI 的版本，但全局和 Hook 最低版本检查只使用 `initialize` 返回的 app-server `userAgent`
 
-原因是连接最长复用 1 小时。用户在连接存活期间升级磁盘 binary 后，当前进程仍然是旧版本。用磁盘版本判断会让 UI 声称 Hook 可用，实际调用的旧 app-server 却不支持对应方法。
+原因是连接最长复用 1 小时。用户在连接存活期间升级磁盘 binary 后，当前进程仍然是旧版本。用磁盘版本判断会让 UI 声称能力可用，实际调用的旧 app-server 却不支持对应方法。
 
 ## 进程与协议
 
@@ -98,6 +98,7 @@ codex app-server --listen stdio://
 ```text
 启动子进程
   -> initialize(clientInfo)
+  -> 校验实际版本 >= 0.143.0
   -> initialized
   -> account/read
   -> account/rateLimits/read
@@ -114,13 +115,14 @@ stdout 可能包含非 JSON 输出。pipe reader 会持续读取完整行，只�
   -> 启动 Process
   -> initialize(clientInfo)
   -> 从 userAgent 保存实际版本
+  -> 校验实际版本 >= 0.143.0
   -> initialized notification
   -> account/read(refreshToken: false)
   -> account 存在: 提交 connection
   -> account 缺失: 关闭进程并返回 notLoggedIn
 ```
 
-只有 handshake 与首次账户读取都成功，connection 才进入 service 状态。半初始化 session 不会被留给下一轮复用。
+只有实际版本满足全局门槛，并且 handshake 与首次账户读取都成功，connection 才进入 service 状态。版本低于 `0.143.0` 或无法解析时按不支持处理，关闭半初始化 session，不继续发送账户请求。
 
 ### 为什么 stdout reader 只暴露完整行
 
@@ -159,6 +161,7 @@ session 关闭时按以下顺序收口：
 | --- | --- |
 | `account/read` | 读取账户、套餐和认证状态 |
 | `account/rateLimits/read` | 读取额度窗口 |
+| `account/rateLimitResetCredit/consume` | 使用指定的 Reset Credit |
 | `account/usage/read` | 读取 token 和历史用量 |
 | `config/read` | 读取 Codex 配置 |
 | `hooks/list` | 校验 Hook 来源和事件能力 |
@@ -223,11 +226,11 @@ ready
 
 ### 为什么认证刷新全程只有一次
 
-一次刷新会读取 account, rate limits, usage 和 Reset Credits。多个接口可能同时发现 token 过期。
+一次刷新会读取 account、rate limits 和 usage，Reset Credits 明细包含在 rate limits 响应中。多个接口可能同时发现 token 过期。
 
 `fetchData` 内部用同一个 `didRefresh` 锁存本轮刷新资格。第一个认证失败触发 `account/read(refreshToken: true)`，后续接口复用刷新结果。再次需要认证时直接归类为未登录。
 
-这避免一轮 UI 刷新对同一凭据连续触发多次 token refresh，也让 Reset Credits 的 `401` 或 `403` 与 app-server 方法共享同一个认证预算。
+这避免一轮 UI 刷新对同一凭据连续触发多次 token refresh。
 
 ## 刷新模型
 
@@ -248,9 +251,8 @@ ready
 确认或新建 connection
   -> 复用连接时 account/read
   -> 确认 account identity
-  -> account/rateLimits/read
+  -> account/rateLimits/read（包含 Reset Credits 明细）
   -> account/usage/read
-  -> 有 Reset Credits 时读取 expiration endpoint
   -> 组合 CodexQuotaSnapshot
   -> MainActor 提交 loadState 与连接信息
 ```
@@ -302,26 +304,88 @@ stale 是数据可信度的一部分，新增展示时不能只复制数值而�
 
 ## Reset Credits
 
-Reset Credits 到期时间不来自 app-server。当可用数量大于 `0` 时，[`CodexResetCreditsService.swift`](../../CodexBar/Services/CodexStatus/CodexResetCreditsService.swift) 使用现有 `auth.json` token 请求：
+`account/rateLimits/read` 的 `rateLimitResetCredits` 同时返回可用数量和可选明细：
+
+- `availableCount` 是权威总数
+- `credits == nil` 表示只知道数量
+- 空数组表示服务端已获取明细，但没有返回可用凭证
+- 明细列表可能被服务端截断，长度可以小于 `availableCount`
+- 每条明细包含 opaque `id`、`status` 和可空的 Unix 秒级 `expiresAt`
+- 每条明细还包含 `resetType`，自动使用只接受 `codexRateLimits`
+
+模型层只保留 `status == available` 且晚于快照生成时间的过期日，并按时间排序。数量仍独立使用 `availableCount`，不能从过滤后的日期数量反推。
+
+过期明细属于增强信息。`credits == nil` 时主面板仍展示可用数量，详情显示未知过期时间，不影响额度和用量。额度响应来自同账户缓存时，UI 可以继续展示旧明细，但通知服务不会用 stale 数据触发新的临期通知。
+
+### 自动使用临期重置
+
+用户主动开启自动使用后，[`ResetCreditAutomationController.swift`](../../CodexBar/Services/CodexStatus/ResetCreditAutomationController.swift) 只处理最新 `account/rateLimits/read` 明确返回的凭证明细：
+
+- 快照为 stale、`credits == nil`、缺少 `expiresAt`、状态不是 `available` 或 `resetType` 不是 `codexRateLimits` 时不调用消费接口
+- 明细可能被截断，只处理实际返回的凭证，不从 `availableCount` 猜测未列出的 `creditId`
+- 同一时间只处理返回明细中最早到期的一条，完成或消失后再选择下一条
+- 进入用户设置的临期时间窗口后，消费前再次强制读取账户和凭证明细
+- 请求始终显式传入 `creditId`，不会让后端代选
+- 消费结果返回后立即再读一次 rate limits
+- `reset`、`alreadyRedeemed` 和 `noCredit` 会请求完整额度刷新；`nothingToReset` 在目标仍存在时只安排下一次重试，目标已经变化时再请求完整刷新
+
+调用形状如下：
 
 ```text
-https://chatgpt.com/backend-api/wham/rate-limit-reset-credits
+account/rateLimitResetCredit/consume
+  creditId: <exact opaque id>
+  idempotencyKey: <deterministic UUIDv5>
 ```
 
-- 请求超时为 4 秒
-- 首次请求只读取现有 token
-- 收到 `401` 或 `403` 时，复用本轮统一认证刷新额度最多刷新 1 次，再重新读取 `auth.json`
-- 不把 token 写入其他位置
-- 数量为 `0` 时不发起请求
-- 请求失败不会影响主账户和额度刷新
+结果按以下语义处理：
 
-### 为什么这是唯一单独的账户网络请求
+| `outcome` | 结论 | 后续动作 |
+| --- | --- | --- |
+| `reset` | 本次调用完成消费 | 成功通知、刷新额度、停止该凭证重试 |
+| `alreadyRedeemed` | 相同幂等键此前已经完成消费 | 与 `reset` 相同，按成功处理 |
+| `nothingToReset` | 当前没有可重置的额度窗口 | 凭证未消费，继续使用同一幂等键重试 |
+| `noCredit` | 当前账户没有可用凭证 | 强制刷新；目标消失时静默停止，否则按暂时不一致重试 |
 
-app-server 返回可用 Reset Credits 数量，但不返回每一批的过期时间。UI 和临期通知需要过期日，因此只在数量大于 `0` 时补充查询。
+`alreadyRedeemed` 不是失败，也不是再次消费。它是同一逻辑请求已经成功的确认，因此收到这个结果的设备会停止重试并发送本机的“自动使用重置”通知。
 
-请求使用现有 `auth.json`，不另建登录流程。凭据只活在本次请求内，返回模型只保留仍为 available 且晚于当前时间的日期并排序。
+### 跨设备幂等契约
 
-这个请求是增强信息，不是账户快照的必要条件。4 秒超时或任何解析错误只让过期日缺失，不应让额度和用量一起失败。
+同一个 Codex 账户可能同时在多台 Mac 上运行 CodexBar。设备之间不依赖 CloudKit 协调，而是对相同 `creditId` 计算完全相同的 UUIDv5：
+
+```text
+namespace = 8abd477b-2320-5e39-9518-2a2adfc542fa
+name      = creditId 的原始 UTF-8 字节
+output    = lowercase UUID string
+```
+
+namespace 来自 URL namespace 对 `https://codexbar.zabrian.app/idempotency/reset-credit-auto-use/v1` 执行 UUIDv5。这个 URL 只用于确定 namespace，不代表运行时网络请求。
+
+固定测试向量为：
+
+```text
+creditId       = RateLimitResetCredit_123
+idempotencyKey = 9538d0a1-be12-587a-a1c0-d59f49029e3a
+```
+
+namespace、UUID 版本、原始 UTF-8 输入和小写输出共同构成跨版本兼容协议，不能在普通重构中修改。最先成功的设备完成消费，其他设备用同一个 key 调用时会得到 `alreadyRedeemed`，或者在前置刷新时发现凭证已经消失。
+
+凭证消失无法区分手动使用、其他设备使用和服务端过期，因此只停止本机任务，不发送自动使用成功通知。只有明确收到 `reset` 或 `alreadyRedeemed` 的设备才发送成功通知。
+
+### 调度与重试
+
+自动使用状态机完全位于普通 App 进程：
+
+- 不使用 helper，不申请防睡眠，也不会为 deadline 唤醒 Mac
+- App 启动、用户开启功能或系统唤醒时先做新鲜读取；已经进入临期窗口且尚未过期时立即补试，否则按临期时间重新调度
+- App 退出后不持久化原始 `creditId`；下次启动通过新鲜明细重建任务和同一确定性幂等键
+- 同一 `creditId` 的 `expiresAt` 变化时保留幂等身份，但取消当前阈值或重试任务并按新时间重排；新临期点已经过去时立即补检
+- 网络、超时、连接断开或暂时服务错误按 `15s, 30s, 1m, 2m, 5m` 退避，之后保持 `5m`
+- `nothingToReset` 在最后 10 分钟内最多每分钟重试一次
+- 认证失败先沿用 service 的单次 token refresh；仍失败时暂停当前凭证并按通知设置告知用户，后续可信快照证明认证恢复后再继续
+- 参数、协议或方法错误停止当前凭证，不进行无意义重试
+
+自动使用触发完整额度刷新时，如果普通额度刷新正在执行，新刷新会排队到当前刷新结束后运行，不能被 `isRefreshing` guard 丢弃。
+
 
 ## Hook 版本与配置校验
 
@@ -359,7 +423,7 @@ Hook 设置也复用 app-server 链路，但采用独立的可用性状态：
 
 App 内 `RequestLog` 保存最多 500 条请求交互预览，只存在进程内存，适合用户主动检查协议细节。
 
-即使内存日志生命周期短，也不能记录 Reset Credits Authorization header。对新 RPC 增加日志时，需要检查 payload 是否可能包含凭据或内容字段。
+Reset Credits 明细包含 opaque credit ID。系统日志不能记录 ID 或原始响应，App 内请求日志仍只按既有规则保存在当前进程内存。对新 RPC 增加日志时，需要检查 payload 是否可能包含凭据或内容字段。
 
 ## 扩展 app-server 字段的步骤
 
@@ -380,10 +444,24 @@ App 内 `RequestLog` 保存最多 500 条请求交互预览，只存在进程内
 - stderr 持续输出时请求不会因 pipe 背压卡住
 - 复用连接的 transport failure 只重建一次
 - 磁盘 CLI 升级后，当前连接版本与磁盘版本能被区分
+- app-server 低于 `0.143.0` 时阻断账户主链路并提示升级
+- app-server 为 `0.143.x` 或 `0.144.x` 时账户主链路可用，但 Hook 仍提示需要 `0.145.0`
+- app-server 不低于 `0.145.0` 时账户主链路和 Hook 校验均可用
 - rate limits 失败但同账户有缓存时展示 stale，通知不误触发
 - 账户切换后旧额度和用量立即清空
 - unsupported method 不会每分钟重复请求
-- Reset Credits `401` 后只共享一次认证刷新，失败不影响主快照
+- Reset Credits `credits == nil` 时保留权威数量并显示未知过期时间
+- Reset Credits 明细为空或被截断时不从明细长度反推可用数量
+- 过期、非 available 的 Reset Credits 不进入详情或通知
+- stale rate limits 可以展示旧明细，但不触发临期通知
+- 自动使用关闭时不会调用消费接口，缺失设置默认关闭且临期时间默认 2 小时
+- 自动使用不会消费 stale、缺少明细、缺少过期时间或未列出的凭证
+- 两台设备对固定 `creditId` 生成相同幂等键，并与固定测试向量一致
+- 同一 `creditId` 的过期时间提前或推迟时都重新调度，幂等键保持不变
+- `reset` 和 `alreadyRedeemed` 均停止重试并发送成功通知
+- `nothingToReset` 保留凭证并按退避策略重试
+- 睡眠期间不会唤醒 Mac；唤醒后重新读取，已经进入临期窗口且尚未过期时补试，否则重新调度
+- 消费成功后的完整额度刷新不会被并发普通刷新丢弃
 - 手动刷新后 60 秒倒计时重新对齐
 
 ## 关键源码
@@ -393,4 +471,5 @@ App 内 `RequestLog` 保存最多 500 条请求交互预览，只存在进程内
 - [`AppServerPipeReaders.swift`](../../CodexBar/Services/CodexStatus/AppServerPipeReaders.swift)
 - [`CodexStatusService.swift`](../../CodexBar/Services/CodexStatus/CodexStatusService.swift)
 - [`CodexStatusViewModel.swift`](../../CodexBar/Services/CodexStatus/CodexStatusViewModel.swift)
-- [`CodexResetCreditsService.swift`](../../CodexBar/Services/CodexStatus/CodexResetCreditsService.swift)
+- [`ResetCreditAutomationController.swift`](../../CodexBar/Services/CodexStatus/ResetCreditAutomationController.swift)
+- [`ResetCreditAutomationIdentity.swift`](../../CodexBar/Services/CodexStatus/ResetCreditAutomationIdentity.swift)

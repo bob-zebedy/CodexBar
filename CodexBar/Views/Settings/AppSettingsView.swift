@@ -13,6 +13,7 @@ struct AppSettingsView: View {
     @ObservedObject var menuBarQuotaSettings: MenuBarQuotaSettings
     @ObservedObject var mainPanelSettings: MainPanelSettings
     @ObservedObject var notificationSettings: NotificationSettings
+    @ObservedObject var resetCreditAutomationSettings: ResetCreditAutomationSettings
     @ObservedObject var keepAliveController: KeepAliveController
     let onSyncChanged: (Bool) -> Void
     let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
@@ -21,12 +22,14 @@ struct AppSettingsView: View {
     @State private var selectedTab = SettingsTab.general
     @State private var isTabContentSettled = true
     @State private var notificationAnchorProvider = ScreenFrameProvider()
+    @State private var resetCreditAutomationAnchorProvider = ScreenFrameProvider()
     @State private var keepAliveAnchorProvider = ScreenFrameProvider()
     @State private var rebuildableDates = [String]()
     @State private var selectedRebuildRange: RebuildDateRange?
     @State private var isShowingRebuildConfirmation = false
     @State private var isRebuildingWorkflowData = false
     @State private var rebuildStatus: RebuildStatus?
+    @State private var isShowingResetCreditAutomationConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -73,6 +76,7 @@ struct AppSettingsView: View {
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
             mainPanelSettings.refresh()
+            resetCreditAutomationSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
             refreshStatusRows()
         }
@@ -81,12 +85,14 @@ struct AppSettingsView: View {
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
             mainPanelSettings.refresh()
+            resetCreditAutomationSettings.refresh()
             codexHookSettings.verifyInstalledHooks()
             refreshStatusRows()
         }
         .onReceive(NotificationCenter.default.publisher(for: .settingsWindowDidOpen)) { _ in
             selectedRebuildRange = nil
             isShowingRebuildConfirmation = false
+            isShowingResetCreditAutomationConfirmation = false
             clearRebuildStatus()
         }
         .onChange(of: selectedTab) { _, _ in
@@ -122,7 +128,18 @@ struct AppSettingsView: View {
                 rebuildWorkflowData()
             }
         } message: {
-            Text("将从本机原始 Hook 事件重新统计 \(selectedRebuildRange?.displayText ?? "")\n并在下次同步时替换当前设备对应日期的云端聚合")
+            Text("将从本机原始 Hook 事件重新统计 \(selectedRebuildRange?.displayText ?? "")\n并在下次同步时替换当前设备对应日期的云端数据")
+        }
+        .alert(
+            "开启自动使用重置?",
+            isPresented: $isShowingResetCreditAutomationConfirmation
+        ) {
+            Button("取消", role: .cancel) {}
+            Button("开启", role: .destructive) {
+                resetCreditAutomationSettings.setEnabled(true)
+            }
+        } message: {
+            Text("开启后, CodexBar 会在手动重置临近过期时, 按设置的临期时间自动使用该次数; 系统处在睡眠等状态可能导致使用失败; 手动重置使用后不可撤销")
         }
     }
 }
@@ -247,6 +264,8 @@ private extension AppSettingsView {
             taskCenterRow
             LiquidGlassDivider()
             notificationRow
+            LiquidGlassDivider()
+            resetCreditAutomationRow
             LiquidGlassDivider()
             keepAliveRow
             LiquidGlassDivider()
@@ -403,6 +422,47 @@ private extension AppSettingsView {
         }
     }
 
+    var resetCreditAutomationRow: some View {
+        let isEnabled = resetCreditAutomationSettings.isEnabled
+
+        return VStack(alignment: .leading, spacing: 4) {
+            SettingsToggleRow(
+                icon: "arrow.counterclockwise.circle",
+                title: "自动使用临期重置",
+                isOn: Binding(
+                    get: { resetCreditAutomationSettings.isEnabled },
+                    set: { enabled in
+                        if enabled {
+                            isShowingResetCreditAutomationConfirmation = true
+                        } else {
+                            resetCreditAutomationSettings.setEnabled(enabled)
+                        }
+                    }
+                )
+            ) {
+                optionsButton(isAvailable: isEnabled) {
+                    onOptionsAction(
+                        .toggle(
+                            panel: .resetCreditAutomation,
+                            anchorProvider: resetCreditAutomationAnchorProvider
+                        )
+                    )
+                }
+            }
+        }
+        .background {
+            ScreenFrameReader(provider: resetCreditAutomationAnchorProvider)
+        }
+        .animation(Metrics.statusAnimation, value: isEnabled)
+        .onChange(of: isEnabled) { _, isEnabled in
+            guard !isEnabled else {
+                return
+            }
+
+            onOptionsAction(.close(panel: .resetCreditAutomation))
+        }
+    }
+
     // MARK: - 防睡眠
 
     var keepAliveRow: some View {
@@ -461,7 +521,7 @@ private extension AppSettingsView {
         }
     }
 
-    /// 两个子面板入口共用的滑杆按钮; 依赖没就绪时只隐藏入口, 不回写用户保存的开关
+    /// 子面板入口共用的滑杆按钮; 依赖没就绪时只隐藏入口, 不回写用户保存的开关
     func optionsButton(isAvailable: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "slider.horizontal.3")

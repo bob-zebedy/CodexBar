@@ -51,7 +51,7 @@ CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用，使用 Swift 6,
 
 工程默认采用 `MainActor` 隔离。UI, Controller, ViewModel 和 Settings 依赖默认隔离，共享可变状态放入 actor，DTO 和跨 actor 值类型按需添加 `nonisolated` 标记，禁止在主 actor 执行阻塞 I/O。类型命名使用 `UpperCamelCase` 风格，成员命名使用 `lowerCamelCase` 风格。注释只解释非显然的生命周期、焦点、actor 或系统 API 约束。
 
-保持三条数据链路独立：app-server 额度与用量、Hook 历史聚合、`CodexActivityMonitor` 实时任务。helper 只能控制睡眠，不得增加网络、任意命令执行或额外文件访问。修改 Hook 配置时必须保留用户和其他应用已有的 handler。启用和校验 Hook 必须检查当前 app-server 的实际版本不低于 `0.145.0`。新增网络访问、日志数据或 CloudKit 字段前先核对隐私边界。
+保持三条数据链路独立：app-server 额度与用量、Hook 历史聚合、`CodexActivityMonitor` 实时任务。helper 只能控制睡眠，不得增加网络、任意命令执行或额外文件访问。账户主链路必须检查当前 app-server 的实际版本不低于 `0.143.0`。修改 Hook 配置时必须保留用户和其他应用已有的 handler。启用和校验 Hook 必须额外检查当前 app-server 的实际版本不低于 `0.145.0`。新增网络访问、日志数据或 CloudKit 字段前先核对隐私边界。
 
 缺少 session ID 的 Hook 事件使用匿名 project key。匿名任务保留在实时快照和 UI 中，活动卡片与任务中心统一显示橙色 `person.crop.circle.dashed` 图标，`help` 为 `匿名任务不参与防睡眠`。匿名任务不发布任务通知或触觉反馈，不参与防睡眠和异常会话保护，不生成保护状态持久化标识。活动卡片的 `+N` 只显示其他活跃任务总数。
 

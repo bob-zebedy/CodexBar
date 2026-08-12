@@ -3,8 +3,9 @@ import Combine
 import SwiftUI
 
 /// 设置窗口右侧的子选项面板, 同一时刻只展开一个
-enum SettingsOptionsPanel: CaseIterable {
+enum SettingsOptionsPanel: CaseIterable, Hashable {
     case notification
+    case resetCreditAutomation
     case keepAlive
 }
 
@@ -40,7 +41,7 @@ private struct SidePanelEntryRebuildHost<Content: View>: View {
 }
 
 /// 设置窗口右侧子选项面板的公共装配
-/// 通知与防睡眠两个子面板只差内容视图和高度变化的来源, 定位 关闭 高度重算这套脚手架全在这里
+/// 各子面板只差内容视图和高度变化的来源, 定位 关闭 高度重算这套脚手架全在这里
 /// 与重置次数面板不同: 内容是交互控件, 用常驻 hosting controller + ObservableObject 驱动更新, 不替换 rootView
 @MainActor
 final class SettingsOptionsPanelController {

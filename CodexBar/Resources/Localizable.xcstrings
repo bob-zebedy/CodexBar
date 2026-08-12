@@ -1522,6 +1522,102 @@
         }
       }
     },
+    "notification.reset-credit-auto-use-failed.body.authentication" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex sign-in expired"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 登录状态已失效"
+          }
+        }
+      }
+    },
+    "notification.reset-credit-auto-use-failed.body.expired" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expired; could not be used automatically"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已过期, 未能自动使用"
+          }
+        }
+      }
+    },
+    "notification.reset-credit-auto-use-failed.body.permanent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The request could not be completed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请求无法完成"
+          }
+        }
+      }
+    },
+    "notification.reset-credit-auto-use-failed.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic Reset Credit Use Failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动使用重置失败"
+          }
+        }
+      }
+    },
+    "notification.reset-credit-auto-use.body.count" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset credits remaining: %lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "剩余重置次数: %lld"
+          }
+        }
+      }
+    },
+    "notification.reset-credit-auto-use.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Credit Used Automatically"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动使用重置"
+          }
+        }
+      }
+    },
     "notification.sound.default" : {
       "localizations" : {
         "en" : {
@@ -2834,7 +2930,7 @@
         }
       }
     },
-    "将从本机原始 Hook 事件重新统计 %@\n并在下次同步时替换当前设备对应日期的云端聚合" : {
+    "将从本机原始 Hook 事件重新统计 %@\n并在下次同步时替换当前设备对应日期的云端数据" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2845,7 +2941,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将从本机原始 Hook 事件重新统计 %@\n并在下次同步时替换当前设备对应日期的云端聚合"
+            "value" : "将从本机原始 Hook 事件重新统计 %@\n并在下次同步时替换当前设备对应日期的云端数据"
           }
         }
       }
@@ -4322,6 +4418,22 @@
         }
       }
     },
+    "需要 Codex %@ 或更高版本" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex %@ or later is required"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要 Codex %@ 或更高版本"
+          }
+        }
+      }
+    },
     "需要启用 CodexBar Hook" : {
       "localizations" : {
         "en" : {
@@ -4446,6 +4558,198 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "高级"
+          }
+        }
+      }
+    },
+    "1 小时" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 Hour"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 小时"
+          }
+        }
+      }
+    },
+    "12 小时" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "12 Hours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "12 小时"
+          }
+        }
+      }
+    },
+    "2 小时" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2 Hours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2 小时"
+          }
+        }
+      }
+    },
+    "30 分钟" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "30 Minutes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "30 分钟"
+          }
+        }
+      }
+    },
+    "4 小时" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 Hours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 小时"
+          }
+        }
+      }
+    },
+    "6 小时" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6 Hours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6 小时"
+          }
+        }
+      }
+    },
+    "开启" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启"
+          }
+        }
+      }
+    },
+    "开启自动使用重置?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable Automatic Reset Credit Use?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启自动使用重置?"
+          }
+        }
+      }
+    },
+    "开启后, CodexBar 会在手动重置临近过期时, 按设置的临期时间自动使用该次数; 系统处在睡眠等状态可能导致使用失败; 手动重置使用后不可撤销" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At the selected time before a manual reset credit expires, CodexBar automatically uses it to reset your Codex quota.\nThis action cannot be undone. Sleep, network outages, or service errors may cause it to fail, and each device attempts it independently."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启后, CodexBar 会在手动重置临近过期时, 按设置的临期时间自动使用该次数; 系统处在睡眠等状态可能导致使用失败; 手动重置使用后不可撤销"
+          }
+        }
+      }
+    },
+    "临期时间" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time Before Expiry"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "临期时间"
+          }
+        }
+      }
+    },
+    "自动使用临期重置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Expiring Reset Credit Automatically"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动使用临期重置"
+          }
+        }
+      }
+    },
+    "自动使用重置通知" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic Reset Use"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动使用重置通知"
           }
         }
       }

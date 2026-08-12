@@ -14,7 +14,7 @@ CloudKit 同步用于在同一 iCloud 账户的 Mac 之间合并 Hook 日级统�
   -> 按日期合并展示
 ```
 
-账户、额度、token 总量、实时任务和防睡眠状态不参与同步。
+账户、额度、token 总量、Reset Credits、自动使用设置与状态、实时任务和防睡眠状态不参与同步。
 
 ## 设计目标和非目标
 
@@ -32,6 +32,7 @@ CloudKit 同步用于在同一 iCloud 账户的 Mac 之间合并 Hook 日级统�
 
 - 实时任务状态，因为它变化快且需要本机低延迟判断
 - 账户额度，因为它属于 Codex 账户而不是设备工作历史
+- 自动使用临期重置，因为多设备收敛依赖相同 `creditId` 的确定性幂等键，不依赖 CloudKit 锁或任务记录
 - 防睡眠状态，因为它是当前 Mac 的系统副作用
 - 原始事件，因为跨设备统计只需要可合并的日级事实
 
@@ -117,7 +118,7 @@ salt 存在同一个 private custom zone 中。多台设备先后创建时通过
 - 完整工作目录
 - prompt 或 response 内容
 - Codex 账户和额度
-- token 或 `auth.json`
+- token 或 `auth.json` 等
 - App 请求日志
 - 异常会话保护状态
 

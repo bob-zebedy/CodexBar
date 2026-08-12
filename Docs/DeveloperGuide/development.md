@@ -31,10 +31,11 @@
 不要从 View 反向猜业务状态。推荐沿事实流阅读：
 
 1. 从 [`CodexBarApp.swift`](../../CodexBar/App/CodexBarApp.swift) 确认 Hook 子进程分流
-2. 从 [`StatusItemController.swift`](../../CodexBar/Controllers/StatusItemController.swift) 查看普通模式 composition root
-3. 选择一条数据链路阅读 source, service, snapshot 和 ViewModel
-4. 再看通知或防睡眠如何订阅上游结果
-5. 最后查看 SwiftUI 如何展示状态和发出用户意图
+2. 从 [`CodexBarAppDelegate.swift`](../../CodexBar/Controllers/CodexBarAppDelegate.swift) 查看普通模式 composition root
+3. 从 [`StatusItemController.swift`](../../CodexBar/Controllers/StatusItemController.swift) 查看菜单栏和窗口编排
+4. 选择一条数据链路阅读 source, service, snapshot 和 ViewModel
+5. 再看通知或防睡眠如何订阅上游结果
+6. 最后查看 SwiftUI 如何展示状态和发出用户意图
 
 以实时任务为例：
 

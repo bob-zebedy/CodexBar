@@ -76,7 +76,7 @@ struct AccountCard: View {
     ]
 }
 
-/// 未登录或初始化失败时的账号行, 不展示底层错误细节
+/// 账户主链路不可用时的账号行, 不展示底层错误细节
 struct StatusAccountCard: View {
     let loadState: CodexLoadState
     let isRefreshing: Bool
@@ -115,6 +115,8 @@ struct StatusAccountCard: View {
         switch loadState {
         case .notLoggedIn:
             ("未登录", .orange)
+        case let .unsupportedVersion(minimum):
+            ("需要 Codex \(minimum) 或更高版本", .red)
         case .initializationFailed:
             ("初始化失败", .red)
         case .loading, .loaded:

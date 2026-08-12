@@ -30,6 +30,7 @@ CodexBar 是面向 macOS 15 及更高版本的菜单栏 App, 用于集中展示 
 - 展示当前 Codex 账户和套餐
 - 展示全部额度窗口, 剩余比例和重置时间
 - 展示可用积分和手动重置次数
+- 可设置在过期前 30 分钟到 12 小时自动使用临期重置, 默认提前 2 小时
 - 可在菜单栏图标旁直接显示所选额度窗口
 
 ### 看见自己的 Codex 使用节奏
@@ -76,7 +77,8 @@ brew install --cask bob-zebedy/tap/codexbar
 
 - macOS 15.0 或更高版本
 - 已安装并登录 [Codex CLI](https://github.com/openai/codex) 或安装了内置 Codex 的 ChatGPT App 或 Codex App
-- 使用实时任务等 Hook 功能时, 当前运行的 Codex app-server 版本需要为 `0.145.0` 或更高版本
+- 当前运行的 Codex 版本需要为 `0.143.0` 或更高版本
+- 使用实时任务等 Hook 功能时, 当前运行的 Codex 版本需要为 `0.145.0` 或更高版本
 - 使用跨设备同步时, Mac 需要登录可用的 iCloud 账户
 
 ## 快速开始

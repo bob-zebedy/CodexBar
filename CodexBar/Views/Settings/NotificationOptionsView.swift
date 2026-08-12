@@ -7,6 +7,7 @@ struct NotificationOptionsView: View {
     @ObservedObject var notificationSettings: NotificationSettings
     @ObservedObject var codexHookSettings: CodexHookSettings
     @ObservedObject var codexCLINotificationSettings: CodexCLINotificationSettings
+    @ObservedObject var resetCreditAutomationSettings: ResetCreditAutomationSettings
     @ObservedObject var keepAliveController: KeepAliveController
     @State private var previewSound: NSSound?
 
@@ -17,6 +18,7 @@ struct NotificationOptionsView: View {
             lowQuotaRow
             quotaResetRow
             creditExpiryRow
+            resetCreditAutoUseRow
             lowBatteryRow
             keepAliveLimitRow
             taskHapticRow
@@ -153,6 +155,25 @@ struct NotificationOptionsView: View {
             sound: Binding(
                 get: { notificationSettings.creditExpirySound },
                 set: { notificationSettings.setCreditExpirySound($0) }
+            )
+        )
+    }
+
+    /// 自动使用关着时显示为关闭并置灰, 不修改持久化的 isResetCreditAutoUseEnabled
+    private var resetCreditAutoUseRow: some View {
+        let isAutomationEnabled = resetCreditAutomationSettings.isEnabled
+        let isDisplayedOn = isAutomationEnabled && notificationSettings.isResetCreditAutoUseEnabled
+
+        return notificationOptionRow(
+            title: "自动使用重置通知",
+            isOn: Binding(
+                get: { isDisplayedOn },
+                set: { notificationSettings.setResetCreditAutoUseEnabled($0) }
+            ),
+            isEnabled: isAutomationEnabled,
+            sound: Binding(
+                get: { notificationSettings.resetCreditAutoUseSound },
+                set: { notificationSettings.setResetCreditAutoUseSound($0) }
             )
         )
     }
@@ -434,7 +455,7 @@ struct NotificationOptionsView: View {
         static let panelWidth: CGFloat = 320
         static let horizontalPadding = SettingsOptionsPanelMetrics.horizontalPadding
         static let verticalPadding = SettingsOptionsPanelMetrics.verticalPadding
-        static let notificationRowCount = 7
+        static let notificationRowCount = 8
         static let captionedRowCount = 2
         static let totalRowCount = notificationRowCount + captionedRowCount
         static let rowSpacing = SettingsOptionsPanelMetrics.rowSpacing

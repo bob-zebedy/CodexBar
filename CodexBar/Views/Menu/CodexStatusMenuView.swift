@@ -65,7 +65,7 @@ private extension CodexStatusMenuView {
 
             dataSection(snapshot)
         } else {
-            // 仅展示未登录/初始化失败两种特殊状态, 其余错误只进日志
+            // 展示用户可处理的账户主链路状态, 其余错误只进日志
             StatusAccountCard(
                 loadState: viewModel.loadState,
                 isRefreshing: viewModel.isRefreshing,

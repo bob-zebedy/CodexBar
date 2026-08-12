@@ -7,11 +7,12 @@ nonisolated enum CodexLoadState: Equatable {
     case loading
     case loaded
     case notLoggedIn
+    case unsupportedVersion(minimum: String)
     case initializationFailed
 
     var isError: Bool {
         switch self {
-        case .notLoggedIn, .initializationFailed: true
+        case .notLoggedIn, .unsupportedVersion, .initializationFailed: true
         case .loading, .loaded: false
         }
     }
@@ -37,6 +38,8 @@ final class CodexStatusViewModel: ObservableObject {
 
     private let service: CodexStatusService
     private var autoRefreshTask: Task<Void, Never>?
+    private var pendingRefreshTask: Task<Void, Never>?
+    private var pendingForcedRefreshTrigger: LogTrigger?
     private let refreshCoordinator = RefreshTaskCoordinator()
 
     init(service: CodexStatusService = CodexStatusService()) {
@@ -45,6 +48,7 @@ final class CodexStatusViewModel: ObservableObject {
 
     deinit {
         autoRefreshTask?.cancel()
+        pendingRefreshTask?.cancel()
         refreshCoordinator.cancel()
     }
 
@@ -86,7 +90,7 @@ final class CodexStatusViewModel: ObservableObject {
         let duration = LogDuration()
 
         refreshCoordinator.run(
-            setRefreshing: { [weak self] in self?.isRefreshing = $0 },
+            setRefreshing: { [weak self] in self?.setRefreshing($0) },
             operation: { [service = self.service] in
                 await (fetch: service.fetchOutcome(), connectionInfo: service.currentConnectionInfo())
             },
@@ -102,6 +106,9 @@ final class CodexStatusViewModel: ObservableObject {
                 case .notLoggedIn:
                     snapshot = nil
                     loadState = .notLoggedIn
+                case let .unsupportedVersion(minimum):
+                    snapshot = nil
+                    loadState = .unsupportedVersion(minimum: minimum)
                 case .initializationFailed:
                     snapshot = nil
                     loadState = .initializationFailed
@@ -118,6 +125,35 @@ final class CodexStatusViewModel: ObservableObject {
                 autoRefreshCountdownStartedAt = Date()
             }
         )
+    }
+
+    /// 自动消费完成后不能因为普通刷新正在运行而丢掉最终对账
+    func refreshAfterCurrent(trigger: LogTrigger) {
+        guard isRefreshing else {
+            refresh(trigger: trigger)
+            return
+        }
+
+        pendingForcedRefreshTrigger = trigger
+    }
+
+    private func setRefreshing(_ refreshing: Bool) {
+        isRefreshing = refreshing
+        guard !refreshing, let trigger = pendingForcedRefreshTrigger else {
+            return
+        }
+
+        pendingForcedRefreshTrigger = nil
+        pendingRefreshTask?.cancel()
+        pendingRefreshTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, !Task.isCancelled else {
+                return
+            }
+
+            pendingRefreshTask = nil
+            refresh(trigger: trigger)
+        }
     }
 
     /// 成功路径把各步结果压进一条, 失败才带上定位到哪一步
@@ -154,6 +190,14 @@ final class CodexStatusViewModel: ObservableObject {
                 "elapsed=\(elapsed)"
             )
             AppLog.app.notice("额度刷新已跳过: \(details, privacy: .public)")
+        case let .unsupportedVersion(minimum):
+            let details = LogFields.joined(
+                "trigger=\(triggerName)",
+                "reason=unsupportedCodexVersion",
+                "minimum=\(minimum)",
+                "elapsed=\(elapsed)"
+            )
+            AppLog.app.error("额度刷新失败: \(details, privacy: .public)")
         case .initializationFailed, .loading:
             let stage = trace.failureStage?.rawValue ?? "-"
             let details = LogFields.joined(

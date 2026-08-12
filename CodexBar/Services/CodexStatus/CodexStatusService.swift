@@ -5,6 +5,7 @@ import os
 nonisolated enum CodexFetchOutcome {
     case data(CodexQuotaSnapshot)
     case notLoggedIn
+    case unsupportedVersion(minimum: String)
     case initializationFailed
 }
 
@@ -48,6 +49,7 @@ nonisolated struct CodexFetchResult {
 private nonisolated enum ConnectionResolution {
     case ready(connection: AppServerConnection, reused: Bool)
     case notLoggedIn
+    case unsupportedVersion(minimum: String)
     case initializationFailed
 }
 
@@ -197,6 +199,52 @@ actor CodexStatusService {
         )
     }
 
+    /// 自动使用前必须绕过补充数据缓存读取一份新凭证明细
+    func readResetCreditsForAutomation() throws -> ResetCreditAutomationRead {
+        try withAutomationConnection { connection in
+            try readResetCreditsForAutomation(using: connection)
+        }
+    }
+
+    /// creditId 始终显式传入, 同一凭证的重试始终复用调用方给出的幂等键
+    func consumeResetCredit(
+        id creditID: String,
+        idempotencyKey: String,
+        expectedAccountIdentity: String
+    ) throws -> ResetCreditConsumeResult {
+        let response: ResetCreditConsumeResponse = try withAutomationConnection { connection in
+            let accountResponse = try connection.session.request(
+                "account/read",
+                params: ["refreshToken": false],
+                as: AccountReadResponse.self
+            )
+            guard let account = accountResponse.account else {
+                throw CodexStatusError.notLoggedIn
+            }
+            guard ResetCreditAutomationIdentity.accountIdentity(for: account) == expectedAccountIdentity else {
+                throw ResetCreditAutomationServiceError.accountChanged
+            }
+
+            connection.accountResponse = accountResponse
+            return try connection.session.request(
+                "account/rateLimitResetCredit/consume",
+                params: [
+                    "creditId": creditID,
+                    "idempotencyKey": idempotencyKey
+                ],
+                as: ResetCreditConsumeResponse.self
+            )
+        }
+
+        // 消费结果已经确定时刷新失败不能覆盖结果
+        // 控制器仍会触发完整额度刷新, 这里先满足协议要求并尽快取得剩余次数
+        let refreshedRead = try? readResetCreditsForAutomation()
+        return ResetCreditConsumeResult(
+            outcome: response.outcome,
+            refreshedRead: refreshedRead
+        )
+    }
+
     /// 复用连接出现传输故障时只重建重试一次
     /// 避免故障状态下反复拉起进程
     private func resolveOutcome(
@@ -207,6 +255,9 @@ actor CodexStatusService {
         case .notLoggedIn:
             trace.failureStage = .connect
             return .notLoggedIn
+        case let .unsupportedVersion(minimum):
+            trace.failureStage = .connect
+            return .unsupportedVersion(minimum: minimum)
         case .initializationFailed:
             trace.failureStage = .connect
             return .initializationFailed
@@ -245,8 +296,56 @@ actor CodexStatusService {
             return connection
         case .notLoggedIn:
             throw CodexStatusError.notLoggedIn
+        case let .unsupportedVersion(minimum):
+            throw CodexStatusError.unsupportedVersion(minimum: minimum)
         case .initializationFailed:
             throw CodexStatusError.serverConnectionClosed
+        }
+    }
+
+    /// 自动使用链路在传输故障后重建一次连接
+    /// 每次逻辑操作最多刷新一次认证, 不在业务错误上创建新进程
+    private func withAutomationConnection<Value>(
+        _ operation: (AppServerConnection) throws -> Value
+    ) throws -> Value {
+        var canRebuild = true
+
+        while true {
+            let activeConnection = try readyConnection()
+
+            do {
+                return try performAutomationOperation(
+                    using: activeConnection,
+                    operation: operation
+                )
+            } catch let error as CodexStatusError where error.isTransportFailure && canRebuild {
+                canRebuild = false
+                teardownConnection()
+                AppLog.app.notice("自动使用重置连接已重建: reason=transportError")
+            }
+        }
+    }
+
+    private func performAutomationOperation<Value>(
+        using connection: AppServerConnection,
+        operation: (AppServerConnection) throws -> Value
+    ) throws -> Value {
+        do {
+            return try operation(connection)
+        } catch let error as CodexStatusError where error.isAuthenticationRequired {
+            do {
+                try Self.refreshAccount(using: connection)
+            } catch FetchFailure.notLoggedIn {
+                throw CodexStatusError.notLoggedIn
+            } catch FetchFailure.needsRebuild {
+                throw CodexStatusError.serverConnectionClosed
+            }
+
+            do {
+                return try operation(connection)
+            } catch let error as CodexStatusError where error.isAuthenticationRequired {
+                throw CodexStatusError.notLoggedIn
+            }
         }
     }
 
@@ -295,6 +394,8 @@ actor CodexStatusService {
         switch resolution {
         case let .ready(newConnection, _):
             connection = newConnection
+        case .unsupportedVersion:
+            AppLog.app.error("codex 连接失败: stage=version")
         case .initializationFailed:
             AppLog.app.error("codex 连接失败: stage=open")
         case .notLoggedIn:
@@ -309,6 +410,37 @@ actor CodexStatusService {
     }
 
     // MARK: - 数据抓取与缓存
+
+    private func readResetCreditsForAutomation(
+        using connection: AppServerConnection
+    ) throws -> ResetCreditAutomationRead {
+        let accountResponse = try connection.session.request(
+            "account/read",
+            params: ["refreshToken": false],
+            as: AccountReadResponse.self
+        )
+        guard let account = accountResponse.account else {
+            throw CodexStatusError.notLoggedIn
+        }
+
+        connection.accountResponse = accountResponse
+        if supplementalDataCache.useAccount(account) {
+            AppLog.app.notice("额度缓存已丢弃: reason=accountChanged")
+        }
+
+        let rateLimitsResponse = try connection.session.request(
+            "account/rateLimits/read",
+            as: AccountRateLimitsResponse.self
+        )
+        supplementalDataCache.rateLimits = rateLimitsResponse
+
+        let summary = rateLimitsResponse.rateLimitResetCredits
+        return ResetCreditAutomationRead(
+            accountIdentity: ResetCreditAutomationIdentity.accountIdentity(for: account),
+            availableCount: summary?.availableCount,
+            candidates: summary?.automationCandidates
+        )
+    }
 
     /// 额度与用量独立读取
     /// 认证失败全程只刷新一次 token
@@ -389,23 +521,16 @@ actor CodexStatusService {
         )
         trace.usage = usageRead.step
 
-        let availableResetCredits = rateLimitsRead.value?.rateLimitResetCredits?.availableCount
-        let resetCreditExpirationDates = await fetchResetCreditExpirationDates(
-            availableCount: availableResetCredits,
-            refreshTokenIfNeeded: refreshTokenIfNeeded
+        trace.resetCredits = Self.resetCreditsStepResult(
+            summary: rateLimitsRead.value?.rateLimitResetCredits,
+            rateLimitsStep: rateLimitsRead.step
         )
-        if let availableResetCredits, availableResetCredits > 0 {
-            trace.resetCredits = resetCreditExpirationDates == nil ? .failed : .ok
-        } else {
-            trace.resetCredits = .skipped
-        }
 
         // rateLimits/usage 都可为空, 只要账户有效就让 UI 展示"暂无数据"
 
         guard let snapshot = try? CodexQuotaSnapshot(
             accountResponse: connection.accountResponse,
             rateLimitsResponse: rateLimitsRead.value,
-            resetCreditExpirationDates: resetCreditExpirationDates,
             usageResponse: usageRead.value,
             isRateLimitsStale: rateLimitsRead.isStale,
             isUsageStale: usageRead.isStale
@@ -417,41 +542,21 @@ actor CodexStatusService {
         return snapshot
     }
 
-    private func fetchResetCreditExpirationDates(
-        availableCount: Int?,
-        refreshTokenIfNeeded: () throws -> Void
-    ) async -> [Date]? {
-        guard let availableCount, availableCount > 0 else {
-            return nil
+    private static func resetCreditsStepResult(
+        summary: RateLimitResetCreditsSummary?,
+        rateLimitsStep: CodexFetchTrace.StepResult
+    ) -> CodexFetchTrace.StepResult {
+        guard let summary else {
+            return .missing
+        }
+        guard summary.availableCount > 0 else {
+            return .skipped
+        }
+        guard summary.credits != nil else {
+            return .missing
         }
 
-        func fetchExpirationDates() async throws -> [Date] {
-            try await CodexResetCreditsService.fetchExpirationDates(environment: Self.environment)
-        }
-
-        do {
-            return try await fetchExpirationDates()
-        } catch CodexResetCreditsService.FetchError.unauthorized {
-            do {
-                try refreshTokenIfNeeded()
-            } catch {
-                let details = LogFields.joined(
-                    "stage=refreshToken",
-                    "detail=\(error.localizedDescription)"
-                )
-                AppLog.app.error("重置次数查询失败: \(details, privacy: .public)")
-                return nil
-            }
-
-            return try? await fetchExpirationDates()
-        } catch {
-            let details = LogFields.joined(
-                "stage=fetch",
-                "detail=\(error.localizedDescription)"
-            )
-            AppLog.app.error("重置次数查询失败: \(details, privacy: .public)")
-            return nil
-        }
+        return rateLimitsStep == .cached ? .cached : .ok
     }
 
     /// 读不到账号时后面会沿用连接上缓存的那份
@@ -581,6 +686,20 @@ actor CodexStatusService {
             timeout: timeout
         )
 
+        return initializeConnection(
+            session: session,
+            command: command,
+            clientVersion: clientVersion,
+            openedAt: openedAt
+        )
+    }
+
+    private static func initializeConnection(
+        session: AppServerSession,
+        command: AppServerCommand,
+        clientVersion: String,
+        openedAt: Date
+    ) -> ConnectionResolution {
         do {
             let initializeResult = try session.request(
                 "initialize",
@@ -593,6 +712,13 @@ actor CodexStatusService {
                 ],
                 as: InitializeResult.self
             )
+
+            guard let serverVersion = Self.validatedServerVersion(
+                fromUserAgent: initializeResult.userAgent
+            ) else {
+                session.close()
+                return .unsupportedVersion(minimum: CodexCLIMinimumVersion.global)
+            }
 
             try session.notify("initialized")
 
@@ -610,7 +736,7 @@ actor CodexStatusService {
             let commandInfo = CodexCLIConnectionInfo(
                 source: command.source,
                 executablePath: command.executablePath,
-                version: Self.serverVersion(fromUserAgent: initializeResult.userAgent),
+                version: serverVersion,
                 openedAt: openedAt
             )
 
@@ -638,6 +764,25 @@ actor CodexStatusService {
     private nonisolated static func clientVersion() -> String {
         guard let version = Bundle.main.shortVersionString, !version.isEmpty else {
             return "1.0.0"
+        }
+
+        return version
+    }
+
+    private nonisolated static func validatedServerVersion(fromUserAgent userAgent: String?) -> String? {
+        let version = serverVersion(fromUserAgent: userAgent)
+        let minimumVersion = CodexCLIMinimumVersion.global
+        guard let version,
+              CodexCLIVersionReader.isVersion(version, atLeast: minimumVersion) == true else {
+            let details = LogFields.joined(
+                "current=\(version ?? "unknown")",
+                "minimum=\(minimumVersion)"
+            )
+            AppLog.codexCLI.notice("Codex 版本不支持: \(details, privacy: .public)")
+            RequestLogStorage.shared.recordFailure(
+                message: CodexStatusError.unsupportedVersion(minimum: minimumVersion).localizedDescription
+            )
+            return nil
         }
 
         return version

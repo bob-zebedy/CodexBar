@@ -5,7 +5,7 @@ import os
 /// 设置页的 Codex Hook 开关状态机, 同时管理 hooks.json 和 Codex 信任状态
 @MainActor
 final class CodexHookSettings: ObservableObject {
-    static let minimumSupportedCodexVersion = "0.145.0"
+    static let minimumSupportedCodexVersion = CodexCLIMinimumVersion.hook
 
     @Published private(set) var isEnabled = false
     @Published private(set) var isUpdating = false

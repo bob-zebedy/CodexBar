@@ -18,6 +18,7 @@ nonisolated struct CodexQuotaSnapshot: Equatable {
     let credits: RateLimitCreditsSnapshot?
     let resetCreditsAvailableCount: Int?
     let resetCreditExpirationDates: [Date]?
+    let resetCreditAutomationCandidates: [ResetCreditAutomationCandidate]?
     let generatedAt: Date
     let limits: [CodexQuotaLimitSnapshot]
     let usage: CodexUsageSnapshot?
@@ -142,9 +143,92 @@ nonisolated struct AccountRateLimitsResponse: Decodable {
     let rateLimitResetCredits: RateLimitResetCreditsSummary?
 }
 
-/// app-server 返回的可用额度重置次数
+/// app-server 返回的可用额度重置次数和明细
 nonisolated struct RateLimitResetCreditsSummary: Decodable {
     let availableCount: Int
+    let credits: [RateLimitResetCredit]?
+
+    func availableExpirationDates(now: Date) -> [Date]? {
+        guard availableCount > 0, let credits else {
+            return nil
+        }
+
+        return credits.compactMap { credit in
+            guard credit.status == "available", let expirationDate = credit.expirationDate,
+                  expirationDate > now else {
+                return nil
+            }
+
+            return expirationDate
+        }
+        .sorted()
+    }
+
+    /// 自动使用只接受 app-server 明确返回的可用 Codex 额度重置凭证
+    var automationCandidates: [ResetCreditAutomationCandidate]? {
+        guard let credits else {
+            return nil
+        }
+
+        return credits.compactMap { credit in
+            guard credit.status == "available",
+                  credit.resetType == "codexRateLimits",
+                  let expirationDate = credit.expirationDate else {
+                return nil
+            }
+
+            return ResetCreditAutomationCandidate(
+                id: credit.id,
+                expirationDate: expirationDate
+            )
+        }
+    }
+}
+
+/// app-server 返回的单个额度重置凭证
+nonisolated struct RateLimitResetCredit: Decodable {
+    let id: String
+    let status: String
+    let resetType: String
+    let expiresAt: Int64?
+
+    var expirationDate: Date? {
+        expiresAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+    }
+}
+
+/// 自动使用链路需要的最小凭证快照
+nonisolated struct ResetCreditAutomationCandidate: Equatable, Sendable {
+    let id: String
+    let expirationDate: Date
+}
+
+/// 自动使用前强制读取的账号和重置凭证明细
+nonisolated struct ResetCreditAutomationRead: Sendable {
+    let accountIdentity: String
+    let availableCount: Int?
+    let candidates: [ResetCreditAutomationCandidate]?
+}
+
+/// app-server 消费重置凭证的稳定结果集合
+nonisolated enum ResetCreditConsumeOutcome: String, Decodable, Sendable {
+    case reset
+    case nothingToReset
+    case noCredit
+    case alreadyRedeemed
+}
+
+nonisolated struct ResetCreditConsumeResponse: Decodable, Sendable {
+    let outcome: ResetCreditConsumeOutcome
+}
+
+nonisolated struct ResetCreditConsumeResult: Sendable {
+    let outcome: ResetCreditConsumeOutcome
+    let refreshedRead: ResetCreditAutomationRead?
+}
+
+nonisolated enum ResetCreditAutomationServiceError: Error, Sendable {
+    case accountChanged
 }
 
 /// app-server 返回的单个 limit, primary/secondary 可能独立缺失
@@ -180,7 +264,6 @@ nonisolated extension CodexQuotaSnapshot {
     init(
         accountResponse: AccountReadResponse,
         rateLimitsResponse: AccountRateLimitsResponse?,
-        resetCreditExpirationDates: [Date]? = nil,
         usageResponse: AccountUsageResponse? = nil,
         isRateLimitsStale: Bool = false,
         isUsageStale: Bool = false,
@@ -199,6 +282,12 @@ nonisolated extension CodexQuotaSnapshot {
         let usage = usageResponse.map {
             CodexUsageSnapshot(summary: $0.summary, dailyBuckets: $0.dailyUsageBuckets)
         }
+        let resetCreditExpirationDates = rateLimitsResponse?
+            .rateLimitResetCredits?
+            .availableExpirationDates(now: generatedAt)
+        let resetCreditAutomationCandidates = rateLimitsResponse?
+            .rateLimitResetCredits?
+            .automationCandidates
 
         // rateLimits/usage 可同时为空
         // 账户有效时仍生成快照给 UI 展示 `暂无数据`
@@ -209,6 +298,7 @@ nonisolated extension CodexQuotaSnapshot {
             credits: rateLimitsResponse.flatMap { Self.primaryCredits(from: $0) },
             resetCreditsAvailableCount: rateLimitsResponse?.rateLimitResetCredits?.availableCount,
             resetCreditExpirationDates: resetCreditExpirationDates,
+            resetCreditAutomationCandidates: resetCreditAutomationCandidates,
             generatedAt: generatedAt,
             limits: limits,
             usage: usage,

@@ -8,6 +8,7 @@ nonisolated enum CodexStatusError: LocalizedError {
     case invalidServerResponse
     case serverError(String)
     case unsupportedMethod
+    case unsupportedVersion(minimum: String)
     case notLoggedIn
 
     var errorDescription: String? {
@@ -39,6 +40,8 @@ nonisolated enum CodexStatusError: LocalizedError {
                 localized: "codex-status.error.unsupported-method",
                 defaultValue: "Codex app-server 不支持该接口"
             )
+        case let .unsupportedVersion(minimum):
+            String(localized: "需要 Codex \(minimum) 或更高版本")
         case .notLoggedIn:
             String(
                 localized: "codex-status.error.not-logged-in",
@@ -49,7 +52,12 @@ nonisolated enum CodexStatusError: LocalizedError {
 
     /// codex app-server 未登录
     var isAuthenticationRequired: Bool {
-        serverErrorMessageContains("codex account authentication required")
+        switch self {
+        case .notLoggedIn:
+            true
+        default:
+            serverErrorMessageContains("codex account authentication required")
+        }
     }
 
     /// codex app-server 不支持的方法
@@ -68,6 +76,22 @@ nonisolated enum CodexStatusError: LocalizedError {
         }
 
         return !isAuthenticationRequired && !isUnsupportedMethod
+    }
+
+    /// 参数或协议形状不正确时继续用同一请求重试不会恢复
+    var isProtocolOrParameterFailure: Bool {
+        switch self {
+        case .unsupportedMethod, .unsupportedVersion:
+            true
+        case .serverError:
+            serverErrorMessageContains("invalid params")
+                || serverErrorMessageContains("invalid request")
+                || serverErrorMessageContains("missing field")
+                || serverErrorMessageContains("unknown field")
+                || serverErrorMessageContains("invalid type")
+        default:
+            false
+        }
     }
 
     /// 连接断开, 超时, 无法解析都需要重建 app-server 会话

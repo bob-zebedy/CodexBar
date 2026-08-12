@@ -118,7 +118,7 @@ CodexActivityTask
 ## 主要入口
 
 - App 启动入口：[`CodexBarApp.swift`](../../CodexBar/App/CodexBarApp.swift)
-- 服务装配入口：[`StatusItemController.swift`](../../CodexBar/Controllers/StatusItemController.swift)
+- 服务装配入口：[`CodexBarAppDelegate.swift`](../../CodexBar/Controllers/CodexBarAppDelegate.swift)
 - app-server 服务：[`CodexStatusService.swift`](../../CodexBar/Services/CodexStatus/CodexStatusService.swift)
 - Hook 子进程入口：[`WorkflowHookEventRecorder.swift`](../../CodexBar/Services/Workflow/WorkflowHookEventRecorder.swift)
 - 实时任务状态机：[`CodexActivityMonitor.swift`](../../CodexBar/Services/Workflow/CodexActivityMonitor.swift)

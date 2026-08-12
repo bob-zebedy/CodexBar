@@ -17,7 +17,6 @@ CodexBar 只读取实现账户展示、Hook 统计、实时任务和防睡眠所
 
 | 分类 | 示例 | 默认处理 |
 | --- | --- | --- |
-| 凭据 | OAuth token、`auth.json` | 只在请求期间使用、不复制、不记录 |
 | 内容 | prompt, response, tool 参数和输出 | 不采集 |
 | 身份和上下文 | session ID、完整路径、project 名 | 仅在必要链路最小化使用，上传前脱敏或删除 |
 | 聚合指标 | 每日事件数、model 计数 | 可本地持久化，用户 opt-in 后上传规定字段 |
@@ -27,16 +26,16 @@ CodexBar 只读取实现账户展示、Hook 统计、实时任务和防睡眠所
 ## 信任边界
 
 ```text
-Codex hook stdin / rollout / auth.json / app-server
-                    |
-                    v
-            普通用户权限的 CodexBar
-             |                    |
-             v                    v
-     CloudKit private DB     受限 XPC 接口
-                                  |
-                                  v
-                         root CodexBarHelper
+Codex hook stdin / rollout / app-server
+                  |
+                  v
+          普通用户权限的 CodexBar
+           |                    |
+           v                    v
+   CloudKit private DB     受限 XPC 接口
+                                |
+                                v
+                       root CodexBarHelper
 ```
 
 边界含义如下：
@@ -64,10 +63,9 @@ CodexBar 的最小化顺序是：
 
 | 来源 | CodexBar 使用方式 | 是否持久化 | 是否上传 CloudKit |
 | --- | --- | --- | --- |
-| app-server 账户和额度 | 主面板和通知判断 | 仅设置和短期状态 | 否 |
+| app-server 账户、额度和 Reset Credits | 主面板、通知判断和用户启用的自动使用 | 仅短期状态 | 否 |
 | Hook 结构化事件 | 历史聚合和实时任务 | 是，最长 210 天 | 只上传日聚合 |
 | rollout 生命周期 | terminal 和进展对账 | 不单独持久化 | 否 |
-| `auth.json` token | 查询 Reset Credits 到期时间 | 不复制 | 否 |
 | App 设置 | 功能开关和阈值 | UserDefaults | 否 |
 | Activity Protection | 异常会话恢复 | 哈希身份，最长 24 小时 | 否 |
 | CodexBarHelper ownership | 系统睡眠恢复 | root 状态文件 | 否 |
@@ -87,11 +85,11 @@ app-server、Hook 历史和实时活动读取不同事实，具有不同的新�
 
 ### Codex app-server
 
-App 通过本机 `codex app-server --listen stdio://` 获取账户、额度、token 用量和 Codex 配置。
+App 通过本机 `codex app-server --listen stdio://` 获取账户、额度、token 用量、Reset Credits 明细和 Codex 配置。用户主动开启自动使用后，App 还会通过同一 stdio 会话调用 Reset Credit 消费方法。
 
 CodexBar 不自行实现账户登录。app-server 是否访问 OpenAI 服务由 Codex CLI 的正常认证和协议行为决定。
 
-CodexBar 只通过 stdio 与本机进程通信，不从 app-server 响应中复制认证材料。request log 保存协议方法和结果摘要，不是原始 wire dump。
+CodexBar 只通过 stdio 与本机进程通信，不从 app-server 响应中复制认证材料。request log 保存规范化后的完整请求与响应 JSON，只存在当前 App 进程内存，不持久化。内容可能包含账户响应、opaque credit ID 和幂等键，不能把它当作脱敏摘要。
 
 ### Hook 事件
 
@@ -117,18 +115,20 @@ rollout reader 从文件尾部按预算扫描，一方面减少 I/O，另一方�
 
 这不是对 rollout 文件的完整隐私隔离，因为 reader 仍需打开原文件。因此如果未来加入全文搜索或 prompt 展示，应视为新的产品隐私能力，不能当作现有 reader 的自然扩展。
 
-### Codex 凭据
+### Reset Credits 明细
 
-Reset Credits 数量大于 `0` 时，App 读取现有 `auth.json` access token，只用于调用到期时间接口：
+`account/rateLimits/read` 在 app-server 响应中返回 Reset Credits 数量和可选明细。
 
-- 不修改 `auth.json`
-- 不保存 token 副本
-- 不把 token 写入 UserDefaults、Hook 文件、CloudKit 或日志
-- 请求结束后只保留解析出的业务结果
+- `availableCount` 是可用总数的权威值
+- `credits == nil` 表示服务端只提供数量
+- 空明细数组表示服务端已读取明细，但没有返回可用凭证
+- 明细列表可能被截断，不能用数组长度覆盖总数
+- 菜单和临期通知只使用仍为 `available` 且尚未过期的 `expiresAt`
+- 自动使用只处理新鲜响应明确列出的 `available + codexRateLimits + expiresAt` 明细
+- opaque credit ID 和确定性幂等键只存在于当前进程内存，包括 app-server 响应与缓存、额度快照、自动使用状态机和内存请求日志，不持久化或上传
+- 自动使用通知写入 UserDefaults 的去重 key 只包含账户与 credit ID 的 SHA-256 组合，不保存原值
 
-access token 只在 Reset Credits 数量大于 0 且需要到期信息时读取。这个条件把凭据读取限制到确有业务价值的路径，常规额度刷新不触碰 `auth.json`
-
-网络错误中可能包含请求描述，记录前必须确认不会把 Authorization header 拼进错误文本。当前日志只记录错误分类和非敏感 detail。
+额度响应来自旧缓存时可以继续展示，但不能触发新的临期通知或消费操作。自动使用设置和调度状态不进入 CloudKit，Mac 之间只通过服务端消费接口的确定性幂等键收敛。
 
 ## 本地持久化
 
@@ -174,6 +174,7 @@ UserDefaults 保存：
 - 通知阈值和声音名称
 - 全局快捷键
 - 菜单栏显示选择
+- 自动使用重置开关和临期时间
 - 有界的通知去重 key
 - CodexBarHelper fingerprint 等运行配置
 
@@ -220,11 +221,10 @@ ring buffer 的 500 条上限既控制内存，也限制打开日志窗口时的
 
 | 目标 | 用途 | 触发条件 |
 | --- | --- | --- |
-| OpenAI Reset Credits endpoint | 查询手动重置次数到期时间 | 可用数量大于 `0` |
 | CloudKit private database | 同步日级 Hook 聚合 | 用户主动开启同步 |
 | Sparkle appcast 和更新资源 | 检查或安装更新 | 自动检查或用户手动检查 |
 
-账户、额度和 token 用量通过本机 app-server stdio 获取，CodexBar 不直接请求对应账户 API。
+账户、额度、token 用量、Reset Credits 明细和用户明确开启的 Reset Credit 消费通过本机 app-server stdio 完成。CodexBar 不为自动使用增加独立 HTTP 客户端。
 
 CodexBarHelper 不进行任何网络访问。
 
@@ -247,6 +247,7 @@ CloudKit 不上传：
 - 完整工作目录
 - prompt, response, tool 参数或输出
 - Codex 账户、额度和 token 用量
+- Reset Credits 明细、自动使用设置和消费状态
 - access token
 - App 请求日志
 - Activity Protection 状态

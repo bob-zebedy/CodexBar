@@ -42,9 +42,9 @@ CodexBar executable
   |-- Hook 模式: 最小解析 + flock + JSONL append + exit
   |
   `-- 普通模式
-       |-- stdio JSON-RPC <-> codex app-server
+       |-- stdio JSON-RPC <-> codex app-server（账户、额度、Reset Credits）
        |-- 本地只读 <-> Hook JSONL / rollout JSONL
-       |-- HTTPS <-> Reset Credits / Sparkle
+       |-- HTTPS <-> Sparkle
        |-- CloudKit private database <-> 日级聚合
        `-- signed XPC lease <-> root CodexBarHelper <-> fixed pmset commands
 ```
@@ -144,7 +144,7 @@ CodexBar 不使用一个聚合服务承载所有状态。3 条链路的输入、
 
 | 链路 | 输入 | 输出 | 主要消费者 |
 | --- | --- | --- | --- |
-| app-server | `codex app-server` JSON-RPC | 账户、额度、token 用量、Hook 配置能力 | 主面板、菜单栏额度、设置 |
+| app-server | `codex app-server` JSON-RPC | 账户、额度、token 用量、Reset Credit 使用、Hook 配置能力 | 主面板、菜单栏额度、设置、自动使用状态机 |
 | Hook 历史 | Hook JSONL | 日级事件、session, turn, tool, model 聚合 | 活跃度热力图、历史统计、CloudKit |
 | 实时任务 | Hook 增量事件加 rollout 生命周期 | 运行、等待批准、完成、中断 | 菜单栏状态、任务中心、通知、防睡眠 |
 
@@ -158,14 +158,18 @@ CodexBar 不使用一个聚合服务承载所有状态。3 条链路的输入、
 ### 依赖方向
 
 ```text
-CodexStatusService ----> CodexStatusViewModel ----+
-                                                 |
-WorkflowService -------> WorkflowViewModel -------+--> UI
-                                                 |
-Hook + rollout --------> CodexActivityMonitor ----+
+CodexStatusService ----------------> CodexStatusViewModel ----------------> UI
+CodexStatusViewModel --------------> CodexNotificationService
+CodexStatusService ----------------> ResetCreditAutomationController
+CodexStatusViewModel --------------> ResetCreditAutomationController
+ResetCreditAutomationController ---> CodexNotificationService
+
+WorkflowService -------> WorkflowViewModel -----------> UI
+
+Hook + rollout --------> CodexActivityMonitor --------> UI
                               |          |
-                              |          +--> CodexNotificationService
-                              `-------------> KeepAliveController --> helper
+                              |          +------------> CodexNotificationService
+                              `-----------------------> KeepAliveController --> helper
 ```
 
 箭头表示数据或只读状态的消费方向。下游不能反向成为上游的事实来源。
@@ -193,6 +197,7 @@ Hook + rollout --------> CodexActivityMonitor ----+
 - `CodexActivityMonitor`
 - `KeepAliveController`
 - `CodexNotificationService`
+- `ResetCreditAutomationController`
 
 这些对象负责可观察状态和 UI 协调，不应直接执行阻塞 I/O。
 
@@ -288,6 +293,7 @@ Hook recorder 是另一个进程，所以 `WorkflowService` actor 无法保护�
 | --- | --- | --- |
 | app-server 连接与同账户缓存 | `CodexStatusService` | 请求只读结果 |
 | 主面板账户加载状态 | `CodexStatusViewModel` | 观察发布值 |
+| 自动使用临期重置的目标、deadline 和重试 | `ResetCreditAutomationController` | 设置页只修改开关和临期时间 |
 | Hook 安装与验证 | `CodexHookSettings` | 读取 `isOperable` |
 | 历史聚合和维护游标 | `WorkflowService` | 请求快照或重建 |
 | 实时任务 | `CodexActivityMonitor` | 读取 snapshot 或 transition |
@@ -376,7 +382,8 @@ Hook recorder 是另一个进程，所以 `WorkflowService` actor 无法保护�
 ## 关键源码
 
 - [`CodexBarApp.swift`](../../CodexBar/App/CodexBarApp.swift) 定义启动入口
-- [`StatusItemController.swift`](../../CodexBar/Controllers/StatusItemController.swift) 包含 AppDelegate 和菜单栏编排
+- [`CodexBarAppDelegate.swift`](../../CodexBar/Controllers/CodexBarAppDelegate.swift) 负责普通模式服务装配
+- [`StatusItemController.swift`](../../CodexBar/Controllers/StatusItemController.swift) 负责菜单栏编排
 - [`CodexStatusService.swift`](../../CodexBar/Services/CodexStatus/CodexStatusService.swift) 管理 app-server
 - [`WorkflowService.swift`](../../CodexBar/Services/Workflow/WorkflowService.swift) 管理 Hook 历史聚合
 - [`CodexActivityMonitor.swift`](../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) 管理实时任务

@@ -4,6 +4,12 @@ import Foundation
 import os
 import UserNotifications
 
+nonisolated enum ResetCreditAutomationFailureNotice: String, Sendable {
+    case expired
+    case authentication
+    case permanent
+}
+
 /// 集中式提醒服务: 订阅额度与实时活动, 负责触觉反馈; 阈值判定; 去重; 重置识别与本地通知发送
 @MainActor
 final class CodexNotificationService: NSObject {
@@ -444,6 +450,38 @@ final class CodexNotificationService: NSObject {
         }
     }
 
+    // MARK: - 自动使用重置
+
+    func notifyResetCreditAutoUseSucceeded(
+        remainingCount: Int?,
+        dedupToken: String
+    ) {
+        guard settings.canDeliver, settings.isResetCreditAutoUseEnabled else {
+            return
+        }
+
+        send(
+            .resetCreditAutoUseSucceeded(remainingCount: remainingCount),
+            sound: settings.resetCreditAutoUseSound,
+            dedupKey: "autoResetSuccess|\(dedupToken)"
+        )
+    }
+
+    func notifyResetCreditAutoUseFailed(
+        reason: ResetCreditAutomationFailureNotice,
+        dedupToken: String
+    ) {
+        guard settings.canDeliver, settings.isResetCreditAutoUseEnabled else {
+            return
+        }
+
+        send(
+            .resetCreditAutoUseFailed(reason: reason),
+            sound: settings.resetCreditAutoUseSound,
+            dedupKey: "autoResetFailure|\(dedupToken)|\(reason.rawValue)"
+        )
+    }
+
     // MARK: - 低电量保护
 
     /// 由 KeepAliveController 在低电量导致睡眠恢复成功之后调用, 恢复失败不会走到这里
@@ -479,7 +517,8 @@ final class CodexNotificationService: NSObject {
     // MARK: - 重置次数临期提醒
 
     private func processCreditExpirations(_ snapshot: CodexQuotaSnapshot) {
-        guard settings.isCreditExpiryEnabled,
+        guard !snapshot.isRateLimitsStale,
+              settings.isCreditExpiryEnabled,
               let dates = snapshot.resetCreditExpirationDates else {
             scheduleNextCreditExpiryCheck(dates: [])
             return
@@ -784,6 +823,57 @@ nonisolated struct CodexNotificationContent: Equatable {
                 localized: "notification.quota-reset.body",
                 defaultValue: "\(limitTitle) \(windowLabel)"
             )
+        )
+    }
+
+    static func resetCreditAutoUseSucceeded(remainingCount: Int?) -> CodexNotificationContent {
+        let body = if let remainingCount {
+            String(
+                localized: "notification.reset-credit-auto-use.body.count",
+                defaultValue: "剩余重置次数: \(remainingCount)"
+            )
+        } else {
+            ""
+        }
+
+        return CodexNotificationContent(
+            kind: "resetCreditAutoUse",
+            title: String(
+                localized: "notification.reset-credit-auto-use.title",
+                defaultValue: "自动使用重置"
+            ),
+            body: body
+        )
+    }
+
+    static func resetCreditAutoUseFailed(
+        reason: ResetCreditAutomationFailureNotice
+    ) -> CodexNotificationContent {
+        let body = switch reason {
+        case .expired:
+            String(
+                localized: "notification.reset-credit-auto-use-failed.body.expired",
+                defaultValue: "已过期, 未能自动使用"
+            )
+        case .authentication:
+            String(
+                localized: "notification.reset-credit-auto-use-failed.body.authentication",
+                defaultValue: "Codex 登录状态已失效"
+            )
+        case .permanent:
+            String(
+                localized: "notification.reset-credit-auto-use-failed.body.permanent",
+                defaultValue: "请求无法完成"
+            )
+        }
+
+        return CodexNotificationContent(
+            kind: "resetCreditAutoUseFailed",
+            title: String(
+                localized: "notification.reset-credit-auto-use-failed.title",
+                defaultValue: "自动使用重置失败"
+            ),
+            body: body
         )
     }
 

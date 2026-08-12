@@ -35,7 +35,7 @@ SwiftUI 负责声明内容，AppKit 负责窗口和事件生命周期：
 
 ## 服务装配
 
-[`StatusItemController.swift`](../../CodexBar/Controllers/StatusItemController.swift) 同时包含 AppDelegate 和菜单栏主控制器。
+[`CodexBarAppDelegate.swift`](../../CodexBar/Controllers/CodexBarAppDelegate.swift) 是普通模式的 composition root，[`StatusItemController.swift`](../../CodexBar/Controllers/StatusItemController.swift) 只负责菜单栏和相关窗口编排。
 
 AppDelegate 负责：
 
@@ -303,6 +303,7 @@ app-server 状态默认每 60 秒刷新。面板打开时会安排约 160 ms 的
 
 ## 关键源码
 
+- [`CodexBarAppDelegate.swift`](../../CodexBar/Controllers/CodexBarAppDelegate.swift)
 - [`StatusItemController.swift`](../../CodexBar/Controllers/StatusItemController.swift)
 - [`FallbackPanelController.swift`](../../CodexBar/Controllers/FallbackPanelController.swift)
 - [`MenuSurfaceDismissMonitor.swift`](../../CodexBar/Controllers/MenuSurfaceDismissMonitor.swift)
