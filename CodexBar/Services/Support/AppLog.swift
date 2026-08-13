@@ -56,7 +56,7 @@ nonisolated enum LogTrigger: String {
     /// 电量或供电方式变化
     case battery
     case statusRefresh
-    case resetCreditAutoUse
+    case autoReset
 }
 
 /// 日志里耗时字段的统一取值方式, 保留两位小数并带单位

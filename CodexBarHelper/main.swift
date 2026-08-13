@@ -1,5 +1,7 @@
 import Darwin
 import Foundation
+import IOKit
+import IOKit.pwr_mgt
 import os
 import Security
 
@@ -89,6 +91,14 @@ private enum SleepRestoreTrigger: String {
     case helperTermination
 }
 
+private enum WakeScheduleCleanupTrigger: String {
+    case appRequest
+    case connectionClosed
+    case helperStartup
+    case ownershipCheck
+    case helperTermination
+}
+
 // MARK: - pmset 调用
 
 private enum PmsetRunner {
@@ -142,6 +152,83 @@ private enum PmsetRunner {
         // pmset 只在 disablesleep=1 时输出 SleepDisabled, 字段缺失表示默认值 0
         return false
     }
+}
+
+private enum AutoResetWakeScheduler {
+    static let owner = CodexBarHelperIPC.machServiceName + ".auto-reset"
+
+    static func replaceSchedule(with date: Date?) -> IOReturn {
+        let cancelResult = cancelOwnedEvents()
+        guard cancelResult == kIOReturnSuccess else {
+            return cancelResult
+        }
+
+        guard let date else {
+            return kIOReturnSuccess
+        }
+        let scheduleResult = IOPMSchedulePowerEvent(
+            date as CFDate,
+            owner as CFString,
+            kIOPMAutoWake as CFString
+        )
+        guard scheduleResult == kIOReturnSuccess else {
+            return scheduleResult
+        }
+
+        let events = ownedEvents()
+        guard events.count == 1,
+              let scheduledDate = events[0][kIOPMPowerEventTimeKey] as? Date,
+              abs(scheduledDate.timeIntervalSince(date)) <= verificationTolerance else {
+            return kIOReturnError
+        }
+        return kIOReturnSuccess
+    }
+
+    static var ownedEventCount: Int {
+        ownedEvents().count
+    }
+
+    private static func cancelOwnedEvents() -> IOReturn {
+        var firstFailure: IOReturn?
+        for event in ownedEvents() {
+            guard let eventDate = event[kIOPMPowerEventTimeKey] as? Date else {
+                firstFailure = firstFailure ?? kIOReturnBadArgument
+                continue
+            }
+
+            let result = IOPMCancelScheduledPowerEvent(
+                eventDate as CFDate,
+                owner as CFString,
+                kIOPMAutoWake as CFString
+            )
+            if result != kIOReturnSuccess,
+               result != kIOReturnNotFound {
+                firstFailure = firstFailure ?? result
+            }
+        }
+
+        guard ownedEvents().isEmpty else {
+            return firstFailure ?? kIOReturnError
+        }
+        return kIOReturnSuccess
+    }
+
+    private static func ownedEvents() -> [NSDictionary] {
+        guard let events = IOPMCopyScheduledPowerEvents()?.takeRetainedValue() else {
+            return []
+        }
+
+        return (events as NSArray).compactMap { value in
+            guard let event = value as? NSDictionary,
+                  event[kIOPMPowerEventAppNameKey] as? String == owner,
+                  event[kIOPMPowerEventTypeKey] as? String == kIOPMAutoWake else {
+                return nil
+            }
+            return event
+        }
+    }
+
+    private static let verificationTolerance: TimeInterval = 1
 }
 
 private final class CodexBarHelperConnectionSession: NSObject, CodexBarHelperProtocol,
@@ -199,6 +286,21 @@ private final class CodexBarHelperConnectionSession: NSObject, CodexBarHelperPro
             reply: reply
         )
     }
+
+    func setAutoResetWakeSchedule(
+        _ unixTimestamp: TimeInterval,
+        reply: @escaping @Sendable (Int32) -> Void
+    ) {
+        guard let runtime else {
+            reply(-1)
+            return
+        }
+        runtime.setAutoResetWakeSchedule(
+            unixTimestamp,
+            for: identifier,
+            reply: reply
+        )
+    }
 }
 
 private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
@@ -214,6 +316,8 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
     private var lastKnownSleepDisabled: Bool?
     private var ownershipTimer: DispatchSourceTimer?
     private var scheduledOwnershipCheckInterval: TimeInterval?
+    private var autoResetWakeConnectionIdentifier: UUID?
+    private var isAutoResetWakeCleanupPending = false
     private var signalSources = [DispatchSourceSignal]()
     private var listener: NSXPCListener?
 
@@ -237,6 +341,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
         }
 
         recoverOwnershipAtStartup()
+        recoverAutoResetWakeScheduleAtStartup()
         installOwnershipTimer()
         installSignalHandlers()
 
@@ -365,6 +470,67 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
         }
     }
 
+    fileprivate func setAutoResetWakeSchedule(
+        _ unixTimestamp: TimeInterval,
+        for identifier: UUID,
+        reply: @escaping @Sendable (Int32) -> Void
+    ) {
+        queue.async { [self] in
+            guard connections.contains(identifier),
+                  unixTimestamp.isFinite,
+                  unixTimestamp >= 0 else {
+                reply(kIOReturnBadArgument)
+                return
+            }
+
+            let date: Date?
+            if unixTimestamp == 0 {
+                date = nil
+            } else {
+                let requestedDate = Date(timeIntervalSince1970: unixTimestamp)
+                guard requestedDate > Date() else {
+                    reply(kIOReturnBadArgument)
+                    return
+                }
+                date = requestedDate
+            }
+
+            if date == nil {
+                autoResetWakeConnectionIdentifier = nil
+            } else {
+                autoResetWakeConnectionIdentifier = identifier
+            }
+
+            let result: IOReturn = if date == nil {
+                cancelAutoResetWakeSchedule(trigger: .appRequest)
+            } else {
+                AutoResetWakeScheduler.replaceSchedule(with: date)
+            }
+            guard result == kIOReturnSuccess else {
+                if date != nil {
+                    scheduleOwnershipTimerIfNeeded()
+                }
+                let details = LogFields.joined(
+                    "action=\(date == nil ? "cancel" : "schedule")",
+                    "code=\(result)"
+                )
+                helperLog.error("自动重置唤醒计划更新失败: \(details, privacy: .public)")
+                reply(result)
+                return
+            }
+
+            if date != nil {
+                isAutoResetWakeCleanupPending = false
+                scheduleOwnershipTimerIfNeeded()
+            }
+            if let date {
+                let epoch = Int(date.timeIntervalSince1970)
+                helperLog.notice("自动重置唤醒计划已设置: epoch=\(epoch)")
+            }
+            reply(kIOReturnSuccess)
+        }
+    }
+
     func listener(
         _: NSXPCListener,
         shouldAcceptNewConnection newConnection: NSXPCConnection
@@ -395,6 +561,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
                 return
             }
 
+            cancelAutoResetWakeSchedule(ifOwnedBy: identifier)
             let droppedClients = clients.compactMap { clientIdentifier, lease in
                 lease.connectionIdentifier == identifier ? clientIdentifier : nil
             }
@@ -413,6 +580,39 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
             }
             scheduleOwnershipTimerIfNeeded()
         }
+    }
+
+    private func cancelAutoResetWakeSchedule(ifOwnedBy identifier: UUID) {
+        guard autoResetWakeConnectionIdentifier == identifier else {
+            return
+        }
+
+        autoResetWakeConnectionIdentifier = nil
+        _ = cancelAutoResetWakeSchedule(trigger: .connectionClosed)
+    }
+
+    @discardableResult
+    private func cancelAutoResetWakeSchedule(
+        trigger: WakeScheduleCleanupTrigger
+    ) -> IOReturn {
+        defer { scheduleOwnershipTimerIfNeeded() }
+        let result = AutoResetWakeScheduler.replaceSchedule(with: nil)
+        guard result == kIOReturnSuccess else {
+            isAutoResetWakeCleanupPending = true
+            let details = LogFields.joined(
+                "reason=\(trigger.rawValue)",
+                "code=\(result)",
+                "remaining=\(AutoResetWakeScheduler.ownedEventCount)"
+            )
+            helperLog.error("自动重置唤醒计划取消失败: \(details, privacy: .public)")
+            return result
+        }
+
+        isAutoResetWakeCleanupPending = false
+        helperLog.notice(
+            "自动重置唤醒计划已取消: reason=\(trigger.rawValue, privacy: .public)"
+        )
+        return kIOReturnSuccess
     }
 
     private func scheduleWatchdog(for clientIdentifier: UUID, generation: UInt64) {
@@ -735,6 +935,35 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
         }
     }
 
+    private func recoverAutoResetWakeScheduleAtStartup() {
+        let initialEventCount = AutoResetWakeScheduler.ownedEventCount
+        guard initialEventCount > 0 else {
+            return
+        }
+
+        var lastResult = IOReturn(kIOReturnError)
+        for delay in Self.wakeCleanupStartupRetryDelays {
+            if delay > 0 {
+                Thread.sleep(forTimeInterval: delay)
+            }
+            lastResult = AutoResetWakeScheduler.replaceSchedule(with: nil)
+            if lastResult == kIOReturnSuccess {
+                helperLog.notice(
+                    "自动重置遗留唤醒计划已清理: reason=helperStartup count=\(initialEventCount)"
+                )
+                return
+            }
+        }
+
+        isAutoResetWakeCleanupPending = true
+        let details = LogFields.joined(
+            "reason=\(WakeScheduleCleanupTrigger.helperStartup.rawValue)",
+            "code=\(lastResult)",
+            "remaining=\(AutoResetWakeScheduler.ownedEventCount)"
+        )
+        helperLog.error("自动重置遗留唤醒计划清理失败: \(details, privacy: .public)")
+    }
+
     private func installOwnershipTimer() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.setEventHandler { [weak self] in
@@ -745,6 +974,10 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
                 _ = reconcileRequestedSleep(logsExternalState: false)
             } else if ownership.needsRestore, watchdogs.isEmpty {
                 _ = restoreOwnedSleep(trigger: .ownershipCheck)
+            }
+            if isAutoResetWakeCleanupPending,
+               autoResetWakeConnectionIdentifier == nil {
+                _ = cancelAutoResetWakeSchedule(trigger: .ownershipCheck)
             }
             scheduleOwnershipTimerIfNeeded()
         }
@@ -758,7 +991,9 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
             return
         }
 
-        let interval: TimeInterval = if activeClientCount == 0 {
+        let interval: TimeInterval = if isAutoResetWakeCleanupPending {
+            CodexBarHelperIPC.ownedCheckIntervalSeconds
+        } else if activeClientCount == 0 {
             CodexBarHelperIPC.recoveryCheckIntervalSeconds
         } else if ownership.needsRestore {
             CodexBarHelperIPC.ownedCheckIntervalSeconds
@@ -788,12 +1023,16 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
                 if ownership.needsRestore {
                     _ = restoreOwnedSleep(trigger: .helperTermination)
                 }
+                autoResetWakeConnectionIdentifier = nil
+                _ = cancelAutoResetWakeSchedule(trigger: .helperTermination)
                 exit(EXIT_SUCCESS)
             }
             source.resume()
             signalSources.append(source)
         }
     }
+
+    private static let wakeCleanupStartupRetryDelays: [TimeInterval] = [0, 0.25, 1]
 
     // MARK: - 所有权记录
 

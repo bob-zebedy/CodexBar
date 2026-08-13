@@ -16,7 +16,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let menuBarQuotaSettings: MenuBarQuotaSettings
     private let mainPanelSettings: MainPanelSettings
     private let notificationSettings: NotificationSettings
-    private let resetCreditAutomationSettings: ResetCreditAutomationSettings
+    private let autoResetSettings: AutoResetSettings
     private let keepAliveController: KeepAliveController
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -48,7 +48,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menuBarQuotaSettings: menuBarQuotaSettings,
         mainPanelSettings: mainPanelSettings,
         notificationSettings: notificationSettings,
-        resetCreditAutomationSettings: resetCreditAutomationSettings,
+        autoResetSettings: autoResetSettings,
         activityProtectionSettings: activityMonitor.activityProtectionSettings,
         keepAliveController: keepAliveController
     ) { [weak self] in
@@ -119,7 +119,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menuBarQuotaSettings: MenuBarQuotaSettings,
         mainPanelSettings: MainPanelSettings,
         notificationSettings: NotificationSettings,
-        resetCreditAutomationSettings: ResetCreditAutomationSettings,
+        autoResetSettings: AutoResetSettings,
         keepAliveController: KeepAliveController,
         appUpdater: AppUpdater
     ) {
@@ -133,7 +133,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.menuBarQuotaSettings = menuBarQuotaSettings
         self.mainPanelSettings = mainPanelSettings
         self.notificationSettings = notificationSettings
-        self.resetCreditAutomationSettings = resetCreditAutomationSettings
+        self.autoResetSettings = autoResetSettings
         self.keepAliveController = keepAliveController
         self.appUpdater = appUpdater
         super.init()

@@ -54,7 +54,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; invalid events skipped: %lld"
+            "value" : "; skipped %lld invalid events"
           }
         },
         "zh-Hans" : {
@@ -327,7 +327,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Settings"
+            "value" : "Settings…"
           }
         },
         "zh-Hans" : {
@@ -583,7 +583,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hooks are disabled in the Codex configuration"
+            "value" : "Codex Hook is disabled in Codex settings"
           }
         },
         "zh-Hans" : {
@@ -743,7 +743,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex CLI or Codex app not found"
+            "value" : "Could not find the Codex CLI or app"
           }
         },
         "zh-Hans" : {
@@ -807,7 +807,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This operation is not supported by the Codex app-server"
+            "value" : "The Codex app-server does not support this method"
           }
         },
         "zh-Hans" : {
@@ -871,7 +871,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Hook comes from an unexpected source"
+            "value" : "Unexpected CodexBar Hook source"
           }
         },
         "zh-Hans" : {
@@ -1031,7 +1031,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This system shortcut cannot be used"
+            "value" : "This shortcut is reserved by the system"
           }
         },
         "zh-Hans" : {
@@ -1202,6 +1202,22 @@
         }
       }
     },
+    "keep-alive.error.auto-reset-wake-schedule-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not schedule a wake event for Automatic Reset"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置自动重置唤醒计划失败"
+          }
+        }
+      }
+    },
     "keep-alive.error.restore-idle-sleep-failed" : {
       "localizations" : {
         "en" : {
@@ -1335,7 +1351,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No Codex task progress for %@; hidden and excluded from keep-awake"
+            "value" : "No progress on the Codex task for %@; hidden and excluded from keep-awake"
           }
         },
         "zh-Hans" : {
@@ -1367,7 +1383,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex Task Has No Progress"
+            "value" : "Codex Task Stalled"
           }
         },
         "zh-Hans" : {
@@ -1522,12 +1538,12 @@
         }
       }
     },
-    "notification.reset-credit-auto-use-failed.body.authentication" : {
+    "notification.auto-reset-failed.body.authentication" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex sign-in expired"
+            "value" : "Codex sign-in has expired"
           }
         },
         "zh-Hans" : {
@@ -1538,23 +1554,23 @@
         }
       }
     },
-    "notification.reset-credit-auto-use-failed.body.expired" : {
+    "notification.auto-reset-failed.body.expired" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Expired; could not be used automatically"
+            "value" : "Expired before Automatic Reset could complete"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已过期, 未能自动使用"
+            "value" : "重置已过期, 自动重置未完成"
           }
         }
       }
     },
-    "notification.reset-credit-auto-use-failed.body.permanent" : {
+    "notification.auto-reset-failed.body.permanent" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1570,23 +1586,23 @@
         }
       }
     },
-    "notification.reset-credit-auto-use-failed.title" : {
+    "notification.auto-reset-failed.title" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automatic Reset Credit Use Failed"
+            "value" : "Automatic Reset Failed"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自动使用重置失败"
+            "value" : "自动重置失败"
           }
         }
       }
     },
-    "notification.reset-credit-auto-use.body.count" : {
+    "notification.auto-reset.body.count" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1602,18 +1618,18 @@
         }
       }
     },
-    "notification.reset-credit-auto-use.title" : {
+    "notification.auto-reset.title" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reset Credit Used Automatically"
+            "value" : "Automatic Reset"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自动使用重置"
+            "value" : "自动重置"
           }
         }
       }
@@ -1975,7 +1991,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Version %@ is available"
+            "value" : "Version v%@ is available"
           }
         },
         "zh-Hans" : {
@@ -1991,7 +2007,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tool calls"
+            "value" : "Tool Calls"
           }
         },
         "zh-Hans" : {
@@ -2039,7 +2055,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; cloud replacement could not be completed; rebuild these dates later"
+            "value" : "; could not replace cloud data; try rebuilding this data later"
           }
         },
         "zh-Hans" : {
@@ -2151,7 +2167,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No keep-awake for anonymous tasks"
+            "value" : "Anonymous tasks do not prevent sleep"
           }
         },
         "zh-Hans" : {
@@ -2183,7 +2199,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vibrate when tasks finish or await approval"
+            "value" : "Trackpad haptics when tasks finish or await approval"
           }
         },
         "zh-Hans" : {
@@ -2295,7 +2311,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Low Battery Cutoff"
+            "value" : "Low Battery Protection"
           }
         },
         "zh-Hans" : {
@@ -2359,7 +2375,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Lifetime tokens"
+            "value" : "Lifetime Tokens"
           }
         },
         "zh-Hans" : {
@@ -2407,7 +2423,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Top model"
+            "value" : "Top Model"
           }
         },
         "zh-Hans" : {
@@ -2519,7 +2535,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Inactive Task Protection"
+            "value" : "Stalled Task Protection"
           }
         },
         "zh-Hans" : {
@@ -2551,7 +2567,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Longest chat"
+            "value" : "Longest Chat"
           }
         },
         "zh-Hans" : {
@@ -2567,7 +2583,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Longest streak"
+            "value" : "Longest Streak"
           }
         },
         "zh-Hans" : {
@@ -2647,7 +2663,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Peak tokens"
+            "value" : "Peak Tokens"
           }
         },
         "zh-Hans" : {
@@ -2695,7 +2711,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Other tasks: %lld"
+            "value" : "%lld other tasks"
           }
         },
         "zh-Hans" : {
@@ -3047,7 +3063,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Selected dates: %lld"
+            "value" : "Selected days: %lld"
           }
         },
         "zh-Hans" : {
@@ -3063,7 +3079,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rebuilt dates: %1$lld; events: %2$lld"
+            "value" : "Days rebuilt: %1$lld; events: %2$lld"
           }
         },
         "zh-Hans" : {
@@ -3079,7 +3095,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "System sleep is prevented"
+            "value" : "System sleep is currently prevented"
           }
         },
         "zh-Hans" : {
@@ -3127,7 +3143,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Current streak"
+            "value" : "Current Streak"
           }
         },
         "zh-Hans" : {
@@ -3143,7 +3159,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Prevent sleep while Codex tasks run; restore it when they finish"
+            "value" : "Prevent sleep while Codex tasks run; restore normal sleep afterward"
           }
         },
         "zh-Hans" : {
@@ -3399,7 +3415,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Expiration time unavailable"
+            "value" : "Expiration time unknown"
           }
         },
         "zh-Hans" : {
@@ -3895,7 +3911,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Could not update the Launch at Login setting"
+            "value" : "Could not update Launch at Login"
           }
         },
         "zh-Hans" : {
@@ -3943,7 +3959,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Set Shortcut"
+            "value" : "Press a Shortcut"
           }
         },
         "zh-Hans" : {
@@ -4135,7 +4151,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Past %lld wk"
+            "value" : "Past %lld Weeks"
           }
         },
         "zh-Hans" : {
@@ -4327,7 +4343,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Expiring Reset"
+            "value" : "Reset Expiration"
           }
         },
         "zh-Hans" : {
@@ -4407,7 +4423,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Re-enable sleep when the limit is reached"
+            "value" : "Restore normal sleep when the limit is reached"
           }
         },
         "zh-Hans" : {
@@ -4594,6 +4610,22 @@
         }
       }
     },
+    "15 分钟" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "15 Minutes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "15 分钟"
+          }
+        }
+      }
+    },
     "2 小时" : {
       "localizations" : {
         "en" : {
@@ -4674,34 +4706,34 @@
         }
       }
     },
-    "开启自动使用重置?" : {
+    "开启自动重置?" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable Automatic Reset Credit Use?"
+            "value" : "Enable Automatic Reset?"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "开启自动使用重置?"
+            "value" : "开启自动重置?"
           }
         }
       }
     },
-    "开启后, CodexBar 会在手动重置临近过期时, 按设置的临期时间自动使用该次数; 系统处在睡眠等状态可能导致使用失败; 手动重置使用后不可撤销" : {
+    "开启后, CodexBar 在手动重置临近过期时, 按设置的临期时间提前自动使用重置; 并可能短暂唤醒 Mac" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "At the selected time before a manual reset credit expires, CodexBar automatically uses it to reset your Codex quota.\nThis action cannot be undone. Sleep, network outages, or service errors may cause it to fail, and each device attempts it independently."
+            "value" : "When enabled, CodexBar automatically uses a manual reset credit at the configured time before it expires and may briefly wake your Mac."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "开启后, CodexBar 会在手动重置临近过期时, 按设置的临期时间自动使用该次数; 系统处在睡眠等状态可能导致使用失败; 手动重置使用后不可撤销"
+            "value" : "开启后, CodexBar 在手动重置临近过期时, 按设置的临期时间提前自动使用重置; 并可能短暂唤醒 Mac"
           }
         }
       }
@@ -4711,7 +4743,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Time Before Expiry"
+            "value" : "Time Before Expiration"
           }
         },
         "zh-Hans" : {
@@ -4722,34 +4754,34 @@
         }
       }
     },
-    "自动使用临期重置" : {
+    "自动重置" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Use Expiring Reset Credit Automatically"
+            "value" : "Automatic Reset"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自动使用临期重置"
+            "value" : "自动重置"
           }
         }
       }
     },
-    "自动使用重置通知" : {
+    "自动重置通知" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automatic Reset Use"
+            "value" : "Automatic Reset Notifications"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自动使用重置通知"
+            "value" : "自动重置通知"
           }
         }
       }

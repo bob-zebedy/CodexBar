@@ -18,7 +18,7 @@ nonisolated struct CodexQuotaSnapshot: Equatable {
     let credits: RateLimitCreditsSnapshot?
     let resetCreditsAvailableCount: Int?
     let resetCreditExpirationDates: [Date]?
-    let resetCreditAutomationCandidates: [ResetCreditAutomationCandidate]?
+    let autoResetCandidates: [AutoResetCandidate]?
     let generatedAt: Date
     let limits: [CodexQuotaLimitSnapshot]
     let usage: CodexUsageSnapshot?
@@ -164,8 +164,8 @@ nonisolated struct RateLimitResetCreditsSummary: Decodable {
         .sorted()
     }
 
-    /// 自动使用只接受 app-server 明确返回的可用 Codex 额度重置凭证
-    var automationCandidates: [ResetCreditAutomationCandidate]? {
+    /// 自动重置只接受 app-server 明确返回的可用 Codex 额度重置凭证
+    var autoResetCandidates: [AutoResetCandidate]? {
         guard let credits else {
             return nil
         }
@@ -177,7 +177,7 @@ nonisolated struct RateLimitResetCreditsSummary: Decodable {
                 return nil
             }
 
-            return ResetCreditAutomationCandidate(
+            return AutoResetCandidate(
                 id: credit.id,
                 expirationDate: expirationDate
             )
@@ -197,17 +197,17 @@ nonisolated struct RateLimitResetCredit: Decodable {
     }
 }
 
-/// 自动使用链路需要的最小凭证快照
-nonisolated struct ResetCreditAutomationCandidate: Equatable, Sendable {
+/// 自动重置链路需要的最小凭证快照
+nonisolated struct AutoResetCandidate: Equatable, Sendable {
     let id: String
     let expirationDate: Date
 }
 
-/// 自动使用前强制读取的账号和重置凭证明细
-nonisolated struct ResetCreditAutomationRead: Sendable {
+/// 自动重置前强制读取的账号和重置凭证明细
+nonisolated struct AutoResetRead: Sendable {
     let accountIdentity: String
     let availableCount: Int?
-    let candidates: [ResetCreditAutomationCandidate]?
+    let candidates: [AutoResetCandidate]?
 }
 
 /// app-server 消费重置凭证的稳定结果集合
@@ -224,10 +224,10 @@ nonisolated struct ResetCreditConsumeResponse: Decodable, Sendable {
 
 nonisolated struct ResetCreditConsumeResult: Sendable {
     let outcome: ResetCreditConsumeOutcome
-    let refreshedRead: ResetCreditAutomationRead?
+    let refreshedRead: AutoResetRead?
 }
 
-nonisolated enum ResetCreditAutomationServiceError: Error, Sendable {
+nonisolated enum AutoResetServiceError: Error, Sendable {
     case accountChanged
 }
 
@@ -285,9 +285,9 @@ nonisolated extension CodexQuotaSnapshot {
         let resetCreditExpirationDates = rateLimitsResponse?
             .rateLimitResetCredits?
             .availableExpirationDates(now: generatedAt)
-        let resetCreditAutomationCandidates = rateLimitsResponse?
+        let autoResetCandidates = rateLimitsResponse?
             .rateLimitResetCredits?
-            .automationCandidates
+            .autoResetCandidates
 
         // rateLimits/usage 可同时为空
         // 账户有效时仍生成快照给 UI 展示 `暂无数据`
@@ -298,7 +298,7 @@ nonisolated extension CodexQuotaSnapshot {
             credits: rateLimitsResponse.flatMap { Self.primaryCredits(from: $0) },
             resetCreditsAvailableCount: rateLimitsResponse?.rateLimitResetCredits?.availableCount,
             resetCreditExpirationDates: resetCreditExpirationDates,
-            resetCreditAutomationCandidates: resetCreditAutomationCandidates,
+            autoResetCandidates: autoResetCandidates,
             generatedAt: generatedAt,
             limits: limits,
             usage: usage,

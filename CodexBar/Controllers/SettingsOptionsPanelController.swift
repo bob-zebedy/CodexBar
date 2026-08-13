@@ -5,7 +5,7 @@ import SwiftUI
 /// 设置窗口右侧的子选项面板, 同一时刻只展开一个
 enum SettingsOptionsPanel: CaseIterable, Hashable {
     case notification
-    case resetCreditAutomation
+    case autoReset
     case keepAlive
 }
 

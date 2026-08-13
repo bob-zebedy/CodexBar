@@ -91,6 +91,33 @@ extension KeepAliveController {
             }
         }
     }
+
+    /// 防睡眠没生效时缺的是哪一项, 同时充当日志里的 reason= 取值
+    enum SleepBlockReason: String {
+        case notStarted
+        case userOff
+        case hookDisabled
+        case noTasks
+        case helperUnavailable
+        case helperRefreshing
+        case terminating
+        case lowBattery
+        case limitReached
+    }
+
+    /// shouldDisableSleep 的求值结果与它依赖的各项, 只用于变化检测与日志
+    /// blockReason 与 shouldDisableSleep 同源, 不会出现"字段都满足却报某项缺失"
+    /// battery 只放布尔: 放电量百分比会让每掉 1% 都记一条
+    struct SleepConditions: Equatable {
+        let blockReason: SleepBlockReason?
+        let enabled: Bool
+        let hook: Bool
+        let tasks: Bool
+        let helper: HelperStatus
+        let refreshing: Bool
+        let battery: Bool
+        let limited: Bool
+    }
 }
 
 nonisolated enum KeepAliveLocalizedMessage {
@@ -142,11 +169,16 @@ nonisolated enum KeepAliveLocalizedMessage {
         localized: "keep-alive.error.connection-interrupted",
         defaultValue: "服务连接中断"
     )
+    static let autoResetWakeScheduleFailed = String(
+        localized: "keep-alive.error.auto-reset-wake-schedule-failed",
+        defaultValue: "设置自动重置唤醒计划失败"
+    )
 }
 
 nonisolated enum KeepAliveError: LocalizedError {
     case invalidHelperProxy
     case connectionInterrupted
+    case wakeScheduleCancellationFailed
 
     var errorDescription: String? {
         switch self {
@@ -154,6 +186,8 @@ nonisolated enum KeepAliveError: LocalizedError {
             KeepAliveLocalizedMessage.invalidHelperInterface
         case .connectionInterrupted:
             KeepAliveLocalizedMessage.connectionInterrupted
+        case .wakeScheduleCancellationFailed:
+            KeepAliveLocalizedMessage.autoResetWakeScheduleFailed
         }
     }
 }

@@ -1,12 +1,13 @@
 import AppKit
 import Combine
 import Foundation
+import IOKit
 import os
 
-/// 自动使用临期重置的本机状态机
-/// 系统睡眠时不申请唤醒, 唤醒后经新鲜读取决定是否补试
+/// 自动重置的本机状态机
+/// 计划执行前通过 helper 预约系统唤醒, 唤醒后仍经新鲜读取决定是否使用
 @MainActor
-final class ResetCreditAutomationController {
+final class AutoResetController {
     private enum ScheduledKind: Equatable {
         case threshold
         case retry
@@ -26,22 +27,32 @@ final class ResetCreditAutomationController {
 
     private struct Target {
         let accountIdentity: String
-        let candidate: ResetCreditAutomationCandidate
+        let candidate: AutoResetCandidate
         let key: String
 
         var idempotencyKey: String {
-            ResetCreditAutomationIdentity.idempotencyKey(forCreditID: candidate.id)
+            AutoResetIdentity.idempotencyKey(forCreditID: candidate.id)
         }
     }
 
+    private struct RetryWindow {
+        let targetKey: String
+        let deadline: Date
+    }
+
     private static let retryDelays: [TimeInterval] = [15, 30, 60, 120, 300]
+    private static let retryWindowDuration: TimeInterval = 5 * 60
     private static let finalNothingToResetWindow: TimeInterval = 10 * 60
     private static let finalNothingToResetDelay: TimeInterval = 60
 
-    private let settings: ResetCreditAutomationSettings
+    private let settings: AutoResetSettings
     private let statusViewModel: CodexStatusViewModel
     private let service: CodexStatusService
     private let notificationService: CodexNotificationService
+    private let keepAliveController: KeepAliveController
+    private let wakeActivity = SystemSleepService(
+        sleepAssertionName: "CodexBar - Automatic Reset"
+    )
 
     private var cancellables = Set<AnyCancellable>()
     private var scheduledTask: Task<Void, Never>?
@@ -51,6 +62,7 @@ final class ResetCreditAutomationController {
     private var pendingEvaluation = false
     private var latestSnapshot: CodexQuotaSnapshot?
     private var target: Target?
+    private var retryWindow: RetryWindow?
     private var retryIndex = 0
     private var consumedTargetKeys = Set<String>()
     private var expiredTargetDates: [String: Date] = [:]
@@ -58,15 +70,17 @@ final class ResetCreditAutomationController {
     private var isStarted = false
 
     init(
-        settings: ResetCreditAutomationSettings,
+        settings: AutoResetSettings,
         statusViewModel: CodexStatusViewModel,
         service: CodexStatusService,
-        notificationService: CodexNotificationService
+        notificationService: CodexNotificationService,
+        keepAliveController: KeepAliveController
     ) {
         self.settings = settings
         self.statusViewModel = statusViewModel
         self.service = service
         self.notificationService = notificationService
+        self.keepAliveController = keepAliveController
     }
 
     deinit {
@@ -80,6 +94,10 @@ final class ResetCreditAutomationController {
             return
         }
         isStarted = true
+        keepAliveController.setAutoResetRequested(
+            settings.isEnabled,
+            opensSystemSettings: false
+        )
 
         statusViewModel.$snapshot
             .sink { [weak self] snapshot in
@@ -119,17 +137,23 @@ final class ResetCreditAutomationController {
             return
         }
         isStarted = false
+        keepAliveController.setAutoResetRequested(
+            false,
+            opensSystemSettings: false
+        )
         cancellables.removeAll()
         cancelWork()
         target = nil
-        retryIndex = 0
     }
 
     private func handleEnabledChange(_ enabled: Bool) {
+        keepAliveController.setAutoResetRequested(
+            enabled,
+            opensSystemSettings: enabled
+        )
         guard enabled else {
             cancelWork()
             target = nil
-            retryIndex = 0
             return
         }
 
@@ -150,7 +174,7 @@ final class ResetCreditAutomationController {
         }
     }
 
-    private func handleLeadTimeChange(_: ResetCreditAutomationLeadTime) {
+    private func handleLeadTimeChange(_: AutoResetLeadTime) {
         guard settings.isEnabled else {
             return
         }
@@ -166,9 +190,9 @@ final class ResetCreditAutomationController {
         }
 
         reconcile(
-            accountIdentity: ResetCreditAutomationIdentity.accountIdentity(for: snapshot.account),
+            accountIdentity: AutoResetIdentity.accountIdentity(for: snapshot.account),
             availableCount: snapshot.resetCreditsAvailableCount,
-            candidates: snapshot.resetCreditAutomationCandidates,
+            candidates: snapshot.autoResetCandidates,
             now: Date()
         )
         scheduleCurrentTargetIfNeeded()
@@ -186,6 +210,16 @@ final class ResetCreditAutomationController {
             return
         }
 
+        let startedAt = Date()
+        if let retryWindow,
+           retryWindow.deadline <= startedAt {
+            finishRetryWindow(ifMatching: retryWindow.targetKey)
+            if trigger == .retry {
+                cancelScheduledTask()
+                return
+            }
+        }
+
         cancelScheduledTask()
         evaluationGeneration += 1
         let generation = evaluationGeneration
@@ -195,7 +229,8 @@ final class ResetCreditAutomationController {
             }
             await performEvaluation(
                 trigger: trigger,
-                expectedTargetKey: expectedTargetKey
+                expectedTargetKey: expectedTargetKey,
+                startedAt: startedAt
             )
             finishEvaluation(generation: generation)
         }
@@ -218,16 +253,28 @@ final class ResetCreditAutomationController {
 
     private func performEvaluation(
         trigger: LogTrigger,
-        expectedTargetKey: String?
+        expectedTargetKey: String?,
+        startedAt: Date
     ) async {
-        let freshRead: ResetCreditAutomationRead
+        let holdsWakeActivity = beginWakeActivityIfNeeded(trigger: trigger)
+        defer {
+            endWakeActivityIfNeeded(holdsWakeActivity)
+        }
+
+        if let target,
+           expectedTargetKey == nil || expectedTargetKey == target.key,
+           thresholdDate(for: target) <= startedAt {
+            startRetryWindowIfNeeded(for: target, startedAt: startedAt)
+        }
+
+        let freshRead: AutoResetRead
         do {
-            freshRead = try await service.readResetCreditsForAutomation()
+            freshRead = try await service.readCreditsForAutoReset()
         } catch {
             guard !Task.isCancelled, settings.isEnabled else {
                 return
             }
-            handleRequestFailure(error)
+            handleRequestFailure(error, windowStartedAt: startedAt)
             return
         }
 
@@ -240,7 +287,7 @@ final class ResetCreditAutomationController {
 
         guard freshRead.candidates != nil else {
             if target != nil || (freshRead.availableCount ?? 0) > 0 {
-                scheduleRetry(cause: .detailsUnavailable)
+                scheduleRetry(cause: .detailsUnavailable, windowStartedAt: startedAt)
             }
             return
         }
@@ -259,15 +306,16 @@ final class ResetCreditAutomationController {
             return
         }
 
-        let thresholdDate = target.candidate.expirationDate
-            .addingTimeInterval(-settings.leadTime.duration)
+        let thresholdDate = thresholdDate(for: target)
         guard thresholdDate <= now else {
             scheduleCurrentTargetIfNeeded()
             return
         }
 
+        startRetryWindowIfNeeded(for: target, startedAt: startedAt)
+
         AppLog.app.notice(
-            "自动使用重置开始: trigger=\(trigger.rawValue, privacy: .public)"
+            "自动重置开始: trigger=\(trigger.rawValue, privacy: .public)"
         )
         let attemptedTarget = target
         do {
@@ -278,7 +326,11 @@ final class ResetCreditAutomationController {
             )
             handleConsumeResult(result, attemptedTarget: attemptedTarget)
         } catch {
-            handleConsumeFailure(error, attemptedTarget: attemptedTarget)
+            handleConsumeFailure(
+                error,
+                attemptedTarget: attemptedTarget,
+                windowStartedAt: startedAt
+            )
         }
     }
 
@@ -297,12 +349,12 @@ final class ResetCreditAutomationController {
             let remainingCount = refreshedRead?.accountIdentity == attemptedTarget.accountIdentity
                 ? refreshedRead?.availableCount
                 : nil
-            notificationService.notifyResetCreditAutoUseSucceeded(
+            notificationService.notifyAutoResetSucceeded(
                 remainingCount: remainingCount,
                 dedupToken: attemptedTarget.key
             )
             AppLog.app.notice(
-                "自动使用重置完成: outcome=\(result.outcome.rawValue, privacy: .public)"
+                "自动重置完成: outcome=\(result.outcome.rawValue, privacy: .public)"
             )
 
             if settings.isEnabled,
@@ -311,7 +363,7 @@ final class ResetCreditAutomationController {
                 reconcile(refreshedRead)
                 scheduleCurrentTargetIfNeeded()
             }
-            statusViewModel.refreshAfterCurrent(trigger: .resetCreditAutoUse)
+            statusViewModel.refreshAfterCurrent(trigger: .autoReset)
 
         case .nothingToReset, .noCredit:
             if let refreshedRead = result.refreshedRead {
@@ -320,7 +372,7 @@ final class ResetCreditAutomationController {
 
             guard settings.isEnabled,
                   target?.key == attemptedTarget.key else {
-                statusViewModel.refreshAfterCurrent(trigger: .resetCreditAutoUse)
+                statusViewModel.refreshAfterCurrent(trigger: .autoReset)
                 return
             }
 
@@ -328,36 +380,40 @@ final class ResetCreditAutomationController {
                 ? .nothingToReset
                 : .noCredit
             AppLog.app.notice(
-                "自动使用重置未完成: outcome=\(result.outcome.rawValue, privacy: .public)"
+                "自动重置未完成: outcome=\(result.outcome.rawValue, privacy: .public)"
             )
             scheduleRetry(cause: cause)
 
             if result.outcome == .noCredit {
-                statusViewModel.refreshAfterCurrent(trigger: .resetCreditAutoUse)
+                statusViewModel.refreshAfterCurrent(trigger: .autoReset)
             }
         }
     }
 
-    private func handleConsumeFailure(_ error: Error, attemptedTarget: Target) {
+    private func handleConsumeFailure(
+        _ error: Error,
+        attemptedTarget: Target,
+        windowStartedAt: Date
+    ) {
         guard !Task.isCancelled,
               settings.isEnabled,
               target?.key == attemptedTarget.key else {
             return
         }
-        handleRequestFailure(error)
+        handleRequestFailure(error, windowStartedAt: windowStartedAt)
     }
 
-    private func handleRequestFailure(_ error: Error) {
-        if error is ResetCreditAutomationServiceError {
+    private func handleRequestFailure(_ error: Error, windowStartedAt: Date) {
+        if error is AutoResetServiceError {
             clearTarget()
-            statusViewModel.refreshAfterCurrent(trigger: .resetCreditAutoUse)
+            statusViewModel.refreshAfterCurrent(trigger: .autoReset)
             return
         }
 
         if let error = error as? CodexStatusError {
             if error.isAuthenticationRequired {
                 blockCurrentTarget(reason: .authentication)
-                statusViewModel.refreshAfterCurrent(trigger: .resetCreditAutoUse)
+                statusViewModel.refreshAfterCurrent(trigger: .autoReset)
                 return
             }
             if error.isProtocolOrParameterFailure {
@@ -365,8 +421,9 @@ final class ResetCreditAutomationController {
                 return
             }
 
-            AppLog.app.notice("自动使用重置稍后重试: reason=requestFailed")
-            scheduleRetry(cause: .transient)
+            if scheduleRetry(cause: .transient, windowStartedAt: windowStartedAt) {
+                AppLog.app.notice("自动重置稍后重试: reason=requestFailed")
+            }
             return
         }
 
@@ -380,38 +437,54 @@ final class ResetCreditAutomationController {
 
         blockedTargets[target.key] = reason
         cancelScheduledTask()
+        resetRetryWindow(ifMatching: target.key)
         switch reason {
         case .authentication:
-            notificationService.notifyResetCreditAutoUseFailed(
+            notificationService.notifyAutoResetFailed(
                 reason: .authentication,
                 dedupToken: target.key
             )
-            AppLog.app.error("自动使用重置已暂停: reason=authentication")
+            AppLog.app.error("自动重置已暂停: reason=authentication")
         case .permanent:
-            notificationService.notifyResetCreditAutoUseFailed(
+            notificationService.notifyAutoResetFailed(
                 reason: .permanent,
                 dedupToken: target.key
             )
-            AppLog.app.error("自动使用重置已停止: reason=permanentFailure")
+            AppLog.app.error("自动重置已停止: reason=permanentFailure")
         }
     }
 
-    private func scheduleRetry(cause: RetryCause) {
-        guard settings.isEnabled else {
-            return
-        }
-        guard let target else {
-            schedule(after: nextRetryDelay(), kind: .retry, expectedTargetKey: nil)
-            return
+    @discardableResult
+    private func scheduleRetry(
+        cause: RetryCause,
+        windowStartedAt: Date = Date()
+    ) -> Bool {
+        guard settings.isEnabled,
+              let target,
+              thresholdDate(for: target) <= windowStartedAt else {
+            return false
         }
         guard blockedTargets[target.key] == nil else {
-            return
+            return false
         }
 
-        let remaining = target.candidate.expirationDate.timeIntervalSinceNow
+        let now = Date()
+        let remaining = target.candidate.expirationDate.timeIntervalSince(now)
         guard remaining > 0 else {
             finishExpiredTarget(target)
-            return
+            return false
+        }
+
+        let retryWindow = startRetryWindowIfNeeded(
+            for: target,
+            startedAt: windowStartedAt
+        )
+        guard retryWindow.deadline > now else {
+            scheduleRetryWindowEnd(
+                at: now,
+                expectedTargetKey: target.key
+            )
+            return false
         }
 
         var delay = nextRetryDelay()
@@ -419,11 +492,20 @@ final class ResetCreditAutomationController {
             delay = Self.finalNothingToResetDelay
         }
         delay = min(delay, remaining)
+        let retryDate = now.addingTimeInterval(delay)
+        guard retryDate < retryWindow.deadline else {
+            scheduleRetryWindowEnd(
+                at: retryWindow.deadline,
+                expectedTargetKey: target.key
+            )
+            return false
+        }
         schedule(
-            after: delay,
+            at: retryDate,
             kind: .retry,
             expectedTargetKey: target.key
         )
+        return true
     }
 
     private func nextRetryDelay() -> TimeInterval {
@@ -442,25 +524,28 @@ final class ResetCreditAutomationController {
             return
         }
 
-        let delay = target.candidate.expirationDate
-            .addingTimeInterval(-settings.leadTime.duration)
-            .timeIntervalSinceNow
+        let thresholdDate = thresholdDate(for: target)
+        if thresholdDate > Date() {
+            // 回到正常阈值等待后开始新的重试周期, 避免旧故障影响正式执行
+            resetRetryWindow()
+        }
         schedule(
-            after: delay,
+            at: thresholdDate,
             kind: .threshold,
             expectedTargetKey: target.key
         )
     }
 
     private func schedule(
-        after delay: TimeInterval,
+        at date: Date,
         kind: ScheduledKind,
-        expectedTargetKey: String?
+        expectedTargetKey: String
     ) {
-        cancelScheduledTask()
+        cancelScheduledTask(clearsWakeSchedule: false)
+        keepAliveController.setAutoResetWakeDate(date)
         scheduledTask = Task { @MainActor [weak self] in
             do {
-                try await Task.sleep(for: .seconds(max(0, delay)))
+                try await Task.sleep(for: .seconds(max(0, date.timeIntervalSinceNow)))
             } catch {
                 return
             }
@@ -476,10 +561,32 @@ final class ResetCreditAutomationController {
         }
     }
 
+    private func scheduleRetryWindowEnd(
+        at date: Date,
+        expectedTargetKey: String
+    ) {
+        cancelScheduledTask()
+        // 截止任务占住 scheduledTask, 防止当前评估返回后立即重排已经过去的阈值
+        // 系统唤醒已由 cancelScheduledTask 清除
+        scheduledTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(max(0, date.timeIntervalSinceNow)))
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else {
+                return
+            }
+
+            scheduledTask = nil
+            finishRetryWindow(ifMatching: expectedTargetKey)
+        }
+    }
+
     private func reconcile(
         accountIdentity: String,
         availableCount: Int?,
-        candidates: [ResetCreditAutomationCandidate]?,
+        candidates: [AutoResetCandidate]?,
         now: Date
     ) {
         if let target, target.accountIdentity != accountIdentity {
@@ -514,7 +621,7 @@ final class ResetCreditAutomationController {
                     let direction = matchingCandidate.expirationDate
                         < currentTarget.candidate.expirationDate ? "earlier" : "later"
                     AppLog.app.notice(
-                        "自动使用重置计划已更新: reason=expirationChanged direction=\(direction, privacy: .public)"
+                        "自动重置计划已更新: reason=expirationChanged direction=\(direction, privacy: .public)"
                     )
                 }
                 if blockedTargets[currentTarget.key] == .authentication {
@@ -526,7 +633,7 @@ final class ResetCreditAutomationController {
                 }
             } else {
                 // 凭证消失无法区分手动使用 其他设备使用或服务端过期
-                // 因此只停止本机任务, 不发送自动使用通知
+                // 因此只停止本机任务, 不发送自动重置通知
                 clearTarget()
             }
         }
@@ -556,22 +663,22 @@ final class ResetCreditAutomationController {
             candidate: nextCandidate
         )
         if expiredTargetDates.removeValue(forKey: nextTarget.key) != nil {
-            AppLog.app.notice("自动使用重置计划已恢复: reason=expirationExtended")
+            AppLog.app.notice("自动重置计划已恢复: reason=expirationExtended")
         }
         if target?.key == nextTarget.key {
             return
         }
 
         cancelScheduledTask()
+        resetRetryWindow()
         target = nextTarget
-        retryIndex = 0
         if blockedTargets[nextTarget.key] == .authentication {
             blockedTargets.removeValue(forKey: nextTarget.key)
         }
     }
 
     private func reconcile(
-        _ read: ResetCreditAutomationRead,
+        _ read: AutoResetRead,
         now: Date = Date()
     ) {
         reconcile(
@@ -583,7 +690,7 @@ final class ResetCreditAutomationController {
     }
 
     private func isCandidateEligible(
-        _ candidate: ResetCreditAutomationCandidate,
+        _ candidate: AutoResetCandidate,
         accountIdentity: String,
         now: Date
     ) -> Bool {
@@ -591,7 +698,7 @@ final class ResetCreditAutomationController {
             return false
         }
 
-        let key = ResetCreditAutomationIdentity.notificationToken(
+        let key = AutoResetIdentity.notificationToken(
             accountIdentity: accountIdentity,
             creditID: candidate.id
         )
@@ -606,27 +713,72 @@ final class ResetCreditAutomationController {
 
     private func makeTarget(
         accountIdentity: String,
-        candidate: ResetCreditAutomationCandidate
+        candidate: AutoResetCandidate
     ) -> Target {
         Target(
             accountIdentity: accountIdentity,
             candidate: candidate,
-            key: ResetCreditAutomationIdentity.notificationToken(
+            key: AutoResetIdentity.notificationToken(
                 accountIdentity: accountIdentity,
                 creditID: candidate.id
             )
         )
     }
 
+    private func thresholdDate(for target: Target) -> Date {
+        target.candidate.expirationDate
+            .addingTimeInterval(-settings.leadTime.duration)
+    }
+
+    @discardableResult
+    private func startRetryWindowIfNeeded(
+        for target: Target,
+        startedAt: Date
+    ) -> RetryWindow {
+        if let retryWindow,
+           retryWindow.targetKey == target.key {
+            return retryWindow
+        }
+
+        let retryWindow = RetryWindow(
+            targetKey: target.key,
+            deadline: startedAt.addingTimeInterval(Self.retryWindowDuration)
+        )
+        self.retryWindow = retryWindow
+        retryIndex = 0
+        AppLog.app.notice("自动重置重试窗口已开始")
+        return retryWindow
+    }
+
+    private func finishRetryWindow(ifMatching targetKey: String) {
+        guard retryWindow?.targetKey == targetKey else {
+            return
+        }
+
+        retryWindow = nil
+        retryIndex = 0
+        AppLog.app.notice("自动重置重试窗口已结束: reason=deadline")
+    }
+
+    private func resetRetryWindow(ifMatching targetKey: String? = nil) {
+        if let targetKey,
+           retryWindow?.targetKey != targetKey {
+            return
+        }
+
+        retryWindow = nil
+        retryIndex = 0
+    }
+
     private func finishExpiredTarget(_ expiredTarget: Target) {
         expiredTargetDates[expiredTarget.key] = expiredTarget.candidate.expirationDate
         clearTarget(ifMatching: expiredTarget.key)
-        notificationService.notifyResetCreditAutoUseFailed(
+        notificationService.notifyAutoResetFailed(
             reason: .expired,
             dedupToken: expiredTarget.key
         )
-        AppLog.app.error("自动使用重置失败: reason=expired")
-        statusViewModel.refreshAfterCurrent(trigger: .resetCreditAutoUse)
+        AppLog.app.error("自动重置失败: reason=expired")
+        statusViewModel.refreshAfterCurrent(trigger: .autoReset)
     }
 
     private func clearTarget(ifMatching key: String? = nil) {
@@ -635,16 +787,44 @@ final class ResetCreditAutomationController {
         }
         cancelScheduledTask()
         target = nil
-        retryIndex = 0
+        resetRetryWindow()
     }
 
-    private func cancelScheduledTask() {
+    private func cancelScheduledTask(clearsWakeSchedule: Bool = true) {
         scheduledTask?.cancel()
         scheduledTask = nil
+        if clearsWakeSchedule {
+            keepAliveController.setAutoResetWakeDate(nil)
+        }
+    }
+
+    private func beginWakeActivityIfNeeded(trigger: LogTrigger) -> Bool {
+        guard trigger == .auto || trigger == .retry || trigger == .wake else {
+            return false
+        }
+
+        let result = wakeActivity.beginPreventingIdleSleep()
+        guard result == kIOReturnSuccess else {
+            AppLog.app.error("自动重置短时防睡眠失败: code=\(result)")
+            return false
+        }
+        return true
+    }
+
+    private func endWakeActivityIfNeeded(_ isActive: Bool) {
+        guard isActive else {
+            return
+        }
+
+        let result = wakeActivity.endPreventingIdleSleep()
+        if result != kIOReturnSuccess {
+            AppLog.app.error("自动重置短时防睡眠释放失败: code=\(result)")
+        }
     }
 
     private func cancelWork() {
         cancelScheduledTask()
+        resetRetryWindow()
         settingsActivationTask?.cancel()
         settingsActivationTask = nil
         evaluationGeneration += 1

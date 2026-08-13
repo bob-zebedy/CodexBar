@@ -2,7 +2,7 @@
 
 ## 跨设备同步的内容
 
-跨设备同步用于合并多台 Mac 的每日 Hook 聚合，不同步账户、额度、Token 用量、重置次数或自动使用设置。
+跨设备同步用于合并多台 Mac 的每日 Hook 聚合，不同步账户、额度、Token 用量、重置次数或自动重置设置。
 
 启用条件如下：
 
@@ -60,12 +60,15 @@
 | 同步缓存 | CloudKit 缓存、游标和上传状态 | `~/Library/Application Support/CodexBar/HookEvents/Sync` |
 | 异常会话保护 | 哈希任务标识和时间戳 | `~/Library/Application Support/CodexBar/ActivityProtection/state.json`，最长 24 小时 |
 | CodexBarHelper 所有权 | 睡眠所有权状态和恢复事务 | `/Library/Application Support/CodexBar/helper-state.json` |
-| App 偏好 | 开关、阈值、快捷键、自动使用临期时间和通知去重状态 | macOS UserDefaults |
+| 自动重置唤醒计划 | CodexBar 固定 owner、`wake` 类型和下一次时间 | macOS 系统电源管理，触发或取消后移除 |
+| App 偏好 | 开关、阈值、快捷键、自动重置提前量和通知去重状态 | macOS UserDefaults |
 | app-server 交互日志 | 最近 500 条请求和响应 | 只存在当前 App 进程内存 |
 
 每日聚合只在最近 3 天保留 session 和 turn ID 列表，更早日期转换为计数并删除列表。
 
 CodexBarHelper 所有权文件由 root 持有，用于 App 或 CodexBarHelper 异常退出后的睡眠状态恢复。
+
+自动重置唤醒计划不包含账户、重置次数、`creditId` 或幂等键。CodexBarHelper 启动时会清理同一构建身份遗留的计划，App 也会在任务变化、功能关闭和正常退出时取消计划。
 
 匿名任务不参与异常会话保护，因此不会生成哈希任务标识或写入保护状态文件。
 
@@ -91,7 +94,7 @@ CodexBarHelper 所有权文件由 root 持有，用于 App 或 CodexBarHelper �
 - 完整工作目录路径
 - prompt、Codex 回复、工具参数或工具输出
 - Codex 账户、额度和 Token 用量
-- 重置次数明细、自动使用设置和消费状态
+- 重置次数明细、自动重置设置和消费状态
 - app-server 交互日志
 - 异常会话保护记录
 - Codex 认证 token
@@ -108,7 +111,7 @@ CodexBar 会读取以下本机数据：
 
 rollout 读取只提取生命周期、时间和推理强度等字段，不展示或保存会话正文和工具内容。
 
-用户主动开启自动使用后，CodexBar 通过同一个本机 app-server 使用明确列出的临期重置次数。原始 `creditId` 和幂等键不写入磁盘或 CloudKit；`UserDefaults` 只保存功能开关、临期时间、自动使用通知开关、音效选择和哈希后的通知去重键。
+用户主动开启自动重置后，CodexBar 通过同一个本机 app-server 使用明确列出的临期重置次数。原始 `creditId` 和幂等键不写入磁盘或 CloudKit；`UserDefaults` 只保存功能开关、提前量、自动重置通知开关、音效选择和哈希后的通知去重键。
 
 CodexBar 不复制或持久化 Codex 认证 token。
 
@@ -119,7 +122,7 @@ CodexBar 不复制或持久化 Codex 认证 token。
 | Sparkle 更新源 | 检查并安装 CodexBar 更新 | 自动检查开启或用户手动检查时 |
 | CloudKit private database | 同步多设备每日 Hook 聚合 | 用户开启跨设备同步时 |
 
-账户、额度、Token 用量、手动重置次数明细和用户开启的自动使用操作通过本机 app-server 的 stdio 通信完成。自动使用不会增加 CloudKit 请求，也不会使用 CodexBarHelper。
+账户、额度、Token 用量、手动重置次数明细和用户开启的自动重置操作通过本机 app-server 的 stdio 通信完成。自动重置不会增加 CloudKit 请求；自动重置只向 CodexBarHelper 提交固定系统唤醒计划的时间，不提交账户或重置次数数据。
 
 ## 日志隐私
 

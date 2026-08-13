@@ -54,4 +54,10 @@ nonisolated enum CodexBarSleepOwnershipState: Int, Sendable {
         _ updateIdentifier: String,
         reply: @escaping @Sendable (Int32) -> Void
     )
+
+    /// 时间戳为 0 时取消 CodexBar 自己的重置次数唤醒计划
+    func setAutoResetWakeSchedule(
+        _ unixTimestamp: TimeInterval,
+        reply: @escaping @Sendable (Int32) -> Void
+    )
 }

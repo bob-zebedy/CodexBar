@@ -25,10 +25,18 @@ struct HelperRuntimeStatus {
 
 @MainActor
 final class HelperRuntimeStatusMonitor {
+    enum WakeScheduleResult {
+        case success
+        case helperFailure(Int32)
+        case connectionFailure(Error)
+        case timedOut
+        case cancelled
+    }
+
     private(set) var isRequestInFlight = false
 
     private var requestGeneration: UInt64 = 0
-    private var requestContinuation: CheckedContinuation<RequestResult?, Never>?
+    private var requestContinuation: CheckedContinuation<RequestResult, Never>?
     private var requestTimeoutTask: Task<Void, Never>?
     private var observationTask: Task<Void, Never>?
     private var observationToken: UUID?
@@ -64,9 +72,7 @@ final class HelperRuntimeStatusMonitor {
                 "Helper 状态请求超时: timeout=\(wait, privacy: .public)"
             )
             onTimeout()
-        case .updateReset:
-            break
-        case nil:
+        case .updateReset, .wakeSchedule, .cancelled:
             break
         }
         return nil
@@ -101,10 +107,32 @@ final class HelperRuntimeStatusMonitor {
                 "Helper 更新后的睡眠重置超时: timeout=\(wait, privacy: .public)"
             )
             onTimeout()
-        case .status, .invalidResponse, nil:
+        case .status, .wakeSchedule, .invalidResponse, .cancelled:
             break
         }
         return false
+    }
+
+    func setAutoResetWakeSchedule(
+        connection: NSXPCConnection,
+        unixTimestamp: TimeInterval,
+        timeout: Duration
+    ) async -> WakeScheduleResult {
+        let result = await performRequest(
+            connection: connection,
+            operation: .wakeSchedule(unixTimestamp),
+            timeout: timeout
+        )
+        switch result {
+        case let .wakeSchedule(exitCode):
+            return exitCode == 0 ? .success : .helperFailure(exitCode)
+        case let .connectionFailure(error):
+            return .connectionFailure(error)
+        case .timedOut:
+            return .timedOut
+        case .status, .updateReset, .invalidResponse, .cancelled:
+            return .cancelled
+        }
     }
 
     func startObservation(
@@ -144,16 +172,16 @@ final class HelperRuntimeStatusMonitor {
             return
         }
         requestGeneration &+= 1
-        finishRequest(nil, generation: requestGeneration)
+        finishRequest(.cancelled, generation: requestGeneration)
     }
 
     private func performRequest(
         connection: NSXPCConnection,
         operation: RequestOperation,
         timeout: Duration
-    ) async -> RequestResult? {
+    ) async -> RequestResult {
         guard !isRequestInFlight else {
-            return nil
+            return .cancelled
         }
 
         return await withCheckedContinuation { continuation in
@@ -184,53 +212,71 @@ final class HelperRuntimeStatusMonitor {
                 return
             }
 
-            switch operation {
-            case .status:
-                let reply: @Sendable (Int32, Int, Int, Bool) -> Void = { [weak self] exitCode, ownershipRawValue, activeClientCount, sleepDisabled in
-                    Task { @MainActor in
-                        guard exitCode == 0,
-                              let ownership = CodexBarSleepOwnershipState(
-                                  rawValue: ownershipRawValue
-                              ),
-                              activeClientCount >= 0 else {
-                            self?.finishRequest(
-                                .invalidResponse(
-                                    exitCode: exitCode,
-                                    ownership: ownershipRawValue,
-                                    activeClientCount: activeClientCount
-                                ),
-                                generation: generation
-                            )
-                            return
-                        }
-                        self?.finishRequest(
-                            .status(
-                                HelperRuntimeStatus(
-                                    ownership: ownership,
-                                    activeClientCount: activeClientCount,
-                                    sleepDisabled: sleepDisabled
-                                )
-                            ),
-                            generation: generation
-                        )
-                    }
-                }
-                helper.getSleepPreventionStatus(reply: reply)
-            case let .updateReset(updateIdentifier):
-                let reply: @Sendable (Int32) -> Void = { [weak self] exitCode in
-                    Task { @MainActor in
-                        self?.finishRequest(
-                            .updateReset(exitCode: exitCode),
-                            generation: generation
-                        )
-                    }
-                }
-                helper.resetSleepAfterUpdate(updateIdentifier, reply: reply)
-            }
+            send(operation, to: helper, generation: generation)
         }
     }
 
-    private func finishRequest(_ result: RequestResult?, generation: UInt64) {
+    private func send(
+        _ operation: RequestOperation,
+        to helper: CodexBarHelperProtocol,
+        generation: UInt64
+    ) {
+        switch operation {
+        case .status:
+            let reply: @Sendable (Int32, Int, Int, Bool) -> Void = { [weak self] exitCode, ownershipRawValue, activeClientCount, sleepDisabled in
+                Task { @MainActor in
+                    guard exitCode == 0,
+                          let ownership = CodexBarSleepOwnershipState(
+                              rawValue: ownershipRawValue
+                          ),
+                          activeClientCount >= 0 else {
+                        self?.finishRequest(
+                            .invalidResponse(
+                                exitCode: exitCode,
+                                ownership: ownershipRawValue,
+                                activeClientCount: activeClientCount
+                            ),
+                            generation: generation
+                        )
+                        return
+                    }
+                    self?.finishRequest(
+                        .status(
+                            HelperRuntimeStatus(
+                                ownership: ownership,
+                                activeClientCount: activeClientCount,
+                                sleepDisabled: sleepDisabled
+                            )
+                        ),
+                        generation: generation
+                    )
+                }
+            }
+            helper.getSleepPreventionStatus(reply: reply)
+        case let .updateReset(updateIdentifier):
+            let reply: @Sendable (Int32) -> Void = { [weak self] exitCode in
+                Task { @MainActor in
+                    self?.finishRequest(
+                        .updateReset(exitCode: exitCode),
+                        generation: generation
+                    )
+                }
+            }
+            helper.resetSleepAfterUpdate(updateIdentifier, reply: reply)
+        case let .wakeSchedule(unixTimestamp):
+            let reply: @Sendable (Int32) -> Void = { [weak self] exitCode in
+                Task { @MainActor in
+                    self?.finishRequest(
+                        .wakeSchedule(exitCode: exitCode),
+                        generation: generation
+                    )
+                }
+            }
+            helper.setAutoResetWakeSchedule(unixTimestamp, reply: reply)
+        }
+    }
+
+    private func finishRequest(_ result: RequestResult, generation: UInt64) {
         guard generation == requestGeneration, isRequestInFlight else {
             return
         }
@@ -246,14 +292,17 @@ final class HelperRuntimeStatusMonitor {
     private enum RequestResult {
         case status(HelperRuntimeStatus)
         case updateReset(exitCode: Int32)
+        case wakeSchedule(exitCode: Int32)
         case connectionFailure(Error)
         case invalidResponse(exitCode: Int32, ownership: Int, activeClientCount: Int)
         case timedOut
+        case cancelled
     }
 
     private enum RequestOperation {
         case status
         case updateReset(String)
+        case wakeSchedule(TimeInterval)
     }
 
     private enum RequestError: LocalizedError {

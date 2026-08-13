@@ -8,7 +8,7 @@
 - App 退出、崩溃或失联后可靠恢复系统设置
 - 不覆盖用户或其他应用已经设置的系统级防睡眠状态
 
-普通 App 进程负责策略和用户界面，CodexBarHelper 只执行受限的系统睡眠操作：
+普通 App 进程负责策略和用户界面，CodexBarHelper 只执行受限的系统睡眠与唤醒操作：
 
 ```text
 CodexActivityMonitor
@@ -17,6 +17,12 @@ CodexActivityMonitor
       -> XPC lease
           -> CodexBarHelper
               -> /usr/bin/pmset
+
+AutoResetController
+  -> AutoResetWakeScheduler
+      -> XPC wake date
+          -> CodexBarHelper
+              -> IOPMSchedulePowerEvent
 ```
 
 ## 为什么这不是一个 assertion 开关
@@ -151,11 +157,22 @@ App 侧 assertion 只覆盖当前进程生命周期。系统级 `SleepDisabled` 
 
 CodexBarHelper 通过 `SMAppService` 注册为 LaunchDaemon。App 和 CodexBarHelper 使用 [`CodexBarHelperXPC.swift`](../../Shared/CodexBarHelperXPC.swift) 定义的 XPC 接口。
 
-接口只提供 3 类能力：
+接口只提供 4 类能力：
 
 - 设置或撤销 App 租约
 - 查询 CodexBarHelper 运行和拥有状态
 - App 更新后重置 CodexBarHelper 状态
+- 设置或取消 CodexBar 固定 owner 的下一次自动重置 `wake` 事件
+
+自动重置与防睡眠共用 helper 注册和系统批准状态，但使用独立 XPC 连接。开启自动重置时，即使防睡眠主开关关闭，也会尝试注册 helper；尚未批准时，自动重置设置行会提供相同的状态和“打开系统设置”入口。
+
+唤醒计划采用系统状态收敛而不是只依赖正常退出清理：
+
+- helper 每次启动都在开放 XPC listener 前清除固定 owner 的遗留事件，App 重连后再按最新目标重新安排
+- 设置成功必须回读到恰好一个时间匹配的事件，取消成功必须回读到零个事件
+- 对应 XPC 连接断开时立即放弃内存所有者；取消失败会进入待清理状态，并由 helper 短周期重试
+- App 退出会等待唤醒计划和防睡眠租约分别确认释放；helper 更新会先冻结唤醒同步，并在当前进程存在唤醒连接或已应用时间时显式取消计划
+- `Scripts/cleanup.swift` 注销 helper 前会检查固定 owner；事件无法取消并回读清零时停止注销，避免同时失去最后一个具备清理权限的进程；注销成功后同时关闭防睡眠和自动重置，避免 App 下次启动时重新注册 helper
 
 每个 App 进程生成稳定的 `clientSessionID`，XPC 重连期间保持不变。每次租约变更带单调递增 generation，CodexBarHelper 只接受更新的请求，避免迟到消息覆盖新状态：
 
@@ -168,8 +185,10 @@ CodexBarHelper 通过 `SMAppService` 注册为 LaunchDaemon。App 和 CodexBarHe
 
 [`CodexBarHelper/main.swift`](../../CodexBarHelper/main.swift) 以 root 运行，但能力被刻意限制：
 
-- 只执行固定路径 `/usr/bin/pmset`
+- 系统睡眠切换只执行固定路径 `/usr/bin/pmset`
 - 只使用固定参数读取或切换 `disablesleep`
+- 只使用固定 owner 和固定 `wake` 类型设置或取消一个系统唤醒事件
+- 唤醒接口只接受有限时间戳，不接受任意 owner、事件类型或命令
 - 不接受任意命令或参数
 - 不访问 Hook、rollout、账户或日志数据
 - 不进行网络访问
@@ -248,6 +267,8 @@ CodexBarHelper 把系统所有权记录保存在：
 
 该文件记录 CodexBar 对系统睡眠设置的所有权。
 
+自动重置唤醒事件不写入该文件。它由 macOS 电源管理保存，身份固定为当前 Debug 或 Release helper 的 mach service 名加 `.auto-reset`，类型固定为 `wake`。
+
 ## 租约与故障恢复
 
 App 持有有效任务时保持带身份的 XPC lease。CodexBarHelper 不把一次请求解释为脱离连接的永久授权：
@@ -261,11 +282,11 @@ App 持有有效任务时保持带身份的 XPC lease。CodexBarHelper 不把一
 
 异常退出后，CodexBarHelper 依靠连接失效、watchdog 和持久化所有权共同恢复系统设置。
 
-App 正常退出时先撤销租约和 IOKit assertion。如果 CodexBarHelper 尚未确认恢复，App 终止流程会等待，避免在不确定状态下直接离开。
+App 正常退出时先取消自动重置唤醒计划，再撤销租约和 IOKit assertion。如果 CodexBarHelper 尚未确认两类 root 状态都已清理，App 终止流程会等待，避免在不确定状态下直接离开。
 
 ### 正常退出为什么可以被取消
 
-`applicationShouldTerminate` 不能在未确认释放时直接返回允许。`prepareForTermination()` 会先停止新重试、请求释放可能存在的租约，然后等待 helper 回读结果：
+`applicationShouldTerminate` 不能在未确认释放时直接返回允许。`prepareForTermination()` 会先停止新重试，取消可能存在的自动重置唤醒计划，再请求释放可能存在的租约，然后等待 helper 回读结果：
 
 - 释放成功时继续终止
 - 释放失败时取消本次终止，恢复正常条件求值和重试
@@ -280,6 +301,7 @@ helper 会分别检查 lease、ownership 记录和实测 `SleepDisabled`
 - owned 且已无租约时恢复 `0`
 - external 时只观察，不把外部状态写成自己的 ownership
 - 持久化记录不可信时采取 fail-safe 恢复，不把损坏记录当成继续持有权限的依据
+- 自动重置唤醒事件取消失败且已经没有连接所有者时，每 5 秒继续回读并清理固定 owner
 
 这里的周期检查不是替代事件驱动 XPC，而是修复系统设置被其他进程改写、回调丢失或进程重启造成的事实漂移。
 
@@ -379,6 +401,13 @@ CodexBar 在确认自己拥有的系统设置已恢复后读取 clamshell 状态
 
 诊断时应区分 registration error 和 operation error。前者表示 helper 未安装、待批准或更新失败，后者表示已安装 helper 的某次切换没有得到可信结果。
 
+自动重置唤醒计划使用独立的有界同步策略：
+
+- 设置或替换失败后按 `2s, 4s, 8s, 16s, 32s, 64s` 重试，耗尽后在自动重置设置行保留错误
+- 正常退出或 helper 更新前按立即、`250ms`、`1s` 三次尝试取消并回读
+- 目标时间距现在不超过 5 秒时不再登记系统事件，App 内任务直接进入到点执行路径
+- XPC 连接丢失后清除 App 侧已应用状态并重新协调；helper 同时取消该连接拥有的固定事件
+
 ## CodexBarHelper 更新
 
 App 更新可能改变内嵌 CodexBarHelper 的签名或内容。App 会记录 CodexBarHelper fingerprint，检测变化后通过 `SMAppService` 和重置接口刷新安装状态。
@@ -390,6 +419,7 @@ App 更新可能改变内嵌 CodexBarHelper 的签名或内容。App 会记录 C
 - App 和 CodexBarHelper 签名匹配预期
 - 首次系统授权流程可完成
 - 更新后旧 owned 状态能够安全恢复
+- 更新前自动重置唤醒计划已取消，新 helper 就绪后按当前目标重新登记
 
 ## 手动验证矩阵
 
@@ -398,6 +428,11 @@ App 更新可能改变内嵌 CodexBarHelper 的签名或内容。App 会记录 C
 - 外部先设置 `disablesleep 1` 时，CodexBar 不声明所有权也不恢复为 `0`
 - App 正常退出时恢复 owned 状态
 - App 强制退出或 XPC 断开后，watchdog 恢复 owned 状态
+- 自动重置开启且防睡眠关闭时仍能完成 helper 注册与批准
+- 未来阈值和重试只保留一个固定 owner 的 `wake` 事件，替换时不影响其他 owner
+- 自动重置关闭、目标变化和正常退出时回读确认计划清零
+- 自动重置 XPC 连接断开或 helper 重启时清理遗留计划
+- `Scripts/cleanup.swift` 只在固定 owner 的计划确认清零后注销 helper
 - 达到时长上限后先恢复睡眠再通知
 - 低电量触发和 5% 滞回恢复正确
 - 异常会话保护隐藏任务后释放防睡眠
@@ -408,6 +443,7 @@ App 更新可能改变内嵌 CodexBarHelper 的签名或内容。App 会记录 C
 - [`KeepAliveController.swift`](../../CodexBar/Services/KeepAlive/KeepAliveController.swift)
 - [`SystemSleepService.swift`](../../CodexBar/Services/KeepAlive/SystemSleepService.swift)
 - [`HelperRuntimeStatusMonitor.swift`](../../CodexBar/Services/KeepAlive/HelperRuntimeStatusMonitor.swift)
+- [`AutoResetWakeScheduler.swift`](../../CodexBar/Services/KeepAlive/AutoResetWakeScheduler.swift)
 - [`KeepAliveDurationLimiter.swift`](../../CodexBar/Services/KeepAlive/KeepAliveDurationLimiter.swift)
 - [`PowerSourceMonitor.swift`](../../CodexBar/Services/KeepAlive/PowerSourceMonitor.swift)
 - [`CodexBarHelperXPC.swift`](../../Shared/CodexBarHelperXPC.swift)

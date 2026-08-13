@@ -2,7 +2,7 @@
 
 ## 原则
 
-CodexBar 只读取实现账户展示、Hook 统计、实时任务和防睡眠所需的数据：
+CodexBar 只读取实现账户展示、自动重置、Hook 统计、实时任务和防睡眠所需的数据：
 
 - 原始数据能留在本机时不上传
 - 可以保存聚合时不保存正文
@@ -63,12 +63,13 @@ CodexBar 的最小化顺序是：
 
 | 来源 | CodexBar 使用方式 | 是否持久化 | 是否上传 CloudKit |
 | --- | --- | --- | --- |
-| app-server 账户、额度和 Reset Credits | 主面板、通知判断和用户启用的自动使用 | 仅短期状态 | 否 |
+| app-server 账户、额度和 Reset Credits | 主面板、通知判断和用户启用的自动重置 | 仅短期状态 | 否 |
 | Hook 结构化事件 | 历史聚合和实时任务 | 是，最长 210 天 | 只上传日聚合 |
 | rollout 生命周期 | terminal 和进展对账 | 不单独持久化 | 否 |
 | App 设置 | 功能开关和阈值 | UserDefaults | 否 |
 | Activity Protection | 异常会话恢复 | 哈希身份，最长 24 小时 | 否 |
 | CodexBarHelper ownership | 系统睡眠恢复 | root 状态文件 | 否 |
+| 自动重置唤醒计划 | 固定 owner、`wake` 类型和下一次时间 | 系统电源管理 | 否 |
 
 ### 为什么 3 条业务链路保持独立
 
@@ -85,7 +86,7 @@ app-server、Hook 历史和实时活动读取不同事实，具有不同的新�
 
 ### Codex app-server
 
-App 通过本机 `codex app-server --listen stdio://` 获取账户、额度、token 用量、Reset Credits 明细和 Codex 配置。用户主动开启自动使用后，App 还会通过同一 stdio 会话调用 Reset Credit 消费方法。
+App 通过本机 `codex app-server --listen stdio://` 获取账户、额度、token 用量、Reset Credits 明细和 Codex 配置。用户主动开启自动重置后，App 还会通过同一 stdio 会话调用 Reset Credit 消费方法。
 
 CodexBar 不自行实现账户登录。app-server 是否访问 OpenAI 服务由 Codex CLI 的正常认证和协议行为决定。
 
@@ -124,11 +125,11 @@ rollout reader 从文件尾部按预算扫描，一方面减少 I/O，另一方�
 - 空明细数组表示服务端已读取明细，但没有返回可用凭证
 - 明细列表可能被截断，不能用数组长度覆盖总数
 - 菜单和临期通知只使用仍为 `available` 且尚未过期的 `expiresAt`
-- 自动使用只处理新鲜响应明确列出的 `available + codexRateLimits + expiresAt` 明细
-- opaque credit ID 和确定性幂等键只存在于当前进程内存，包括 app-server 响应与缓存、额度快照、自动使用状态机和内存请求日志，不持久化或上传
-- 自动使用通知写入 UserDefaults 的去重 key 只包含账户与 credit ID 的 SHA-256 组合，不保存原值
+- 自动重置只处理新鲜响应明确列出的 `available + codexRateLimits + expiresAt` 明细
+- opaque credit ID 和确定性幂等键只存在于当前进程内存，包括 app-server 响应与缓存、额度快照、自动重置状态机和内存请求日志，不持久化或上传
+- 自动重置通知写入 UserDefaults 的去重 key 只包含账户与 credit ID 的 SHA-256 组合，不保存原值
 
-额度响应来自旧缓存时可以继续展示，但不能触发新的临期通知或消费操作。自动使用设置和调度状态不进入 CloudKit，Mac 之间只通过服务端消费接口的确定性幂等键收敛。
+额度响应来自旧缓存时可以继续展示，但不能触发新的临期通知或消费操作。自动重置设置和调度状态不进入 CloudKit，Mac 之间只通过服务端消费接口的确定性幂等键收敛。
 
 ## 本地持久化
 
@@ -174,7 +175,7 @@ UserDefaults 保存：
 - 通知阈值和声音名称
 - 全局快捷键
 - 菜单栏显示选择
-- 自动使用重置开关和临期时间
+- 自动重置开关和提前量
 - 有界的通知去重 key
 - CodexBarHelper fingerprint 等运行配置
 
@@ -189,6 +190,8 @@ UserDefaults 不是无 schema 存储。对已有 key 改名、枚举 raw value �
 ```
 
 文件只保存 CodexBarHelper 是否拥有 `SleepDisabled` 的恢复事务，不包含 Codex 任务、账户或 Hook 数据。
+
+自动重置唤醒计划由系统电源管理保存，只包含 CodexBar 固定 owner、`wake` 类型和下一次时间。helper 不接收或保存账户、`creditId`、幂等键或网络数据。
 
 目录和文件由 root 管理。详细权限和恢复策略见 [防睡眠系统](sleep-prevention.md)
 
@@ -224,7 +227,7 @@ ring buffer 的 500 条上限既控制内存，也限制打开日志窗口时的
 | CloudKit private database | 同步日级 Hook 聚合 | 用户主动开启同步 |
 | Sparkle appcast 和更新资源 | 检查或安装更新 | 自动检查或用户手动检查 |
 
-账户、额度、token 用量、Reset Credits 明细和用户明确开启的 Reset Credit 消费通过本机 app-server stdio 完成。CodexBar 不为自动使用增加独立 HTTP 客户端。
+账户、额度、token 用量、Reset Credits 明细和用户明确开启的 Reset Credit 消费通过本机 app-server stdio 完成。CodexBar 不为自动重置增加独立 HTTP 客户端。
 
 CodexBarHelper 不进行任何网络访问。
 
@@ -247,7 +250,7 @@ CloudKit 不上传：
 - 完整工作目录
 - prompt, response, tool 参数或输出
 - Codex 账户、额度和 token 用量
-- Reset Credits 明细、自动使用设置和消费状态
+- Reset Credits 明细、自动重置设置和消费状态
 - access token
 - App 请求日志
 - Activity Protection 状态
@@ -258,13 +261,14 @@ HMAC 设备 pseudonym 只降低硬件身份关联，不会自动匿名化 projec
 
 ## root helper 的数据隔离
 
-CodexBarHelper 只需要知道 3 类状态：
+CodexBarHelper 只需要知道 4 类状态：
 
 - 哪个已验证客户端持有哪一代 lease
 - `SleepDisabled` 当前实测值
 - CodexBar 是否拥有恢复责任
+- 自动重置唤醒计划的有限 Unix 时间戳和当前连接所有者
 
-它不需要 task ID、project 名、Hook 路径、账户状态或用户设置全文。XPC 只传布尔请求、client session ID, generation 和 update identifier。
+它不需要 task ID、project 名、Hook 路径、账户状态、`creditId` 或用户设置全文。XPC 只传布尔请求、client session ID、generation、update identifier 和有限 Unix 时间戳。
 
 这种能力最小化意味着即使普通 App 层以后新增网络或数据功能，root 进程也不会自动获得这些能力。不应为了复用文件读取或网络代码把业务 service 链接进 helper。
 

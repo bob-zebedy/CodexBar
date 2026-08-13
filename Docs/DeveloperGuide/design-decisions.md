@@ -11,7 +11,7 @@ CodexBar 看起来只是一个菜单栏 App，但它同时横跨 4 个性质完�
 - Codex 自己的本机协议和配置
 - 持续变化的 Hook 与 rollout 文件
 - macOS 窗口、通知和电源管理
-- 带 root 权限的系统级睡眠控制
+- 带 root 权限的系统级睡眠与定时唤醒控制
 
 这些边界不能用同一种失败策略处理。
 
@@ -33,7 +33,7 @@ CodexBar 看起来只是一个菜单栏 App，但它同时横跨 4 个性质完�
 这个顺序解释了很多看起来不对称的处理：
 
 - Hook recorder 获取锁超时后丢弃本次统计，而不是继续等待
-- App 退出时可以被延后，直到 helper 确认释放由 CodexBar 拥有的睡眠状态
+- App 退出时可以被延后，直到 helper 确认释放由 CodexBar 拥有的睡眠状态并取消自动重置唤醒计划
 - app-server 补充接口失败时可以展示带陈旧标记的缓存，但 method unsupported 必须展示来源缺失
 - 唤醒恢复如果没有通过新的 Hook 读取屏障，异常会话保护继续暂停
 
@@ -195,14 +195,14 @@ monitor 先用 Hook 建立活动状态，再用 rollout 补齐生命周期。`St
 
 这不是简单的“双源合并”。冲突时需要按语义决定谁更权威，还要防止迟到事件复活已经完成的任务。
 
-## 为什么特权 helper 只接受睡眠租约
+## 为什么特权 helper 只接受受限电源操作
 
-App 需要 root 权限修改 `pmset disablesleep`，但任务识别、网络和文件解析不需要 root。
+App 需要 root 权限修改 `pmset disablesleep` 和登记系统 `wake` 事件，但任务识别、自动重置判断、网络和文件解析不需要 root。
 
 把策略放进 helper 会显著扩大攻击面和故障恢复范围。当前边界把 helper 限制为一个小型执行器：
 
-- 输入只有租约、generation、状态查询和更新恢复标识
-- 命令固定为 `/usr/bin/pmset` 的固定参数组合
+- 输入只有睡眠租约、generation、状态查询、更新恢复标识和有限的 Unix 唤醒时间戳
+- 睡眠命令固定为 `/usr/bin/pmset` 的固定参数组合，唤醒计划固定为 CodexBar owner 和 `wake` 类型
 - 客户端通过 code-signing requirement 校验
 - helper 不读取 Codex 文件、不访问网络、不接受任意路径或命令
 
@@ -309,6 +309,7 @@ helper 定期读取实际值。一旦 external 消失而租约仍有效，CodexB
 - 聚合语义变化递增 schema 并完整重建
 - root helper 不获得网络、任意命令或额外文件读取能力
 - 只有 CodexBar 自己取得的睡眠所有权可以由 CodexBar 恢复
+- 自动重置只替换或取消 CodexBar 固定 owner 的 `wake` 事件，不修改其他计划事件
 - 通知描述系统效果时，必须在效果已经确认后发送
 - 匿名任务不进入通知、防睡眠和异常会话保护
 - 兼容性变化必须先确定迁移与降级策略

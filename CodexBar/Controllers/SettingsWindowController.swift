@@ -14,7 +14,7 @@ final class SettingsWindowController: HostingWindowController {
     private let menuBarQuotaSettings: MenuBarQuotaSettings
     private let mainPanelSettings: MainPanelSettings
     private let notificationSettings: NotificationSettings
-    private let resetCreditAutomationSettings: ResetCreditAutomationSettings
+    private let autoResetSettings: AutoResetSettings
     private let activityProtectionSettings: ActivityProtectionSettings
     private let keepAliveController: KeepAliveController
     private let onSyncChanged: (Bool) -> Void
@@ -32,7 +32,7 @@ final class SettingsWindowController: HostingWindowController {
         menuBarQuotaSettings: MenuBarQuotaSettings,
         mainPanelSettings: MainPanelSettings,
         notificationSettings: NotificationSettings,
-        resetCreditAutomationSettings: ResetCreditAutomationSettings,
+        autoResetSettings: AutoResetSettings,
         activityProtectionSettings: ActivityProtectionSettings,
         keepAliveController: KeepAliveController,
         screenProvider: @escaping () -> NSScreen?,
@@ -48,7 +48,7 @@ final class SettingsWindowController: HostingWindowController {
         self.menuBarQuotaSettings = menuBarQuotaSettings
         self.mainPanelSettings = mainPanelSettings
         self.notificationSettings = notificationSettings
-        self.resetCreditAutomationSettings = resetCreditAutomationSettings
+        self.autoResetSettings = autoResetSettings
         self.activityProtectionSettings = activityProtectionSettings
         self.keepAliveController = keepAliveController
         self.onSyncChanged = onSyncChanged
@@ -71,7 +71,7 @@ final class SettingsWindowController: HostingWindowController {
                 menuBarQuotaSettings: menuBarQuotaSettings,
                 mainPanelSettings: mainPanelSettings,
                 notificationSettings: notificationSettings,
-                resetCreditAutomationSettings: resetCreditAutomationSettings,
+                autoResetSettings: autoResetSettings,
                 keepAliveController: keepAliveController,
                 onSyncChanged: onSyncChanged,
                 onRebuildWorkflowData: onRebuildWorkflowData,
@@ -115,7 +115,7 @@ final class SettingsWindowController: HostingWindowController {
         syncSettings.refresh()
         menuBarQuotaSettings.refresh()
         mainPanelSettings.refresh()
-        resetCreditAutomationSettings.refresh()
+        autoResetSettings.refresh()
         activityProtectionSettings.refresh()
         keepAliveController.refresh()
     }
@@ -150,25 +150,25 @@ final class SettingsWindowController: HostingWindowController {
                 willShow: { [codexCLINotificationSettings] in
                     codexCLINotificationSettings.refresh()
                 },
-                contentControllerProvider: { [notificationSettings, codexHookSettings, codexCLINotificationSettings, resetCreditAutomationSettings, keepAliveController] entryCue in
+                contentControllerProvider: { [notificationSettings, codexHookSettings, codexCLINotificationSettings, autoResetSettings, keepAliveController] entryCue in
                     SettingsOptionsPanelController.makeContentController(
                         NotificationOptionsView(
                             notificationSettings: notificationSettings,
                             codexHookSettings: codexHookSettings,
                             codexCLINotificationSettings: codexCLINotificationSettings,
-                            resetCreditAutomationSettings: resetCreditAutomationSettings,
+                            autoResetSettings: autoResetSettings,
                             keepAliveController: keepAliveController
                         ),
                         rebuiltBy: entryCue
                     )
                 },
-                // 音效子行随各开关增删, 自动使用 低电量与上限三行还跟着各自的依赖置灰
+                // 音效子行随各开关增删, 自动重置 低电量与上限三行还跟着各自的依赖置灰
                 // 置灰会连带收起音效子行, 所以三个依赖的派生值都要订上
                 // 防睡眠只订这两个派生值: 订整个控制器会让任务每起停一次都白重算一次高度
                 contentChanges: Publishers.MergeMany([
                     notificationSettings.objectWillChange.eraseToAnyPublisher(),
                     codexHookSettings.objectWillChange.eraseToAnyPublisher(),
-                    resetCreditAutomationSettings.$isEnabled
+                    autoResetSettings.$isEnabled
                         .map { _ in () }
                         .eraseToAnyPublisher(),
                     keepAliveController.$isLowBatteryProtectionEnabled
@@ -179,19 +179,19 @@ final class SettingsWindowController: HostingWindowController {
                         .eraseToAnyPublisher()
                 ]).eraseToAnyPublisher()
             )
-        case .resetCreditAutomation:
+        case .autoReset:
             SettingsOptionsPanelController(
-                animationKey: "CodexBar.resetCreditAutomationOptionsDrawerTransform",
-                initialPanelSize: ResetCreditAutomationOptionsView.initialPanelSize,
-                contentControllerProvider: { [resetCreditAutomationSettings] entryCue in
+                animationKey: "CodexBar.autoResetOptionsDrawerTransform",
+                initialPanelSize: AutoResetOptionsView.initialPanelSize,
+                contentControllerProvider: { [autoResetSettings] entryCue in
                     SettingsOptionsPanelController.makeContentController(
-                        ResetCreditAutomationOptionsView(
-                            settings: resetCreditAutomationSettings
+                        AutoResetOptionsView(
+                            settings: autoResetSettings
                         ),
                         rebuiltBy: entryCue
                     )
                 },
-                contentChanges: resetCreditAutomationSettings.objectWillChange
+                contentChanges: autoResetSettings.objectWillChange
                     .eraseToAnyPublisher()
             )
         case .keepAlive:

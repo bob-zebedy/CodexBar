@@ -311,15 +311,15 @@ stale 是数据可信度的一部分，新增展示时不能只复制数值而�
 - 空数组表示服务端已获取明细，但没有返回可用凭证
 - 明细列表可能被服务端截断，长度可以小于 `availableCount`
 - 每条明细包含 opaque `id`、`status` 和可空的 Unix 秒级 `expiresAt`
-- 每条明细还包含 `resetType`，自动使用只接受 `codexRateLimits`
+- 每条明细还包含 `resetType`，自动重置只接受 `codexRateLimits`
 
 模型层只保留 `status == available` 且晚于快照生成时间的过期日，并按时间排序。数量仍独立使用 `availableCount`，不能从过滤后的日期数量反推。
 
 过期明细属于增强信息。`credits == nil` 时主面板仍展示可用数量，详情显示未知过期时间，不影响额度和用量。额度响应来自同账户缓存时，UI 可以继续展示旧明细，但通知服务不会用 stale 数据触发新的临期通知。
 
-### 自动使用临期重置
+### 自动重置
 
-用户主动开启自动使用后，[`ResetCreditAutomationController.swift`](../../CodexBar/Services/CodexStatus/ResetCreditAutomationController.swift) 只处理最新 `account/rateLimits/read` 明确返回的凭证明细：
+用户主动开启自动重置后，[`AutoResetController.swift`](../../CodexBar/Services/CodexStatus/AutoResetController.swift) 只处理最新 `account/rateLimits/read` 明确返回的凭证明细：
 
 - 快照为 stale、`credits == nil`、缺少 `expiresAt`、状态不是 `available` 或 `resetType` 不是 `codexRateLimits` 时不调用消费接口
 - 明细可能被截断，只处理实际返回的凭证，不从 `availableCount` 猜测未列出的 `creditId`
@@ -346,45 +346,53 @@ account/rateLimitResetCredit/consume
 | `nothingToReset` | 当前没有可重置的额度窗口 | 凭证未消费，继续使用同一幂等键重试 |
 | `noCredit` | 当前账户没有可用凭证 | 强制刷新；目标消失时静默停止，否则按暂时不一致重试 |
 
-`alreadyRedeemed` 不是失败，也不是再次消费。它是同一逻辑请求已经成功的确认，因此收到这个结果的设备会停止重试并发送本机的“自动使用重置”通知。
+`alreadyRedeemed` 不是失败，也不是再次消费。它是同一逻辑请求已经成功的确认，因此收到这个结果的设备会停止重试并发送本机的“自动重置”通知。
 
 ### 跨设备幂等契约
 
 同一个 Codex 账户可能同时在多台 Mac 上运行 CodexBar。设备之间不依赖 CloudKit 协调，而是对相同 `creditId` 计算完全相同的 UUIDv5：
 
 ```text
-namespace = 8abd477b-2320-5e39-9518-2a2adfc542fa
+namespace = c2904ab3-0a87-5648-997d-bd8515edd401
 name      = creditId 的原始 UTF-8 字节
 output    = lowercase UUID string
 ```
 
-namespace 来自 URL namespace 对 `https://codexbar.zabrian.app/idempotency/reset-credit-auto-use/v1` 执行 UUIDv5。这个 URL 只用于确定 namespace，不代表运行时网络请求。
+namespace 来自 URL namespace 对 `https://codexbar.zabrian.app/idempotency/auto-reset/v1` 执行 UUIDv5。这个 URL 只用于确定 namespace，不代表运行时网络请求。
 
 固定测试向量为：
 
 ```text
 creditId       = RateLimitResetCredit_123
-idempotencyKey = 9538d0a1-be12-587a-a1c0-d59f49029e3a
+idempotencyKey = 4035685d-9ca4-524f-8193-6e0ae2a7b3b9
 ```
 
 namespace、UUID 版本、原始 UTF-8 输入和小写输出共同构成跨版本兼容协议，不能在普通重构中修改。最先成功的设备完成消费，其他设备用同一个 key 调用时会得到 `alreadyRedeemed`，或者在前置刷新时发现凭证已经消失。
 
-凭证消失无法区分手动使用、其他设备使用和服务端过期，因此只停止本机任务，不发送自动使用成功通知。只有明确收到 `reset` 或 `alreadyRedeemed` 的设备才发送成功通知。
+凭证消失无法区分手动使用、其他设备使用和服务端过期，因此只停止本机任务，不发送自动重置成功通知。只有明确收到 `reset` 或 `alreadyRedeemed` 的设备才发送成功通知。
 
 ### 调度与重试
 
-自动使用状态机完全位于普通 App 进程：
+自动重置状态机和网络请求仍位于普通 App 进程，CodexBarHelper 只负责受限的系统唤醒计划：
 
-- 不使用 helper，不申请防睡眠，也不会为 deadline 唤醒 Mac
+- 开启功能时复用现有 CodexBarHelper 注册与批准流程，不依赖“防止系统睡眠”主开关
+- App 只把最近一次阈值或重试时间交给 helper；helper 使用固定 owner 和固定 `wake` 类型替换 CodexBar 自己的事件，不接受任意事件类型
+- helper 设置或取消后必须回读系统事件；只有恰好存在一个目标时间事件或确认事件已经清零时才回复成功
+- 定时或唤醒触发后，App 仅在新鲜读取和消费请求期间持有 `PreventUserIdleSystemSleep` assertion，不保持显示器唤醒，也不修改 `SleepDisabled`
+- 任务变化、功能关闭、App 退出或对应 XPC 连接关闭时取消 CodexBar 自己的唤醒事件
+- helper 启动时先清除固定 owner 的遗留事件再接受连接；取消失败会放弃失效的连接所有者并在 helper 内重试
+- App 正常退出会等待取消回读；App 强制终止或 XPC 连接中断时由 helper 立即取消，突然断电留下的事件由 helper 下次启动收敛，之后 App 按新鲜明细重新调度
 - App 启动、用户开启功能或系统唤醒时先做新鲜读取；已经进入临期窗口且尚未过期时立即补试，否则按临期时间重新调度
 - App 退出后不持久化原始 `creditId`；下次启动通过新鲜明细重建任务和同一确定性幂等键
 - 同一 `creditId` 的 `expiresAt` 变化时保留幂等身份，但取消当前阈值或重试任务并按新时间重排；新临期点已经过去时立即补检
-- 网络、超时、连接断开或暂时服务错误按 `15s, 30s, 1m, 2m, 5m` 退避，之后保持 `5m`
-- `nothingToReset` 在最后 10 分钟内最多每分钟重试一次
+- 只有已经掌握 `creditId + expiresAt` 的目标才能注册重试唤醒事件；只知道数量或读取失败时不为查询重试唤醒 Mac
+- 网络、超时、连接断开或暂时服务错误按 `15s, 30s, 1m, 2m, 5m` 序列计算退避，但不安排落在本轮 5 分钟截止点及之后的重试
+- 单轮超时后取消本地任务和系统唤醒事件，但不标记目标失败；后续普通额度刷新仍可为同一目标开启新一轮重试
+- `nothingToReset` 在距过期不足 10 分钟且本轮重试窗口尚未结束时固定等待 60 秒，其他时间沿用通用退避
 - 认证失败先沿用 service 的单次 token refresh；仍失败时暂停当前凭证并按通知设置告知用户，后续可信快照证明认证恢复后再继续
 - 参数、协议或方法错误停止当前凭证，不进行无意义重试
 
-自动使用触发完整额度刷新时，如果普通额度刷新正在执行，新刷新会排队到当前刷新结束后运行，不能被 `isRefreshing` guard 丢弃。
+自动重置触发完整额度刷新时，如果普通额度刷新正在执行，新刷新会排队到当前刷新结束后运行，不能被 `isRefreshing` guard 丢弃。
 
 
 ## Hook 版本与配置校验
@@ -454,13 +462,17 @@ Reset Credits 明细包含 opaque credit ID。系统日志不能记录 ID 或原
 - Reset Credits 明细为空或被截断时不从明细长度反推可用数量
 - 过期、非 available 的 Reset Credits 不进入详情或通知
 - stale rate limits 可以展示旧明细，但不触发临期通知
-- 自动使用关闭时不会调用消费接口，缺失设置默认关闭且临期时间默认 2 小时
-- 自动使用不会消费 stale、缺少明细、缺少过期时间或未列出的凭证
+- 自动重置关闭时不会调用消费接口，缺失设置默认关闭且提前量默认 30 分钟
+- 自动重置不会消费 stale、缺少明细、缺少过期时间或未列出的凭证
 - 两台设备对固定 `creditId` 生成相同幂等键，并与固定测试向量一致
 - 同一 `creditId` 的过期时间提前或推迟时都重新调度，幂等键保持不变
 - `reset` 和 `alreadyRedeemed` 均停止重试并发送成功通知
 - `nothingToReset` 保留凭证并按退避策略重试
-- 睡眠期间不会唤醒 Mac；唤醒后重新读取，已经进入临期窗口且尚未过期时补试，否则重新调度
+- 防睡眠关闭时仍可注册并批准 helper，未来阈值会写入固定 owner 的 `wake` 事件
+- 计划时间处于系统睡眠期间时唤醒 Mac，触发后重新读取；自然唤醒和 App 启动仍执行相同补检
+- 功能关闭、目标变化和 App 退出时取消已有唤醒事件，且不影响其他应用的计划事件
+- 只有数量或读取失败、没有具体目标时不注册查询重试唤醒事件
+- 已知目标的单轮连续重试在临期触发 5 分钟后停止，后续普通额度刷新仍可重新开启一轮
 - 消费成功后的完整额度刷新不会被并发普通刷新丢弃
 - 手动刷新后 60 秒倒计时重新对齐
 
@@ -471,5 +483,7 @@ Reset Credits 明细包含 opaque credit ID。系统日志不能记录 ID 或原
 - [`AppServerPipeReaders.swift`](../../CodexBar/Services/CodexStatus/AppServerPipeReaders.swift)
 - [`CodexStatusService.swift`](../../CodexBar/Services/CodexStatus/CodexStatusService.swift)
 - [`CodexStatusViewModel.swift`](../../CodexBar/Services/CodexStatus/CodexStatusViewModel.swift)
-- [`ResetCreditAutomationController.swift`](../../CodexBar/Services/CodexStatus/ResetCreditAutomationController.swift)
-- [`ResetCreditAutomationIdentity.swift`](../../CodexBar/Services/CodexStatus/ResetCreditAutomationIdentity.swift)
+- [`AutoResetController.swift`](../../CodexBar/Services/CodexStatus/AutoResetController.swift)
+- [`AutoResetIdentity.swift`](../../CodexBar/Services/CodexStatus/AutoResetIdentity.swift)
+- [`AutoResetWakeScheduler.swift`](../../CodexBar/Services/KeepAlive/AutoResetWakeScheduler.swift)
+- [`CodexBarHelperXPC.swift`](../../Shared/CodexBarHelperXPC.swift)

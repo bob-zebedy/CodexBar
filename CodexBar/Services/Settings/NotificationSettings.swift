@@ -15,7 +15,7 @@ final class NotificationSettings: ObservableObject {
     @Published private(set) var isTaskWaitingEnabled: Bool
     @Published private(set) var isTaskHapticEnabled: Bool
     @Published private(set) var isCreditExpiryEnabled: Bool
-    @Published private(set) var isResetCreditAutoUseEnabled: Bool
+    @Published private(set) var isAutoResetEnabled: Bool
     @Published private(set) var isLowBatteryEnabled: Bool
     @Published private(set) var isKeepAliveLimitEnabled: Bool
     @Published private(set) var lowQuotaThresholdPercent: Int
@@ -25,7 +25,7 @@ final class NotificationSettings: ObservableObject {
     @Published private(set) var taskCompletionSound: NotificationSoundOption
     @Published private(set) var taskWaitingSound: NotificationSoundOption
     @Published private(set) var creditExpirySound: NotificationSoundOption
-    @Published private(set) var resetCreditAutoUseSound: NotificationSoundOption
+    @Published private(set) var autoResetSound: NotificationSoundOption
     @Published private(set) var lowBatterySound: NotificationSoundOption
     @Published private(set) var keepAliveLimitSound: NotificationSoundOption
     @Published private(set) var authorizationStatus: UNAuthorizationStatus = .notDetermined
@@ -80,9 +80,9 @@ final class NotificationSettings: ObservableObject {
         isTaskWaitingEnabled = Self.bool(from: defaults, key: Self.taskWaitingEnabledKey, defaultValue: true)
         isTaskHapticEnabled = Self.bool(from: defaults, key: Self.taskHapticEnabledKey, defaultValue: false)
         isCreditExpiryEnabled = Self.bool(from: defaults, key: Self.creditExpiryEnabledKey, defaultValue: true)
-        isResetCreditAutoUseEnabled = Self.bool(
+        isAutoResetEnabled = Self.bool(
             from: defaults,
-            key: Self.resetCreditAutoUseEnabledKey,
+            key: Self.autoResetEnabledKey,
             defaultValue: true
         )
         isLowBatteryEnabled = Self.bool(from: defaults, key: Self.lowBatteryEnabledKey, defaultValue: true)
@@ -102,7 +102,7 @@ final class NotificationSettings: ObservableObject {
         taskCompletionSound = Self.sound(from: defaults, key: Self.taskCompletionSoundKey)
         taskWaitingSound = Self.sound(from: defaults, key: Self.taskWaitingSoundKey)
         creditExpirySound = Self.sound(from: defaults, key: Self.creditExpirySoundKey)
-        resetCreditAutoUseSound = Self.sound(from: defaults, key: Self.resetCreditAutoUseSoundKey)
+        autoResetSound = Self.sound(from: defaults, key: Self.autoResetSoundKey)
         lowBatterySound = Self.sound(from: defaults, key: Self.lowBatterySoundKey)
         keepAliveLimitSound = Self.sound(from: defaults, key: Self.keepAliveLimitSoundKey)
     }
@@ -148,8 +148,8 @@ final class NotificationSettings: ObservableObject {
         setBool(enabled, current: &isCreditExpiryEnabled, key: Self.creditExpiryEnabledKey)
     }
 
-    func setResetCreditAutoUseEnabled(_ enabled: Bool) {
-        setBool(enabled, current: &isResetCreditAutoUseEnabled, key: Self.resetCreditAutoUseEnabledKey)
+    func setAutoResetEnabled(_ enabled: Bool) {
+        setBool(enabled, current: &isAutoResetEnabled, key: Self.autoResetEnabledKey)
     }
 
     func setLowBatteryEnabled(_ enabled: Bool) {
@@ -200,8 +200,8 @@ final class NotificationSettings: ObservableObject {
         setSound(sound, current: &creditExpirySound, key: Self.creditExpirySoundKey)
     }
 
-    func setResetCreditAutoUseSound(_ sound: NotificationSoundOption) {
-        setSound(sound, current: &resetCreditAutoUseSound, key: Self.resetCreditAutoUseSoundKey)
+    func setAutoResetSound(_ sound: NotificationSoundOption) {
+        setSound(sound, current: &autoResetSound, key: Self.autoResetSoundKey)
     }
 
     func setLowBatterySound(_ sound: NotificationSoundOption) {
@@ -333,7 +333,7 @@ final class NotificationSettings: ObservableObject {
     private static let taskWaitingEnabledKey = "Notification.taskWaitingEnabled"
     private static let taskHapticEnabledKey = "Notification.taskHapticEnabled"
     private static let creditExpiryEnabledKey = "Notification.creditExpiryEnabled"
-    private static let resetCreditAutoUseEnabledKey = "Notification.resetCreditAutoUseEnabled"
+    private static let autoResetEnabledKey = "Notification.autoResetEnabled"
     private static let lowBatteryEnabledKey = "Notification.lowBatteryEnabled"
     private static let keepAliveLimitEnabledKey = "Notification.keepAliveLimitEnabled"
     private static let lowQuotaThresholdKey = "Notification.lowQuotaThresholdPercent"
@@ -343,7 +343,7 @@ final class NotificationSettings: ObservableObject {
     private static let taskCompletionSoundKey = "Notification.taskCompletionSound"
     private static let taskWaitingSoundKey = "Notification.taskWaitingSound"
     private static let creditExpirySoundKey = "Notification.creditExpirySound"
-    private static let resetCreditAutoUseSoundKey = "Notification.resetCreditAutoUseSound"
+    private static let autoResetSoundKey = "Notification.autoResetSound"
     private static let lowBatterySoundKey = "Notification.lowBatterySound"
     private static let keepAliveLimitSoundKey = "Notification.keepAliveLimitSound"
 }

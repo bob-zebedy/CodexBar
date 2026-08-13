@@ -25,12 +25,12 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     let menuBarQuotaSettings = MenuBarQuotaSettings()
     let mainPanelSettings = MainPanelSettings()
     let notificationSettings = NotificationSettings()
-    let resetCreditAutomationSettings = ResetCreditAutomationSettings()
+    let autoResetSettings = AutoResetSettings()
     let appUpdater = AppUpdater()
 
     private var statusItemController: StatusItemController?
     private var notificationService: CodexNotificationService?
-    private var resetCreditAutomationController: ResetCreditAutomationController?
+    private var autoResetController: AutoResetController?
     private var terminationPreparationTask: Task<Void, Never>?
     private var hasPreparedForTermination = false
 
@@ -50,7 +50,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             menuBarQuotaSettings: menuBarQuotaSettings,
             mainPanelSettings: mainPanelSettings,
             notificationSettings: notificationSettings,
-            resetCreditAutomationSettings: resetCreditAutomationSettings,
+            autoResetSettings: autoResetSettings,
             keepAliveController: keepAliveController,
             appUpdater: appUpdater
         )
@@ -67,14 +67,15 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         notificationService.start()
         self.notificationService = notificationService
 
-        let resetCreditAutomationController = ResetCreditAutomationController(
-            settings: resetCreditAutomationSettings,
+        let autoResetController = AutoResetController(
+            settings: autoResetSettings,
             statusViewModel: viewModel,
             service: codexStatusService,
-            notificationService: notificationService
+            notificationService: notificationService,
+            keepAliveController: keepAliveController
         )
-        resetCreditAutomationController.start()
-        self.resetCreditAutomationController = resetCreditAutomationController
+        autoResetController.start()
+        self.autoResetController = autoResetController
         // 低电量触发会中断正在跑的任务, 得让用户知道是谁干的
         keepAliveController.onLowBatteryTriggered = { [weak notificationService] percent in
             await notificationService?.notifyLowBatteryProtection(percent: percent) ?? false
@@ -99,7 +100,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         terminationPreparationTask = nil
         AppProcessDiagnostics.recordCleanExit()
         statusItemController?.uninstall()
-        resetCreditAutomationController?.stop()
+        autoResetController?.stop()
         keepAliveController.stop()
         activityMonitor.stop()
     }
@@ -144,8 +145,8 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             "activityProtectionMinutes=\(activityProtectionSettings.inactivityDuration.loggedMinutes)",
             "sync=\(syncSettings.isEnabled ? 1 : 0)",
             "notification=\(notificationSettings.isEnabled ? 1 : 0)",
-            "resetCreditAutoUse=\(resetCreditAutomationSettings.isEnabled ? 1 : 0)",
-            "resetCreditLeadSeconds=\(resetCreditAutomationSettings.leadTime.rawValue)",
+            "autoReset=\(autoResetSettings.isEnabled ? 1 : 0)",
+            "autoResetLeadTimeSeconds=\(autoResetSettings.leadTime.rawValue)",
             "menuBarQuota=\(menuBarQuotaSettings.selection.rawValue)",
             "taskCenter=\(mainPanelSettings.showsTaskCenter ? 1 : 0)",
             "hotKey=\(globalHotKeySettings.shortcut == nil ? 0 : 1)"

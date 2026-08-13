@@ -162,14 +162,16 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - Debug 与 Release 共用状态文件，actor 串行化进程内访问，`flock` 保护跨进程读写，文件权限固定为 `0600`，当前 schema 为 `1`；状态在 task reader 启动前完成加载
 - 持久化操作按 `activityProtectionPersistenceTask` 串行排队，条件删除用 `markedAt` 防止旧 attempt 删除新记录，终态与保留期清理执行无条件删除
 
-### 防睡眠（KeepAlive）与 root helper
+### 系统电源控制与 root helper
 
 两套机制叠加，职责不同：
 
 - `SystemSleepService` 用进程内 `IOPMAssertion` 建立 `PreventUserIdleSystemSleep` 断言，只挡空闲睡眠，不需要提权；断言名必须是 ASCII，否则 `pmset -g assertions` 显示不出标识
-- `CodexBarHelper` 是 root LaunchDaemon，通过 XPC 接受 `setSleepPreventionRequested` 请求，执行 `/usr/bin/pmset -a disablesleep` 覆盖合盖睡眠
+- `CodexBarHelper` 是 root LaunchDaemon，通过 XPC 接受 `setSleepPreventionRequested` 和 `setAutoResetWakeSchedule` 请求；前者执行 `/usr/bin/pmset -a disablesleep` 覆盖合盖睡眠，后者使用固定 owner 和 `wake` 类型维护自动重置系统唤醒事件
 
-链路：`KeepAliveController`（MainActor）订阅 `activityMonitor.$snapshot` 以及合成 `codexHookSettings.isOperable` 的两个发布值 -> `SMAppService.daemon(plistName:)` 注册 -> `NSXPCConnection` -> helper
+防睡眠链路：`KeepAliveController`（MainActor）订阅 `activityMonitor.$snapshot` 以及合成 `codexHookSettings.isOperable` 的两个发布值 -> `SMAppService.daemon(plistName:)` 注册 -> `NSXPCConnection` -> helper
+
+自动重置唤醒链路：`AutoResetController` -> `KeepAliveController` -> `AutoResetWakeScheduler` -> 独立 `NSXPCConnection` -> helper
 
 关键约束：
 
@@ -179,9 +181,15 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 新增拦截条件一律加进 `sleepBlockReason` 的顺序判断里，它和 `shouldDisableSleep` 同源，顺带保证日志的 `reason=` 不会漏项
 - UI 用的 `isLowBatteryBlocking` 与 `canShowOptions` 由 `reconcileSleepState` 从 `sleepBlockReason` 单点派生，新增拦截条件时 `allowsOptions` 那个穷举 `switch` 会强制表态，于是不会出现入口亮着却点不动
 - `hasRunningTasks` 与 `isRefreshingHelper` 都不带 `@Published` 标注，它们变得比结论频繁，各自发信号会把整个设置页拖着一起重算
-- helper 只做一件事；不要给 root helper 增加网络、任意命令执行或其他文件访问能力
+- helper 只做固定的系统电源操作；不要给 root helper 增加网络、任意命令执行或其他文件访问能力
+- helper 注册需求由防睡眠主开关与自动重置请求共同决定；自动重置开启时即使防睡眠关闭也要完成 `SMAppService` 注册和系统批准，设置行复用注册错误并单独展示唤醒计划同步错误
+- `AutoResetWakeScheduler` 与防睡眠租约使用独立 XPC 连接，只同步下一次唤醒时间；距现在不超过 5 秒的时间不交给 helper，由 App 内定时任务直接进入到点执行路径
+- helper 把自动重置事件 owner 固定为 `CodexBarHelperIPC.machServiceName + ".auto-reset"`，事件类型固定为 `kIOPMAutoWake`；替换时先取消这个 owner 的全部旧事件，设置后回读必须恰好得到一个 1 秒容差内的目标事件，取消后回读必须为空；修改 owner 或类型属于清理兼容性问题
+- 唤醒连接关闭时 helper 立即取消该连接拥有的事件，取消失败后清除内存所有者并每 5 秒继续收敛；helper 启动时在开放 listener 前按立即、250 毫秒、1 秒清理遗留事件，`SIGTERM` 与 `SIGINT` 退出前也执行取消
+- App 同步唤醒计划失败后按 2/4/8/16/32/64 秒重试；App 正常退出或 helper 更新前按立即、250 毫秒、1 秒取消，失败就保留错误并取消本次退出或更新
+- `Scripts/cleanup.swift` 注销 helper 前先通过 XPC 取消固定 owner 的事件并回读；事件仍存在时必须停止注销，不能让系统计划失去最后一个具备清理能力的进程
 - 调用方校验由 XPC 层强制；helper 启动时用 `SecCodeCopySelf` 读自身签名，拼出形如 `anchor apple generic and certificate leaf[subject.OU] = "<team>" and identifier "<主 App identifier>"` 的 requirement 字符串，交给 `NSXPCListener.setConnectionCodeSigningRequirement` 生效；没有逐次连接的 audit token 检查，改签名或改 bundle ID 会直接连不上
-- 所有权记录固定放在 `/Library/Application Support/CodexBar/sleep-ownership.json`，由 root 在同目录写临时文件，完成 `F_FULLFSYNC` 后原子替换并同步目录，权限固定为 `0600`；只持久化 `idle`、`owned`、`restoring` 三态，`external` 只是任务期间的运行态，不落盘也不承担恢复责任
+- 所有权记录固定放在 `/Library/Application Support/CodexBar/helper-state.json`，由 root 在同目录写临时文件，完成 `F_FULLFSYNC` 后原子替换并同步目录，权限固定为 `0600`；只持久化 `idle`、`owned`、`restoring` 三态，`external` 只是任务期间的运行态，不落盘也不承担恢复责任
 - 当前值为 0 时必须先写 `owned` 再写 `pmset 1`；释放时必须先写 `restoring` 再写 `pmset 0`；两次 pmset 都要重新读取 `pmset -g` 确认实际值，只有确认为 0 才能记回 `idle`
 - 任务开始时实际值已为 1 就返回 `external`，不写 `pmset`；helper 每 5 秒观察一次，如果其他来源在任务期间改回 0，helper 立即按上一条顺序取得所有权
 - helper 取得所有权后每 5 秒检查一次实际值与磁盘 transaction，值被改成 0 时重新写回 1，记录缺失、损坏或 transaction 不一致时先修复记录；修复失败也必须继续尝试恢复为 0
@@ -189,13 +197,13 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 每个 App 进程持有一个跨 XPC 重连不变的 client session ID，请求再带单调递增的 `generation`；helper 只释放对应进程的租约并拒绝延迟到达的旧 `generation`，不允许旧连接覆盖新状态
 - 异常断连后租约宽限 15 秒；同一 App 在宽限内重连会续上原租约，watchdog 只会释放仍处于断连状态的那一个 client session
 - helper 以 `owned` 或 `restoring` 启动时先恢复为 0 再接受新接管；以 `idle` 启动时不修改当前值，因为那个值可能属于其他来源
-- 更新 helper 前 App 先释放自己的租约，helper 原子确认全局没有活跃客户端且所有权为 `idle`，再用短期更新准备锁拒绝新的接管；注册新 helper 后必须收到状态查询回复才记录新指纹，系统仍在等待首次批准时除外
+- 更新 helper 前 App 冻结新防睡眠请求和自动重置唤醒同步，确认固定唤醒事件已取消后执行 unregister/register；旧 helper 终止时负责恢复 owned 睡眠状态，新 helper 就绪后对当前指纹执行一次 `resetSleepAfterUpdate` 并收到状态回复才完成更新，系统仍在等待首次批准时除外
 - 切换失败按 2/4/8...256 秒重试，列表耗尽即放弃（延时累计约 8.5 分钟，每轮再等一次超时约 10 分钟），瞬时抖动能自愈，权限类故障不该无限重试
 - XPC 请求带超时并汇进同一条重试路径；launchd 拉不起 helper 时 XPC 方法既不回复也不触发 `errorHandler`，没有它界面会显示防睡眠开着而实际没生效，日志里只剩没有配对回复的 `Helper XPC 请求已发送`
 - 超时取值放在 `CodexBarHelperIPC.requestTimeoutSeconds` 而不是控制器里，它与 `watchdogGraceSeconds` 是一对：必须更小，App 先放手 helper 才能靠 watchdog 兜底，分处两个 module 会让人改了一边不知道另一边
 - 开发期间用 `xcodebuild` 覆盖正在运行的 App bundle 会让 launchd 记的 daemon 与磁盘上的 helper 对不上，helper 从此拉不起来；重启 App 会由 `helperRegistrationNeedsRefresh` 的指纹比对自愈，排查时先看这一条
 - helper 回传 `none`、`external`、`codexBar` 来源与操作后的实测值；App 只能在 `codexBar` 且实测为 0 时宣称系统睡眠已恢复或补发 `IOPMSleepSystem`，`external` 和 `none` 都只释放进程内断言
-- App 退出由 `applicationShouldTerminate` 返回 `terminateLater`，先冻结新接管并等 helper 释放回复再继续退出；helper 刷新同样先释放，旧 helper 无响应时由新 helper 的启动恢复兜底
+- App 退出由 `applicationShouldTerminate` 返回 `terminateLater`，先取消自动重置唤醒计划，再释放防睡眠租约；两项都经 helper 回读确认后才继续退出，任一失败都会取消本次退出并恢复协调
 - `pmset` 是没有来源和引用计数的全局布尔值；CodexBar 取得所有权后如果另一个 App 也开始依赖这个 1，释放时仍会恢复为 0，系统层没有无歧义的方法判断另一个 App 的意图
 - 低电量保护由 `PowerSourceMonitor` 供数，它只报事实（有没有内置电池、电量、是否靠电池供电），不知道阈值；读数保持 `unavailable`、`unreadable`、`present` 三态，把读取失败折叠成“没有电池”会让设置项凭空消失且保护静默失效
 - 见过一次内置电池就记住 `hasSeenBattery`，之后读到空列表只能返回 `unreadable`；硬件不会中途消失，空列表只是 IOKit 重新枚举时的缺口，当成台式机会当场撤掉保护
@@ -226,6 +234,18 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 声明用户活动复用同一个 assertion ID，每次传 `null` 会新建一条，`pmset -g assertions` 里会堆成一串同名断言
 - 逐次声明不记日志，建立与释放各一条就够还原状态；两条断言都是进程级的，App 退出或崩溃时系统自动收回，不经过 helper
 - **菜单栏图标不承载防睡眠状态**，它要保持模板渲染让系统按菜单栏外观着色，自行着色在深浅和带染色的菜单栏下都会失控
+
+### 自动重置
+
+- `AutoResetSettings` 默认关闭，提前量可选 15 分钟、30 分钟、1 小时、2 小时、4 小时、6 小时，缺失或无效值回退 30 分钟
+- `AutoResetController` 只处理新鲜 `account/rateLimits/read` 明确列出的 `available + codexRateLimits + expiresAt` 凭证，按过期时间和 ID 排序后一次只处理最早目标；数量不能反推缺失明细
+- App 启动、用户开启、系统唤醒和计划到点都会执行新鲜读取；阈值尚未到时重新调度，已经进入窗口且尚未过期时立即尝试
+- `creditId` 决定跨设备幂等键和通知身份，`expiresAt` 只是可变调度数据；同一 ID 的时间变化要取消当前阈值或重试并按新时间重排，不能换幂等身份
+- 阈值触发后单轮重试窗口固定为 5 分钟；暂时错误按 15/30/60/120/300 秒计算下一次退避，但落在截止点及之后的重试不安排，`nothingToReset` 在过期前最后 10 分钟内按 60 秒间隔处理
+- 单轮结束只取消本地任务和系统唤醒，不把目标标记成永久失败；后续普通额度快照仍可为有效目标开启新一轮
+- `.auto`、`.retry` 和 `.wake` 评估期间建立独立的 `PreventUserIdleSystemSleep` assertion，读取与消费结束后立即释放；不建立显示断言，不修改 `SleepDisabled`
+- `reset` 与 `alreadyRedeemed` 都视为成功并通知；认证失败暂停当前目标，协议或参数错误停止当前目标，明确过期发送失败通知，目标从明细消失时静默停止
+- 原始 `creditId` 和确定性幂等键只在当前进程内存中存在；`UserDefaults` 只保存开关、提前量、通知选项和哈希去重 key，CloudKit 不同步自动重置状态
 
 ### 通知
 
@@ -281,17 +301,17 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 菜单栏按钮左键切换主面板；右键或 Control+点击打开上下文菜单；`⌘,` 打开自定义设置窗口，菜单面板打开时 `⌘L` 打开日志窗口；默认全局快捷键 `⌘⇧W` 由 `GlobalHotKeySettings` 与 `GlobalHotKeyController` 管理
 - 主面板是锚定 status item 的 `NSPopover` 弹窗，锚点不可信时回退到 `FallbackPanelController` 提供的屏幕顶部居中 `NSPanel` 面板，处理快捷键、屏幕选择和焦点时要保留这两个分支
 - 关闭逻辑统一由 `MenuSurfaceDismissMonitor` 管理，淡出由 `MenuSurfaceFadeCoordinator` 负责
-- 侧边面板都是 borderless nonactivating child panel，热力图详情、重置次数和任务中心挂在主面板上，通知、自动使用临期重置和防睡眠选项挂在设置窗口上
+- 侧边面板都是 borderless nonactivating child panel，热力图详情、重置次数和任务中心挂在主面板上，通知、自动重置和防睡眠选项挂在设置窗口上
 - 设置窗口的子面板占同一位置，展开一个必须先 `hide(immediate: true)` 收掉其余的；动作走 `SettingsOptionsPanelAction` 并带上目标 `SettingsOptionsPanel`，互斥与 `closeAll` 都只写在 `SettingsWindowController.handleOptionsAction` 一处，新增面板不会漏配对
 - 面板控制器只在首次展开时构造，收起动作走 `existingOptionsPanelController` 而不触发构造：它一建就挂上内容变化订阅并常驻到 App 结束，而用户可能一次子面板都没开过
 - 三个设置子面板的顶边对齐各自主开关行，anchor 由设置页的 `ScreenFrameProvider` 随展开动作传出，定位走 `SidePanelSupport.anchoredPosition` 而不是宿主底边
 - 设置窗口的子面板要传 `clampsToSurfaceBottom: false` 让底边可以探出窗口，否则放不下时会把整个面板上推而错开主开关行；主面板那三个面板走默认的 `true`
-- 通知和防睡眠面板的高度会动态变化，前者随音效行增删，后者随 `hasBattery` 增删低电量那一行；自动使用临期重置面板只有固定的一行；resize 时要固定顶边向下生长，直接改 size 会保持底边不动而把顶边顶离主开关行
-- 内容变化订阅要保持最小：通知面板订 `notificationSettings` 与 `codexHookSettings` 的 `objectWillChange`，再加 `resetCreditAutomationSettings.$isEnabled`、`KeepAliveController.$isLowBatteryProtectionEnabled` 与 `$isMaximumDurationEnabled`；自动使用临期重置面板只订 `resetCreditAutomationSettings.objectWillChange`；防睡眠面板只订 `$hasBattery`；订整个防睡眠控制器会让任务每起停一次都白排一轮 resize
+- 通知和防睡眠面板的高度会动态变化，前者随音效行增删，后者随 `hasBattery` 增删低电量那一行；自动重置面板只有固定的一行；resize 时要固定顶边向下生长，直接改 size 会保持底边不动而把顶边顶离主开关行
+- 内容变化订阅要保持最小：通知面板订 `notificationSettings` 与 `codexHookSettings` 的 `objectWillChange`，再加 `autoResetSettings.$isEnabled`、`KeepAliveController.$isLowBatteryProtectionEnabled` 与 `$isMaximumDurationEnabled`；自动重置面板只订 `autoResetSettings.objectWillChange`；防睡眠面板只订 `$hasBattery`；订整个防睡眠控制器会让任务每起停一次都白排一轮 resize
 - 置灰也会改高度：带音效的行置灰时音效子行跟着收起，所以每个置灰依赖都要有一个对应的订阅源
 - 增删行或改行的显示条件时要同步补上对应的订阅源，漏一项会让面板裁掉底部或留下空白
 - resize 的竖向夹紧走 `SidePanelSupport.clampedVertically`，与初次展开的 `position` 同一条规则，否则放不下时两边会把面板推向相反的边
-- 子面板入口只在开关开着且依赖就绪时出现，通知看 `NotificationSettings.canShowOptions`，自动使用临期重置看 `ResetCreditAutomationSettings.isEnabled`，防睡眠看 `KeepAliveController.canShowOptions`；这些值只控制入口显隐，不回写用户保存的开关
+- 子面板入口只在开关开着且依赖就绪时出现，通知看 `NotificationSettings.canShowOptions`，自动重置看 `AutoResetSettings.isEnabled`，防睡眠看 `KeepAliveController.canShowOptions`；这些值只控制入口显隐，不回写用户保存的开关
 - 三个设置子面板都只由滑杆按钮展开，动作只有 `toggle` 与 `close` 两种，开启主开关不自动弹出
 - 侧边面板公共能力集中在 `Controllers/SidePanelSupport.swift` 里，含 `SidePanelDrawerPresenter`、`SidePanelContentHost`、`SidePanelDrawerAnimator`、panel 工厂和定位夹紧；挂在主面板上的那三个面板优先复用 `SidePanelDrawerPresenter` 这一层，不要另起一套
 - 设置窗口的子面板直接复用 `Controllers/SettingsOptionsPanelController.swift`，它在 presenter 之上补齐了装配、两套关闭观察者、顶边对齐定位和高度重算；新增设置子面板只要给它内容工厂与内容变化来源，不要再写一层壳
@@ -339,5 +359,5 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - **任何兼容性问题都必须主动询问用户，不要自行决定**；只要改动会影响新旧共存就适用，不限于旧数据迁移或丢弃、持久化 key 改名或改结构、老版本升上来的降级路径、最低系统版本与 API 可用性取舍、云端记录格式变更；先说清影响面和几种做法的代价，等用户选定再动手
 - 处理窗口、菜单、快捷键、App 激活或事件监听时，特别注意 `LSUIElement` 应用特有的焦点行为
 - 注释保持克制，只解释非显然的生命周期、焦点、actor 或系统 API 约束；现有注释多为解释为什么的类型，沿用同样风格
-- 改动涉及菜单面板、窗口焦点、Hook、同步、通知或防睡眠时，构建通过之外还要说明应手动覆盖的交互场景；防睡眠额外要验证 App 包内 helper 与 plist 位置、签名、首次系统授权、运行/等待切换和异常退出后的恢复
+- 改动涉及菜单面板、窗口焦点、Hook、同步、通知、自动重置唤醒或防睡眠时，构建通过之外还要说明应手动覆盖的交互场景；helper 相关改动额外要验证 App 包内 helper 与 plist 位置、签名、首次系统授权、运行/等待切换、唤醒计划替换与清理和异常退出后的恢复
 - 不要把发布产物、DerivedData、临时 DMG、签名文件或个人凭据提交进仓库

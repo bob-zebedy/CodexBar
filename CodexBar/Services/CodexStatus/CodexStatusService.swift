@@ -199,10 +199,10 @@ actor CodexStatusService {
         )
     }
 
-    /// 自动使用前必须绕过补充数据缓存读取一份新凭证明细
-    func readResetCreditsForAutomation() throws -> ResetCreditAutomationRead {
-        try withAutomationConnection { connection in
-            try readResetCreditsForAutomation(using: connection)
+    /// 自动重置前必须绕过补充数据缓存读取一份新凭证明细
+    func readCreditsForAutoReset() throws -> AutoResetRead {
+        try withAutoResetConnection { connection in
+            try readCreditsForAutoReset(using: connection)
         }
     }
 
@@ -212,7 +212,7 @@ actor CodexStatusService {
         idempotencyKey: String,
         expectedAccountIdentity: String
     ) throws -> ResetCreditConsumeResult {
-        let response: ResetCreditConsumeResponse = try withAutomationConnection { connection in
+        let response: ResetCreditConsumeResponse = try withAutoResetConnection { connection in
             let accountResponse = try connection.session.request(
                 "account/read",
                 params: ["refreshToken": false],
@@ -221,8 +221,8 @@ actor CodexStatusService {
             guard let account = accountResponse.account else {
                 throw CodexStatusError.notLoggedIn
             }
-            guard ResetCreditAutomationIdentity.accountIdentity(for: account) == expectedAccountIdentity else {
-                throw ResetCreditAutomationServiceError.accountChanged
+            guard AutoResetIdentity.accountIdentity(for: account) == expectedAccountIdentity else {
+                throw AutoResetServiceError.accountChanged
             }
 
             connection.accountResponse = accountResponse
@@ -238,7 +238,7 @@ actor CodexStatusService {
 
         // 消费结果已经确定时刷新失败不能覆盖结果
         // 控制器仍会触发完整额度刷新, 这里先满足协议要求并尽快取得剩余次数
-        let refreshedRead = try? readResetCreditsForAutomation()
+        let refreshedRead = try? readCreditsForAutoReset()
         return ResetCreditConsumeResult(
             outcome: response.outcome,
             refreshedRead: refreshedRead
@@ -303,9 +303,9 @@ actor CodexStatusService {
         }
     }
 
-    /// 自动使用链路在传输故障后重建一次连接
+    /// 自动重置链路在传输故障后重建一次连接
     /// 每次逻辑操作最多刷新一次认证, 不在业务错误上创建新进程
-    private func withAutomationConnection<Value>(
+    private func withAutoResetConnection<Value>(
         _ operation: (AppServerConnection) throws -> Value
     ) throws -> Value {
         var canRebuild = true
@@ -314,19 +314,19 @@ actor CodexStatusService {
             let activeConnection = try readyConnection()
 
             do {
-                return try performAutomationOperation(
+                return try performAutoResetOperation(
                     using: activeConnection,
                     operation: operation
                 )
             } catch let error as CodexStatusError where error.isTransportFailure && canRebuild {
                 canRebuild = false
                 teardownConnection()
-                AppLog.app.notice("自动使用重置连接已重建: reason=transportError")
+                AppLog.app.notice("自动重置连接已重建: reason=transportError")
             }
         }
     }
 
-    private func performAutomationOperation<Value>(
+    private func performAutoResetOperation<Value>(
         using connection: AppServerConnection,
         operation: (AppServerConnection) throws -> Value
     ) throws -> Value {
@@ -411,9 +411,9 @@ actor CodexStatusService {
 
     // MARK: - 数据抓取与缓存
 
-    private func readResetCreditsForAutomation(
+    private func readCreditsForAutoReset(
         using connection: AppServerConnection
-    ) throws -> ResetCreditAutomationRead {
+    ) throws -> AutoResetRead {
         let accountResponse = try connection.session.request(
             "account/read",
             params: ["refreshToken": false],
@@ -435,10 +435,10 @@ actor CodexStatusService {
         supplementalDataCache.rateLimits = rateLimitsResponse
 
         let summary = rateLimitsResponse.rateLimitResetCredits
-        return ResetCreditAutomationRead(
-            accountIdentity: ResetCreditAutomationIdentity.accountIdentity(for: account),
+        return AutoResetRead(
+            accountIdentity: AutoResetIdentity.accountIdentity(for: account),
             availableCount: summary?.availableCount,
-            candidates: summary?.automationCandidates
+            candidates: summary?.autoResetCandidates
         )
     }
 

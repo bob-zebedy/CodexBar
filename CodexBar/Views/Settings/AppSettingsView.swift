@@ -13,7 +13,7 @@ struct AppSettingsView: View {
     @ObservedObject var menuBarQuotaSettings: MenuBarQuotaSettings
     @ObservedObject var mainPanelSettings: MainPanelSettings
     @ObservedObject var notificationSettings: NotificationSettings
-    @ObservedObject var resetCreditAutomationSettings: ResetCreditAutomationSettings
+    @ObservedObject var autoResetSettings: AutoResetSettings
     @ObservedObject var keepAliveController: KeepAliveController
     let onSyncChanged: (Bool) -> Void
     let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
@@ -22,14 +22,14 @@ struct AppSettingsView: View {
     @State private var selectedTab = SettingsTab.general
     @State private var isTabContentSettled = true
     @State private var notificationAnchorProvider = ScreenFrameProvider()
-    @State private var resetCreditAutomationAnchorProvider = ScreenFrameProvider()
+    @State private var autoResetAnchorProvider = ScreenFrameProvider()
     @State private var keepAliveAnchorProvider = ScreenFrameProvider()
     @State private var rebuildableDates = [String]()
     @State private var selectedRebuildRange: RebuildDateRange?
     @State private var isShowingRebuildConfirmation = false
     @State private var isRebuildingWorkflowData = false
     @State private var rebuildStatus: RebuildStatus?
-    @State private var isShowingResetCreditAutomationConfirmation = false
+    @State private var isShowingAutoResetConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -76,7 +76,7 @@ struct AppSettingsView: View {
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
             mainPanelSettings.refresh()
-            resetCreditAutomationSettings.refresh()
+            autoResetSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
             refreshStatusRows()
         }
@@ -85,14 +85,14 @@ struct AppSettingsView: View {
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
             mainPanelSettings.refresh()
-            resetCreditAutomationSettings.refresh()
+            autoResetSettings.refresh()
             codexHookSettings.verifyInstalledHooks()
             refreshStatusRows()
         }
         .onReceive(NotificationCenter.default.publisher(for: .settingsWindowDidOpen)) { _ in
             selectedRebuildRange = nil
             isShowingRebuildConfirmation = false
-            isShowingResetCreditAutomationConfirmation = false
+            isShowingAutoResetConfirmation = false
             clearRebuildStatus()
         }
         .onChange(of: selectedTab) { _, _ in
@@ -131,15 +131,15 @@ struct AppSettingsView: View {
             Text("将从本机原始 Hook 事件重新统计 \(selectedRebuildRange?.displayText ?? "")\n并在下次同步时替换当前设备对应日期的云端数据")
         }
         .alert(
-            "开启自动使用重置?",
-            isPresented: $isShowingResetCreditAutomationConfirmation
+            "开启自动重置?",
+            isPresented: $isShowingAutoResetConfirmation
         ) {
             Button("取消", role: .cancel) {}
             Button("开启", role: .destructive) {
-                resetCreditAutomationSettings.setEnabled(true)
+                autoResetSettings.setEnabled(true)
             }
         } message: {
-            Text("开启后, CodexBar 会在手动重置临近过期时, 按设置的临期时间自动使用该次数; 系统处在睡眠等状态可能导致使用失败; 手动重置使用后不可撤销")
+            Text("开启后, CodexBar 在手动重置临近过期时, 按设置的临期时间提前自动使用重置; 并可能短暂唤醒 Mac")
         }
     }
 }
@@ -265,7 +265,7 @@ private extension AppSettingsView {
             LiquidGlassDivider()
             notificationRow
             LiquidGlassDivider()
-            resetCreditAutomationRow
+            autoResetRow
             LiquidGlassDivider()
             keepAliveRow
             LiquidGlassDivider()
@@ -422,20 +422,21 @@ private extension AppSettingsView {
         }
     }
 
-    var resetCreditAutomationRow: some View {
-        let isEnabled = resetCreditAutomationSettings.isEnabled
+    var autoResetRow: some View {
+        let isEnabled = autoResetSettings.isEnabled
+        let caption = autoResetCaption
 
         return VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
                 icon: "arrow.counterclockwise.circle",
-                title: "自动使用临期重置",
+                title: "自动重置",
                 isOn: Binding(
-                    get: { resetCreditAutomationSettings.isEnabled },
+                    get: { autoResetSettings.isEnabled },
                     set: { enabled in
                         if enabled {
-                            isShowingResetCreditAutomationConfirmation = true
+                            isShowingAutoResetConfirmation = true
                         } else {
-                            resetCreditAutomationSettings.setEnabled(enabled)
+                            autoResetSettings.setEnabled(enabled)
                         }
                     }
                 )
@@ -443,23 +444,53 @@ private extension AppSettingsView {
                 optionsButton(isAvailable: isEnabled) {
                     onOptionsAction(
                         .toggle(
-                            panel: .resetCreditAutomation,
-                            anchorProvider: resetCreditAutomationAnchorProvider
+                            panel: .autoReset,
+                            anchorProvider: autoResetAnchorProvider
                         )
                     )
                 }
             }
+
+            settingsStatusCaptionRow(caption)
         }
         .background {
-            ScreenFrameReader(provider: resetCreditAutomationAnchorProvider)
+            ScreenFrameReader(provider: autoResetAnchorProvider)
         }
+        .animation(Metrics.statusAnimation, value: caption)
         .animation(Metrics.statusAnimation, value: isEnabled)
         .onChange(of: isEnabled) { _, isEnabled in
             guard !isEnabled else {
                 return
             }
 
-            onOptionsAction(.close(panel: .resetCreditAutomation))
+            onOptionsAction(.close(panel: .autoReset))
+        }
+    }
+
+    var autoResetCaption: SettingsStatusCaption? {
+        guard autoResetSettings.isEnabled else {
+            return nil
+        }
+        if let errorMessage = keepAliveController.helperRegistrationErrorMessage {
+            return SettingsStatusCaption(message: errorMessage, isError: true)
+        }
+
+        switch keepAliveController.helperStatus {
+        case .requiresApproval:
+            return SettingsStatusCaption(
+                message: String(localized: "需要授权允许 CodexBar 后台运行"),
+                showsSystemSettingsButton: true
+            )
+        case .notRegistered, .notFound:
+            return SettingsStatusCaption(
+                message: String(localized: "CodexBarHelper 尚未注册")
+            )
+        case .enabled:
+            guard let errorMessage = keepAliveController
+                .autoResetWakeScheduleErrorMessage else {
+                return nil
+            }
+            return SettingsStatusCaption(message: errorMessage, isError: true)
         }
     }
 
@@ -485,27 +516,7 @@ private extension AppSettingsView {
                 }
             }
 
-            if let caption {
-                SettingsIndentedRow(alignment: .top) {
-                    Text(caption.message)
-                        .font(.caption)
-                        .foregroundStyle(caption.isError ? .red : .secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .contentTransition(.opacity)
-
-                    Spacer(minLength: 8)
-
-                    if caption.showsSystemSettingsButton {
-                        Button("打开系统设置") {
-                            keepAliveController.openSystemSettings()
-                        }
-                        .controlSize(.small)
-                        .fixedSize()
-                        .transition(.opacity.combined(with: .move(edge: .trailing)))
-                    }
-                }
-                .transition(.opacity)
-            }
+            settingsStatusCaptionRow(caption)
         }
         .background {
             ScreenFrameReader(provider: keepAliveAnchorProvider)
@@ -535,6 +546,31 @@ private extension AppSettingsView {
         .animation(Metrics.statusAnimation, value: isAvailable)
     }
 
+    @ViewBuilder
+    func settingsStatusCaptionRow(_ caption: SettingsStatusCaption?) -> some View {
+        if let caption {
+            SettingsIndentedRow(alignment: .top) {
+                Text(caption.message)
+                    .font(.caption)
+                    .foregroundStyle(caption.isError ? .red : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+
+                Spacer(minLength: 8)
+
+                if caption.showsSystemSettingsButton {
+                    Button("打开系统设置") {
+                        keepAliveController.openSystemSettings()
+                    }
+                    .controlSize(.small)
+                    .fixedSize()
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+                }
+            }
+            .transition(.opacity)
+        }
+    }
+
     /// 判定收在 KeepAliveController 里由 sleepBlockReason 派生, 这里只读结论
     /// 在 View 里手抄那几个条件会漏掉后来新增的阻断项, 入口会亮着但点开不生效
     var canShowKeepAliveOptions: Bool {
@@ -543,27 +579,27 @@ private extension AppSettingsView {
 
     /// 返回 nil 表示这一行整个收起
     /// 正常运行时不必占一行说"一切正常", 是否正在防睡眠由主面板的咖啡杯标记呈现
-    var keepAliveCaption: KeepAliveCaption? {
+    var keepAliveCaption: SettingsStatusCaption? {
         if let errorMessage = keepAliveController.errorMessage {
-            return KeepAliveCaption(message: errorMessage, isError: true)
+            return SettingsStatusCaption(message: errorMessage, isError: true)
         }
         guard codexHookSettings.isEnabled else {
-            return KeepAliveCaption(message: String(localized: "需要启用 CodexBar Hook"))
+            return SettingsStatusCaption(message: String(localized: "需要启用 CodexBar Hook"))
         }
         // 装着但校验不通过时不能说"需要启用", 那句会让用户去开一个已经开着的开关
         // 具体是全局禁用还是不被信任, 由上面 Hook 那一行的说明给出, 这里只说结果
         guard codexHookSettings.isVerified else {
-            return KeepAliveCaption(message: String(localized: "CodexBar Hook 未生效"))
+            return SettingsStatusCaption(message: String(localized: "CodexBar Hook 未生效"))
         }
         guard keepAliveController.isEnabled else {
-            return KeepAliveCaption(
+            return SettingsStatusCaption(
                 message: String(localized: "当有 Codex 任务运行时防止系统睡眠, 任务结束后自动恢复")
             )
         }
 
         if keepAliveController.isActivelyPreventingSleep,
            keepAliveController.sleepPreventionSource == .external {
-            return KeepAliveCaption(
+            return SettingsStatusCaption(
                 message: String(localized: "系统睡眠已由其他来源关闭")
             )
         }
@@ -573,24 +609,24 @@ private extension AppSettingsView {
         // 它成立即意味着 helper 已就绪, 所以排在下面那个 switch 之前不影响 helper 类问题的呈现
         // 不写具体阈值: 滞回让保护一直持续到阈值加 5, 说死数字会与用户看到的电量对不上
         if keepAliveController.isLowBatteryBlocking {
-            return KeepAliveCaption(message: String(localized: "电量过低, 已恢复系统睡眠"))
+            return SettingsStatusCaption(message: String(localized: "电量过低, 已恢复系统睡眠"))
         }
 
         switch keepAliveController.helperStatus {
         case .requiresApproval:
-            return KeepAliveCaption(
+            return SettingsStatusCaption(
                 message: String(localized: "需要授权允许 CodexBar 后台运行"),
                 showsSystemSettingsButton: true
             )
         case .notRegistered, .notFound:
-            return KeepAliveCaption(message: String(localized: "CodexBarHelper 尚未注册"))
+            return SettingsStatusCaption(message: String(localized: "CodexBarHelper 尚未注册"))
         case .enabled:
             // 上限之外的运行态都收起; 达到上限要留一句, 否则开关开着却没生效无从解释
             guard keepAliveController.hasReachedMaximumDuration else {
                 return nil
             }
             let duration = keepAliveController.maximumDuration.title
-            return KeepAliveCaption(
+            return SettingsStatusCaption(
                 message: String(localized: "已达到防睡眠时间上限 (\(duration))")
             )
         }
@@ -1385,7 +1421,7 @@ private struct RebuildStatus {
     let isError: Bool
 }
 
-private struct KeepAliveCaption: Equatable {
+private struct SettingsStatusCaption: Equatable {
     let message: String
     var isError = false
     var showsSystemSettingsButton = false

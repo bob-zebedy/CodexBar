@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// 自动使用重置子选项面板, 顶边对齐设置页的自动使用主开关行
-struct ResetCreditAutomationOptionsView: View {
-    @ObservedObject var settings: ResetCreditAutomationSettings
+/// 自动重置子选项面板, 顶边对齐设置页的自动重置主开关行
+struct AutoResetOptionsView: View {
+    @ObservedObject var settings: AutoResetSettings
 
     var body: some View {
         HStack(spacing: Metrics.controlSpacing) {
@@ -18,7 +18,7 @@ struct ResetCreditAutomationOptionsView: View {
                     get: { settings.leadTime },
                     set: { settings.setLeadTime($0) }
                 ),
-                options: ResetCreditAutomationLeadTime.allCases,
+                options: AutoResetLeadTime.allCases,
                 label: { $0.title },
                 width: Metrics.pickerWidth,
                 alignment: .trailing

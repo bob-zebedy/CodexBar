@@ -25,8 +25,8 @@ CodexBar 是 macOS 15+ 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVV
 
 | Target | 职责 |
 | --- | --- |
-| `CodexBar` | 菜单栏 UI、Codex 数据采集、通知、同步和防睡眠编排 |
-| `CodexBarHelper` | 以 root LaunchDaemon 运行，仅负责系统睡眠开关 |
+| `CodexBar` | 菜单栏 UI、Codex 数据采集、自动重置、通知、同步和系统电源编排 |
+| `CodexBarHelper` | 以 root LaunchDaemon 运行，负责固定的系统睡眠开关和自动重置唤醒计划 |
 
 两个 target 通过 [`CodexBarHelperXPC.swift`](../../Shared/CodexBarHelperXPC.swift) 共享 XPC 协议。
 
@@ -46,13 +46,15 @@ CodexBar executable
        |-- 本地只读 <-> Hook JSONL / rollout JSONL
        |-- HTTPS <-> Sparkle
        |-- CloudKit private database <-> 日级聚合
-       `-- signed XPC lease <-> root CodexBarHelper <-> fixed pmset commands
+       `-- signed XPC lease / wake date <-> root CodexBarHelper
+              |-- fixed pmset commands
+              `-- fixed IOPM wake event
 ```
 
 边界设计有两个关键点：
 
 - 同一个可执行文件承载 Hook 模式可以让 handler 始终指向当前 App 版本，不需要额外部署采集工具
-- root helper 不知道 Codex 任务，只知道经过签名校验的租约，因而不会把业务输入直接带入特权边界
+- root helper 不知道 Codex 任务、账户或重置凭证，只接收经过签名校验的睡眠租约和自动重置唤醒时间
 
 ### 进程生命周期差异
 
@@ -61,7 +63,7 @@ CodexBar executable
 | Hook 子进程 | 单个事件，最长几秒 | 读取 stdin、提取最小字段、追加本地 JSONL | 初始化 UI、建立网络连接、等待长期服务 |
 | 主 App | 用户登录会话内长期运行 | 编排 UI、数据链路和副作用 | 直接以 root 修改系统设置 |
 | app-server | 最长复用 1 小时 | 通过 JSON-RPC 提供账户和配置能力 | 成为 Hook 历史或实时任务的替代来源 |
-| CodexBarHelper | LaunchDaemon | 执行固定 `pmset` 操作并恢复所有权 | 访问账户、Hook、rollout、网络或任意命令 |
+| CodexBarHelper | LaunchDaemon | 执行固定 `pmset` 操作、管理固定 owner 的 `wake` 事件并恢复系统状态 | 访问账户、Hook、rollout、网络或任意命令 |
 
 ## 目录职责
 
@@ -91,7 +93,7 @@ Scripts/            构建, DMG, appcast 和 CodexBarHelper 清理脚本
   -> 创建 CodexBarAppDelegate
   -> AppDelegate 装配长期服务
   -> 创建菜单栏和辅助窗口
-  -> 启动刷新, 活动监控, 通知和防睡眠协调
+  -> 启动刷新、活动监控、自动重置、通知和系统电源协调
 ```
 
 `--hook-event` 是 Codex 调用的短命子进程模式。它必须在任何 UI、CloudKit、通知或长期服务初始化之前完成。采集失败也不能阻断 Codex 主流程。
@@ -103,11 +105,12 @@ Scripts/            构建, DMG, appcast 和 CodexBarHelper 清理脚本
 - `CodexHookSettings`
 - `CodexActivityMonitor`
 - `KeepAliveController`
+- `AutoResetController`
 - `WorkflowSyncSettings` 和同步调度器
 - `CodexNotificationService`
 - 菜单栏、快捷键、设置窗口和更新服务
 
-App 退出时需要先释放防睡眠状态。如果 CodexBarHelper 尚未确认恢复，终止流程会等待或取消退出，避免遗留系统级睡眠状态。
+App 退出时需要先取消自动重置唤醒计划并释放防睡眠状态。如果 CodexBarHelper 尚未回读确认两类系统状态都已恢复，终止流程会等待或取消退出。helper 启动时还会在接受新连接前清除固定 owner 的遗留唤醒事件，用于收敛突然断电或强制终止留下的状态。
 
 ### 为什么 Hook 判断必须放在 `App.init`
 
@@ -134,7 +137,7 @@ SwiftUI View 会因为布局、条件分支和窗口重建而重复创建。如�
 
 `applicationShouldTerminate` 先调用 `KeepAliveController.prepareForTermination()` 并返回 `.terminateLater`
 
-如果 helper 明确确认 release，App 再回复允许退出。如果释放失败，本次退出被取消，controller 回到正常协调状态并继续尝试维持正在运行的任务。
+如果 helper 明确确认自动重置唤醒事件已经取消且防睡眠 release 已完成，App 再回复允许退出。任一清理失败时，本次退出被取消，controller 回到正常协调状态并继续按当前设置运行。
 
 直接在 `applicationWillTerminate` 中异步释放已经太晚，因为该回调不能可靠延长进程寿命。
 
@@ -144,7 +147,7 @@ CodexBar 不使用一个聚合服务承载所有状态。3 条链路的输入、
 
 | 链路 | 输入 | 输出 | 主要消费者 |
 | --- | --- | --- | --- |
-| app-server | `codex app-server` JSON-RPC | 账户、额度、token 用量、Reset Credit 使用、Hook 配置能力 | 主面板、菜单栏额度、设置、自动使用状态机 |
+| app-server | `codex app-server` JSON-RPC | 账户、额度、token 用量、Reset Credit 使用、Hook 配置能力 | 主面板、菜单栏额度、设置、自动重置状态机 |
 | Hook 历史 | Hook JSONL | 日级事件、session, turn, tool, model 聚合 | 活跃度热力图、历史统计、CloudKit |
 | 实时任务 | Hook 增量事件加 rollout 生命周期 | 运行、等待批准、完成、中断 | 菜单栏状态、任务中心、通知、防睡眠 |
 
@@ -160,9 +163,10 @@ CodexBar 不使用一个聚合服务承载所有状态。3 条链路的输入、
 ```text
 CodexStatusService ----------------> CodexStatusViewModel ----------------> UI
 CodexStatusViewModel --------------> CodexNotificationService
-CodexStatusService ----------------> ResetCreditAutomationController
-CodexStatusViewModel --------------> ResetCreditAutomationController
-ResetCreditAutomationController ---> CodexNotificationService
+CodexStatusService ----------------> AutoResetController
+CodexStatusViewModel --------------> AutoResetController
+AutoResetController ---------------> CodexNotificationService
+AutoResetController ---------------> KeepAliveController ---> AutoResetWakeScheduler ---> helper
 
 WorkflowService -------> WorkflowViewModel -----------> UI
 
@@ -197,7 +201,8 @@ Hook + rollout --------> CodexActivityMonitor --------> UI
 - `CodexActivityMonitor`
 - `KeepAliveController`
 - `CodexNotificationService`
-- `ResetCreditAutomationController`
+- `AutoResetController`
+- `AutoResetWakeScheduler`
 
 这些对象负责可观察状态和 UI 协调，不应直接执行阻塞 I/O。
 
@@ -293,13 +298,15 @@ Hook recorder 是另一个进程，所以 `WorkflowService` actor 无法保护�
 | --- | --- | --- |
 | app-server 连接与同账户缓存 | `CodexStatusService` | 请求只读结果 |
 | 主面板账户加载状态 | `CodexStatusViewModel` | 观察发布值 |
-| 自动使用临期重置的目标、deadline 和重试 | `ResetCreditAutomationController` | 设置页只修改开关和临期时间 |
+| 自动重置的目标、deadline 和重试 | `AutoResetController` | 设置页只修改开关和提前量 |
+| 自动重置唤醒时间同步 | `AutoResetWakeScheduler` | `AutoResetController` 只提交下一次时间，`KeepAliveController` 只提交 helper 就绪状态 |
 | Hook 安装与验证 | `CodexHookSettings` | 读取 `isOperable` |
 | 历史聚合和维护游标 | `WorkflowService` | 请求快照或重建 |
 | 实时任务 | `CodexActivityMonitor` | 读取 snapshot 或 transition |
 | 同步游标与远端缓存 | `WorkflowSyncService` | 请求合并快照 |
 | 防睡眠策略与 App assertion | `KeepAliveController` | 读取派生状态或调用设置入口 |
 | root 睡眠所有权 | `CodexBarHelper` | 通过 XPC 请求和查询 |
+| root 自动重置唤醒事件 | `CodexBarHelper` | 通过 XPC 替换或取消固定 owner 的单个 `wake` 事件 |
 | 通知去重 | `CodexNotificationService` | 上游只发布候选事件 |
 
 新增消费者时，优先订阅已有快照。如果现有快照缺字段，应在状态所有者处扩展稳定值类型，不应让消费者重新读取原始文件。
@@ -322,7 +329,7 @@ Hook recorder 是另一个进程，所以 `WorkflowService` actor 无法保护�
 | transport 失败 | 丢弃连接，最多重建一次 | 在不可信 pipe 上继续请求 |
 | 数据源身份变化 | 新 generation，从原始来源重建 | 沿用旧 offset 继续追加 |
 | 迟到异步结果 | generation 不匹配时丢弃 | 覆盖新设置或新 reader 状态 |
-| 特权状态不确定 | 保留可能租约并主动确认释放 | 假定 helper 没有执行 |
+| 特权状态不确定 | 保留可能租约或唤醒事件并主动确认清理 | 假定 helper 没有执行 |
 | Hook recorder 失败 | 吞掉本次采集并退出成功 | 阻断 Codex 或弹 UI |
 
 ### 日志为什么记录阶段而不是用户数据
@@ -373,6 +380,7 @@ Hook recorder 是另一个进程，所以 `WorkflowService` actor 无法保护�
 | 全局快捷键 | Carbon Hot Key API |
 | App 防空闲睡眠 | IOKit power assertion |
 | 系统睡眠控制 | CodexBarHelper 调用固定参数的 `/usr/bin/pmset` |
+| 自动重置系统唤醒 | CodexBarHelper 调用 `IOPMSchedulePowerEvent` 和 `IOPMCancelScheduledPowerEvent` |
 | CodexBarHelper 安装和启动 | `SMAppService` |
 | App 与 CodexBarHelper 通信 | XPC |
 | 通知 | `UNUserNotificationCenter` |
@@ -387,5 +395,9 @@ Hook recorder 是另一个进程，所以 `WorkflowService` actor 无法保护�
 - [`CodexStatusService.swift`](../../CodexBar/Services/CodexStatus/CodexStatusService.swift) 管理 app-server
 - [`WorkflowService.swift`](../../CodexBar/Services/Workflow/WorkflowService.swift) 管理 Hook 历史聚合
 - [`CodexActivityMonitor.swift`](../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) 管理实时任务
-- [`KeepAliveController.swift`](../../CodexBar/Services/KeepAlive/KeepAliveController.swift) 管理防睡眠策略
+- [`AutoResetController.swift`](../../CodexBar/Services/CodexStatus/AutoResetController.swift) 管理自动重置目标和重试
+- [`AutoResetWakeScheduler.swift`](../../CodexBar/Services/KeepAlive/AutoResetWakeScheduler.swift) 同步下一次系统唤醒时间
+- [`KeepAliveController.swift`](../../CodexBar/Services/KeepAlive/KeepAliveController.swift) 管理 helper 注册、防睡眠策略和唤醒调度就绪状态
 - [`WorkflowSyncService.swift`](../../CodexBar/Services/Workflow/WorkflowSyncService.swift) 管理 CloudKit 同步
+- [`CodexBarHelperXPC.swift`](../../Shared/CodexBarHelperXPC.swift) 定义受限特权接口
+- [`CodexBarHelper/main.swift`](../../CodexBarHelper/main.swift) 执行并验证系统睡眠与唤醒操作

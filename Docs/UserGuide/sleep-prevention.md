@@ -99,14 +99,15 @@ CodexBar 会同时阻止显示器睡眠，并定期声明用户活动以压住�
 
 ## CodexBarHelper 授权
 
-防睡眠需要随 App 安装的 CodexBarHelper 修改系统级睡眠状态：
+防睡眠需要随 App 安装的 CodexBarHelper 修改系统级睡眠状态。自动重置也复用同一个后台服务注册和批准状态，用于设置固定的系统唤醒计划：
 
 - 首次开启时由 macOS 注册后台服务
 - 系统要求批准后台项目时，设置页会显示 `打开系统设置`
 - CodexBarHelper 缺失或注册失败时不会执行防睡眠
 - App 更新导致 CodexBarHelper 变化时会刷新注册并校验睡眠状态
-- App 正常退出前会先释放 CodexBarHelper 租约并恢复由 CodexBar 修改的状态
+- App 正常退出前会先取消自动重置唤醒计划、释放 CodexBarHelper 租约并恢复由 CodexBar 修改的状态
 - CodexBarHelper 连接意外中断后会在宽限期结束时释放失联客户端租约
+- 自动重置使用独立连接；连接中断时会立即取消该连接拥有的唤醒计划
 
 ## 与其他防睡眠来源共存
 

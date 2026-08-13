@@ -14,7 +14,7 @@ CodexBar 文档按读者和职责分成两套，使用说明与实现细节保�
 1. 阅读 [安装与快速开始](UserGuide/getting-started.md)
 2. 了解 [主面板与菜单栏](UserGuide/main-panel.md)
 3. 按需开启 [实时任务与 CodexBar Hook](UserGuide/activity-and-hook.md)
-4. 在 [设置参考](UserGuide/settings.md) 中确认各选项的作用
+4. 在 [设置参考](UserGuide/settings.md) 中确认自动重置、防睡眠和其他选项的作用
 
 ### 排查使用问题
 
@@ -46,6 +46,7 @@ Docs
 └── DeveloperGuide
     ├── README.md
     ├── architecture.md
+    ├── design-decisions.md
     ├── app-server.md
     ├── hook-and-aggregation.md
     ├── activity-monitor.md

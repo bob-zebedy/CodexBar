@@ -32,6 +32,19 @@ enum KeepAliveHelperConfiguration {
         .seconds(128),
         .seconds(256)
     ]
+    static let wakeScheduleRetryDelays: [Duration] = [
+        .seconds(2),
+        .seconds(4),
+        .seconds(8),
+        .seconds(16),
+        .seconds(32),
+        .seconds(64)
+    ]
+    static let wakeCancellationRetryDelays: [Duration] = [
+        .zero,
+        .milliseconds(250),
+        .seconds(1)
+    ]
 
     static var service: SMAppService {
         SMAppService.daemon(plistName: CodexBarHelperIPC.daemonPlistName)

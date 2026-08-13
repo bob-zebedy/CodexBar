@@ -185,6 +185,7 @@ trigger=wake want=0 reason=lowBattery elapsed=0.183s
 | 同步缺数据 | sync stage、local 和 confirmed 数量、replacement dates |
 | 通知不出现 | authorization, kind, duplicate 或 obsolete |
 | 防睡眠不生效 | block reason, helper registration, XPC generation, source |
+| 自动重置未执行 | target、threshold、retry window、helper registration、wake schedule |
 
 ## Debug 与 Release
 
@@ -308,15 +309,18 @@ schema 递增的判断标准是语义输出是否会因同一份 raw event 得�
 
 完整重建优于字段级迁移，因为 raw JSONL 才是事实来源。字段级迁移必须猜测旧算法中丢失的信息，长期会堆积不可组合的历史分支。
 
-### 防睡眠
+### 系统电源控制
 
-- CodexBarHelper 只控制睡眠
+- CodexBarHelper 只控制固定的睡眠状态和自动重置 `wake` 事件
 - CodexBarHelper 不增加网络或任意命令能力
 - 外部 `SleepDisabled=1` 不能被 CodexBar 声明或恢复
 - 租约、watchdog 和 owned 持久化必须共同成立
-- App 退出前确认系统状态恢复
+- 自动重置唤醒接口只接受有限时间戳，owner 和事件类型由 helper 固定
+- App 退出前确认睡眠状态恢复并取消自动重置唤醒计划
 
 修改防睡眠时先写出 acquire, release, timeout, crash 和 external-owner 5 条时序。只验证正常开关无法证明全局系统状态可恢复。
+
+修改自动重置唤醒时先写出 schedule、replace、cancel、connection-loss、helper-startup 和 unregister 6 条时序。系统回读必须证明固定 owner 最终只有一个匹配事件或已经清零。
 
 任何新增 helper 方法都要先证明必须由 root 执行。能在普通 App 完成的读取、网络或文件操作不得因为“方便复用”放进 helper。
 
@@ -328,6 +332,7 @@ schema 递增的判断标准是语义输出是否会因同一份 raw event 得�
 - 本地 schema 变化
 - CloudKit record 或字段变化
 - CodexBarHelper ownership 格式变化
+- 自动重置唤醒事件的 owner 或类型变化
 - Debug 与 Release 共享身份计算变化
 - 最低系统版本或 API 可用性变化
 
@@ -424,7 +429,7 @@ schema 递增的判断标准是语义输出是否会因同一份 raw event 得�
 - 自定义声音缺失回退
 - TUI 通知与 App 通知互不影响
 
-### 防睡眠
+### 系统电源与 helper
 
 - App 包内 CodexBarHelper 和 plist 位置
 - App 与 CodexBarHelper 签名
@@ -433,6 +438,10 @@ schema 递增的判断标准是语义输出是否会因同一份 raw event 得�
 - 低电量和最长时长停止
 - 外部 `SleepDisabled` 共存
 - 正常退出和异常退出恢复
+- 自动重置开启时的 helper 注册与系统批准
+- 自动重置阈值和重试时间只保留最近一个固定 owner 的 `wake` 事件
+- 自动重置关闭、目标变化、正常退出、连接中断和 helper 重启时清理唤醒事件
+- helper 注销前确认固定 owner 的唤醒事件已经清零
 - Debug 与 Release 分离
 
 ## 手动验证如何留下可复查证据

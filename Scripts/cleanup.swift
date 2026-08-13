@@ -3,7 +3,40 @@
 import AppKit
 import Darwin
 import Foundation
+import IOKit
+import IOKit.pwr_mgt
 import ServiceManagement
+
+@objc private protocol CleanupHelperProtocol: AnyObject {
+    func setAutoResetWakeSchedule(
+        _ unixTimestamp: TimeInterval,
+        reply: @escaping @Sendable (Int32) -> Void
+    )
+}
+
+private final class WakeScheduleCancellationState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isCompleted = false
+    private var errorMessage: String?
+
+    func complete(errorMessage: String?) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isCompleted else {
+            return false
+        }
+
+        isCompleted = true
+        self.errorMessage = errorMessage
+        return true
+    }
+
+    func completedErrorMessage() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return errorMessage
+    }
+}
 
 private enum CleanupBuildConfiguration: String, CaseIterable {
     case release = "Release"
@@ -357,10 +390,12 @@ private final class KeepAliveCleanupCommand {
         }
 
         try runChecked(destinationExecutableURL.path, ["--unregister-child", target.plistName])
-        try runChecked(
-            "/usr/bin/defaults",
-            ["write", target.bundleIdentifier, "KeepAlive.isEnabled", "-bool", "false"]
-        )
+        for key in ["KeepAlive.isEnabled", "AutoReset.enabled"] {
+            try runChecked(
+                "/usr/bin/defaults",
+                ["write", target.bundleIdentifier, key, "-bool", "false"]
+            )
+        }
         _ = try run(
             "/usr/bin/defaults",
             ["delete", target.bundleIdentifier, "KeepAlive.helperRegistrationFingerprint"],
@@ -500,6 +535,10 @@ private func runUnregisterChild(plistName: String) -> Never {
     let service = SMAppService.daemon(plistName: plistName)
     switch service.status {
     case .enabled, .requiresApproval:
+        let serviceLabel = String(plistName.dropLast(".plist".count))
+        guard cancelAutoResetWakeScheduleBeforeUnregister(serviceLabel: serviceLabel) else {
+            Darwin.exit(EXIT_FAILURE)
+        }
         service.unregister { error in
             if let error {
                 FileHandle.standardError.write(
@@ -523,6 +562,84 @@ private func runUnregisterChild(plistName: String) -> Never {
         )
         Darwin.exit(EXIT_FAILURE)
     }
+}
+
+private func cancelAutoResetWakeScheduleBeforeUnregister(serviceLabel: String) -> Bool {
+    let owner = serviceLabel + ".auto-reset"
+    guard hasScheduledWakeEvent(owner: owner) else {
+        return true
+    }
+
+    let state = WakeScheduleCancellationState()
+    let semaphore = DispatchSemaphore(value: 0)
+    let connection = NSXPCConnection(machServiceName: serviceLabel, options: .privileged)
+    connection.remoteObjectInterface = NSXPCInterface(with: CleanupHelperProtocol.self)
+    let finish: @Sendable (String?) -> Void = { errorMessage in
+        if state.complete(errorMessage: errorMessage) {
+            semaphore.signal()
+        }
+    }
+    connection.interruptionHandler = {
+        finish("连接中断")
+    }
+    connection.invalidationHandler = {
+        finish("连接失效")
+    }
+    connection.resume()
+
+    let errorHandler: @Sendable (Error) -> Void = { error in
+        finish(error.localizedDescription)
+    }
+    guard let helper = connection.remoteObjectProxyWithErrorHandler(errorHandler)
+        as? CleanupHelperProtocol else {
+        connection.invalidate()
+        reportWakeScheduleCancellationFailure(owner: owner, detail: "服务接口无效")
+        return false
+    }
+
+    helper.setAutoResetWakeSchedule(0) { exitCode in
+        finish(exitCode == 0 ? nil : "code=\(exitCode)")
+    }
+    let waitResult = semaphore.wait(timeout: .now() + 10)
+    connection.invalidationHandler = nil
+    connection.interruptionHandler = nil
+    connection.invalidate()
+
+    let errorMessage = waitResult == .timedOut
+        ? "请求超时"
+        : state.completedErrorMessage()
+    guard !hasScheduledWakeEvent(owner: owner) else {
+        reportWakeScheduleCancellationFailure(
+            owner: owner,
+            detail: errorMessage ?? "系统回读仍存在事件"
+        )
+        return false
+    }
+
+    print("自动重置唤醒计划已取消: owner=\(owner)")
+    return true
+}
+
+private func hasScheduledWakeEvent(owner: String) -> Bool {
+    guard let events = IOPMCopyScheduledPowerEvents()?.takeRetainedValue() else {
+        return false
+    }
+
+    return (events as NSArray).contains { value in
+        guard let event = value as? NSDictionary else {
+            return false
+        }
+        return event[kIOPMPowerEventAppNameKey] as? String == owner
+            && event[kIOPMPowerEventTypeKey] as? String == kIOPMAutoWake
+    }
+}
+
+private func reportWakeScheduleCancellationFailure(owner: String, detail: String) {
+    FileHandle.standardError.write(
+        Data(
+            "自动重置唤醒计划取消失败, 已停止注销: owner=\(owner), detail=\(detail)\n".utf8
+        )
+    )
 }
 
 let arguments = Array(CommandLine.arguments.dropFirst())

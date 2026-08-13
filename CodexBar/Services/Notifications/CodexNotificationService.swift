@@ -4,7 +4,7 @@ import Foundation
 import os
 import UserNotifications
 
-nonisolated enum ResetCreditAutomationFailureNotice: String, Sendable {
+nonisolated enum AutoResetFailureNotice: String, Sendable {
     case expired
     case authentication
     case permanent
@@ -450,35 +450,35 @@ final class CodexNotificationService: NSObject {
         }
     }
 
-    // MARK: - 自动使用重置
+    // MARK: - 自动重置
 
-    func notifyResetCreditAutoUseSucceeded(
+    func notifyAutoResetSucceeded(
         remainingCount: Int?,
         dedupToken: String
     ) {
-        guard settings.canDeliver, settings.isResetCreditAutoUseEnabled else {
+        guard settings.canDeliver, settings.isAutoResetEnabled else {
             return
         }
 
         send(
-            .resetCreditAutoUseSucceeded(remainingCount: remainingCount),
-            sound: settings.resetCreditAutoUseSound,
-            dedupKey: "autoResetSuccess|\(dedupToken)"
+            .autoResetSucceeded(remainingCount: remainingCount),
+            sound: settings.autoResetSound,
+            dedupKey: "autoResetSucceeded|\(dedupToken)"
         )
     }
 
-    func notifyResetCreditAutoUseFailed(
-        reason: ResetCreditAutomationFailureNotice,
+    func notifyAutoResetFailed(
+        reason: AutoResetFailureNotice,
         dedupToken: String
     ) {
-        guard settings.canDeliver, settings.isResetCreditAutoUseEnabled else {
+        guard settings.canDeliver, settings.isAutoResetEnabled else {
             return
         }
 
         send(
-            .resetCreditAutoUseFailed(reason: reason),
-            sound: settings.resetCreditAutoUseSound,
-            dedupKey: "autoResetFailure|\(dedupToken)|\(reason.rawValue)"
+            .autoResetFailed(reason: reason),
+            sound: settings.autoResetSound,
+            dedupKey: "autoResetFailed|\(dedupToken)|\(reason.rawValue)"
         )
     }
 
@@ -826,10 +826,10 @@ nonisolated struct CodexNotificationContent: Equatable {
         )
     }
 
-    static func resetCreditAutoUseSucceeded(remainingCount: Int?) -> CodexNotificationContent {
+    static func autoResetSucceeded(remainingCount: Int?) -> CodexNotificationContent {
         let body = if let remainingCount {
             String(
-                localized: "notification.reset-credit-auto-use.body.count",
+                localized: "notification.auto-reset.body.count",
                 defaultValue: "剩余重置次数: \(remainingCount)"
             )
         } else {
@@ -837,41 +837,41 @@ nonisolated struct CodexNotificationContent: Equatable {
         }
 
         return CodexNotificationContent(
-            kind: "resetCreditAutoUse",
+            kind: "autoResetSucceeded",
             title: String(
-                localized: "notification.reset-credit-auto-use.title",
-                defaultValue: "自动使用重置"
+                localized: "notification.auto-reset.title",
+                defaultValue: "自动重置"
             ),
             body: body
         )
     }
 
-    static func resetCreditAutoUseFailed(
-        reason: ResetCreditAutomationFailureNotice
+    static func autoResetFailed(
+        reason: AutoResetFailureNotice
     ) -> CodexNotificationContent {
         let body = switch reason {
         case .expired:
             String(
-                localized: "notification.reset-credit-auto-use-failed.body.expired",
-                defaultValue: "已过期, 未能自动使用"
+                localized: "notification.auto-reset-failed.body.expired",
+                defaultValue: "重置次数已过期, 自动重置未完成"
             )
         case .authentication:
             String(
-                localized: "notification.reset-credit-auto-use-failed.body.authentication",
+                localized: "notification.auto-reset-failed.body.authentication",
                 defaultValue: "Codex 登录状态已失效"
             )
         case .permanent:
             String(
-                localized: "notification.reset-credit-auto-use-failed.body.permanent",
+                localized: "notification.auto-reset-failed.body.permanent",
                 defaultValue: "请求无法完成"
             )
         }
 
         return CodexNotificationContent(
-            kind: "resetCreditAutoUseFailed",
+            kind: "autoResetFailed",
             title: String(
-                localized: "notification.reset-credit-auto-use-failed.title",
-                defaultValue: "自动使用重置失败"
+                localized: "notification.auto-reset-failed.title",
+                defaultValue: "自动重置失败"
             ),
             body: body
         )

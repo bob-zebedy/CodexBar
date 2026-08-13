@@ -61,10 +61,7 @@ final class SystemSleepService {
         }
     }
 
-    private var sleepAssertion = Assertion(
-        type: kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
-        name: "CodexBar - Codex activity" as CFString
-    )
+    private var sleepAssertion: Assertion
     private var displayAssertion = Assertion(
         type: kIOPMAssertionTypeNoDisplaySleep as CFString,
         name: "CodexBar - Codex activity display" as CFString
@@ -80,6 +77,13 @@ final class SystemSleepService {
     /// 反过来"节拍在而断言不在"不可达, 节拍只在断言建立成功之后才起
     var isPreventingDisplaySleep: Bool {
         userActivityTask != nil
+    }
+
+    init(sleepAssertionName: String = "CodexBar - Codex activity") {
+        sleepAssertion = Assertion(
+            type: kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
+            name: sleepAssertionName as CFString
+        )
     }
 
     func beginPreventingIdleSleep() -> IOReturn {

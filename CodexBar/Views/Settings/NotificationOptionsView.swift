@@ -7,7 +7,7 @@ struct NotificationOptionsView: View {
     @ObservedObject var notificationSettings: NotificationSettings
     @ObservedObject var codexHookSettings: CodexHookSettings
     @ObservedObject var codexCLINotificationSettings: CodexCLINotificationSettings
-    @ObservedObject var resetCreditAutomationSettings: ResetCreditAutomationSettings
+    @ObservedObject var autoResetSettings: AutoResetSettings
     @ObservedObject var keepAliveController: KeepAliveController
     @State private var previewSound: NSSound?
 
@@ -18,7 +18,7 @@ struct NotificationOptionsView: View {
             lowQuotaRow
             quotaResetRow
             creditExpiryRow
-            resetCreditAutoUseRow
+            autoResetNotificationRow
             lowBatteryRow
             keepAliveLimitRow
             taskHapticRow
@@ -159,21 +159,21 @@ struct NotificationOptionsView: View {
         )
     }
 
-    /// 自动使用关着时显示为关闭并置灰, 不修改持久化的 isResetCreditAutoUseEnabled
-    private var resetCreditAutoUseRow: some View {
-        let isAutomationEnabled = resetCreditAutomationSettings.isEnabled
-        let isDisplayedOn = isAutomationEnabled && notificationSettings.isResetCreditAutoUseEnabled
+    /// 自动重置关着时显示为关闭并置灰, 不修改持久化的 isAutoResetEnabled
+    private var autoResetNotificationRow: some View {
+        let isFeatureEnabled = autoResetSettings.isEnabled
+        let isDisplayedOn = isFeatureEnabled && notificationSettings.isAutoResetEnabled
 
         return notificationOptionRow(
-            title: "自动使用重置通知",
+            title: "自动重置通知",
             isOn: Binding(
                 get: { isDisplayedOn },
-                set: { notificationSettings.setResetCreditAutoUseEnabled($0) }
+                set: { notificationSettings.setAutoResetEnabled($0) }
             ),
-            isEnabled: isAutomationEnabled,
+            isEnabled: isFeatureEnabled,
             sound: Binding(
-                get: { notificationSettings.resetCreditAutoUseSound },
-                set: { notificationSettings.setResetCreditAutoUseSound($0) }
+                get: { notificationSettings.autoResetSound },
+                set: { notificationSettings.setAutoResetSound($0) }
             )
         )
     }

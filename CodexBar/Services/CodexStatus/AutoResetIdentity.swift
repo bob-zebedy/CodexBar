@@ -1,10 +1,10 @@
 import CryptoKit
 import Foundation
 
-/// 自动使用重置的跨设备身份规则
+/// 自动重置的跨设备身份规则
 /// namespace 和 UUIDv5 输入一旦发布就属于兼容性协议
-nonisolated enum ResetCreditAutomationIdentity {
-    static let namespaceString = "8abd477b-2320-5e39-9518-2a2adfc542fa"
+nonisolated enum AutoResetIdentity {
+    static let namespaceString = "c2904ab3-0a87-5648-997d-bd8515edd401"
 
     private static let namespace = UUID(uuidString: namespaceString)!
 

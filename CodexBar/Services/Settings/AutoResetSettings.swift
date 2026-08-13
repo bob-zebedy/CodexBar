@@ -2,13 +2,13 @@ import Combine
 import Foundation
 import os
 
-nonisolated enum ResetCreditAutomationLeadTime: Int, CaseIterable, Hashable, Sendable {
+nonisolated enum AutoResetLeadTime: Int, CaseIterable, Hashable, Sendable {
+    case fifteenMinutes = 900
     case thirtyMinutes = 1800
     case oneHour = 3600
     case twoHours = 7200
     case fourHours = 14400
     case sixHours = 21600
-    case twelveHours = 43200
 
     var duration: TimeInterval {
         TimeInterval(rawValue)
@@ -16,6 +16,8 @@ nonisolated enum ResetCreditAutomationLeadTime: Int, CaseIterable, Hashable, Sen
 
     var title: String {
         switch self {
+        case .fifteenMinutes:
+            String(localized: "15 分钟")
         case .thirtyMinutes:
             String(localized: "30 分钟")
         case .oneHour:
@@ -26,17 +28,15 @@ nonisolated enum ResetCreditAutomationLeadTime: Int, CaseIterable, Hashable, Sen
             String(localized: "4 小时")
         case .sixHours:
             String(localized: "6 小时")
-        case .twelveHours:
-            String(localized: "12 小时")
         }
     }
 }
 
-/// 自动使用临期重置的本机设置
+/// 自动重置的本机设置
 @MainActor
-final class ResetCreditAutomationSettings: ObservableObject {
+final class AutoResetSettings: ObservableObject {
     @Published private(set) var isEnabled: Bool
-    @Published private(set) var leadTime: ResetCreditAutomationLeadTime
+    @Published private(set) var leadTime: AutoResetLeadTime
 
     private let defaults: UserDefaults
 
@@ -63,30 +63,35 @@ final class ResetCreditAutomationSettings: ObservableObject {
             return
         }
 
-        AppLog.settings.notice("自动使用重置变更: enabled=\(enabled ? 1 : 0)")
+        AppLog.settings.notice("自动重置变更: enabled=\(enabled ? 1 : 0)")
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
     }
 
-    func setLeadTime(_ leadTime: ResetCreditAutomationLeadTime) {
+    func setLeadTime(_ leadTime: AutoResetLeadTime) {
         guard leadTime != self.leadTime else {
             return
         }
 
-        AppLog.settings.notice("自动使用重置临期时间变更: seconds=\(leadTime.rawValue)")
+        AppLog.settings.notice("自动重置临期时间变更: seconds=\(leadTime.rawValue)")
         self.leadTime = leadTime
         defaults.set(leadTime.rawValue, forKey: Self.leadTimeKey)
     }
 
-    private static func loadLeadTime(from defaults: UserDefaults) -> ResetCreditAutomationLeadTime {
-        guard let rawValue = defaults.object(forKey: leadTimeKey) as? Int,
-              let leadTime = ResetCreditAutomationLeadTime(rawValue: rawValue) else {
-            return .twoHours
+    private static func loadLeadTime(from defaults: UserDefaults) -> AutoResetLeadTime {
+        guard let storedValue = defaults.object(forKey: leadTimeKey) else {
+            return defaultLeadTime
+        }
+        guard let rawValue = storedValue as? Int,
+              let leadTime = AutoResetLeadTime(rawValue: rawValue) else {
+            defaults.set(defaultLeadTime.rawValue, forKey: leadTimeKey)
+            return defaultLeadTime
         }
 
         return leadTime
     }
 
-    private static let enabledKey = "ResetCreditAutomation.enabled"
-    private static let leadTimeKey = "ResetCreditAutomation.leadTimeSeconds"
+    private static let enabledKey = "AutoReset.enabled"
+    private static let leadTimeKey = "AutoReset.leadTimeSeconds"
+    private static let defaultLeadTime = AutoResetLeadTime.thirtyMinutes
 }
