@@ -29,7 +29,7 @@ struct AppSettingsView: View {
     @State private var isShowingRebuildConfirmation = false
     @State private var isRebuildingWorkflowData = false
     @State private var rebuildStatus: RebuildStatus?
-    @State private var isShowingAutoResetConfirmation = false
+    @State private var helperFeatureConfirmation: HelperFeatureConfirmation?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -92,7 +92,7 @@ struct AppSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .settingsWindowDidOpen)) { _ in
             selectedRebuildRange = nil
             isShowingRebuildConfirmation = false
-            isShowingAutoResetConfirmation = false
+            helperFeatureConfirmation = nil
             clearRebuildStatus()
         }
         .onChange(of: selectedTab) { _, _ in
@@ -130,16 +130,13 @@ struct AppSettingsView: View {
         } message: {
             Text("将从本机原始 Hook 事件重新统计 \(selectedRebuildRange?.displayText ?? "")\n并在下次同步时替换当前设备对应日期的云端数据")
         }
-        .alert(
-            "开启自动重置?",
-            isPresented: $isShowingAutoResetConfirmation
-        ) {
-            Button("取消", role: .cancel) {}
-            Button("开启", role: .destructive) {
-                autoResetSettings.setEnabled(true)
+        .alert(item: $helperFeatureConfirmation) { feature in
+            feature.alert(helperStatus: keepAliveController.helperStatus) {
+                switch feature {
+                case .autoReset: autoResetSettings.setEnabled(true)
+                case .keepAlive: keepAliveController.setEnabled(true)
+                }
             }
-        } message: {
-            Text("开启后, CodexBar 在手动重置临近过期时, 按设置的临期时间提前自动使用重置; 并可能短暂唤醒 Mac")
         }
     }
 }
@@ -424,6 +421,7 @@ private extension AppSettingsView {
 
     var autoResetRow: some View {
         let isEnabled = autoResetSettings.isEnabled
+        let canShowOptions = isEnabled && keepAliveController.helperStatus == .enabled
         let caption = autoResetCaption
 
         return VStack(alignment: .leading, spacing: 4) {
@@ -434,14 +432,14 @@ private extension AppSettingsView {
                     get: { autoResetSettings.isEnabled },
                     set: { enabled in
                         if enabled {
-                            isShowingAutoResetConfirmation = true
+                            helperFeatureConfirmation = .autoReset
                         } else {
                             autoResetSettings.setEnabled(enabled)
                         }
                     }
                 )
             ) {
-                optionsButton(isAvailable: isEnabled) {
+                optionsButton(isAvailable: canShowOptions) {
                     onOptionsAction(
                         .toggle(
                             panel: .autoReset,
@@ -458,8 +456,8 @@ private extension AppSettingsView {
         }
         .animation(Metrics.statusAnimation, value: caption)
         .animation(Metrics.statusAnimation, value: isEnabled)
-        .onChange(of: isEnabled) { _, isEnabled in
-            guard !isEnabled else {
+        .onChange(of: canShowOptions) { _, canShowOptions in
+            guard !canShowOptions else {
                 return
             }
 
@@ -505,7 +503,13 @@ private extension AppSettingsView {
                 title: "防止系统睡眠",
                 isOn: Binding(
                     get: { keepAliveController.isEnabled },
-                    set: { keepAliveController.setEnabled($0) }
+                    set: { enabled in
+                        if enabled {
+                            helperFeatureConfirmation = .keepAlive
+                        } else {
+                            keepAliveController.setEnabled(false)
+                        }
+                    }
                 ),
                 isEnabled: codexHookSettings.isOperable && !codexHookSettings.isUpdating
             ) {
@@ -580,21 +584,14 @@ private extension AppSettingsView {
     /// 返回 nil 表示这一行整个收起
     /// 正常运行时不必占一行说"一切正常", 是否正在防睡眠由主面板的咖啡杯标记呈现
     var keepAliveCaption: SettingsStatusCaption? {
+        guard keepAliveController.isEnabled else {
+            return nil
+        }
         if let errorMessage = keepAliveController.errorMessage {
             return SettingsStatusCaption(message: errorMessage, isError: true)
         }
-        guard codexHookSettings.isEnabled else {
-            return SettingsStatusCaption(message: String(localized: "需要启用 CodexBar Hook"))
-        }
-        // 装着但校验不通过时不能说"需要启用", 那句会让用户去开一个已经开着的开关
-        // 具体是全局禁用还是不被信任, 由上面 Hook 那一行的说明给出, 这里只说结果
         guard codexHookSettings.isVerified else {
             return SettingsStatusCaption(message: String(localized: "CodexBar Hook 未生效"))
-        }
-        guard keepAliveController.isEnabled else {
-            return SettingsStatusCaption(
-                message: String(localized: "当有 Codex 任务运行时防止系统睡眠, 任务结束后自动恢复")
-            )
         }
 
         if keepAliveController.isActivelyPreventingSleep,

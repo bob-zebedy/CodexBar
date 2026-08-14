@@ -183,6 +183,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `hasRunningTasks` 与 `isRefreshingHelper` 都不带 `@Published` 标注，它们变得比结论频繁，各自发信号会把整个设置页拖着一起重算
 - helper 只做固定的系统电源操作；不要给 root helper 增加网络、任意命令执行或其他文件访问能力
 - helper 注册需求由防睡眠主开关与自动重置请求共同决定；自动重置开启时即使防睡眠关闭也要完成 `SMAppService` 注册和系统批准，设置行复用注册错误并单独展示唤醒计划同步错误
+- 自动重置与防睡眠从关闭切换为开启时统一通过 `HelperFeatureConfirmation` 显示确认；`.notRegistered` 与 `.notFound` 提示需要安装并授权后台运行，`.requiresApproval` 提示已安装但仍需授权，`.enabled` 只显示功能说明
+- `ensureHelperRegistration()` 只负责注册与刷新 helper；Helper 授权系统设置仅由设置行的 `打开系统设置` 按钮调用 `openSystemSettings()` 打开，两个功能的开启动作不直接切换到系统设置
 - `AutoResetWakeScheduler` 与防睡眠租约使用独立 XPC 连接，只同步下一次唤醒时间；距现在不超过 5 秒的时间不交给 helper，由 App 内定时任务直接进入到点执行路径
 - helper 把自动重置事件 owner 固定为 `CodexBarHelperIPC.machServiceName + ".auto-reset"`，事件类型固定为 `kIOPMAutoWake`；替换时先取消这个 owner 的全部旧事件，设置后回读必须恰好得到一个 1 秒容差内的目标事件，取消后回读必须为空；修改 owner 或类型属于清理兼容性问题
 - 唤醒连接关闭时 helper 立即取消该连接拥有的事件，取消失败后清除内存所有者并每 5 秒继续收敛；helper 启动时在开放 listener 前按立即、250 毫秒、1 秒清理遗留事件，`SIGTERM` 与 `SIGINT` 退出前也执行取消
@@ -311,7 +313,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 置灰也会改高度：带音效的行置灰时音效子行跟着收起，所以每个置灰依赖都要有一个对应的订阅源
 - 增删行或改行的显示条件时要同步补上对应的订阅源，漏一项会让面板裁掉底部或留下空白
 - resize 的竖向夹紧走 `SidePanelSupport.clampedVertically`，与初次展开的 `position` 同一条规则，否则放不下时两边会把面板推向相反的边
-- 子面板入口只在开关开着且依赖就绪时出现，通知看 `NotificationSettings.canShowOptions`，自动重置看 `AutoResetSettings.isEnabled`，防睡眠看 `KeepAliveController.canShowOptions`；这些值只控制入口显隐，不回写用户保存的开关
+- 子面板入口只在开关开着且依赖就绪时出现，通知看 `NotificationSettings.canShowOptions`，自动重置要求 `AutoResetSettings.isEnabled` 且 `KeepAliveController.helperStatus == .enabled`，防睡眠看 `KeepAliveController.canShowOptions`；这些值只控制入口显隐，不回写用户保存的开关
+- 自动重置或防睡眠的子面板入口条件失效时，`AppSettingsView` 会发送对应的 `close` 动作收起已展开面板；关闭开关时对应设置行不显示状态说明
 - 三个设置子面板都只由滑杆按钮展开，动作只有 `toggle` 与 `close` 两种，开启主开关不自动弹出
 - 侧边面板公共能力集中在 `Controllers/SidePanelSupport.swift` 里，含 `SidePanelDrawerPresenter`、`SidePanelContentHost`、`SidePanelDrawerAnimator`、panel 工厂和定位夹紧；挂在主面板上的那三个面板优先复用 `SidePanelDrawerPresenter` 这一层，不要另起一套
 - 设置窗口的子面板直接复用 `Controllers/SettingsOptionsPanelController.swift`，它在 presenter 之上补齐了装配、两套关闭观察者、顶边对齐定位和高度重算；新增设置子面板只要给它内容工厂与内容变化来源，不要再写一层壳
@@ -337,7 +340,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `isVerified` 乐观默认为 `true` 且只由明确结论写入两个方向：校验只在设置窗口打开与 App 激活时跑，而 RPC 失败属于“验不了”不是“确认不通”，那时置灰会把好用的功能关掉
 - 全局禁用要排在 `hooks/list` 之前判：它一关列表里必然找不到我们的 handler，那时报“已不完整”会把用户引去翻本来就完好的 `hooks.json`
 - `refresh()` 只判断是否存在任一当前 CodexBar handler，`hooks/list` 校验才要求所有事件完整；新增事件后旧配置不会自动补齐，当前恢复方式是让用户关闭再开启 Hook
-- 校验不通过时防睡眠那一行的说明写“CodexBar Hook 未生效”而不是“需要启用 CodexBar Hook”，后者会让用户去开一个已经开着的开关；具体病因由 Hook 那一行自己的说明给出
+- 防睡眠开关关闭时说明行收起；开关开启且 Hook 校验不通过时显示“CodexBar Hook 未生效”，具体病因由 Hook 设置行说明
 
 ## 隐私与数据边界
 

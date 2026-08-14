@@ -91,7 +91,8 @@ Hook 配置位于 `$CODEX_HOME/hooks.json`，未设置 `CODEX_HOME` 时位于 `~
 
 ## CodexBarHelper 无法注册
 
-- 点击设置页中的 `打开系统设置` 并允许 CodexBar 后台运行
+- 确认 `自动重置` 或 `防止系统睡眠` 已开启；关闭状态不显示 Helper 状态说明
+- Helper 等待系统批准时，点击设置行下方的 `打开系统设置` 并允许 CodexBar 后台运行
 - 确认 CodexBar 位于 Applications 中且 App 包完整
 - 如果提示服务异常或 CodexBarHelper 文件缺失，重新安装完整 CodexBar App
 - 更新后持续失败时退出 CodexBar，重新打开并再次检查授权
@@ -101,7 +102,7 @@ Hook 配置位于 `$CODEX_HOME/hooks.json`，未设置 `CODEX_HOME` 时位于 `~
 按以下顺序检查：
 
 1. `自动重置` 是否开启，提前量是否符合预期
-2. 自动重置设置行是否提示 CodexBarHelper 待批准、未注册或唤醒计划失败
+2. 自动重置设置行是否提示 CodexBarHelper 待批准、未注册或唤醒计划失败；临期选项按钮只在 Helper 已获得系统批准时显示
 3. 当前 app-server 是否返回了具体的可用重置次数和过期时间
 4. 计划时间到达后，网络与 Codex 登录状态是否可用
 5. “自动重置通知”是否开启；通知关闭不会阻止自动重置本身执行

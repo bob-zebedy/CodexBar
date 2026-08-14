@@ -216,6 +216,16 @@ hover 类型的热力图面板在打开其他面板前可以渐隐，点击类�
 
 通知、自动重置和防睡眠的二级设置面板按需创建。控制器一旦创建就会长期订阅内容高度变化，如果 App 启动时预建所有面板，从未使用的 UI 也会一直参与更新。
 
+自动重置与防睡眠从关闭切换为开启时，`AppSettingsView` 使用 `HelperFeatureConfirmation` 显示统一确认框。确认框按 `KeepAliveController.HelperStatus` 组合 Helper 提示与对应功能说明，用户确认后才调用设置对象写入开启状态。已开启设置行在 `.requiresApproval` 状态显示 `打开系统设置` 按钮。
+
+二级设置入口使用各自的可用性结论：
+
+- 通知读取 `NotificationSettings.canShowOptions`
+- 自动重置要求 `AutoResetSettings.isEnabled` 且 `KeepAliveController.helperStatus == .enabled`
+- 防睡眠读取 `KeepAliveController.canShowOptions`
+
+入口条件失效时设置页发送对应的 `close` 动作，避免不可用的子面板继续显示。主开关关闭时，自动重置和防睡眠设置行不显示状态说明。
+
 ### 120 ms 焦点恢复不是业务延迟
 
 菜单关闭时 `AuxiliaryHostingWindow` 暂时把 `allowsKeyFocus` 设为 false。关闭完成后等待约 120 ms 再恢复。

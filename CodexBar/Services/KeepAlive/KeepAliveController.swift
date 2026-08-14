@@ -274,7 +274,7 @@ final class KeepAliveController: ObservableObject {
         if isEnabled
             || isAutoResetRequested
             || helperStatus.isRegisteredOrAwaitingApproval {
-            ensureHelperRegistration(opensSystemSettings: false)
+            ensureHelperRegistration()
         }
         reconcileSleepState(trigger: .statusRefresh)
         reconcileAutoResetWakeSchedule()
@@ -299,7 +299,7 @@ final class KeepAliveController: ObservableObject {
         operationErrorMessage = nil
 
         if enabled {
-            ensureHelperRegistration(opensSystemSettings: true)
+            ensureHelperRegistration()
         } else {
             durationLimiter.reset()
         }
@@ -529,7 +529,7 @@ final class KeepAliveController: ObservableObject {
         SMAppService.openSystemSettingsLoginItems()
     }
 
-    private func ensureHelperRegistration(opensSystemSettings: Bool) {
+    private func ensureHelperRegistration() {
         guard helperRegistrationTask == nil else {
             return
         }
@@ -540,14 +540,12 @@ final class KeepAliveController: ObservableObject {
         switch helperStatus {
         case .enabled, .requiresApproval:
             if KeepAliveHelperConfiguration.registrationNeedsRefresh(defaults: defaults) {
-                refreshRegisteredHelper(opensSystemSettings: opensSystemSettings)
+                refreshRegisteredHelper()
             } else if helperStatus == .enabled,
                       let updateIdentifier = KeepAliveHelperConfiguration.pendingUpdateIdentifier(
                           defaults: defaults
                       ) {
                 completePendingHelperUpdate(updateIdentifier)
-            } else if helperStatus == .requiresApproval, opensSystemSettings {
-                openSystemSettings()
             } else {
                 reconcileAutoResetWakeSchedule()
             }
@@ -580,13 +578,10 @@ final class KeepAliveController: ObservableObject {
            ) {
             completePendingHelperUpdate(updateIdentifier)
         }
-        if helperStatus == .requiresApproval, opensSystemSettings {
-            openSystemSettings()
-        }
         reconcileAutoResetWakeSchedule()
     }
 
-    private func refreshRegisteredHelper(opensSystemSettings: Bool) {
+    private func refreshRegisteredHelper() {
         let requiresSleepReset = helperStatus == .enabled
         guard helperRegistrationTask == nil,
               KeepAliveHelperConfiguration.assetsArePresent else {
@@ -655,9 +650,6 @@ final class KeepAliveController: ObservableObject {
 
             assign(!helperWasUpdated && helperStatus == .enabled, to: \.isRefreshingHelper)
             helperRegistrationTask = nil
-            if helperStatus == .requiresApproval, opensSystemSettings {
-                openSystemSettings()
-            }
             reconcileSleepState(trigger: .helperRegistered, force: true)
             reconcileAutoResetWakeSchedule()
         }
@@ -1526,10 +1518,7 @@ extension KeepAliveController {
         }
     }
 
-    func setAutoResetRequested(
-        _ requested: Bool,
-        opensSystemSettings: Bool
-    ) {
+    func setAutoResetRequested(_ requested: Bool) {
         guard requested != isAutoResetRequested else {
             if requested {
                 reconcileAutoResetWakeSchedule()
@@ -1540,7 +1529,7 @@ extension KeepAliveController {
         isAutoResetRequested = requested
         autoResetWakeScheduler.setRequested(requested)
         if requested, isStarted {
-            ensureHelperRegistration(opensSystemSettings: opensSystemSettings)
+            ensureHelperRegistration()
         }
         reconcileAutoResetWakeSchedule()
     }

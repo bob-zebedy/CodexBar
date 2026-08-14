@@ -55,6 +55,8 @@ CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用，使用 Swift 6,
 
 自动重置默认关闭，提前量可选 15 分钟、30 分钟、1 小时、2 小时、4 小时或 6 小时，默认 30 分钟。状态机只处理新鲜响应明确列出的 `available + codexRateLimits + expiresAt` 凭证，每轮连续重试最多 5 分钟。CodexBarHelper 只接收有限时间戳，使用固定 owner 和固定 `wake` 类型维护一个系统事件；目标变化、功能关闭、App 退出、对应 XPC 连接断开或 helper 启动时必须收敛并清理该事件。修改 owner 或事件类型属于清理兼容性问题。
 
+自动重置和防睡眠从关闭切换为开启时必须先显示确认框。确认文案按 `HelperStatus` 展示：`.notRegistered` 和 `.notFound` 使用 `需要安装并授权 CodexBar Helper 后台运行`，`.requiresApproval` 使用 `已安装 CodexBar Helper 但需要授权允许后台运行`，`.enabled` 只显示对应功能说明。确认后写入用户意图并触发 helper 注册，Helper 授权系统设置仅由设置行的 `打开系统设置` 按钮显式打开。两个开关关闭时不显示状态说明。自动重置子面板入口仅在开关开启且 helper 状态为 `.enabled` 时显示，条件失效时关闭已展开面板。
+
 缺少 session ID 的 Hook 事件使用匿名 project key。匿名任务保留在实时快照和 UI 中，活动卡片与任务中心统一显示橙色 `person.crop.circle.dashed` 图标，`help` 为 `匿名任务不参与防睡眠`。匿名任务不发布任务通知或触觉反馈，不参与防睡眠和异常会话保护，不生成保护状态持久化标识。活动卡片的 `+N` 只显示其他活跃任务总数。
 
 `CodexActivityMonitor` 的异常会话保护跟随防睡眠主开关，只判定非匿名运行中任务，等待批准任务不参与判定。静默阈值可选 30 分钟, 1, 2 或 4 小时，默认 1 小时。Hook bootstrap、系统睡眠、唤醒恢复或 Hook 数据源不可用期间必须暂停判定，数据恢复后统一无通知对账。

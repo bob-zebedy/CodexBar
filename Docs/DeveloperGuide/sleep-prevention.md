@@ -166,6 +166,17 @@ CodexBarHelper 通过 `SMAppService` 注册为 LaunchDaemon。App 和 CodexBarHe
 
 自动重置与防睡眠共用 helper 注册和系统批准状态，但使用独立 XPC 连接。开启自动重置时，即使防睡眠主开关关闭，也会尝试注册 helper；尚未批准时，自动重置设置行会提供相同的状态和“打开系统设置”入口。
 
+设置页把用户确认、helper 注册和 Helper 授权系统设置跳转分成独立职责：
+
+- `HelperFeatureConfirmation` 为自动重置和防睡眠提供统一确认框，每次从关闭切换为开启时显示
+- `.notRegistered` 与 `.notFound` 在确认框提示安装并授权后台运行，`.requiresApproval` 提示已安装但仍需授权，`.enabled` 只显示功能说明
+- 用户确认后才调用 `AutoResetSettings.setEnabled(true)` 或 `KeepAliveController.setEnabled(true)`，取消时不写入开关状态
+- `ensureHelperRegistration()` 只负责注册、刷新和后续协调，不负责打开 Helper 授权系统设置
+- `AppSettingsView` 只在已开启设置行的 `.requiresApproval` 状态显示 `打开系统设置`，按钮调用 `KeepAliveController.openSystemSettings()`
+- 自动重置选项入口要求开关已开启且 `helperStatus == .enabled`，条件失效时关闭已展开的自动重置面板
+- 防睡眠选项入口读取 `KeepAliveController.canShowOptions`，没有任务、低电量阻断、达到上限或 helper 刷新期间仍允许调整设置
+- 自动重置和防睡眠开关关闭时，设置行不显示状态说明
+
 唤醒计划采用系统状态收敛而不是只依赖正常退出清理：
 
 - helper 每次启动都在开放 XPC listener 前清除固定 owner 的遗留事件，App 重连后再按最新目标重新安排
@@ -428,6 +439,10 @@ App 更新可能改变内嵌 CodexBarHelper 的签名或内容。App 会记录 C
 - 外部先设置 `disablesleep 1` 时，CodexBar 不声明所有权也不恢复为 `0`
 - App 正常退出时恢复 owned 状态
 - App 强制退出或 XPC 断开后，watchdog 恢复 owned 状态
+- 自动重置和防睡眠每次开启都显示确认，取消后保持关闭
+- 未注册、等待批准和已批准三种 helper 状态的确认文案与功能说明正确
+- 开启操作只触发 helper 注册，Helper 授权系统设置仅由设置行的 `打开系统设置` 按钮打开
+- 自动重置选项入口只在开关开启且 helper 已批准时显示，条件失效后已展开面板关闭
 - 自动重置开启且防睡眠关闭时仍能完成 helper 注册与批准
 - 未来阈值和重试只保留一个固定 owner 的 `wake` 事件，替换时不影响其他 owner
 - 自动重置关闭、目标变化和正常退出时回读确认计划清零

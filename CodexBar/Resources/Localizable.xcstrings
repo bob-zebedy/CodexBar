@@ -273,18 +273,98 @@
         }
       }
     },
-    "APP 快捷键" : {
+    "1 小时" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "App Shortcut"
+            "value" : "1 Hour"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "APP 快捷键"
+            "value" : "1 小时"
+          }
+        }
+      }
+    },
+    "2 小时" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2 Hours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2 小时"
+          }
+        }
+      }
+    },
+    "4 小时" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 Hours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4 小时"
+          }
+        }
+      }
+    },
+    "6 小时" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6 Hours"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "6 小时"
+          }
+        }
+      }
+    },
+    "15 分钟" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "15 Minutes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "15 分钟"
+          }
+        }
+      }
+    },
+    "30 分钟" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "30 Minutes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "30 分钟"
           }
         }
       }
@@ -317,6 +397,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "30 分钟"
+          }
+        }
+      }
+    },
+    "APP 快捷键" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App Shortcut"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "APP 快捷键"
           }
         }
       }
@@ -946,22 +1042,6 @@
         }
       }
     },
-    "GitHub 项目" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "GitHub Project"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "GitHub 项目"
-          }
-        }
-      }
-    },
     "CodexBar 设置" : {
       "localizations" : {
         "en" : {
@@ -990,6 +1070,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "CodexBarHelper 尚未注册"
+          }
+        }
+      }
+    },
+    "GitHub 项目" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub Project"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub 项目"
           }
         }
       }
@@ -1070,6 +1166,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "无限制"
+          }
+        }
+      }
+    },
+    "keep-alive.error.auto-reset-wake-schedule-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not schedule a wake event for Automatic Reset"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置自动重置唤醒计划失败"
           }
         }
       }
@@ -1198,22 +1310,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请求系统睡眠失败"
-          }
-        }
-      }
-    },
-    "keep-alive.error.auto-reset-wake-schedule-failed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Could not schedule a wake event for Automatic Reset"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "设置自动重置唤醒计划失败"
           }
         }
       }
@@ -1394,6 +1490,102 @@
         }
       }
     },
+    "notification.auto-reset-failed.body.authentication" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex sign-in has expired"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 登录状态已失效"
+          }
+        }
+      }
+    },
+    "notification.auto-reset-failed.body.expired" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expired before Automatic Reset could complete"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置已过期, 自动重置未完成"
+          }
+        }
+      }
+    },
+    "notification.auto-reset-failed.body.permanent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The request could not be completed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请求无法完成"
+          }
+        }
+      }
+    },
+    "notification.auto-reset-failed.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic Reset Failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动重置失败"
+          }
+        }
+      }
+    },
+    "notification.auto-reset.body.count" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset credits remaining: %lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "剩余重置次数: %lld"
+          }
+        }
+      }
+    },
+    "notification.auto-reset.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic Reset"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动重置"
+          }
+        }
+      }
+    },
     "notification.credit-expiry.body" : {
       "localizations" : {
         "en" : {
@@ -1534,102 +1726,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "额度已重置"
-          }
-        }
-      }
-    },
-    "notification.auto-reset-failed.body.authentication" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex sign-in has expired"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex 登录状态已失效"
-          }
-        }
-      }
-    },
-    "notification.auto-reset-failed.body.expired" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Expired before Automatic Reset could complete"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重置已过期, 自动重置未完成"
-          }
-        }
-      }
-    },
-    "notification.auto-reset-failed.body.permanent" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The request could not be completed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请求无法完成"
-          }
-        }
-      }
-    },
-    "notification.auto-reset-failed.title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automatic Reset Failed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动重置失败"
-          }
-        }
-      }
-    },
-    "notification.auto-reset.body.count" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reset credits remaining: %lld"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "剩余重置次数: %lld"
-          }
-        }
-      }
-    },
-    "notification.auto-reset.title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automatic Reset"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动重置"
           }
         }
       }
@@ -2130,6 +2226,22 @@
         }
       }
     },
+    "临期时间" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time Before Expiration"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "临期时间"
+          }
+        }
+      }
+    },
     "主面板任务中心" : {
       "localizations" : {
         "en" : {
@@ -2158,22 +2270,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "仅在使用电池供电时生效, 充电时自动恢复"
-          }
-        }
-      }
-    },
-    "匿名任务不参与防睡眠" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Anonymous tasks do not prevent sleep"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "匿名任务不参与防睡眠"
           }
         }
       }
@@ -2530,38 +2626,6 @@
         }
       }
     },
-    "异常会话保护" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Stalled Task Protection"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "异常会话保护"
-          }
-        }
-      }
-    },
-    "长时间没有进展时隐藏任务并停止参与防睡眠" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hide inactive tasks and exclude them from keep-awake"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "长时间没有进展时隐藏任务并停止参与防睡眠"
-          }
-        }
-      }
-    },
     "最长任务" : {
       "localizations" : {
         "en" : {
@@ -2654,6 +2718,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "刚刚终止"
+          }
+        }
+      }
+    },
+    "匿名任务不参与防睡眠" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anonymous tasks do not prevent sleep"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "匿名任务不参与防睡眠"
           }
         }
       }
@@ -2994,6 +3074,22 @@
         }
       }
     },
+    "已安装 CodexBar Helper 但需要授权允许后台运行" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CodexBar Helper is installed but still needs authorization to run in the background"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安装 CodexBar Helper 但需要授权允许后台运行"
+          }
+        }
+      }
+    },
     "已更新至 %@" : {
       "localizations" : {
         "en" : {
@@ -3106,6 +3202,86 @@
         }
       }
     },
+    "开启" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启"
+          }
+        }
+      }
+    },
+    "开启后, CodexBar 在手动重置临近过期时, 按设置的临期时间提前自动使用重置; 并可能短暂唤醒 Mac" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When enabled, CodexBar automatically uses a manual reset credit at the configured time before it expires and may briefly wake your Mac."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启后, CodexBar 在手动重置临近过期时, 按设置的临期时间提前自动使用重置; 并可能短暂唤醒 Mac"
+          }
+        }
+      }
+    },
+    "开启后, CodexBar 会在 Codex 任务运行时防止系统睡眠, 任务结束后自动恢复" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When enabled, CodexBar prevents system sleep while Codex tasks are running and restores normal sleep afterward."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启后, CodexBar 会在 Codex 任务运行时防止系统睡眠, 任务结束后自动恢复"
+          }
+        }
+      }
+    },
+    "开启自动重置?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable Automatic Reset?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启自动重置?"
+          }
+        }
+      }
+    },
+    "开启防止系统睡眠?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable System Sleep Prevention?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启防止系统睡眠?"
+          }
+        }
+      }
+    },
     "开机自动启动" : {
       "localizations" : {
         "en" : {
@@ -3118,6 +3294,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "开机自动启动"
+          }
+        }
+      }
+    },
+    "异常会话保护" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stalled Task Protection"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "异常会话保护"
           }
         }
       }
@@ -3150,22 +3342,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "当前连胜"
-          }
-        }
-      }
-    },
-    "当有 Codex 任务运行时防止系统睡眠, 任务结束后自动恢复" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prevent sleep while Codex tasks run; restore normal sleep afterward"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当有 Codex 任务运行时防止系统睡眠, 任务结束后自动恢复"
           }
         }
       }
@@ -3858,6 +4034,38 @@
         }
       }
     },
+    "自动重置" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic Reset"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动重置"
+          }
+        }
+      }
+    },
+    "自动重置通知" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic Reset Notifications"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动重置通知"
+          }
+        }
+      }
+    },
     "菜单栏额度指示" : {
       "localizations" : {
         "en" : {
@@ -4386,6 +4594,22 @@
         }
       }
     },
+    "长时间没有进展时隐藏任务并停止参与防睡眠" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide inactive tasks and exclude them from keep-awake"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "长时间没有进展时隐藏任务并停止参与防睡眠"
+          }
+        }
+      }
+    },
     "防止系统睡眠" : {
       "localizations" : {
         "en" : {
@@ -4450,18 +4674,18 @@
         }
       }
     },
-    "需要启用 CodexBar Hook" : {
+    "需要安装并授权 CodexBar Helper 后台运行" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Hook must be enabled"
+            "value" : "CodexBar Helper must be installed and authorized to run in the background"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要启用 CodexBar Hook"
+            "value" : "需要安装并授权 CodexBar Helper 后台运行"
           }
         }
       }
@@ -4574,214 +4798,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "高级"
-          }
-        }
-      }
-    },
-    "1 小时" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 Hour"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1 小时"
-          }
-        }
-      }
-    },
-    "12 小时" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "12 Hours"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "12 小时"
-          }
-        }
-      }
-    },
-    "15 分钟" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "15 Minutes"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "15 分钟"
-          }
-        }
-      }
-    },
-    "2 小时" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "2 Hours"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "2 小时"
-          }
-        }
-      }
-    },
-    "30 分钟" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "30 Minutes"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "30 分钟"
-          }
-        }
-      }
-    },
-    "4 小时" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "4 Hours"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "4 小时"
-          }
-        }
-      }
-    },
-    "6 小时" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "6 Hours"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "6 小时"
-          }
-        }
-      }
-    },
-    "开启" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enable"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开启"
-          }
-        }
-      }
-    },
-    "开启自动重置?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enable Automatic Reset?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开启自动重置?"
-          }
-        }
-      }
-    },
-    "开启后, CodexBar 在手动重置临近过期时, 按设置的临期时间提前自动使用重置; 并可能短暂唤醒 Mac" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "When enabled, CodexBar automatically uses a manual reset credit at the configured time before it expires and may briefly wake your Mac."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开启后, CodexBar 在手动重置临近过期时, 按设置的临期时间提前自动使用重置; 并可能短暂唤醒 Mac"
-          }
-        }
-      }
-    },
-    "临期时间" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Time Before Expiration"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "临期时间"
-          }
-        }
-      }
-    },
-    "自动重置" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automatic Reset"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动重置"
-          }
-        }
-      }
-    },
-    "自动重置通知" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automatic Reset Notifications"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动重置通知"
           }
         }
       }

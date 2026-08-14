@@ -94,10 +94,7 @@ final class AutoResetController {
             return
         }
         isStarted = true
-        keepAliveController.setAutoResetRequested(
-            settings.isEnabled,
-            opensSystemSettings: false
-        )
+        keepAliveController.setAutoResetRequested(settings.isEnabled)
 
         statusViewModel.$snapshot
             .sink { [weak self] snapshot in
@@ -137,20 +134,14 @@ final class AutoResetController {
             return
         }
         isStarted = false
-        keepAliveController.setAutoResetRequested(
-            false,
-            opensSystemSettings: false
-        )
+        keepAliveController.setAutoResetRequested(false)
         cancellables.removeAll()
         cancelWork()
         target = nil
     }
 
     private func handleEnabledChange(_ enabled: Bool) {
-        keepAliveController.setAutoResetRequested(
-            enabled,
-            opensSystemSettings: enabled
-        )
+        keepAliveController.setAutoResetRequested(enabled)
         guard enabled else {
             cancelWork()
             target = nil
