@@ -15,7 +15,7 @@
 
 [功能](#功能) | [安装](#安装) | [快速开始](#快速开始) | [使用文档](#使用文档) | [隐私](#隐私)
 
-<img src="Images/preview.gif" width="640" alt="CodexBar 预览">
+<img src="Images/preview-zh.gif" width="640" alt="CodexBar 预览">
 
 </div>
 

@@ -15,7 +15,7 @@
 
 [Features](#features) | [Installation](#installation) | [Quick Start](#quick-start) | [Documentation](#documentation) | [Privacy](#privacy)
 
-<img src="Images/preview.gif" width="640" alt="CodexBar preview">
+<img src="Images/preview-en.gif" width="640" alt="CodexBar preview">
 
 </div>
 
