@@ -13,9 +13,9 @@ struct NotificationSoundOption: Identifiable, Hashable {
     var localizedTitle: String {
         switch source {
         case .silent:
-            String(localized: "notification.sound.silent", defaultValue: "静音")
+            String(localized: "notification.sound.silent")
         case .systemDefault:
-            String(localized: "notification.sound.default", defaultValue: "默认")
+            String(localized: "notification.sound.default")
         case .system, .bundled:
             title
         }

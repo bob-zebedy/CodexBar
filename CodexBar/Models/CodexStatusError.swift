@@ -14,39 +14,21 @@ nonisolated enum CodexStatusError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .executableNotFound:
-            String(
-                localized: "codex-status.error.executable-not-found",
-                defaultValue: "找不到 Codex CLI 或 Codex APP"
-            )
+            String(localized: "codex-status.error.executable-not-found")
         case .serverTimeout:
-            String(
-                localized: "codex-status.error.server-timeout",
-                defaultValue: "Codex app-server 等待响应超时"
-            )
+            String(localized: "codex-status.error.server-timeout")
         case .serverConnectionClosed:
-            String(
-                localized: "codex-status.error.connection-closed",
-                defaultValue: "Codex app-server 连接已经断开"
-            )
+            String(localized: "codex-status.error.connection-closed")
         case .invalidServerResponse:
-            String(
-                localized: "codex-status.error.invalid-response",
-                defaultValue: "Codex app-server 无法解析响应"
-            )
+            String(localized: "codex-status.error.invalid-response")
         case let .serverError(message):
             message
         case .unsupportedMethod:
-            String(
-                localized: "codex-status.error.unsupported-method",
-                defaultValue: "Codex app-server 不支持该接口"
-            )
+            String(localized: "codex-status.error.unsupported-method")
         case let .unsupportedVersion(minimum):
-            String(localized: "需要 Codex \(minimum) 或更高版本")
+            String(localized: "codex-version.requirement", defaultValue: "\(minimum)")
         case .notLoggedIn:
-            String(
-                localized: "codex-status.error.not-logged-in",
-                defaultValue: "Codex 未登录"
-            )
+            String(localized: "codex-status.error.not-logged-in")
         }
     }
 

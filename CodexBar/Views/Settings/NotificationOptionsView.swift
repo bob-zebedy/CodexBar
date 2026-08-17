@@ -45,7 +45,7 @@ struct NotificationOptionsView: View {
 
     private var lowQuotaRow: some View {
         notificationOptionRow(
-            title: "额度预警通知",
+            title: "settings.notifications.low-quota.title",
             isOn: Binding(
                 get: { notificationSettings.isLowQuotaEnabled },
                 set: { notificationSettings.setLowQuotaEnabled($0) }
@@ -56,7 +56,7 @@ struct NotificationOptionsView: View {
             )
         ) {
             optionPicker(
-                title: "低额度阈值",
+                title: "settings.notifications.low-quota.threshold",
                 selection: Binding(
                     get: { notificationSettings.lowQuotaThresholdPercent },
                     set: { notificationSettings.setLowQuotaThresholdPercent($0) }
@@ -69,7 +69,7 @@ struct NotificationOptionsView: View {
 
     private var quotaResetRow: some View {
         notificationOptionRow(
-            title: "额度重置通知",
+            title: "settings.notifications.quota-reset.title",
             isOn: Binding(
                 get: { notificationSettings.isQuotaResetEnabled },
                 set: { notificationSettings.setQuotaResetEnabled($0) }
@@ -86,7 +86,7 @@ struct NotificationOptionsView: View {
         let isDisplayedOn = codexHookSettings.isOperable && notificationSettings.isTaskCompletionEnabled
 
         return notificationOptionRow(
-            title: "任务完成通知",
+            title: "settings.notifications.task-completion.title",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { notificationSettings.setTaskCompletionEnabled($0) }
@@ -98,7 +98,7 @@ struct NotificationOptionsView: View {
             )
         ) {
             optionPicker(
-                title: "任务时长",
+                title: "settings.notifications.task-completion.minimum-duration",
                 selection: Binding(
                     get: { notificationSettings.taskCompletionMinimumDurationSeconds },
                     set: { notificationSettings.setTaskCompletionMinimumDurationSeconds($0) }
@@ -114,7 +114,7 @@ struct NotificationOptionsView: View {
         let isDisplayedOn = codexHookSettings.isOperable && notificationSettings.isTaskWaitingEnabled
 
         return notificationOptionRow(
-            title: "任务等待通知",
+            title: "settings.notifications.task-waiting.title",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { notificationSettings.setTaskWaitingEnabled($0) }
@@ -133,7 +133,7 @@ struct NotificationOptionsView: View {
 
         return VStack(spacing: 0) {
             optionRow(
-                title: "任务触觉反馈",
+                title: "settings.notifications.task-haptics.title",
                 isOn: Binding(
                     get: { isDisplayedOn },
                     set: { notificationSettings.setTaskHapticEnabled($0) }
@@ -141,13 +141,13 @@ struct NotificationOptionsView: View {
                 isEnabled: codexHookSettings.isOperable
             )
 
-            captionRow("任务完成或等待批准时触发触摸板震动")
+            captionRow("settings.notifications.task-haptics.caption")
         }
     }
 
     private var creditExpiryRow: some View {
         notificationOptionRow(
-            title: "重置临期通知",
+            title: "settings.notifications.credit-expiry.title",
             isOn: Binding(
                 get: { notificationSettings.isCreditExpiryEnabled },
                 set: { notificationSettings.setCreditExpiryEnabled($0) }
@@ -165,7 +165,7 @@ struct NotificationOptionsView: View {
         let isDisplayedOn = isFeatureEnabled && notificationSettings.isAutoResetEnabled
 
         return notificationOptionRow(
-            title: "自动重置通知",
+            title: "settings.notifications.auto-reset.title",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { notificationSettings.setAutoResetEnabled($0) }
@@ -187,7 +187,7 @@ struct NotificationOptionsView: View {
         let isDisplayedOn = isProtectionOn && notificationSettings.isLowBatteryEnabled
 
         return notificationOptionRow(
-            title: "低电量保护通知",
+            title: "settings.notifications.low-battery.title",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { notificationSettings.setLowBatteryEnabled($0) }
@@ -207,7 +207,7 @@ struct NotificationOptionsView: View {
         let isDisplayedOn = hasLimit && notificationSettings.isKeepAliveLimitEnabled
 
         return notificationOptionRow(
-            title: "防睡眠上限通知",
+            title: "settings.notifications.keep-alive-limit.title",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { notificationSettings.setKeepAliveLimitEnabled($0) }
@@ -223,7 +223,7 @@ struct NotificationOptionsView: View {
     private var codexCLINotificationRow: some View {
         VStack(spacing: 0) {
             optionRow(
-                title: "Codex TUI 通知",
+                title: "settings.notifications.codex-tui.title",
                 isOn: Binding(
                     get: { codexCLINotificationSettings.isEnabled },
                     set: { codexCLINotificationSettings.setEnabled($0) }
@@ -242,7 +242,7 @@ struct NotificationOptionsView: View {
                 }
             }
 
-            captionRow("Codex TUI 通知, 独立于 CodexBar 通知")
+            captionRow("settings.notifications.codex-tui.caption")
         }
     }
 
@@ -342,7 +342,7 @@ struct NotificationOptionsView: View {
 
             if showsSoundControls {
                 HStack(spacing: Metrics.notificationControlSpacing) {
-                    Text("通知音效")
+                    Text("settings.notifications.sound.title")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
 
@@ -447,8 +447,8 @@ struct NotificationOptionsView: View {
 
     private static func taskCompletionDurationLabel(_ seconds: Int) -> String {
         seconds < 60
-            ? String(localized: "\(seconds) 秒")
-            : String(localized: "\(seconds / 60) 分钟")
+            ? String(localized: "duration.seconds", defaultValue: "\(seconds, specifier: "%lld")")
+            : String(localized: "duration.minutes", defaultValue: "\(seconds / 60, specifier: "%lld")")
     }
 
     private enum Metrics {

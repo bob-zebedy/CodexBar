@@ -93,7 +93,7 @@ final class WorkflowSyncSettings: ObservableObject {
     }
 
     var unavailableMessage: String? {
-        syncAvailability.isUnavailable ? String(localized: "同步不可用") : nil
+        syncAvailability.isUnavailable ? String(localized: "sync.status.unavailable") : nil
     }
 
     var lastUploadAtText: String? {
@@ -284,13 +284,13 @@ nonisolated enum WorkflowSyncFailureReason: String {
     var message: String {
         switch self {
         case .networkUnavailable:
-            String(localized: "网络不可用")
+            String(localized: "sync.error.network-unavailable")
         case .accountUnavailable:
-            String(localized: "账号不可用")
+            String(localized: "sync.error.account-unavailable")
         case .serviceUnavailable:
-            String(localized: "服务暂时不可用")
+            String(localized: "sync.error.service-unavailable")
         case .retryLater:
-            String(localized: "同步失败, 请稍后重试")
+            String(localized: "sync.error.retry-later")
         }
     }
 }

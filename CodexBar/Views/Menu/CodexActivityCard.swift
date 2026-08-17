@@ -33,9 +33,9 @@ struct CodexActivityCard: View {
     private var keepAliveHelp: String {
         switch keepAliveController.sleepPreventionSource {
         case .external:
-            String(localized: "系统睡眠已由其他来源关闭")
+            String(localized: "keep-alive.status.disabled-by-other-source")
         case .codexBar, .none:
-            String(localized: "已防止系统睡眠")
+            String(localized: "keep-alive.status.active")
         }
     }
 
@@ -109,7 +109,7 @@ struct CodexActivityCard: View {
                     .padding(.vertical, 3)
                     .background(.secondary.opacity(0.12), in: Capsule())
                     .transition(.opacity)
-                    .help(String(localized: "另有 \(content.otherTaskCount) 个任务"))
+                    .help(String(localized: "activity.summary.other-task-count", defaultValue: "\(content.otherTaskCount, specifier: "%lld")"))
             }
         }
         .animation(.codexStatus, value: showsKeepAliveBadge)
@@ -139,7 +139,7 @@ struct CodexActivityCard: View {
                 for: task,
                 symbolName: "hand.raised.fill",
                 tint: .orange,
-                fallback: "Codex 等待批准",
+                fallback: "activity.status.codex-waiting-for-approval",
                 detailComponents: CodexActivityDisplayFormat.waitingDetailComponents(
                     for: task,
                     now: now
@@ -150,7 +150,7 @@ struct CodexActivityCard: View {
                 for: task,
                 symbolName: "bolt.fill",
                 tint: .blue,
-                fallback: "Codex",
+                fallback: "common.codex",
                 detailComponents: CodexActivityDisplayFormat.runningDetailComponents(
                     for: task,
                     now: now
@@ -168,7 +168,7 @@ struct CodexActivityCard: View {
                     modelName: completion.modelName,
                     effort: completion.effort,
                     projectName: completion.projectName,
-                    fallback: "Codex 任务已完成"
+                    fallback: "activity.status.codex-completed"
                 ),
                 detail: details.joined(separator: " • "),
                 otherTaskCount: 0,
@@ -186,7 +186,7 @@ struct CodexActivityCard: View {
                     modelName: termination.modelName,
                     effort: termination.effort,
                     projectName: termination.projectName,
-                    fallback: "Codex 任务已终止"
+                    fallback: "activity.status.codex-stopped"
                 ),
                 detail: details.joined(separator: " • "),
                 otherTaskCount: 0,
@@ -197,8 +197,8 @@ struct CodexActivityCard: View {
                 symbolName: "moon.zzz.fill",
                 tint: .secondary,
                 title: showsUnavailableState
-                    ? String(localized: "暂无数据")
-                    : String(localized: "暂无 Codex 活动"),
+                    ? String(localized: "common.empty.no-data")
+                    : String(localized: "activity.empty.no-activity"),
                 detail: nil,
                 otherTaskCount: 0,
                 isAnonymous: false
@@ -254,7 +254,7 @@ struct CodexActivityCard: View {
             return components
         }
         var result = components
-        result.insert(String(localized: "\(count) 个子 Agent"), at: min(1, result.count))
+        result.insert(String(localized: "activity.summary.subagent-count", defaultValue: "\(count, specifier: "%lld")"), at: min(1, result.count))
         return result
     }
 
@@ -289,6 +289,6 @@ struct CodexActivityAnonymousIcon: View {
             // 虚线圆形 symbol 留白较多, 13 pt 与 11 pt 咖啡图标的视觉面积更接近
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(Color.orange)
-            .help(String(localized: "匿名任务不参与防睡眠"))
+            .help("activity.anonymous.keep-awake-exclusion")
     }
 }

@@ -23,7 +23,7 @@ struct CodexBarApp: App {
         }
         .commands {
             CommandGroup(replacing: .appSettings) {
-                Button(.appCommandSettings) {
+                Button("app.command.settings") {
                     appDelegate.openSettingsFromCommand()
                 }
                 .keyboardShortcut(",", modifiers: .command)

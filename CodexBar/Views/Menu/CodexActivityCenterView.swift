@@ -100,7 +100,7 @@ struct CodexActivityCenterView: View {
                 VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
                     if !activityMonitor.snapshot.waitingTasks.isEmpty {
                         taskSection(
-                            title: "等待确认",
+                            title: "activity-center.section.waiting",
                             symbolName: "hand.raised.fill",
                             tint: .orange,
                             tasks: activityMonitor.snapshot.waitingTasks,
@@ -111,7 +111,7 @@ struct CodexActivityCenterView: View {
 
                     if !activityMonitor.snapshot.runningTasks.isEmpty {
                         taskSection(
-                            title: "运行中",
+                            title: "activity-center.section.running",
                             symbolName: "bolt.fill",
                             tint: .blue,
                             tasks: activityMonitor.snapshot.runningTasks,
@@ -138,7 +138,7 @@ struct CodexActivityCenterView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("任务中心")
+            Text("activity-center.title")
                 .font(.caption.weight(.semibold))
 
             Spacer(minLength: 8)
@@ -156,20 +156,20 @@ struct CodexActivityCenterView: View {
         let snapshot = activityMonitor.snapshot
         var components = [String]()
         if snapshot.waitingCount > 0 {
-            components.append(String(localized: "等待 \(snapshot.waitingCount)"))
+            components.append(String(localized: "activity-center.summary.waiting", defaultValue: "\(snapshot.waitingCount, specifier: "%lld")"))
         }
         if snapshot.runningCount > 0 {
-            components.append(String(localized: "运行 \(snapshot.runningCount)"))
+            components.append(String(localized: "activity-center.summary.running", defaultValue: "\(snapshot.runningCount, specifier: "%lld")"))
         }
         if snapshot.activeCount == 0 {
             if !snapshot.recentCompletions.isEmpty {
                 components.append(
-                    String(localized: "最近完成 \(snapshot.recentCompletions.count)")
+                    String(localized: "activity-center.summary.recent-completions", defaultValue: "\(snapshot.recentCompletions.count, specifier: "%lld")")
                 )
             }
             if !snapshot.recentTerminations.isEmpty {
                 components.append(
-                    String(localized: "最近终止 \(snapshot.recentTerminations.count)")
+                    String(localized: "activity-center.summary.recent-terminations", defaultValue: "\(snapshot.recentTerminations.count, specifier: "%lld")")
                 )
             }
         }
@@ -201,7 +201,7 @@ struct CodexActivityCenterView: View {
 
     private func completionSection(now: Date) -> some View {
         section(
-            title: "最近完成",
+            title: "activity-center.section.recent-completions",
             count: activityMonitor.snapshot.recentCompletions.count
         ) {
             ForEach(activityMonitor.snapshot.recentCompletions) { completion in
@@ -212,7 +212,7 @@ struct CodexActivityCenterView: View {
 
     private func terminationSection(now: Date) -> some View {
         section(
-            title: "最近终止",
+            title: "activity-center.section.recent-terminations",
             count: activityMonitor.snapshot.recentTerminations.count
         ) {
             ForEach(activityMonitor.snapshot.recentTerminations) { termination in
@@ -341,7 +341,7 @@ struct CodexActivityCenterView: View {
         effort: String?
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(projectName ?? "Codex")
+            Text(projectName ?? String(localized: "common.codex"))
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)

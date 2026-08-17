@@ -121,7 +121,7 @@ nonisolated struct QuotaWindow: Equatable, Identifiable {
 
     private static func windowLabel(for minutes: Int?) -> String {
         guard let minutes, minutes > 0 else {
-            return String(localized: "quota.window.fallback", defaultValue: "额度")
+            return String(localized: "quota.window.fallback")
         }
 
         if minutes.isMultiple(of: 1440) {

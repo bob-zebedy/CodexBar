@@ -43,14 +43,11 @@ nonisolated struct CodexCLIVersionItem: Equatable, Identifiable {
         if path == nil {
             return String(
                 localized: "codex-cli.version.not-found",
-                defaultValue: "未找到 \(source.displayName)"
+                defaultValue: "\(source.displayName)"
             )
         }
 
-        return version ?? errorMessage ?? String(
-            localized: "codex-cli.version.unknown",
-            defaultValue: "未知版本"
-        )
+        return version ?? errorMessage ?? String(localized: "codex-cli.version.unknown")
     }
 }
 
@@ -314,13 +311,13 @@ actor CodexCLIVersionService {
         var message: String {
             switch self {
             case .launch:
-                String(localized: "codex-cli.version.launch-failed", defaultValue: "启动失败")
+                String(localized: "codex-cli.version.launch-failed")
             case .timeout:
-                String(localized: "codex-cli.version.read-timeout", defaultValue: "读取超时")
+                String(localized: "codex-cli.version.read-timeout")
             case .read:
-                String(localized: "codex-cli.version.read-failed", defaultValue: "读取失败")
+                String(localized: "codex-cli.version.read-failed")
             case .parse:
-                String(localized: "codex-cli.version.parse-failed", defaultValue: "版本未知")
+                String(localized: "codex-cli.version.parse-failed")
             }
         }
     }

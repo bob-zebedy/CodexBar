@@ -138,11 +138,11 @@ nonisolated enum MenuBarQuotaSelection: String, Identifiable {
     var fallbackTitle: String {
         switch self {
         case .off:
-            String(localized: "menu-bar-quota.selection.off", defaultValue: "关闭")
+            String(localized: "menu-bar-quota.selection.off")
         case .primary:
-            String(localized: "menu-bar-quota.selection.primary", defaultValue: "主额度")
+            String(localized: "menu-bar-quota.selection.primary")
         case .secondary:
-            String(localized: "menu-bar-quota.selection.secondary", defaultValue: "次额度")
+            String(localized: "menu-bar-quota.selection.secondary")
         }
     }
 

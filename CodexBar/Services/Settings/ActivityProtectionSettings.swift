@@ -63,16 +63,13 @@ extension ActivityProtectionSettings {
 
         var title: String {
             if self == .thirtyMinutes {
-                return String(
-                    localized: "activity-protection.duration.thirty-minutes",
-                    defaultValue: "30 分钟"
-                )
+                return String(localized: "activity-protection.duration.thirty-minutes")
             }
 
             let hours = rawValue / 3600
             return String(
                 localized: "activity-protection.duration.hours",
-                defaultValue: "\(hours) 小时"
+                defaultValue: "\(hours)"
             )
         }
     }

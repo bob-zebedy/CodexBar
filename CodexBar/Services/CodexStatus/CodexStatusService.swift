@@ -671,7 +671,7 @@ actor CodexStatusService {
             RequestLogStorage.shared.recordFailure(
                 message: String(
                     localized: "request-log.error.launch-failed",
-                    defaultValue: "app-server 启动失败: \(error.localizedDescription)"
+                    defaultValue: "\(error.localizedDescription)"
                 )
             )
             return .initializationFailed
@@ -753,7 +753,7 @@ actor CodexStatusService {
             RequestLogStorage.shared.recordFailure(
                 message: String(
                     localized: "request-log.error.initialization-failed",
-                    defaultValue: "app-server 会话初始化失败: \(error.localizedDescription)"
+                    defaultValue: "\(error.localizedDescription)"
                 )
             )
             session.close()

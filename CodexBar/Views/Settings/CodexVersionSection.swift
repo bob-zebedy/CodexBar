@@ -14,7 +14,7 @@ struct CodexVersionSection: View {
                     .frame(width: Metrics.iconWidth)
                     .foregroundStyle(.tint)
 
-                Text("Codex 版本")
+                Text("settings.codex-version.title")
 
                 Spacer()
             }
@@ -51,7 +51,7 @@ struct CodexVersionSection: View {
             VStack(alignment: .trailing, spacing: 3) {
                 HStack(spacing: 12) {
                     if row.isCurrent {
-                        Text("当前使用")
+                        Text("settings.codex-version.in-use")
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(.green)
                             .padding(.horizontal, 6)
@@ -70,7 +70,7 @@ struct CodexVersionSection: View {
                 .animation(Metrics.statusAnimation, value: row.isCurrent)
 
                 if let newerInstalledVersion = row.newerInstalledVersion {
-                    Text("已更新至 \(newerInstalledVersion)")
+                    Text(LocalizedStringResource("settings.codex-version.updated-to", defaultValue: "\(newerInstalledVersion)"))
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.orange)
                         .lineLimit(1)
@@ -80,7 +80,11 @@ struct CodexVersionSection: View {
                 if let path = row.path {
                     CopyablePathText(path: path, isCopied: isPathCopied)
                         .animation(Metrics.statusAnimation, value: isPathCopied)
-                        .help(isPathCopied ? "已复制" : "点击复制")
+                        .help(
+                            isPathCopied
+                                ? "common.status.copied"
+                                : "common.action.click-to-copy"
+                        )
                         .onTapGesture {
                             copyPathToPasteboard(path, source: item.source)
                         }
@@ -128,7 +132,7 @@ private struct CopyablePathText: View {
                 .truncationMode(.middle)
                 .opacity(isCopied ? 0 : 1)
 
-            Text("已复制")
+            Text("common.status.copied")
                 .font(.caption2)
                 .foregroundStyle(.green)
                 .lineLimit(1)

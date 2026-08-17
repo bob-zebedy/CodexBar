@@ -319,7 +319,7 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
-        AppLog.keepAlive.notice("KeepAlive 等待批准时保持变更: enabled=\(enabled ? 1 : 0)")
+        AppLog.keepAlive.notice("KeepAlive 等待批准时保持防睡眠变更: enabled=\(enabled ? 1 : 0)")
         keepsAwakeWhileWaiting = enabled
         defaults.set(enabled, forKey: Self.keepsAwakeWhileWaitingKey)
         // 快照不会因为改设置重发一次, 正等着批准的那些任务只能在这里重新求值

@@ -6,14 +6,14 @@ struct AutoResetOptionsView: View {
 
     var body: some View {
         HStack(spacing: Metrics.controlSpacing) {
-            Text("临期时间")
+            Text("auto-reset.lead-time.title")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             Spacer(minLength: 8)
 
             SettingsOptionsPicker(
-                title: "临期时间",
+                title: "auto-reset.lead-time.title",
                 selection: Binding(
                     get: { settings.leadTime },
                     set: { settings.setLeadTime($0) }

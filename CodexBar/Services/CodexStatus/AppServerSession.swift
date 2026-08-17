@@ -8,18 +8,9 @@ final nonisolated class AppServerSession {
     private typealias EncodedMessage = (data: Data, text: String)
     private typealias ResponseLine = (text: String, data: Data)
 
-    private static let writeFailureMessage = String(
-        localized: "request-log.error.write-connection-closed",
-        defaultValue: "连接已断开, 无法发送请求"
-    )
-    private static let responseConnectionClosedMessage = String(
-        localized: "request-log.error.response-connection-closed",
-        defaultValue: "连接已断开, 等待响应失败"
-    )
-    private static let responseTimeoutMessage = String(
-        localized: "request-log.error.response-timeout",
-        defaultValue: "等待响应超时"
-    )
+    private static let writeFailureMessage = String(localized: "request-log.error.write-connection-closed")
+    private static let responseConnectionClosedMessage = String(localized: "request-log.error.response-connection-closed")
+    private static let responseTimeoutMessage = String(localized: "request-log.error.response-timeout")
     private static let closeGracefulTimeout: TimeInterval = 1.0
     private static let closeKillTimeout: TimeInterval = 0.5
 
@@ -59,17 +50,11 @@ final nonisolated class AppServerSession {
                 break
             case .killed:
                 RequestLogStorage.shared.recordFailure(
-                    message: String(
-                        localized: "request-log.error.exit-timeout-killed",
-                        defaultValue: "app-server 退出超时, 已强制结束"
-                    )
+                    message: String(localized: "request-log.error.exit-timeout-killed")
                 )
             case .stillRunning:
                 RequestLogStorage.shared.recordFailure(
-                    message: String(
-                        localized: "request-log.error.exit-timeout-running",
-                        defaultValue: "app-server 退出超时, 可能仍在后台运行"
-                    )
+                    message: String(localized: "request-log.error.exit-timeout-running")
                 )
             }
         }

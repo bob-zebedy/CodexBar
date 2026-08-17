@@ -202,23 +202,23 @@ nonisolated enum CodexActivityDisplayFormat {
     static func eventText(for task: CodexActivityTaskSnapshot) -> String {
         switch task.latestEvent {
         case .promptSubmitted:
-            String(localized: "正在思考")
+            String(localized: "activity.event.thinking")
         case .toolStarted:
-            task.toolName.map { String(localized: "调用工具 \($0)") }
-                ?? String(localized: "调用工具")
+            task.toolName.map { String(localized: "activity.event.using-named-tool", defaultValue: "\($0)") }
+                ?? String(localized: "activity.event.using-tool")
         case .toolFinished:
-            task.toolName.map { String(localized: "调用工具 \($0) 完成") }
-                ?? String(localized: "调用工具完成")
+            task.toolName.map { String(localized: "activity.event.finished-using-tool", defaultValue: "\($0)") }
+                ?? String(localized: "activity.event.tool-completed")
         case .compactionStarted:
-            String(localized: "压缩上下文")
+            String(localized: "activity.event.compacting-context")
         case .compactionFinished:
-            String(localized: "上下文压缩完成")
+            String(localized: "activity.event.context-compaction-completed")
         case .subagentStarted:
-            String(localized: "启动子智能体")
+            String(localized: "activity.event.starting-subagent")
         case .subagentFinished:
-            String(localized: "子智能体完成")
+            String(localized: "activity.event.subagent-completed")
         case .approvalRequested:
-            String(localized: "等待批准")
+            String(localized: "activity.status.waiting-for-approval")
         }
     }
 
@@ -233,17 +233,17 @@ nonisolated enum CodexActivityDisplayFormat {
     /// 活动卡片, 任务中心, 菜单栏 tooltip 和系统通知共用的时长片段
     static func waitingDurationFragment(since stateChangedAt: Date, now: Date) -> String {
         let duration = CodexDurationFormat.activityText(for: now.timeIntervalSince(stateChangedAt))
-        return String(localized: "已等待 \(duration)")
+        return String(localized: "activity.duration.waiting", defaultValue: "\(duration)")
     }
 
     static func runningDurationFragment(since startedAt: Date, now: Date) -> String {
         let duration = CodexDurationFormat.activityText(for: now.timeIntervalSince(startedAt))
-        return String(localized: "已运行 \(duration)")
+        return String(localized: "activity.duration.running", defaultValue: "\(duration)")
     }
 
     static func elapsedDurationFragment(for duration: TimeInterval) -> String {
         let durationText = CodexDurationFormat.activityText(for: duration)
-        return String(localized: "耗时 \(durationText)")
+        return String(localized: "activity.duration.elapsed", defaultValue: "\(durationText)")
     }
 
     /// 活动卡片和任务中心共用同一份文案片段
@@ -252,7 +252,7 @@ nonisolated enum CodexActivityDisplayFormat {
         now: Date
     ) -> [String] {
         [
-            task.toolName ?? String(localized: "等待下一步操作"),
+            task.toolName ?? String(localized: "activity.event.waiting-next-action"),
             waitingDurationFragment(since: task.stateChangedAt, now: now)
         ]
     }
@@ -264,7 +264,7 @@ nonisolated enum CodexActivityDisplayFormat {
         let duration = if task.showsPreciseDuration, let startedAt = task.startedAt {
             runningDurationFragment(since: startedAt, now: now)
         } else {
-            String(localized: "正在运行")
+            String(localized: "activity.status.running")
         }
         return [duration, eventText(for: task)]
     }
@@ -285,17 +285,17 @@ nonisolated enum CodexActivityDisplayFormat {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
         switch (action, seconds) {
         case (.completed, ..<10):
-            return String(localized: "刚刚完成")
+            return String(localized: "activity.relative.just-completed")
         case (.terminated, ..<10):
-            return String(localized: "刚刚终止")
+            return String(localized: "activity.relative.just-stopped")
         case (.completed, ..<60):
-            return String(localized: "\(seconds) 秒前完成")
+            return String(localized: "activity.relative.completed-seconds-ago", defaultValue: "\(seconds, specifier: "%lld")")
         case (.terminated, ..<60):
-            return String(localized: "\(seconds) 秒前终止")
+            return String(localized: "activity.relative.stopped-seconds-ago", defaultValue: "\(seconds, specifier: "%lld")")
         case (.completed, _):
-            return String(localized: "\(seconds / 60) 分钟前完成")
+            return String(localized: "activity.relative.completed-minutes-ago", defaultValue: "\(seconds / 60, specifier: "%lld")")
         case (.terminated, _):
-            return String(localized: "\(seconds / 60) 分钟前终止")
+            return String(localized: "activity.relative.stopped-minutes-ago", defaultValue: "\(seconds / 60, specifier: "%lld")")
         }
     }
 

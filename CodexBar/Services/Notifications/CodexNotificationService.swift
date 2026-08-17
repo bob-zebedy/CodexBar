@@ -798,13 +798,10 @@ nonisolated struct CodexNotificationContent: Equatable {
         let thresholdText = CodexPercentageFormat.string(from: thresholdPercent)
         return CodexNotificationContent(
             kind: "lowQuota",
-            title: String(
-                localized: "notification.low-quota.title",
-                defaultValue: "Codex 额度不足"
-            ),
+            title: String(localized: "notification.low-quota.title"),
             body: String(
                 localized: "notification.low-quota.body",
-                defaultValue: "\(limitTitle) \(windowLabel) 剩余额度已低于 \(thresholdText)"
+                defaultValue: "\(limitTitle)\(windowLabel)\(thresholdText)"
             )
         )
     }
@@ -815,13 +812,10 @@ nonisolated struct CodexNotificationContent: Equatable {
     ) -> CodexNotificationContent {
         CodexNotificationContent(
             kind: "quotaReset",
-            title: String(
-                localized: "notification.quota-reset.title",
-                defaultValue: "额度已重置"
-            ),
+            title: String(localized: "notification.quota-reset.title"),
             body: String(
                 localized: "notification.quota-reset.body",
-                defaultValue: "\(limitTitle) \(windowLabel)"
+                defaultValue: "\(limitTitle)\(windowLabel)"
             )
         )
     }
@@ -830,7 +824,7 @@ nonisolated struct CodexNotificationContent: Equatable {
         let body = if let remainingCount {
             String(
                 localized: "notification.auto-reset.body.count",
-                defaultValue: "剩余重置次数: \(remainingCount)"
+                defaultValue: "\(remainingCount)"
             )
         } else {
             ""
@@ -838,10 +832,7 @@ nonisolated struct CodexNotificationContent: Equatable {
 
         return CodexNotificationContent(
             kind: "autoResetSucceeded",
-            title: String(
-                localized: "notification.auto-reset.title",
-                defaultValue: "自动重置"
-            ),
+            title: String(localized: "notification.auto-reset.title"),
             body: body
         )
     }
@@ -851,28 +842,16 @@ nonisolated struct CodexNotificationContent: Equatable {
     ) -> CodexNotificationContent {
         let body = switch reason {
         case .expired:
-            String(
-                localized: "notification.auto-reset-failed.body.expired",
-                defaultValue: "重置次数已过期, 自动重置未完成"
-            )
+            String(localized: "notification.auto-reset-failed.body.expired")
         case .authentication:
-            String(
-                localized: "notification.auto-reset-failed.body.authentication",
-                defaultValue: "Codex 登录状态已失效"
-            )
+            String(localized: "notification.auto-reset-failed.body.authentication")
         case .permanent:
-            String(
-                localized: "notification.auto-reset-failed.body.permanent",
-                defaultValue: "请求无法完成"
-            )
+            String(localized: "notification.auto-reset-failed.body.permanent")
         }
 
         return CodexNotificationContent(
             kind: "autoResetFailed",
-            title: String(
-                localized: "notification.auto-reset-failed.title",
-                defaultValue: "自动重置失败"
-            ),
+            title: String(localized: "notification.auto-reset-failed.title"),
             body: body
         )
     }
@@ -882,21 +861,18 @@ nonisolated struct CodexNotificationContent: Equatable {
         let body = if let project {
             String(
                 localized: "notification.task-completed.body.project",
-                defaultValue: "「\(project)」任务完成, \(durationText)"
+                defaultValue: "\(project)\(durationText)"
             )
         } else {
             String(
                 localized: "notification.task-completed.body.codex",
-                defaultValue: "Codex 任务完成, \(durationText)"
+                defaultValue: "\(durationText)"
             )
         }
 
         return CodexNotificationContent(
             kind: "taskCompleted",
-            title: String(
-                localized: "notification.task-completed.title",
-                defaultValue: "Codex 任务完成"
-            ),
+            title: String(localized: "notification.task-completed.title"),
             body: body
         )
     }
@@ -906,31 +882,25 @@ nonisolated struct CodexNotificationContent: Equatable {
         case let (project?, toolName?):
             String(
                 localized: "notification.task-waiting.body.project-tool",
-                defaultValue: "「\(project)」正在等待批准 \(toolName) 操作"
+                defaultValue: "\(project)\(toolName)"
             )
         case let (project?, nil):
             String(
                 localized: "notification.task-waiting.body.project",
-                defaultValue: "「\(project)」正在等待批准下一步操作"
+                defaultValue: "\(project)"
             )
         case let (nil, toolName?):
             String(
                 localized: "notification.task-waiting.body.codex-tool",
-                defaultValue: "Codex 正在等待批准 \(toolName) 操作"
+                defaultValue: "\(toolName)"
             )
         case (nil, nil):
-            String(
-                localized: "notification.task-waiting.body.codex",
-                defaultValue: "Codex 正在等待批准下一步操作"
-            )
+            String(localized: "notification.task-waiting.body.codex")
         }
 
         return CodexNotificationContent(
             kind: "taskWaiting",
-            title: String(
-                localized: "notification.task-waiting.title",
-                defaultValue: "Codex 等待批准"
-            ),
+            title: String(localized: "notification.task-waiting.title"),
             body: body
         )
     }
@@ -942,21 +912,18 @@ nonisolated struct CodexNotificationContent: Equatable {
         let body = if let project {
             String(
                 localized: "notification.activity-protection.body.project",
-                defaultValue: "\(project) 已静默 \(inactivityDurationText), 已隐藏并停止参与防睡眠"
+                defaultValue: "\(project)\(inactivityDurationText)"
             )
         } else {
             String(
                 localized: "notification.activity-protection.body.codex",
-                defaultValue: "Codex 任务已静默 \(inactivityDurationText), 已隐藏并停止参与防睡眠"
+                defaultValue: "\(inactivityDurationText)"
             )
         }
 
         return CodexNotificationContent(
             kind: "activityProtection",
-            title: String(
-                localized: "notification.activity-protection.title",
-                defaultValue: "Codex 任务长时间无进展"
-            ),
+            title: String(localized: "notification.activity-protection.title"),
             body: body
         )
     }
@@ -965,13 +932,10 @@ nonisolated struct CodexNotificationContent: Equatable {
         let expirationText = CodexDateFormat.localDisplayString(from: expirationDate)
         return CodexNotificationContent(
             kind: "creditExpiry",
-            title: String(
-                localized: "notification.credit-expiry.title",
-                defaultValue: "重置即将过期"
-            ),
+            title: String(localized: "notification.credit-expiry.title"),
             body: String(
                 localized: "notification.credit-expiry.body",
-                defaultValue: "有 \(count) 个重置次数将于 \(expirationText) 过期"
+                defaultValue: "\(count)\(expirationText)"
             )
         )
     }
@@ -980,13 +944,10 @@ nonisolated struct CodexNotificationContent: Equatable {
         let percentText = CodexPercentageFormat.string(from: percent)
         return CodexNotificationContent(
             kind: "lowBattery",
-            title: String(
-                localized: "notification.keep-alive-ended.title",
-                defaultValue: "已恢复系统睡眠"
-            ),
+            title: String(localized: "notification.keep-alive-ended.title"),
             body: String(
                 localized: "notification.keep-alive-ended.low-battery",
-                defaultValue: "电量剩余 \(percentText), 已停止防睡眠"
+                defaultValue: "\(percentText)"
             )
         )
     }
@@ -994,13 +955,10 @@ nonisolated struct CodexNotificationContent: Equatable {
     static func keepAliveLimit(durationText: String) -> CodexNotificationContent {
         CodexNotificationContent(
             kind: "keepAliveLimit",
-            title: String(
-                localized: "notification.keep-alive-ended.title",
-                defaultValue: "已恢复系统睡眠"
-            ),
+            title: String(localized: "notification.keep-alive-ended.title"),
             body: String(
                 localized: "notification.keep-alive-ended.duration-limit",
-                defaultValue: "已达防睡眠上限 \(durationText), 已停止防睡眠"
+                defaultValue: "\(durationText)"
             )
         )
     }

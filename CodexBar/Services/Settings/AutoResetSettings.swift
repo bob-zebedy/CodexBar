@@ -17,17 +17,17 @@ nonisolated enum AutoResetLeadTime: Int, CaseIterable, Hashable, Sendable {
     var title: String {
         switch self {
         case .fifteenMinutes:
-            String(localized: "15 分钟")
+            String(localized: "auto-reset.lead-time.fifteen-minutes")
         case .thirtyMinutes:
-            String(localized: "30 分钟")
+            String(localized: "auto-reset.lead-time.thirty-minutes")
         case .oneHour:
-            String(localized: "1 小时")
+            String(localized: "auto-reset.lead-time.one-hour")
         case .twoHours:
-            String(localized: "2 小时")
+            String(localized: "auto-reset.lead-time.two-hours")
         case .fourHours:
-            String(localized: "4 小时")
+            String(localized: "auto-reset.lead-time.four-hours")
         case .sixHours:
-            String(localized: "6 小时")
+            String(localized: "auto-reset.lead-time.six-hours")
         }
     }
 }

@@ -337,7 +337,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         func toolTip(at now: Date) -> String? {
             var lines: [String] = []
             if usesErrorImage {
-                lines.append(String(localized: "Codex 账号异常"))
+                lines.append(String(localized: "codex-status.account.unavailable"))
             }
 
             if let activityText = activityToolTip(at: now) {
@@ -345,7 +345,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
             if activity.activeCount > 1 {
                 lines.append(
-                    String(localized: "等待 \(activity.waitingCount) • 运行 \(activity.runningCount)")
+                    String(localized: "status-item.activity-summary", defaultValue: "\(activity.waitingCount, specifier: "%lld")\(activity.runningCount, specifier: "%lld")")
                 )
             }
             if let progress {
@@ -357,7 +357,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         private func activityToolTip(at now: Date) -> String? {
             switch activity.primaryActivity {
             case let .waiting(task):
-                var text = String(localized: "Codex 等待批准")
+                var text = String(localized: "activity.status.codex-waiting-for-approval")
                 if let projectName = task.projectName {
                     text += " • \(projectName)"
                 }
@@ -367,7 +367,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 text += " • \(CodexActivityDisplayFormat.waitingDurationFragment(since: task.stateChangedAt, now: now))"
                 return text
             case let .running(task):
-                var text = String(localized: "Codex 正在运行")
+                var text = String(localized: "activity.status.codex-running")
                 if let projectName = task.projectName {
                     text += " • \(projectName)"
                 }
@@ -376,7 +376,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 }
                 return text
             case .completed(let completion, highlighted: true):
-                var text = String(localized: "Codex 刚刚完成")
+                var text = String(localized: "activity.status.codex-just-completed")
                 if let projectName = completion.projectName {
                     text += " • \(projectName)"
                 }
@@ -418,7 +418,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         var toolTip: String {
             let percentText = CodexPercentageFormat.string(from: percent)
-            return String(localized: "\(label) 剩余 \(percentText)")
+            return String(localized: "quota.status.remaining", defaultValue: "\(label)\(percentText)")
         }
 
         init?(snapshot: CodexQuotaSnapshot?, selection: MenuBarQuotaSelection) {
@@ -674,10 +674,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func hotKeyConflictMessage(for shortcut: GlobalHotKeyShortcut) -> String {
         if shortcut == .default {
-            return String(localized: "默认快捷键 \(shortcut.label) 已被占用")
+            return String(localized: "hotkey.error.default-in-use", defaultValue: "\(shortcut.label)")
         }
 
-        return String(localized: "快捷键已被占用")
+        return String(localized: "hotkey.error.in-use")
     }
 
     // MARK: - 菜单栏图标
@@ -975,14 +975,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let menu = NSMenu()
 
         menu.addItem(menuItem(
-            title: "设置",
+            title: "app.menu.settings",
             action: #selector(openSettings),
             keyEquivalent: ",",
             symbolName: "gearshape"
         ))
 
         menu.addItem(menuItem(
-            title: "日志",
+            title: "app.menu.log",
             action: #selector(openLog),
             keyEquivalent: "l",
             symbolName: "doc.text.magnifyingglass"
@@ -991,7 +991,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         menu.addItem(menuItem(
-            title: "退出",
+            title: "common.action.quit",
             action: #selector(quit),
             keyEquivalent: "q",
             symbolName: "power"

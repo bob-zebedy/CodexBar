@@ -14,7 +14,7 @@ struct HotKeyRecorderRow: View {
                     .frame(width: SettingsRowMetrics.iconWidth)
                     .foregroundStyle(.tint)
 
-                Text("APP 快捷键")
+                Text("settings.hotkey.title")
 
                 Spacer()
 
@@ -45,7 +45,7 @@ struct HotKeyRecorderRow: View {
 
                 iconButton(
                     systemName: "arrow.counterclockwise.circle",
-                    help: "恢复默认",
+                    help: "common.action.restore-default",
                     isDisabled: !canRestoreDefaultShortcut
                 ) {
                     settings.restoreDefaultShortcut()
@@ -54,7 +54,7 @@ struct HotKeyRecorderRow: View {
 
                 iconButton(
                     systemName: "xmark.circle",
-                    help: "清除 APP 快捷键",
+                    help: "settings.hotkey.action.clear",
                     isDisabled: !canClearShortcut
                 ) {
                     settings.clearShortcut()
@@ -73,10 +73,10 @@ struct HotKeyRecorderRow: View {
 
     private var shortcutLabel: String {
         if isRecording {
-            return String(localized: "请设置快捷键")
+            return String(localized: "settings.hotkey.prompt")
         }
 
-        return settings.shortcut?.label ?? String(localized: "未设置")
+        return settings.shortcut?.label ?? String(localized: "common.status.not-set")
     }
 
     private var canStartRecording: Bool {
@@ -119,7 +119,7 @@ struct HotKeyRecorderRow: View {
         }
 
         guard let shortcut = GlobalHotKeyShortcut(event: event) else {
-            settings.setRegistrationError(String(localized: "无法识别该快捷键"))
+            settings.setRegistrationError(String(localized: "hotkey.error.unrecognized"))
             stopRecording()
             return
         }

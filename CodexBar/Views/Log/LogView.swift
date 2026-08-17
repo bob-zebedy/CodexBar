@@ -26,7 +26,7 @@ struct LogView: View {
             Image(systemName: "doc.text.magnifyingglass")
                 .foregroundStyle(.tint)
 
-            Text("Codex app-server 日志")
+            Text("log.window.app-server-title")
                 .font(.headline)
 
             Text(verbatim: "\(entries.count)")
@@ -41,7 +41,7 @@ struct LogView: View {
             Button {
                 store.clear()
             } label: {
-                Label("清空", systemImage: "trash")
+                Label("common.action.clear", systemImage: "trash")
             }
             .controlSize(.small)
             .disabled(entries.isEmpty)
@@ -56,7 +56,7 @@ struct LogView: View {
                 .font(.largeTitle)
                 .foregroundStyle(.tertiary)
 
-            Text("暂无日志")
+            Text("log.empty.no-entries")
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -98,7 +98,7 @@ private struct LogRow: View {
                 VStack(alignment: .leading, spacing: 8) {
                     if let request = entry.request {
                         payloadBlock(
-                            caption: "请求",
+                            caption: "log.payload.request",
                             time: entry.requestedAt,
                             text: request,
                             color: .primary
@@ -113,7 +113,7 @@ private struct LogRow: View {
                             color: entry.kind == .failure ? .red : .primary
                         )
                     } else if entry.kind == .pending {
-                        Text("等待响应")
+                        Text("log.status.waiting-response")
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                     }
@@ -198,17 +198,17 @@ private struct LogRow: View {
 
                 if hasText {
                     LogHeaderActionButton(
-                        title: "预览",
+                        title: "common.action.preview",
                         systemImage: "doc.text.magnifyingglass",
-                        help: String(localized: "预览完整\(caption)")
+                        help: String(localized: "log.action.preview-full", defaultValue: "\(caption)")
                     ) {
                         fullTextItem = FullLogTextItem(title: caption, text: text)
                     }
 
                     LogHeaderActionButton(
-                        title: "复制",
+                        title: "common.action.copy",
                         systemImage: "doc.on.doc",
-                        help: String(localized: "复制完整\(caption)")
+                        help: String(localized: "log.action.copy-full", defaultValue: "\(caption)")
                     ) {
                         PasteboardWriter.copy(text)
                     }
@@ -230,11 +230,11 @@ private struct LogRow: View {
     private var detailCaption: LocalizedStringResource {
         switch entry.kind {
         case .response, .emptyResponse:
-            "响应"
+            "log.payload.response"
         case .failure:
-            "错误"
+            "log.label.error"
         default:
-            "详情"
+            "log.payload.details"
         }
     }
 
@@ -308,14 +308,14 @@ private struct FullLogTextView: View {
                 Button {
                     PasteboardWriter.copy(item.text)
                 } label: {
-                    Label("复制", systemImage: "doc.on.doc")
+                    Label("common.action.copy", systemImage: "doc.on.doc")
                 }
                 .controlSize(.small)
 
                 Button {
                     dismiss()
                 } label: {
-                    Label("关闭", systemImage: "xmark")
+                    Label("common.action.close", systemImage: "xmark")
                 }
                 .controlSize(.small)
             }
@@ -528,13 +528,13 @@ private extension RequestLogEntry.Kind {
     var label: LocalizedStringResource {
         switch self {
         case .pending:
-            "进行"
+            "log.status.in-progress"
         case .response:
-            "完成"
+            "common.status.completed"
         case .failure:
-            "错误"
+            "log.label.error"
         case .emptyResponse:
-            "请求"
+            "log.payload.request"
         }
     }
 

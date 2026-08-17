@@ -93,18 +93,18 @@ struct UsageSummaryView: View {
 
     private var metricsGrid: some View {
         HStack(alignment: .firstTextBaseline, spacing: Metrics.metricSpacing) {
-            tokenMetric(label: "全时累计", value: usage.summary.lifetimeTokens)
-            tokenMetric(label: "单日峰值", value: usage.summary.peakDailyTokens)
+            tokenMetric(label: "usage.summary.lifetime-tokens", value: usage.summary.lifetimeTokens)
+            tokenMetric(label: "usage.summary.peak-tokens", value: usage.summary.peakDailyTokens)
             textMetric(
-                label: "当前连胜",
+                label: "usage.summary.current-streak",
                 value: Self.dayText(usage.summary.currentStreakDays)
             )
             textMetric(
-                label: "最长连胜",
+                label: "usage.summary.longest-streak",
                 value: Self.dayText(usage.summary.longestStreakDays)
             )
             textMetric(
-                label: "最长任务",
+                label: "usage.summary.longest-chat",
                 value: Self.durationText(seconds: usage.summary.longestRunningTurnSec)
             )
         }
@@ -146,7 +146,7 @@ struct UsageSummaryView: View {
             return "--"
         }
 
-        return String(localized: "\(max(days, 0))天")
+        return String(localized: "duration.days-compact", defaultValue: "\(max(days, 0), specifier: "%lld")")
     }
 
     private static func durationText(seconds: Int?) -> String {
@@ -271,7 +271,7 @@ struct UsageHeatmap: View {
     private var heatmapGrid: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text("近 \(Metrics.columnCount) 周")
+                Text(LocalizedStringResource("usage.heatmap.past-weeks", defaultValue: "\(Metrics.columnCount, specifier: "%lld")"))
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
 
@@ -331,7 +331,7 @@ struct UsageHeatmap: View {
 
         let firstText = localDayText(firstDate)
         let lastText = localDayText(lastDate)
-        return String(localized: "\(firstText) ~ \(lastText)")
+        return String(localized: "date-range.closed", defaultValue: "\(firstText)\(lastText)")
     }
 
     private func localDayText(_ dayKey: String) -> String {
@@ -575,7 +575,7 @@ struct UsageHeatmapDayDetailView: View {
     private var tokenOnlyFooter: some View {
         metricRowLayout {
             tokenIntensityDot
-            Text("用量强度")
+            Text("usage.heatmap.intensity")
                 .foregroundStyle(.secondary)
 
             Spacer(minLength: 8)
@@ -588,7 +588,7 @@ struct UsageHeatmapDayDetailView: View {
     private var tokenIntensityMetricRow: some View {
         metricRowLayout {
             tokenIntensityDot
-            Text("用量强度")
+            Text("usage.heatmap.intensity")
                 .foregroundStyle(.secondary)
                 .frame(width: Metrics.metricLabelWidth, alignment: .leading)
 
@@ -601,7 +601,7 @@ struct UsageHeatmapDayDetailView: View {
     private var mostUsedModelMetricRow: some View {
         metricRowLayout {
             metricDot(tint: .cyan)
-            Text("最热模型")
+            Text("usage.heatmap.top-model")
                 .foregroundStyle(.secondary)
                 .frame(width: Metrics.metricLabelWidth, alignment: .leading)
 
@@ -639,35 +639,32 @@ struct UsageHeatmapDayDetailView: View {
     private var workflowMetricRows: [WorkflowMetricRow] {
         [
             WorkflowMetricRow(
-                label: String(localized: "会话总数"),
+                label: String(localized: "workflow.metric.sessions"),
                 value: context.day.workflow.sessionCount,
                 tint: .green
             ),
             WorkflowMetricRow(
-                label: String(localized: "对话轮次"),
+                label: String(localized: "workflow.metric.turns"),
                 value: context.day.workflow.turnCount,
                 tint: .teal
             ),
             WorkflowMetricRow(
-                label: String(localized: "子智能体"),
+                label: String(localized: "workflow.metric.subagents"),
                 value: context.day.workflow.subagentCount,
                 tint: .indigo
             ),
             WorkflowMetricRow(
-                label: String(
-                    localized: "workflow.metric.tool-calls",
-                    defaultValue: "调用工具"
-                ),
+                label: String(localized: "workflow.metric.tool-calls"),
                 value: context.day.workflow.toolCallCount,
                 tint: .orange
             ),
             WorkflowMetricRow(
-                label: String(localized: "权限请求"),
+                label: String(localized: "workflow.metric.approvals"),
                 value: context.day.workflow.permissionRequestCount,
                 tint: .red
             ),
             WorkflowMetricRow(
-                label: String(localized: "上下文压缩"),
+                label: String(localized: "workflow.metric.compactions"),
                 value: context.day.workflow.contextCompactionCount,
                 tint: .purple
             )

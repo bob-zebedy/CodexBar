@@ -114,9 +114,9 @@ struct StatusAccountCard: View {
     private var statusDisplay: (text: LocalizedStringResource?, color: Color) {
         switch loadState {
         case .notLoggedIn:
-            ("未登录", .orange)
+            ("codex-status.account.not-signed-in", .orange)
         case let .unsupportedVersion(minimum):
-            ("需要 Codex \(minimum) 或更高版本", .red)
+            (LocalizedStringResource("codex-version.requirement", defaultValue: "\(minimum)"), .red)
         case .initializationFailed:
             ("初始化失败", .red)
         case .loading, .loaded:
@@ -128,7 +128,7 @@ struct StatusAccountCard: View {
 /// 额度和用量均无数据时的统一占位面板
 struct EmptyDataPanel: View {
     var body: some View {
-        Text("暂无数据")
+        Text("common.empty.no-data")
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.vertical, MenuMetrics.loadingVerticalPadding)
@@ -196,7 +196,7 @@ struct QuotaLimitsSection: View {
 
     @ViewBuilder
     private func creditsBalance(value: String, credits: RateLimitCreditsSnapshot) -> some View {
-        let capsule = metadataCapsule(String(localized: "积分: \(value)"))
+        let capsule = metadataCapsule(String(localized: "quota.credits.value", defaultValue: "\(value)"))
 
         if let helpText = creditsHelpText(value: value, credits: credits) {
             capsule.help(helpText)
@@ -207,14 +207,14 @@ struct QuotaLimitsSection: View {
 
     private func creditsDisplayValue(_ credits: RateLimitCreditsSnapshot) -> String? {
         if credits.unlimited {
-            return String(localized: "无限")
+            return String(localized: "quota.value.unlimited")
         }
 
         if let balance = normalizedCreditsBalance(credits.balance) {
             return compactCreditsBalance(balance)
         }
 
-        return credits.hasCredits ? String(localized: "可用") : nil
+        return credits.hasCredits ? String(localized: "common.status.available") : nil
     }
 
     private func creditsHelpText(value: String, credits: RateLimitCreditsSnapshot) -> String? {
@@ -272,7 +272,7 @@ struct QuotaLimitsSection: View {
                 )
             )
         } label: {
-            metadataCapsule(String(localized: "重置次数: \(count)"))
+            metadataCapsule(String(localized: "reset-credits.count", defaultValue: "\(count, specifier: "%lld")"))
         }
         .buttonStyle(.plain)
     }
@@ -329,7 +329,7 @@ struct UpdatedAtRow: View {
                     color: .blue
                 )
 
-                Text("数据更新时间")
+                Text("usage.status.updated")
                     .foregroundStyle(Self.secondaryTextColor)
 
                 Text(Self.timeFormatter.string(from: snapshot.generatedAt))
@@ -414,21 +414,21 @@ struct WorkflowSyncDisplayState: Equatable {
         WorkflowSyncDisplayState(
             symbolName: "icloud",
             tint: .codexSecondaryLabel,
-            helpText: lastSyncText.map { String(localized: "最近同步: \($0)") }
-                ?? String(localized: "暂无同步记录")
+            helpText: lastSyncText.map { String(localized: "sync.status.last-sync-time", defaultValue: "\($0)") }
+                ?? String(localized: "sync.status.no-history")
         )
     }
 
     private static let disabled = WorkflowSyncDisplayState(
         symbolName: "icloud.slash",
         tint: .codexSecondaryLabel,
-        helpText: String(localized: "同步未开启")
+        helpText: String(localized: "sync.status.disabled")
     )
 
     private static let syncing = WorkflowSyncDisplayState(
         symbolName: "arrow.trianglehead.clockwise.icloud",
         tint: .blue,
-        helpText: String(localized: "正在同步")
+        helpText: String(localized: "sync.status.syncing")
     )
 
     private static func failed(message: String?) -> WorkflowSyncDisplayState {

@@ -120,15 +120,15 @@ struct AppSettingsView: View {
             onContentHeightChanged(pageHeight + Metrics.windowChromeHeight)
         }
         .alert(
-            "批量重建 \(selectedRebuildDateKeys.count) 天的数据?",
+            LocalizedStringResource("workflow.rebuild.confirmation.title", defaultValue: "\(selectedRebuildDateKeys.count, specifier: "%lld")"),
             isPresented: $isShowingRebuildConfirmation
         ) {
-            Button("取消", role: .cancel) {}
-            Button("重建", role: .destructive) {
+            Button("common.action.cancel", role: .cancel) {}
+            Button("workflow.rebuild.action", role: .destructive) {
                 rebuildWorkflowData()
             }
         } message: {
-            Text("将从本机原始 Hook 事件重新统计 \(selectedRebuildRange?.displayText ?? "")\n并在下次同步时替换当前设备对应日期的云端数据")
+            Text(LocalizedStringResource("workflow.rebuild.confirmation.message", defaultValue: "\(selectedRebuildRange?.displayText ?? "")"))
         }
         .alert(item: $helperFeatureConfirmation) { feature in
             feature.alert(helperStatus: keepAliveController.helperStatus) {
@@ -301,7 +301,7 @@ private extension AppSettingsView {
     var launchAtLoginRow: some View {
         SettingsToggleRow(
             icon: "power",
-            title: "开机自动启动",
+            title: "settings.general.launch-at-login",
             isOn: Binding(
                 get: { loginItemSettings.isEnabled },
                 set: { loginItemSettings.setEnabled($0) }
@@ -312,7 +312,7 @@ private extension AppSettingsView {
     var automaticUpdateCheckRow: some View {
         SettingsToggleRow(
             icon: "arrow.triangle.2.circlepath",
-            title: "自动检查更新",
+            title: "settings.general.automatic-update-checks",
             isOn: Binding(
                 get: { appUpdater.automaticallyChecksForUpdates },
                 set: { appUpdater.setAutomaticallyChecksForUpdates($0) }
@@ -330,7 +330,7 @@ private extension AppSettingsView {
 
         return SettingsToggleRow(
             icon: "gauge.with.dots.needle.50percent",
-            title: "菜单栏额度指示",
+            title: "settings.menu-bar-quota.title",
             isOn: Binding(
                 get: { isMenuBarQuotaEnabled },
                 set: { menuBarQuotaSettings.setEnabled($0) }
@@ -338,7 +338,7 @@ private extension AppSettingsView {
         ) {
             if isEnabled {
                 Picker(
-                    "额度窗口",
+                    "settings.menu-bar-quota.window",
                     selection: Binding(
                         get: { menuBarQuotaSettings.activeWindowSelection },
                         set: { menuBarQuotaSettings.setSelection($0) }
@@ -390,7 +390,7 @@ private extension AppSettingsView {
 
         return SettingsToggleRow(
             icon: "list.bullet.rectangle",
-            title: "主面板任务中心",
+            title: "settings.task-center.show-in-menu",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { mainPanelSettings.setShowsTaskCenter($0) }
@@ -405,7 +405,7 @@ private extension AppSettingsView {
         VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
                 icon: "link",
-                title: "CodexBar Hook",
+                title: "hook.name",
                 isOn: Binding(
                     get: { codexHookSettings.isEnabled },
                     set: { codexHookSettings.setEnabled($0) }
@@ -427,7 +427,7 @@ private extension AppSettingsView {
         return VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
                 icon: "arrow.counterclockwise.circle",
-                title: "自动重置",
+                title: "settings.auto-reset.title",
                 isOn: Binding(
                     get: { autoResetSettings.isEnabled },
                     set: { enabled in
@@ -476,12 +476,12 @@ private extension AppSettingsView {
         switch keepAliveController.helperStatus {
         case .requiresApproval:
             return SettingsStatusCaption(
-                message: String(localized: "需要授权允许 CodexBar 后台运行"),
+                message: String(localized: "helper.status.authorization-required"),
                 showsSystemSettingsButton: true
             )
         case .notRegistered, .notFound:
             return SettingsStatusCaption(
-                message: String(localized: "CodexBarHelper 尚未注册")
+                message: String(localized: "helper.status.not-registered")
             )
         case .enabled:
             guard let errorMessage = keepAliveController
@@ -500,7 +500,7 @@ private extension AppSettingsView {
         return VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
                 icon: "moon.zzz",
-                title: "防止系统睡眠",
+                title: "settings.keep-alive.title",
                 isOn: Binding(
                     get: { keepAliveController.isEnabled },
                     set: { enabled in
@@ -563,7 +563,7 @@ private extension AppSettingsView {
                 Spacer(minLength: 8)
 
                 if caption.showsSystemSettingsButton {
-                    Button("打开系统设置") {
+                    Button("common.action.open-system-settings") {
                         keepAliveController.openSystemSettings()
                     }
                     .controlSize(.small)
@@ -591,13 +591,13 @@ private extension AppSettingsView {
             return SettingsStatusCaption(message: errorMessage, isError: true)
         }
         guard codexHookSettings.isVerified else {
-            return SettingsStatusCaption(message: String(localized: "CodexBar Hook 未生效"))
+            return SettingsStatusCaption(message: String(localized: "hook.status.inactive"))
         }
 
         if keepAliveController.isActivelyPreventingSleep,
            keepAliveController.sleepPreventionSource == .external {
             return SettingsStatusCaption(
-                message: String(localized: "系统睡眠已由其他来源关闭")
+                message: String(localized: "keep-alive.status.disabled-by-other-source")
             )
         }
 
@@ -606,17 +606,17 @@ private extension AppSettingsView {
         // 它成立即意味着 helper 已就绪, 所以排在下面那个 switch 之前不影响 helper 类问题的呈现
         // 不写具体阈值: 滞回让保护一直持续到阈值加 5, 说死数字会与用户看到的电量对不上
         if keepAliveController.isLowBatteryBlocking {
-            return SettingsStatusCaption(message: String(localized: "电量过低, 已恢复系统睡眠"))
+            return SettingsStatusCaption(message: String(localized: "keep-alive.status.low-battery"))
         }
 
         switch keepAliveController.helperStatus {
         case .requiresApproval:
             return SettingsStatusCaption(
-                message: String(localized: "需要授权允许 CodexBar 后台运行"),
+                message: String(localized: "helper.status.authorization-required"),
                 showsSystemSettingsButton: true
             )
         case .notRegistered, .notFound:
-            return SettingsStatusCaption(message: String(localized: "CodexBarHelper 尚未注册"))
+            return SettingsStatusCaption(message: String(localized: "helper.status.not-registered"))
         case .enabled:
             // 上限之外的运行态都收起; 达到上限要留一句, 否则开关开着却没生效无从解释
             guard keepAliveController.hasReachedMaximumDuration else {
@@ -624,7 +624,7 @@ private extension AppSettingsView {
             }
             let duration = keepAliveController.maximumDuration.title
             return SettingsStatusCaption(
-                message: String(localized: "已达到防睡眠时间上限 (\(duration))")
+                message: String(localized: "keep-alive.status.duration-limit-reached", defaultValue: "\(duration)")
             )
         }
     }
@@ -636,7 +636,7 @@ private extension AppSettingsView {
         return VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
                 icon: "icloud",
-                title: "跨设备同步",
+                title: "settings.sync.title",
                 isOn: Binding(
                     get: { state.isActive },
                     set: { enabled in
@@ -656,7 +656,7 @@ private extension AppSettingsView {
                 let showsSyncStatus = state.shouldShowSyncStatus(lastSyncText: lastSyncText)
 
                 SettingsIndentedRow {
-                    Text("最近同步")
+                    Text("sync.status.last-sync")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -670,7 +670,7 @@ private extension AppSettingsView {
                                     width: Metrics.syncStatusRowHeight,
                                     height: Metrics.syncStatusRowHeight
                                 )
-                                .help("正在同步")
+                                .help("sync.status.syncing")
                                 .transition(.opacity)
                         } else if let lastSyncText {
                             Text(lastSyncText)
@@ -712,7 +712,7 @@ private extension AppSettingsView {
                     .frame(width: SettingsRowMetrics.iconWidth)
                     .foregroundStyle(.tint)
 
-                Text("重建数据")
+                Text("workflow.rebuild.title")
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
 
@@ -734,7 +734,7 @@ private extension AppSettingsView {
                         .controlSize(.small)
                         .frame(minWidth: RebuildLayoutMetrics.actionMinimumWidth)
                 } else {
-                    Button("重建") {
+                    Button("workflow.rebuild.action") {
                         isShowingRebuildConfirmation = true
                     }
                     .controlSize(.small)
@@ -757,22 +757,19 @@ private extension AppSettingsView {
             return rebuildStatus
         }
         guard let selectedRebuildRange else {
-            return RebuildStatus(message: String(localized: "未选择重建日期范围"), isError: false)
+            return RebuildStatus(message: String(localized: "workflow.rebuild.selection.none"), isError: false)
         }
         guard selectedRebuildRange.isComplete else {
-            return RebuildStatus(message: String(localized: "选择结束日期"), isError: false)
+            return RebuildStatus(message: String(localized: "date-picker.select-end"), isError: false)
         }
         if selectedRebuildDateKeys.isEmpty {
             return RebuildStatus(
-                message: String(
-                    localized: "workflow.rebuild.error.source-unavailable",
-                    defaultValue: "没有可重建的本地数据"
-                ),
+                message: String(localized: "workflow.rebuild.error.source-unavailable"),
                 isError: true
             )
         }
         return RebuildStatus(
-            message: String(localized: "已选择 \(selectedRebuildRange.dayCount) 天"),
+            message: String(localized: "workflow.rebuild.selection.day-count", defaultValue: "\(selectedRebuildRange.dayCount, specifier: "%lld")"),
             isError: false
         )
     }
@@ -825,7 +822,7 @@ private extension AppSettingsView {
                 }
 
                 rebuildStatus = RebuildStatus(
-                    message: String(localized: "重建失败: \(error.localizedDescription)"),
+                    message: String(localized: "workflow.rebuild.status.failed", defaultValue: "\(error.localizedDescription)"),
                     isError: true
                 )
             }
@@ -841,31 +838,29 @@ private extension AppSettingsView {
         autoRetryAvailable: Bool
     ) -> String {
         var message = String(
-            localized: "已重建 \(summary.rebuiltDateCount) 天, 包含 \(summary.eventCount) 条数据"
+            localized: "workflow.rebuild.summary.completed",
+            defaultValue: "\(summary.rebuiltDateCount, specifier: "%lld")\(summary.eventCount, specifier: "%lld")"
         )
         if summary.corruptLineCount > 0 {
-            message += String(localized: ", 跳过 \(summary.corruptLineCount) 条无效数据")
+            message += String(localized: "workflow.rebuild.summary.skipped-invalid-events", defaultValue: "\(summary.corruptLineCount, specifier: "%lld")")
         }
 
         if !summary.failedDateKeys.isEmpty {
             let listed = summary.failedDateKeys.prefix(rebuildFailedDateListLimit)
             var dates = listed.joined(separator: ", ")
             if summary.failedDateKeys.count > listed.count {
-                dates += String(localized: " 等")
+                dates += String(localized: "workflow.rebuild.summary.additional-dates")
             }
-            message += String(localized: "; \(summary.failedDateKeys.count) 天未完成 (\(dates))")
+            message += String(localized: "workflow.rebuild.summary.incomplete-dates", defaultValue: "\(summary.failedDateKeys.count, specifier: "%lld")\(dates)")
             message += autoRetryAvailable
-                ? String(localized: ", 稍后会自动重试")
-                : String(localized: ", 开启 CodexBar Hook 后会自动重试")
+                ? String(localized: "workflow.rebuild.summary.retry-later")
+                : String(localized: "workflow.rebuild.summary.retry-after-hook-enabled")
         }
 
         if summary.didFailSyncReplacementMarking {
-            message += String(
-                localized: "workflow.rebuild.summary.sync-replacement-marking-failed",
-                defaultValue: "; 云端替换未能完成, 请稍后重新重建这些数据"
-            )
+            message += String(localized: "workflow.rebuild.summary.sync-replacement-marking-failed")
         } else if summary.isSyncReplacementPending {
-            message += String(localized: "; 云端替换将在同步可用后继续")
+            message += String(localized: "workflow.rebuild.summary.cloud-replacement-pending")
         }
 
         return message
@@ -882,7 +877,7 @@ private extension AppSettingsView {
         VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
                 icon: "bell.badge",
-                title: "系统通知",
+                title: "settings.notifications.system.title",
                 isOn: Binding(
                     get: { notificationSettings.isEnabled },
                     set: { notificationSettings.setEnabled($0) }
@@ -918,13 +913,13 @@ private extension AppSettingsView {
 
     var notificationDeniedRow: some View {
         SettingsIndentedRow {
-            Text("系统通知权限未开启")
+            Text("settings.notifications.system.permission-disabled")
                 .font(.caption)
                 .foregroundStyle(.red)
 
             Spacer(minLength: 8)
 
-            Button("打开系统设置") {
+            Button("common.action.open-system-settings") {
                 notificationSettings.openSystemNotificationSettings()
             }
             .controlSize(.small)
@@ -942,7 +937,7 @@ private extension AppSettingsView {
                 .frame(width: SettingsRowMetrics.iconWidth)
                 .foregroundStyle(.tint)
 
-            Text("CodexBar 版本")
+            Text("settings.about.version")
 
             Spacer()
 
@@ -963,7 +958,7 @@ private extension AppSettingsView {
                 .controlSize(.small)
                 .buttonStyle(.plain)
                 .foregroundStyle(.tint)
-                .help("立即更新")
+                .help("updater.action.install")
                 .transition(.opacity)
             }
         }
@@ -992,7 +987,7 @@ private extension AppSettingsView {
                     .frame(width: SettingsRowMetrics.iconWidth)
                     .foregroundStyle(.tint)
 
-                Text("GitHub 项目")
+                Text("settings.about.github-project")
                     .foregroundStyle(.primary)
 
                 Spacer()
@@ -1029,7 +1024,7 @@ private extension AppSettingsView {
         Button {
             appUpdater.checkForUpdates()
         } label: {
-            Label("检查更新", systemImage: "arrow.down.circle")
+            Label("updater.action.check", systemImage: "arrow.down.circle")
         }
     }
 
@@ -1037,7 +1032,7 @@ private extension AppSettingsView {
         Button(role: .destructive) {
             NSApplication.shared.terminate(nil)
         } label: {
-            Label("退出 CodexBar", systemImage: "power.circle")
+            Label("app.action.quit", systemImage: "power.circle")
         }
         .foregroundStyle(.red)
         .keyboardShortcut("q")
@@ -1088,7 +1083,7 @@ private struct RebuildDatePicker: View {
                     if let selection {
                         Text(verbatim: selection.displayText)
                     } else {
-                        Text("选择日期范围")
+                        Text("date-picker.select-range")
                     }
                 }
                 .font(.caption.monospacedDigit().weight(.medium))
@@ -1119,7 +1114,7 @@ private struct RebuildDatePicker: View {
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
-        .help("选择日期范围")
+        .help("date-picker.select-range")
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
             calendarPopover
         }
@@ -1132,7 +1127,7 @@ private struct RebuildDatePicker: View {
             HStack(spacing: 8) {
                 monthNavigationButton(
                     systemImage: "chevron.left",
-                    help: "上个月",
+                    help: "date-picker.previous-month",
                     offset: -1
                 )
 
@@ -1146,7 +1141,7 @@ private struct RebuildDatePicker: View {
 
                 monthNavigationButton(
                     systemImage: "chevron.right",
-                    help: "下个月",
+                    help: "date-picker.next-month",
                     offset: 1
                 )
             }
@@ -1166,9 +1161,9 @@ private struct RebuildDatePicker: View {
 
             Group {
                 if selection?.isComplete == false {
-                    Text("选择结束日期")
+                    Text("date-picker.select-end")
                 } else {
-                    Text("选择开始日期")
+                    Text("date-picker.select-start")
                 }
             }
             .font(.caption2)
@@ -1388,14 +1383,14 @@ private struct RebuildDateRange: Equatable {
         }
         let startText = CodexDateFormat.localDayDisplayString(from: startDate)
         guard let endDateKey else {
-            return String(localized: "\(startText) ~")
+            return String(localized: "date-range.open-ended", defaultValue: "\(startText)")
         }
         guard startDateKey != endDateKey,
               let endDate = CodexDateFormat.dayDate(from: endDateKey) else {
             return startText
         }
         let endText = CodexDateFormat.localDayDisplayString(from: endDate)
-        return String(localized: "\(startText) ~ \(endText)")
+        return String(localized: "date-range.closed", defaultValue: "\(startText)\(endText)")
     }
 
     func completing(with dateKey: String) -> RebuildDateRange {
@@ -1436,11 +1431,11 @@ private enum SettingsTab: CaseIterable, Identifiable {
     var title: LocalizedStringResource {
         switch self {
         case .general:
-            "通用"
+            "settings.tab.general"
         case .advanced:
-            "高级"
+            "settings.tab.advanced"
         case .about:
-            "关于"
+            "settings.tab.about"
         }
     }
 

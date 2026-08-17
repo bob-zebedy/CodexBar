@@ -39,17 +39,11 @@ nonisolated struct GlobalHotKeyShortcut: Codable, Equatable {
 
     var validationError: String? {
         if modifierCount < 2 {
-            return String(
-                localized: "hotkey.validation.minimum-modifiers",
-                defaultValue: "至少需要两个修饰键"
-            )
+            return String(localized: "hotkey.validation.minimum-modifiers")
         }
 
         if isReservedSystemShortcut {
-            return String(
-                localized: "hotkey.validation.system-reserved",
-                defaultValue: "不可使用系统快捷键"
-            )
+            return String(localized: "hotkey.validation.system-reserved")
         }
 
         return nil

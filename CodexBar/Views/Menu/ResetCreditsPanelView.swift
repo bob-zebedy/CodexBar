@@ -97,7 +97,7 @@ struct ResetCreditsPanelView: View {
     }
 
     private var emptyMessage: some View {
-        Text("未知过期时间")
+        Text("reset-credits.expiration.unknown")
             .font(.caption2)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: Metrics.rowHeight, alignment: .leading)
@@ -142,7 +142,7 @@ struct ResetCreditsPanelView: View {
             .hidden()
             .overlay {
                 HStack(alignment: .center, spacing: 0) {
-                    Text("过期时间")
+                    Text("reset-credits.expiration.label")
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -172,7 +172,7 @@ struct ResetCreditsPanelView: View {
             .green
         }
 
-        return Text("可用: \(group.count)")
+        return Text(LocalizedStringResource("reset-credits.available-count", defaultValue: "\(group.count, specifier: "%lld")"))
             .font(.caption2.monospacedDigit().weight(.semibold))
             .foregroundStyle(tint)
             .lineLimit(1)

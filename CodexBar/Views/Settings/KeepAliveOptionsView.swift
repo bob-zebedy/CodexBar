@@ -36,8 +36,8 @@ struct KeepAliveOptionsView: View {
 
     private var maximumDurationRow: some View {
         pickerRow(
-            title: "最长防睡眠时间",
-            caption: "防睡眠时长超过阈值后自动恢复系统睡眠",
+            title: "keep-alive.duration-limit.title",
+            caption: "keep-alive.duration-limit.caption",
             selection: Binding(
                 get: { keepAliveController.maximumDuration },
                 set: { keepAliveController.setMaximumDuration($0) }
@@ -49,8 +49,8 @@ struct KeepAliveOptionsView: View {
 
     private var activityProtectionRow: some View {
         pickerRow(
-            title: "异常会话保护",
-            caption: "长时间没有进展时隐藏任务并停止参与防睡眠",
+            title: "activity-protection.title",
+            caption: "activity-protection.caption",
             selection: Binding(
                 get: { activityProtectionSettings.inactivityDuration },
                 set: { activityProtectionSettings.setInactivityDuration($0) }
@@ -63,8 +63,8 @@ struct KeepAliveOptionsView: View {
     /// 只改"哪些任务算数", 没有额外依赖, 所以不置灰也不隐藏
     private var waitingApprovalRow: some View {
         toggleRow(
-            title: "等待批准时保持",
-            caption: "任务等待批准期间继续防止系统睡眠",
+            title: "keep-alive.waiting.title",
+            caption: "keep-alive.waiting.caption",
             isOn: Binding(
                 get: { keepAliveController.keepsAwakeWhileWaiting },
                 set: { keepAliveController.setKeepsAwakeWhileWaiting($0) }
@@ -75,8 +75,8 @@ struct KeepAliveOptionsView: View {
     /// 只在防睡眠真的生效时留住屏幕, 所以和上面那一行一样没有额外依赖
     private var displayAwakeRow: some View {
         toggleRow(
-            title: "保持屏幕常亮",
-            caption: "同时阻止屏幕保护与自动锁屏",
+            title: "keep-alive.display.title",
+            caption: "keep-alive.display.caption",
             isOn: Binding(
                 get: { keepAliveController.keepsDisplayAwake },
                 set: { keepAliveController.setKeepsDisplayAwake($0) }
@@ -86,8 +86,8 @@ struct KeepAliveOptionsView: View {
 
     private var lowBatteryRow: some View {
         pickerRow(
-            title: "低电量保护",
-            caption: "仅在使用电池供电时生效, 充电时自动恢复",
+            title: "keep-alive.low-battery.title",
+            caption: "keep-alive.low-battery.caption",
             selection: Binding(
                 get: { keepAliveController.lowBatteryThreshold },
                 set: { keepAliveController.setLowBatteryThreshold($0) }

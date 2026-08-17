@@ -21,10 +21,7 @@ final class AppUpdater: NSObject, ObservableObject {
     private var isManualCheckInProgress = false
     private var manualCheckTimeoutTask: Task<Void, Never>?
 
-    private static let missingUpdateConfigurationMessage = String(
-        localized: "updater.status.missing-configuration",
-        defaultValue: "未配置更新资源"
-    )
+    private static let missingUpdateConfigurationMessage = String(localized: "updater.status.missing-configuration")
     /// Sparkle 可能既不回调 didFindValidUpdate / didNotFindUpdate 也不回调 didAbortWithError
     /// (后台检查已在进行, 或 feed 请求被放弃), 超时复位避免永久停留在手动检查态
     private static let manualCheckTimeout = Duration.seconds(30)
@@ -61,7 +58,7 @@ final class AppUpdater: NSObject, ObservableObject {
         AppLog.app.notice("更新检查开始: trigger=\(LogTrigger.manual.rawValue, privacy: .public)")
         beginManualCheck()
         showSettingsStatusMessage(
-            String(localized: "updater.status.checking", defaultValue: "正在检查更新")
+            String(localized: "updater.status.checking")
         )
         updaterController.updater.checkForUpdateInformation()
     }
@@ -153,7 +150,7 @@ extension AppUpdater: SPUUpdaterDelegate {
         let version = item.displayVersionString
         let message = String(
             localized: "updater.status.update-available",
-            defaultValue: "发现新版本: v\(version)"
+            defaultValue: "\(version)"
         )
         availableUpdateMessage = message
         let trigger = checkTrigger.rawValue
@@ -185,7 +182,7 @@ extension AppUpdater: SPUUpdaterDelegate {
 
         if isManualCheckInProgress {
             showSettingsStatusMessage(
-                String(localized: "updater.status.up-to-date", defaultValue: "没有可用更新"),
+                String(localized: "updater.status.up-to-date"),
                 autoDismissDelay: .milliseconds(1000)
             )
         }
@@ -210,7 +207,7 @@ extension AppUpdater: SPUUpdaterDelegate {
         }
 
         showSettingsStatusMessage(
-            String(localized: "updater.status.check-failed", defaultValue: "检查更新失败")
+            String(localized: "updater.status.check-failed")
         )
         finishManualCheck()
     }

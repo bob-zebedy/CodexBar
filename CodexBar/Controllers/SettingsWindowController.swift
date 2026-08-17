@@ -88,7 +88,7 @@ final class SettingsWindowController: HostingWindowController {
         hostingController.sizingOptions = []
 
         let window = AuxiliaryHostingWindow(contentViewController: hostingController)
-        window.title = String(localized: "CodexBar 设置")
+        window.title = String(localized: "settings.window.title")
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.contentMinSize = Metrics.minimumContentSize
         window.setContentSize(Metrics.initialContentSize)

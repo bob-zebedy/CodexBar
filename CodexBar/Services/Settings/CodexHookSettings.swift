@@ -82,7 +82,7 @@ final class CodexHookSettings: ObservableObject {
                 "action=keepLastKnown"
             )
             AppLog.hooks.error("Hook 读取失败: \(details, privacy: .public)")
-            readErrorMessage = String(localized: "读取 Codex Hook 配置失败")
+            readErrorMessage = String(localized: "hook.error.config-read-failed")
         }
     }
 
@@ -171,7 +171,7 @@ final class CodexHookSettings: ObservableObject {
             }
 
             // 这一支是"验不了"而不是"确认不通", isVerified 保留上次的值
-            operationErrorMessage = String(localized: "无法验证 Codex Hook: \(error.localizedDescription)")
+            operationErrorMessage = String(localized: "hook.error.verification-failed", defaultValue: "\(error.localizedDescription)")
         }
     }
 
@@ -256,7 +256,7 @@ final class CodexHookSettings: ObservableObject {
                 "Hook 写入失败: detail=\(error.localizedDescription, privacy: .public)"
             )
             refresh()
-            operationErrorMessage = String(localized: "设置 Codex Hook 失败")
+            operationErrorMessage = String(localized: "hook.error.configuration-failed")
         }
     }
 }
@@ -305,18 +305,18 @@ private extension CodexHookSettings {
         var errorDescription: String? {
             switch self {
             case .invalidFormat:
-                String(localized: "hooks.json 文件格式错误")
+                String(localized: "hook.error.invalid-config-format")
             case .hooksGloballyDisabled:
-                String(localized: "Codex 配置已禁用 Hook")
+                String(localized: "hook.status.disabled-by-codex")
             case let .codexVersionUnavailable(minimum):
                 String(
                     localized: "codex-hook.version.unavailable",
-                    defaultValue: "启用 CodexBar Hook 需要 Codex \(minimum) 或更高版本"
+                    defaultValue: "\(minimum)"
                 )
             case let .unsupportedCodexVersion(minimum):
                 String(
                     localized: "codex-hook.version.unsupported",
-                    defaultValue: "启用 CodexBar Hook 需要 \(minimum) 或更高版本"
+                    defaultValue: "\(minimum)"
                 )
             case let .hookValidationFailed(message):
                 message
@@ -472,7 +472,7 @@ private extension CodexHookSettings {
                     "detail=\(discoveryError.localizedDescription)"
                 )
                 AppLog.hooks.error("Hook 信任清理失败: \(details, privacy: .public)")
-                operationErrorMessage = String(localized: "已关闭 Codex Hook, 清理信任状态失败")
+                operationErrorMessage = String(localized: "hook.error.trust-cleanup-failed")
             } else {
                 operationErrorMessage = nil
             }
@@ -488,7 +488,7 @@ private extension CodexHookSettings {
                 "detail=\(error.localizedDescription)"
             )
             AppLog.hooks.error("Hook 信任清理失败: \(details, privacy: .public)")
-            operationErrorMessage = String(localized: "已关闭 Codex Hook, 清理信任状态失败")
+            operationErrorMessage = String(localized: "hook.error.trust-cleanup-failed")
         }
     }
 
@@ -649,7 +649,7 @@ private extension CodexHookSettings {
         hooksURL: URL
     ) -> String? {
         guard !response.data.isEmpty else {
-            return String(localized: "Codex 没有返回任何结果")
+            return String(localized: "codex-status.result.empty")
         }
 
         let entries = response.data
@@ -679,22 +679,22 @@ private extension CodexHookSettings {
         }
 
         if !errors.isEmpty {
-            return String(localized: "Codex 返回错误")
+            return String(localized: "codex-status.result.error")
         }
         if hasDisabledHook {
-            return String(localized: "CodexBar Hook 已被禁用")
+            return String(localized: "hook.status.disabled")
         }
         if hasUntrustedHook {
-            return String(localized: "CodexBar Hook 未被信任")
+            return String(localized: "hook.status.untrusted")
         }
         if hasMissingEvent {
-            return String(localized: "CodexBar Hook 已不完整")
+            return String(localized: "hook.status.incomplete")
         }
         if hasUnexpectedSource {
-            return String(localized: "CodexBar Hook 意外来源")
+            return String(localized: "hook.status.unexpected-source")
         }
         if !warnings.isEmpty {
-            return String(localized: "Codex 返回警告")
+            return String(localized: "codex-status.result.warning")
         }
 
         return nil

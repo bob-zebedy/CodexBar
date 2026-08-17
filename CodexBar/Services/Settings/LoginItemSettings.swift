@@ -32,7 +32,7 @@ final class LoginItemSettings: ObservableObject {
             )
             AppLog.settings.error("开机自动启动失败: \(details, privacy: .public)")
             refresh()
-            errorMessage = String(localized: "设置开机启动失败")
+            errorMessage = String(localized: "settings.general.launch-at-login-failed")
         }
     }
 }
