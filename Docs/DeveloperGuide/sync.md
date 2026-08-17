@@ -1,5 +1,7 @@
 # CloudKit 同步
 
+简体中文 | [English](../en/DeveloperGuide/sync.md)
+
 ## 同步范围
 
 CloudKit 同步用于在同一 iCloud 账户的 Mac 之间合并 Hook 日级统计。

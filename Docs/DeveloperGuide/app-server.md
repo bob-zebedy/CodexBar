@@ -1,5 +1,7 @@
 # app-server 数据链路
 
+简体中文 | [English](../en/DeveloperGuide/app-server.md)
+
 ## 设计出发点
 
 CodexBar 不重新实现 Codex 登录、token 刷新和账户协议，而是把本机 `codex app-server` 作为账户能力边界。

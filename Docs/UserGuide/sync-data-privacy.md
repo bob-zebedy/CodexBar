@@ -1,5 +1,7 @@
 # 数据、同步与隐私
 
+简体中文 | [English](../en/UserGuide/sync-data-privacy.md)
+
 ## 跨设备同步的内容
 
 跨设备同步用于合并多台 Mac 的每日 Hook 聚合，不同步账户、额度、Token 用量、重置次数或自动重置设置。

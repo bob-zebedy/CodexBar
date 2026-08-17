@@ -1,5 +1,7 @@
 # 开发与验证
 
+简体中文 | [English](../en/DeveloperGuide/development.md)
+
 ## 环境要求
 
 - macOS 15 或更高版本

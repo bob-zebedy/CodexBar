@@ -1,5 +1,7 @@
 # 主面板与菜单栏
 
+简体中文 | [English](../en/UserGuide/main-panel.md)
+
 ## 菜单栏图标
 
 CodexBar 用图标、状态点和可选额度条同时表达账户、任务和额度状态：

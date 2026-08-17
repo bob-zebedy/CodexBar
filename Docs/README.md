@@ -1,5 +1,7 @@
 # CodexBar 文档
 
+简体中文 | [English](en/README.md)
+
 CodexBar 文档按读者和职责分成两套，使用说明与实现细节保持独立：
 
 | 文档 | 目标读者 | 解决的问题 |

@@ -1,5 +1,7 @@
 # 安装与快速开始
 
+简体中文 | [English](../en/UserGuide/getting-started.md)
+
 ## 运行要求
 
 - macOS 15.0 或更高版本

@@ -1,5 +1,7 @@
 # 整体架构
 
+简体中文 | [English](../en/DeveloperGuide/architecture.md)
+
 ## 这套架构要解决什么
 
 CodexBar 的核心挑战不是绘制菜单栏界面，而是在一个长期运行的 `LSUIElement` App 中同时协调短命 Hook 子进程、本机 app-server、持续追加的文件、CloudKit、系统通知和 root helper。

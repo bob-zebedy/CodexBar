@@ -1,5 +1,7 @@
 # 防止系统睡眠
 
+简体中文 | [English](../en/UserGuide/sleep-prevention.md)
+
 ## 功能目标
 
 macOS 进入系统睡眠后，正在本机运行的 Codex 任务可能被挂起。

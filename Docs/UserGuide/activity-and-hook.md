@@ -1,5 +1,7 @@
 # 实时任务与 CodexBar Hook
 
+简体中文 | [English](../en/UserGuide/activity-and-hook.md)
+
 ## Hook 解决什么问题
 
 账户、额度和 Token 用量是周期性快照，无法说明一轮 Codex 任务正在运行、等待批准还是已经结束。

@@ -1,5 +1,7 @@
 # 防睡眠系统
 
+简体中文 | [English](../en/DeveloperGuide/sleep-prevention.md)
+
 ## 设计目标
 
 防睡眠功能需要同时满足 3 个目标：

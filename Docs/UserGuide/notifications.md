@@ -1,5 +1,7 @@
 # 通知与提醒
 
+简体中文 | [English](../en/UserGuide/notifications.md)
+
 ## 开启通知
 
 1. 打开 `设置 > 高级`

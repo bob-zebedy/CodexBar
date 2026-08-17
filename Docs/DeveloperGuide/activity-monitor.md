@@ -1,5 +1,7 @@
 # 实时任务监控
 
+简体中文 | [English](../en/DeveloperGuide/activity-monitor.md)
+
 ## 设计出发点
 
 实时任务不是 Hook 事件的直接映射。

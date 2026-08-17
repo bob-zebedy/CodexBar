@@ -1,5 +1,7 @@
 # 通知系统
 
+简体中文 | [English](../en/DeveloperGuide/notifications.md)
+
 ## 职责
 
 [`CodexNotificationService.swift`](../../CodexBar/Services/Notifications/CodexNotificationService.swift) 是通知副作用的统一入口。

@@ -1,5 +1,7 @@
 # Hook 采集与历史聚合
 
+简体中文 | [English](../en/DeveloperGuide/hook-and-aggregation.md)
+
 ## 设计出发点
 
 Hook 链路同时服务两个看似接近但要求相反的目标：

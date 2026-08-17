@@ -1,5 +1,7 @@
 # CodexBar 用户手册
 
+简体中文 | [English](../en/UserGuide/README.md)
+
 ## 文档目录
 
 | 文档 | 内容 |

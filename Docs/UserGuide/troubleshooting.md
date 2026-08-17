@@ -1,5 +1,7 @@
 # 常见问题与排查
 
+简体中文 | [English](../en/UserGuide/troubleshooting.md)
+
 ## 菜单栏找不到 CodexBar
 
 - CodexBar 是菜单栏 App，不显示 Dock 图标

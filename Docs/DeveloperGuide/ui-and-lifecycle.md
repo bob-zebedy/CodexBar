@@ -1,5 +1,7 @@
 # UI 与应用生命周期
 
+简体中文 | [English](../en/DeveloperGuide/ui-and-lifecycle.md)
+
 ## LSUIElement 约束
 
 CodexBar 在 [`Info.plist`](../../CodexBar/Resources/Info.plist) 中配置为 `LSUIElement`

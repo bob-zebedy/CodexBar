@@ -1,5 +1,7 @@
 # 数据与隐私边界
 
+简体中文 | [English](../en/DeveloperGuide/data-and-privacy.md)
+
 ## 原则
 
 CodexBar 只读取实现账户展示、自动重置、Hook 统计、实时任务和防睡眠所需的数据：
