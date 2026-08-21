@@ -237,10 +237,9 @@ struct CodexActivityTask {
     mutating func recordSubagentActivity(
         agentId: String?,
         isStarting: Bool,
-        at timestamp: Date,
-        hasReliableTaskAssociation: Bool
+        at timestamp: Date
     ) {
-        guard hasReliableTaskAssociation, let agentId else {
+        guard let agentId else {
             isSubagentCountReliable = false
             return
         }

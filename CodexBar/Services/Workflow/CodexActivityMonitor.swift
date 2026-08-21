@@ -832,11 +832,7 @@ final class CodexActivityMonitor: ObservableObject {
         task.recordSubagentActivity(
             agentId: event.agentId,
             isStarting: isStarting,
-            at: event.timestamp,
-            hasReliableTaskAssociation: hasReliableSubagentAssociation(
-                eventSessionId: event.sessionId,
-                matchedKey: key
-            )
+            at: event.timestamp
         )
 
         if event.timestamp >= task.lastActivityAt {
@@ -858,27 +854,6 @@ final class CodexActivityMonitor: ObservableObject {
             }
         }
         tasks[key] = task
-    }
-
-    /// Subagent Hook 的 turn 属于子 Agent 自己; 父任务只能通过共享 session 关联
-    private func hasReliableSubagentAssociation(
-        eventSessionId: String?,
-        matchedKey: CodexActivityTaskKey
-    ) -> Bool {
-        guard let eventSessionId,
-              matchedKey.sessionId == eventSessionId else {
-            return false
-        }
-
-        let activeTaskCount = tasks.values.reduce(into: 0) { count, task in
-            if task.key.sessionId == eventSessionId {
-                count += 1
-            }
-        }
-        let hasPendingTask = pendingTerminalTasks.values.contains {
-            $0.task.key.sessionId == eventSessionId
-        }
-        return activeTaskCount == 1 && !hasPendingTask
     }
 
     private func waitForApproval(

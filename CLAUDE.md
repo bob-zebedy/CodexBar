@@ -34,7 +34,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-CodexBar 是一个 macOS 菜单栏应用，以 `LSUIElement` 方式运行，没有 Dock 图标，展示本机 Codex 的账号状态、额度、Token 用量、实时任务和工作流统计。技术栈为 Swift 6 + SwiftUI + AppKit + MVVM，唯一外部依赖是 Sparkle `2.9.5+`（SwiftPM）。最低系统版本为 macOS `15.0`
+CodexBar 是一个 macOS 菜单栏应用，以 `LSUIElement` 方式运行，没有 Dock 图标，展示本机 Codex 的账号状态、额度、Token 用量、实时任务和工作流统计。技术栈为 Swift 6 + SwiftUI + AppKit + MVVM，唯一外部依赖是 Sparkle `2.9.6+`（SwiftPM）。最低系统版本为 macOS `15.0`
 
 Xcode 工程有两个 target：主 App `CodexBar` 和随 App 嵌入的 root helper `CodexBarHelper`（command-line tool + LaunchDaemon）。**没有测试 target**，验证依靠构建通过和实际运行。
 

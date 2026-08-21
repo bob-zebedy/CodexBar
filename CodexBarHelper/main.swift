@@ -304,6 +304,11 @@ private final class CodexBarHelperConnectionSession: NSObject, CodexBarHelperPro
 }
 
 private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
+    private struct Watchdog {
+        let token: UUID
+        let workItem: DispatchWorkItem
+    }
+
     private let queue = DispatchQueue(label: CodexBarHelperIPC.machServiceName + ".state")
     private let ownershipURL = CodexBarHelperStorage.ownershipURL
     private var ownership = SleepOwnership.idle
@@ -311,8 +316,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
     private var lastCompletedUpdateIdentifier: String?
     private var connections = Set<UUID>()
     private var clients = [UUID: ClientLease]()
-    private var watchdogs = [UUID: DispatchWorkItem]()
-    private var watchdogTokens = [UUID: UUID]()
+    private var watchdogs = [UUID: Watchdog]()
     private var lastKnownSleepDisabled: Bool?
     private var ownershipTimer: DispatchSourceTimer?
     private var scheduledOwnershipCheckInterval: TimeInterval?
@@ -622,11 +626,10 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
 
         let token = UUID()
         let workItem = DispatchWorkItem { [weak self] in
-            guard let self, watchdogTokens[clientIdentifier] == token else {
+            guard let self, watchdogs[clientIdentifier]?.token == token else {
                 return
             }
             watchdogs[clientIdentifier] = nil
-            watchdogTokens[clientIdentifier] = nil
             guard let lease = clients[clientIdentifier],
                   lease.generation == generation,
                   lease.isRequesting,
@@ -639,8 +642,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
             _ = reconcileReleasedSleep(source: source, trigger: .connectionWatchdog)
             scheduleOwnershipTimerIfNeeded()
         }
-        watchdogs[clientIdentifier] = workItem
-        watchdogTokens[clientIdentifier] = token
+        watchdogs[clientIdentifier] = Watchdog(token: token, workItem: workItem)
         queue.asyncAfter(
             deadline: .now() + CodexBarHelperIPC.watchdogGraceSeconds,
             execute: workItem
@@ -648,8 +650,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
     }
 
     private func cancelWatchdog(for clientIdentifier: UUID) {
-        watchdogs.removeValue(forKey: clientIdentifier)?.cancel()
-        watchdogTokens[clientIdentifier] = nil
+        watchdogs.removeValue(forKey: clientIdentifier)?.workItem.cancel()
     }
 
     // MARK: - 所有权与睡眠切换

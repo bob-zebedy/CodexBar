@@ -15,8 +15,7 @@ final class WorkflowSyncSettings: ObservableObject {
 
     private let defaults: UserDefaults
     private var cancellables = Set<AnyCancellable>()
-    private var accountStatusTask: Task<Void, Never>?
-    private var accountStatusGeneration = 0
+    private let accountStatusCoordinator = RefreshTaskCoordinator()
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -24,10 +23,6 @@ final class WorkflowSyncSettings: ObservableObject {
         lastUploadAt = Self.loadLastUploadAt()
         observeSyncNotifications()
         refreshSyncAvailability()
-    }
-
-    deinit {
-        accountStatusTask?.cancel()
     }
 
     func refresh() {
@@ -138,19 +133,15 @@ final class WorkflowSyncSettings: ObservableObject {
     }
 
     private func refreshSyncAvailability() {
-        accountStatusGeneration += 1
-        let generation = accountStatusGeneration
-
-        accountStatusTask?.cancel()
-        accountStatusTask = Task { @MainActor [weak self] in
+        accountStatusCoordinator.start { [weak self] generation in
             let result = await Self.querySyncAvailability()
             guard let self,
-                  !Task.isCancelled,
-                  generation == accountStatusGeneration else {
+                  accountStatusCoordinator.canCommit(generation) else {
                 return
             }
 
             applyAvailabilityResult(result)
+            accountStatusCoordinator.finish(generation) {}
         }
     }
 

@@ -35,8 +35,7 @@ final class CodexHookSettings: ObservableObject {
     private let hooksURL: URL
     private let fileManager: FileManager
     private let codexStatusService: CodexStatusService
-    private var updateTask: Task<Void, Never>?
-    private var updateGeneration = 0
+    private let updateCoordinator = RefreshTaskCoordinator()
     /// refresh() 上次读到的安装结论, 首次读取前为 nil
     /// 不能用 isEnabled 代替: 它的初始值是 false, 会把首次读取当成一次配置变化
     private var lastKnownInstalled: Bool?
@@ -49,10 +48,6 @@ final class CodexHookSettings: ObservableObject {
         self.hooksURL = hooksURL
         self.fileManager = fileManager
         self.codexStatusService = codexStatusService
-    }
-
-    deinit {
-        updateTask?.cancel()
     }
 
     // MARK: - 对外入口
@@ -158,7 +153,7 @@ final class CodexHookSettings: ObservableObject {
         } catch is CancellationError {
             return
         } catch let error as HookConfigError {
-            guard isCurrentUpdate(generation) else {
+            guard updateCoordinator.canCommit(generation) else {
                 return
             }
 
@@ -166,7 +161,7 @@ final class CodexHookSettings: ObservableObject {
             assignVerified(false, reason: .validationFailed)
             operationErrorMessage = error.localizedDescription
         } catch {
-            guard isCurrentUpdate(generation) else {
+            guard updateCoordinator.canCommit(generation) else {
                 return
             }
 
@@ -194,52 +189,37 @@ final class CodexHookSettings: ObservableObject {
 
     private func runLatestUpdate(
         showProgress: Bool,
-        _ operation: @escaping @MainActor (CodexHookSettings, Int) async -> Void
+        _ operation: @escaping @MainActor @Sendable (CodexHookSettings, Int) async -> Void
     ) {
-        updateTask?.cancel()
-        updateGeneration += 1
-        let generation = updateGeneration
-
         if showProgress {
             isUpdating = true
             operationErrorMessage = nil
         }
 
-        updateTask = Task { [weak self] in
+        updateCoordinator.start { [weak self] generation in
             guard let self else {
                 return
             }
 
             await operation(self, generation)
-            finishUpdate(generation, showProgress: showProgress)
+            updateCoordinator.finish(generation) {
+                if showProgress {
+                    isUpdating = false
+                }
+            }
         }
-    }
-
-    private func finishUpdate(_ generation: Int, showProgress: Bool) {
-        guard isCurrentUpdate(generation) else {
-            return
-        }
-
-        if showProgress {
-            isUpdating = false
-        }
-        updateTask = nil
-    }
-
-    private func isCurrentUpdate(_ generation: Int) -> Bool {
-        generation == updateGeneration
     }
 
     private func ensureCurrentUpdate(_ generation: Int) throws {
         try Task.checkCancellation()
 
-        guard isCurrentUpdate(generation) else {
+        guard updateCoordinator.canCommit(generation) else {
             throw CancellationError()
         }
     }
 
     private func handleApplyError(_ error: Error, generation: Int) {
-        guard isCurrentUpdate(generation) else {
+        guard updateCoordinator.canCommit(generation) else {
             return
         }
 
@@ -479,7 +459,7 @@ private extension CodexHookSettings {
         } catch is CancellationError {
             return
         } catch {
-            guard isCurrentUpdate(generation) else {
+            guard updateCoordinator.canCommit(generation) else {
                 return
             }
 

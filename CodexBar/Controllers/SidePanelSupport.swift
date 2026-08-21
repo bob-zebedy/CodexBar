@@ -506,7 +506,7 @@ enum SidePanelSupport {
     }
 
     /// 面板顶边对齐锚点行顶边, 锚点无效时回退宿主内容区垂直居中
-    static func alignedProposedY(
+    private static func alignedProposedY(
         panelSize: CGSize,
         menuSurfaceFrame: CGRect,
         alignmentScreenFrame: CGRect?

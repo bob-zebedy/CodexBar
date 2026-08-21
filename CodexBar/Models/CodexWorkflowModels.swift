@@ -203,7 +203,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
 // MARK: - 每日聚合指标
 
 /// 热力图详情面板直接消费的每日统计
-nonisolated struct WorkflowDailyMetrics: Equatable, Identifiable {
+nonisolated struct WorkflowDailyMetrics: Equatable {
     let startDate: String
     let sessionCount: Int
     let turnCount: Int
@@ -212,10 +212,6 @@ nonisolated struct WorkflowDailyMetrics: Equatable, Identifiable {
     let contextCompactionCount: Int
     let subagentCount: Int
     let modelCounts: [String: Int]
-
-    var id: String {
-        startDate
-    }
 
     var mostUsedModel: String? {
         modelCounts
@@ -371,24 +367,6 @@ nonisolated struct WorkflowSnapshot: Equatable {
             merge(remoteRecords[matchingIndex].daily.metrics, into: &metricsByDate)
         } else {
             merge(local.metrics, into: &metricsByDate)
-        }
-    }
-
-    func recentWeekGrid(columnCount: Int, endingDaysAgo: Int = 0, today: Date = Date()) -> [WorkflowDailyMetrics?] {
-        let metricsByDate = dailyMetrics.reduce(into: [String: WorkflowDailyMetrics]()) { result, metrics in
-            result[metrics.startDate] = metrics
-        }
-
-        return CodexWeekGrid.dates(
-            columnCount: columnCount,
-            endingDaysAgo: endingDaysAgo,
-            today: today
-        )
-        .map { date in
-            date.map {
-                let startDate = CodexDateFormat.dayString(from: $0)
-                return metricsByDate[startDate] ?? WorkflowDailyMetrics.empty(startDate: startDate)
-            }
         }
     }
 
@@ -549,7 +527,7 @@ nonisolated struct WorkflowHookCountAvailability {
 }
 
 /// daily.jsonl 中的持久化聚合行, 同时兼容保留 ID 和只保留计数两种形态
-nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
+nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
     let date: String
     var sourceGeneration: String?
     var sourceIsFresh: Bool
@@ -571,10 +549,6 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
     var modelCounts: [String: Int]
     var sessionIds: [String]?
     var turnIds: [String]?
-
-    var id: String {
-        date
-    }
 
     /// 增量路径只有在完整 ID 集合仍然存在时才能继续安全去重
     var supportsIncrementalAggregation: Bool {
@@ -843,7 +817,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable, Identifiable {
 }
 
 /// 同步存储中保存的脱敏每日聚合行: 对应 daily.jsonl 但不包含 sessionIds / turnIds
-nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiable {
+nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable {
     let date: String
     var sourceGeneration: String?
     var eventCount: Int?
@@ -862,10 +836,6 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable, Identifiabl
     var turnCount: Int?
     var projectCounts: [String: Int]
     var modelCounts: [String: Int]
-
-    var id: String {
-        date
-    }
 
     var metrics: WorkflowDailyMetrics {
         WorkflowDailyMetrics(

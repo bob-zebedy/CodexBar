@@ -70,10 +70,11 @@ final class ResetCreditsPanelController {
             )
         )
         let panelSize = ResetCreditsPanelView.panelSize(for: resolvedContext)
-        let position = panelPosition(
-            for: panelSize,
+        let position = SidePanelSupport.anchoredPosition(
+            panelSize: panelSize,
             menuSurfaceFrame: menuSurfaceFrame,
             visibleFrame: (menuSurfaceWindow.screen ?? NSScreen.main)?.visibleFrame ?? menuSurfaceFrame,
+            screenFrame: nil,
             alignmentScreenFrame: resolvedContext.alignmentScreenFrame,
             preferredSide: resolvedContext.preferredSide
         )
@@ -85,26 +86,6 @@ final class ResetCreditsPanelController {
 
         contentHost.updateContent(ResetCreditsPanelView(context: resolvedContext), size: panelSize)
         presenter.present(panel, at: position, relativeTo: menuSurfaceWindow)
-    }
-
-    private func panelPosition(
-        for panelSize: CGSize,
-        menuSurfaceFrame: CGRect,
-        visibleFrame: CGRect,
-        alignmentScreenFrame: CGRect?,
-        preferredSide: UsageHeatmapDetailSide
-    ) -> SidePanelPosition {
-        SidePanelSupport.position(
-            panelSize: panelSize,
-            menuSurfaceFrame: menuSurfaceFrame,
-            visibleFrame: visibleFrame,
-            preferredSide: preferredSide,
-            proposedY: SidePanelSupport.alignedProposedY(
-                panelSize: panelSize,
-                menuSurfaceFrame: menuSurfaceFrame,
-                alignmentScreenFrame: alignmentScreenFrame
-            )
-        )
     }
 
     private func panelMaximumHeight(

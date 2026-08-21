@@ -31,12 +31,7 @@ actor HookEventTailReader {
     private var activeFileIdentifier: UInt64?
     private var lastReportedSourceHealth: Bool?
     private var requestedDrainGeneration: UInt64 = 0
-    private var drainWaiters: [
-        UUID: (
-            generation: UInt64,
-            continuation: CheckedContinuation<HookEventDrainResult, Never>
-        )
-    ] = [:]
+    private var drainWaiters: [UInt64: CheckedContinuation<HookEventDrainResult, Never>] = [:]
 
     init(onBatch: @escaping @MainActor @Sendable (HookEventBatch) -> Void) {
         self.onBatch = onBatch
@@ -87,17 +82,16 @@ actor HookEventTailReader {
 
         requestedDrainGeneration &+= 1
         let generation = requestedDrainGeneration
-        let waiterID = UUID()
         hasPendingDrain = true
 
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                drainWaiters[waiterID] = (generation, continuation)
+                drainWaiters[generation] = continuation
                 startPendingReadIfNeeded()
             }
         } onCancel: {
             Task {
-                await self.cancelDrainWaiter(waiterID)
+                await self.cancelDrainWaiter(generation)
             }
         }
     }
@@ -140,11 +134,9 @@ actor HookEventTailReader {
         through generation: UInt64,
         with result: HookEventDrainResult
     ) {
-        let completedWaiterIDs = drainWaiters.compactMap { waiterID, waiter in
-            waiter.generation <= generation ? waiterID : nil
-        }
-        for waiterID in completedWaiterIDs {
-            drainWaiters.removeValue(forKey: waiterID)?.continuation.resume(returning: result)
+        let completedGenerations = drainWaiters.keys.filter { $0 <= generation }
+        for completedGeneration in completedGenerations {
+            drainWaiters.removeValue(forKey: completedGeneration)?.resume(returning: result)
         }
     }
 
@@ -152,12 +144,12 @@ actor HookEventTailReader {
         let waiters = Array(drainWaiters.values)
         drainWaiters.removeAll()
         for waiter in waiters {
-            waiter.continuation.resume(returning: result)
+            waiter.resume(returning: result)
         }
     }
 
-    private func cancelDrainWaiter(_ waiterID: UUID) {
-        drainWaiters.removeValue(forKey: waiterID)?.continuation.resume(returning: .cancelled)
+    private func cancelDrainWaiter(_ generation: UInt64) {
+        drainWaiters.removeValue(forKey: generation)?.resume(returning: .cancelled)
     }
 
     private var activeFileURL: URL {

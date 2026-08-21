@@ -25,40 +25,28 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
         // Hook 开启时当天工作流统计可见
         // Hook 关闭时只在 token bucket 已返回时展示今天
         let endingDaysAgo = showsWorkflow || todayTokenCount != nil ? 0 : 1
-        let tokenDays = usage.recentWeekGrid(
+        let workflowByDate = workflow.dailyMetrics.reduce(into: [String: WorkflowDailyMetrics]()) { result, metrics in
+            result[metrics.startDate] = metrics
+        }
+        let todayString = CodexDateFormat.dayString(from: today)
+
+        return CodexWeekGrid.dates(
             columnCount: columnCount,
             endingDaysAgo: endingDaysAgo,
             today: today
         )
-        let workflowDays = workflow.recentWeekGrid(
-            columnCount: columnCount,
-            endingDaysAgo: endingDaysAgo,
-            today: today
-        )
-
-        return merge(
-            tokenDays: tokenDays,
-            workflowDays: workflowDays,
-            todayString: CodexDateFormat.dayString(from: today),
-            todayTokenCount: todayTokenCount
-        )
-    }
-
-    private static func merge(
-        tokenDays: [DailyUsageBucket?],
-        workflowDays: [WorkflowDailyMetrics?],
-        todayString: String,
-        todayTokenCount: Int?
-    ) -> [UsageHeatmapDay?] {
-        zip(tokenDays, workflowDays).map { tokenDay, workflowDay in
-            guard let startDate = tokenDay?.startDate ?? workflowDay?.startDate else {
+        .map { date in
+            guard let date else {
                 return nil
             }
 
+            let startDate = CodexDateFormat.dayString(from: date)
             return UsageHeatmapDay(
                 startDate: startDate,
-                tokenCount: startDate == todayString ? todayTokenCount : tokenDay?.tokens ?? 0,
-                workflow: workflowDay ?? .empty(startDate: startDate)
+                tokenCount: startDate == todayString
+                    ? todayTokenCount
+                    : usage.tokenCount(on: date) ?? 0,
+                workflow: workflowByDate[startDate] ?? .empty(startDate: startDate)
             )
         }
     }

@@ -16,13 +16,9 @@ nonisolated struct UsageSummary: Decodable, Equatable {
 }
 
 /// 单日 token bucket, startDate 使用 yyyy-MM-dd 作为稳定键
-nonisolated struct DailyUsageBucket: Decodable, Equatable, Identifiable {
+nonisolated struct DailyUsageBucket: Decodable, Equatable {
     let startDate: String
     let tokens: Int
-
-    var id: String {
-        startDate
-    }
 }
 
 /// token 热力图使用的只读快照, 负责按日期聚合重复 bucket
@@ -47,23 +43,5 @@ nonisolated struct CodexUsageSnapshot: Equatable {
     func tokenCount(on date: Date) -> Int? {
         let startDate = CodexDateFormat.dayString(from: date)
         return tokensByDate[startDate]
-    }
-
-    /// 给热力图生成按周排列的最近日期网格, 每列从周日开始
-    func recentWeekGrid(columnCount: Int, endingDaysAgo: Int = 0, today: Date = Date()) -> [DailyUsageBucket?] {
-        CodexWeekGrid.dates(
-            columnCount: columnCount,
-            endingDaysAgo: endingDaysAgo,
-            today: today
-        )
-        .map { date in
-            date.map {
-                let startDate = CodexDateFormat.dayString(from: $0)
-                return DailyUsageBucket(
-                    startDate: startDate,
-                    tokens: tokensByDate[startDate] ?? 0
-                )
-            }
-        }
     }
 }

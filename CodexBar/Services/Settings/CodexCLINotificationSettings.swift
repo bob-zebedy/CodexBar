@@ -10,15 +10,10 @@ final class CodexCLINotificationSettings: ObservableObject {
     @Published private(set) var errorMessage: String?
 
     private let codexStatusService: CodexStatusService
-    private var updateTask: Task<Void, Never>?
-    private var updateGeneration = 0
+    private let updateCoordinator = RefreshTaskCoordinator()
 
     init(codexStatusService: CodexStatusService) {
         self.codexStatusService = codexStatusService
-    }
-
-    deinit {
-        updateTask?.cancel()
     }
 
     func refresh() {
@@ -83,29 +78,25 @@ final class CodexCLINotificationSettings: ObservableObject {
 
     private func runLatestUpdate(
         operation: ConfigOperation,
-        body: @escaping @MainActor (CodexCLINotificationSettings, Int) async throws -> Bool
+        body: @escaping @MainActor @Sendable (CodexCLINotificationSettings, Int) async throws -> Bool
     ) {
-        updateTask?.cancel()
-        updateGeneration += 1
-        let generation = updateGeneration
-
         isUpdating = true
         errorMessage = nil
-        updateTask = Task { [weak self] in
+        updateCoordinator.start { [weak self] generation in
             guard let self else {
                 return
             }
 
             do {
                 let isEnabled = try await body(self, generation)
-                guard isCurrentUpdate(generation) else {
+                guard updateCoordinator.canCommit(generation) else {
                     return
                 }
                 self.isEnabled = isEnabled
             } catch is CancellationError {
                 return
             } catch {
-                guard isCurrentUpdate(generation) else {
+                guard updateCoordinator.canCommit(generation) else {
                     return
                 }
                 let logStage = operation.logStage
@@ -117,28 +108,17 @@ final class CodexCLINotificationSettings: ObservableObject {
                 errorMessage = operation.errorPrefix
             }
 
-            finishUpdate(generation)
+            updateCoordinator.finish(generation) {
+                isUpdating = false
+            }
         }
-    }
-
-    private func finishUpdate(_ generation: Int) {
-        guard isCurrentUpdate(generation) else {
-            return
-        }
-
-        isUpdating = false
-        updateTask = nil
     }
 
     private func ensureCurrentUpdate(_ generation: Int) throws {
         try Task.checkCancellation()
-        guard isCurrentUpdate(generation) else {
+        guard updateCoordinator.canCommit(generation) else {
             throw CancellationError()
         }
-    }
-
-    private func isCurrentUpdate(_ generation: Int) -> Bool {
-        generation == updateGeneration
     }
 
     private enum SettingsError: LocalizedError {
