@@ -445,6 +445,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         observeViewModel()
         observeWorkflowSyncState()
         codexHookSettings.refresh()
+        observeMainPanelHookState()
         viewModel.startAutoRefresh()
     }
 
@@ -538,10 +539,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         let isTaskCenterVisible = Publishers.CombineLatest(
             codexHookSettings.$isEnabled,
-            mainPanelSettings.$showsTaskCenter
+            mainPanelSettings.$layout
         )
-        .map { isHookEnabled, showsTaskCenter in
-            isHookEnabled && showsTaskCenter
+        .map { isHookEnabled, layout in
+            isHookEnabled && layout.isVisible(.activity)
         }
         .removeDuplicates()
 
@@ -598,10 +599,20 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
             .store(in: &cancellables)
 
-        mainPanelSettings.$showsTaskCenter
-            .filter { !$0 }
-            .sink { [weak self] _ in
-                self?.activityCenterPanelController.hide(immediate: true)
+        mainPanelSettings.$layout
+            .sink { [weak self] layout in
+                guard let self else {
+                    return
+                }
+                if !layout.isVisible(.activity) {
+                    activityCenterPanelController.hide(immediate: true)
+                }
+                if !layout.isVisible(.quota) {
+                    resetCreditsPanelController.hide(immediate: true)
+                }
+                if !layout.isVisible(.usage) {
+                    heatmapDetailPanelController.hide(immediate: true)
+                }
             }
             .store(in: &cancellables)
     }
@@ -631,6 +642,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .removeDuplicates()
             .sink { [weak self] availability in
                 self?.handleSyncChanged(isSyncAvailable: availability.isAvailable)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func observeMainPanelHookState() {
+        codexHookSettings.$isEnabled
+            .removeDuplicates()
+            .sink { [weak self] isEnabled in
+                self?.mainPanelSettings.updateHookEnabled(isEnabled)
             }
             .store(in: &cancellables)
     }

@@ -17,6 +17,32 @@ final class NonactivatingSidePanel: NSPanel {
 /// 可获得键盘焦点的无边框面板, 用于含交互控件的子面板和 fallback 面板
 @MainActor
 final class KeyableBorderlessPanel: NSPanel {
+    /// 设置子面板使用宿主窗口注入的撤销栈, 保持 responder chain 行为一致
+    var sharedUndoManager: UndoManager?
+
+    override var undoManager: UndoManager? {
+        sharedUndoManager ?? super.undoManager
+    }
+
+    @IBAction func undo(_: Any?) {
+        undoManager?.undo()
+    }
+
+    @IBAction func redo(_: Any?) {
+        undoManager?.redo()
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(undo(_:)):
+            undoManager?.canUndo == true
+        case #selector(redo(_:)):
+            undoManager?.canRedo == true
+        default:
+            super.validateUserInterfaceItem(item)
+        }
+    }
+
     override var canBecomeKey: Bool {
         true
     }
@@ -146,9 +172,9 @@ final class SidePanelDrawerAnimator {
 
 // MARK: - 展开与收起
 
-/// 重置次数; 通知子选项和并发任务中心三类"一次性展开"抽屉面板共用的显隐状态机
-/// 负责 generation 竞态防护; 入退场动画和 child window 挂载/卸载
-/// (热力图详情面板因带切边与延迟隐藏, 状态机不同, 不走这里)
+/// 重置次数 设置子选项和并发任务中心三类一次性展开抽屉面板共用的显隐状态机
+/// 负责 generation 竞态防护 入退场动画和 child window 挂载与卸载
+/// 热力图详情面板带切边与延迟隐藏 状态机不同 因此不走这里
 @MainActor
 final class SidePanelDrawerPresenter {
     private let makesKey: Bool
@@ -475,9 +501,12 @@ enum SidePanelSupport {
 
     static func orderOut(_ panel: NSPanel, menuSurfaceWindow: NSWindow?) {
         let parentWindow = panel.parent ?? menuSurfaceWindow
+        let shouldRestoreParentKey = panel.isKeyWindow
         panel.orderOut(nil)
         parentWindow?.removeChildWindow(panel)
-        restoreMenuSurfaceKeyWindow(parentWindow)
+        if shouldRestoreParentKey {
+            restoreMenuSurfaceKeyWindow(parentWindow)
+        }
     }
 
     static func restoreMenuSurfaceKeyWindow(_ menuSurfaceWindow: NSWindow?) {

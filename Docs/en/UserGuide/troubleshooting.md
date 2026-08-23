@@ -56,7 +56,7 @@ If CodexBar reports an incomplete Hook after an upgrade, turn the Hook off and o
 ## Live Tasks Do Not Appear
 
 1. Confirm that CodexBar Hook is enabled with no error
-2. Confirm that `Show Task Center in Menu` is enabled
+2. Confirm that `Tasks` is enabled under `General > Main Panel Layout`
 3. Start a new Codex task to generate live events
 4. Open Settings to trigger Hook validation again
 

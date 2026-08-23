@@ -157,7 +157,6 @@ private extension AppSettingsView {
         static let tabVerticalPadding: CGFloat = 7
         static let tabContentSpacing = padding
         static let windowChromeHeight = padding * 2 + tabBarHeight + tabContentSpacing
-        static let optionsButtonSize: CGFloat = 22
         static let menuBarQuotaPickerWidth: CGFloat = 72
         static let syncStatusRowHeight: CGFloat = 16
         static let syncStatusValueWidth: CGFloat = 160
@@ -239,6 +238,8 @@ private extension AppSettingsView {
     var generalSettingsPage: some View {
         VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
             VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
+                mainPanelLayoutRow
+                LiquidGlassDivider()
                 launchAtLoginRow
                 LiquidGlassDivider()
                 automaticUpdateCheckRow
@@ -257,8 +258,6 @@ private extension AppSettingsView {
     var advancedSettingsPage: some View {
         VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
             codexHookRow
-            LiquidGlassDivider()
-            taskCenterRow
             LiquidGlassDivider()
             notificationRow
             LiquidGlassDivider()
@@ -384,19 +383,12 @@ private extension AppSettingsView {
         menuBarQuotaSettings.selection != .off
     }
 
-    /// Hook 未开启时显示为关闭并置灰, 不修改持久化的 showsTaskCenter
-    var taskCenterRow: some View {
-        let isDisplayedOn = codexHookSettings.isEnabled && mainPanelSettings.showsTaskCenter
-
-        return SettingsToggleRow(
-            icon: "list.bullet.rectangle",
-            title: "settings.task-center.show-in-menu",
-            isOn: Binding(
-                get: { isDisplayedOn },
-                set: { mainPanelSettings.setShowsTaskCenter($0) }
-            ),
-            isEnabled: codexHookSettings.isEnabled && !codexHookSettings.isUpdating
-        )
+    var mainPanelLayoutRow: some View {
+        MainPanelLayoutSettingsRow { anchorProvider in
+            onOptionsAction(
+                .toggle(panel: .mainPanel, anchorProvider: anchorProvider)
+            )
+        }
     }
 
     // MARK: - 高级页各行
@@ -439,7 +431,7 @@ private extension AppSettingsView {
                     }
                 )
             ) {
-                optionsButton(isAvailable: canShowOptions) {
+                SettingsOptionsButton(isAvailable: canShowOptions) {
                     onOptionsAction(
                         .toggle(
                             panel: .autoReset,
@@ -513,7 +505,7 @@ private extension AppSettingsView {
                 ),
                 isEnabled: codexHookSettings.isOperable && !codexHookSettings.isUpdating
             ) {
-                optionsButton(isAvailable: canShowKeepAliveOptions) {
+                SettingsOptionsButton(isAvailable: canShowKeepAliveOptions) {
                     onOptionsAction(
                         .toggle(panel: .keepAlive, anchorProvider: keepAliveAnchorProvider)
                     )
@@ -534,20 +526,6 @@ private extension AppSettingsView {
 
             onOptionsAction(.close(panel: .keepAlive))
         }
-    }
-
-    /// 子面板入口共用的滑杆按钮; 依赖没就绪时只隐藏入口, 不回写用户保存的开关
-    func optionsButton(isAvailable: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: "slider.horizontal.3")
-        }
-        .buttonStyle(.plain)
-        .controlSize(.small)
-        .foregroundStyle(.tint)
-        .frame(width: Metrics.optionsButtonSize, height: Metrics.optionsButtonSize)
-        .opacity(isAvailable ? 1 : 0)
-        .disabled(!isAvailable)
-        .animation(Metrics.statusAnimation, value: isAvailable)
     }
 
     @ViewBuilder
@@ -883,7 +861,7 @@ private extension AppSettingsView {
                     set: { notificationSettings.setEnabled($0) }
                 )
             ) {
-                optionsButton(isAvailable: notificationSettings.canShowOptions) {
+                SettingsOptionsButton(isAvailable: notificationSettings.canShowOptions) {
                     onOptionsAction(
                         .toggle(panel: .notification, anchorProvider: notificationAnchorProvider)
                     )

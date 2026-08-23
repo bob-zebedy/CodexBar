@@ -4,6 +4,34 @@ import SwiftUI
 enum SettingsRowMetrics {
     static let iconWidth: CGFloat = 18
     static let spacing: CGFloat = 10
+    static let optionsButtonSize: CGFloat = 22
+}
+
+/// 设置窗口子面板入口共用的滑杆按钮
+struct SettingsOptionsButton: View {
+    let isAvailable: Bool
+    let action: () -> Void
+
+    init(isAvailable: Bool = true, action: @escaping () -> Void) {
+        self.isAvailable = isAvailable
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "slider.horizontal.3")
+        }
+        .buttonStyle(.plain)
+        .controlSize(.small)
+        .foregroundStyle(.tint)
+        .frame(
+            width: SettingsRowMetrics.optionsButtonSize,
+            height: SettingsRowMetrics.optionsButtonSize
+        )
+        .opacity(isAvailable ? 1 : 0)
+        .disabled(!isAvailable)
+        .animation(.codexStatus, value: isAvailable)
+    }
 }
 
 /// 设置窗口右侧子选项面板共用的度量

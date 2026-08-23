@@ -16,6 +16,7 @@ struct AccountCard: View {
     let plan: String?
     let isRefreshing: Bool
     let onRefresh: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isEmailBlurred = false
 
     var body: some View {
@@ -47,7 +48,9 @@ struct AccountCard: View {
             if let plan {
                 Text(plan.uppercased())
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(Self.planBadgeTint(for: plan))
+                    .foregroundStyle(
+                        Self.planBadgeTint(for: plan, colorScheme: colorScheme)
+                    )
                     .lineLimit(1)
             }
         }
@@ -59,20 +62,26 @@ struct AccountCard: View {
         }
     }
 
-    private static func planBadgeTint(for plan: String) -> Color {
+    private static func planBadgeTint(for plan: String, colorScheme: ColorScheme) -> Color {
         let normalizedPlan = plan.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return planTintRules.first { rule in
+        let rule = planTintRules.first { rule in
             rule.keywords.contains { normalizedPlan.contains($0) }
-        }?.tint ?? .cyan
+        }
+        let hex = if colorScheme == .dark {
+            rule?.colors.dark ?? 0x67E8F9
+        } else {
+            rule?.colors.light ?? 0x0E7490
+        }
+        return Color(hex: hex)
     }
 
-    private static let planTintRules: [(keywords: [String], tint: Color)] = [
-        (["enterprise"], Color(hex: 0x15803D)),
-        (["team", "business"], Color(hex: 0xD97706)),
-        (["pro"], Color(hex: 0xC026D3)),
-        (["plus"], Color(hex: 0x2563EB)),
-        (["edu"], Color(hex: 0x0891B2)),
-        (["free"], Color(hex: 0x64748B))
+    private static let planTintRules: [(keywords: [String], colors: (light: Int, dark: Int))] = [
+        (["enterprise"], (0x52677F, 0xA7AFBA)),
+        (["team", "business"], (0x147B82, 0x82B3B5)),
+        (["pro"], (0x147B82, 0x82B3B5)),
+        (["plus"], (0x256FA3, 0x89A9C2)),
+        (["edu"], (0x9B5F12, 0xC7A96B)),
+        (["free"], (0x167A5E, 0x7FB5A4))
     ]
 }
 

@@ -4,6 +4,7 @@ import SwiftUI
 
 /// 设置窗口右侧的子选项面板, 同一时刻只展开一个
 enum SettingsOptionsPanel: CaseIterable, Hashable {
+    case mainPanel
     case notification
     case autoReset
     case keepAlive
@@ -41,7 +42,7 @@ private struct SidePanelEntryRebuildHost<Content: View>: View {
 }
 
 /// 设置窗口右侧子选项面板的公共装配
-/// 各子面板只差内容视图和高度变化的来源, 定位 关闭 高度重算这套脚手架全在这里
+/// 各子面板只差内容视图, 动态高度面板再提供变化来源, 定位 关闭 高度重算这套脚手架全在这里
 /// 与重置次数面板不同: 内容是交互控件, 用常驻 hosting controller + ObservableObject 驱动更新, 不替换 rootView
 @MainActor
 final class SettingsOptionsPanelController {
@@ -74,20 +75,21 @@ final class SettingsOptionsPanelController {
         initialPanelSize: CGSize,
         willShow: (() -> Void)? = nil,
         contentControllerProvider: @escaping (SidePanelEntryCue) -> NSViewController,
-        contentChanges: AnyPublisher<Void, Never>
+        contentChanges: AnyPublisher<Void, Never>? = nil
     ) {
         self.animationKey = animationKey
         self.initialPanelSize = initialPanelSize
         self.willShow = willShow
         self.contentControllerProvider = contentControllerProvider
-        // 内容行数随开关增删, 高度得跟着重算
-        // 订阅整个 ObservableObject 而不是逐个 @Published: 那种列表漏一项就会让面板裁掉底部或留下空白
-        // 而多余的触发在面板收着时被 scheduleResize 的守卫挡掉, 展开时也只是一次尺寸相同的空转
-        contentChanges
-            .sink { [weak self] in
-                self?.scheduleResize()
-            }
-            .store(in: &cancellables)
+        // 只有内容行数会动态增删的面板才传变化源
+        // 面板收着时由 scheduleResize 的守卫过滤变化
+        if let contentChanges {
+            contentChanges
+                .sink { [weak self] in
+                    self?.scheduleResize()
+                }
+                .store(in: &cancellables)
+        }
     }
 
     /// sizingOptions 必须是 preferredContentSize: 面板的高度重算靠的就是它提交的 fitting size
@@ -168,6 +170,7 @@ final class SettingsOptionsPanelController {
         // 只有刚构造出来的那一次需要重建, hosting controller 之后常驻, portal 已经建好
         let needsEntryRebuild = panel == nil
         let panel = ensurePanel()
+        (panel as? KeyableBorderlessPanel)?.sharedUndoManager = window.undoManager
         // 这里不必先布局: 下面 measuredPanelSize 走的 validFittingSize 第一句就是 layoutSubtreeIfNeeded
         // 而中间两句只碰设置窗口那棵树, 不会把面板弄脏
         let windowSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: window) ?? window.frame

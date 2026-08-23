@@ -4,6 +4,31 @@ import AppKit
 @MainActor
 final class AuxiliaryHostingWindow: NSWindow {
     var allowsKeyFocus = true
+    /// 设置窗口与可获得焦点的子面板共享撤销栈, 避免焦点切换后 Command-Z 失效
+    var sharedUndoManager: UndoManager?
+
+    override var undoManager: UndoManager? {
+        sharedUndoManager ?? super.undoManager
+    }
+
+    @IBAction func undo(_: Any?) {
+        undoManager?.undo()
+    }
+
+    @IBAction func redo(_: Any?) {
+        undoManager?.redo()
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        switch item.action {
+        case #selector(undo(_:)):
+            undoManager?.canUndo == true
+        case #selector(redo(_:)):
+            undoManager?.canRedo == true
+        default:
+            super.validateUserInterfaceItem(item)
+        }
+    }
 
     override func makeKey() {
         guard allowsKeyFocus else {

@@ -148,7 +148,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             "autoReset=\(autoResetSettings.isEnabled ? 1 : 0)",
             "autoResetLeadTimeSeconds=\(autoResetSettings.leadTime.rawValue)",
             "menuBarQuota=\(menuBarQuotaSettings.selection.rawValue)",
-            "taskCenter=\(mainPanelSettings.showsTaskCenter ? 1 : 0)",
+            "mainPanel=\(mainPanelSettings.layout.visibleSections.map(\.rawValue).joined(separator: ","))",
             "hotKey=\(globalHotKeySettings.shortcut == nil ? 0 : 1)"
         )
         AppLog.app.notice("App 已启动: \(state, privacy: .public)")

@@ -21,6 +21,12 @@ Hover over the menu bar icon to see the current task state, project name, elapse
 
 When rate-limit data comes from cache, the icon and progress bar become translucent to indicate that the visible data is not the latest snapshot.
 
+## Layout Customization
+
+In `Settings > General > Main Panel Layout`, you can drag the `Account`, `Tasks`, `Quota`, `Usage`, and `Status` sections into a different order and control each section's visibility.
+
+The main panel always keeps at least one section visible. When Hook is disabled, the `Tasks` section turns off automatically and its switch is disabled, but the row remains draggable. If it was the only visible section, `Account` is enabled automatically. After Hook is enabled again, you can turn `Tasks` on manually. After reordering sections or changing their visibility, press `Command-Z` to undo changes in order and `Command-Shift-Z` to redo them.
+
 ## Account
 
 - Shows the signed-in account or account type

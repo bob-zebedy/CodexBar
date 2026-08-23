@@ -10,6 +10,7 @@ Settings contains three pages: `General`, `Advanced`, and `About`.
 
 | Setting | Effect | Default or initial state |
 | --- | --- | --- |
+| Main Panel Layout | Reorders and shows or hides the five main-panel sections | Account, Tasks, Quota, Usage, and Status; the Tasks section is off while Hook is disabled |
 | Launch at Login | Starts CodexBar automatically through macOS Login Items | Follows the current system Login Item state |
 | Automatically Check for Updates | Lets Sparkle check periodically for updates | Follows the current Sparkle setting |
 | Menu Bar Quota Indicator | Shows the remaining percentage for a selected rate-limit window beside the menu bar icon | Primary rate limit |
@@ -21,6 +22,19 @@ Settings contains three pages: `General`, `Advanced`, and `About`.
 - CodexBar remembers the last selected window when you turn the indicator off
 - Turning it on again restores the previous selection
 - Cached rate-limit data is shown with reduced opacity
+
+### Main Panel Layout
+
+Click the options button on the settings row to configure the `Account`, `Tasks`, `Quota`, `Usage`, and `Status` sections:
+
+- Drag sections to change their display order
+- Use each switch to show or hide a section
+- Keep at least one section visible
+- Press `Command-Z` to undo section reordering or visibility changes in order, and `Command-Shift-Z` to redo them
+
+The `Tasks` section follows CodexBar Hook. When Hook is disabled, this section turns off automatically and its switch is disabled, but the row remains draggable. After Hook is enabled again, the section remains off until you turn it on manually.
+
+Hiding a section affects only the main-panel presentation. It does not stop rate-limit refreshes, Hook metrics, notifications, sleep prevention, or sync.
 
 ### Global Shortcut
 
@@ -35,7 +49,6 @@ Settings contains three pages: `General`, `Advanced`, and `About`.
 | Setting | Effect | Default |
 | --- | --- | --- |
 | CodexBar Hook | Installs and validates the Codex event handler | Off when not installed |
-| Show Task Center in Menu | Controls whether the activity card and Task Center appear | On; unavailable while Hook is off |
 | System Notifications | Controls CodexBar local notifications and task haptic feedback | Off |
 | Automatic Reset | Uses unredeemed reset credits at the selected lead time before expiration | Off; 30 minutes early |
 | Prevent System Sleep | Manages system sleep automatically based on live Codex tasks | Off |
@@ -49,14 +62,6 @@ Enabling the Hook unlocks live tasks, task notifications, Hook metrics, sleep pr
 Enabling and validating it requires the current app-server to be `0.145.0` or later.
 
 See [Live Tasks and CodexBar Hook](activity-and-hook.md) for details.
-
-### Show Task Center in Menu
-
-When this setting is off, the main panel no longer shows the activity card or the Task Center entry.
-
-It does not disable the Hook or stop Hook metrics, notifications, or sleep prevention.
-
-When the Hook is off, this option appears off and disabled without overwriting your saved choice.
 
 ### System Notification Options
 

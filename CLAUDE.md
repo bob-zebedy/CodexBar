@@ -303,26 +303,29 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 菜单栏按钮左键切换主面板；右键或 Control+点击打开上下文菜单；`⌘,` 打开自定义设置窗口，菜单面板打开时 `⌘L` 打开日志窗口；默认全局快捷键 `⌘⇧W` 由 `GlobalHotKeySettings` 与 `GlobalHotKeyController` 管理
 - 主面板是锚定 status item 的 `NSPopover` 弹窗，锚点不可信时回退到 `FallbackPanelController` 提供的屏幕顶部居中 `NSPanel` 面板，处理快捷键、屏幕选择和焦点时要保留这两个分支
 - 关闭逻辑统一由 `MenuSurfaceDismissMonitor` 管理，淡出由 `MenuSurfaceFadeCoordinator` 负责
-- 侧边面板都是 borderless nonactivating child panel，热力图详情、重置次数和任务中心挂在主面板上，通知、自动重置和防睡眠选项挂在设置窗口上
+- 主面板的热力图详情、重置次数和任务中心使用 `borderless nonactivating child panel`；设置窗口的主面板布局、通知、自动重置和防睡眠选项使用可获得键盘焦点的 `borderless child panel`
 - 设置窗口的子面板占同一位置，展开一个必须先 `hide(immediate: true)` 收掉其余的；动作走 `SettingsOptionsPanelAction` 并带上目标 `SettingsOptionsPanel`，互斥与 `closeAll` 都只写在 `SettingsWindowController.handleOptionsAction` 一处，新增面板不会漏配对
-- 面板控制器只在首次展开时构造，收起动作走 `existingOptionsPanelController` 而不触发构造：它一建就挂上内容变化订阅并常驻到 App 结束，而用户可能一次子面板都没开过
-- 三个设置子面板的顶边对齐各自主开关行，anchor 由设置页的 `ScreenFrameProvider` 随展开动作传出，定位走 `SidePanelSupport.anchoredPosition` 而不是宿主底边
+- 面板控制器只在首次展开时构造，收起动作走 `existingOptionsPanelController` 而不触发构造：`NSHostingController` 与动态面板订阅会常驻到 App 结束，而用户可能一次子面板都没开过
+- 四个设置子面板的顶边对齐各自设置行，anchor 由设置页的 `ScreenFrameProvider` 随展开动作传出，定位走 `SidePanelSupport.anchoredPosition` 而不是宿主底边
 - 设置窗口的子面板要传 `clampsToSurfaceBottom: false` 让底边可以探出窗口，否则放不下时会把整个面板上推而错开主开关行；主面板那三个面板走默认的 `true`
 - 通知和防睡眠面板的高度会动态变化，前者随音效行增删，后者随 `hasBattery` 增删低电量那一行；自动重置面板只有固定的一行；resize 时要固定顶边向下生长，直接改 size 会保持底边不动而把顶边顶离主开关行
-- 内容变化订阅要保持最小：通知面板订 `notificationSettings` 与 `codexHookSettings` 的 `objectWillChange`，再加 `autoResetSettings.$isEnabled`、`KeepAliveController.$isLowBatteryProtectionEnabled` 与 `$isMaximumDurationEnabled`；自动重置面板只订 `autoResetSettings.objectWillChange`；防睡眠面板只订 `$hasBattery`；订整个防睡眠控制器会让任务每起停一次都白排一轮 resize
+- 内容变化订阅要保持最小：主面板布局固定 5 行、自动重置面板固定 1 行，均不订高度变化；通知面板订 `notificationSettings` 与 `codexHookSettings` 的 `objectWillChange`，再加 `autoResetSettings.$isEnabled`、`KeepAliveController.$isLowBatteryProtectionEnabled` 与 `$isMaximumDurationEnabled`；防睡眠面板只订 `$hasBattery`；订整个防睡眠控制器会让任务每起停一次都白排一轮 resize
 - 置灰也会改高度：带音效的行置灰时音效子行跟着收起，所以每个置灰依赖都要有一个对应的订阅源
 - 增删行或改行的显示条件时要同步补上对应的订阅源，漏一项会让面板裁掉底部或留下空白
 - resize 的竖向夹紧走 `SidePanelSupport.clampedVertically`，与初次展开的 `position` 同一条规则，否则放不下时两边会把面板推向相反的边
-- 子面板入口只在开关开着且依赖就绪时出现，通知看 `NotificationSettings.canShowOptions`，自动重置要求 `AutoResetSettings.isEnabled` 且 `KeepAliveController.helperStatus == .enabled`，防睡眠看 `KeepAliveController.canShowOptions`；这些值只控制入口显隐，不回写用户保存的开关
+- 主面板布局入口始终可用；其他子面板入口只在开关开着且依赖就绪时出现，通知看 `NotificationSettings.canShowOptions`，自动重置要求 `AutoResetSettings.isEnabled` 且 `KeepAliveController.helperStatus == .enabled`，防睡眠看 `KeepAliveController.canShowOptions`；这些值只控制入口显隐，不回写用户保存的开关
 - 自动重置或防睡眠的子面板入口条件失效时，`AppSettingsView` 会发送对应的 `close` 动作收起已展开面板；关闭开关时对应设置行不显示状态说明
-- 三个设置子面板都只由滑杆按钮展开，动作只有 `toggle` 与 `close` 两种，开启主开关不自动弹出
+- 四个设置子面板都只由滑杆按钮展开；单个面板的展开和条件失效收起分别使用 `toggle` 与 `close`，切换分页时使用 `closeAll`，开启主开关不自动弹出
+- 设置子面板收起时，`SidePanelSupport.orderOut` 只有在被关闭面板仍是 key window 时才把焦点还给父窗口；如果焦点已经转移到主面板或其他窗口，不得主动抢回
 - 侧边面板公共能力集中在 `Controllers/SidePanelSupport.swift` 里，含 `SidePanelDrawerPresenter`、`SidePanelContentHost`、`SidePanelDrawerAnimator`、panel 工厂和定位夹紧；挂在主面板上的那三个面板优先复用 `SidePanelDrawerPresenter` 这一层，不要另起一套
-- 设置窗口的子面板直接复用 `Controllers/SettingsOptionsPanelController.swift`，它在 presenter 之上补齐了装配、两套关闭观察者、顶边对齐定位和高度重算；新增设置子面板只要给它内容工厂与内容变化来源，不要再写一层壳
-- 三个设置子面板的行高与间距从 `SettingsOptionsPanelMetrics` 取，下拉控件共用 `SettingsOptionsPicker`，只有面板宽度和 picker 宽度各自定义，这样三个面板看起来才是同一套控件
+- 设置窗口的子面板直接复用 `Controllers/SettingsOptionsPanelController.swift`，它在 presenter 之上补齐了装配、两套关闭观察者、顶边对齐定位和高度重算；新增设置子面板只要给它内容工厂，动态高度面板再提供内容变化来源，不要另写一层壳
+- 设置子面板的公共内边距、间距与外观度量从 `SettingsOptionsPanelMetrics` 取；通知、自动重置和防睡眠面板的下拉控件共用 `SettingsOptionsPicker`；主面板布局使用独立的 28 点拖拽行高且不使用下拉控件
 - 设置子面板的内容工厂必须走 `SettingsOptionsPanelController.makeContentController(_:rebuiltBy:)`，否则首次展开时原生 Switch 只剩一条空轨道；重建信号由它接在内容外面，内容视图不必知道 `SidePanelEntryCue`
 - 原因是 thumb 由 `WindowPortal` 投射而不是画在开关上，面板首次布局那一轮 portal 建不起来，而且不会自愈，只有一次内容重建才补得上；第二次展开正常是因为 hosting controller 常驻，复用了已经建好的那份
 - 不要再用 `@_optimize(none)` 规避这个漏绘：它当年在通知子面板管用只是因为逼着 body 重算时判定那些行变过，与优化等级无关，换个写法就失效；`SidePanelSupport` 里剩下那一处标注规避的是编译器崩溃，与此无关
-- 主面板任务中心的显隐由 `MainPanelSettings.showsTaskCenter` 与 `codexHookSettings.isEnabled` 共同决定，Hook 未开启时设置页那一行显示为关闭并置灰，不回写用户保存的开关值
+- 主面板的账户、任务中心、额度、Token 用量和底部状态由 `MainPanelSettings.layout` 统一保存顺序与显隐，模型始终保留至少一个区域；Hook 关闭时 `StatusItemController` 调用 `updateHookEnabled(_:)` 持久化关闭任务中心，任务中心原本是唯一可见区域时同步开启账户；设置面板只禁用任务中心开关，不能连带禁用拖拽手柄
+- 主面板布局排序由手柄上的自定义 `DragGesture` 驱动，悬浮副本跟手移动，其他行按预览顺序实时让位，松手后才通过 `setSectionOrder(_:)` 保存最终顺序；不要改回只在落点命中后换位的 `.draggable` 和 `.dropDestination`
+- `SettingsWindowController` 持有窗口组唯一的 `UndoManager`，设置主窗口和四个可聚焦子面板必须共享这一撤销栈，保证焦点切换后 `⌘Z` 与 `⌘⇧Z` 仍然有效；Hook 自动联动不注册为用户操作
 - 设置窗口（通用/高级/关于三页）和日志窗口复用 `HostingWindowController` 的行为，可以成为 key window，但不应成为 main window
 - 视觉风格统一走 `Views/Shared/LiquidGlassStyle.swift` 这一套，避免引入与系统菜单栏工具不一致的重装饰 UI
 

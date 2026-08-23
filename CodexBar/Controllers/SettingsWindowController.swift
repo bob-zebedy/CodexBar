@@ -19,7 +19,8 @@ final class SettingsWindowController: HostingWindowController {
     private let keepAliveController: KeepAliveController
     private let onSyncChanged: (Bool) -> Void
     private let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
-    /// 只在真的要展开时构造: 控制器一建就挂上内容变化订阅并常驻到 App 结束, 而用户可能一次子面板都没开过
+    private let mainPanelUndoManager = UndoManager()
+    /// 只在真的要展开时构造: hosting controller 与动态面板订阅会常驻到 App 结束, 而用户可能一次子面板都没开过
     private var optionsPanelControllers: [SettingsOptionsPanel: SettingsOptionsPanelController] = [:]
 
     init(
@@ -88,6 +89,7 @@ final class SettingsWindowController: HostingWindowController {
         hostingController.sizingOptions = []
 
         let window = AuxiliaryHostingWindow(contentViewController: hostingController)
+        window.sharedUndoManager = mainPanelUndoManager
         window.title = String(localized: "settings.window.title")
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.contentMinSize = Metrics.minimumContentSize
@@ -143,6 +145,8 @@ final class SettingsWindowController: HostingWindowController {
         _ panel: SettingsOptionsPanel
     ) -> SettingsOptionsPanelController {
         switch panel {
+        case .mainPanel:
+            makeMainPanelOptionsPanelController()
         case .notification:
             SettingsOptionsPanelController(
                 animationKey: "CodexBar.notificationOptionsDrawerTransform",
@@ -190,9 +194,7 @@ final class SettingsWindowController: HostingWindowController {
                         ),
                         rebuiltBy: entryCue
                     )
-                },
-                contentChanges: autoResetSettings.objectWillChange
-                    .eraseToAnyPublisher()
+                }
             )
         case .keepAlive:
             SettingsOptionsPanelController(
@@ -213,6 +215,26 @@ final class SettingsWindowController: HostingWindowController {
                     .eraseToAnyPublisher()
             )
         }
+    }
+
+    private func makeMainPanelOptionsPanelController() -> SettingsOptionsPanelController {
+        SettingsOptionsPanelController(
+            animationKey: "CodexBar.mainPanelOptionsDrawerTransform",
+            initialPanelSize: MainPanelOptionsView.initialPanelSize,
+            willShow: { [mainPanelSettings] in
+                mainPanelSettings.refresh()
+            },
+            contentControllerProvider: { [mainPanelSettings, codexHookSettings, mainPanelUndoManager] entryCue in
+                SettingsOptionsPanelController.makeContentController(
+                    MainPanelOptionsView(
+                        settings: mainPanelSettings,
+                        codexHookSettings: codexHookSettings,
+                        undoManager: mainPanelUndoManager
+                    ),
+                    rebuiltBy: entryCue
+                )
+            }
+        )
     }
 
     /// 子面板占设置窗口右侧同一位置, 展开一个必须先收掉其余的

@@ -216,17 +216,26 @@ Context-menu actions wait until menu tracking finishes before running, avoiding 
 
 Settings-window height follows the current tab while pinning the top edge and constraining the window to the visible screen frame. The pinned top prevents the entire window from drifting vertically between tabs and keeps the title bar as a stable visual anchor.
 
-Secondary panels for notifications, Automatic Reset, and sleep prevention are created on demand. Once created, a controller subscribes to content-height updates for its lifetime. Prebuilding every panel at app launch would keep unused UI participating in updates.
+Secondary panels for main-panel layout, notifications, Automatic Reset, and sleep prevention are created on demand. Once created, a controller retains its content and any required content-height subscriptions for its lifetime. Prebuilding every panel at app launch would keep unused UI participating in updates.
+
+These four settings child panels contain interactive controls, so they use a keyable `KeyableBorderlessPanel`. The main panel's Heatmap, Reset Credits, and Task Center details use a nonactivating `NonactivatingSidePanel`. When a settings child panel closes, `SidePanelSupport.orderOut` restores focus to its parent only if that child panel is still the key window. If focus has already moved intentionally to the main panel or another window, it must not be taken back, or the newly opened interaction surface may close immediately after losing focus.
 
 When Automatic Reset or Prevent System Sleep changes from off to on, `AppSettingsView` presents a shared confirmation through `HelperFeatureConfirmation`. It combines guidance from `KeepAliveController.HelperStatus` with the feature description and writes enabled state only after user confirmation. An enabled settings row in `.requiresApproval` shows `Open System Settings`.
 
 Each secondary-settings entry uses its own availability decision:
 
+- Main Panel Layout is always available
 - Notifications reads `NotificationSettings.canShowOptions`
 - Automatic Reset requires `AutoResetSettings.isEnabled` and `KeepAliveController.helperStatus == .enabled`
 - Sleep prevention reads `KeepAliveController.canShowOptions`
 
 When a condition becomes false, Settings sends the corresponding `close` action so an unavailable child panel does not remain visible. Automatic Reset and sleep-prevention rows show no status explanation while their main switches are off.
+
+`MainPanelSettings` stores the order and visibility of Account, Task Center, Quota, Token Usage, and Footer Status with stable section identifiers. Layout normalization removes duplicates, ignores invalid values, appends missing sections, and keeps at least one section visible. After reading a disabled Hook state, `StatusItemController` calls `updateHookEnabled(_:)` to persist Task Center as hidden. If Task Center was the only visible section, Account is enabled at the same time. The settings panel disables only the Task Center switch, so its drag handle remains available. Temporary availability of other data sources affects only the current rendering.
+
+Layout sorting uses a custom `DragGesture` on each handle. A floating copy follows the pointer, while the other rows make room using a view-local preview order whenever the drag crosses half a row. Only after release does the view call `setSectionOrder(_:)` once to persist the final order. Do not replace this with system `.draggable` and `.dropDestination`, which reorder only after a drop target is hit and cannot provide continuous sorting animation.
+
+`SettingsWindowController` owns the only `UndoManager` for this window group. The Settings window exposes it through `AuxiliaryHostingWindow`, and each of the four settings child panels obtains the same instance from its parent when shown. `Command-Z` and `Command-Shift-Z` therefore operate on one layout history while focus is in either the Settings window or any child panel. Automatic Task Center changes caused by Hook state do not enter the user's undo history.
 
 ### The 120 ms Focus Recovery Is Not Business Delay
 
@@ -308,7 +317,9 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 - The global shortcut opens the panel with both valid and invalid status-bar anchors
 - Clicking a notification activates the app and opens the panel
 - Focus is correct when opening Settings for the first time, closing it, and reopening it
-- Notification, Automatic Reset, and sleep-prevention child panels remain mutually exclusive, align their top edges with their setting rows, and resize correctly when content changes
+- Main Panel Layout, Notification, Automatic Reset, and sleep-prevention child panels remain mutually exclusive, align their top edges with their setting rows, and resize correctly when content changes
+- With a settings child panel open, opening the main panel from the menu bar keeps the main panel open, closes the settings child panel, and does not steal focus back to Settings
+- While reordering the main panel, the floating row follows the pointer, other rows make room after the drag crosses half a row, and release settles smoothly while persisting only the final order; reordering and visibility changes can be undone step by step with `Command-Z` and redone with `Command-Shift-Z` while either the Settings window or any settings child panel has focus; the result persists across relaunches; the last visible section cannot be hidden; disabling Hook turns Task Center off and disables its switch without blocking drag, enables Account if Task Center was the only visible section, and does not enter automatic Hook changes into user undo history
 - Opening Settings or Logs from the context menu does not lose focus
 - On multiple displays and with different menu bar locations, the fallback panel appears on the pointer's screen
 - The old shortcut still works after a new shortcut conflicts
