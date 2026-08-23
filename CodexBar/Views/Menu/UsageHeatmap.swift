@@ -5,8 +5,7 @@ import SwiftUI
 nonisolated struct UsageHeatmapHoverContext: Equatable {
     let day: UsageHeatmapDay
     let showsWorkflow: Bool
-    let anchorScreenFrame: CGRect?
-    let heatmapScreenFrame: CGRect?
+    let alignmentScreenFrame: CGRect?
     let preferredSide: UsageHeatmapDetailSide
     let peakTokens: Int
 }
@@ -34,7 +33,7 @@ struct UsageSummaryView: View {
     private let days: [UsageHeatmapDay?]
     private let peakTokens: Int
     @State private var hoverSelection: UsageHeatmapSelection?
-    @State private var heatmapGridScreenFrame: CGRect?
+    @State private var heatmapScreenFrame: CGRect?
 
     init(
         usage: CodexUsageSnapshot,
@@ -68,7 +67,7 @@ struct UsageSummaryView: View {
                 selection: $hoverSelection,
                 peakTokens: peakTokens,
                 onScreenFrameChange: { frame in
-                    heatmapGridScreenFrame = frame
+                    heatmapScreenFrame = frame
                 }
             )
         }
@@ -179,30 +178,11 @@ struct UsageSummaryView: View {
             UsageHeatmapHoverContext(
                 day: $0.day,
                 showsWorkflow: showsWorkflow,
-                anchorScreenFrame: hoveredSquareScreenFrame(for: $0),
-                heatmapScreenFrame: heatmapGridScreenFrame,
+                alignmentScreenFrame: heatmapScreenFrame,
                 preferredSide: UsageHeatmap.Metrics.preferredDetailSide(for: $0.column),
                 peakTokens: peakTokens
             )
         }
-    }
-
-    private func hoveredSquareScreenFrame(for selection: UsageHeatmapSelection) -> CGRect? {
-        guard let heatmapGridScreenFrame else {
-            return nil
-        }
-
-        let x = heatmapGridScreenFrame.minX + CGFloat(selection.column) * UsageHeatmap.Metrics.squarePitch
-        let y = heatmapGridScreenFrame.maxY
-            - CGFloat(selection.row) * UsageHeatmap.Metrics.squarePitch
-            - UsageHeatmap.Metrics.squareSize
-
-        return CGRect(
-            x: x,
-            y: y,
-            width: UsageHeatmap.Metrics.squareSize,
-            height: UsageHeatmap.Metrics.squareSize
-        )
     }
 
     private func refreshHoveredDay(from days: [UsageHeatmapDay?]) {
@@ -262,6 +242,9 @@ struct UsageHeatmap: View {
     var body: some View {
         heatmapGrid
             .frame(height: Metrics.height)
+            .background {
+                ScreenFrameReader(onChange: onScreenFrameChange)
+            }
             .onDisappear {
                 cancelHoverClearTask()
                 onScreenFrameChange(nil)
@@ -314,9 +297,6 @@ struct UsageHeatmap: View {
                 case .ended:
                     scheduleDeactivate()
                 }
-            }
-            .background {
-                ScreenFrameReader(onChange: onScreenFrameChange)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

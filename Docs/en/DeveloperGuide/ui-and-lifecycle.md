@@ -188,6 +188,8 @@ This scales better than encoding every pairwise close relationship. Adding a fou
 
 The hover-driven heatmap panel may fade before another panel opens; click-driven panels normally close the old panel immediately. This avoids two opposing slide animations at the same screen location.
 
+The heatmap detail panel uses the complete heatmap area, including its heading, date range, and square grid, as its vertical anchor. Reordering main-panel sections therefore still keeps their top edges aligned whenever possible. If the detail panel would extend below the main panel from that position, placement shifts it upward until their bottom edges align.
+
 Related controllers include:
 
 - [`HeatmapDetailPanelController.swift`](../../../CodexBar/Controllers/HeatmapDetailPanelController.swift)
@@ -316,6 +318,7 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 - Left-click opens the main panel; right-click and Control-click open the context menu
 - Clicking outside the main panel dismisses it; clicking a side panel does not
 - Heatmap, Reset Credits, and Task Center panels remain mutually exclusive
+- With Token Usage at different positions in the main-panel order, heatmap details align to the complete heatmap area's top edge when possible and fall back to the main panel's bottom edge when the detail height does not fit
 - The global shortcut opens the panel with both valid and invalid status-bar anchors
 - Clicking a notification activates the app and opens the panel
 - Focus is correct when opening Settings for the first time, closing it, and reopening it

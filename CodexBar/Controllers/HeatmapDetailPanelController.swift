@@ -116,9 +116,7 @@ final class HeatmapDetailPanelController {
             for: panelSize,
             relativeTo: menuSurfaceWindow,
             contentView: contentView,
-            anchorScreenFrame: context.anchorScreenFrame,
-            heatmapScreenFrame: context.heatmapScreenFrame,
-            showsWorkflow: context.showsWorkflow,
+            alignmentScreenFrame: context.alignmentScreenFrame,
             preferredSide: context.preferredSide
         )
         let request = PanelRequest(context: context, position: position)
@@ -307,45 +305,24 @@ final class HeatmapDetailPanelController {
         for panelSize: CGSize,
         relativeTo menuSurfaceWindow: NSWindow,
         contentView: NSView?,
-        anchorScreenFrame: CGRect?,
-        heatmapScreenFrame: CGRect?,
-        showsWorkflow: Bool,
+        alignmentScreenFrame: CGRect?,
         preferredSide: UsageHeatmapDetailSide
     ) -> SidePanelPosition {
         let menuSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: menuSurfaceWindow) ?? menuSurfaceWindow.frame
-        let visibleFrame = (menuSurfaceWindow.screen ?? NSScreen.main)?.visibleFrame ?? menuSurfaceFrame
+        let screen = menuSurfaceWindow.screen ?? NSScreen.main
+        let validatedAlignmentScreenFrame = SidePanelSupport.validatedAlignmentScreenFrame(
+            alignmentScreenFrame,
+            menuSurfaceFrame: menuSurfaceFrame
+        )
 
-        return SidePanelSupport.position(
+        return SidePanelSupport.anchoredPosition(
             panelSize: panelSize,
             menuSurfaceFrame: menuSurfaceFrame,
-            visibleFrame: visibleFrame,
-            preferredSide: preferredSide,
-            proposedY: proposedY(
-                for: panelSize,
-                menuSurfaceFrame: menuSurfaceFrame,
-                anchorScreenFrame: anchorScreenFrame,
-                heatmapScreenFrame: heatmapScreenFrame,
-                showsWorkflow: showsWorkflow
-            )
+            visibleFrame: screen?.visibleFrame ?? menuSurfaceFrame,
+            screenFrame: screen?.frame,
+            alignmentScreenFrame: validatedAlignmentScreenFrame,
+            preferredSide: preferredSide
         )
-    }
-
-    private func proposedY(
-        for panelSize: CGSize,
-        menuSurfaceFrame: CGRect,
-        anchorScreenFrame: CGRect?,
-        heatmapScreenFrame: CGRect?,
-        showsWorkflow: Bool
-    ) -> CGFloat {
-        if showsWorkflow {
-            menuSurfaceFrame.minY
-        } else if let heatmapScreenFrame {
-            heatmapScreenFrame.maxY - panelSize.height
-        } else if let anchorScreenFrame {
-            anchorScreenFrame.maxY - panelSize.height
-        } else {
-            menuSurfaceFrame.midY - panelSize.height / 2
-        }
     }
 
     private func cancelHideTask() {
