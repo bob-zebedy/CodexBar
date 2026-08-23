@@ -22,6 +22,8 @@ final class SettingsWindowController: HostingWindowController {
     private let mainPanelUndoManager = UndoManager()
     /// 只在真的要展开时构造: hosting controller 与动态面板订阅会常驻到 App 结束, 而用户可能一次子面板都没开过
     private var optionsPanelControllers: [SettingsOptionsPanel: SettingsOptionsPanelController] = [:]
+    /// 首次构造窗口时 SwiftUI 可能先于 window 赋值上报高度 因此必须保留最近一次测量
+    private var preferredContentHeight: CGFloat?
 
     init(
         viewModel: CodexStatusViewModel,
@@ -98,7 +100,9 @@ final class SettingsWindowController: HostingWindowController {
     }
 
     override func prepareForDisplay(_ window: NSWindow) {
-        window.setContentSize(clampedContentSize(window.contentLayoutRect.size, for: window))
+        var targetContentSize = window.contentLayoutRect.size
+        targetContentSize.height = preferredContentHeight ?? targetContentSize.height
+        window.setContentSize(clampedContentSize(targetContentSize, for: window))
         positionForTabResizing(window)
     }
 
@@ -106,7 +110,8 @@ final class SettingsWindowController: HostingWindowController {
         static let minimumContentSize = NSSize(width: 420, height: 240)
         static let initialContentSize = NSSize(width: 430, height: 270)
         static let maximumFallbackContentSize = NSSize(width: 560, height: 720)
-        static let maximumPreferredContentHeight: CGFloat = 500
+        /// 只用于首次定位的稳定顶边基准 不限制页面自适应高度
+        static let topEdgeReferenceContentHeight: CGFloat = 500
         static let screenInset: CGFloat = 80
     }
 
@@ -261,18 +266,18 @@ final class SettingsWindowController: HostingWindowController {
     }
 
     private func resizeContentHeight(_ height: CGFloat) {
+        guard height.isFinite, height > 0 else {
+            return
+        }
+
+        preferredContentHeight = height
         guard let window else {
             return
         }
 
-        let currentContentSize = window.contentLayoutRect.size
-        let targetContentSize = clampedContentSize(
-            NSSize(
-                width: currentContentSize.width,
-                height: min(height, Metrics.maximumPreferredContentHeight)
-            ),
-            for: window
-        )
+        var targetContentSize = window.contentLayoutRect.size
+        targetContentSize.height = height
+        targetContentSize = clampedContentSize(targetContentSize, for: window)
         let targetFrameHeight = window.frameRect(
             forContentRect: NSRect(origin: .zero, size: targetContentSize)
         ).height
@@ -295,16 +300,16 @@ final class SettingsWindowController: HostingWindowController {
         }
 
         let visibleFrame = screen.visibleFrame
-        let maximumContentHeight = min(
+        let referenceContentHeight = min(
             maximumContentSize(for: window).height,
-            Metrics.maximumPreferredContentHeight
+            Metrics.topEdgeReferenceContentHeight
         )
         let maximumFrameHeight = window.frameRect(
             forContentRect: NSRect(
                 origin: .zero,
                 size: NSSize(
                     width: window.contentLayoutRect.width,
-                    height: maximumContentHeight
+                    height: referenceContentHeight
                 )
             )
         ).height
@@ -344,10 +349,9 @@ final class SettingsWindowController: HostingWindowController {
                 minimum: Metrics.minimumContentSize.width,
                 maximum: Metrics.maximumFallbackContentSize.width
             ),
-            height: clampedContentDimension(
-                screen.visibleFrame.height - Metrics.screenInset,
-                minimum: Metrics.minimumContentSize.height,
-                maximum: Metrics.maximumFallbackContentSize.height
+            height: max(
+                Metrics.minimumContentSize.height,
+                screen.visibleFrame.height - Metrics.screenInset
             )
         )
     }

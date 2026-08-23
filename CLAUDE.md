@@ -326,6 +326,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 主面板的账户、任务中心、额度、Token 用量和底部状态由 `MainPanelSettings.layout` 统一保存顺序与显隐，模型始终保留至少一个区域；Hook 关闭时 `StatusItemController` 调用 `updateHookEnabled(_:)` 持久化关闭任务中心，任务中心原本是唯一可见区域时同步开启账户；设置面板只禁用任务中心开关，不能连带禁用拖拽手柄
 - 主面板布局排序由手柄上的自定义 `DragGesture` 驱动，悬浮副本跟手移动，其他行按预览顺序实时让位，松手后才通过 `setSectionOrder(_:)` 保存最终顺序；不要改回只在落点命中后换位的 `.draggable` 和 `.dropDestination`
 - `SettingsWindowController` 持有窗口组唯一的 `UndoManager`，设置主窗口和四个可聚焦子面板必须共享这一撤销栈，保证焦点切换后 `⌘Z` 与 `⌘⇧Z` 仍然有效；Hook 自动联动不注册为用户操作
+- 设置窗口高度跟随当前 tab 的完整内容，只在内容超过屏幕可见高度时允许滚动；首次构造时 SwiftUI 可能早于 `HostingWindowController.window` 赋值上报高度，`SettingsWindowController` 必须缓存最近测量并在窗口就绪后应用，不能用初始高度或延迟掩盖
 - 设置窗口（通用/高级/关于三页）和日志窗口复用 `HostingWindowController` 的行为，可以成为 key window，但不应成为 main window
 - 视觉风格统一走 `Views/Shared/LiquidGlassStyle.swift` 这一套，避免引入与系统菜单栏工具不一致的重装饰 UI
 

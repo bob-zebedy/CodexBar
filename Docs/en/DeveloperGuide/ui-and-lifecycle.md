@@ -214,7 +214,9 @@ Context-menu actions wait until menu tracking finishes before running, avoiding 
 - Placement prefers centering on the status item's screen, then falls back to the window screen or main screen
 - A minimized window is deminiaturized before activation
 
-Settings-window height follows the current tab while pinning the top edge and constraining the window to the visible screen frame. The pinned top prevents the entire window from drifting vertically between tabs and keeps the title bar as a stable visual anchor.
+Settings-window height follows the complete content of the current tab while pinning the top edge and constraining the window to the visible screen frame. When the content fits within that screen limit, the window must contain the entire page without a scrollbar; `ScrollView` is only a safety fallback when the content physically cannot fit in the visible area. The pinned top prevents the entire window from drifting vertically between tabs and keeps the title bar as a stable visual anchor.
+
+During initial construction, SwiftUI may report the page height before `HostingWindowController` stores `window`. `SettingsWindowController` caches the latest valid measurement and applies it once the window is ready. Otherwise, the only height callback can be discarded, leaving the window at its initial size until a tab switch triggers another measurement.
 
 Secondary panels for main-panel layout, notifications, Automatic Reset, and sleep prevention are created on demand. Once created, a controller retains its content and any required content-height subscriptions for its lifetime. Prebuilding every panel at app launch would keep unused UI participating in updates.
 
@@ -317,6 +319,7 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 - The global shortcut opens the panel with both valid and invalid status-bar anchors
 - Clicking a notification activates the app and opens the panel
 - Focus is correct when opening Settings for the first time, closing it, and reopening it
+- On the first Settings open after a cold launch, General immediately uses its full content height; switching among all three tabs adapts the window height, with no scrollbar when screen space is sufficient
 - Main Panel Layout, Notification, Automatic Reset, and sleep-prevention child panels remain mutually exclusive, align their top edges with their setting rows, and resize correctly when content changes
 - With a settings child panel open, opening the main panel from the menu bar keeps the main panel open, closes the settings child panel, and does not steal focus back to Settings
 - While reordering the main panel, the floating row follows the pointer, other rows make room after the drag crosses half a row, and release settles smoothly while persisting only the final order; reordering and visibility changes can be undone step by step with `Command-Z` and redone with `Command-Shift-Z` while either the Settings window or any settings child panel has focus; the result persists across relaunches; the last visible section cannot be hidden; disabling Hook turns Task Center off and disables its switch without blocking drag, enables Account if Task Center was the only visible section, and does not enter automatic Hook changes into user undo history
