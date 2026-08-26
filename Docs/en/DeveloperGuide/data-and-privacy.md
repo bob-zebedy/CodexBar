@@ -104,7 +104,7 @@ The Hook subprocess extracts from stdin:
 - Permission and reviewer
 - Session, turn, and agent identities
 
-When `transcript_path` is available, the Hook subprocess also extracts and normalizes origin from the rollout's first complete `session_meta` record, persisting only `main`, `autoReview`, `auxiliary`, or `unknown`. It reads in 32 KiB chunks with a total limit of 256 KiB.
+The Hook subprocess first extracts and normalizes origin from the first complete `session_meta` record in the rollout referenced by `transcript_path`. When the rollout origin is `unknown`, the model already extracted from stdin classifies the event as `autoReview` only if it exactly equals `codex-auto-review`. The JSONL origin field persists only `main`, `autoReview`, `auxiliary`, or `unknown`; rollout reading uses 32 KiB chunks with a total limit of 256 KiB.
 
 It does not write prompt text, responses, tool arguments, or tool output to CodexBar Hook files.
 

@@ -150,7 +150,7 @@ Historical counts need event name, date, project, model, and identity sets. Live
 
 One minimal raw record lets the recorder write once while both consumers select their fields. A new field still requires a demonstrated consumer; its presence in the Hook payload does not justify persisting everything.
 
-When `transcript_path` is available, the recorder performs a bounded read of the rollout's first line to classify origin. Reviewer or effort for `PermissionRequest` and `UserPromptSubmit` may be absent from the Hook payload, so only those two events also read the rollout tail for that turn.
+When `transcript_path` is available, the recorder performs a bounded read of the rollout's first line to classify origin. If the rollout origin cannot be determined, only an exact `codex-auto-review` model match serves as the Auto-review fallback. Reviewer or effort for `PermissionRequest` and `UserPromptSubmit` may be absent from the Hook payload, so only those two events also read the rollout tail for that turn.
 
 ## Hook Subprocess
 
@@ -235,22 +235,22 @@ The lookup:
 
 ### Origin Normalization
 
-`WorkflowHookEvent.origin` is a finite CodexBar-owned enum, not a copy of the rollout's raw `source`:
+`WorkflowHookEvent.origin` is a finite CodexBar-owned enum, not a copy of the rollout's raw `source`. Both the initializer and decoder apply the same origin-resolution rule at the event input boundary, so downstream consumers read only the normalized `origin`:
 
-| `origin` | Classification |
+| Effective origin | Classification |
 | --- | --- |
 | `main` | `source` is a known top-level string source `cli`, `vscode`, `exec`, or `mcp`, or a valid object source `{ "custom": "..." }` |
-| `autoReview` | `source.subagent.other` exactly equals `guardian` |
+| `autoReview` | `source.subagent.other` exactly equals `guardian`, or the rollout origin is `unknown` and the model exactly equals `codex-auto-review` |
 | `auxiliary` | `source` explicitly represents another subagent, including `review`, `thread_spawn`, and Memories-related sources |
-| `unknown` | The field is missing, malformed, unreadable, or an unknown top-level source |
+| `unknown` | The field is missing, malformed, unreadable, or an unknown top-level source, and the model does not satisfy the Auto-review fallback |
 
-Origin reading starts at byte zero in 32 KiB chunks, stops at the first newline, and has a total budget of 256 KiB. If the first complete record is not `session_meta`, exceeds the budget, or any file or decoding operation fails, classification falls back to `unknown` without waiting or retrying and without failing the Hook.
+Origin reading starts at byte zero in 32 KiB chunks, stops at the first newline, and has a total budget of 256 KiB. If the first complete record is not `session_meta`, exceeds the budget, or any file or decoding operation fails, the rollout origin falls back to `unknown` without waiting or retrying and without failing the Hook. The model fallback accepts only the exact string, with no prefix, alias, or fuzzy matching.
 
-Raw JSONL stores only this enum. It never stores `transcript_path`, raw `source`, arbitrary `other` strings, or transcript content, and none of those values enter system logs.
+The recorder resolves origin before writing, and the JSONL origin field stores only this enum. It never stores `transcript_path`, raw `source`, arbitrary `other` strings, or transcript content, and none of those values enter system logs.
 
-Old events without `origin` and future enum values unknown to the current app both decode as `unknown`. CodexBar neither backfills historical records nor infers origin from `model == "codex-auto-review"`.
+When JSONL omits `origin` or contains an unrecognized enum value, the origin field first decodes as `unknown`. The `WorkflowHookEvent` decoder then applies the same exact model fallback, so an event with `model == "codex-auto-review"` has `origin` equal to `autoReview` in memory. Reading never backfills or rewrites raw JSONL.
 
-`origin` changes only live-activity filtering, not historical aggregation input. Auto-review events continue to contribute to existing session, turn, model, tool, project, and event counts, so this change does not increment the aggregation schema or alter the CloudKit projection.
+Origin classification changes only live-activity filtering, not historical aggregation input. Auto-review events still contribute to session, turn, model, tool, project, and event counts; neither the aggregation schema nor the CloudKit projection contains origin classification.
 
 ### Input Normalization
 

@@ -150,7 +150,7 @@ CodexBar 订阅以下 Hook 事件：
 
 把两类需求统一在一条最小原始记录中，可以让 recorder 只写一次，两个下游各自选择所需字段。但新增字段前仍要证明至少有一个消费者需要它，不能因为 Hook payload 中存在就全部持久化。
 
-`transcript_path` 可用时，recorder 会为来源分类有界读取 rollout 首行。`PermissionRequest` 和 `UserPromptSubmit` 的 reviewer 或 effort 可能不在 Hook payload 中，只有这两个事件还会按 turn 定向读取 rollout 尾部。
+`transcript_path` 可用时，recorder 会为来源分类有界读取 rollout 首行。rollout 来源无法确定时，只有精确匹配 `codex-auto-review` 的 model 才作为 Auto-review 来源的后备判定。`PermissionRequest` 和 `UserPromptSubmit` 的 reviewer 或 effort 可能不在 Hook payload 中，只有这两个事件还会按 turn 定向读取 rollout 尾部。
 
 ## Hook 子进程
 
@@ -235,22 +235,22 @@ Codex 对 `SessionEnd` 最多等待 3 秒，其他事件最多 5 秒。recorder 
 
 ### 来源归一化
 
-`WorkflowHookEvent.origin` 是 CodexBar 自己维护的有限枚举，不是 rollout 原始 `source` 的副本：
+`WorkflowHookEvent.origin` 是 CodexBar 自己维护的有限枚举，不是 rollout 原始 `source` 的副本。构造器和解码器都在事件输入边界应用同一套来源解析规则，因此下游只读取归一化后的 `origin`：
 
-| `origin` | 判定 |
+| 有效来源 | 判定 |
 | --- | --- |
 | `main` | `source` 是已知顶层字符串来源 `cli`, `vscode`, `exec`, `mcp`，或有效对象来源 `{ "custom": "..." }` |
-| `autoReview` | `source.subagent.other` 与 `guardian` 完全匹配 |
+| `autoReview` | `source.subagent.other` 与 `guardian` 完全匹配，或 rollout 来源为 `unknown` 且 model 与 `codex-auto-review` 完全匹配 |
 | `auxiliary` | `source` 明确表示其他 subagent，包括 `review`, `thread_spawn` 和 Memories 相关来源 |
-| `unknown` | 字段缺失、结构损坏、无法读取或遇到未知顶层来源 |
+| `unknown` | 字段缺失、结构损坏、无法读取或遇到未知顶层来源，并且 model 不满足 Auto-review 后备判定 |
 
-来源读取从文件起点按 32 KiB 分块，遇到第一个 newline 立即停止，总预算为 256 KiB。第一条完整记录不是 `session_meta`、超过预算或任何文件与解码操作失败时都回退到 `unknown`，不等待、不重试，也不能让 Hook 失败。
+来源读取从文件起点按 32 KiB 分块，遇到第一个 newline 立即停止，总预算为 256 KiB。第一条完整记录不是 `session_meta`、超过预算或任何文件与解码操作失败时，rollout 来源回退到 `unknown`，不等待、不重试，也不能让 Hook 失败。model 后备判定只接受精确字符串，不做前缀、别名或模糊匹配。
 
-原始 JSONL 只保存上述枚举值。`transcript_path`、原始 `source`、任意 `other` 字符串和 transcript 内容都不会写入 Hook 文件或系统日志。
+recorder 在写入前完成来源解析，JSONL 的来源字段只保存上述枚举值。`transcript_path`、原始 `source`、任意 `other` 字符串和 transcript 内容都不会写入 Hook 文件或系统日志。
 
-旧事件缺少 `origin`，以及未来版本写入当前 App 不认识的枚举值时，都解码为 `unknown`。CodexBar 不回填历史记录，也不使用 `model == "codex-auto-review"` 猜测来源。
+JSONL 中缺少 `origin`，或枚举值无法识别时，来源字段先解码为 `unknown`。`WorkflowHookEvent` 解码器随后应用相同的精确 model 后备判定，因此 `model == "codex-auto-review"` 的事件在内存中的 `origin` 为 `autoReview`。读取过程不会回填或重写原始 JSONL。
 
-`origin` 只改变实时活动过滤，不改变历史统计输入。Auto-review 事件仍参与现有 session、turn、model、tool、project 和事件计数，因此这次改动不递增聚合 schema，也不改变 CloudKit 投影。
+来源分类只改变实时活动过滤，不改变历史统计输入。Auto-review 事件仍参与 session、turn、model、tool、project 和事件计数；聚合 schema 和 CloudKit 投影不包含来源分类。
 
 ### 输入归一化
 

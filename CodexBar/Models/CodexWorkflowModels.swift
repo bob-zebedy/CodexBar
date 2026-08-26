@@ -81,7 +81,7 @@ nonisolated enum WorkflowEventOrigin: String, Codable, Sendable {
     }
 }
 
-/// hooks 进程落盘的最小事件模型, 对历史字段缺失保持宽容
+/// hooks 进程落盘和读取的最小事件模型, 在边界归一化来源并对历史字段缺失保持宽容
 nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     let timestamp: Date
     let name: String
@@ -112,7 +112,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     ) {
         self.timestamp = timestamp
         self.name = name
-        self.origin = origin
+        self.origin = Self.resolvedOrigin(origin, modelName: modelName)
         self.directoryPath = directoryPath
         self.toolName = toolName
         self.modelName = modelName
@@ -138,12 +138,15 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
             )
         }
 
+        let decodedOrigin = (try? container.decode(WorkflowEventOrigin.self, forKey: .origin)) ?? .unknown
+        let decodedModelName = Self.string(from: container, key: .modelName)
+
         self.timestamp = timestamp
         self.name = name
-        origin = (try? container.decode(WorkflowEventOrigin.self, forKey: .origin)) ?? .unknown
+        origin = Self.resolvedOrigin(decodedOrigin, modelName: decodedModelName)
         directoryPath = Self.string(from: container, key: .cwd)
         toolName = Self.string(from: container, key: .toolName)
-        modelName = Self.string(from: container, key: .modelName)
+        modelName = decodedModelName
         effort = Self.string(from: container, key: .effort)
         permissionMode = Self.string(from: container, key: .permissionMode)
         approvalReviewer = try? container.decode(
@@ -185,6 +188,18 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         CodexDateFormat.localTimestampDate(from: string)
     }
 
+    /// Ephemeral Guardian 没有 rollout path, canonical model 是来源判定的可靠后备
+    private static func resolvedOrigin(
+        _ origin: WorkflowEventOrigin,
+        modelName: String?
+    ) -> WorkflowEventOrigin {
+        guard origin == .unknown,
+              modelName == autoReviewModelName else {
+            return origin
+        }
+        return .autoReview
+    }
+
     func jsonLineData() throws -> Data {
         let fields = try [
             WorkflowJSON.field("timestamp", CodexDateFormat.localTimestampString(from: timestamp)),
@@ -218,6 +233,8 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         case turnId = "turn"
         case agentId = "agent"
     }
+
+    private static let autoReviewModelName = "codex-auto-review"
 }
 
 // MARK: - 每日聚合指标

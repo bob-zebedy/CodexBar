@@ -194,7 +194,7 @@ subagent 事件更新父任务的 subagent 活动，不创建独立顶层任务�
 
 ### Auto-review 来源过滤
 
-`CodexActivityMonitor.apply` 在任何状态转换之前检查 `WorkflowHookEvent.origin`。`autoReview` 不进入实时任务状态机，因此不会出现在菜单栏、活动卡片、任务中心和任务计数中，也不会产生通知、触觉反馈、等待批准、异常会话保护或防睡眠贡献。
+`CodexActivityMonitor.apply` 在任何状态转换之前检查 `WorkflowHookEvent.origin`。`WorkflowHookEvent` 在构造和解码边界优先使用明确来源，只有来源为 `unknown` 时才以精确匹配的 `model == "codex-auto-review"` 作为 `.autoReview` 后备判定。`autoReview` 不进入实时任务状态机，因此不会出现在菜单栏、活动卡片、任务中心和任务计数中，也不会产生通知、触觉反馈、等待批准、异常会话保护或防睡眠贡献。
 
 过滤使用精确的 `session ID + turn ID`，因为 Codex 的 subagent Hook 复用父 session ID。只按 session 过滤会连同真正的主任务一起隐藏。
 
@@ -209,7 +209,7 @@ subagent 事件更新父任务的 subagent 活动，不创建独立顶层任务�
 
 其他 subagent 统一归类为 `auxiliary` 并保持原有行为，Memories 不因这项规则改变。原始 Hook 事件仍进入历史聚合，因此实时任务过滤不会改变统计或 CloudKit 数据。
 
-升级前已写入的事件没有 `origin`，会按 `unknown` 继续执行原行为。monitor 只回放最近 24 小时，所以最后一条旧事件离开窗口后最迟约 24 小时完成自然过渡；实现不扫描历史 rollout，也不按 model 名兼容。
+JSONL 中缺少 `origin` 或来源枚举无法识别时，来源字段先解码为 `unknown`。如果同一记录的 model 精确匹配 `codex-auto-review`，事件模型将 `origin` 归一化为 `.autoReview`；其他记录保持 `.unknown`。monitor 只回放最近 24 小时，不扫描历史 rollout，也不回写原始 Hook 记录。
 
 ### 为什么新 prompt 不直接把旧 turn 判为中断
 

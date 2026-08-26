@@ -109,9 +109,9 @@ CodexBar 会读取以下本机数据：
 
 - 通过本机 app-server 获取账户、额度、Token 用量、手动重置次数明细和 Codex 配置
 - 读取 Hook 原始事件以生成统计和实时任务
-- 读取本机 Codex rollout 的首条来源和生命周期字段，以排除 Auto-review 实时任务、区分完成与终止并补充进展时间
+- 读取 Hook model 字段和本机 Codex rollout 的首条来源及生命周期字段，以排除 Auto-review 实时任务、区分完成与终止并补充进展时间
 
-rollout 来源读取最多 256 KiB，只保存 `main`, `autoReview`, `auxiliary` 或 `unknown` 四种归一化结果。CodexBar 不保存 rollout 路径或原始来源值；其他 rollout 读取也只提取生命周期、时间和推理强度等字段，不展示或保存会话正文和工具内容。
+来源判定优先使用 rollout 元数据；rollout 来源为 `unknown` 时，只有精确匹配 `codex-auto-review` 的 Hook model 才归类为 `autoReview`。rollout 来源读取最多 256 KiB，只保存 `main`, `autoReview`, `auxiliary` 或 `unknown` 四种归一化结果。CodexBar 不保存 rollout 路径或原始来源值；其他 rollout 读取也只提取生命周期、时间和推理强度等字段，不展示或保存会话正文和工具内容。
 
 用户主动开启自动重置后，CodexBar 通过同一个本机 app-server 使用明确列出的临期重置次数。原始 `creditId` 和幂等键不写入磁盘或 CloudKit；`UserDefaults` 只保存功能开关、提前量、自动重置通知开关、音效选择和哈希后的通知去重键。
 

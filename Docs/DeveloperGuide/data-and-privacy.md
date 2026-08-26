@@ -104,7 +104,7 @@ Hook 子进程从 stdin 提取：
 - permission 和 reviewer
 - session, turn 和 agent 身份
 
-`transcript_path` 可用时，Hook 子进程还会从 rollout 第一条完整 `session_meta` 中提取并归一化来源，只持久化 `main`, `autoReview`, `auxiliary` 或 `unknown`。读取按 32 KiB 分块且总计不超过 256 KiB。
+Hook 子进程优先从 `transcript_path` 指向的 rollout 第一条完整 `session_meta` 中提取并归一化来源。rollout 来源为 `unknown` 时，stdin 中已经提取的 model 只有精确匹配 `codex-auto-review` 才归类为 `autoReview`。JSONL 的来源字段只持久化 `main`, `autoReview`, `auxiliary` 或 `unknown`；rollout 读取按 32 KiB 分块且总计不超过 256 KiB。
 
 不把 prompt, response, tool 参数或 tool 输出写入 CodexBar Hook 文件。
 

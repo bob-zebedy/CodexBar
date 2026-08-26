@@ -73,7 +73,7 @@ CodexBar 使用 `$CODEX_HOME/hooks.json`，未设置 `CODEX_HOME` 时使用 `~/.
 
 Codex Auto-review 使用独立 reviewer agent 处理权限审核。CodexBar 会识别并排除这个内部审核任务，因此它不会显示在菜单栏、活动卡片或任务中心，也不会触发通知、触觉反馈、异常会话保护或防睡眠。其他子 Agent 的现有行为不变。
 
-实时任务只回放最近 24 小时，这些旧记录会在最后一条旧事件之后最多约 24 小时自然退出。
+Auto-review 来源优先根据 rollout 元数据识别；rollout 来源不可用时，精确匹配 `codex-auto-review` 的 model 作为后备判定。实时任务读取本机 Hook 记录时应用同一规则，不回填或重写原始记录。
 
 Hook 事件缺少 session ID 时，CodexBar 会按项目显示匿名任务。匿名任务仍可出现在运行中、等待批准、最近完成和最近终止列表中，但不触发任务通知或触觉反馈，不参与防睡眠和异常会话保护。
 

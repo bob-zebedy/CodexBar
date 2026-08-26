@@ -73,7 +73,7 @@ Subagent events update their parent top-level task instead of appearing as separ
 
 Codex Auto-review uses a separate reviewer agent for permission review. CodexBar recognizes and excludes that internal review task, so it does not appear in the menu bar, activity card, or Task Center and cannot trigger notifications, haptics, Stalled Task Protection, or sleep prevention. Existing behavior for other subagents is unchanged.
 
-Hook events written before the upgrade have no origin classification and may still restore legacy Auto-review tasks. Live activity replays only the most recent 24 hours, so those old records age out naturally no later than about 24 hours after the final legacy event, without a historical migration.
+Auto-review origin is identified from rollout metadata first. When rollout origin is unavailable, an exact `codex-auto-review` model match serves as the fallback. Live activity applies the same rule while reading local Hook records without backfilling or rewriting the raw records.
 
 When a Hook event has no session ID, CodexBar shows an anonymous task for its project. Anonymous tasks can still appear in Running, Waiting for Approval, Recently Completed, and Recently Terminated lists, but they do not trigger task notifications or haptic feedback and do not participate in sleep prevention or stalled task protection.
 
