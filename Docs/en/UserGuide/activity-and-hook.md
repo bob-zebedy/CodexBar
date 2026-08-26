@@ -71,6 +71,10 @@ Waiting for Approval applies only to approval requests that require user action.
 
 Subagent events update their parent top-level task instead of appearing as separate concurrent tasks.
 
+Codex Auto-review uses a separate reviewer agent for permission review. CodexBar recognizes and excludes that internal review task, so it does not appear in the menu bar, activity card, or Task Center and cannot trigger notifications, haptics, Stalled Task Protection, or sleep prevention. Existing behavior for other subagents is unchanged.
+
+Hook events written before the upgrade have no origin classification and may still restore legacy Auto-review tasks. Live activity replays only the most recent 24 hours, so those old records age out naturally no later than about 24 hours after the final legacy event, without a historical migration.
+
 When a Hook event has no session ID, CodexBar shows an anonymous task for its project. Anonymous tasks can still appear in Running, Waiting for Approval, Recently Completed, and Recently Terminated lists, but they do not trigger task notifications or haptic feedback and do not participate in sleep prevention or stalled task protection.
 
 The activity card and Task Center mark these tasks with an orange anonymous icon. Hovering over it shows `Anonymous tasks do not prevent sleep`.
@@ -100,6 +104,8 @@ The activity card and Task Center mark these tasks with an orange anonymous icon
 
 Using the larger count preserves observed operations when one side of an event pair is missing.
 
+Auto-review is excluded only from the live-task pipeline; its Hook events still contribute to these daily metrics.
+
 ## Effects of Disabling the Hook
 
 Disabling CodexBar Hook stops updates to:
@@ -115,9 +121,9 @@ Account data, rate limits, the token heatmap, update checks, and the Logs window
 
 ## Data Boundaries
 
-Raw Hook events contain only structured fields such as time, event name, model, reasoning effort, approval mode, `reviewer`, `session`, `turn`, `agent`, tool name, and working directory.
+Raw Hook events contain only structured fields such as time, event name, normalized `origin`, model, reasoning effort, approval mode, `reviewer`, `session`, `turn`, `agent`, tool name, and working directory.
 
-CodexBar does not store prompt text, Codex responses, tool arguments, or tool output.
+CodexBar does not store rollout paths, raw source values, prompt text, Codex responses, tool arguments, or tool output.
 
 See [Data, Sync, and Privacy](sync-data-privacy.md) for complete storage and sync boundaries.
 

@@ -192,6 +192,25 @@ Some events contain only session ID. A session key still participates in state, 
 
 Without a session ID, only a project key remains. It may merge concurrent anonymous tasks in one project, so anonymous tasks provide reversible UI visibility but cannot drive notifications, sleep prevention, or persisted protection.
 
+### Auto-review Origin Filtering
+
+`CodexActivityMonitor.apply` checks `WorkflowHookEvent.origin` before any state transition. An `autoReview` event never enters the live-task state machine, so it cannot appear in the menu bar, activity card, Task Center, or task counts and cannot produce notifications, haptics, approval waiting, Stalled Task Protection, or sleep-prevention contribution.
+
+Filtering uses the exact `session ID + turn ID` because Codex subagent Hooks reuse the parent session ID. Filtering by session alone would also hide the real main task.
+
+When an exact Auto-review event arrives, the monitor:
+
+- Removes the active task and terminal-grace candidate for that key
+- Removes recent completion, recent termination, and terminal-deduplication memory for that key
+- Cancels Stalled Task Protection attempts, persisted records, and pending notifications
+- Remembers the exact key in a 24-hour bounded table so later `unknown` events cannot revive the same task
+
+If an explicit `main` or `auxiliary` event later matches the same key, source truth wins and clears that ignored-key inference. An Auto-review event without a turn ID is ignored only for that event and never creates a session-wide blacklist.
+
+Other subagents normalize to `auxiliary` and retain their existing behavior; Memories does not change under this rule. Raw Hook events still enter historical aggregation, so live-task filtering does not change metrics or CloudKit data.
+
+Events written before the upgrade have no `origin` and continue under existing behavior as `unknown`. The monitor replays only the most recent 24 hours, so the transition completes naturally no later than about 24 hours after the final legacy event; the implementation neither scans historical rollouts nor falls back to model-name matching.
+
 ### Why a New Prompt Does Not Immediately Terminate the Old Turn
 
 Turns in one session run sequentially. When a new prompt arrives, the old turn must leave the active list immediately or the UI briefly shows two top-level tasks.

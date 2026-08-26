@@ -42,14 +42,17 @@ nonisolated enum WorkflowHookEventRecorder {
         let sessionId = payload.string(for: "session_id")
         let turnId = payload.string(for: "turn_id")
         let agentId = payload.string(for: "agent_id")
+        let transcriptPath = payload.string(for: "transcript_path")
+        let origin = WorkflowEventOriginReader.origin(transcriptPath: transcriptPath)
         let turnContext = readTurnContext(
-            from: payload,
+            transcriptPath: transcriptPath,
             hookEvent: hookEvent,
             turnId: turnId
         )
         let event = WorkflowHookEvent(
             timestamp: timestamp,
             name: eventName,
+            origin: origin,
             directoryPath: cwd,
             toolName: tool,
             modelName: model,
@@ -68,14 +71,14 @@ nonisolated enum WorkflowHookEventRecorder {
     }
 
     private static func readTurnContext(
-        from payload: WorkflowHookPayload,
+        transcriptPath: String?,
         hookEvent: CodexHookEvent?,
         turnId: String?
     ) -> WorkflowTurnContext? {
         guard let hookEvent,
               hookEvent == .userPromptSubmit || hookEvent == .permissionRequest,
               let turnId,
-              let transcriptPath = payload.string(for: "transcript_path") else {
+              let transcriptPath else {
             return nil
         }
         return WorkflowTurnContextReader.context(
@@ -181,6 +184,135 @@ nonisolated enum WorkflowHookEventRecorder {
         }
 
         return WorkflowHookPayload(values: values)
+    }
+}
+
+/// rollout 格式不是稳定 Hook 接口, 只读取首条完整 session_meta 并在固定预算内失败开放
+private nonisolated enum WorkflowEventOriginReader {
+    static func origin(transcriptPath: String?) -> WorkflowEventOrigin {
+        guard let transcriptPath else {
+            return .unknown
+        }
+
+        let url = URL(fileURLWithPath: transcriptPath)
+        guard let handle = try? FileHandle(forReadingFrom: url) else {
+            return .unknown
+        }
+        defer {
+            try? handle.close()
+        }
+
+        var data = Data()
+        while data.count < firstLineByteLimit {
+            let readCount = min(readChunkByteCount, firstLineByteLimit - data.count)
+            guard let chunk = try? handle.read(upToCount: readCount),
+                  !chunk.isEmpty else {
+                return .unknown
+            }
+            data.append(chunk)
+
+            guard let newlineIndex = data.firstIndex(of: JSONLines.newlineByte) else {
+                continue
+            }
+            let line = Data(data[..<newlineIndex])
+            guard let envelope = try? JSONDecoder().decode(
+                WorkflowRolloutMetadataEnvelope.self,
+                from: line
+            ), envelope.type == "session_meta" else {
+                return .unknown
+            }
+            return envelope.payload?.source?.origin ?? .unknown
+        }
+        return .unknown
+    }
+
+    private static let readChunkByteCount = 32 * 1024
+    private static let firstLineByteLimit = 256 * 1024
+}
+
+private nonisolated struct WorkflowRolloutMetadataEnvelope: Decodable {
+    let type: String
+    let payload: WorkflowRolloutMetadataPayload?
+}
+
+private nonisolated struct WorkflowRolloutMetadataPayload: Decodable {
+    let source: WorkflowRolloutSource?
+}
+
+private nonisolated struct WorkflowRolloutSource: Decodable {
+    let origin: WorkflowEventOrigin
+
+    init(from decoder: Decoder) throws {
+        if let name = try? decoder.singleValueContainer().decode(String.self) {
+            origin = Self.knownMainSourceNames.contains(name) ? .main : .unknown
+            return
+        }
+
+        guard let container = try? decoder.container(keyedBy: WorkflowRolloutSourceKey.self) else {
+            origin = .unknown
+            return
+        }
+        if let subagentKey = container.allKeys.first(where: { $0.stringValue == "subagent" }) {
+            origin = (try? container.decode(
+                WorkflowRolloutSubagentSource.self,
+                forKey: subagentKey
+            ))?.origin ?? .unknown
+            return
+        }
+        if let customKey = container.allKeys.first(where: { $0.stringValue == "custom" }),
+           let customSource = try? container.decode(String.self, forKey: customKey),
+           !customSource.isEmpty {
+            origin = .main
+            return
+        }
+        origin = .unknown
+    }
+
+    private static let knownMainSourceNames: Set<String> = [
+        "cli",
+        "exec",
+        "mcp",
+        "vscode"
+    ]
+}
+
+private nonisolated struct WorkflowRolloutSubagentSource: Decodable {
+    let origin: WorkflowEventOrigin
+
+    init(from decoder: Decoder) throws {
+        if let name = try? decoder.singleValueContainer().decode(String.self) {
+            origin = name.isEmpty ? .unknown : .auxiliary
+            return
+        }
+
+        guard let container = try? decoder.container(keyedBy: WorkflowRolloutSourceKey.self),
+              !container.allKeys.isEmpty else {
+            origin = .unknown
+            return
+        }
+        if let otherKey = container.allKeys.first(where: { $0.stringValue == "other" }) {
+            guard let name = try? container.decode(String.self, forKey: otherKey),
+                  !name.isEmpty else {
+                origin = .unknown
+                return
+            }
+            origin = name == "guardian" ? .autoReview : .auxiliary
+            return
+        }
+        origin = .auxiliary
+    }
+}
+
+private nonisolated struct WorkflowRolloutSourceKey: CodingKey {
+    let stringValue: String
+    let intValue: Int? = nil
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(intValue _: Int) {
+        nil
     }
 }
 

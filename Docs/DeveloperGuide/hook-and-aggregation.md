@@ -146,11 +146,11 @@ CodexBar 订阅以下 Hook 事件：
 
 ### 事件字段和用途并不完全相同
 
-历史计数需要事件名、日期、project、model 和身份集合。实时状态还需要 turn, reviewer, effort, tool 和 agent 关联。
+历史计数需要事件名、日期、project、model 和身份集合。实时状态还需要 turn, reviewer, effort, tool, agent 关联和归一化来源。
 
 把两类需求统一在一条最小原始记录中，可以让 recorder 只写一次，两个下游各自选择所需字段。但新增字段前仍要证明至少有一个消费者需要它，不能因为 Hook payload 中存在就全部持久化。
 
-`PermissionRequest` 和 `UserPromptSubmit` 的 reviewer 或 effort 可能不在 Hook payload 中。recorder 只在这两个事件上按 turn 定向读取 rollout 尾部，避免所有事件都承担额外文件 I/O。
+`transcript_path` 可用时，recorder 会为来源分类有界读取 rollout 首行。`PermissionRequest` 和 `UserPromptSubmit` 的 reviewer 或 effort 可能不在 Hook payload 中，只有这两个事件还会按 turn 定向读取 rollout 尾部。
 
 ## Hook 子进程
 
@@ -223,6 +223,7 @@ Codex 对 `SessionEnd` 最多等待 3 秒，其他事件最多 5 秒。recorder 
 - permission 与 approval reviewer
 - session ID 和 turn ID
 - agent 与 parent 关系
+- 归一化来源 `origin`
 
 对于 `UserPromptSubmit` 和 `PermissionRequest`，输入事件可能不包含 reviewer 或 effort。recorder 会在必要时从 rollout transcript 尾部回查匹配的 `turn_context`
 
@@ -231,6 +232,25 @@ Codex 对 `SessionEnd` 最多等待 3 秒，其他事件最多 5 秒。recorder 
 - 单次最多读取 512 KB
 - 只提取 reviewer 和 effort 等结构字段
 - 不把 prompt 或 response 内容写入 Hook 统计
+
+### 来源归一化
+
+`WorkflowHookEvent.origin` 是 CodexBar 自己维护的有限枚举，不是 rollout 原始 `source` 的副本：
+
+| `origin` | 判定 |
+| --- | --- |
+| `main` | `source` 是已知顶层字符串来源 `cli`, `vscode`, `exec`, `mcp`，或有效对象来源 `{ "custom": "..." }` |
+| `autoReview` | `source.subagent.other` 与 `guardian` 完全匹配 |
+| `auxiliary` | `source` 明确表示其他 subagent，包括 `review`, `thread_spawn` 和 Memories 相关来源 |
+| `unknown` | 字段缺失、结构损坏、无法读取或遇到未知顶层来源 |
+
+来源读取从文件起点按 32 KiB 分块，遇到第一个 newline 立即停止，总预算为 256 KiB。第一条完整记录不是 `session_meta`、超过预算或任何文件与解码操作失败时都回退到 `unknown`，不等待、不重试，也不能让 Hook 失败。
+
+原始 JSONL 只保存上述枚举值。`transcript_path`、原始 `source`、任意 `other` 字符串和 transcript 内容都不会写入 Hook 文件或系统日志。
+
+旧事件缺少 `origin`，以及未来版本写入当前 App 不认识的枚举值时，都解码为 `unknown`。CodexBar 不回填历史记录，也不使用 `model == "codex-auto-review"` 猜测来源。
+
+`origin` 只改变实时活动过滤，不改变历史统计输入。Auto-review 事件仍参与现有 session、turn、model、tool、project 和事件计数，因此这次改动不递增聚合 schema，也不改变 CloudKit 投影。
 
 ### 输入归一化
 

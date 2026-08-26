@@ -146,11 +146,11 @@ CodexBar subscribes to:
 
 ### Event Fields Serve Different Uses
 
-Historical counts need event name, date, project, model, and identity sets. Live state additionally needs turn, reviewer, effort, tool, and agent relationships.
+Historical counts need event name, date, project, model, and identity sets. Live state additionally needs turn, reviewer, effort, tool, agent relationships, and normalized origin.
 
 One minimal raw record lets the recorder write once while both consumers select their fields. A new field still requires a demonstrated consumer; its presence in the Hook payload does not justify persisting everything.
 
-Reviewer or effort for `PermissionRequest` and `UserPromptSubmit` may be absent from the Hook payload. Only for these two events, the recorder reads the rollout tail for that turn, avoiding extra file I/O on every event.
+When `transcript_path` is available, the recorder performs a bounded read of the rollout's first line to classify origin. Reviewer or effort for `PermissionRequest` and `UserPromptSubmit` may be absent from the Hook payload, so only those two events also read the rollout tail for that turn.
 
 ## Hook Subprocess
 
@@ -223,6 +223,7 @@ Raw records retain only information required for statistics and live state:
 - Permission and approval reviewer
 - Session and turn IDs
 - Agent and parent relationships
+- Normalized `origin`
 
 For `UserPromptSubmit` and `PermissionRequest`, input may omit reviewer or effort. When needed, the recorder looks for a matching `turn_context` near the end of the rollout transcript.
 
@@ -231,6 +232,25 @@ The lookup:
 - Reads at most 512 KB once
 - Extracts only structural fields such as reviewer and effort
 - Never writes prompt or response content to Hook statistics
+
+### Origin Normalization
+
+`WorkflowHookEvent.origin` is a finite CodexBar-owned enum, not a copy of the rollout's raw `source`:
+
+| `origin` | Classification |
+| --- | --- |
+| `main` | `source` is a known top-level string source `cli`, `vscode`, `exec`, or `mcp`, or a valid object source `{ "custom": "..." }` |
+| `autoReview` | `source.subagent.other` exactly equals `guardian` |
+| `auxiliary` | `source` explicitly represents another subagent, including `review`, `thread_spawn`, and Memories-related sources |
+| `unknown` | The field is missing, malformed, unreadable, or an unknown top-level source |
+
+Origin reading starts at byte zero in 32 KiB chunks, stops at the first newline, and has a total budget of 256 KiB. If the first complete record is not `session_meta`, exceeds the budget, or any file or decoding operation fails, classification falls back to `unknown` without waiting or retrying and without failing the Hook.
+
+Raw JSONL stores only this enum. It never stores `transcript_path`, raw `source`, arbitrary `other` strings, or transcript content, and none of those values enter system logs.
+
+Old events without `origin` and future enum values unknown to the current app both decode as `unknown`. CodexBar neither backfills historical records nor infers origin from `model == "codex-auto-review"`.
+
+`origin` changes only live-activity filtering, not historical aggregation input. Auto-review events continue to contribute to existing session, turn, model, tool, project, and event counts, so this change does not increment the aggregation schema or alter the CloudKit projection.
 
 ### Input Normalization
 

@@ -71,6 +71,10 @@ CodexBar 使用 `$CODEX_HOME/hooks.json`，未设置 `CODEX_HOME` 时使用 `~/.
 
 子 Agent 事件会更新所属顶层任务，不会独立显示为另一条并发任务。
 
+Codex Auto-review 使用独立 reviewer agent 处理权限审核。CodexBar 会识别并排除这个内部审核任务，因此它不会显示在菜单栏、活动卡片或任务中心，也不会触发通知、触觉反馈、异常会话保护或防睡眠。其他子 Agent 的现有行为不变。
+
+实时任务只回放最近 24 小时，这些旧记录会在最后一条旧事件之后最多约 24 小时自然退出。
+
 Hook 事件缺少 session ID 时，CodexBar 会按项目显示匿名任务。匿名任务仍可出现在运行中、等待批准、最近完成和最近终止列表中，但不触发任务通知或触觉反馈，不参与防睡眠和异常会话保护。
 
 活动卡片和任务中心使用橙色匿名图标标记这类任务，悬停时显示 `匿名任务不参与防睡眠`
@@ -100,6 +104,8 @@ Hook 事件缺少 session ID 时，CodexBar 会按项目显示匿名任务。匿
 
 使用较大值可以在成对事件缺少一端时保留已经观察到的操作数量。
 
+Auto-review 只从实时任务链路中排除，其 Hook 事件仍参与上述每日统计。
+
 ## 关闭 Hook 的影响
 
 关闭 Hook 后以下功能停止更新：
@@ -115,9 +121,9 @@ Hook 事件缺少 session ID 时，CodexBar 会按项目显示匿名任务。匿
 
 ## 数据边界
 
-Hook 原始事件只保存时间、事件名、模型、推理强度、权限模式、`reviewer`、`session`、`turn`、`agent`、工具名和工作目录等结构化字段。
+Hook 原始事件只保存时间、事件名、归一化来源 `origin`、模型、推理强度、权限模式、`reviewer`、`session`、`turn`、`agent`、工具名和工作目录等结构化字段。
 
-CodexBar 不保存 prompt 文本、Codex 回复、工具参数或工具输出。
+CodexBar 不保存 rollout 路径、原始来源值、prompt 文本、Codex 回复、工具参数或工具输出。
 
 完整存储和同步边界见 [数据、同步与隐私](sync-data-privacy.md)
 

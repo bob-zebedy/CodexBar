@@ -26,6 +26,8 @@ final class CodexActivityMonitor: ObservableObject {
     var terminations: [CodexActivityTermination] = []
     var recentlyCompletedTaskAt: [CodexActivityTaskKey: Date] = [:]
     var recentlyTerminatedTaskAt: [CodexActivityTaskKey: Date] = [:]
+    var terminalTaskKeyByID: [UUID: CodexActivityTaskKey] = [:]
+    var ignoredAutoReviewTaskAt: [CodexActivityTaskKey: Date] = [:]
     var tailReader: HookEventTailReader?
     private var tailReaderControlTask: Task<Void, Never>?
     private var tailReaderGeneration: UInt64 = 0
@@ -619,6 +621,10 @@ final class CodexActivityMonitor: ObservableObject {
         _ event: WorkflowHookEvent,
         source: CodexActivityEventSource
     ) -> CodexActivityLiveTransition? {
+        guard !shouldIgnoreForActivity(event, source: source) else {
+            return nil
+        }
+
         let isTopLevelEvent = event.agentId == nil
         switch event.hookEvent {
         case .userPromptSubmit:
@@ -1218,6 +1224,10 @@ final class CodexActivityMonitor: ObservableObject {
         let historyCutoff = now.addingTimeInterval(-Self.recentHistoryRetention)
         completions.removeAll { $0.completedAt <= historyCutoff }
         terminations.removeAll { $0.terminatedAt <= historyCutoff }
+        let retainedTerminalIDs = Set(completions.map(\.id)).union(terminations.map(\.id))
+        terminalTaskKeyByID = terminalTaskKeyByID.filter {
+            retainedTerminalIDs.contains($0.key)
+        }
 
         let completedTaskCutoff = now.addingTimeInterval(-Self.completedTaskRetention)
         recentlyCompletedTaskAt = recentlyCompletedTaskAt.filter {
@@ -1225,6 +1235,9 @@ final class CodexActivityMonitor: ObservableObject {
         }
         recentlyTerminatedTaskAt = recentlyTerminatedTaskAt.filter {
             $0.value > completedTaskCutoff
+        }
+        ignoredAutoReviewTaskAt = ignoredAutoReviewTaskAt.filter {
+            $0.value > activityCutoff
         }
     }
 
@@ -1247,6 +1260,9 @@ final class CodexActivityMonitor: ObservableObject {
         })
         deadlines.append(contentsOf: recentlyTerminatedTaskAt.values.map {
             $0.addingTimeInterval(Self.completedTaskRetention)
+        })
+        deadlines.append(contentsOf: ignoredAutoReviewTaskAt.values.map {
+            $0.addingTimeInterval(Self.activityRetention)
         })
         deadlines.append(contentsOf: activityProtectionRecords.values.map(\.expiresAt))
         if let mostRecentCompletion {

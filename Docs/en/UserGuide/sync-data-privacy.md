@@ -109,9 +109,9 @@ CodexBar reads the following local data:
 
 - Account, rate-limit, token usage, reset-credit details, and Codex configuration through the local app-server
 - Raw Hook events to generate metrics and live tasks
-- Lifecycle fields from local Codex rollout files to distinguish completion from termination and supplement progress timestamps
+- The first origin and lifecycle fields from local Codex rollout files to exclude Auto-review live tasks, distinguish completion from termination, and supplement progress timestamps
 
-Rollout reading extracts only lifecycle, time, reasoning-effort, and similar fields. It does not display or store conversation text or tool content.
+Origin reading is limited to 256 KiB and stores only the normalized result `main`, `autoReview`, `auxiliary`, or `unknown`. CodexBar does not store rollout paths or raw source values; other rollout reads likewise extract only lifecycle, time, reasoning-effort, and similar fields and never display or store conversation text or tool content.
 
 After you explicitly enable Automatic Reset, CodexBar uses reset credits that the same local app-server explicitly reports as near expiration. Raw `creditId` and idempotency keys are not written to disk or CloudKit. `UserDefaults` stores only the feature switch, lead time, notification switch, sound choice, and hashed notification-deduplication keys.
 

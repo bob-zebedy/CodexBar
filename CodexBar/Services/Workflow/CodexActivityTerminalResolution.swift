@@ -132,6 +132,7 @@ extension CodexActivityMonitor {
             duration: duration
         )
         completions.append(completion)
+        terminalTaskKeyByID[completion.id] = key
         return completion
     }
 
@@ -150,6 +151,7 @@ extension CodexActivityMonitor {
             duration: includesDuration ? task.preciseDuration(until: terminatedAt) : nil
         )
         terminations.append(termination)
+        terminalTaskKeyByID[termination.id] = task.key
     }
 
     func recentCompletionDate(
@@ -203,6 +205,8 @@ extension CodexActivityMonitor {
         terminations.removeAll()
         recentlyCompletedTaskAt.removeAll()
         recentlyTerminatedTaskAt.removeAll()
+        terminalTaskKeyByID.removeAll()
+        ignoredAutoReviewTaskAt.removeAll()
     }
 
     static func recentTerminalDate(
@@ -274,6 +278,7 @@ extension CodexActivityMonitor {
                 transitionSubject.send(.waitingApproval(task.snapshot))
             case let .completed(completion):
                 guard !completion.isAnonymous,
+                      terminalTaskKeyByID[completion.id] != nil,
                       publishedCompletionIDs.insert(completion.id).inserted else {
                     continue
                 }

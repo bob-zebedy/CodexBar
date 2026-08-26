@@ -104,15 +104,17 @@ The Hook subprocess extracts from stdin:
 - Permission and reviewer
 - Session, turn, and agent identities
 
+When `transcript_path` is available, the Hook subprocess also extracts and normalizes origin from the rollout's first complete `session_meta` record, persisting only `main`, `autoReview`, `auxiliary`, or `unknown`. It reads in 32 KiB chunks with a total limit of 256 KiB.
+
 It does not write prompt text, responses, tool arguments, or tool output to CodexBar Hook files.
 
-The working directory is used only to derive a project display name and live-task ownership. Raw Hook JSONL may still include `cwd`, making it sensitive local context subject to retention and file-permission limits. CloudKit uploads only derived project-name counts and only after explicit opt-in.
+The working directory is used only to derive a project display name and live-task ownership. Raw Hook JSONL may still include `cwd`, making it sensitive local context subject to retention and file-permission limits. Rollout paths, raw source values, and arbitrary subagent `other` values are not persisted. CloudKit uploads only derived project-name counts and only after explicit opt-in.
 
 ### Rollout Files
 
-The live-activity reader accesses `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions`.
+The Hook recorder reads the current rollout through `transcript_path`, and the live-activity reader also accesses `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions`.
 
-It parses only structural fields such as lifecycle, time, turn context, progress, effort, and reviewer. It neither copies conversation text into CodexBar storage nor presents it in the UI.
+These reads parse only structural fields such as origin classification, lifecycle, time, turn context, progress, effort, and reviewer. They neither copy conversation text into CodexBar storage nor present it in the UI.
 
 The rollout reader scans backward from file tails under a budget. This reduces I/O and limits how much unrelated historical content enters process memory. Parsing DTOs declare only required fields, and `JSONDecoder` ignores everything else.
 

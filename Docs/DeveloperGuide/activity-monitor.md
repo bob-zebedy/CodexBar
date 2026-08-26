@@ -192,6 +192,25 @@ subagent 事件更新父任务的 subagent 活动，不创建独立顶层任务�
 
 完全没有 session ID 时只能使用 project key。这个 key 可能把同项目并发匿名任务合并，所以匿名任务只承担可撤销的 UI 展示，不驱动通知、防睡眠或持久化保护。
 
+### Auto-review 来源过滤
+
+`CodexActivityMonitor.apply` 在任何状态转换之前检查 `WorkflowHookEvent.origin`。`autoReview` 不进入实时任务状态机，因此不会出现在菜单栏、活动卡片、任务中心和任务计数中，也不会产生通知、触觉反馈、等待批准、异常会话保护或防睡眠贡献。
+
+过滤使用精确的 `session ID + turn ID`，因为 Codex 的 subagent Hook 复用父 session ID。只按 session 过滤会连同真正的主任务一起隐藏。
+
+当一条精确 Auto-review 事件到达时，monitor 会：
+
+- 删除同 key 的活动任务和 terminal grace 候选
+- 删除同 key 的最近完成、最近终止和 terminal 去重记忆
+- 取消异常会话保护尝试、持久化记录和待处理通知
+- 在 24 小时有界表中记住该精确 key，让同一任务后续 `unknown` 事件无法恢复它
+
+明确的 `main` 或 `auxiliary` 事件随后命中同一 key 时，来源事实优先并清除这条忽略记忆。Auto-review 事件缺少 turn ID 时只忽略当前事件，不建立 session 级黑名单。
+
+其他 subagent 统一归类为 `auxiliary` 并保持原有行为，Memories 不因这项规则改变。原始 Hook 事件仍进入历史聚合，因此实时任务过滤不会改变统计或 CloudKit 数据。
+
+升级前已写入的事件没有 `origin`，会按 `unknown` 继续执行原行为。monitor 只回放最近 24 小时，所以最后一条旧事件离开窗口后最迟约 24 小时完成自然过渡；实现不扫描历史 rollout，也不按 model 名兼容。
+
 ### 为什么新 prompt 不直接把旧 turn 判为中断
 
 同一 session 的 turn 顺序执行。新 prompt 到来时旧 turn 必须立即离开活跃列表，否则 UI 会短暂显示两个顶层任务。

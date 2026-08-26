@@ -104,15 +104,17 @@ Hook 子进程从 stdin 提取：
 - permission 和 reviewer
 - session, turn 和 agent 身份
 
+`transcript_path` 可用时，Hook 子进程还会从 rollout 第一条完整 `session_meta` 中提取并归一化来源，只持久化 `main`, `autoReview`, `auxiliary` 或 `unknown`。读取按 32 KiB 分块且总计不超过 256 KiB。
+
 不把 prompt, response, tool 参数或 tool 输出写入 CodexBar Hook 文件。
 
-工作目录只用于派生 project display name 和实时归属。原始 Hook JSONL 仍可能包含 `cwd`，因此它属于本地敏感上下文，受保留期和文件权限约束。CloudKit 只上传派生后的 project 名计数，并明确依赖用户 opt-in。
+工作目录只用于派生 project display name 和实时归属。原始 Hook JSONL 仍可能包含 `cwd`，因此它属于本地敏感上下文，受保留期和文件权限约束。rollout 路径、原始 source 和任意 subagent `other` 值不会持久化。CloudKit 只上传派生后的 project 名计数，并明确依赖用户 opt-in。
 
 ### Rollout 文件
 
-实时活动 reader 会访问 `$CODEX_HOME/sessions` 和 `$CODEX_HOME/archived_sessions`
+Hook recorder 通过 `transcript_path` 读取当前 rollout，实时活动 reader 还会访问 `$CODEX_HOME/sessions` 和 `$CODEX_HOME/archived_sessions`
 
-它只解析生命周期、时间、turn context, progress, effort 和 reviewer 等结构字段。不把对话正文复制到 CodexBar 存储或展示到 UI。
+这些读取只解析来源分类、生命周期、时间、turn context, progress, effort 和 reviewer 等结构字段，不把对话正文复制到 CodexBar 存储或展示到 UI。
 
 rollout reader 从文件尾部按预算扫描，一方面减少 I/O，另一方面降低无关历史内容进入进程内存的范围。解析 DTO 只声明所需字段，JSONDecoder 自动忽略其余内容。
 

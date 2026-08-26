@@ -67,10 +67,25 @@ private nonisolated enum WorkflowCountResolution {
 
 // MARK: - Hook 原始事件
 
+/// Hook 事件来源的本地归一化分类, 不保留 rollout 中的原始 source 内容
+nonisolated enum WorkflowEventOrigin: String, Codable, Sendable {
+    case main
+    case autoReview
+    case auxiliary
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try? container.decode(String.self)
+        self = rawValue.flatMap(Self.init(rawValue:)) ?? .unknown
+    }
+}
+
 /// hooks 进程落盘的最小事件模型, 对历史字段缺失保持宽容
 nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     let timestamp: Date
     let name: String
+    let origin: WorkflowEventOrigin
     let directoryPath: String?
     let toolName: String?
     let modelName: String?
@@ -84,6 +99,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     init(
         timestamp: Date,
         name: String,
+        origin: WorkflowEventOrigin,
         directoryPath: String?,
         toolName: String?,
         modelName: String?,
@@ -96,6 +112,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     ) {
         self.timestamp = timestamp
         self.name = name
+        self.origin = origin
         self.directoryPath = directoryPath
         self.toolName = toolName
         self.modelName = modelName
@@ -123,6 +140,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
 
         self.timestamp = timestamp
         self.name = name
+        origin = (try? container.decode(WorkflowEventOrigin.self, forKey: .origin)) ?? .unknown
         directoryPath = Self.string(from: container, key: .cwd)
         toolName = Self.string(from: container, key: .toolName)
         modelName = Self.string(from: container, key: .modelName)
@@ -171,6 +189,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         let fields = try [
             WorkflowJSON.field("timestamp", CodexDateFormat.localTimestampString(from: timestamp)),
             WorkflowJSON.field("event", name),
+            WorkflowJSON.field("origin", origin),
             WorkflowJSON.field("model", modelName),
             WorkflowJSON.field("effort", effort),
             WorkflowJSON.field("permission", permissionMode),
@@ -188,6 +207,7 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case timestamp
         case event
+        case origin
         case cwd
         case toolName = "tool"
         case modelName = "model"
@@ -434,6 +454,7 @@ nonisolated struct WorkflowDailyAccumulator {
     }
 
     mutating func record(_ event: WorkflowHookEvent) {
+        // origin 只控制实时活动过滤, 历史统计按全部 Hook 事实保持原口径
         Self.increment(&aggregate.eventCount)
 
         switch event.hookEvent {
