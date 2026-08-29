@@ -49,6 +49,8 @@ Each rate-limit window includes:
 - A segmented progress bar
 - The next reset time
 
+When `Animation Effects` is enabled, each segmented progress bar fills from zero to its current remaining percentage whenever the main panel opens.
+
 The primary rate-limit group may also show:
 
 - Available credits or unlimited-credit status
@@ -68,6 +70,8 @@ The summary area shows:
 - Longest task duration
 
 The heatmap uses a 30-column by 7-row grid to show daily token usage over the last 30 weeks. Color intensity is relative to the highest value currently visible in the heatmap.
+
+When `Animation Effects` is enabled, the day squares appear from the top left to the bottom right whenever the main panel opens.
 
 Hover over a day to see its date, token count, and usage intensity.
 

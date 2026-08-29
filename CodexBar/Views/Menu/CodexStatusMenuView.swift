@@ -1,10 +1,24 @@
 import Combine
 import SwiftUI
 
-/// 菜单面板可见状态, 用于控制逐秒时间更新
+extension EnvironmentValues {
+    @Entry var mainPanelEntranceAnimationsEnabled: Bool = true
+}
+
+/// 菜单面板展示状态, 可见性控制逐秒更新, 展示代次区分快速重开
 @MainActor
 final class MenuSurfaceVisibilityState: ObservableObject {
-    @Published var isVisible = false
+    @Published private(set) var isVisible = false
+    @Published private(set) var presentationGeneration: UInt = 0
+
+    func beginPresentation() {
+        presentationGeneration &+= 1
+        isVisible = true
+    }
+
+    func endPresentation() {
+        isVisible = false
+    }
 }
 
 /// 菜单栏弹出面板根视图, 汇总账号; 实时活动; 额度; token; 同步状态和更新时间
@@ -25,12 +39,17 @@ struct CodexStatusMenuView: View {
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
     let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
     let onActivityCenterTap: (CodexActivityCenterPanelContext) -> Void
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var appUpdater: AppUpdater
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.verticalSpacing) {
             content
         }
+        .environment(
+            \.mainPanelEntranceAnimationsEnabled,
+            mainPanelSettings.areEntranceAnimationsEnabled && !accessibilityReduceMotion
+        )
         .padding(Metrics.padding)
         .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, isOuterSurface: true)
         .animation(Metrics.statusAnimation, value: viewModel.loadState)
@@ -137,6 +156,7 @@ private extension CodexStatusMenuView {
                 isStale: snapshot.isRateLimitsStale,
                 onResetCreditsTap: onResetCreditsTap
             )
+            .id(menuSurfaceVisibility.presentationGeneration)
         } else if dataPlaceholderSection == .quota {
             EmptyDataPanel()
         }
@@ -152,6 +172,7 @@ private extension CodexStatusMenuView {
                 isStale: snapshot.isUsageStale,
                 onHoverContextChange: onUsageHeatmapHoverChange
             )
+            .id(menuSurfaceVisibility.presentationGeneration)
         } else if dataPlaceholderSection == .usage {
             EmptyDataPanel()
         }

@@ -3617,6 +3617,22 @@
         }
       }
     },
+    "settings.main-panel.entrance-animations" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Animation Effects"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "动画效果"
+          }
+        }
+      }
+    },
     "settings.main-panel.layout.title" : {
       "localizations" : {
         "en" : {

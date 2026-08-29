@@ -3,6 +3,8 @@ import SwiftUI
 /// 单个额度窗口行, 布局宽度固定以避免不同文案撑宽菜单面板
 struct QuotaRow: View {
     let window: QuotaWindow
+    @Environment(\.mainPanelEntranceAnimationsEnabled) private var animatesEntrance
+    @State private var revealedPercent: Double = 0
 
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
@@ -13,12 +15,14 @@ struct QuotaRow: View {
                 .allowsTightening(true)
                 .frame(width: Metrics.labelWidth, alignment: .center)
 
-            SegmentedQuotaBar(percent: remainingPercent)
-                .padding(.leading, Metrics.labelBarSpacing)
+            SegmentedQuotaBar(
+                percent: displayedPercent,
+                targetPercent: remainingPercent.map { Double($0) }
+            )
+            .padding(.leading, Metrics.labelBarSpacing)
 
-            Text(percentText)
+            percentageValue
                 .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(percentColor)
                 .lineLimit(1)
                 .frame(width: Metrics.percentWidth, alignment: .leading)
                 .padding(.leading, Metrics.barPercentSpacing)
@@ -34,6 +38,9 @@ struct QuotaRow: View {
                 .frame(width: Metrics.resetWidth, alignment: .trailing)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: remainingPercent) {
+            await revealPercent()
+        }
     }
 }
 
@@ -46,6 +53,7 @@ private extension QuotaRow {
         static let percentWidth: CGFloat = 37
         static let percentResetSpacing: CGFloat = 6
         static let resetWidth: CGFloat = 75
+        static let entranceDuration: TimeInterval = 0.65
     }
 
     var resetText: String {
@@ -56,24 +64,51 @@ private extension QuotaRow {
         return Self.resetFormatter.string(from: resetsAt)
     }
 
-    var percentText: String {
-        guard let remainingPercent else {
-            return "--"
+    @ViewBuilder
+    var percentageValue: some View {
+        if let displayedPercent, let remainingPercent {
+            AnimatedQuotaPercentageText(
+                percent: displayedPercent,
+                targetPercent: Double(remainingPercent)
+            )
+        } else {
+            Text(verbatim: "--")
+                .foregroundStyle(.secondary)
         }
-
-        return CodexPercentageFormat.string(from: remainingPercent)
     }
 
     var remainingPercent: Int? {
         window.hasData ? window.remainingPercent : nil
     }
 
-    var percentColor: Color {
+    var displayedPercent: Double? {
         guard let remainingPercent else {
-            return .secondary
+            return nil
         }
 
-        return QuotaBarPalette.filledColor(for: remainingPercent)
+        return animatesEntrance ? revealedPercent : Double(remainingPercent)
+    }
+
+    func revealPercent() async {
+        guard let remainingPercent else {
+            revealedPercent = 0
+            return
+        }
+
+        let targetPercent = Double(remainingPercent)
+        guard animatesEntrance else {
+            revealedPercent = targetPercent
+            return
+        }
+
+        await Task.yield()
+        guard !Task.isCancelled else {
+            return
+        }
+
+        withAnimation(.easeOut(duration: Metrics.entranceDuration)) {
+            revealedPercent = targetPercent
+        }
     }
 
     static let resetFormatter: DateFormatter = {
@@ -85,34 +120,119 @@ private extension QuotaRow {
     }()
 }
 
+/// 通过 Animatable 的中间值让百分比数字和进度条保持同一动画进度
+private struct AnimatedQuotaPercentageText: View, Animatable {
+    var percent: Double
+    let targetPercent: Double
+
+    var animatableData: Double {
+        get { percent }
+        set { percent = newValue }
+    }
+
+    var body: some View {
+        Text(CodexPercentageFormat.string(from: roundedPercent))
+            .foregroundStyle(
+                QuotaBarPalette.animatedColor(
+                    for: percent,
+                    targetPercent: targetPercent
+                )
+            )
+            .numericRollTransition(value: Double(roundedPercent))
+    }
+
+    private var roundedPercent: Int {
+        Int(percent.rounded())
+    }
+}
+
 /// 分档色值来自共享的 QuotaPalette, 无数据时使用占位色
 private enum QuotaBarPalette {
-    static func filledColor(for percent: Int?) -> Color {
-        guard let percent else {
-            return placeholderColor
+    static func animatedColor(for percent: Double, targetPercent: Double) -> Color {
+        let currentPercent = min(max(percent, 0), 100)
+        let clampedTargetPercent = min(max(targetPercent, 0), 100)
+
+        guard currentPercent < clampedTargetPercent else {
+            return QuotaPalette.color(for: Int(currentPercent.rounded()))
         }
 
-        return QuotaPalette.color(for: percent)
+        for (lowerTier, upperTier) in zip(
+            QuotaPalette.tiers,
+            QuotaPalette.tiers.dropFirst()
+        ) {
+            let upperBound = Double(upperTier.lowerBound)
+            let transitionStart = upperBound - colorTransitionSpan
+            guard clampedTargetPercent >= upperBound,
+                  currentPercent >= transitionStart,
+                  currentPercent < upperBound else {
+                continue
+            }
+
+            let progress = (currentPercent - transitionStart) / colorTransitionSpan
+            return Color(hex: lowerTier.hex).mix(
+                with: Color(hex: upperTier.hex),
+                by: smoothStep(progress),
+                in: .device
+            )
+        }
+
+        return QuotaPalette.color(for: Int(currentPercent.rounded()))
     }
 
     static let placeholderColor = Color(hex: 0xE5E7EB)
+    private static let colorTransitionSpan = 4.0
+
+    private static func smoothStep(_ value: Double) -> Double {
+        let clampedValue = min(max(value, 0), 1)
+        return clampedValue * clampedValue * (3 - 2 * clampedValue)
+    }
 }
 
 /// 胶囊条, 与菜单面板宽度联动
-private struct SegmentedQuotaBar: View {
-    let percent: Int?
+private struct SegmentedQuotaBar: View, Animatable {
+    var percent: Double
+    let targetPercent: Double?
+    var revealedWidth: CGFloat
+
+    init(percent: Double?, targetPercent: Double?) {
+        self.percent = percent ?? 0
+        self.targetPercent = targetPercent
+        revealedWidth = percent.map(Self.filledWidth(for:)) ?? 0
+    }
+
+    var animatableData: AnimatablePair<Double, CGFloat> {
+        get { AnimatablePair(percent, revealedWidth) }
+        set {
+            percent = newValue.first
+            revealedWidth = newValue.second
+        }
+    }
 
     var body: some View {
-        let filledColor = QuotaBarPalette.filledColor(for: percent)
+        let filledColor = targetPercent.map {
+            QuotaBarPalette.animatedColor(for: percent, targetPercent: $0)
+        } ?? QuotaBarPalette.placeholderColor
 
+        ZStack(alignment: .leading) {
+            segments(color: QuotaBarPalette.placeholderColor)
+
+            segments(color: filledColor)
+                .mask(alignment: .leading) {
+                    Rectangle()
+                        .frame(width: revealedWidth)
+                }
+        }
+        .frame(width: Metrics.totalWidth, height: Metrics.segmentHeight, alignment: .leading)
+    }
+
+    private func segments(color: Color) -> some View {
         HStack(spacing: Metrics.segmentSpacing) {
-            ForEach(0 ..< Metrics.segmentCount, id: \.self) { index in
+            ForEach(0 ..< Metrics.segmentCount, id: \.self) { _ in
                 Capsule(style: .continuous)
-                    .fill(index < filledSegments ? filledColor : QuotaBarPalette.placeholderColor)
+                    .fill(color)
                     .frame(width: Metrics.segmentWidth, height: Metrics.segmentHeight)
             }
         }
-        .frame(width: Metrics.totalWidth, height: Metrics.segmentHeight, alignment: .leading)
     }
 }
 
@@ -128,11 +248,13 @@ private extension SegmentedQuotaBar {
         }
     }
 
-    var filledSegments: Int {
-        guard let percent else {
+    static func filledWidth(for percent: Double) -> CGFloat {
+        let filledSegments = Int((percent / 100.0 * Double(Metrics.segmentCount)).rounded())
+        let count = min(max(filledSegments, 0), Metrics.segmentCount)
+        guard count > 0 else {
             return 0
         }
 
-        return Int((Double(percent) / 100.0 * Double(Metrics.segmentCount)).rounded())
+        return CGFloat(count) * Metrics.segmentWidth + CGFloat(count - 1) * Metrics.segmentSpacing
     }
 }

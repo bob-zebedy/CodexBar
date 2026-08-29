@@ -61,10 +61,11 @@ nonisolated struct MainPanelLayout: Equatable, Sendable {
     }
 }
 
-/// 主面板区域顺序与显隐偏好
+/// 主面板区域布局与动画效果偏好
 @MainActor
 final class MainPanelSettings: ObservableObject {
     @Published private(set) var layout: MainPanelLayout
+    @Published private(set) var areEntranceAnimationsEnabled: Bool
 
     private let defaults: UserDefaults
     private var isHookEnabled: Bool?
@@ -72,9 +73,15 @@ final class MainPanelSettings: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         layout = Self.loadLayout(from: defaults)
+        areEntranceAnimationsEnabled = Self.loadEntranceAnimationsEnabled(from: defaults)
     }
 
     func refresh() {
+        let loadedEntranceAnimationsEnabled = Self.loadEntranceAnimationsEnabled(from: defaults)
+        if loadedEntranceAnimationsEnabled != areEntranceAnimationsEnabled {
+            areEntranceAnimationsEnabled = loadedEntranceAnimationsEnabled
+        }
+
         let loadedLayout = Self.loadLayout(from: defaults)
         guard isHookEnabled == false else {
             publish(loadedLayout)
@@ -102,6 +109,16 @@ final class MainPanelSettings: ObservableObject {
 
         AppLog.settings.notice("Hook 关闭已同步主面板任务中心")
         saveAndPublish(updatedLayout)
+    }
+
+    func setEntranceAnimationsEnabled(_ enabled: Bool) {
+        guard enabled != areEntranceAnimationsEnabled else {
+            return
+        }
+
+        AppLog.settings.notice("动画效果变更: enabled=\(enabled ? 1 : 0)")
+        defaults.set(enabled, forKey: Self.entranceAnimationsEnabledKey)
+        areEntranceAnimationsEnabled = enabled
     }
 
     func setSection(
@@ -212,10 +229,19 @@ final class MainPanelSettings: ObservableObject {
         )
     }
 
+    private static func loadEntranceAnimationsEnabled(from defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: entranceAnimationsEnabledKey) != nil else {
+            return true
+        }
+
+        return defaults.bool(forKey: entranceAnimationsEnabledKey)
+    }
+
     private static func orderLogValue(for layout: MainPanelLayout) -> String {
         layout.orderedSections.map(\.rawValue).joined(separator: ",")
     }
 
     private static let sectionOrderKey = "MainPanel.sectionOrder"
     private static let hiddenSectionsKey = "MainPanel.hiddenSections"
+    private static let entranceAnimationsEnabledKey = "MainPanel.entranceAnimationsEnabled"
 }

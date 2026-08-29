@@ -223,6 +223,9 @@ struct UsageHeatmap: View {
     let days: [UsageHeatmapDay?]
     let onScreenFrameChange: (CGRect?) -> Void
     @Binding var selection: UsageHeatmapSelection?
+    @Environment(\.mainPanelEntranceAnimationsEnabled) private var animatesEntrance
+    @State private var areSquaresRevealed = false
+    @State private var entranceStartedAt: TimeInterval?
     @State private var snapSelection: UsageHeatmapSelection?
     @State private var hoverClearTask: Task<Void, Never>?
     private let peakTokens: Int
@@ -244,6 +247,9 @@ struct UsageHeatmap: View {
             .frame(height: Metrics.height)
             .background {
                 ScreenFrameReader(onChange: onScreenFrameChange)
+            }
+            .task {
+                await revealSquares()
             }
             .onDisappear {
                 cancelHoverClearTask()
@@ -280,6 +286,12 @@ struct UsageHeatmap: View {
                                     percent: Double(day.tokensForHeatmap) / Double(peakTokens),
                                     isHovered: snapSelection?.day.id == day.id
                                 )
+                                .opacity(showsSquares ? 1 : 0)
+                                .scaleEffect(showsSquares ? 1 : Metrics.entranceScale)
+                                .animation(
+                                    entranceAnimation(column: column, row: row),
+                                    value: showsSquares
+                                )
                             } else {
                                 Color.clear
                                     .frame(width: Metrics.squareSize, height: Metrics.squareSize)
@@ -314,6 +326,56 @@ struct UsageHeatmap: View {
         return String(localized: "date-range.closed", defaultValue: "\(firstText)\(lastText)")
     }
 
+    private var showsSquares: Bool {
+        areSquaresRevealed || !animatesEntrance
+    }
+
+    private func entranceAnimation(column: Int, row: Int) -> Animation? {
+        guard areSquaresRevealed,
+              animatesEntrance else {
+            return nil
+        }
+
+        return .spring(
+            response: Metrics.entranceResponse,
+            dampingFraction: Metrics.entranceDampingFraction
+        )
+        .delay(entranceDelay(column: column, row: row))
+    }
+
+    private func revealSquares() async {
+        guard animatesEntrance else {
+            areSquaresRevealed = true
+            return
+        }
+
+        await Task.yield()
+        guard !Task.isCancelled else {
+            return
+        }
+
+        entranceStartedAt = ProcessInfo.processInfo.systemUptime
+        areSquaresRevealed = true
+    }
+
+    private func entranceDelay(column: Int, row: Int) -> TimeInterval {
+        TimeInterval(column + row) * Metrics.entranceStagger
+    }
+
+    private func isSquareInteractive(column: Int, row: Int) -> Bool {
+        guard showsSquares else {
+            return false
+        }
+
+        guard animatesEntrance, let entranceStartedAt else {
+            return true
+        }
+
+        let elapsed = ProcessInfo.processInfo.systemUptime - entranceStartedAt
+        let interactiveAt = entranceDelay(column: column, row: row) + Metrics.entranceResponse
+        return elapsed >= interactiveAt
+    }
+
     private func localDayText(_ dayKey: String) -> String {
         guard let date = CodexDateFormat.dayDate(from: dayKey) else {
             return dayKey
@@ -346,7 +408,8 @@ struct UsageHeatmap: View {
         let row = Int(((point.y - Metrics.squareSize / 2) / Metrics.squarePitch).rounded())
 
         guard (0 ..< Metrics.columnCount).contains(column),
-              (0 ..< Metrics.rowCount).contains(row) else {
+              (0 ..< Metrics.rowCount).contains(row),
+              isSquareInteractive(column: column, row: row) else {
             return nil
         }
 
@@ -410,6 +473,10 @@ extension UsageHeatmap {
         static let hoverFadeDuration: TimeInterval = 0.15
         static let hoverExitGraceMilliseconds: UInt64 = 160
         static let snapHalfExtent: CGFloat = squareSize / 2 + squareSpacing
+        static let entranceScale: CGFloat = 0.35
+        static let entranceStagger: TimeInterval = 0.015
+        static let entranceResponse: TimeInterval = 0.25
+        static let entranceDampingFraction = 0.60
 
         static var totalWidth: CGFloat {
             CGFloat(columnCount) * squareSize + CGFloat(columnCount - 1) * squareSpacing

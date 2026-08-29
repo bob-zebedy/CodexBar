@@ -953,7 +953,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func completeMenuSurfaceOpen() {
-        menuSurfaceVisibility.isVisible = true
+        menuSurfaceVisibility.beginPresentation()
         refreshWorkflowIfHookEnabled(performMaintenance: false)
         menuSurfaceDismissMonitor.install(
             onDismiss: { [weak self] in
@@ -1109,7 +1109,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         cancelMenuSurfaceTasks()
         hideSideDetailPanels()
         menuSurfaceDismissMonitor.remove()
-        menuSurfaceVisibility.isVisible = false
+        menuSurfaceVisibility.endPresentation()
 
         guard isActiveMenuSurfaceVisible else {
             menuSurfaceFadeCoordinator.resetAlpha()
@@ -1147,7 +1147,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         closeActiveMenuSurface()
 
-        menuSurfaceVisibility.isVisible = false
+        menuSurfaceVisibility.endPresentation()
         menuSurfaceFadeCoordinator.resetAlpha()
         menuSurfaceState = .hidden
         activeMenuSurface = .none

@@ -21,7 +21,7 @@ enum SettingsOptionsPanelAction {
 
 /// 子面板入场时的内容重建信号, 由 makeContentController 接进内容视图, 面板自己不必知道
 /// 原生 Switch 的 thumb 由 WindowPortal 投射, 面板首次布局那一轮建不起来也不会自愈, 只有重建补得上
-/// bump 排在 present 之后, 那时入场动画已经把内容 translation 到可视区外, 重建才看不见
+/// bump 排在 present 之后, 那时动画效果已经把内容 translation 到可视区外, 重建才看不见
 @MainActor
 final class SidePanelEntryCue: ObservableObject {
     @Published private(set) var pass = 0
@@ -204,7 +204,7 @@ final class SettingsOptionsPanelController {
             isEntryAnimationRunning = false
             scheduleResize()
         }
-        // 排在 present 之后: 入场动画先把内容 translation 到可视区外, 这一次重建落在那段里, 看不见
+        // 排在 present 之后: 动画效果先把内容 translation 到可视区外, 这一次重建落在那段里, 看不见
         if needsEntryRebuild {
             entryCue.bump()
         }

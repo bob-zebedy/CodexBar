@@ -11,6 +11,7 @@ Settings contains three pages: `General`, `Advanced`, and `About`.
 | Setting | Effect | Default or initial state |
 | --- | --- | --- |
 | Main Panel Layout | Reorders and shows or hides the five main-panel sections | Account, Tasks, Quota, Usage, and Status; the Tasks section is off while Hook is disabled |
+| Animation Effects | Animates the rate-limit bars and usage heatmap whenever the main panel opens | On |
 | Launch at Login | Starts CodexBar automatically through macOS Login Items | Follows the current system Login Item state |
 | Automatically Check for Updates | Lets Sparkle check periodically for updates | Follows the current Sparkle setting |
 | Menu Bar Quota Indicator | Shows the remaining percentage for a selected rate-limit window beside the menu bar icon | Primary rate limit |

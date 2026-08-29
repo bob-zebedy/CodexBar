@@ -240,6 +240,8 @@ private extension AppSettingsView {
             VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
                 mainPanelLayoutRow
                 LiquidGlassDivider()
+                mainPanelEntranceAnimationsRow
+                LiquidGlassDivider()
                 launchAtLoginRow
                 LiquidGlassDivider()
                 automaticUpdateCheckRow
@@ -389,6 +391,17 @@ private extension AppSettingsView {
                 .toggle(panel: .mainPanel, anchorProvider: anchorProvider)
             )
         }
+    }
+
+    var mainPanelEntranceAnimationsRow: some View {
+        SettingsToggleRow(
+            icon: "sparkles",
+            title: "settings.main-panel.entrance-animations",
+            isOn: Binding(
+                get: { mainPanelSettings.areEntranceAnimationsEnabled },
+                set: { mainPanelSettings.setEntranceAnimationsEnabled($0) }
+            )
+        )
     }
 
     // MARK: - 高级页各行
