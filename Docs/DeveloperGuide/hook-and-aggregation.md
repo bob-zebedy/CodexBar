@@ -70,7 +70,7 @@ Codex Hook
 - 禁用时只移除精确匹配的 CodexBar handler
 - 无法识别的配置保持原样
 
-`isEnabled` 只表示 handler 存在，`isVerified` 表示最近一次 app-server 校验通过。UI 只有在 `isOperable` 成立时把 Hook 当作可工作数据源。
+`isEnabled` 表示当前进程中的 Hook 开启状态，首次从现有 CodexBar handler 恢复。`isVerified` 表示最近一次 app-server 校验通过。UI 只有在 `isOperable` 成立时把 Hook 当作可工作数据源。
 
 ### 为什么安装和验证是两件事
 
@@ -84,9 +84,22 @@ Codex Hook
 - app-server 解析到其他来源文件
 - handler 处于 untrusted 或 modified
 
-因此 `isEnabled` 是本地配置事实，`isVerified` 是 Codex 对当前来源的最近明确结论。防睡眠和任务通知只依赖两者合成的 `isOperable`
+因此 `isEnabled` 是当前进程的开关状态，`isVerified` 是 Codex 对当前来源的最近明确结论。防睡眠和任务通知只依赖两者合成的 `isOperable`
 
 临时 RPC 失败只代表本轮无法验证，不能反推 handler 已失效。此时保留上一次明确结论，同时展示操作错误供用户排查。
+
+### 已开启 Hook 的对账
+
+App 启动、设置状态刷新、菜单面板打开以及每轮额度刷新完成后，都会对账已开启的 CodexBar Hook。额度自动刷新正常每 60 秒完成一轮，因此配置和信任数据通常会在 60 秒内自动收敛：
+
+- 只有已确认的实际 app-server 版本低于当前 Hook 最低版本时，才按手动关闭流程移除 CodexBar handler 和对应信任项
+- 版本无法确认或 RPC 临时失败时保留用户配置
+- 配置在当前进程中丢失不会关闭开关，而是标记配置损坏并触发自愈
+- 版本受支持时遍历 `CodexHookEvent.allCases`，为缺失或非标准事件重建独立 group，然后复用信任和完整性校验
+- 信任项缺失或哈希变化时，只修复 `command`、`sourcePath` 和 `event` 都属于当前 CodexBar 的条目
+- 必需事件全部存在时不写 `hooks.json`
+
+对账以当前必需事件集合和文件实际内容为依据，不保存一次性迁移标记。因此未来新增事件或用户手动删除必需 handler 时都会走同一条自愈路径。如果 App 启动前已经没有可识别的 CodexBar handler，首次读取无法恢复开启状态，Hook 保持关闭。
 
 ### 启用事务的顺序
 

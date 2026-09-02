@@ -43,7 +43,7 @@ CodexBar 优先使用全局 Codex CLI，关于页面的 `当前使用` 标记可
 | --- | --- | --- |
 | 需要更高 Codex 版本 | 当前 app-server 版本不足 | 更新 Codex 后重启 CodexBar |
 | Codex Hook 已全局关闭 | `features.hooks` 已禁用 | 在 Codex 配置中重新启用 Hooks |
-| CodexBar Hook 已不完整 | 至少一个必要事件缺少当前 handler | 关闭后重新开启 CodexBar Hook |
+| CodexBar Hook 已不完整 | 至少一个必要事件缺少当前 handler | 重新打开设置触发自动补齐，仍未恢复时关闭后重新开启 Hook |
 | CodexBar Hook 未被信任 | Codex 仍把 handler 判定为未信任或已修改 | 重新开启 Hook 并检查 Codex 配置 |
 | CodexBar Hook 意外来源 | app-server 返回的来源不是当前配置文件 | 检查 `CODEX_HOME` 和当前 Codex 来源 |
 | `hooks.json` 文件格式错误 | 顶层或 `hooks` 结构不是有效 JSON | 修复 JSON 后重新操作 |
@@ -51,7 +51,7 @@ CodexBar 优先使用全局 Codex CLI，关于页面的 `当前使用` 标记可
 
 Hook 配置位于 `$CODEX_HOME/hooks.json`，未设置 `CODEX_HOME` 时位于 `~/.codex/hooks.json`
 
-升级 CodexBar 后出现 Hook 不完整提示时，关闭并重新开启 Hook 会补齐当前版本要求的事件。
+CodexBar 会在启动、打开菜单和每轮额度刷新完成后自动补齐已开启 Hook 所缺少的必要事件与信任数据。如果临时错误阻止了自动补齐，关闭并重新开启 Hook 仍会重建完整配置。
 
 ## 实时任务没有出现
 

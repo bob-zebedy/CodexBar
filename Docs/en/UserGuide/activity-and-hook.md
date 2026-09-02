@@ -38,7 +38,7 @@ If CodexBar still reports an older version after you update Codex, quit and reop
 4. Enable `CodexBar Hook`
 5. Wait for configuration and validation to finish
 
-CodexBar checks the installed Hook again whenever you open Settings or reactivate the app.
+CodexBar checks an enabled Hook at launch, when you open the menu or Settings, when the app becomes active again, and after each quota refresh. Automatic quota refresh normally completes every 60 seconds, and missing required event configuration or trust entries are repaired automatically.
 
 ## Configuration Changes
 

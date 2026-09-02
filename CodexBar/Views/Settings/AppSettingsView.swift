@@ -81,12 +81,11 @@ struct AppSettingsView: View {
             refreshStatusRows()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            codexHookSettings.refresh()
+            codexHookSettings.reconcileInstalledHooks()
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
             mainPanelSettings.refresh()
             autoResetSettings.refresh()
-            codexHookSettings.verifyInstalledHooks()
             refreshStatusRows()
         }
         .onReceive(NotificationCenter.default.publisher(for: .settingsWindowDidOpen)) { _ in

@@ -5,27 +5,27 @@ import os
 /// 设置页的 Codex Hook 开关状态机, 同时管理 hooks.json 和 Codex 信任状态
 @MainActor
 final class CodexHookSettings: ObservableObject {
-    static let minimumSupportedCodexVersion = CodexCLIMinimumVersion.hook
-
+    /// 当前进程中的 Hook 开启状态, 首次从现有配置恢复
+    /// 开启后配置缺失视为需要自愈, 只有显式关闭或明确的低版本会置为 false
     @Published private(set) var isEnabled = false
     @Published private(set) var isUpdating = false
     /// 最近一次校验的明确结论: Codex 会不会真的执行 CodexBar 的 Hook
-    /// 乐观默认: 校验只在设置窗口打开时跑, 没有反证之前不能把依赖 Hook 的功能关掉
+    /// 乐观默认: 启动对账开始前没有反证, 不能提前把依赖 Hook 的功能关掉
     /// 只由明确结论写入两个方向, RPC 失败或被取消时保留上次的值:
     /// 连不上 app-server 不说明 Hook 坏了, 那时置灰会把好用的功能关掉
     @Published private(set) var isVerified = true
 
-    /// Hook 链路真的通不通: hooks.json 里装着, 且最近一次校验没有明确失败
+    /// Hook 链路真的通不通: 当前进程中开启, 且最近一次校验没有明确失败
     /// 依赖 Hook 的下游 (防睡眠, 任务类通知) 一律看这个
-    /// isEnabled 只说明装了, Codex 那边全局关掉 hooks 或者不信任我们的 handler 时它照样是 true
+    /// Codex 那边全局关掉 hooks 或者不信任我们的 handler 时 isEnabled 照样是 true
     var isOperable: Bool {
         isEnabled && isVerified
     }
 
-    /// 读取 hooks.json 失败, 由 refresh() 独立维护
+    /// 读取 hooks.json 失败, 由 refreshInstallationState() 独立维护
     @Published private var readErrorMessage: String?
     /// 开关操作与 Hook 校验的结果, 只能由下一次操作或校验覆盖
-    /// 与读取类错误分开存储: refresh() 每 60 秒被调用一次, 不能抹掉校验告警
+    /// 与读取类错误分开存储: 每轮对账都会读取配置, 不能抹掉校验告警
     @Published private var operationErrorMessage: String?
 
     var errorMessage: String? {
@@ -36,8 +36,8 @@ final class CodexHookSettings: ObservableObject {
     private let fileManager: FileManager
     private let codexStatusService: CodexStatusService
     private let updateCoordinator = RefreshTaskCoordinator()
-    /// refresh() 上次读到的安装结论, 首次读取前为 nil
-    /// 不能用 isEnabled 代替: 它的初始值是 false, 会把首次读取当成一次配置变化
+    /// refreshInstallationState() 上次读到的安装结论, 首次读取前为 nil
+    /// 不能用 isEnabled 代替: 开启后它会刻意不跟随外部配置丢失
     private var lastKnownInstalled: Bool?
 
     init(
@@ -52,10 +52,17 @@ final class CodexHookSettings: ObservableObject {
 
     // MARK: - 对外入口
 
-    func refresh() {
+    private func refreshInstallationState() {
         do {
             let config = try readConfigIfPresent()
             let installed = Self.containsAnyCodexBarHook(
+                in: config,
+                executablePath: currentExecutablePath
+            )
+            if installed {
+                isEnabled = true
+            }
+            let isComplete = Self.containsAllCodexBarHooks(
                 in: config,
                 executablePath: currentExecutablePath
             )
@@ -63,10 +70,12 @@ final class CodexHookSettings: ObservableObject {
             // 只在结论变了才记, 外部改动 ~/.codex/hooks.json 就是从这条看出来的
             // 首次读取没有可比的上次值; 拿 isEnabled 的初始 false 去比, 会让装了 Hook 的用户每次启动误报一条
             if let lastKnownInstalled, lastKnownInstalled != installed {
-                AppLog.hooks.notice("Hook 配置变化: enabled=\(installed ? 1 : 0)")
+                AppLog.hooks.notice("Hook 配置变化: installed=\(installed ? 1 : 0)")
             }
             lastKnownInstalled = installed
-            isEnabled = installed
+            if isEnabled, !isComplete {
+                assignVerified(false, reason: .configurationDamaged)
+            }
             readErrorMessage = nil
         } catch {
             // 只有 I/O 失败和 JSON 格式错误会走到这里, 它们对「Hook 装没装」不提供信息
@@ -88,13 +97,14 @@ final class CodexHookSettings: ObservableObject {
         }
     }
 
-    func verifyInstalledHooks() {
+    func reconcileInstalledHooks() {
+        refreshInstallationState()
         guard isEnabled, !isUpdating else {
             return
         }
 
         runLatestUpdate(showProgress: false) { settings, generation in
-            await settings.verifyInstalledHooksWithAppServer(generation: generation)
+            await settings.reconcileInstalledHooks(generation: generation)
         }
     }
 
@@ -107,23 +117,88 @@ final class CodexHookSettings: ObservableObject {
                 try ensureCurrentUpdate(generation)
                 try await ensureCodexHooksGloballyEnabled()
                 try ensureCurrentUpdate(generation)
-            }
-
-            // 关闭前先通过 hooks/list 拿到 key
-            // hooks.json 删除后 app-server 就无法再反查这些 key
-            let cleanupPlan = try await hookTrustCleanupPlan(isDisabling: !enabled, generation: generation)
-            try writeCodexBarHookConfig(enabled: enabled)
-            try ensureCurrentUpdate(generation)
-            isEnabled = enabled
-            if enabled {
+                try writeCodexBarHookConfig(enabled: true)
+                try ensureCurrentUpdate(generation)
+                isEnabled = true
                 await verifyInstalledHooksWithAppServer(generation: generation)
             } else {
-                await cleanupCodexHookTrust(
-                    removing: cleanupPlan.keys,
-                    discoveryError: cleanupPlan.discoveryError,
-                    generation: generation
-                )
+                try await disableCodexBarHooks(generation: generation)
             }
+        } catch is CancellationError {
+            return
+        } catch {
+            handleApplyError(error, generation: generation)
+        }
+    }
+
+    /// 与手动关闭共用同一事务, 自动关闭也不会遗留另一套清理语义
+    private func disableCodexBarHooks(generation: Int) async throws {
+        // 关闭前先通过 hooks/list 拿到 key
+        // hooks.json 删除后 app-server 就无法再反查这些 key
+        let cleanupPlan = try await hookTrustCleanupPlan(generation: generation)
+        try writeCodexBarHookConfig(enabled: false)
+        try ensureCurrentUpdate(generation)
+        isEnabled = false
+        await cleanupCodexHookTrust(
+            removing: cleanupPlan.keys,
+            discoveryError: cleanupPlan.discoveryError,
+            generation: generation
+        )
+    }
+
+    private func reconcileInstalledHooks(generation: Int) async {
+        do {
+            try await ensureCodexHookVersionSupported()
+            try ensureCurrentUpdate(generation)
+        } catch is CancellationError {
+            return
+        } catch let error as HookConfigError {
+            guard case .unsupportedCodexVersion = error else {
+                handleVerificationError(error, generation: generation)
+                return
+            }
+
+            await disableUnsupportedCodexBarHooks(error: error, generation: generation)
+            return
+        } catch {
+            handleVerificationError(error, generation: generation)
+            return
+        }
+
+        do {
+            // 全局开关关闭时不写用户文件, 等 Codex 恢复后再补齐
+            let globallyDisabled = try await readGlobalHookDisabled()
+            try ensureCurrentUpdate(generation)
+            guard !globallyDisabled else {
+                assignVerified(false, reason: .globallyDisabled)
+                operationErrorMessage = HookConfigError.hooksGloballyDisabled.localizedDescription
+                return
+            }
+
+            try reconcileCodexBarHookConfig()
+            try ensureCurrentUpdate(generation)
+
+            try await validateInstalledHooksWithAppServer()
+            try ensureCurrentUpdate(generation)
+            assignVerified(true, reason: .verified)
+            operationErrorMessage = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            handleVerificationError(error, generation: generation)
+        }
+    }
+
+    private func disableUnsupportedCodexBarHooks(error: HookConfigError, generation: Int) async {
+        assignVerified(false, reason: .unsupportedVersion)
+
+        do {
+            try await disableCodexBarHooks(generation: generation)
+            try ensureCurrentUpdate(generation)
+            if operationErrorMessage == nil {
+                operationErrorMessage = error.localizedDescription
+            }
+            AppLog.hooks.notice("Hook 已自动关闭: reason=unsupportedVersion")
         } catch is CancellationError {
             return
         } catch {
@@ -152,21 +227,26 @@ final class CodexHookSettings: ObservableObject {
             operationErrorMessage = nil
         } catch is CancellationError {
             return
-        } catch let error as HookConfigError {
-            guard updateCoordinator.canCommit(generation) else {
-                return
-            }
+        } catch {
+            handleVerificationError(error, generation: generation)
+        }
+    }
 
+    private func handleVerificationError(_ error: Error, generation: Int) {
+        guard updateCoordinator.canCommit(generation) else {
+            return
+        }
+
+        if let error = error as? HookConfigError {
             // HookConfigError 是明确结论: Codex 答复了, 只是答复说这条链路不通
             assignVerified(false, reason: .validationFailed)
             operationErrorMessage = error.localizedDescription
-        } catch {
-            guard updateCoordinator.canCommit(generation) else {
-                return
-            }
-
+        } else {
             // 这一支是"验不了"而不是"确认不通", isVerified 保留上次的值
-            operationErrorMessage = String(localized: "hook.error.verification-failed", defaultValue: "\(error.localizedDescription)")
+            operationErrorMessage = String(
+                localized: "hook.error.verification-failed",
+                defaultValue: "\(error.localizedDescription)"
+            )
         }
     }
 
@@ -235,7 +315,7 @@ final class CodexHookSettings: ObservableObject {
             AppLog.hooks.error(
                 "Hook 写入失败: detail=\(error.localizedDescription, privacy: .public)"
             )
-            refresh()
+            refreshInstallationState()
             operationErrorMessage = String(localized: "hook.error.configuration-failed")
         }
     }
@@ -264,19 +344,20 @@ private extension CodexHookSettings {
     struct CodexHookTrustCleanupPlan {
         let keys: Set<String>
         let discoveryError: Error?
-
-        static let empty = Self(keys: [], discoveryError: nil)
     }
 
     /// Hook 链路校验结论的变化理由, 只用于日志的 reason= 取值
     enum HookVerificationReason: String {
+        case configurationDamaged
         case globallyDisabled
+        case unsupportedVersion
         case validationFailed
         case verified
     }
 
     enum HookConfigError: LocalizedError {
         case invalidFormat
+        case configurationFailed
         case hooksGloballyDisabled
         case codexVersionUnavailable(minimum: String)
         case unsupportedCodexVersion(minimum: String)
@@ -286,6 +367,8 @@ private extension CodexHookSettings {
             switch self {
             case .invalidFormat:
                 String(localized: "hook.error.invalid-config-format")
+            case .configurationFailed:
+                String(localized: "hook.error.configuration-failed")
             case .hooksGloballyDisabled:
                 String(localized: "hook.status.disabled-by-codex")
             case let .codexVersionUnavailable(minimum):
@@ -307,7 +390,7 @@ private extension CodexHookSettings {
             switch self {
             case .hooksGloballyDisabled, .codexVersionUnavailable, .unsupportedCodexVersion:
                 true
-            case .invalidFormat, .hookValidationFailed:
+            case .invalidFormat, .configurationFailed, .hookValidationFailed:
                 false
             }
         }
@@ -343,7 +426,7 @@ private extension CodexHookSettings {
     /// 检查实际用于 hooks/list 的 app-server 握手版本
     /// 不能只看磁盘版本, 否则升级后尚未重连的旧进程会被误判为可用
     func ensureCodexHookVersionSupported() async throws {
-        let minimumVersion = Self.minimumSupportedCodexVersion
+        let minimumVersion = CodexCLIMinimumVersion.hook
         let connectionInfo = try await codexStatusService.readyConnectionInfo()
         guard let currentVersion = connectionInfo.version,
               let isSupported = CodexCLIVersionReader.isVersion(
@@ -372,7 +455,17 @@ private extension CodexHookSettings {
             hooksURL: hooksURL
         )
         if !entries.isEmpty {
-            try await trustCodexBarHooks(entries)
+            do {
+                try await trustCodexBarHooks(entries)
+            } catch {
+                AppLog.hooks.error(
+                    "Hook 信任自愈失败: detail=\(error.localizedDescription, privacy: .public)"
+                )
+                throw HookConfigError.hookValidationFailed(
+                    String(localized: "hook.status.untrusted")
+                )
+            }
+            AppLog.hooks.notice("Hook 信任状态已自愈: keys=\(entries.count)")
             response = try await codexStatusService.listCodexHooks(cwds: [hooksListWorkingDirectory])
         }
 
@@ -385,11 +478,7 @@ private extension CodexHookSettings {
         }
     }
 
-    func hookTrustCleanupPlan(isDisabling: Bool, generation: Int) async throws -> CodexHookTrustCleanupPlan {
-        guard isDisabling else {
-            return .empty
-        }
-
+    func hookTrustCleanupPlan(generation: Int) async throws -> CodexHookTrustCleanupPlan {
         do {
             let keys = try await codexBarHookTrustKeysFromAppServer()
             try ensureCurrentUpdate(generation)
@@ -411,7 +500,7 @@ private extension CodexHookSettings {
         )
 
         if enabled {
-            try Self.installCodexBarHooks(
+            _ = try Self.reconcileCodexBarHooks(
                 in: &config,
                 executablePath: currentExecutablePath
             )
@@ -420,6 +509,32 @@ private extension CodexHookSettings {
         try write(config)
         // 改的是用户自己的 ~/.codex/hooks.json, 每次写入都要留痕
         AppLog.hooks.notice("Hook 配置已写入: enabled=\(enabled ? 1 : 0)")
+    }
+
+    func reconcileCodexBarHookConfig() throws {
+        var config = try readConfigIfPresent()
+        let repairedEvents = try Self.reconcileCodexBarHooks(
+            in: &config,
+            executablePath: currentExecutablePath
+        )
+        guard !repairedEvents.isEmpty else {
+            return
+        }
+
+        do {
+            try write(config)
+        } catch {
+            AppLog.hooks.error(
+                "Hook 补齐写入失败: detail=\(error.localizedDescription, privacy: .public)"
+            )
+            throw HookConfigError.configurationFailed
+        }
+        let events = repairedEvents.map(\.rawValue).joined(separator: ",")
+        let details = LogFields.joined(
+            "count=\(repairedEvents.count)",
+            "events=\(events)"
+        )
+        AppLog.hooks.notice("Hook 配置已自愈: \(details, privacy: .public)")
     }
 
     func codexBarHookTrustKeysFromAppServer() async throws -> Set<String> {
@@ -573,19 +688,57 @@ private extension CodexHookSettings {
         }
     }
 
-    static func installCodexBarHooks(in config: inout JSONObject, executablePath: String) throws {
-        var hooks = try hooksObject(from: config)
+    static func containsAllCodexBarHooks(in config: JSONObject, executablePath: String) -> Bool {
+        guard let hooks = config[hooksKey] as? JSONObject else {
+            return false
+        }
 
-        // 每个事件追加一个独立 group, 避免和用户已有 group 混写
+        return CodexHookEvent.allCases.allSatisfy { event in
+            guard let groups = hooks[event.configName] as? JSONArray else {
+                return false
+            }
+
+            return isCanonicalCodexBarEvent(
+                groups,
+                event: event,
+                executablePath: executablePath
+            )
+        }
+    }
+
+    static func reconcileCodexBarHooks(
+        in config: inout JSONObject,
+        executablePath: String
+    ) throws -> [CodexHookEvent] {
+        var hooks = try hooksObject(from: config)
+        var repairedEvents: [CodexHookEvent] = []
+
+        // 每个事件只保留一个标准独立 group, 不和用户已有 group 混写
         for event in CodexHookEvent.allCases {
             var groups = try eventGroups(named: event.configName, from: hooks)
+            guard !isCanonicalCodexBarEvent(
+                groups,
+                event: event,
+                executablePath: executablePath
+            ) else {
+                continue
+            }
+
+            groups = groups.compactMap {
+                groupRemovingCodexBarHandlers(
+                    from: $0,
+                    executablePath: executablePath
+                )
+            }
             groups.append([
                 hooksKey: [codexBarHookHandler(for: event, executablePath: executablePath)]
             ])
             hooks[event.configName] = groups
+            repairedEvents.append(event)
         }
 
         config[hooksKey] = hooks
+        return repairedEvents
     }
 
     static func removeCodexBarHooks(
@@ -822,6 +975,51 @@ private extension CodexHookSettings {
         } ?? false
     }
 
+    static func isCanonicalCodexBarEvent(
+        _ groups: JSONArray,
+        event: CodexHookEvent,
+        executablePath: String
+    ) -> Bool {
+        let managedHandlerCount = groups.reduce(into: 0) { count, group in
+            count += handlers(from: group)?.count(where: {
+                isCurrentCodexBarHandler($0, executablePath: executablePath)
+            }) ?? 0
+        }
+        guard managedHandlerCount == 1 else {
+            return false
+        }
+
+        return groups.contains {
+            isCanonicalCodexBarGroup(
+                $0,
+                event: event,
+                executablePath: executablePath
+            )
+        }
+    }
+
+    static func isCanonicalCodexBarGroup(
+        _ group: Any,
+        event: CodexHookEvent,
+        executablePath: String
+    ) -> Bool {
+        guard let group = group as? JSONObject,
+              group.count == 1,
+              let handlers = handlers(from: group),
+              handlers.count == 1,
+              let handler = handlers.first as? JSONObject,
+              handler.count == 3,
+              handler[hookTypeKey] as? String == hookCommandType,
+              handler[hookCommandKey] as? String == hookCommand(executablePath: executablePath),
+              let timeout = handler[hookTimeoutKey] as? NSNumber else {
+            return false
+        }
+
+        return timeout.doubleValue == Double(
+            WorkflowHookEventRecorder.hookTimeoutSeconds(for: event)
+        )
+    }
+
     static func groupRemovingCodexBarHandlers(
         from group: Any,
         executablePath: String
@@ -850,26 +1048,18 @@ private extension CodexHookSettings {
         return group[hooksKey] as? JSONArray
     }
 
+    /// 管理项身份只由当前可执行路径和 --hook-event 确定
+    /// type 本身可能损坏, 不能用它决定是否允许自愈或清理
     static func isCurrentCodexBarHandler(
         _ handler: Any,
         executablePath: String
     ) -> Bool {
-        guard let command = commandIfCommandHandler(handler) else {
+        guard let handler = handler as? JSONObject,
+              let command = handler[hookCommandKey] as? String else {
             return false
         }
 
         return isCodexBarCommand(command, executablePath: executablePath)
-    }
-
-    /// 仅当 handler 是 type == "command" 时返回其 command 字符串, 否则 nil
-    private static func commandIfCommandHandler(_ handler: Any) -> String? {
-        guard let handler = handler as? JSONObject,
-              handler[hookTypeKey] as? String == hookCommandType,
-              let command = handler[hookCommandKey] as? String else {
-            return nil
-        }
-
-        return command
     }
 
     static func codexBarHookHandler(

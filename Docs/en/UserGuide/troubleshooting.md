@@ -43,7 +43,7 @@ Double-click the account icon to retry. If the values remain dimmed, check `acco
 | --- | --- | --- |
 | A newer Codex version is required | The current app-server version is too old | Update Codex, then restart CodexBar |
 | Codex Hook is disabled globally | `features.hooks` is disabled | Re-enable Hooks in the Codex configuration |
-| CodexBar Hook is incomplete | At least one required event is missing the current handler | Turn CodexBar Hook off, then on again |
+| CodexBar Hook is incomplete | At least one required event is missing the current handler | Reopen Settings to trigger automatic repair; if it still fails, turn Hook off and on again |
 | CodexBar Hook is not trusted | Codex still considers the handler untrusted or modified | Re-enable the Hook and inspect the Codex configuration |
 | Unexpected CodexBar Hook source | app-server reported a source other than the active configuration file | Check `CODEX_HOME` and the active Codex source |
 | Invalid `hooks.json` format | The top-level value or `hooks` structure is not valid JSON | Repair the JSON, then try again |
@@ -51,7 +51,7 @@ Double-click the account icon to retry. If the values remain dimmed, check `acco
 
 The Hook configuration is at `$CODEX_HOME/hooks.json`, or `~/.codex/hooks.json` when `CODEX_HOME` is unset.
 
-If CodexBar reports an incomplete Hook after an upgrade, turn the Hook off and on again to add events required by the current version.
+CodexBar automatically restores required events and trust data missing from an enabled Hook at launch, when the menu opens, and after each quota refresh. If a transient error prevents automatic repair, turning Hook off and on still rebuilds the complete configuration.
 
 ## Live Tasks Do Not Appear
 

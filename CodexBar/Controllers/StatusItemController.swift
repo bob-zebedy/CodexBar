@@ -444,7 +444,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // 订阅时 CombineLatest 会同步发出当前值, 初始图标由订阅路径统一渲染
         observeViewModel()
         observeWorkflowSyncState()
-        codexHookSettings.refresh()
+        codexHookSettings.reconcileInstalledHooks()
         observeMainPanelHookState()
         viewModel.startAutoRefresh()
     }
@@ -1211,8 +1211,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func refreshWorkflowIfHookEnabled(performMaintenance: Bool) {
-        // Hook 开关可能被外部 Codex 配置改动, 每次需要统计前都先读 hooks.json
-        codexHookSettings.refresh()
+        // Hook 与额度使用同一刷新节奏, 配置和信任状态损坏后都能自动收敛
+        codexHookSettings.reconcileInstalledHooks()
         guard codexHookSettings.isEnabled else {
             workflowSyncScheduler.clearPendingMaintenance()
             return

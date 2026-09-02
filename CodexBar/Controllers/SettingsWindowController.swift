@@ -116,8 +116,7 @@ final class SettingsWindowController: HostingWindowController {
     }
 
     private func refreshSettingsState() {
-        codexHookSettings.refresh()
-        codexHookSettings.verifyInstalledHooks()
+        codexHookSettings.reconcileInstalledHooks()
         codexCLINotificationSettings.refresh()
         syncSettings.refresh()
         menuBarQuotaSettings.refresh()

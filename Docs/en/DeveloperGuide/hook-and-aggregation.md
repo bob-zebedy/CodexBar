@@ -70,7 +70,7 @@ Installation adds the CodexBar handler as a separate command within the existing
 - On disable, remove only an exact CodexBar handler match
 - Preserve unrecognized configuration unchanged
 
-`isEnabled` means only that a handler exists; `isVerified` means the most recent app-server validation passed. The UI treats Hook as a working source only when `isOperable` is true.
+`isEnabled` is the Hook's enabled state for the current process and is initially restored from an existing CodexBar handler. `isVerified` means the most recent app-server validation passed. The UI treats Hook as a working source only when `isOperable` is true.
 
 ### Why Installation and Validation Are Separate
 
@@ -84,9 +84,22 @@ Execution may still be blocked when:
 - app-server resolves another source file
 - The handler is untrusted or modified
 
-`isEnabled` is therefore a local configuration fact, while `isVerified` is Codex's most recent explicit conclusion for the current source. Sleep prevention and task notifications depend only on their combined `isOperable` state.
+`isEnabled` is therefore the switch state for the current process, while `isVerified` is Codex's most recent explicit conclusion for the current source. Sleep prevention and task notifications depend only on their combined `isOperable` state.
 
 A transient RPC failure means validation could not run this cycle, not that the handler became invalid. CodexBar preserves the last explicit conclusion while exposing the operation error for diagnosis.
+
+### Reconciliation of an Enabled Hook
+
+CodexBar reconciles an enabled Hook at app launch, when Settings refreshes, whenever the menu panel opens, and after each quota refresh. Automatic quota refresh normally completes every 60 seconds, so configuration and trust state usually converge within 60 seconds:
+
+- Only a confirmed running app-server version below the current Hook minimum triggers the normal disable flow, which removes CodexBar handlers and their matching trust entries
+- An unknown version or transient RPC failure preserves the user's configuration
+- Configuration lost during the current process does not turn off the switch; CodexBar marks it damaged and starts repair
+- A supported version traverses `CodexHookEvent.allCases`, rebuilds a separate group for every missing or noncanonical event, then reuses trust and completeness validation
+- Missing trust entries or changed hashes are repaired only for entries whose command, `sourcePath`, and event belong to the current CodexBar
+- A complete required event set leaves `hooks.json` unchanged
+
+Reconciliation derives its work from the current required event set and actual file contents; it stores no one-time migration marker. Future required events and manually removed handlers therefore use the same repair path. If no recognizable CodexBar handler remains before app launch, the initial read cannot restore the enabled state, so Hook remains off.
 
 ### Enable Transaction Order
 
