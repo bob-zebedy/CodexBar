@@ -1,13 +1,31 @@
 import Foundation
 
+nonisolated enum UsageHeatmapTokenState: Equatable {
+    case available(Int)
+    case pending
+    case unavailable
+
+    var count: Int? {
+        guard case let .available(count) = self else {
+            return nil
+        }
+
+        return count
+    }
+}
+
 /// 热力图单元格模型, 合并 app-server token 数据和本地 Hook 工作流统计
 nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     let startDate: String
-    let tokenCount: Int?
+    let tokenState: UsageHeatmapTokenState
     let workflow: WorkflowDailyMetrics
 
     var id: String {
         startDate
+    }
+
+    var tokenCount: Int? {
+        tokenState.count
     }
 
     var tokensForHeatmap: Int {
@@ -42,16 +60,18 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
             }
 
             let startDate = CodexDateFormat.dayString(from: date)
-            let tokenCount: Int? = if !hasDailyUsageBuckets {
-                nil
+            let tokenState: UsageHeatmapTokenState = if !hasDailyUsageBuckets {
+                .unavailable
+            } else if startDate == todayString, let todayTokenCount {
+                .available(todayTokenCount)
             } else if startDate == todayString {
-                todayTokenCount
+                .pending
             } else {
-                usage?.tokenCount(on: date) ?? 0
+                .available(usage?.tokenCount(on: date) ?? 0)
             }
             return UsageHeatmapDay(
                 startDate: startDate,
-                tokenCount: tokenCount,
+                tokenState: tokenState,
                 workflow: workflowByDate[startDate] ?? .empty(startDate: startDate)
             )
         }

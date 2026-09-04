@@ -668,7 +668,7 @@ struct UsageHeatmapDayDetailView: View {
 
             Spacer(minLength: 8)
 
-            tokenIntensityValue
+            tokenIntensityStrip
                 .frame(width: Metrics.tokenIntensityStripWidth)
         }
     }
@@ -680,7 +680,7 @@ struct UsageHeatmapDayDetailView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: Metrics.metricLabelWidth, alignment: .leading)
 
-            tokenIntensityValue
+            tokenIntensityStrip
                 .frame(width: Metrics.tokenIntensityStripWidth)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
@@ -722,19 +722,6 @@ struct UsageHeatmapDayDetailView: View {
             }
         }
         .frame(height: Metrics.tokenIntensityStripHeight)
-    }
-
-    @ViewBuilder
-    private var tokenIntensityValue: some View {
-        if context.day.tokenCount != nil {
-            tokenIntensityStrip
-        } else {
-            Text(verbatim: "--")
-                .foregroundStyle(Color.codexLabel)
-                .fontWeight(.semibold)
-                .monospacedDigit()
-                .frame(maxWidth: .infinity, alignment: .trailing)
-        }
     }
 
     private var workflowMetricRows: [WorkflowMetricRow] {
@@ -782,7 +769,7 @@ struct UsageHeatmapDayDetailView: View {
 
     private var tokenText: some View {
         HeatmapTokenText(
-            tokenCount: context.day.tokenCount,
+            tokenState: context.day.tokenState,
             font: tokenFont,
             numericWidth: Metrics.tokenMinimumWidth,
             unitWidth: Metrics.tokenUnitWidth
@@ -818,6 +805,10 @@ struct UsageHeatmapDayDetailView: View {
     }
 
     private func tokenIntensityFill(for index: Int) -> Color {
+        guard context.day.tokenCount != nil else {
+            return Color.secondary.opacity(colorScheme == .dark ? 0.18 : 0.12)
+        }
+
         guard index < tokenIntensityLevel else {
             return Color.blue.opacity(colorScheme == .dark ? 0.14 : 0.10)
         }
@@ -905,36 +896,36 @@ struct UsageHeatmapDayDetailView: View {
     }
 }
 
-/// token 详情在数字和 `--` 之间切换时只做淡入淡出, 数字之间仍保留滚动过渡
+/// token 详情在数字和占位状态之间切换时只做淡入淡出, 数字之间仍保留滚动过渡
 private struct HeatmapTokenText: View {
-    let tokenCount: Int?
+    let tokenState: UsageHeatmapTokenState
     let font: Font
     let numericWidth: CGFloat
     let unitWidth: CGFloat
 
-    @State private var displayedTokenCount: Int?
+    @State private var displayedTokenState: UsageHeatmapTokenState
     @State private var isVisible = true
     @State private var fadeTask: Task<Void, Never>?
 
     init(
-        tokenCount: Int?,
+        tokenState: UsageHeatmapTokenState,
         font: Font,
         numericWidth: CGFloat,
         unitWidth: CGFloat
     ) {
-        self.tokenCount = tokenCount
+        self.tokenState = tokenState
         self.font = font
         self.numericWidth = numericWidth
         self.unitWidth = unitWidth
-        _displayedTokenCount = State(initialValue: tokenCount)
+        _displayedTokenState = State(initialValue: tokenState)
     }
 
     var body: some View {
         content
             .opacity(isVisible ? 1 : 0)
             .frame(width: width, alignment: .trailing)
-            .onChange(of: tokenCount) { _, newTokenCount in
-                updateDisplayedTokenCount(newTokenCount)
+            .onChange(of: tokenState) { _, newTokenState in
+                updateDisplayedTokenState(newTokenState)
             }
             .onDisappear {
                 fadeTask?.cancel()
@@ -943,44 +934,55 @@ private struct HeatmapTokenText: View {
 
     @ViewBuilder
     private var content: some View {
-        if let displayedTokenCount {
+        switch displayedTokenState {
+        case let .available(tokenCount):
             TokenCountText(
-                tokens: displayedTokenCount,
+                tokens: tokenCount,
                 font: font,
                 reservedNumericWidth: numericWidth,
                 reservedUnitWidth: unitWidth
             )
             .foregroundStyle(Color.codexLabel)
-        } else {
+
+        case .pending:
+            Image(systemName: "hourglass")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.codexSecondaryLabel)
+                .symbolEffect(.rotate.byLayer, options: .repeat(.periodic(delay: 1.0)))
+
+        case .unavailable:
             Text(verbatim: "--")
                 .font(font)
                 .foregroundStyle(Color.codexLabel)
         }
     }
 
-    private func updateDisplayedTokenCount(_ newTokenCount: Int?) {
+    private func updateDisplayedTokenState(_ newTokenState: UsageHeatmapTokenState) {
         fadeTask?.cancel()
 
-        if (displayedTokenCount == nil) == (newTokenCount == nil) {
-            updateTokenCountWithoutFade(newTokenCount)
+        guard displayedTokenState != newTokenState || !isVisible else {
             return
         }
 
-        fadeToTokenCount(newTokenCount)
+        if displayedTokenState.count != nil, newTokenState.count != nil {
+            updateTokenStateWithoutFade(newTokenState)
+        } else if displayedTokenState == newTokenState {
+            withAnimation(Metrics.fadeAnimation) {
+                isVisible = true
+            }
+        } else {
+            fadeToTokenState(newTokenState)
+        }
     }
 
-    private func updateTokenCountWithoutFade(_ newTokenCount: Int?) {
-        guard displayedTokenCount != newTokenCount || !isVisible else {
-            return
-        }
-
+    private func updateTokenStateWithoutFade(_ newTokenState: UsageHeatmapTokenState) {
         withAnimation(Metrics.numericAnimation) {
-            displayedTokenCount = newTokenCount
+            displayedTokenState = newTokenState
             isVisible = true
         }
     }
 
-    private func fadeToTokenCount(_ newTokenCount: Int?) {
+    private func fadeToTokenState(_ newTokenState: UsageHeatmapTokenState) {
         fadeTask = Task { @MainActor in
             withAnimation(Metrics.fadeAnimation) {
                 isVisible = false
@@ -991,7 +993,7 @@ private struct HeatmapTokenText: View {
                 return
             }
 
-            displayedTokenCount = newTokenCount
+            displayedTokenState = newTokenState
             withAnimation(Metrics.fadeAnimation) {
                 isVisible = true
             }
