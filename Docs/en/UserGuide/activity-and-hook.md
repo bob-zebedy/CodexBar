@@ -83,8 +83,8 @@ The activity card and Task Center mark these tasks with an orange anonymous icon
 
 | Event | Primary use |
 | --- | --- |
-| `SessionStart` and `SessionEnd` | Session lifecycle, session metrics, and task finalization |
-| `UserPromptSubmit` and `Stop` | Turn metrics, task start, and completion candidates |
+| `SessionStart` and `SessionEnd` | Session lifecycle and task finalization |
+| `UserPromptSubmit` and `Stop` | Turn lifecycle, task start, and completion candidates |
 | `PreToolUse` and `PostToolUse` | Tool-call metrics and task progress |
 | `PermissionRequest` | User-waiting state and permission-request metrics |
 | `PreCompact` and `PostCompact` | Context-compaction metrics and task progress |
@@ -94,13 +94,15 @@ The activity card and Task Center mark these tasks with an orange anonymous icon
 
 | Metric | Meaning |
 | --- | --- |
-| Sessions | Number of distinct Codex sessions on that day |
-| Turns | Number of distinct turns on that day |
+| Sessions | Distinct sessions in the day's events other than `SessionEnd` |
+| Turns | Distinct turns in the day's events other than `Stop` |
 | Tool calls | The larger of the `PreToolUse` and `PostToolUse` counts |
 | Permission requests | Number of `PermissionRequest` events |
 | Context compactions | The larger of the `PreCompact` and `PostCompact` counts |
 | Subagents | The larger of the `SubagentStart` and `SubagentStop` counts |
 | Most-used model | The model that appears most often in Hook events for that day |
+
+Only nonempty session and turn IDs are counted and deduplicated within each day. A session or turn spanning multiple days contributes when that day contains another event; a session observed only through `SessionEnd` and a turn observed only through `Stop` do not contribute.
 
 Using the larger count preserves observed operations when one side of an event pair is missing.
 

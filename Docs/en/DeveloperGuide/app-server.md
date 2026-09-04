@@ -296,7 +296,9 @@ Automatic refresh waits for the remaining interval since the last completion. Af
 
 `CodexUsageSnapshot` aggregates potentially repeated daily buckets into `tokensByDate` during initialization.
 
-A heatmap queries dates repeatedly during one render. Building the index up front avoids a linear scan for every cell while preserving the raw array for snapshot equality.
+A heatmap queries dates repeatedly during one render. Building an optional index up front avoids a linear scan for every cell and limits snapshot equality to summary metrics, daily-data availability, and aggregated daily tokens. Raw bucket ordering or partitioning does not affect the rendered result or independently trigger animation.
+
+The `summary` object from `account/usage/read` is required, but every summary metric and `dailyUsageBuckets` may be absent or null. The model preserves those states: a missing summary metric renders as `--`; `dailyUsageBuckets == nil` means daily data is unavailable, while an empty array means the read succeeded with no records. A valid partial response is not filled from older values. A business payload decoding failure is handled as a supplemental-read failure without rebuilding the app-server session or clearing rate-limit data.
 
 Rate-limit ordering is also centralized in the model:
 

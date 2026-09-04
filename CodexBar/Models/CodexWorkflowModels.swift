@@ -49,7 +49,7 @@ private nonisolated enum WorkflowCountResolution {
             return compactedCount
         }
 
-        if let identifiers, !identifiers.isEmpty {
+        if let identifiers {
             return Set(identifiers).count
         }
 
@@ -489,10 +489,11 @@ nonisolated struct WorkflowDailyAccumulator {
         case .none: break
         }
 
-        if let sessionId = event.sessionId {
+        // SessionEnd 只关闭会话, Stop 只关闭轮次, 不单独构成对应的当日活跃记录
+        if event.hookEvent != .sessionEnd, let sessionId = event.sessionId {
             sessionIds.insert(sessionId)
         }
-        if let turnId = event.turnId {
+        if event.hookEvent != .stop, let turnId = event.turnId {
             turnIds.insert(turnId)
         }
 
@@ -513,12 +514,8 @@ nonisolated struct WorkflowDailyAccumulator {
             aggregate.sessionIds = Self.normalizedIdentifiers(sessionIds)
             aggregate.turnIds = Self.normalizedIdentifiers(turnIds)
         case .compacted:
-            aggregate.sessionCount = sessionIds.isEmpty
-                ? aggregate.sessionStartCount
-                : sessionIds.count
-            aggregate.turnCount = turnIds.isEmpty
-                ? aggregate.stopCount
-                : turnIds.count
+            aggregate.sessionCount = sessionIds.count
+            aggregate.turnCount = turnIds.count
             aggregate.sessionIds = nil
             aggregate.turnIds = nil
         }
@@ -529,9 +526,8 @@ nonisolated struct WorkflowDailyAccumulator {
         count = (count ?? 0) + 1
     }
 
-    private static func normalizedIdentifiers(_ identifiers: Set<String>) -> [String]? {
-        let normalized = identifiers.sorted()
-        return normalized.isEmpty ? nil : normalized
+    private static func normalizedIdentifiers(_ identifiers: Set<String>) -> [String] {
+        identifiers.sorted()
     }
 }
 
@@ -666,7 +662,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
         turnIds = nil
     }
 
-    /// 正数压缩计数和非空 ID 集合优先, 明确的 0 在没有 ID 时同样有效
+    /// 正数压缩计数和可用 ID 集合优先, 空集合保留明确的 0
     private var resolvedSessionCount: Int {
         WorkflowCountResolution.resolvedCount(
             compactedCount: sessionCount,
@@ -821,8 +817,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
     }
 
     private static func normalizedIdentifiers(_ identifiers: [String]?) -> [String]? {
-        let normalized = Set(identifiers ?? []).sorted()
-        return normalized.isEmpty ? nil : normalized
+        identifiers.map { Set($0).sorted() }
     }
 
     private static func date(from string: String) -> Date? {

@@ -421,6 +421,8 @@ inode 与 size 能发现替换和截断，boundary hash 能发现保持相同长
 - project 分布
 - model 分布
 
+session 数使用当天除 `SessionEnd` 外所有事件中的非空 session ID 去重计算。turn 数使用当天除 `Stop` 外所有事件中的非空 turn ID 去重计算。跨天 session 或 turn 只要当天仍有未被排除的事件，就计入当天；当天只有 `SessionEnd` 的 session 和只有 `Stop` 的 turn 不计入。
+
 成对事件可能只有一侧成功落盘。因此计数使用能够避免重复且允许缺失的规则：
 
 - tool call 使用 `max(PreToolUse, PostToolUse)`
@@ -460,7 +462,7 @@ compaction 和 subagent 成对事件使用相同规则。
 
 ## Schema 演进与重建
 
-当前聚合 schema 为 `5`，由 `WorkflowMaintenanceState.currentAggregationSchema` 管理。
+当前聚合 schema 为 `6`，由 `WorkflowMaintenanceState.currentAggregationSchema` 管理。
 
 以下变化必须递增 schema：
 

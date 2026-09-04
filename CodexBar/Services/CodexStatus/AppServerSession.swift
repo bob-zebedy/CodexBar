@@ -215,13 +215,20 @@ final nonisolated class AppServerSession {
         token: UUID,
         decoder: JSONDecoder
     ) throws -> Response {
-        if let envelope = try? decoder.decode(RPCResponseEnvelope<Response>.self, from: line.data) {
-            if let error = envelope.error {
-                try failRequest(token, message: line.text, error: .serverError(error.message))
-            }
-            if let result = envelope.result {
-                return result
-            }
+        let envelope: RPCResponseEnvelope<Response>
+        do {
+            envelope = try decoder.decode(RPCResponseEnvelope<Response>.self, from: line.data)
+        } catch is RPCResponsePayloadDecodingError {
+            try failRequest(token, message: line.text, error: .invalidResponsePayload)
+        } catch {
+            try failRequest(token, message: line.text, error: .invalidServerResponse)
+        }
+
+        if let error = envelope.error {
+            try failRequest(token, message: line.text, error: .serverError(error.message))
+        }
+        if let result = envelope.result {
+            return result
         }
 
         try failRequest(token, message: line.text, error: .invalidServerResponse)
@@ -238,11 +245,34 @@ private nonisolated struct RPCIDEnvelope: Decodable {
     let id: Int?
 }
 
-/// error 与 result 合并在同一个信封里一次解码; 大响应行只完整解析一次
+/// error 与 result 合并在同一个信封里一次解码
+/// result 形状不匹配时单独分类, 响应行已消费不会破坏会话边界
 private nonisolated struct RPCResponseEnvelope<Response: Decodable>: Decodable {
     let error: RPCError?
     let result: Response?
+
+    private enum CodingKeys: String, CodingKey {
+        case error
+        case result
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        error = try container.decodeIfPresent(RPCError.self, forKey: .error)
+        guard error == nil else {
+            result = nil
+            return
+        }
+
+        do {
+            result = try container.decodeIfPresent(Response.self, forKey: .result)
+        } catch {
+            throw RPCResponsePayloadDecodingError()
+        }
+    }
 }
+
+private nonisolated struct RPCResponsePayloadDecodingError: Error {}
 
 private nonisolated struct RPCError: Decodable {
     let message: String

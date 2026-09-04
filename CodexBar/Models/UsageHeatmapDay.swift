@@ -15,13 +15,14 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     }
 
     static func grid(
-        usage: CodexUsageSnapshot,
+        usage: CodexUsageSnapshot?,
         workflow: WorkflowSnapshot,
         showsWorkflow: Bool,
         columnCount: Int,
         today: Date
     ) -> [UsageHeatmapDay?] {
-        let todayTokenCount = usage.tokenCount(on: today)
+        let todayTokenCount = usage?.tokenCount(on: today)
+        let hasDailyUsageBuckets = usage?.hasDailyUsageBuckets == true
         // Hook 开启时当天工作流统计可见
         // Hook 关闭时只在 token bucket 已返回时展示今天
         let endingDaysAgo = showsWorkflow || todayTokenCount != nil ? 0 : 1
@@ -35,17 +36,22 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
             endingDaysAgo: endingDaysAgo,
             today: today
         )
-        .map { date in
+        .map { date -> UsageHeatmapDay? in
             guard let date else {
                 return nil
             }
 
             let startDate = CodexDateFormat.dayString(from: date)
+            let tokenCount: Int? = if !hasDailyUsageBuckets {
+                nil
+            } else if startDate == todayString {
+                todayTokenCount
+            } else {
+                usage?.tokenCount(on: date) ?? 0
+            }
             return UsageHeatmapDay(
                 startDate: startDate,
-                tokenCount: startDate == todayString
-                    ? todayTokenCount
-                    : usage.tokenCount(on: date) ?? 0,
+                tokenCount: tokenCount,
                 workflow: workflowByDate[startDate] ?? .empty(startDate: startDate)
             )
         }

@@ -6,6 +6,7 @@ nonisolated enum CodexStatusError: LocalizedError {
     case serverTimeout
     case serverConnectionClosed
     case invalidServerResponse
+    case invalidResponsePayload
     case serverError(String)
     case unsupportedMethod
     case unsupportedVersion(minimum: String)
@@ -19,7 +20,7 @@ nonisolated enum CodexStatusError: LocalizedError {
             String(localized: "codex-status.error.server-timeout")
         case .serverConnectionClosed:
             String(localized: "codex-status.error.connection-closed")
-        case .invalidServerResponse:
+        case .invalidServerResponse, .invalidResponsePayload:
             String(localized: "codex-status.error.invalid-response")
         case let .serverError(message):
             message
@@ -63,7 +64,7 @@ nonisolated enum CodexStatusError: LocalizedError {
     /// 参数或协议形状不正确时继续用同一请求重试不会恢复
     var isProtocolOrParameterFailure: Bool {
         switch self {
-        case .unsupportedMethod, .unsupportedVersion:
+        case .invalidResponsePayload, .unsupportedMethod, .unsupportedVersion:
             true
         case .serverError:
             serverErrorMessageContains("invalid params")
@@ -76,7 +77,7 @@ nonisolated enum CodexStatusError: LocalizedError {
         }
     }
 
-    /// 连接断开, 超时, 无法解析都需要重建 app-server 会话
+    /// 连接断开, 超时或 JSON-RPC 信封无效时需要重建 app-server 会话
     var isTransportFailure: Bool {
         switch self {
         case .serverConnectionClosed, .serverTimeout, .invalidServerResponse:

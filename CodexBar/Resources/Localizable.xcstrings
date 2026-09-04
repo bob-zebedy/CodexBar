@@ -4417,6 +4417,22 @@
         }
       }
     },
+    "usage.heatmap.no-data" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No daily usage data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无日用量数据"
+          }
+        }
+      }
+    },
     "usage.heatmap.past-weeks" : {
       "localizations" : {
         "en" : {

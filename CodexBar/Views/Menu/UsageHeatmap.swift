@@ -26,7 +26,7 @@ nonisolated struct UsageHeatmapSelection: Equatable {
 
 /// token 摘要和近 30 周热力图的组合区
 struct UsageSummaryView: View {
-    let usage: CodexUsageSnapshot
+    let usage: CodexUsageSnapshot?
     let isStale: Bool
     let showsWorkflow: Bool
     let onHoverContextChange: (UsageHeatmapHoverContext?) -> Void
@@ -36,7 +36,7 @@ struct UsageSummaryView: View {
     @State private var heatmapScreenFrame: CGRect?
 
     init(
-        usage: CodexUsageSnapshot,
+        usage: CodexUsageSnapshot?,
         workflow: WorkflowSnapshot,
         showsWorkflow: Bool,
         isStale: Bool = false,
@@ -59,60 +59,89 @@ struct UsageSummaryView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            metricsGrid
+        content
+            .markStale(isStale)
+            .padding(MenuMetrics.panelPadding)
+            .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
+            .onAppear {
+                clearHover()
+            }
+            .onDisappear {
+                clearHover()
+            }
+            .onChange(of: days) { _, newDays in
+                refreshHoveredDay(from: newDays)
+            }
+            .onChange(of: hoverContext) { _, context in
+                onHoverContextChange(context)
+            }
+            .animation(Metrics.statusAnimation, value: usage)
+            .animation(Metrics.statusAnimation, value: days)
+    }
 
-            UsageHeatmap(
-                days: days,
-                selection: $hoverSelection,
-                peakTokens: peakTokens,
-                onScreenFrameChange: { frame in
-                    heatmapScreenFrame = frame
+    @ViewBuilder
+    private var content: some View {
+        if usage?.hasAppServerData == true || showsWorkflow {
+            VStack(alignment: .leading, spacing: 8) {
+                metricsGrid
+
+                if usage?.hasDailyUsageBuckets == true || showsWorkflow {
+                    UsageHeatmap(
+                        days: days,
+                        selection: $hoverSelection,
+                        peakTokens: peakTokens,
+                        onScreenFrameChange: { frame in
+                            heatmapScreenFrame = frame
+                        }
+                    )
+                } else {
+                    dailyUsageUnavailable
                 }
-            )
+            }
+        } else {
+            Text("common.empty.no-data")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, MenuMetrics.loadingVerticalPadding)
         }
-        .markStale(isStale)
-        .padding(MenuMetrics.panelPadding)
-        .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
-        .onAppear {
-            clearHover()
-        }
-        .onDisappear {
-            clearHover()
-        }
-        .onChange(of: days) { _, newDays in
-            refreshHoveredDay(from: newDays)
-        }
-        .onChange(of: hoverContext) { _, context in
-            onHoverContextChange(context)
-        }
-        .animation(Metrics.statusAnimation, value: usage)
-        .animation(Metrics.statusAnimation, value: days)
     }
 
     private var metricsGrid: some View {
         HStack(alignment: .firstTextBaseline, spacing: Metrics.metricSpacing) {
-            tokenMetric(label: "usage.summary.lifetime-tokens", value: usage.summary.lifetimeTokens)
-            tokenMetric(label: "usage.summary.peak-tokens", value: usage.summary.peakDailyTokens)
+            tokenMetric(label: "usage.summary.lifetime-tokens", value: usage?.summary.lifetimeTokens)
+            tokenMetric(label: "usage.summary.peak-tokens", value: usage?.summary.peakDailyTokens)
             textMetric(
                 label: "usage.summary.current-streak",
-                value: Self.dayText(usage.summary.currentStreakDays)
+                value: Self.dayText(usage?.summary.currentStreakDays)
             )
             textMetric(
                 label: "usage.summary.longest-streak",
-                value: Self.dayText(usage.summary.longestStreakDays)
+                value: Self.dayText(usage?.summary.longestStreakDays)
             )
             textMetric(
                 label: "usage.summary.longest-chat",
-                value: Self.durationText(seconds: usage.summary.longestRunningTurnSec)
+                value: Self.durationText(seconds: usage?.summary.longestRunningTurnSec)
             )
         }
     }
 
-    private func tokenMetric(label: LocalizedStringResource, value: Int) -> some View {
+    private func tokenMetric(label: LocalizedStringResource, value: Int?) -> some View {
         metric(label: label) {
-            TokenCountText(tokens: value)
+            if let value {
+                TokenCountText(tokens: value)
+            } else {
+                Text(verbatim: "--")
+                    .font(.caption.monospacedDigit().weight(.semibold))
+            }
         }
+    }
+
+    private var dailyUsageUnavailable: some View {
+        Text("usage.heatmap.no-data")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(height: UsageHeatmap.Metrics.height)
     }
 
     private func textMetric(label: LocalizedStringResource, value: String) -> some View {
@@ -253,6 +282,8 @@ struct UsageHeatmap: View {
             }
             .onDisappear {
                 cancelHoverClearTask()
+                snapSelection = nil
+                selection = nil
                 onScreenFrameChange(nil)
             }
     }
@@ -494,7 +525,7 @@ extension UsageHeatmap {
 
 // MARK: - 单元格
 
-/// 单个热力图方块, 蓝色透明度表示当天 token 强度
+/// 单个热力图方块, 蓝色透明度表示当天 token 强度, 中性色表示 token 数据不可用
 private struct UsageHeatmapSquare: View {
     let day: UsageHeatmapDay
     let percent: Double
@@ -507,7 +538,7 @@ private struct UsageHeatmapSquare: View {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .stroke(borderColor, lineWidth: isHovered ? 1.2 : 0.7)
             }
-            .shadow(color: .blue.opacity(0.22), radius: isHovered ? 5 : 0, y: isHovered ? 2 : 0)
+            .shadow(color: shadowColor, radius: isHovered ? 5 : 0, y: isHovered ? 2 : 0)
             .scaleEffect(isHovered ? 1.08 : 1)
             .frame(width: UsageHeatmap.Metrics.squareSize, height: UsageHeatmap.Metrics.squareSize)
             .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
@@ -519,6 +550,9 @@ private struct UsageHeatmapSquare: View {
     }
 
     private var fillColor: Color {
+        guard day.tokenCount != nil else {
+            return Color.secondary.opacity(isHovered ? 0.12 : 0.05)
+        }
         guard day.tokensForHeatmap > 0 else {
             return Color.blue.opacity(isHovered ? 0.16 : 0.08)
         }
@@ -529,11 +563,18 @@ private struct UsageHeatmapSquare: View {
     }
 
     private var borderColor: Color {
+        guard day.tokenCount != nil else {
+            return Color.secondary.opacity(isHovered ? 0.42 : 0.12)
+        }
         if isHovered {
             return Color.blue.opacity(0.78)
         }
 
         return Color.blue.opacity(day.tokensForHeatmap > 0 ? 0.18 : 0.10)
+    }
+
+    private var shadowColor: Color {
+        day.tokenCount == nil ? .clear : .blue.opacity(0.22)
     }
 }
 
@@ -627,7 +668,7 @@ struct UsageHeatmapDayDetailView: View {
 
             Spacer(minLength: 8)
 
-            tokenIntensityStrip
+            tokenIntensityValue
                 .frame(width: Metrics.tokenIntensityStripWidth)
         }
     }
@@ -639,7 +680,7 @@ struct UsageHeatmapDayDetailView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: Metrics.metricLabelWidth, alignment: .leading)
 
-            tokenIntensityStrip
+            tokenIntensityValue
                 .frame(width: Metrics.tokenIntensityStripWidth)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
@@ -681,6 +722,19 @@ struct UsageHeatmapDayDetailView: View {
             }
         }
         .frame(height: Metrics.tokenIntensityStripHeight)
+    }
+
+    @ViewBuilder
+    private var tokenIntensityValue: some View {
+        if context.day.tokenCount != nil {
+            tokenIntensityStrip
+        } else {
+            Text(verbatim: "--")
+                .foregroundStyle(Color.codexLabel)
+                .fontWeight(.semibold)
+                .monospacedDigit()
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
     }
 
     private var workflowMetricRows: [WorkflowMetricRow] {

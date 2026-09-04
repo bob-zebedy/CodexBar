@@ -83,8 +83,8 @@ Hook 事件缺少 session ID 时，CodexBar 会按项目显示匿名任务。匿
 
 | 事件 | 主要用途 |
 | --- | --- |
-| `SessionStart` 和 `SessionEnd` | 会话生命周期、会话统计和任务收尾 |
-| `UserPromptSubmit` 和 `Stop` | 对话轮次、任务开始和完成候选 |
+| `SessionStart` 和 `SessionEnd` | 会话生命周期和任务收尾 |
+| `UserPromptSubmit` 和 `Stop` | 轮次生命周期、任务开始和完成候选 |
 | `PreToolUse` 和 `PostToolUse` | 工具调用统计和任务进展 |
 | `PermissionRequest` | 用户等待状态和权限请求统计 |
 | `PreCompact` 和 `PostCompact` | 上下文压缩统计和任务进展 |
@@ -94,13 +94,15 @@ Hook 事件缺少 session ID 时，CodexBar 会按项目显示匿名任务。匿
 
 | 指标 | 含义 |
 | --- | --- |
-| 会话 | 当天不同 Codex session 的数量 |
-| 对话轮次 | 当天不同 turn 的数量 |
+| 会话 | 除 `SessionEnd` 外，当天其他事件中不同 session 的数量 |
+| 对话轮次 | 除 `Stop` 外，当天其他事件中不同 turn 的数量 |
 | 工具调用 | `PreToolUse` 和 `PostToolUse` 两类计数中的较大值 |
 | 权限请求 | `PermissionRequest` 事件数量 |
 | 上下文压缩 | `PreCompact` 和 `PostCompact` 两类计数中的较大值 |
 | 子 Agent | `SubagentStart` 和 `SubagentStop` 两类计数中的较大值 |
 | 最常用模型 | 当天 Hook 事件中出现次数最多的模型 |
+
+session 和 turn 只统计非空 ID，并分别在当天去重。跨天 session 或 turn 如果当天仍有其他事件会计入当天；当天只有 `SessionEnd` 的 session 和只有 `Stop` 的 turn 不计入。
 
 使用较大值可以在成对事件缺少一端时保留已经观察到的操作数量。
 

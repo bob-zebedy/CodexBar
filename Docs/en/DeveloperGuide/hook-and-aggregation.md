@@ -421,6 +421,8 @@ Daily results include:
 - Project distribution
 - Model distribution
 
+The session count deduplicates nonempty session IDs from all events except `SessionEnd` on that day. The turn count deduplicates nonempty turn IDs from all events except `Stop` on that day. A session or turn spanning multiple days contributes to each day with a nonexcluded event; a session observed only through `SessionEnd` and a turn observed only through `Stop` do not contribute.
+
 Only one side of a paired event may persist. Counts therefore use rules that avoid duplicates while tolerating missing data:
 
 - Tool calls use `max(PreToolUse, PostToolUse)`
@@ -460,7 +462,7 @@ The UI can therefore distinguish:
 
 ## Schema Evolution and Rebuild
 
-The current aggregation schema is `5`, managed by `WorkflowMaintenanceState.currentAggregationSchema`.
+The current aggregation schema is `6`, managed by `WorkflowMaintenanceState.currentAggregationSchema`.
 
 Increment the schema for:
 

@@ -164,9 +164,10 @@ private extension CodexStatusMenuView {
 
     @ViewBuilder
     func usageSection(dataPlaceholderSection: MainPanelSection?) -> some View {
-        if let snapshot = viewModel.snapshot, let usage = snapshot.usage {
+        if let snapshot = viewModel.snapshot,
+           snapshot.usage != nil || codexHookSettings.isEnabled {
             UsageSummaryView(
-                usage: usage,
+                usage: snapshot.usage,
                 workflow: workflowViewModel.snapshot,
                 showsWorkflow: codexHookSettings.isEnabled,
                 isStale: snapshot.isUsageStale,
@@ -206,6 +207,7 @@ private extension CodexStatusMenuView {
             viewModel.snapshot?.limits.isEmpty == false
         case .usage:
             viewModel.snapshot?.usage != nil
+                || (viewModel.snapshot != nil && codexHookSettings.isEnabled)
         case .account, .activity, .status:
             false
         }
