@@ -182,18 +182,7 @@ struct UsageSummaryView: View {
             return "--"
         }
 
-        let totalSeconds = max(seconds, 0)
-        let duration = Duration.seconds(Double(totalSeconds))
-        let allowedUnits: Set<Duration.UnitsFormatStyle.Unit> = if totalSeconds >= 86400 {
-            [.days, .hours, .minutes, .seconds]
-        } else if totalSeconds >= 3600 {
-            [.hours, .minutes, .seconds]
-        } else if totalSeconds >= 60 {
-            [.minutes, .seconds]
-        } else {
-            [.seconds]
-        }
-        return CodexDurationFormat.abbreviated(duration, allowedUnits: allowedUnits)
+        return CodexDurationFormat.activityText(for: TimeInterval(seconds))
     }
 
     private enum Metrics {
