@@ -28,7 +28,7 @@ Before enabling CodexBar Hook, make sure that:
 
 The version check uses the handshake version from the connected app-server, not a newly installed version on disk.
 
-If CodexBar still reports an older version after you update Codex, quit and reopen CodexBar to establish a new connection.
+If CodexBar still reports an older version after you update Codex, click Refresh Connection under Settings > About.
 
 ## Enabling the Hook
 

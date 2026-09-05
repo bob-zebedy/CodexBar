@@ -75,34 +75,11 @@ nonisolated struct CodexCLIVersionDisplay: Equatable {
 
         if let runningVersion,
            let installed = item.version,
-           Self.isInstalledVersionNewer(installed, than: runningVersion) {
+           CodexCLIVersionReader.isVersion(installed, newerThan: runningVersion) == true {
             newerInstalledVersion = installed
         } else {
             newerInstalledVersion = nil
         }
-    }
-
-    private static func isInstalledVersionNewer(
-        _ installedVersion: String,
-        than runningVersion: String
-    ) -> Bool {
-        guard let installedComponents = normalizedVersionComponents(from: installedVersion),
-              let runningComponents = normalizedVersionComponents(from: runningVersion) else {
-            return false
-        }
-
-        return runningComponents.lexicographicallyPrecedes(installedComponents)
-    }
-
-    private static func normalizedVersionComponents(from version: String) -> [Int]? {
-        let components = version
-            .components(separatedBy: CharacterSet.decimalDigits.inverted)
-            .compactMap { $0.isEmpty ? nil : Int($0) }
-        guard !components.isEmpty else {
-            return nil
-        }
-
-        return Array(components.reversed().drop(while: { $0 == 0 }).reversed())
     }
 }
 
@@ -407,6 +384,16 @@ nonisolated enum CodexCLIVersionReader {
         return parsedVersion >= parsedMinimumVersion
     }
 
+    /// 返回 nil 表示任一版本不可识别, 构建标记不影响版本优先级
+    static func isVersion(_ version: String, newerThan otherVersion: String) -> Bool? {
+        guard let parsedVersion = SemanticVersion(version),
+              let parsedOtherVersion = SemanticVersion(otherVersion) else {
+            return nil
+        }
+
+        return parsedVersion > parsedOtherVersion
+    }
+
     private struct SemanticVersion: Comparable {
         let core: [Int]
         let prerelease: [PrereleaseIdentifier]?
@@ -518,9 +505,9 @@ final class CodexCLIVersionViewModel: ObservableObject {
         refreshCoordinator.cancel()
     }
 
-    func refresh() {
+    func refresh(force: Bool = false) {
         guard !isRefreshing,
-              Date().timeIntervalSince(snapshot.refreshedAt) > Self.refreshThrottle else {
+              force || Date().timeIntervalSince(snapshot.refreshedAt) > Self.refreshThrottle else {
             return
         }
 

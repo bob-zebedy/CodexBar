@@ -10,7 +10,7 @@
 - Hook features require the running Codex app-server to be `0.145.0` or later
 - Cross-device sync requires an available iCloud account on the Mac
 
-CodexBar prefers a globally installed Codex CLI. If it cannot find one, it tries the Codex bundled with ChatGPT App and Codex App.
+By default, CodexBar automatically prefers a globally installed Codex CLI. If it cannot find one, it tries the Codex bundled with ChatGPT App and Codex App. You can select a source under Settings > About > Codex Versions > Source.
 
 ## Installation
 

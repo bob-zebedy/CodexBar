@@ -3,6 +3,7 @@ import Foundation
 /// UI 和日志共用的 app-server 错误分类, 保留可重试/需重连判断
 nonisolated enum CodexStatusError: LocalizedError {
     case executableNotFound
+    case sourceUnavailable(CodexCLIExecutableSource)
     case serverTimeout
     case serverConnectionClosed
     case invalidServerResponse
@@ -16,6 +17,8 @@ nonisolated enum CodexStatusError: LocalizedError {
         switch self {
         case .executableNotFound:
             String(localized: "codex-status.error.executable-not-found")
+        case let .sourceUnavailable(source):
+            "\(source.displayName): \(String(localized: "settings.codex-version.unavailable"))"
         case .serverTimeout:
             String(localized: "codex-status.error.server-timeout")
         case .serverConnectionClosed:

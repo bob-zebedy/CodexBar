@@ -16,7 +16,7 @@
 3. Double-click the account icon in the CodexBar main panel to refresh
 4. If it still says you are not signed in, quit and reopen CodexBar
 
-CodexBar prefers the global Codex CLI. The `In Use` indicator on the About page identifies the actual source.
+Automatic mode prefers the global Codex CLI. The `In Use` indicator on the About page identifies the actual source, which you can change with the Source selector.
 
 ## The Main Panel Says “Initialization Failed”
 
@@ -41,7 +41,7 @@ Double-click the account icon to retry. If the values remain dimmed, check `acco
 
 | Message | Meaning | Recommended action |
 | --- | --- | --- |
-| A newer Codex version is required | The current app-server version is too old | Update Codex, then restart CodexBar |
+| A newer Codex version is required | The current app-server version is too old | Update Codex, then click Refresh Connection on the About page |
 | Codex Hook is disabled globally | `features.hooks` is disabled | Re-enable Hooks in the Codex configuration |
 | CodexBar Hook is incomplete | At least one required event is missing the current handler | Reopen Settings to trigger automatic repair; if it still fails, turn Hook off and on again |
 | CodexBar Hook is not trusted | Codex still considers the handler untrusted or modified | Re-enable the Hook and inspect the Codex configuration |
@@ -131,7 +131,7 @@ A sync failure does not delete local Hook data. A later maintenance run retries 
 
 The current version comes from the running app-server handshake. The on-disk version comes from running Codex `--version` again.
 
-If About shows the new installed version but `In Use` still shows the old one, quit and reopen CodexBar.
+If About shows the new installed version but `In Use` still shows the old one, click Refresh Connection. Alternatively, the next request after the connection is one hour old rebuilds it automatically.
 
 ## Using the Logs Window
 

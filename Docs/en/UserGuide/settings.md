@@ -165,15 +165,26 @@ See [Data, Sync, and Privacy](sync-data-privacy.md) for details.
 
 | Item | Purpose |
 | --- | --- |
+| Source | Located beside the Codex Versions heading; Automatic is always available, while Codex CLI and Codex APP appear only when detected as installed |
+| Refresh Connection | The circular arrow next to the source selector establishes a new connection using the selected source and its installed version |
 | Codex CLI | Shows the on-disk version and path of the global Codex CLI |
 | Codex APP | Shows the on-disk version and path of the CLI bundled with ChatGPT App or Codex App |
 | In Use | Identifies the Codex source and running app-server version currently in use |
+| Unavailable | An orange badge in the status position when the current, selected, or failed refresh source can no longer be detected |
 | CodexBar Version | Shows the current version, update status, and any available update |
 | GitHub Project | Opens the CodexBar project page |
 | Check for Updates | Runs a manual Sparkle update check |
 | Quit CodexBar | Completes required cleanup before quitting the app |
 
 If Codex has been updated on disk but the current app-server has not reconnected, About shows the newly installed version as well.
+
+Update hints share the semantic version parser used by minimum-version checks: a stable release takes precedence over its prereleases, build metadata does not affect precedence, and unrecognized versions do not produce an update hint.
+
+The default source is Automatic, which prefers CLI and uses the app's bundled Codex when CLI is not installed. Source options only show detected installations. Version rows normally show installed sources; if the current, selected, or failed refresh source is uninstalled, its row remains with Unavailable replacing In Use, without a duplicate source-unavailable message below. This badge means a new connection cannot be opened from that source, not that the old connection has stopped. Changing the source connects immediately and saves the choice only after success. Failure preserves the previous connection and choice. If a previously selected source is uninstalled, the picker shows “Select Source” without falling back to another source.
+
+Automatic reconnection remains enabled: once a connection is one hour old, the next request rebuilds it using the selected source. Refresh Connection applies an installed update sooner. Older CodexBar versions ignore the source preference and retain their original automatic selection behavior.
+
+Hover over the circular arrow to see Refresh Connection. While reconnecting, the arrow rotates continuously, and both controls are temporarily disabled. Success updates In Use; a missing source shows Unavailable, while other failures display a reason below the version rows.
 
 Click an executable path to copy the full path.
 

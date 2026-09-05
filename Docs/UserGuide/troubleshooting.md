@@ -16,7 +16,7 @@
 3. 双击 CodexBar 主面板中的账户图标刷新
 4. 仍然未登录时退出并重新打开 CodexBar
 
-CodexBar 优先使用全局 Codex CLI，关于页面的 `当前使用` 标记可以确认实际来源。
+自动模式优先使用全局 Codex CLI，关于页面的 `当前使用` 标记可以确认实际来源，也可以通过“来源”选择器切换。
 
 ## 主面板显示初始化失败
 
@@ -41,7 +41,7 @@ CodexBar 优先使用全局 Codex CLI，关于页面的 `当前使用` 标记可
 
 | 提示 | 含义 | 建议处理 |
 | --- | --- | --- |
-| 需要更高 Codex 版本 | 当前 app-server 版本不足 | 更新 Codex 后重启 CodexBar |
+| 需要更高 Codex 版本 | 当前 app-server 版本不足 | 更新 Codex 后在关于页面点击“刷新连接” |
 | Codex Hook 已全局关闭 | `features.hooks` 已禁用 | 在 Codex 配置中重新启用 Hooks |
 | CodexBar Hook 已不完整 | 至少一个必要事件缺少当前 handler | 重新打开设置触发自动补齐，仍未恢复时关闭后重新开启 Hook |
 | CodexBar Hook 未被信任 | Codex 仍把 handler 判定为未信任或已修改 | 重新开启 Hook 并检查 Codex 配置 |
@@ -131,7 +131,7 @@ pmset -g sched
 
 当前版本来自已经运行的 app-server 握手，磁盘版本来自重新执行 Codex `--version`
 
-如果关于页面显示新安装版本但 `当前使用` 仍是旧版本，退出并重新打开 CodexBar。
+如果关于页面显示新安装版本但 `当前使用` 仍是旧版本，点击“刷新连接”。也可以等待当前连接满 1 小时后的下一次请求自动重建。
 
 ## 使用日志窗口
 

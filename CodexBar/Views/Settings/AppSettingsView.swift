@@ -966,7 +966,20 @@ private extension AppSettingsView {
     var codexVersionSection: some View {
         CodexVersionSection(
             snapshot: codexVersions.snapshot,
-            connectionInfo: statusViewModel.codexConnectionInfo
+            connectionInfo: statusViewModel.codexConnectionInfo,
+            sourceSelection: statusViewModel.pendingCodexSourceSelection ?? statusViewModel.codexSourceSelection,
+            isReconnecting: statusViewModel.isReconnecting,
+            isBusy: statusViewModel.isRefreshing || statusViewModel.isReconnecting || codexVersions.isRefreshing,
+            errorMessage: statusViewModel.connectionErrorMessage,
+            unavailableSource: statusViewModel.unavailableConnectionSource,
+            onReconnect: { selection in
+                Task { @MainActor in
+                    if await statusViewModel.reconnectCodex(selection: selection, requiresHooks: codexHookSettings.isEnabled) {
+                        codexHookSettings.reconcileInstalledHooks()
+                    }
+                    codexVersions.refresh(force: true)
+                }
+            }
         )
     }
 

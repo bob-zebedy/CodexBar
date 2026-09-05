@@ -25,10 +25,18 @@ final class CodexStatusViewModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var loadState: CodexLoadState = .loading
     @Published private(set) var codexConnectionInfo: CodexCLIConnectionInfo?
+    @Published private(set) var connectionErrorMessage: String?
+    @Published private(set) var unavailableConnectionSource: CodexCLIExecutableSource?
+    @Published private(set) var codexSourceSelection = CodexCLISourceSelection.automatic
+    @Published private(set) var pendingCodexSourceSelection: CodexCLISourceSelection?
     @Published private(set) var autoRefreshCountdownStartedAt: Date?
 
     /// 统计维护挂在额度刷新完成事件上, 由它继承本次刷新的触发来源
     private(set) var lastRefreshTrigger: LogTrigger = .launch
+
+    var isReconnecting: Bool {
+        pendingCodexSourceSelection != nil
+    }
 
     var autoRefreshInterval: TimeInterval {
         Self.refreshInterval
@@ -41,6 +49,7 @@ final class CodexStatusViewModel: ObservableObject {
     private var pendingRefreshTask: Task<Void, Never>?
     private var pendingForcedRefreshTrigger: LogTrigger?
     private let refreshCoordinator = RefreshTaskCoordinator()
+    private var connectionInfoGeneration: UInt64 = 0
 
     init(service: CodexStatusService = CodexStatusService()) {
         self.service = service
@@ -81,7 +90,7 @@ final class CodexStatusViewModel: ObservableObject {
     }
 
     func refresh(trigger: LogTrigger) {
-        guard !isRefreshing else {
+        guard !isRefreshing, !isReconnecting else {
             return
         }
 
@@ -92,7 +101,11 @@ final class CodexStatusViewModel: ObservableObject {
         refreshCoordinator.run(
             setRefreshing: { [weak self] in self?.setRefreshing($0) },
             operation: { [service = self.service] in
-                await (fetch: service.fetchOutcome(), connectionInfo: service.currentConnectionInfo())
+                await (
+                    fetch: service.fetchOutcome(),
+                    connectionInfo: service.currentConnectionInfo(),
+                    selection: service.currentSourceSelection()
+                )
             },
             commit: { [weak self] result in
                 guard let self else {
@@ -122,6 +135,7 @@ final class CodexStatusViewModel: ObservableObject {
                     elapsed: duration.elapsed
                 )
                 codexConnectionInfo = result.connectionInfo
+                codexSourceSelection = result.selection
                 autoRefreshCountdownStartedAt = Date()
             }
         )
@@ -129,7 +143,7 @@ final class CodexStatusViewModel: ObservableObject {
 
     /// 自动消费完成后不能因为普通刷新正在运行而丢掉最终对账
     func refreshAfterCurrent(trigger: LogTrigger) {
-        guard isRefreshing else {
+        guard isRefreshing || isReconnecting else {
             refresh(trigger: trigger)
             return
         }
@@ -211,8 +225,59 @@ final class CodexStatusViewModel: ObservableObject {
     }
 
     func refreshCodexConnectionInfo() {
+        guard !isReconnecting else {
+            return
+        }
+        let generation = connectionInfoGeneration
         Task {
-            self.codexConnectionInfo = await service.currentConnectionInfo()
+            let info = await service.currentConnectionInfo()
+            let selection = await service.currentSourceSelection()
+            guard generation == connectionInfoGeneration, !isReconnecting else {
+                return
+            }
+            codexConnectionInfo = info
+            codexSourceSelection = selection
+        }
+    }
+
+    func reconnectCodex(
+        selection: CodexCLISourceSelection? = nil,
+        requiresHooks: Bool
+    ) async -> Bool {
+        guard !isRefreshing, !isReconnecting else {
+            return false
+        }
+
+        pendingCodexSourceSelection = selection ?? codexSourceSelection
+        connectionErrorMessage = nil
+        unavailableConnectionSource = nil
+        connectionInfoGeneration &+= 1
+        var didReconnect = false
+        defer {
+            pendingCodexSourceSelection = nil
+            let trigger = pendingForcedRefreshTrigger
+            pendingForcedRefreshTrigger = nil
+            if didReconnect || trigger != nil {
+                refresh(trigger: trigger ?? .manual)
+            }
+        }
+
+        do {
+            codexConnectionInfo = try await service.reconnect(
+                selection: selection,
+                minimumVersion: requiresHooks ? CodexCLIMinimumVersion.hook : CodexCLIMinimumVersion.global
+            )
+            codexSourceSelection = await service.currentSourceSelection()
+            snapshot = nil
+            loadState = .loading
+            didReconnect = true
+            return true
+        } catch let CodexStatusError.sourceUnavailable(source) {
+            unavailableConnectionSource = source
+            return false
+        } catch {
+            connectionErrorMessage = error.localizedDescription
+            return false
         }
     }
 

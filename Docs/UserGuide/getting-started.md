@@ -10,7 +10,7 @@
 - 使用 Hook 相关功能时，当前运行的 Codex app-server 版本需要为 `0.145.0` 或更高版本
 - 使用跨设备同步时，Mac 需要登录可用的 iCloud 账户
 
-CodexBar 会优先使用全局安装的 Codex CLI，找不到时再尝试 ChatGPT App 和 Codex App 内置的 Codex。
+CodexBar 默认自动选择来源，优先使用全局安装的 Codex CLI，找不到时再尝试 ChatGPT App 和 Codex App 内置的 Codex。可在“设置 > 关于 > Codex 版本 > 来源”中手动选择。
 
 ## 安装
 

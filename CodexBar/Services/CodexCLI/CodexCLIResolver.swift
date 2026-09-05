@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-/// CodexBar 支持全局 CLI 优先, 找不到时回退 Codex APP 内置 CLI
+/// 可用于启动 app-server 的安装来源
 nonisolated enum CodexCLIExecutableSource: String, Equatable {
     case global
     case bundled
@@ -12,6 +12,39 @@ nonisolated enum CodexCLIExecutableSource: String, Equatable {
         case .bundled: "Codex APP"
         }
     }
+}
+
+/// 自动沿用 CLI 优先的解析规则, 手动选择只使用指定来源
+nonisolated enum CodexCLISourceSelection: String, CaseIterable, Identifiable {
+    case automatic
+    case global
+    case bundled
+
+    var id: Self {
+        self
+    }
+
+    var source: CodexCLIExecutableSource? {
+        switch self {
+        case .automatic: nil
+        case .global: .global
+        case .bundled: .bundled
+        }
+    }
+
+    var title: String {
+        source?.displayName ?? String(localized: "settings.codex-version.source.automatic")
+    }
+
+    static func load(from defaults: UserDefaults) -> Self {
+        defaults.string(forKey: defaultsKey).flatMap(Self.init(rawValue:)) ?? .automatic
+    }
+
+    func save(to defaults: UserDefaults) {
+        defaults.set(rawValue, forKey: Self.defaultsKey)
+    }
+
+    private static let defaultsKey = "CodexCLI.sourceSelection"
 }
 
 /// 启动 app-server 所需的可执行文件和固定 stdio 参数
@@ -62,13 +95,15 @@ nonisolated enum CodexCLIResolver {
     ]
     static let environment = appServerEnvironment()
 
-    static func resolveAppServerCommand(environment: [String: String] = environment) throws -> AppServerCommand {
-        try command(from: resolveInstallations(environment: environment))
-    }
-
     /// 从已解析的安装信息派生命令, 避免重复扫描 PATH
-    static func command(from installations: CodexCLIInstallations) throws -> AppServerCommand {
-        guard let source = installations.activeSource,
+    static func command(
+        from installations: CodexCLIInstallations,
+        source: CodexCLIExecutableSource? = nil
+    ) throws -> AppServerCommand {
+        if let source, installations.path(for: source) == nil {
+            throw CodexStatusError.sourceUnavailable(source)
+        }
+        guard let source = source ?? installations.activeSource,
               let path = installations.path(for: source) else {
             throw CodexStatusError.executableNotFound
         }

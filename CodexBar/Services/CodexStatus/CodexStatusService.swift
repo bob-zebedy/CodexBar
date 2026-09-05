@@ -136,6 +136,8 @@ actor CodexStatusService {
     private var connection: AppServerConnection?
     private var supplementalDataCache = SupplementalDataCache()
     private var lastResolvedSource: CodexCLIExecutableSource?
+    private let defaults: UserDefaults
+    private var sourceSelection: CodexCLISourceSelection
 
     /// app-server 退出后继续写管道会触发 SIGPIPE
     /// 忽略信号, 让 write 抛错后走重建
@@ -143,7 +145,9 @@ actor CodexStatusService {
         signal(SIGPIPE, SIG_IGN)
     }()
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        sourceSelection = CodexCLISourceSelection.load(from: defaults)
         _ = Self.ignoreBrokenPipeSignal
     }
 
@@ -151,7 +155,7 @@ actor CodexStatusService {
 
     func fetchOutcome() async -> CodexFetchResult {
         var trace = CodexFetchTrace()
-        let outcome = await resolveOutcome(allowRebuild: true, trace: &trace)
+        let outcome = resolveOutcome(allowRebuild: true, trace: &trace)
         return CodexFetchResult(outcome: outcome, trace: trace)
     }
 
@@ -163,9 +167,55 @@ actor CodexStatusService {
         return connection.commandInfo
     }
 
+    func currentSourceSelection() -> CodexCLISourceSelection {
+        sourceSelection
+    }
+
     /// 需要以实际运行版本做能力检查时建立或复用连接
     func readyConnectionInfo() throws -> CodexCLIConnectionInfo {
         try readyConnection().commandInfo
+    }
+
+    /// 新连接完成握手和账户校验后才替换旧连接, 失败时继续保留原会话
+    func reconnect(
+        selection: CodexCLISourceSelection? = nil,
+        minimumVersion: String
+    ) throws -> CodexCLIConnectionInfo {
+        let requestedSelection = selection ?? sourceSelection
+        let command = try CodexCLIResolver.command(
+            from: CodexCLIResolver.resolveInstallations(environment: Self.environment),
+            source: requestedSelection.source
+        )
+        let resolution = Self.openConnection(
+            command: command,
+            environment: Self.environment,
+            clientVersion: Self.clientVersion(),
+            timeout: Self.requestTimeout
+        )
+        switch resolution {
+        case let .ready(candidate, _):
+            guard let version = candidate.commandInfo.version,
+                  CodexCLIVersionReader.isVersion(version, atLeast: minimumVersion) == true else {
+                candidate.close()
+                throw CodexStatusError.unsupportedVersion(minimum: minimumVersion)
+            }
+
+            let previous = connection
+            connection = candidate
+            sourceSelection = requestedSelection
+            sourceSelection.save(to: defaults)
+            supplementalDataCache = SupplementalDataCache()
+            lastResolvedSource = command.source
+            previous?.close()
+            AppLog.codexCLI.notice("Codex 连接已切换: source=\(command.source.rawValue, privacy: .public)")
+            return candidate.commandInfo
+        case .notLoggedIn:
+            throw CodexStatusError.notLoggedIn
+        case let .unsupportedVersion(minimum):
+            throw CodexStatusError.unsupportedVersion(minimum: minimum)
+        case .initializationFailed:
+            throw CodexStatusError.serverConnectionClosed
+        }
     }
 
     func readCodexConfig() async throws -> CodexConfigReadResponse {
@@ -250,7 +300,7 @@ actor CodexStatusService {
     private func resolveOutcome(
         allowRebuild: Bool,
         trace: inout CodexFetchTrace
-    ) async -> CodexFetchOutcome {
+    ) -> CodexFetchOutcome {
         switch ensureConnection() {
         case .notLoggedIn:
             trace.failureStage = .connect
@@ -264,7 +314,7 @@ actor CodexStatusService {
         case let .ready(connection, reused):
             trace.connection = reused ? .reused : .new
             do {
-                let snapshot = try await fetchData(
+                let snapshot = try fetchData(
                     using: connection,
                     refreshAccountInfo: reused,
                     trace: &trace
@@ -278,7 +328,7 @@ actor CodexStatusService {
                 teardownConnection()
                 if reused, allowRebuild {
                     AppLog.app.notice("codex 连接已失效: reason=transportError")
-                    return await resolveOutcome(allowRebuild: false, trace: &trace)
+                    return resolveOutcome(allowRebuild: false, trace: &trace)
                 }
                 return .initializationFailed
             } catch {
@@ -365,7 +415,10 @@ actor CodexStatusService {
 
         let command: AppServerCommand
         do {
-            command = try CodexCLIResolver.resolveAppServerCommand(environment: Self.environment)
+            command = try CodexCLIResolver.command(
+                from: CodexCLIResolver.resolveInstallations(environment: Self.environment),
+                source: sourceSelection.source
+            )
         } catch {
             let details = LogFields.joined(
                 "stage=resolveCLI",
@@ -449,7 +502,7 @@ actor CodexStatusService {
         using connection: AppServerConnection,
         refreshAccountInfo: Bool,
         trace: inout CodexFetchTrace
-    ) async throws -> CodexQuotaSnapshot {
+    ) throws -> CodexQuotaSnapshot {
         var didRefresh = false
 
         func refreshTokenIfNeeded() throws {
