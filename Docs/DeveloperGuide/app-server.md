@@ -79,7 +79,7 @@ resolver 会做 3 层归一化：
 2. 保留现有 `PATH`，再按顺序补充常见目录并去重
 3. 对候选路径解析 symlink 和 standardized URL，避免同一内置 binary 同时被识别成 global 与 bundled
 
-全局 CLI 优先是一个明确的产品选择。开发者主动安装的 CLI 通常代表其期望版本，内置 CLI 只是找不到全局版本时的可用回退。
+`CodexCLISourceSelection.automatic` 优先使用全局 CLI，找不到时使用 App 内置 CLI。手动选择 `global` 或 `bundled` 后只使用指定来源，缺失时返回 `sourceUnavailable`。来源选择由 `CodexStatusService` 保存，重建连接时沿用。
 
 ### 磁盘版本和运行版本为什么分开
 
@@ -307,6 +307,8 @@ stale 是数据可信度的一部分，新增展示时不能只复制数值而�
 - primary 与 secondary 使用稳定枚举，View 不根据标签字符串猜测窗口类型
 
 ## Reset Credits
+
+界面将可用数量显示为“留存重置”或“Banked Resets”，本地化键为 `banked-reset.count`。协议字段仍使用 `rateLimitResetCredits`
 
 `account/rateLimits/read` 的 `rateLimitResetCredits` 同时返回可用数量和可选明细：
 

@@ -54,10 +54,10 @@ When `Animation Effects` is enabled, each segmented progress bar fills from zero
 The primary rate-limit group may also show:
 
 - Available credits or unlimited-credit status
-- Available reset credits
-- The expiration time for each batch of reset credits
+- Available banked resets
+- The expiration time for each batch of banked resets
 
-Click the reset-credit count to open its details. This entry appears only when Codex reports available reset credits.
+Click `Banked Resets` to view expiration times by batch. The entry appears when the available count is greater than `0`.
 
 ## Token Usage and Heatmap
 

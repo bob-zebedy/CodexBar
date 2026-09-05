@@ -51,7 +51,7 @@ CodexBar refreshes account, rate-limit, and token usage data every 60 seconds. D
 | Double-click the account email | Toggle email blurring |
 | Hover over a heatmap cell | View token and Hook metrics for that day |
 | Click the activity card | Open Task Center for concurrent tasks |
-| Click the reset-credit count | View the expiration time of each credit batch |
+| Click `Banked Resets` | View the expiration time of each batch |
 | `Settings > Advanced > Automatic Reset` | Configure automatic use and lead time |
 
 The global shortcut opens the main panel on the screen under the pointer when possible. If the menu bar anchor is unavailable, CodexBar uses a standalone floating panel.

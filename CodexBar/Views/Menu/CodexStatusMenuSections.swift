@@ -281,7 +281,7 @@ struct QuotaLimitsSection: View {
                 )
             )
         } label: {
-            metadataCapsule(String(localized: "reset-credits.count", defaultValue: "\(count, specifier: "%lld")"))
+            metadataCapsule(String(localized: "banked-reset.count", defaultValue: "\(count, specifier: "%lld")"))
         }
         .buttonStyle(.plain)
     }

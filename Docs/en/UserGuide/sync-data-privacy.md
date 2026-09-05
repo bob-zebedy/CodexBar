@@ -4,7 +4,7 @@
 
 ## What Cross-Device Sync Includes
 
-Cross-device sync merges daily Hook aggregations from multiple Macs. It does not sync account data, rate limits, token usage, reset credits, or Automatic Reset settings.
+Cross-device sync merges daily Hook aggregations from multiple Macs. It does not sync account data, rate limits, token usage, banked resets, or Automatic Reset settings.
 
 It requires:
 
@@ -70,7 +70,7 @@ Daily aggregations retain lists of session and turn IDs only for the latest 3 da
 
 The CodexBarHelper ownership file is owned by root and is used to recover sleep state after an unexpected CodexBar or CodexBarHelper exit.
 
-The Automatic Reset wake schedule contains no account data, reset credits, `creditId`, or idempotency key. CodexBarHelper removes schedules left by the same build identity when it starts. The app also cancels schedules when tasks change, the feature is disabled, or the app exits normally.
+The Automatic Reset wake schedule contains no account data, banked resets, `creditId`, or idempotency key. CodexBarHelper removes schedules left by the same build identity when it starts. The app also cancels schedules when tasks change, the feature is disabled, or the app exits normally.
 
 Anonymous tasks do not participate in Stalled Task Protection, so they do not create hashed task identifiers or write to the protection-state file.
 
@@ -96,7 +96,7 @@ The pseudonymous device identifier is derived from the device UUID and a random 
 - Full working-directory paths
 - Prompts, Codex responses, tool arguments, or tool output
 - Codex account, rate-limit, or token usage data
-- Reset-credit details, Automatic Reset settings, or redemption state
+- Banked reset details, Automatic Reset settings, or redemption state
 - app-server interaction logs
 - Stalled Task Protection records
 - Codex authentication tokens
@@ -107,13 +107,13 @@ Project display names and model names are synced. Do not enable cross-device syn
 
 CodexBar reads the following local data:
 
-- Account, rate-limit, token usage, reset-credit details, and Codex configuration through the local app-server
+- Account, rate-limit, token usage, banked reset details, and Codex configuration through the local app-server
 - Raw Hook events to generate metrics and live tasks
 - Hook model fields and the first origin and lifecycle fields from local Codex rollout files to exclude Auto-review live tasks, distinguish completion from termination, and supplement progress timestamps
 
 Origin classification prefers rollout metadata. When rollout origin is `unknown`, only an exact `codex-auto-review` Hook model match classifies the event as `autoReview`. Origin reading is limited to 256 KiB and stores only the normalized result `main`, `autoReview`, `auxiliary`, or `unknown`. CodexBar does not store rollout paths or raw source values; other rollout reads likewise extract only lifecycle, time, reasoning-effort, and similar fields and never display or store conversation text or tool content.
 
-After you explicitly enable Automatic Reset, CodexBar uses reset credits that the same local app-server explicitly reports as near expiration. Raw `creditId` and idempotency keys are not written to disk or CloudKit. `UserDefaults` stores only the feature switch, lead time, notification switch, sound choice, and hashed notification-deduplication keys.
+After you explicitly enable Automatic Reset, CodexBar uses banked resets that the same local app-server explicitly reports as near expiration. Raw `creditId` and idempotency keys are not written to disk or CloudKit. `UserDefaults` stores only the feature switch, lead time, notification switch, sound choice, and hashed notification-deduplication keys.
 
 CodexBar does not copy or persist Codex authentication tokens.
 
@@ -124,7 +124,7 @@ CodexBar does not copy or persist Codex authentication tokens.
 | Sparkle update feed | Check for and install CodexBar updates | Automatic checking is enabled or you check manually |
 | CloudKit private database | Sync daily Hook aggregations across devices | You enable cross-device sync |
 
-Account data, rate limits, token usage, reset-credit details, and user-enabled Automatic Reset actions all use stdio communication with the local app-server. Automatic Reset does not add CloudKit requests. It sends CodexBarHelper only the time for a fixed system wake schedule, never account or reset-credit data.
+Account data, rate limits, token usage, banked reset details, and user-enabled Automatic Reset actions all use stdio communication with the local app-server. Automatic Reset does not add CloudKit requests. It sends CodexBarHelper only the time for a fixed system wake schedule, never account or banked reset data.
 
 ## Log Privacy
 

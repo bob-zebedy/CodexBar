@@ -945,10 +945,9 @@ private struct HeatmapTokenText: View {
             .foregroundStyle(Color.codexLabel)
 
         case .pending:
-            Image(systemName: "hourglass")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color.codexSecondaryLabel)
-                .symbolEffect(.rotate.byLayer, options: .repeat(.periodic(delay: 1.0)))
+            Image(systemName: "questionmark")
+                .font(font)
+                .foregroundStyle(Color.codexLabel)
 
         case .unavailable:
             Text(verbatim: "--")

@@ -135,7 +135,7 @@ CodexBar 不把命令塞进用户已有 group。独立 group 让卸载时可以�
 
 ### 异步设置操作的代际
 
-用户可以快速开关 Hook，App 激活也会触发校验。`CodexHookSettings` 每次操作递增 `updateGeneration` 并取消旧 Task。
+用户开关 Hook 或触发校验时，`CodexHookSettings` 通过 `updateCoordinator` 启动操作，由 `RefreshTaskCoordinator` 推进代际并取消旧 Task。
 
 每个文件写入或 RPC await 之后都会再次检查 generation。旧操作即使无法真正取消，也不能把新的开关状态或错误信息覆盖回去。
 

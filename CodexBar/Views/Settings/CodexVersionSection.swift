@@ -54,32 +54,14 @@ struct CodexVersionSection: View {
 
     private var sourceSelectionControls: some View {
         HStack(spacing: SettingsRowMetrics.spacing) {
-            Picker(
-                "settings.codex-version.source.title",
-                selection: Binding(
-                    get: { availableSelections.contains(sourceSelection) ? sourceSelection : nil },
-                    set: { selection in
-                        guard let selection, selection != sourceSelection else { return }
-                        onReconnect(selection)
-                    }
-                )
-            ) {
-                if !availableSelections.contains(sourceSelection) {
-                    Text("settings.codex-version.source.select")
-                        .tag(CodexCLISourceSelection?.none)
-                        .disabled(true)
-                }
-
-                ForEach(availableSelections) { selection in
-                    Text(selection.title)
-                        .tag(Optional(selection))
-                }
+            CodexSourcePicker(
+                selection: sourceSelection,
+                options: availableSelections,
+                isEnabled: !isBusy
+            ) { selection in
+                guard !isBusy, availableSelections.contains(selection), selection != sourceSelection else { return }
+                onReconnect(selection)
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .controlSize(.small)
-            .frame(width: Metrics.sourcePickerWidth, alignment: .trailing)
-            .disabled(isBusy)
 
             reconnectButton
         }
@@ -87,7 +69,8 @@ struct CodexVersionSection: View {
     }
 
     private var reconnectButton: some View {
-        let isEnabled = !isBusy && !isReconnecting && isSourceInstalled(sourceSelection)
+        let isWorking = isBusy || isReconnecting
+        let isEnabled = !isWorking && isSourceInstalled(sourceSelection)
         let label: LocalizedStringKey = isReconnecting
             ? "settings.codex-version.reconnecting"
             : "settings.codex-version.reconnect"
@@ -95,10 +78,21 @@ struct CodexVersionSection: View {
         return Button {
             onReconnect(nil)
         } label: {
-            Image(systemName: "arrow.clockwise")
-                .symbolEffect(.rotate.byLayer, options: .repeat(.periodic(delay: 0.0)), isActive: isReconnecting)
-                .frame(width: SettingsRowMetrics.optionsButtonSize, height: SettingsRowMetrics.optionsButtonSize)
-                .contentShape(Rectangle())
+            let icon = Image(systemName: "cable.coaxial")
+            Group {
+                if #available(macOS 26.0, *), isWorking {
+                    // DrawOn 保持激活会停在隐藏状态, 交替阶段才能持续重复绘制
+                    icon.phaseAnimator([true, false]) { content, isHidden in
+                        content.symbolEffect(.drawOn.byLayer, options: .repeat(.continuous), isActive: isHidden)
+                    } animation: { _ in
+                        .linear(duration: 0.5)
+                    }
+                } else {
+                    icon.symbolEffect(.wiggle.clockwise.byLayer, options: .repeat(.continuous), isActive: isWorking)
+                }
+            }
+            .frame(width: SettingsRowMetrics.optionsButtonSize, height: SettingsRowMetrics.optionsButtonSize)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .controlSize(.small)
@@ -212,7 +206,6 @@ struct CodexVersionSection: View {
         static let rowSpacing: CGFloat = 14
         static let iconWidth = SettingsRowMetrics.iconWidth
         static let childIndent: CGFloat = 28
-        static let sourcePickerWidth: CGFloat = 140
         static let versionColumnWidth: CGFloat = 270
         static let statusAnimation = Animation.codexStatus
     }

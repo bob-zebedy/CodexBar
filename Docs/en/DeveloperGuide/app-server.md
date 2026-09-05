@@ -79,7 +79,7 @@ The resolver normalizes in three layers:
 2. Preserve the existing `PATH`, then append common directories in order and deduplicate
 3. Resolve symlinks and standardized URLs for candidates so one bundled binary is not identified as both global and bundled
 
-Preferring the global CLI is an explicit product choice. A CLI deliberately installed by a developer generally represents the intended version; a bundled CLI is a fallback when no global version exists.
+`CodexCLISourceSelection.automatic` prefers the global CLI and falls back to the bundled CLI when none is found. Selecting `global` or `bundled` uses only that source and returns `sourceUnavailable` if it is missing. `CodexStatusService` saves the selection and reuses it when rebuilding the connection.
 
 ### Why On-Disk and Running Versions Are Separate
 
@@ -307,6 +307,8 @@ Rate-limit ordering is also centralized in the model:
 - Stable enums distinguish primary and secondary; views do not infer window type from label strings
 
 ## Reset Credits
+
+The UI labels the available count “Banked Resets” or “留存重置”, using the localization key `banked-reset.count`. The protocol field remains `rateLimitResetCredits`.
 
 `rateLimitResetCredits` from `account/rateLimits/read` provides both an available count and optional details:
 

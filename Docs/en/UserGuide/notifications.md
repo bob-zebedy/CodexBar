@@ -21,7 +21,7 @@ System Notifications is off by default. Turning it off disables all CodexBar sys
 | Waiting for approval | A task starts waiting for user approval | On | CodexBar Hook |
 | Low rate limit | A trusted rate limit reaches or crosses the threshold for the first time | On, 10% | None |
 | Rate limit reset | A rate-limit window previously observed as consumed returns to an unconsumed state | On | None |
-| Reset credits expiring | Reset credits enter the 7-day expiration window | On | Available reset credits |
+| Banked resets expiring | Banked resets enter the 7-day expiration window | On | Available banked resets |
 | Automatic Reset | An automatic reset explicitly returns success or reports that it already succeeded | On | Automatic Reset, its notification option, and System Notifications |
 | Automatic Reset failed | Authentication failure pauses the task, a protocol error stops it, or this Mac explicitly observes expiration | Shares the success-notification setting | Automatic Reset, its notification option, and System Notifications |
 | Low Battery Protection | Low Battery Protection successfully restores system sleep | On | Sleep prevention and Low Battery Protection |
@@ -45,7 +45,7 @@ A low-rate-limit alert fires only when the remaining percentage moves from above
 
 Restarting CodexBar does not repeat the alert within the same rate-limit reset cycle.
 
-Reset credits are checked for reminders at 7, 6, 5, 4, 3, 2, and 1 day before expiration.
+Banked resets are checked for reminders at 7, 6, 5, 4, 3, 2, and 1 day before expiration.
 
 ## Automatic Reset Notifications
 

@@ -19,7 +19,7 @@
 
 - 只想查看账户和额度，从 [安装与快速开始](getting-started.md) 开始
 - 想看正在运行或等待批准的任务，阅读 [实时任务与 CodexBar Hook](activity-and-hook.md)
-- 想在重置次数到期前自动重置额度，阅读 [设置参考](settings.md#自动重置)
+- 想在留存重置到期前自动重置额度，阅读 [设置参考](settings.md#自动重置)
 - 想在长任务期间阻止 Mac 睡眠，阅读 [防止系统睡眠](sleep-prevention.md)
 - 想知道某个开关是否会上传数据，阅读 [数据、同步与隐私](sync-data-privacy.md)
 - 已经遇到错误提示，直接进入 [常见问题与排查](troubleshooting.md)

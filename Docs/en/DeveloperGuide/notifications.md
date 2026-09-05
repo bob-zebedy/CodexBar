@@ -44,7 +44,7 @@ Different notifications require different evidence:
 | Automatic Reset | app-server mutation result | Only an explicit result proves that this Mac performed the automatic action |
 | Task completion | Monitor transition | Historical terminal snapshots must not replay |
 | Waiting for approval | Monitor transition plus current snapshot | Notify on new waiting state, then withdraw stale notifications |
-| Stalled Task Protection | Committed protection result | Must describe a task that has already been hidden |
+| Stalled Task Protection | A relevant candidate that has reached the silence threshold | Revalidate before notification submission and before hiding |
 | Sleep prevention stopped | Confirmed system-restoration result | Must not announce success before restoration |
 
 Inferring task completion from a current snapshot looks simpler, but every app launch would treat historical completed tasks as new events. Conversely, one transition alone cannot identify a low-rate-limit case when the app starts after the threshold was crossed.
@@ -83,7 +83,7 @@ While the master switch is off, CodexBar neither requests system notification pe
 | Low-battery stop | KeepAlive restoration result | Independent category switch, enabled only when protection is available |
 | Keep-awake limit | KeepAlive restoration result | Independent category switch, enabled only for a finite duration |
 
-Stalled Task Protection has no independent notification switch. It follows Prevent System Sleep, then the notification master switch after protection occurs. Preferences for low-battery and duration-limit notifications are retained, but the UI displays them off and disabled when their protection conditions are unavailable, without changing persisted preferences.
+Stalled Task Protection follows Prevent System Sleep. Its notifications require the master switch and system authorization, with no separate category switch. Low-battery and duration-limit notification preferences are retained while their controls appear off and disabled when the corresponding protection is unavailable.
 
 ## Rate-Limit Reset
 
@@ -209,15 +209,11 @@ Relevance checks both before and after submission cover the asynchronous window.
 
 ## Stalled Task Protection
 
-When a non-anonymous task reaches its silence threshold, Activity Protection first saves a protection record and hides the task, then requests a notification. Anonymous tasks never become protection candidates and cannot create protection notifications.
+When a non-anonymous running task reaches its silence threshold, Activity Protection records the candidate and starts notification submission alongside a 3-second grace period. When notification handling returns or the grace period expires, the monitor revalidates the candidate and hides the task if it remains relevant. Protection proceeds even if notification submission fails.
 
-The notification service checks again before submission that the task remains protected. New progress during the 3-second grace period cancels the stale notification.
+The notification identifier uses `taskID + attemptID`. Checks before and after submission compare progress generation and silence duration. New progress invalidates the protection attempt and withdraws its notification.
 
-Protection notifications always use the default sound rather than the task-completion category sound. A failed notification does not undo protection that already completed.
-
-The notification identifier uses `taskID + attemptID`; relevance also compares progress generation and silence duration. When the task progresses during the 3-second grace period, the monitor invalidates the protection attempt and requests withdrawal.
-
-These notifications have an explicit `retryCount` of 0. Protection results are time-sensitive, and a retry after immediate failure may no longer be relevant. General notifications may retry once; a protection notification prefers omission over a late false alert.
+Protection notifications use the system default sound and a `retryCount` of `0` to avoid retrying an obsolete candidate.
 
 ## Sleep Prevention Stopped
 

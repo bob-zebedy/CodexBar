@@ -76,7 +76,7 @@ Confirmed zone state and the account salt are cached in the actor across sync cy
 Sync runs only when all conditions hold:
 
 - The user enabled CloudKit sync
-- Hook is enabled and validated
+- `CodexHookSettings.isEnabled` is `true`; historical sync can consume aggregates already stored locally
 - The current iCloud account is available
 - The local aggregation service is available
 
@@ -129,18 +129,18 @@ For complete boundaries, see [Data and Privacy Boundaries](data-and-privacy.md).
 ## One Sync Cycle
 
 ```text
-Confirm iCloud account
+Read local sync state
   -> Create or confirm custom zone
   -> Read account salt and resolve device pseudonym
-  -> Read local sync state and cache
+  -> Update local state for the device identity and schema
+  -> Fetch remote changes into the cache and process replacement dates
   -> Upload changed dates for this device
-  -> Fetch remote changes
-  -> Update the local CloudKit cache
+  -> Fetch remote changes into the cache again
   -> Prune records outside retention
-  -> Publish merged results
+  -> Save state and publish merged results
 ```
 
-The implementation intentionally performs a fetch before upload:
+The fetches before and after upload serve different purposes:
 
 - Before uploading, it must know whether a same-device, same-day remote record exists so it can update, create a generation record, or skip
 - Before replacement, it must perform a full fetch to discover old generations that an incremental cache may have missed
@@ -150,11 +150,11 @@ The implementation intentionally performs a fetch before upload:
 Every stage writes a `stage` field to logs, so an error identifies zone, device, fetch, upload, or prune instead of reporting only a generic CloudKit error:
 
 - Upload batches contain at most 25 records
-- One batch waits at most 20 seconds
+- Each upload cycle uses a 20-second budget to decide whether to start another batch
 - A fetch page contains at most 200 changes
 - SHA-256 hashes of local content skip unchanged records
 
-The 20 seconds is a budget for the complete upload cycle, not a per-record timeout. After the budget is reached, remaining dates stay unconfirmed for a later schedule. A historical backfill therefore does not occupy the actor and user-visible refresh path indefinitely.
+The upload loop checks its 20-second budget before each batch. A batch already in progress continues waiting for its result. Once the budget is exhausted, remaining dates wait for a later sync.
 
 Stable JSON for each date is encoded and hashed once, and the same result drives filtering and success confirmation. Re-encoding in different phases could let dictionary order or optional fields make change detection drift.
 
@@ -203,8 +203,6 @@ As the CloudKit record schema evolves, an old record may lack a new count field.
 Preserving availability during merge lets the UI distinguish “all devices total zero” from “some historical sources do not support this metric.” Decoding missing as zero creates a false fact that cannot be repaired later.
 
 ## Source Replacement and Rebuild
-
-When a raw Hook file is replaced or fully rebuilt, the aggregation layer changes its source generation. Sync must interpret this as replacement rather than adding old and new generations.
 
 When the user requests a rescan:
 

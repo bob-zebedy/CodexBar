@@ -135,7 +135,7 @@ Removal skips structurally malformed sibling entries instead of failing the enti
 
 ### Generations for Asynchronous Settings Operations
 
-The user may toggle Hook quickly, and app activation also triggers validation. `CodexHookSettings` increments `updateGeneration` and cancels the old task for every operation.
+When the user toggles Hook or validation is triggered, `CodexHookSettings` starts the operation through `updateCoordinator`. Its `RefreshTaskCoordinator` advances the generation and cancels the previous task.
 
 After every file write or RPC `await`, it checks the generation again. Even if an old operation cannot truly be canceled, it cannot overwrite the latest switch state or error.
 

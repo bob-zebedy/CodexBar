@@ -31,8 +31,8 @@ It can notify you when a task finishes, needs approval, or when your rate limits
 
 - View your current Codex account and plan
 - See every rate-limit window, its remaining allowance, and reset time
-- Check available credits and reset credits
-- Automatically use reset credits from 15 minutes to 6 hours before they expire, with a default lead time of 30 minutes; CodexBar can wake your Mac at the scheduled time and revalidate availability before use
+- Check available credits and banked resets
+- Automatically use banked resets from 15 minutes to 6 hours before they expire, with a default lead time of 30 minutes; CodexBar can wake your Mac at the scheduled time and revalidate availability before use
 - Show a selected rate-limit window directly beside the menu bar icon
 
 ### Understand your Codex usage

@@ -295,7 +295,7 @@ Do not hide unavailable data behind friendly-looking defaults:
 | --- | --- | --- |
 | Field missing from an older source | `nil` or unavailable | Decode as an explicit zero |
 | app-server cache expired | Stale snapshot | Continue triggering notifications |
-| Rollout reader unavailable | Pause live evaluation | Use old tasks to continue sleep prevention |
+| Rollout supplemental read unavailable | Retain existing Hook task state and continue polling for lifecycle updates | Treat a missing rollout result as a task ending |
 | CloudKit offline | Preserve old cache with source attribution | Treat it as new data for the current account |
 | Battery read failed | Preserve prior decision and mark unreadable | Treat as no battery |
 

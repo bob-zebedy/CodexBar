@@ -51,7 +51,7 @@ Hiding a section affects only the main-panel presentation. It does not stop rate
 | --- | --- | --- |
 | CodexBar Hook | Installs and validates the Codex event handler | Off when not installed |
 | System Notifications | Controls CodexBar local notifications and task haptic feedback | Off |
-| Automatic Reset | Uses unredeemed reset credits at the selected lead time before expiration | Off; 30 minutes early |
+| Automatic Reset | Uses banked resets at the selected lead time before expiration | Off; 30 minutes early |
 | Prevent System Sleep | Manages system sleep automatically based on live Codex tasks | Off |
 | Sync Across Devices | Syncs daily Hook aggregations through iCloud | Off |
 | Rebuild Data | Regenerates aggregations from local raw events for selected dates | Manual action |
@@ -72,7 +72,7 @@ See [Live Tasks and CodexBar Hook](activity-and-hook.md) for details.
 | Approval Requests | On | Requires CodexBar Hook |
 | Low Quota | On, 10% | Threshold: 5%, 10%, or 25% |
 | Quota Reset | On | Recognized only after consumption has been observed |
-| Reset Expiration | On | Alerts for reset credits expiring within 7 days |
+| Reset Expiration | On | Alerts for banked resets expiring within 7 days |
 | Automatic Reset Notifications | On | Available only while Automatic Reset is enabled; success and failure share one sound |
 | Low Battery Alert | On | Applies only when Low Battery Protection is available |
 | Keep-Awake Limit | On | Applies only when the maximum duration is not unlimited |
@@ -106,7 +106,7 @@ Selecting `Enable` saves your intent and attempts to register CodexBarHelper. Se
 
 When Automatic Reset is enabled and CodexBarHelper is installed and approved, an options button appears on the right side of the main row. Open it to choose a `Time Before Expiration` of `15 Minutes`, `30 Minutes`, `1 Hour`, `2 Hours`, `4 Hours`, or `6 Hours`; the default is `30 Minutes`. The entry is hidden if the Helper state no longer qualifies, and any open Automatic Reset side panel closes.
 
-- Processes only available reset credits explicitly listed in the latest app-server response
+- Processes only available banked resets explicitly listed in the latest app-server response
 - Revalidates the account, credit state, and expiration time before every use
 - Processes only the earliest-expiring credit at a time
 - Attempts to register CodexBarHelper after confirmation; even if Prevent System Sleep is off, CodexBar may need approval to run in the background under Login Items & Extensions
@@ -166,7 +166,7 @@ See [Data, Sync, and Privacy](sync-data-privacy.md) for details.
 | Item | Purpose |
 | --- | --- |
 | Source | Located beside the Codex Versions heading; Automatic is always available, while Codex CLI and Codex APP appear only when detected as installed |
-| Refresh Connection | The circular arrow next to the source selector establishes a new connection using the selected source and its installed version |
+| Reconnect | The connector icon next to the source selector establishes a new connection using the selected source and its installed version |
 | Codex CLI | Shows the on-disk version and path of the global Codex CLI |
 | Codex APP | Shows the on-disk version and path of the CLI bundled with ChatGPT App or Codex App |
 | In Use | Identifies the Codex source and running app-server version currently in use |
@@ -182,9 +182,9 @@ Update hints share the semantic version parser used by minimum-version checks: a
 
 The default source is Automatic, which prefers CLI and uses the app's bundled Codex when CLI is not installed. Source options only show detected installations. Version rows normally show installed sources; if the current, selected, or failed refresh source is uninstalled, its row remains with Unavailable replacing In Use, without a duplicate source-unavailable message below. This badge means a new connection cannot be opened from that source, not that the old connection has stopped. Changing the source connects immediately and saves the choice only after success. Failure preserves the previous connection and choice. If a previously selected source is uninstalled, the picker shows “Select Source” without falling back to another source.
 
-Automatic reconnection remains enabled: once a connection is one hour old, the next request rebuilds it using the selected source. Refresh Connection applies an installed update sooner. Older CodexBar versions ignore the source preference and retain their original automatic selection behavior.
+Automatic reconnection remains enabled: once a connection is one hour old, the next request rebuilds it using the selected source. Reconnect applies an installed update sooner. Older CodexBar versions ignore the source preference and retain their original automatic selection behavior.
 
-Hover over the circular arrow to see Refresh Connection. While reconnecting, the arrow rotates continuously, and both controls are temporarily disabled. Success updates In Use; a missing source shows Unavailable, while other failures display a reason below the version rows.
+Hover over the connector icon to see “Reconnect”; the tooltip changes to “Reconnecting” while connecting. The icon keeps animating through reconnection and the following refresh, while both controls remain disabled. Success updates In Use; a missing source shows Unavailable, while other failures display a reason below the version rows.
 
 Click an executable path to copy the full path.
 

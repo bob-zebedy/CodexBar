@@ -19,7 +19,7 @@
 
 - To view only your account and rate limits, start with [Installation and Quick Start](getting-started.md)
 - To follow running tasks or tasks waiting for approval, read [Live Tasks and CodexBar Hook](activity-and-hook.md)
-- To reset your rate limit automatically before reset credits expire, see [Automatic Reset](settings.md#automatic-reset)
+- To reset your rate limit automatically before banked resets expire, see [Automatic Reset](settings.md#automatic-reset)
 - To keep your Mac awake during long tasks, read [Preventing System Sleep](sleep-prevention.md)
 - To find out whether a setting uploads data, read [Data, Sync, and Privacy](sync-data-privacy.md)
 - If you already see an error, go directly to [Troubleshooting](troubleshooting.md)

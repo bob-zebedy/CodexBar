@@ -31,6 +31,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 标题、独立列表项、编号项和表格单元格行末不加标点
 - 如果一行以 Markdown 格式的链接或行内代码结尾，后面不加任何标点；链接或行内代码位于句中时仍按句子结构使用中文标点
 - Markdown 语法、代码块、命令、路径、URL、版本号和程序标识符内部的符号保持原样
+- 如果某句话的作用只是防止被质疑，而不是推进论证，请删除
 
 ## 项目概述
 
@@ -175,8 +176,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 关键约束：
 
-- `shouldDisableSleep` 是用户意图与依赖可用性的唯一汇合点，要求 `isStarted && !isPreparingForTermination && isEnabled && isHookEnabled && hasRunningTasks && helperStatus == .enabled && !isRefreshingHelper && !isLowBatteryActive && !hasReachedMaximumDuration` 同时成立；**依赖不满足只让效果失效，绝不回写用户保存的 `isEnabled`**
-- `hasRunningTasks` 只消费 `CodexActivitySnapshot` 中非匿名且仍可见的运行中任务与按设置纳入的等待批准任务，被异常会话保护隐藏的任务也不参与防睡眠
+- `shouldDisableSleep` 由 `sleepBlockReason == nil` 派生，要求服务已启动、App 未退出、主开关与 Hook 可用、存在符合条件的任务、helper 已批准且未刷新、低电量与时长上限均未阻断；依赖变化保留用户保存的 `isEnabled`
+- `hasRunningTasks` 只表示非匿名且仍可见的运行中任务；`hasKeepAliveTasks` 在此基础上纳入 `keepsAwakeWhileWaiting` 开启时的非匿名等待任务，被异常会话保护隐藏的任务不参与防睡眠
 - Hook 状态在类内只认 `isHookEnabled` 这份镜像，它跟的是 `codexHookSettings.isOperable`；不要回读那个属性，订阅回调跑在 `willSet`，那一刻它的两个输入里正在变的那一项还是旧值，只能认 `CombineLatest` 给的闭包参数
 - 新增拦截条件一律加进 `sleepBlockReason` 的顺序判断里，它和 `shouldDisableSleep` 同源，顺带保证日志的 `reason=` 不会漏项
 - UI 用的 `isLowBatteryBlocking` 与 `canShowOptions` 由 `reconcileSleepState` 从 `sleepBlockReason` 单点派生，新增拦截条件时 `allowsOptions` 那个穷举 `switch` 会强制表态，于是不会出现入口亮着却点不动
@@ -203,7 +204,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 切换失败按 2/4/8...256 秒重试，列表耗尽即放弃（延时累计约 8.5 分钟，每轮再等一次超时约 10 分钟），瞬时抖动能自愈，权限类故障不该无限重试
 - XPC 请求带超时并汇进同一条重试路径；launchd 拉不起 helper 时 XPC 方法既不回复也不触发 `errorHandler`，没有它界面会显示防睡眠开着而实际没生效，日志里只剩没有配对回复的 `Helper XPC 请求已发送`
 - 超时取值放在 `CodexBarHelperIPC.requestTimeoutSeconds` 而不是控制器里，它与 `watchdogGraceSeconds` 是一对：必须更小，App 先放手 helper 才能靠 watchdog 兜底，分处两个 module 会让人改了一边不知道另一边
-- 开发期间用 `xcodebuild` 覆盖正在运行的 App bundle 会让 launchd 记的 daemon 与磁盘上的 helper 对不上，helper 从此拉不起来；重启 App 会由 `helperRegistrationNeedsRefresh` 的指纹比对自愈，排查时先看这一条
+- 开发期间用 `xcodebuild` 覆盖正在运行的 App bundle 可能使 launchd 注册信息与磁盘上的 helper 不一致；重启 App 后通过 `KeepAliveHelperConfiguration.registrationNeedsRefresh(defaults:)` 检查指纹并刷新注册
 - helper 回传 `none`、`external`、`codexBar` 来源与操作后的实测值；App 只能在 `codexBar` 且实测为 0 时宣称系统睡眠已恢复或补发 `IOPMSleepSystem`，`external` 和 `none` 都只释放进程内断言
 - App 退出由 `applicationShouldTerminate` 返回 `terminateLater`，先取消自动重置唤醒计划，再释放防睡眠租约；两项都经 helper 回读确认后才继续退出，任一失败都会取消本次退出并恢复协调
 - `pmset` 是没有来源和引用计数的全局布尔值；CodexBar 取得所有权后如果另一个 App 也开始依赖这个 1，释放时仍会恢复为 0，系统层没有无歧义的方法判断另一个 App 的意图
@@ -340,11 +341,11 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 启用和校验 Hook 前要求当前 app-server 握手版本至少为 `0.145.0`；必须检查 `readyConnectionInfo()` 返回的实际连接版本，不能用磁盘版本代替，否则升级后尚未重连的旧进程会被误判为可用
 - 写入前通过 app-server `config/read` 确认全局未禁用 Hook，写入后用 `hooks/list` 验证；两处读取共用 `readGlobalHookDisabled`，开关流程与校验流程对“全局禁用”的判断不会分叉
 - 读取失败（I/O 或 JSON 格式错误）不提供 Hook 装没装的信息，必须保留上次已知值，不能当成用户关闭了 Hook
-- `isEnabled` 只表示 `hooks.json` 里至少装着一个当前 CodexBar handler，`isVerified` 是最近一次校验的明确结论，两者合成的 `isOperable` 才表示事件链路可用
+- `isEnabled` 表示当前进程中的 Hook 开启状态，首次从已有 handler 恢复；开启后配置缺失会触发自愈。`isVerified` 保存最近一次校验的明确结论，`isOperable` 为两者的合取
 - 实时任务、防睡眠和任务类通知必须看 `isOperable`；历史聚合与同步仍可消费已落盘数据，其调度只看 `isEnabled`，不要把两类依赖混在一起
-- `isVerified` 乐观默认为 `true` 且只由明确结论写入两个方向：校验只在设置窗口打开与 App 激活时跑，而 RPC 失败属于“验不了”不是“确认不通”，那时置灰会把好用的功能关掉
+- `isVerified` 默认为 `true`，RPC 临时失败或取消时保留上次明确结论。启动、打开主面板、打开设置、App 激活和额度刷新完成时对账已开启 Hook
 - 全局禁用要排在 `hooks/list` 之前判：它一关列表里必然找不到我们的 handler，那时报“已不完整”会把用户引去翻本来就完好的 `hooks.json`
-- `refresh()` 只判断是否存在任一当前 CodexBar handler，`hooks/list` 校验才要求所有事件完整；新增事件后旧配置不会自动补齐，当前恢复方式是让用户关闭再开启 Hook
+- `refreshInstallationState()` 检查 handler 是否存在及事件是否完整；已开启配置缺少必要事件或信任项时，`reconcileInstalledHooks()` 自动补齐并重新校验。启动前已无可识别 handler 时保持关闭
 - 防睡眠开关关闭时说明行收起；开关开启且 Hook 校验不通过时显示“CodexBar Hook 未生效”，具体病因由 Hook 设置行说明
 
 ## 隐私与数据边界

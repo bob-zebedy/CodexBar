@@ -97,7 +97,7 @@ struct ResetCreditsPanelView: View {
     }
 
     private var emptyMessage: some View {
-        Text("reset-credits.expiration.unknown")
+        Text("banked-reset.expiration.unknown")
             .font(.caption2)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: Metrics.rowHeight, alignment: .leading)
@@ -142,7 +142,7 @@ struct ResetCreditsPanelView: View {
             .hidden()
             .overlay {
                 HStack(alignment: .center, spacing: 0) {
-                    Text("reset-credits.expiration.label")
+                    Text("banked-reset.expiration.label")
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -172,7 +172,7 @@ struct ResetCreditsPanelView: View {
             .green
         }
 
-        return Text(LocalizedStringResource("reset-credits.available-count", defaultValue: "\(group.count, specifier: "%lld")"))
+        return Text(LocalizedStringResource("banked-reset.available-count", defaultValue: "\(group.count, specifier: "%lld")"))
             .font(.caption2.monospacedDigit().weight(.semibold))
             .foregroundStyle(tint)
             .lineLimit(1)

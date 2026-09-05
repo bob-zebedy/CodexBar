@@ -897,6 +897,70 @@
         }
       }
     },
+    "banked-reset.available-count" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld left"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可用: %lld"
+          }
+        }
+      }
+    },
+    "banked-reset.count" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Banked Resets: %lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "留存重置: %lld"
+          }
+        }
+      }
+    },
+    "banked-reset.expiration.label" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expires"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "过期时间"
+          }
+        }
+      }
+    },
+    "banked-reset.expiration.unknown" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expiration time unknown"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未知过期时间"
+          }
+        }
+      }
+    },
     "codex-cli.version.launch-failed" : {
       "localizations" : {
         "en" : {
@@ -3345,70 +3409,6 @@
         }
       }
     },
-    "reset-credits.available-count" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld left"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "可用: %lld"
-          }
-        }
-      }
-    },
-    "reset-credits.count" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reset: %lld"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重置次数: %lld"
-          }
-        }
-      }
-    },
-    "reset-credits.expiration.label" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Expires"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "过期时间"
-          }
-        }
-      }
-    },
-    "reset-credits.expiration.unknown" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Expiration time unknown"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未知过期时间"
-          }
-        }
-      }
-    },
     "settings.about.github-project" : {
       "localizations" : {
         "en" : {
@@ -3478,13 +3478,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Refresh Connection"
+            "value" : "Reconnect"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "刷新连接"
+            "value" : "重新建立连接"
           }
         }
       }
@@ -3494,13 +3494,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reconnecting…"
+            "value" : "Reconnecting"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在重新连接…"
+            "value" : "正在重新连接"
           }
         }
       }
@@ -3533,22 +3533,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "选择来源"
-          }
-        }
-      }
-    },
-    "settings.codex-version.source.title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Source"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "来源"
           }
         }
       }

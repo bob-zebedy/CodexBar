@@ -41,7 +41,7 @@ Double-click the account icon to retry. If the values remain dimmed, check `acco
 
 | Message | Meaning | Recommended action |
 | --- | --- | --- |
-| A newer Codex version is required | The current app-server version is too old | Update Codex, then click Refresh Connection on the About page |
+| A newer Codex version is required | The current app-server version is too old | Update Codex, then click Reconnect on the About page |
 | Codex Hook is disabled globally | `features.hooks` is disabled | Re-enable Hooks in the Codex configuration |
 | CodexBar Hook is incomplete | At least one required event is missing the current handler | Reopen Settings to trigger automatic repair; if it still fails, turn Hook off and on again |
 | CodexBar Hook is not trusted | Codex still considers the handler untrusted or modified | Re-enable the Hook and inspect the Codex configuration |
@@ -105,7 +105,7 @@ Check in this order:
 
 1. `Automatic Reset` is enabled and its lead time is what you expect
 2. The Automatic Reset row does not report pending CodexBarHelper approval, missing registration, or wake-schedule failure; the lead-time options appear only after the Helper is approved
-3. The current app-server response includes a specific available reset credit and expiration time
+3. The current app-server response includes a specific available banked reset and expiration time
 4. Network access and Codex sign-in were available at the scheduled time
 5. `Automatic Reset Notifications` is enabled if you expected a notification; disabling notifications does not stop Automatic Reset itself
 
@@ -131,7 +131,7 @@ A sync failure does not delete local Hook data. A later maintenance run retries 
 
 The current version comes from the running app-server handshake. The on-disk version comes from running Codex `--version` again.
 
-If About shows the new installed version but `In Use` still shows the old one, click Refresh Connection. Alternatively, the next request after the connection is one hour old rebuilds it automatically.
+If About shows the new installed version but `In Use` still shows the old one, click Reconnect. Alternatively, the next request after the connection is one hour old rebuilds it automatically.
 
 ## Using the Logs Window
 
