@@ -473,3 +473,24 @@ struct NotificationOptionsView: View {
         static let cornerRadius = SettingsOptionsPanelMetrics.cornerRadius
     }
 }
+
+struct NotificationAuthorizationRow: View {
+    let settings: NotificationSettings
+
+    var body: some View {
+        SettingsIndentedRow {
+            Text("settings.notifications.system.permission-disabled")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 8)
+
+            Button("common.action.open-system-settings") {
+                settings.openSystemNotificationSettings()
+            }
+            .controlSize(.small)
+            .fixedSize()
+        }
+    }
+}

@@ -19,11 +19,11 @@ enum SettingsOptionsPanelAction {
     case closeAll
 }
 
-/// 子面板入场时的内容重建信号, 由 makeContentController 接进内容视图, 面板自己不必知道
+/// 子面板入场时的内容重建信号
 /// 原生 Switch 的 thumb 由 WindowPortal 投射, 面板首次布局那一轮建不起来也不会自愈, 只有重建补得上
 /// bump 排在 present 之后, 那时动画效果已经把内容 translation 到可视区外, 重建才看不见
 @MainActor
-final class SidePanelEntryCue: ObservableObject {
+private final class SidePanelEntryCue: ObservableObject {
     @Published private(set) var pass = 0
 
     func bump() {
@@ -42,7 +42,7 @@ private struct SidePanelEntryRebuildHost<Content: View>: View {
 }
 
 /// 设置窗口右侧子选项面板的公共装配
-/// 各子面板只差内容视图, 动态高度面板再提供变化来源, 定位 关闭 高度重算这套脚手架全在这里
+/// 各子面板只差内容视图与高度变化来源, 窗口组关闭规则由 SettingsWindowController 统一维护
 /// 与重置次数面板不同: 内容是交互控件, 用常驻 hosting controller + ObservableObject 驱动更新, 不替换 rootView
 @MainActor
 final class SettingsOptionsPanelController {
@@ -64,9 +64,6 @@ final class SettingsOptionsPanelController {
             self?.hostingController?.view
         }
     )
-    private weak var settingsWindow: NSWindow?
-    private var panelDismissObserver: NSObjectProtocol?
-    private var settingsWindowDismissObservers: [NSObjectProtocol] = []
     private var panelResizeTask: Task<Void, Never>?
     private var isEntryAnimationRunning = false
 
@@ -74,13 +71,21 @@ final class SettingsOptionsPanelController {
         animationKey: String,
         initialPanelSize: CGSize,
         willShow: (() -> Void)? = nil,
-        contentControllerProvider: @escaping (SidePanelEntryCue) -> NSViewController,
+        contentProvider: @escaping () -> some View,
         contentChanges: AnyPublisher<Void, Never>? = nil
     ) {
         self.animationKey = animationKey
         self.initialPanelSize = initialPanelSize
         self.willShow = willShow
-        self.contentControllerProvider = contentControllerProvider
+        // 内容闭包在首次构造面板时才执行, 保留 SwiftUI 状态的创建时机
+        contentControllerProvider = { cue in
+            let controller = NSHostingController(
+                rootView: SidePanelEntryRebuildHost(cue: cue, content: contentProvider())
+            )
+            // 高度重算依赖 preferredContentSize 提交的 fitting size
+            controller.sizingOptions = [.preferredContentSize]
+            return controller
+        }
         // 只有内容行数会动态增删的面板才传变化源
         // 面板收着时由 scheduleResize 的守卫过滤变化
         if let contentChanges {
@@ -92,21 +97,12 @@ final class SettingsOptionsPanelController {
         }
     }
 
-    /// sizingOptions 必须是 preferredContentSize: 面板的高度重算靠的就是它提交的 fitting size
-    /// 入场重建也在这里接上, 新增子面板照抄这一句即可, 内容视图不必知道 cue 的存在
-    static func makeContentController(
-        _ content: some View,
-        rebuiltBy cue: SidePanelEntryCue
-    ) -> NSViewController {
-        let controller = NSHostingController(
-            rootView: SidePanelEntryRebuildHost(cue: cue, content: content)
-        )
-        controller.sizingOptions = [.preferredContentSize]
-        return controller
-    }
-
     var isVisible: Bool {
         presenter.isVisible
+    }
+
+    func owns(_ window: NSWindow) -> Bool {
+        window === panel
     }
 
     func toggle(
@@ -152,10 +148,6 @@ final class SettingsOptionsPanelController {
         }
     }
 
-    private func owns(_ window: NSWindow?) -> Bool {
-        window === panel
-    }
-
     private func show(
         relativeTo window: NSWindow?,
         contentView: NSView?,
@@ -193,7 +185,6 @@ final class SettingsOptionsPanelController {
         )
 
         panel.level = window.level
-        installSettingsWindowDismissObservers(for: window)
         panelResizeTask?.cancel()
         isEntryAnimationRunning = true
         presenter.present(panel, at: position, relativeTo: window) { [weak self] in
@@ -227,64 +218,9 @@ final class SettingsOptionsPanelController {
             contentView: panel.contentView,
             cornerRadius: SettingsOptionsPanelMetrics.cornerRadius
         )
-        panelDismissObserver = makeResignKeyDismissObserver(observing: panel) { [weak self] keyWindow in
-            self?.owns(keyWindow) != true
-        }
         self.hostingController = hostingController
         self.panel = panel
         return panel
-    }
-
-    /// 设置窗口和面板之间切换 key 不收起; 焦点离开这个窗口组或设置窗口关闭时收起
-    private func installSettingsWindowDismissObservers(for window: NSWindow) {
-        guard settingsWindow !== window || settingsWindowDismissObservers.isEmpty else {
-            return
-        }
-
-        settingsWindow = window
-        for observer in settingsWindowDismissObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-
-        settingsWindowDismissObservers = [
-            makeResignKeyDismissObserver(observing: window) { [weak self, weak window] keyWindow in
-                keyWindow !== window && self?.owns(keyWindow) != true
-            },
-            NotificationCenter.default.addObserver(
-                forName: NSWindow.willCloseNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.hide(immediate: true)
-                }
-            }
-        ]
-    }
-
-    /// resignKey 后让出一轮 runloop, 等新 keyWindow 生效再判定
-    private func makeResignKeyDismissObserver(
-        observing window: NSWindow,
-        shouldDismiss: @escaping @MainActor (NSWindow?) -> Bool
-    ) -> NSObjectProtocol {
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else {
-                    return
-                }
-
-                await Task.yield()
-                guard isVisible, shouldDismiss(NSApplication.shared.keyWindow) else {
-                    return
-                }
-
-                hide()
-            }
-        }
     }
 
     private func measuredPanelSize() -> CGSize {

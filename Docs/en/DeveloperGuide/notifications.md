@@ -61,7 +61,11 @@ Inferring task completion from a current snapshot looks simpler, but every app l
 
 The master switch is off by default, so first launch does not present an unexplained permission request. CodexBar invokes the authorization API only after the user enables it.
 
-The app rereads system state on activation because permission may have changed in System Settings. If the app switch is on but system state remains `notDetermined`, it requests again, covering a quit before the first dialog finished.
+The app rereads system state on app activation, when the settings window regains focus, and when settings are explicitly opened. A `denied` result preserves the in-app switch and displays a secondary-color permission message with an Open System Settings button. An actual `notDetermined` result turns the in-app switch off; enabling it again requests authorization. The initial placeholder status does not modify the saved switch.
+
+While an authorization request is pending, duplicate requests are suppressed and focus changes do not cancel the request awaiting the user's response. The permission message remains visible whenever the in-app switch is on and system authorization is missing. If the system still returns `notDetermined` after the request, the switch returns to off so the user can enable it again to retry.
+
+After the authorization request finishes, permission reads use the normal refresh flow. If another focus refresh arrives during a query, the new query replaces the old one so stale results cannot overwrite the latest permission state.
 
 Haptic feedback does not depend on `UNUserNotificationCenter` authorization but still follows the in-app master switch. This is a capability boundary, not a way around user intent.
 

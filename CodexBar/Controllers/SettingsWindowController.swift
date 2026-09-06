@@ -20,8 +20,13 @@ final class SettingsWindowController: HostingWindowController {
     private let onSyncChanged: (Bool) -> Void
     private let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
     private let mainPanelUndoManager = UndoManager()
+    private var windowFocusObserver: AnyCancellable?
     /// 只在真的要展开时构造: hosting controller 与动态面板订阅会常驻到 App 结束, 而用户可能一次子面板都没开过
     private var optionsPanelControllers: [SettingsOptionsPanel: SettingsOptionsPanelController] = [:]
+    private var optionsDismissEventMonitor: Any?
+    private var optionsDismissFocusObserver: AnyCancellable?
+    private var optionsDismissWindowObserver: NSObjectProtocol?
+    private var optionsDismissedByClick: (panel: SettingsOptionsPanel, event: NSEvent)?
     /// 首次构造窗口时 SwiftUI 可能先于 window 赋值上报高度 因此必须保留最近一次测量
     private var preferredContentHeight: CGFloat?
 
@@ -62,6 +67,7 @@ final class SettingsWindowController: HostingWindowController {
     override func open() {
         refreshSettingsState()
         super.open()
+        installOptionsDismissMonitor()
         NotificationCenter.default.post(name: .settingsWindowDidOpen, object: nil)
     }
 
@@ -96,6 +102,12 @@ final class SettingsWindowController: HostingWindowController {
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.contentMinSize = Metrics.minimumContentSize
         window.setContentSize(Metrics.initialContentSize)
+        // LSUIElement 窗口重新获得焦点时不一定伴随 App 激活事件
+        windowFocusObserver = NotificationCenter.default
+            .publisher(for: NSWindow.didBecomeKeyNotification, object: window)
+            .sink { [weak notificationSettings] _ in
+                notificationSettings?.refreshAuthorizationStatus()
+            }
         return window
     }
 
@@ -116,6 +128,7 @@ final class SettingsWindowController: HostingWindowController {
     }
 
     private func refreshSettingsState() {
+        notificationSettings.refreshAuthorizationStatus()
         codexHookSettings.reconcileInstalledHooks()
         codexCLINotificationSettings.refresh()
         syncSettings.refresh()
@@ -158,16 +171,13 @@ final class SettingsWindowController: HostingWindowController {
                 willShow: { [codexCLINotificationSettings] in
                     codexCLINotificationSettings.refresh()
                 },
-                contentControllerProvider: { [notificationSettings, codexHookSettings, codexCLINotificationSettings, autoResetSettings, keepAliveController] entryCue in
-                    SettingsOptionsPanelController.makeContentController(
-                        NotificationOptionsView(
-                            notificationSettings: notificationSettings,
-                            codexHookSettings: codexHookSettings,
-                            codexCLINotificationSettings: codexCLINotificationSettings,
-                            autoResetSettings: autoResetSettings,
-                            keepAliveController: keepAliveController
-                        ),
-                        rebuiltBy: entryCue
+                contentProvider: { [notificationSettings, codexHookSettings, codexCLINotificationSettings, autoResetSettings, keepAliveController] in
+                    NotificationOptionsView(
+                        notificationSettings: notificationSettings,
+                        codexHookSettings: codexHookSettings,
+                        codexCLINotificationSettings: codexCLINotificationSettings,
+                        autoResetSettings: autoResetSettings,
+                        keepAliveController: keepAliveController
                     )
                 },
                 // 音效子行随各开关增删, 自动重置 低电量与上限三行还跟着各自的依赖置灰
@@ -191,26 +201,18 @@ final class SettingsWindowController: HostingWindowController {
             SettingsOptionsPanelController(
                 animationKey: "CodexBar.autoResetOptionsDrawerTransform",
                 initialPanelSize: AutoResetOptionsView.initialPanelSize,
-                contentControllerProvider: { [autoResetSettings] entryCue in
-                    SettingsOptionsPanelController.makeContentController(
-                        AutoResetOptionsView(
-                            settings: autoResetSettings
-                        ),
-                        rebuiltBy: entryCue
-                    )
+                contentProvider: { [autoResetSettings] in
+                    AutoResetOptionsView(settings: autoResetSettings)
                 }
             )
         case .keepAlive:
             SettingsOptionsPanelController(
                 animationKey: "CodexBar.keepAliveOptionsDrawerTransform",
                 initialPanelSize: KeepAliveOptionsView.initialPanelSize,
-                contentControllerProvider: { [keepAliveController, activityProtectionSettings] entryCue in
-                    SettingsOptionsPanelController.makeContentController(
-                        KeepAliveOptionsView(
-                            keepAliveController: keepAliveController,
-                            activityProtectionSettings: activityProtectionSettings
-                        ),
-                        rebuiltBy: entryCue
+                contentProvider: { [keepAliveController, activityProtectionSettings] in
+                    KeepAliveOptionsView(
+                        keepAliveController: keepAliveController,
+                        activityProtectionSettings: activityProtectionSettings
                     )
                 },
                 // 面板里只有 hasBattery 会增删行, 其余各行的取值不改高度
@@ -228,17 +230,96 @@ final class SettingsWindowController: HostingWindowController {
             willShow: { [mainPanelSettings] in
                 mainPanelSettings.refresh()
             },
-            contentControllerProvider: { [mainPanelSettings, codexHookSettings, mainPanelUndoManager] entryCue in
-                SettingsOptionsPanelController.makeContentController(
-                    MainPanelOptionsView(
-                        settings: mainPanelSettings,
-                        codexHookSettings: codexHookSettings,
-                        undoManager: mainPanelUndoManager
-                    ),
-                    rebuiltBy: entryCue
+            contentProvider: { [mainPanelSettings, codexHookSettings, mainPanelUndoManager] in
+                MainPanelOptionsView(
+                    settings: mainPanelSettings,
+                    codexHookSettings: codexHookSettings,
+                    undoManager: mainPanelUndoManager
                 )
             }
         )
+    }
+
+    private func isInSettingsWindowGroup(_ window: NSWindow?) -> Bool {
+        guard let window else {
+            return false
+        }
+        return window === self.window || optionsPanelControllers.values.contains { $0.owns(window) }
+    }
+
+    private func installOptionsDismissMonitor() {
+        guard optionsDismissEventMonitor == nil, let window else {
+            return
+        }
+
+        optionsDismissEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]
+        ) { [weak self, weak window] event in
+            guard let self else {
+                return event
+            }
+
+            optionsDismissedByClick = nil
+            guard event.window === window else {
+                return event
+            }
+
+            if let panel = SettingsOptionsPanel.allCases.first(where: {
+                existingOptionsPanelController($0)?.isVisible == true
+            }) {
+                optionsDismissedByClick = (panel, event)
+            }
+            handleOptionsAction(.closeAll)
+            // 保留到本次 mouseUp 分发完成, 避免影响之后的辅助功能按钮动作
+            DispatchQueue.main.async { [weak self] in
+                if self?.optionsDismissedByClick?.event === event {
+                    self?.optionsDismissedByClick = nil
+                }
+            }
+            return event
+        }
+        optionsDismissFocusObserver = NotificationCenter.default
+            .publisher(for: NSWindow.didResignKeyNotification)
+            .sink { [weak self] notification in
+                guard let self,
+                      let sourceWindow = notification.object as? NSWindow,
+                      isInSettingsWindowGroup(sourceWindow) else {
+                    return
+                }
+                Task { @MainActor [weak self] in
+                    // 等新 keyWindow 生效再判断, 旧面板的失焦回调不能关闭刚切换到的新面板
+                    await Task.yield()
+                    guard let self, !isInSettingsWindowGroup(NSApplication.shared.keyWindow) else {
+                        return
+                    }
+                    handleOptionsAction(.closeAll)
+                }
+            }
+        optionsDismissWindowObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.removeOptionsDismissMonitor()
+            }
+        }
+    }
+
+    private func removeOptionsDismissMonitor() {
+        for controller in optionsPanelControllers.values {
+            controller.hide(immediate: true)
+        }
+        if let optionsDismissEventMonitor {
+            NSEvent.removeMonitor(optionsDismissEventMonitor)
+        }
+        if let optionsDismissWindowObserver {
+            NotificationCenter.default.removeObserver(optionsDismissWindowObserver)
+        }
+        optionsDismissEventMonitor = nil
+        optionsDismissFocusObserver = nil
+        optionsDismissWindowObserver = nil
+        optionsDismissedByClick = nil
     }
 
     /// 子面板占设置窗口右侧同一位置, 展开一个必须先收掉其余的
@@ -247,6 +328,12 @@ final class SettingsWindowController: HostingWindowController {
     private func handleOptionsAction(_ action: SettingsOptionsPanelAction) {
         switch action {
         case let .toggle(panel, anchorProvider):
+            // mouseUp 监听器先于按钮动作收起面板, 同一事件不能再次展开它
+            if let optionsDismissedByClick,
+               optionsDismissedByClick.panel == panel,
+               optionsDismissedByClick.event === NSApplication.shared.currentEvent {
+                return
+            }
             for other in SettingsOptionsPanel.allCases where other != panel {
                 existingOptionsPanelController(other)?.hide(immediate: true)
             }

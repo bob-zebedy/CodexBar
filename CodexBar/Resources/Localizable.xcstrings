@@ -4006,7 +4006,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Notifications are disabled in System Settings"
+            "value" : "Notification permission has not been granted"
           }
         },
         "zh-Hans" : {

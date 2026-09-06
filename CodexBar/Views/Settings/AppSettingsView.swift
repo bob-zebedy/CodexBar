@@ -577,8 +577,17 @@ private extension AppSettingsView {
         guard keepAliveController.isEnabled else {
             return nil
         }
+        if keepAliveController.helperStatus == .requiresApproval {
+            return SettingsStatusCaption(
+                message: String(localized: "helper.status.authorization-required"),
+                showsSystemSettingsButton: true
+            )
+        }
         if let errorMessage = keepAliveController.errorMessage {
             return SettingsStatusCaption(message: errorMessage, isError: true)
+        }
+        guard keepAliveController.helperStatus == .enabled else {
+            return SettingsStatusCaption(message: String(localized: "helper.status.not-registered"))
         }
         guard codexHookSettings.isVerified else {
             return SettingsStatusCaption(message: String(localized: "hook.status.inactive"))
@@ -599,24 +608,14 @@ private extension AppSettingsView {
             return SettingsStatusCaption(message: String(localized: "keep-alive.status.low-battery"))
         }
 
-        switch keepAliveController.helperStatus {
-        case .requiresApproval:
-            return SettingsStatusCaption(
-                message: String(localized: "helper.status.authorization-required"),
-                showsSystemSettingsButton: true
-            )
-        case .notRegistered, .notFound:
-            return SettingsStatusCaption(message: String(localized: "helper.status.not-registered"))
-        case .enabled:
-            // 上限之外的运行态都收起; 达到上限要留一句, 否则开关开着却没生效无从解释
-            guard keepAliveController.hasReachedMaximumDuration else {
-                return nil
-            }
-            let duration = keepAliveController.maximumDuration.title
-            return SettingsStatusCaption(
-                message: String(localized: "keep-alive.status.duration-limit-reached", defaultValue: "\(duration)")
-            )
+        // 上限之外的运行态都收起; 达到上限要留一句, 否则开关开着却没生效无从解释
+        guard keepAliveController.hasReachedMaximumDuration else {
+            return nil
         }
+        let duration = keepAliveController.maximumDuration.title
+        return SettingsStatusCaption(
+            message: String(localized: "keep-alive.status.duration-limit-reached", defaultValue: "\(duration)")
+        )
     }
 
     var syncRow: some View {
@@ -779,7 +778,6 @@ private extension AppSettingsView {
     /// 再调一次会让每次激活都多跑一遍电源读取 helper 状态查询和 helper 二进制哈希
     func refreshStatusRows() {
         refreshCodexVersionSection()
-        notificationSettings.refreshAuthorizationStatus()
         refreshRebuildableDates()
     }
 
@@ -880,8 +878,8 @@ private extension AppSettingsView {
                 }
             }
 
-            if notificationSettings.isEnabled, notificationSettings.isAuthorizationDenied {
-                notificationDeniedRow
+            if notificationSettings.needsAuthorization {
+                NotificationAuthorizationRow(settings: notificationSettings)
                     .transition(.identity)
                     .transaction { transaction in
                         transaction.animation = nil
@@ -898,22 +896,6 @@ private extension AppSettingsView {
             }
 
             onOptionsAction(.close(panel: .notification))
-        }
-    }
-
-    var notificationDeniedRow: some View {
-        SettingsIndentedRow {
-            Text("settings.notifications.system.permission-disabled")
-                .font(.caption)
-                .foregroundStyle(.red)
-
-            Spacer(minLength: 8)
-
-            Button("common.action.open-system-settings") {
-                notificationSettings.openSystemNotificationSettings()
-            }
-            .controlSize(.small)
-            .fixedSize()
         }
     }
 

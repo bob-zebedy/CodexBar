@@ -40,7 +40,7 @@ final class KeepAliveController: ObservableObject {
 
     /// helper 安装与注册状态的错误, 注册恢复正常时才清除
     @Published private var registrationErrorMessage: String?
-    /// 切换睡眠状态过程中的错误, 只能由下一次操作结果或用户动作覆盖
+    /// 切换睡眠状态过程中的错误, 由下一次操作结果 用户动作或明确的依赖失效覆盖
     /// 与注册类错误分开存储: refreshHelperStatus 每次 App 激活都会跑, 不能抹掉操作结果
     @Published private var operationErrorMessage: String?
 
@@ -708,9 +708,16 @@ final class KeepAliveController: ObservableObject {
             // 注册已正常, 只撤回注册类抱怨
             // 操作类结果 (例如重试耗尽) 必须留到下一次操作有结论为止
             assign(nil, to: \.registrationErrorMessage)
-        } else if helperStatus != .requiresApproval {
-            releaseSleepPrevention()
-            durationLimiter.reset()
+        } else {
+            // 明确失去授权后停止重连, 租约是否已释放仍由原有清理链路确认
+            cancelRetryTask()
+            invalidateConnection()
+            assign(nil, to: \.operationErrorMessage)
+            if helperStatus != .requiresApproval {
+                durationLimiter.reset()
+            }
+            publishDerivedState(blockReason: sleepBlockReason)
+            reconcileAutoResetWakeSchedule()
         }
     }
 
@@ -725,8 +732,8 @@ final class KeepAliveController: ObservableObject {
         reconcileDisplayAwake()
         logSleepConditionsIfChanged(blockReason: blockReason, trigger: trigger)
 
-        // Helper 刷新只允许 unregister/register, 普通租约请求必须等新 Helper 就绪后再恢复
-        guard !isRefreshingHelper else {
+        // Helper 未授权或刷新期间不发普通租约请求, 未确认的租约留待恢复后清理
+        guard helperStatus == .enabled, !isRefreshingHelper else {
             cancelRetryTask()
             releaseSleepPrevention()
             return
@@ -996,14 +1003,12 @@ final class KeepAliveController: ObservableObject {
         generation: UInt64,
         detail: String
     ) {
-        invalidateConnection()
         let details = LogFields.joined(
             "generation=\(generation)",
             "detail=\(detail)"
         )
         AppLog.keepAlive.error("系统睡眠切换失败: \(details, privacy: .public)")
-        operationErrorMessage = KeepAliveLocalizedMessage.toggleSleepFailed
-        scheduleRetryIfNeeded(for: requested)
+        handleHelperFailure(KeepAliveLocalizedMessage.toggleSleepFailed, retrying: requested)
     }
 
     private func updateSleepPreventionSource(
@@ -1154,13 +1159,10 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func handleHelperStatusTimeout() {
-        let shouldRetry = isPreventingSleep
-        let desiredSleepPrevention = shouldDisableSleep
-        invalidateConnection()
-        operationErrorMessage = KeepAliveLocalizedMessage.noResponse
-        if shouldRetry {
-            scheduleRetryIfNeeded(for: desiredSleepPrevention)
-        }
+        handleHelperFailure(
+            KeepAliveLocalizedMessage.noResponse,
+            retrying: isPreventingSleep ? shouldDisableSleep : nil
+        )
     }
 
     private func releaseHelperLeaseIfNeeded(trigger: LogTrigger) async -> Bool {
@@ -1193,21 +1195,18 @@ final class KeepAliveController: ObservableObject {
         )
         connection.invalidationHandler = { [weak self, weak connection] in
             Task { @MainActor in
-                guard let self, self.connection === connection else {
+                guard let self, let connection, self.connection === connection else {
                     return
                 }
-                let shouldRetry = self.requestInFlight || self.isPreventingSleep
-                let desiredSleepPrevention = self.shouldDisableSleep
-                // 复用统一清理: 连接失效同样要释放 assertion, 否则空闲睡眠会被永久阻止
-                self.invalidateConnection()
-                if shouldRetry {
-                    self.scheduleRetryIfNeeded(for: desiredSleepPrevention)
-                }
+                self.handleHelperFailure(nil, retrying: self.requestInFlight || self.isPreventingSleep ? self.shouldDisableSleep : nil)
             }
         }
-        connection.interruptionHandler = { [weak self] in
+        connection.interruptionHandler = { [weak self, weak connection] in
             Task { @MainActor in
-                self?.handleConnectionFailure(KeepAliveError.connectionInterrupted)
+                guard let self, let connection, self.connection === connection else {
+                    return
+                }
+                self.handleConnectionFailure(KeepAliveError.connectionInterrupted)
             }
         }
         connection.resume()
@@ -1217,15 +1216,25 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func handleConnectionFailure(_ error: Error) {
-        let shouldRetry = requestInFlight || isPreventingSleep
-        let desiredSleepPrevention = shouldDisableSleep
-        invalidateConnection()
-        AppLog.keepAlive.error(
-            "Helper XPC 连接失败: detail=\(error.localizedDescription, privacy: .public)"
+        AppLog.keepAlive.error("Helper XPC 连接失败: detail=\(error.localizedDescription, privacy: .public)")
+        handleHelperFailure(
+            KeepAliveLocalizedMessage.connectionFailed,
+            retrying: requestInFlight || isPreventingSleep ? shouldDisableSleep : nil
         )
-        operationErrorMessage = KeepAliveLocalizedMessage.connectionFailed
-        if shouldRetry {
-            scheduleRetryIfNeeded(for: desiredSleepPrevention)
+    }
+
+    /// 断连和超时统一先复核授权, retrying 为 nil 时只收敛状态, 不重试租约
+    private func handleHelperFailure(_ message: String?, retrying requested: Bool?) {
+        invalidateConnection()
+        refreshHelperStatus()
+        guard helperStatus == .enabled else {
+            return
+        }
+        if let message {
+            operationErrorMessage = message
+        }
+        if let requested {
+            scheduleRetryIfNeeded(for: requested)
         }
     }
 
@@ -1248,10 +1257,7 @@ final class KeepAliveController: ObservableObject {
                 "timeout=\(timeout)"
             )
             AppLog.keepAlive.error("Helper XPC 请求超时: \(details, privacy: .public)")
-            // 连接已经不可信, 收掉它再走既有的重试阶梯, 与切换失败同一条路径
-            invalidateConnection()
-            operationErrorMessage = KeepAliveLocalizedMessage.noResponse
-            scheduleRetryIfNeeded(for: requested)
+            handleHelperFailure(KeepAliveLocalizedMessage.noResponse, retrying: requested)
         }
     }
 
@@ -1398,6 +1404,7 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func scheduleRetryIfNeeded(for requested: Bool) {
+        refreshHelperStatus()
         guard isStarted,
               helperStatus == .enabled,
               requested == shouldDisableSleep,
@@ -1432,6 +1439,10 @@ final class KeepAliveController: ObservableObject {
                 return
             }
             retryTask = nil
+            refreshHelperStatus()
+            guard helperStatus == .enabled else {
+                return
+            }
             guard requested == shouldDisableSleep else {
                 reconcileSleepState(trigger: .retry)
                 return
@@ -1469,11 +1480,12 @@ final class KeepAliveController: ObservableObject {
         if !isHookEnabled {
             return .hookDisabled
         }
-        if !hasKeepAliveTasks {
-            return .noTasks
-        }
+        // 先检查依赖, 避免 Hook 恢复任务前以 noTasks 提前放出未授权 Helper 的设置入口
         if helperStatus != .enabled {
             return .helperUnavailable
+        }
+        if !hasKeepAliveTasks {
+            return .noTasks
         }
         if isRefreshingHelper {
             return .helperRefreshing

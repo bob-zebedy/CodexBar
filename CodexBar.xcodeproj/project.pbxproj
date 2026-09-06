@@ -44,7 +44,7 @@
 /* Begin PBXFileReference section */
 		B10000000000000000000014 /* CodexBarHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = CodexBarHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		C449FB5030203E0000ED2123 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
-		C4A0FD952FD9302E000263A7 /* CodexBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CodexBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C4A0FD952FD9302E000263A7 /* CodexBar Debug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "CodexBar Debug.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -129,7 +129,7 @@
 		C4A0FD962FD9302E000263A7 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C4A0FD952FD9302E000263A7 /* CodexBar.app */,
+				C4A0FD952FD9302E000263A7 /* CodexBar Debug.app */,
 				B10000000000000000000014 /* CodexBarHelper */,
 			);
 			name = Products;
@@ -180,7 +180,7 @@
 				C42A52F02FDACDEC004A2B53 /* Sparkle */,
 			);
 			productName = CodexBar;
-			productReference = C4A0FD952FD9302E000263A7 /* CodexBar.app */;
+			productReference = C4A0FD952FD9302E000263A7 /* CodexBar Debug.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -445,6 +445,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				WRAPPER_NAME = "CodexBar Debug.app";
 			};
 			name = Debug;
 		};

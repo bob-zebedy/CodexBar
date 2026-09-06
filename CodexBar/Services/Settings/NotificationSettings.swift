@@ -30,9 +30,9 @@ final class NotificationSettings: ObservableObject {
     @Published private(set) var keepAliveLimitSound: NotificationSoundOption
     @Published private(set) var authorizationStatus: UNAuthorizationStatus = .notDetermined
 
-    /// 系统授权被拒时设置页展示引导, 通知服务停发
-    var isAuthorizationDenied: Bool {
-        authorizationStatus == .denied
+    /// 系统创建通知条目后仍可能等待用户回应, 申请中也需要显示未授权引导
+    var needsAuthorization: Bool {
+        isEnabled && !canDeliver
     }
 
     /// 总开关开启且系统已明确允许时才发送, 未决定或未知状态都按不可发送处理
@@ -66,6 +66,8 @@ final class NotificationSettings: ObservableObject {
 
     private let defaults: UserDefaults
     private var authorizationTask: Task<Void, Never>?
+    private var isRequestingAuthorization = false
+    private var appActivationObserver: AnyCancellable?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -105,6 +107,11 @@ final class NotificationSettings: ObservableObject {
         autoResetSound = Self.sound(from: defaults, key: Self.autoResetSoundKey)
         lowBatterySound = Self.sound(from: defaults, key: Self.lowBatterySoundKey)
         keepAliveLimitSound = Self.sound(from: defaults, key: Self.keepAliveLimitSoundKey)
+        appActivationObserver = NotificationCenter.default
+            .publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                self?.refreshAuthorizationStatus()
+            }
     }
 
     deinit {
@@ -214,17 +221,15 @@ final class NotificationSettings: ObservableObject {
 
     /// 用户可能在系统设置里改过权限, 回到 App 时需要重新读取
     func refreshAuthorizationStatus() {
+        // 系统授权弹窗也会改变 App 与窗口焦点, 查询不能取消正在等待用户回应的请求
+        guard !isRequestingAuthorization else {
+            return
+        }
         authorizationTask?.cancel()
         authorizationTask = Task { @MainActor [weak self] in
             let status = await UNUserNotificationCenter.current()
                 .notificationSettings().authorizationStatus
             guard let self, !Task.isCancelled else {
-                return
-            }
-
-            // 开关已开但用户从未回应过系统弹窗 (如开启后立即退出): 补一次请求, 避免静默丢通知
-            if status == .notDetermined, isEnabled {
-                requestAuthorization()
                 return
             }
 
@@ -237,6 +242,10 @@ final class NotificationSettings: ObservableObject {
                 AppLog.notification.notice("通知授权变化: \(details, privacy: .public)")
             }
             authorizationStatus = status
+            // 仅依据本轮系统查询判断重设, 初始化时的 notDetermined 占位不能清掉用户开关
+            if status == .notDetermined {
+                setEnabled(false)
+            }
         }
     }
 
@@ -254,21 +263,30 @@ final class NotificationSettings: ObservableObject {
     }
 
     private func requestAuthorization() {
+        guard isEnabled, !isRequestingAuthorization else {
+            return
+        }
         authorizationTask?.cancel()
+        isRequestingAuthorization = true
         authorizationTask = Task { @MainActor [weak self] in
-            _ = try? await UNUserNotificationCenter.current()
-                .requestAuthorization(options: [.alert, .sound])
-            let status = await UNUserNotificationCenter.current()
-                .notificationSettings().authorizationStatus
+            do {
+                _ = try await UNUserNotificationCenter.current()
+                    .requestAuthorization(options: [.alert, .sound])
+            } catch {
+                guard !Task.isCancelled else {
+                    return
+                }
+                let error = error as NSError
+                AppLog.notification.error("通知授权请求失败: domain=\(error.domain, privacy: .public); code=\(error.code)")
+            }
             guard let self, !Task.isCancelled else {
                 return
             }
 
-            // 被拒时通知会静默不发, 这是最常见的"设置开了却收不到"来源, 必须留痕
-            AppLog.notification.notice(
-                "通知授权结果: status=\(String(describing: status), privacy: .public)"
-            )
-            authorizationStatus = status
+            // 授权等待结束后恢复普通查询, 后续焦点刷新才能替换尚未返回的旧查询
+            isRequestingAuthorization = false
+            authorizationTask = nil
+            refreshAuthorizationStatus()
         }
     }
 
