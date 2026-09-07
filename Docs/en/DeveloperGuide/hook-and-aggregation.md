@@ -2,17 +2,6 @@
 
 [简体中文](../../DeveloperGuide/hook-and-aggregation.md) | English
 
-## Design Motivation
-
-The Hook flow serves two similar-looking goals with opposite requirements:
-
-- Record facts as quickly as possible on Codex's critical path
-- Maintain reliable long-term statistics in the main app
-
-Capture must be small, bounded, and allowed to fail. Aggregation can run asynchronously and must detect file changes, repair damaged caches, and support full rebuilds.
-
-The implementation therefore uses append-only raw JSONL plus rebuildable daily aggregations instead of making Hook subprocesses update a complex statistics object directly.
-
 ## Flow Responsibilities
 
 The Hook flow turns Codex lifecycle events into rebuildable local history:
@@ -28,31 +17,11 @@ Codex Hook
 
 Raw events are the fact source; daily aggregation is a rebuildable cache. A change to the aggregation algorithm or field semantics requires a full rebuild from raw events within retention.
 
-### Why Hook Subprocesses Do Not Aggregate Directly
-
-Reading and rewriting `daily.jsonl` appears to remove a file layer but creates four problems:
-
-- Every Hook invocation decodes and rewrites history, so latency grows with event volume
-- The subprocess runs within Codex's timeout budget, turning aggregation failure into task delay
-- Algorithm upgrades lack raw facts for recalculation
-- Concurrent Codex sessions can lose updates between read and rewrite
-
-The current design reduces the critical path to one append. The main app aggregates in batches on its own schedule, and a failure leaves raw events for a later repair.
-
-### Raw Facts and Cache Responsibilities
-
-| File | Authoritative? | Recovery |
-| --- | --- | --- |
-| `events/YYYY-MM-DD.jsonl` | Yes | Append only; prune after retention |
-| `daily.jsonl` | No | Fully rebuild from raw events |
-| `maintenance.json` | No | Reconcile when missing or after schema change |
-| `stats.lock` | Stores no business data | Coordinates cross-process transactions only |
-
 ## Installation and Validation
 
-[`CodexHookSettings.swift`](../../../CodexBar/Services/Settings/CodexHookSettings.swift) reads and changes Hook configuration through app-server.
+[`CodexHookSettings.swift`](../../../CodexBar/Services/Settings/CodexHookSettings.swift) reads and writes local `hooks.json` directly, reads or updates related configuration through app-server, and calls `hooks/list` after writing to validate installation.
 
-Enabling requires:
+The enable flow checks the following conditions, validating source, trust, and event completeness after writing:
 
 - A resolvable current executable path
 - Actual app-server version `0.145.0` or later
@@ -72,21 +41,9 @@ Installation adds the CodexBar handler as a separate command within the existing
 
 `isEnabled` is the Hook's enabled state for the current process and is initially restored from an existing CodexBar handler. `isVerified` means the most recent app-server validation passed. The UI treats Hook as a working source only when `isOperable` is true.
 
-### Why Installation and Validation Are Separate
+### Validation State
 
-A command in `hooks.json` proves only that configuration exists on disk, not that Codex will run it.
-
-Execution may still be blocked when:
-
-- The current app-server version is too old
-- `features.hooks` is globally disabled
-- The handler event set is incomplete
-- app-server resolves another source file
-- The handler is untrusted or modified
-
-`isEnabled` is therefore the switch state for the current process, while `isVerified` is Codex's most recent explicit conclusion for the current source. Sleep prevention and task notifications depend only on their combined `isOperable` state.
-
-A transient RPC failure means validation could not run this cycle, not that the handler became invalid. CodexBar preserves the last explicit conclusion while exposing the operation error for diagnosis.
+A handler in `hooks.json` does not prove Codex will execute it. `isOperable` combines the enabled state with the last explicit validation result. Temporary RPC failures preserve the previous result and expose the operation error; unsupported versions, disabled global hooks, incorrect sources, trust failures, or incomplete events fail validation.
 
 ### Reconciliation of an Enabled Hook
 
@@ -115,11 +72,9 @@ Confirm running app-server >= 0.145.0
   -> Run hooks/list again for full validation
 ```
 
-Preflight checks happen before file changes. A failed version or global-feature check leaves the user's file byte-for-byte unchanged.
-
 Trust matching requires both command and `sourcePath`. Command-only matching might trust the same command from another configuration; source-only matching might select the user's own handler.
 
-### Why Disable Queries Trust Keys First
+### Disable and Trust Cleanup
 
 An app-server Hook key comes from the handler it currently parsed. Removing the command from `hooks.json` first would make a later `hooks/list` unable to recover the corresponding key.
 
@@ -127,11 +82,11 @@ Disable therefore saves keys for exact matches, removes handlers, then removes t
 
 A failed trust cleanup does not reinstall the handler. The UI reports that Hook is off but cleanup is incomplete because the user's intent to stop capture succeeded.
 
-### Why Every Event Uses a Separate Group
+### Event Groups
 
 CodexBar does not insert commands into an existing user group. Separate groups make uninstall remove only its own handler without interpreting the composition of user matchers and other handlers.
 
-Removal skips structurally malformed sibling entries instead of failing the entire switch. CodexBar recognizes its own command; it is not a global validator for the user's Hook configuration.
+Removal skips malformed sibling entries and processes only precisely identified CodexBar commands.
 
 ### Generations for Asynchronous Settings Operations
 
@@ -189,13 +144,13 @@ The lock-wait budget is the handler timeout minus 2 seconds. Lock acquisition st
 
 Invalid stdin, lock timeout, or write failure is swallowed. A statistics failure in the Hook subprocess must never block Codex.
 
-### Why It Still Returns Success
+### Failure Exit
 
 Hook metrics are supplemental to CodexBar and not required for Codex to finish a task. Returning a nonzero exit code after a parsing or disk error could turn one statistics failure into a user's Codex failure.
 
 After explicitly entering `--hook-event` mode, the process therefore reports handled and exits successfully regardless of input validity. Failure loses one statistic but never escalates into an upstream task failure.
 
-### Why Event and Maintenance State Commit in One Lock Transaction
+### Locked Event and Maintenance Transaction
 
 One capture performs under the same `stats.lock`:
 
@@ -211,7 +166,7 @@ If append and pending were separate lock transactions, the app could finish main
 
 The joint commit keeps “the file grew” consistent with “maintenance knows it must read.”
 
-### Why Lock Waiting Uses Only Part of the Timeout
+### Lock-Wait Budget
 
 Codex waits at most 3 seconds for `SessionEnd` and 5 seconds for other events. The recorder caps lock waiting at total budget minus 2 seconds.
 
@@ -219,7 +174,7 @@ The reserve covers encoding, append, saving maintenance state, and process exit.
 
 Waiting backs off exponentially from 1 ms to 20 ms. Normal app critical sections are short, so a small start resumes quickly after release, while the cap avoids busy looping under contention.
 
-### Why the Lock File Uses One `open(O_CREAT)`
+### Lock File Creation
 
 Code must not check for absence, create, then reopen. Two processes could create different inodes; after one replaces the directory entry, both would lock separate files and each believe it has exclusivity.
 
@@ -235,7 +190,7 @@ Raw records retain only information required for statistics and live state:
 - Model and reasoning effort
 - Permission and approval reviewer
 - Session and turn IDs
-- Agent and parent relationships
+- Agent ID
 - Normalized `origin`
 
 For `UserPromptSubmit` and `PermissionRequest`, input may omit reviewer or effort. When needed, the recorder looks for a matching `turn_context` near the end of the rollout transcript.
@@ -316,31 +271,17 @@ HookEvents/
 
 Raw events and daily aggregations are retained for up to 210 days. Detailed session and turn ID lists remain only for 3 days; older dates compact them to counts to reduce file size and identity retention.
 
-### Why JSONL
-
-JSONL matches this write pattern:
-
-- The recorder appends one complete record to the tail
-- One damaged line can be isolated instead of failing the whole file
-- Files can rotate by day and be pruned by retention
-- Individual structures remain inspectable during manual diagnosis
-- Aggregation and remote caches can use the same line-level recovery strategy
-
-A regular JSON array would rewrite tail structure on every append. A database would add schema, locking, and deployment complexity, while current queries only scan chronologically by date and gain too little from it.
-
 ### A Complete Line Is the Commit Unit
 
 The reader advances only to the offset of the final newline. If a partial line is being written at the tail, the current cycle keeps its old offset and processes the line after a future cycle sees it complete.
 
 `JSONLines.decodeWithFailures` decodes per line. One malformed line increments the corrupt count without discarding valid events from the same read block.
 
-### Why Identity Details Remain for Only 3 Days
+### Identity Compaction
 
 Session and turn IDs support recent exact deduplication, while long-term presentation needs counts only.
 
-Compacting identifiers to counts after 3 days reduces file size and identity retention. The aggregation model must record whether a field is retained or compacted; otherwise it cannot know whether later events can still use IDs for exact deduplication.
-
-Raw events remain for 210 days and support a full algorithm rebuild. CloudKit never uploads these raw identities.
+After 3 days, identifiers are compacted into counts. The accumulator chooses ID lists or counts in `finalized(identifierStorage:)`; `retained` and `compacted` select the output form and are not separately persisted mode fields.
 
 ## Incremental Reading and Source Generations
 
@@ -377,7 +318,7 @@ Maintenance combines four kinds of evidence:
 
 Inode and size detect replacement and truncation; the boundary hash detects an in-place rewrite at the same length.
 
-### Why Boundary Hash Also Uses mtime
+### Boundary Hash and mtime
 
 Rehashing every file across 210 days each cycle would hold `stats.lock` for too long and directly increase Hook recorder wait probability.
 
@@ -385,7 +326,7 @@ Maintenance records nanosecond mtime from the last boundary validation. If inode
 
 A normal append changes bytes only after offset, so the boundary continues to match and maintenance can aggregate incrementally. A changed boundary creates a new generation and marks it dirty.
 
-### Why Build and Commit Are Separate
+### Build and Commit Validation
 
 The aggregator cannot hold `stats.lock` while reading a full day because Hook subprocesses could time out repeatedly.
 
@@ -434,9 +375,9 @@ A missing field differs from numeric `0`:
 - Missing means the historical source cannot provide this metric for the date
 - `0` means the source is available and explicitly observed none
 
-Decoding and UI must preserve the distinction.
+Decoding and persistence retain optional values. The `WorkflowDailyMetrics` display projection converts missing individual event counts to `0`; session and turn counts use deduplicated IDs or compacted counts first, then fall back to corresponding event counts.
 
-### Why Paired Events Use `max`
+### Paired Event Counts
 
 `PreToolUse` and `PostToolUse` describe the two sides of one tool call. Since the recorder may fail, either side may be absent:
 
@@ -447,18 +388,13 @@ Decoding and UI must preserve the distinction.
 
 Compaction and subagent pairs follow the same rule.
 
-If a future Hook protocol provides stable operation IDs, the algorithm can move to set deduplication, but that changes aggregation semantics and requires a schema increment and full rebuild.
-
 ### Carrying Availability Through Old Data
 
 Older aggregations may not have a newer Hook count. Rebuild cannot assume that an old source captured an event merely because current code understands it.
 
 `WorkflowHookCountAvailability` records source availability for each count. Rebuild inherits an existing date's availability for old fields, while a fresh source can declare all current fields available.
 
-The UI can therefore distinguish:
-
-- Explicitly zero occurrences
-- Historical capture for the date did not provide the metric
+This availability is retained in aggregate and sync fields; the current UI does not display missing historical fields individually.
 
 ## Schema Evolution and Rebuild
 
@@ -487,18 +423,9 @@ A schema change usually marks all event dates in retention dirty. A source-gener
 
 Neither can be replaced with the app version. One app version may not change aggregation, while development builds may iterate schemas without changing a version number.
 
-### Why There Is No Field-Level Migration
+### Rebuild Source
 
-`daily.jsonl` is a derived cache and raw JSONL remains available during retention. Migrating every historical field would retain both old and new algorithms and make mixed semantics more likely.
-
-A full rebuild has a bounded one-time cost and guarantees:
-
-- Every date under one schema uses the same code
-- Removed or redefined fields leave no residual values
-- Damaged aggregate lines are repaired at the same time
-- CloudKit replacement follows source generation consistently
-
-Only when the raw source itself lacks a field does missing preserve the historical capability difference.
+Aggregation-semantic changes rebuild from raw JSONL. Filling fields cannot recover identities or event relationships already lost in old aggregates. Missing semantics are retained when the raw source itself lacks the field.
 
 ### Commit Semantics for a User Rebuild
 
@@ -514,7 +441,7 @@ The operation fails as a whole only if every date fails. Partial success returns
 
 Maintenance coordinates with the rate-limit refresh cycle but has no data dependency on it. The Workflow view model refreshes UI no more often than every 5 seconds to avoid rerendering for frequent file changes.
 
-### Why No-Op Maintenance Does Not Emit Normal Logs
+### Maintenance Logs
 
 Maintenance normally follows the 60-second refresh. An idle machine would otherwise emit more than a thousand no-change checks per day.
 
@@ -532,19 +459,6 @@ After sync completes, an 8-second cooldown combines incoming requests and retain
 
 Opening the UI reads the current local snapshot and does not bypass the scheduler to start an unconditional CloudKit request.
 
-## Steps to Add a Hook Event or Metric
-
-1. Register the protocol name, configuration name, and handler timeout in `CodexHookEvent`
-2. Ensure the recorder persists only minimal fields required for calculation
-3. Update Hook-installation completeness validation
-4. Define count and deduplication semantics in the accumulator
-5. Update aggregate Codable and JSONL encoding while preserving missing semantics for old fields
-6. Increment `WorkflowMaintenanceState.currentAggregationSchema`
-7. Update CloudKit record schema and upload/download mapping
-8. Decide coexistence with old apps and new records before changing compatibility formats
-9. Update UI and privacy boundaries
-10. Manually test normal append, a missing side of a pair, file replacement, and full rebuild
-
 ## Suggested Failure-Scenario Tests
 
 - Concurrent Codex sessions write complete lines without overwriting one another
@@ -555,7 +469,7 @@ Opening the UI reads the current local snapshot and does not bypass the schedule
 - Inode change, file shrink, and boundary rewrite each create a new generation
 - Appends during build commit only to the fixed upper bound and leave the tail pending
 - A schema change rebuilds every in-retention date with the current algorithm
-- Missing fields on old dates remain unavailable instead of becoming `0`
+- Missing historical fields remain optional in decoding and persistence; display counts follow the current fallback rules
 - Disabling CodexBar Hook preserves user handlers and trust entries
 - During rapid Hook toggling, old RPC results cannot overwrite the final operation
 

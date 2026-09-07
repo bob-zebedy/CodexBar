@@ -22,9 +22,11 @@ struct CodexVersionSection: View {
 
                 Text("settings.codex-version.title")
 
+                reconnectButton
+
                 Spacer()
 
-                sourceSelectionControls
+                sourcePicker
             }
 
             if !displayedItems.isEmpty {
@@ -44,7 +46,6 @@ struct CodexVersionSection: View {
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, Metrics.childIndent)
             }
         }
         .onDisappear {
@@ -52,18 +53,14 @@ struct CodexVersionSection: View {
         }
     }
 
-    private var sourceSelectionControls: some View {
-        HStack(spacing: SettingsRowMetrics.spacing) {
-            CodexSourcePicker(
-                selection: sourceSelection,
-                options: availableSelections,
-                isEnabled: !isBusy
-            ) { selection in
-                guard !isBusy, availableSelections.contains(selection), selection != sourceSelection else { return }
-                onReconnect(selection)
-            }
-
-            reconnectButton
+    private var sourcePicker: some View {
+        CodexSourcePicker(
+            selection: sourceSelection,
+            options: availableSelections,
+            isEnabled: !isBusy
+        ) { selection in
+            guard !isBusy, availableSelections.contains(selection), selection != sourceSelection else { return }
+            onReconnect(selection)
         }
         .frame(minHeight: SettingsRowMetrics.optionsButtonSize)
     }

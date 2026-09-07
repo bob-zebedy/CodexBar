@@ -2,190 +2,87 @@
 
 [简体中文](../../UserGuide/settings.md) | English
 
-Right-click or Control-click the menu bar icon and select `Settings`, or press `⌘,` to open the Settings window.
-
-Settings contains three pages: `General`, `Advanced`, and `About`.
+Right-click or Control-click the menu bar icon and choose `Settings`, or press `⌘,`.
 
 ## General Settings
 
-| Setting | Effect | Default or initial state |
+| Setting | Purpose | Default or initial state |
 | --- | --- | --- |
-| Main Panel Layout | Reorders and shows or hides the five main-panel sections | Account, Tasks, Quota, Usage, and Status; the Tasks section is off while Hook is disabled |
-| Animation Effects | Animates the rate-limit bars and usage heatmap whenever the main panel opens | On |
-| Launch at Login | Starts CodexBar automatically through macOS Login Items | Follows the current system Login Item state |
-| Automatically Check for Updates | Lets Sparkle check periodically for updates | Follows the current Sparkle setting |
-| Menu Bar Quota Indicator | Shows the remaining percentage for a selected rate-limit window beside the menu bar icon | Primary rate limit |
-| Global Shortcut | Opens or closes the CodexBar main panel from any app | `⌘⇧W` |
-
-### Menu Bar Quota Indicator
-
-- Choose from the rate-limit windows returned by the current Codex installation
-- CodexBar remembers the last selected window when you turn the indicator off
-- Turning it on again restores the previous selection
-- Cached rate-limit data is shown with reduced opacity
+| Main Panel Layout | Reorder and show or hide Account, Tasks, Quota, Usage, and Status | All visible; Tasks is off when Hook is disabled |
+| Animation Effects | Animate quota bars and the heatmap when opening the panel | On |
+| Launch at Login | Start CodexBar when you sign in to your Mac | Follows the system login-item state |
+| Automatically Check for Updates | Periodically check for CodexBar updates | Follows the current update setting |
+| Menu Bar Quota Indicator | Show the remaining allowance in a selected window | Primary quota |
+| Global Shortcut | Toggle the main panel from any app | `⌘⇧W` |
 
 ### Main Panel Layout
 
-Click the options button on the settings row to configure the `Account`, `Tasks`, `Quota`, `Usage`, and `Status` sections:
+Click the options button to drag sections into order or toggle visibility, keeping at least one section visible. Use `⌘Z` to undo and `⌘⇧Z` to redo. Hiding a section does not stop its features.
 
-- Drag sections to change their display order
-- Use each switch to show or hide a section
-- Keep at least one section visible
-- Press `Command-Z` to undo section reordering or visibility changes in order, and `Command-Shift-Z` to redo them
+Disabling Hook turns off Tasks; enable it manually after re-enabling Hook. If Tasks was the only visible section, Account is enabled automatically.
 
-The `Tasks` section follows CodexBar Hook. When Hook is disabled, this section turns off automatically and its switch is disabled, but the row remains draggable. After Hook is enabled again, the section remains off until you turn it on manually.
+### Menu Bar Quota Indicator
 
-Hiding a section affects only the main-panel presentation. It does not stop rate-limit refreshes, Hook metrics, notifications, sleep prevention, or sync.
+Choose the quota window to display. Turning the indicator off and back on restores the last choice. Faded data indicates cached quota.
 
 ### Global Shortcut
 
-- A recorded shortcut must contain at least two modifier keys
-- System-reserved combinations such as `Command-Space` and `Command-Tab` cannot be used
-- CodexBar reports combinations already used by another app as conflicts
-- You can clear the shortcut
-- You can restore the default `⌘⇧W`
+A shortcut needs at least two modifier keys and cannot use `Command-Space` or `Command-Tab`. Conflicting combinations produce a warning. You can clear the shortcut or restore the default.
 
 ## Advanced Settings
 
-| Setting | Effect | Default |
+| Setting | Purpose | Default |
 | --- | --- | --- |
-| CodexBar Hook | Installs and validates the Codex event handler | Off when not installed |
-| System Notifications | Controls CodexBar local notifications and task haptic feedback | Off |
-| Automatic Reset | Uses banked resets at the selected lead time before expiration | Off; 30 minutes early |
-| Prevent System Sleep | Manages system sleep automatically based on live Codex tasks | Off |
-| Sync Across Devices | Syncs daily Hook aggregations through iCloud | Off |
-| Rebuild Data | Regenerates aggregations from local raw events for selected dates | Manual action |
+| Proxy | Configure the proxy for CodexBar’s Codex service connection | Off |
+| [CodexBar Hook](activity-and-hook.md) | Enable live tasks and daily activity statistics | Off if not installed |
+| [System Notifications](notifications.md) | Configure notification types, thresholds, sounds, and haptics | Main switch off |
+| Automatic Reset | Use banked resets shortly before expiration | Off, 30-minute lead time |
+| [Prevent System Sleep](sleep-prevention.md) | Keep your Mac awake while eligible tasks run | Off |
+| [Cross-Device Sync](sync-data-privacy.md) | Combine daily Hook statistics through iCloud | Off |
+| [Rebuild Data](sync-data-privacy.md#rebuild-data) | Recalculate Hook statistics for selected dates | Manual |
 
-### CodexBar Hook
+### Proxy
 
-Enabling the Hook unlocks live tasks, task notifications, Hook metrics, sleep prevention, and cross-device sync.
+Click the setting row and enter a server address and port. HTTP, HTTPS, hostnames, IPv4, and IPv6 are supported; ports must be within `1–65535`. Authentication requires a username; the password may be empty.
 
-Enabling and validating it requires the current app-server to be `0.145.0` or later.
+An HTTP proxy can forward HTTPS requests. Select HTTPS only if the proxy port itself supports TLS with a valid certificate.
 
-See [Live Tasks and CodexBar Hook](activity-and-hook.md) for details.
+- `Test Connection` checks unsaved settings and can be canceled; it does not save or enable the proxy
+- `Save` applies the configuration; after the first save, enable the switch on the setting row
+- `Cancel` discards this edit
+- `⋯ > Delete Configuration` removes the configuration and password and disables the proxy, even if the saved configuration is damaged
+- Turning off the row’s switch retains the configuration for later use
 
-### System Notification Options
-
-| Option | Default | Other choices or notes |
-| --- | --- | --- |
-| Task Completion | On, 1 minute | Minimum duration: 30 seconds or 1, 2, or 5 minutes |
-| Approval Requests | On | Requires CodexBar Hook |
-| Low Quota | On, 10% | Threshold: 5%, 10%, or 25% |
-| Quota Reset | On | Recognized only after consumption has been observed |
-| Reset Expiration | On | Alerts for banked resets expiring within 7 days |
-| Automatic Reset Notifications | On | Available only while Automatic Reset is enabled; success and failure share one sound |
-| Low Battery Alert | On | Applies only when Low Battery Protection is available |
-| Keep-Awake Limit | On | Applies only when the maximum duration is not unlimited |
-| Task Haptics | Off | Provides trackpad feedback when a task finishes or waits for approval |
-| Codex TUI Notifications | Follows the Codex configuration | Independent of CodexBar notifications |
-
-Each system notification can use the default sound, no sound, a system sound, or a built-in app sound.
-
-See [Notifications and Alerts](notifications.md) for details.
-
-### Confirmation for Automatic Reset and Sleep Prevention
-
-Every transition of `Automatic Reset` or `Prevent System Sleep` from off to on shows a confirmation dialog. The dialog first shows guidance based on the current CodexBarHelper state, then explains the selected feature:
-
-| CodexBarHelper state | Confirmation message |
-| --- | --- |
-| Not registered or file missing | `CodexBar Helper must be installed and authorized to run in the background` |
-| Installed but awaiting macOS approval | `CodexBar Helper is installed but still needs authorization to run in the background` |
-| Installed and approved | Shows only the feature description |
-
-Feature descriptions are:
-
-| Feature | Confirmation title | Description |
-| --- | --- | --- |
-| Automatic Reset | `Enable Automatic Reset?` | `When enabled, CodexBar automatically uses a manual reset credit at the configured time before it expires and may briefly wake your Mac.` |
-| Prevent System Sleep | `Enable System Sleep Prevention?` | `When enabled, CodexBar prevents system sleep while Codex tasks are running and restores normal sleep afterward.` |
-
-Selecting `Enable` saves your intent and attempts to register CodexBarHelper. Selecting `Cancel` leaves the switch off. System Settings for Helper approval opens only through the `Open System Settings` button below an enabled settings row; the button appears while CodexBarHelper is awaiting approval. No status explanation appears below either row while its switch is off.
+Passwords are hidden until you hover over the field. The proxy affects only CodexBar’s Codex service connection, and its password is stored locally in plain text. See [Data, Sync, and Privacy](sync-data-privacy.md).
 
 ### Automatic Reset
 
-When Automatic Reset is enabled and CodexBarHelper is installed and approved, an options button appears on the right side of the main row. Open it to choose a `Time Before Expiration` of `15 Minutes`, `30 Minutes`, `1 Hour`, `2 Hours`, `4 Hours`, or `6 Hours`; the default is `30 Minutes`. The entry is hidden if the Helper state no longer qualifies, and any open Automatic Reset side panel closes.
+Automatic Reset uses banked resets shortly before expiration. Every enable action requires confirmation. If the background service needs approval, click `Open System Settings` below the row and allow CodexBar to run in the background.
 
-- Processes only available banked resets explicitly listed in the latest app-server response
-- Revalidates the account, credit state, and expiration time before every use
-- Processes only the earliest-expiring credit at a time
-- Attempts to register CodexBarHelper after confirmation; even if Prevent System Sleep is off, CodexBar may need approval to run in the background under Login Items & Extensions
-- Shows CodexBarHelper approval, registration, registration-failure, or wake-schedule synchronization status on the Automatic Reset row
-- If a future task exists, CodexBarHelper registers one system wake event for the nearest threshold or retry; the schedule is canceled when the task changes, the feature is disabled, or the app exits, and a schedule left by an abnormal exit is removed the next time the helper starts
-- At the scheduled time, prevents idle system sleep only while it rereads and uses the credit; it does not wake the display or enable Prevent System Sleep
-- Rechecks immediately after a natural system wake or the next app launch; it retries if the credit is still inside its lead-time window and has not expired, otherwise it reschedules for that window
-- Schedules a retry wake only after reading a specific credit and expiration time; continuous retries last no more than 5 minutes per round, while later normal rate-limit refreshes can try again
-- Does not consume anything when no reset is currently available, and reuses the same idempotency key throughout that 5-minute round
-- Preserves the credit's idempotent identity and reschedules when the server changes its expiration time
-- Pauses or stops the current task on authentication failure or a definitive protocol error, with a system notification when notification settings permit
+Once enabled and CodexBarHelper is approved, use the options button to choose a lead time of `15 Minutes`, `30 Minutes`, `1 Hour`, `2 Hours`, `4 Hours`, or `6 Hours`. The default is `30 Minutes`.
 
-When several Macs enable Automatic Reset, each schedules independently but derives the same idempotency key for the same `creditId`. The first device to succeed consumes the credit. Other devices stop after receiving an already-successful result, or stop silently after a refresh shows that the credit disappeared.
+- Processes the earliest-expiring available reset first, rechecking sign-in and availability before use
+- May briefly wake your Mac without lighting the display or enabling Prevent System Sleep
+- Retries temporary failures for up to 5 minutes per round; later refreshes may try again
+- Rechecks unexpired resets when the Mac wakes or the app restarts
+- Cancels scheduled wakes when disabled or when the app quits
+- Multiple Macs trying the same banked reset do not consume it multiple times
 
-After success, CodexBar sends an “Automatic Reset” notification. A regular “Quota Reset” notification comes from a change in the rate-limit window, so both may appear. Automatic Reset itself does not depend on System Notifications; it still runs when notifications are off but does not show a result notification.
-
-The `Automatic Reset Notifications` side-panel option controls both success and failure notifications and configures one sound for both. When Automatic Reset is off, the option appears off and disabled without overwriting your saved notification and sound choices.
-
-This setting is stored only on the current Mac and is not synced through CloudKit.
-
-### Prevent System Sleep Options
-
-When Prevent System Sleep is enabled and CodexBar Hook is available, an options button can appear on the right side of the main row. The entry remains visible when there is no eligible task, CodexBarHelper is refreshing, Low Battery Protection is active, or the maximum duration has been reached. It is hidden when an eligible task exists but CodexBarHelper is unavailable.
-
-| Option | Default | Choices |
-| --- | --- | --- |
-| Keep Awake While Waiting | Off | On or off |
-| Keep Display Awake | Off | On or off |
-| Keep-Awake Limit | 12 hours | 1, 2, 4, 8, 12, or 24 hours; unlimited |
-| Stalled Task Protection | 1 hour | 30 minutes; 1, 2, or 4 hours |
-| Low Battery Protection | Off | Off; 5%, 10%, 15%, 20%, or 25% |
-
-Low Battery Protection does not appear on Macs without a built-in battery.
-
-See [Preventing System Sleep](sleep-prevention.md) for details.
-
-### Sync Across Devices
-
-- Can be enabled only when CodexBar Hook is on and iCloud is available
-- On first enable, uploads daily local Hook aggregations within the retention period
-- Settings shows sync status and the most recent successful upload time
-- Turning it off stops network sync but keeps local Hook data
-
-See [Data, Sync, and Privacy](sync-data-privacy.md) for details.
-
-### Rebuild Data
-
-- The date picker allows only dates within the raw Hook-data retention period
-- Dates with raw events are marked
-- Rebuild becomes available only after a complete range is selected
-- A confirmation appears before rebuilding
-- The result shows the number of rebuilt days, parsed events, and skipped invalid lines
-- Incomplete dates retry automatically when the Hook is available
+Automatic Reset runs independently of notifications. Configure result alerts in [Notification Options](notifications.md#automatic-reset-notifications). Its settings apply only to the current Mac.
 
 ## About
 
-| Item | Purpose |
+| Item | Action or meaning |
 | --- | --- |
-| Source | Located beside the Codex Versions heading; Automatic is always available, while Codex CLI and Codex APP appear only when detected as installed |
-| Reconnect | The connector icon next to the source selector establishes a new connection using the selected source and its installed version |
-| Codex CLI | Shows the on-disk version and path of the global Codex CLI |
-| Codex APP | Shows the on-disk version and path of the CLI bundled with ChatGPT App or Codex App |
-| In Use | Identifies the Codex source and running app-server version currently in use |
-| Unavailable | An orange badge in the status position when the current, selected, or failed refresh source can no longer be detected |
-| CodexBar Version | Shows the current version, update status, and any available update |
-| GitHub Project | Opens the CodexBar project page |
-| Check for Updates | Runs a manual Sparkle update check |
-| Quit CodexBar | Completes required cleanup before quitting the app |
+| Source | Automatic selection prefers Codex CLI, then Codex bundled with ChatGPT App or Codex App; manual selection is also available |
+| Reconnect | Reconnect using the selected source; use after upgrading Codex to switch immediately to the new version |
+| Codex CLI / Codex APP | View detected versions; click a path to copy it |
+| Currently Using | Source and version used by the current connection |
+| Unavailable | A previously used or selected source can no longer be found |
+| CodexBar Version / Check for Updates | View the version and check for updates |
+| GitHub Project | Open the project page |
+| Quit CodexBar | Exit the app |
 
-If Codex has been updated on disk but the current app-server has not reconnected, About shows the newly installed version as well.
+Source selection is temporarily disabled while connecting. Connection failure reasons appear below the version area to help you troubleshoot or choose another source.
 
-Update hints share the semantic version parser used by minimum-version checks: a stable release takes precedence over its prereleases, build metadata does not affect precedence, and unrecognized versions do not produce an update hint.
-
-The default source is Automatic, which prefers CLI and uses the app's bundled Codex when CLI is not installed. Source options only show detected installations. Version rows normally show installed sources; if the current, selected, or failed refresh source is uninstalled, its row remains with Unavailable replacing In Use, without a duplicate source-unavailable message below. This badge means a new connection cannot be opened from that source, not that the old connection has stopped. Changing the source connects immediately and saves the choice only after success. Failure preserves the previous connection and choice. If a previously selected source is uninstalled, the picker shows “Select Source” without falling back to another source.
-
-Automatic reconnection remains enabled: once a connection is one hour old, the next request rebuilds it using the selected source. Reconnect applies an installed update sooner. Older CodexBar versions ignore the source preference and retain their original automatic selection behavior.
-
-Hover over the connector icon to see “Reconnect”; the tooltip changes to “Reconnecting” while connecting. The icon keeps animating through reconnection and the following refresh, while both controls remain disabled. Success updates In Use; a missing source shows Unavailable, while other failures display a reason below the version rows.
-
-Click an executable path to copy the full path.
-
-Back to the [User Guide](README.md)
+Back to the [User Guide](README.md).

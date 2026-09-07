@@ -1,12 +1,21 @@
 import Foundation
 import os
 
-/// UI 只关心可展示数据, 未登录, 初始化失败; 更细的错误保留在交互日志中
+/// 刷新结果携带连接失败原因, 请求响应细节保留在交互日志中
 nonisolated enum CodexFetchOutcome {
     case data(CodexQuotaSnapshot)
     case notLoggedIn
     case unsupportedVersion(minimum: String)
-    case initializationFailed
+    case initializationFailed(message: String)
+
+    var connectionErrorMessage: String? {
+        switch self {
+        case .data: nil
+        case .notLoggedIn: CodexStatusError.notLoggedIn.localizedDescription
+        case let .unsupportedVersion(minimum): CodexStatusError.unsupportedVersion(minimum: minimum).localizedDescription
+        case let .initializationFailed(message): message
+        }
+    }
 }
 
 /// 一次刷新里各步的结果分类, 只用于日志
@@ -50,7 +59,7 @@ private nonisolated enum ConnectionResolution {
     case ready(connection: AppServerConnection, reused: Bool)
     case notLoggedIn
     case unsupportedVersion(minimum: String)
-    case initializationFailed
+    case initializationFailed(message: String)
 }
 
 // 单接口读取结果按后续动作分类: 跳过, 刷新认证, 重建连接
@@ -151,6 +160,33 @@ actor CodexStatusService {
         _ = Self.ignoreBrokenPipeSignal
     }
 
+    func applyProxy(_ configuration: CodexProxyConfiguration?, password: String) throws {
+        try CodexProxyStore.save(configuration, password: password, to: defaults)
+        // actor 内提交设置并回收旧进程, 后续所有业务入口统一按新配置建立连接
+        teardownConnection()
+        supplementalDataCache = SupplementalDataCache()
+    }
+
+    private func openConfiguredConnection(command: AppServerCommand) throws -> ConnectionResolution {
+        let stored = try CodexProxyStore.load(from: defaults)
+        let configuration = stored?.configuration
+        let usesCustomProxy = configuration?.isEnabled == true
+        let environment: [String: String] = if let configuration, usesCustomProxy {
+            try configuration.environment(
+                overriding: Self.environment,
+                password: stored?.password ?? ""
+            )
+        } else {
+            Self.environment
+        }
+        return Self.openConnection(
+            command: command,
+            environment: environment,
+            timeout: Self.requestTimeout,
+            usesCustomProxy: usesCustomProxy
+        )
+    }
+
     // MARK: - 对外入口
 
     func fetchOutcome() async -> CodexFetchResult {
@@ -176,22 +212,19 @@ actor CodexStatusService {
         try readyConnection().commandInfo
     }
 
-    /// 新连接完成握手和账户校验后才替换旧连接, 失败时继续保留原会话
+    /// 重连先关闭旧会话, 新连接失败时保持断开
     func reconnect(
         selection: CodexCLISourceSelection? = nil,
         minimumVersion: String
     ) throws -> CodexCLIConnectionInfo {
+        teardownConnection()
+        supplementalDataCache = SupplementalDataCache()
         let requestedSelection = selection ?? sourceSelection
         let command = try CodexCLIResolver.command(
             from: CodexCLIResolver.resolveInstallations(environment: Self.environment),
             source: requestedSelection.source
         )
-        let resolution = Self.openConnection(
-            command: command,
-            environment: Self.environment,
-            clientVersion: Self.clientVersion(),
-            timeout: Self.requestTimeout
-        )
+        let resolution = try openConfiguredConnection(command: command)
         switch resolution {
         case let .ready(candidate, _):
             guard let version = candidate.commandInfo.version,
@@ -200,13 +233,10 @@ actor CodexStatusService {
                 throw CodexStatusError.unsupportedVersion(minimum: minimumVersion)
             }
 
-            let previous = connection
             connection = candidate
             sourceSelection = requestedSelection
             sourceSelection.save(to: defaults)
-            supplementalDataCache = SupplementalDataCache()
             lastResolvedSource = command.source
-            previous?.close()
             AppLog.codexCLI.notice("Codex 连接已切换: source=\(command.source.rawValue, privacy: .public)")
             return candidate.commandInfo
         case .notLoggedIn:
@@ -308,9 +338,9 @@ actor CodexStatusService {
         case let .unsupportedVersion(minimum):
             trace.failureStage = .connect
             return .unsupportedVersion(minimum: minimum)
-        case .initializationFailed:
+        case let .initializationFailed(message):
             trace.failureStage = .connect
-            return .initializationFailed
+            return .initializationFailed(message: message)
         case let .ready(connection, reused):
             trace.connection = reused ? .reused : .new
             do {
@@ -330,10 +360,10 @@ actor CodexStatusService {
                     AppLog.app.notice("codex 连接已失效: reason=transportError")
                     return resolveOutcome(allowRebuild: false, trace: &trace)
                 }
-                return .initializationFailed
+                return .initializationFailed(message: CodexStatusError.serverConnectionClosed.localizedDescription)
             } catch {
                 teardownConnection()
-                return .initializationFailed
+                return .initializationFailed(message: CodexStatusError.serverConnectionClosed.localizedDescription)
             }
         }
     }
@@ -426,7 +456,7 @@ actor CodexStatusService {
             )
             AppLog.app.error("codex 连接失败: \(details, privacy: .public)")
             RequestLogStorage.shared.recordFailure(message: error.localizedDescription)
-            return .initializationFailed
+            return .initializationFailed(message: error.localizedDescription)
         }
 
         // 可执行文件路径含用户名, 只记来源分类
@@ -438,12 +468,16 @@ actor CodexStatusService {
             )
         }
 
-        let resolution = Self.openConnection(
-            command: command,
-            environment: Self.environment,
-            clientVersion: Self.clientVersion(),
-            timeout: Self.requestTimeout
-        )
+        let resolution: ConnectionResolution
+        do {
+            resolution = try openConfiguredConnection(command: command)
+        } catch let error as CodexProxyError {
+            AppLog.settings.error("\(error.localizedDescription, privacy: .public)")
+            return .initializationFailed(message: error.localizedDescription)
+        } catch {
+            RequestLogStorage.shared.recordFailure(message: error.localizedDescription)
+            return .initializationFailed(message: error.localizedDescription)
+        }
         switch resolution {
         case let .ready(newConnection, _):
             connection = newConnection
@@ -700,26 +734,17 @@ actor CodexStatusService {
     private static func openConnection(
         command: AppServerCommand,
         environment: [String: String],
-        clientVersion: String,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        usesCustomProxy: Bool
     ) -> ConnectionResolution {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: command.executablePath)
-        process.arguments = command.arguments
-        process.environment = environment
-
-        let standardInput = Pipe()
-        let standardOutput = Pipe()
-        let standardError = Pipe()
-        let lineReader = JSONLineReader(fileHandle: standardOutput.fileHandleForReading)
-        let errorReader = PipeDrain(fileHandle: standardError.fileHandleForReading)
-
-        process.standardInput = standardInput
-        process.standardOutput = standardOutput
-        process.standardError = standardError
-
+        let session: AppServerSession
         do {
-            try process.run()
+            session = try AppServerSession.launch(
+                command: command,
+                environment: environment,
+                timeout: timeout,
+                usesCustomProxy: usesCustomProxy
+            )
         } catch {
             RequestLogStorage.shared.recordFailure(
                 message: String(
@@ -727,22 +752,13 @@ actor CodexStatusService {
                     defaultValue: "\(error.localizedDescription)"
                 )
             )
-            return .initializationFailed
+            return .initializationFailed(message: CodexStatusError.serverConnectionClosed.localizedDescription)
         }
         let openedAt = Date()
-
-        let session = AppServerSession(
-            process: process,
-            input: standardInput,
-            lineReader: lineReader,
-            errorReader: errorReader,
-            timeout: timeout
-        )
 
         return initializeConnection(
             session: session,
             command: command,
-            clientVersion: clientVersion,
             openedAt: openedAt
         )
     }
@@ -750,57 +766,31 @@ actor CodexStatusService {
     private static func initializeConnection(
         session: AppServerSession,
         command: AppServerCommand,
-        clientVersion: String,
         openedAt: Date
     ) -> ConnectionResolution {
         do {
-            let initializeResult = try session.request(
-                "initialize",
-                params: [
-                    "clientInfo": [
-                        "name": "codex_bar",
-                        "title": "Codex Bar",
-                        "version": clientVersion
-                    ]
-                ],
-                as: InitializeResult.self
-            )
-
-            guard let serverVersion = Self.validatedServerVersion(
-                fromUserAgent: initializeResult.userAgent
-            ) else {
-                session.close()
-                return .unsupportedVersion(minimum: CodexCLIMinimumVersion.global)
-            }
-
-            try session.notify("initialized")
-
-            let accountResponse = try session.request(
-                "account/read",
-                params: ["refreshToken": false],
-                as: AccountReadResponse.self
-            )
-
-            guard accountResponse.account != nil else {
-                session.close()
-                return .notLoggedIn
-            }
-
+            let initialized = try session.initializeAccount()
             let commandInfo = CodexCLIConnectionInfo(
                 source: command.source,
                 executablePath: command.executablePath,
-                version: serverVersion,
+                version: initialized.version,
                 openedAt: openedAt
             )
 
             return .ready(
                 connection: AppServerConnection(
                     session: session,
-                    accountResponse: accountResponse,
+                    accountResponse: initialized.account,
                     commandInfo: commandInfo
                 ),
                 reused: false
             )
+        } catch CodexStatusError.notLoggedIn {
+            session.close()
+            return .notLoggedIn
+        } catch let CodexStatusError.unsupportedVersion(minimum) {
+            session.close()
+            return .unsupportedVersion(minimum: minimum)
         } catch {
             // app-server 链路的细节按既有分工进日志窗口, 不重复写系统日志
             RequestLogStorage.shared.recordFailure(
@@ -810,46 +800,8 @@ actor CodexStatusService {
                 )
             )
             session.close()
-            return .initializationFailed
+            return .initializationFailed(message: CodexStatusError.serverConnectionClosed.localizedDescription)
         }
-    }
-
-    private nonisolated static func clientVersion() -> String {
-        guard let version = Bundle.main.shortVersionString, !version.isEmpty else {
-            return "1.0.0"
-        }
-
-        return version
-    }
-
-    private nonisolated static func validatedServerVersion(fromUserAgent userAgent: String?) -> String? {
-        let version = serverVersion(fromUserAgent: userAgent)
-        let minimumVersion = CodexCLIMinimumVersion.global
-        guard let version,
-              CodexCLIVersionReader.isVersion(version, atLeast: minimumVersion) == true else {
-            let details = LogFields.joined(
-                "current=\(version ?? "unknown")",
-                "minimum=\(minimumVersion)"
-            )
-            AppLog.codexCLI.notice("Codex 版本不支持: \(details, privacy: .public)")
-            RequestLogStorage.shared.recordFailure(
-                message: CodexStatusError.unsupportedVersion(minimum: minimumVersion).localizedDescription
-            )
-            return nil
-        }
-
-        return version
-    }
-
-    /// userAgent 形如 "codex_bar/0.139.0 (...)"; 取首个 token 中 "/" 之后的运行版本号
-    private nonisolated static func serverVersion(fromUserAgent userAgent: String?) -> String? {
-        guard let firstToken = userAgent?.split(separator: " ").first,
-              let slashIndex = firstToken.firstIndex(of: "/") else {
-            return nil
-        }
-
-        let version = firstToken[firstToken.index(after: slashIndex)...]
-        return version.isEmpty ? nil : String(version)
     }
 }
 
@@ -886,8 +838,4 @@ private final nonisolated class AppServerConnection {
         isClosed = true
         session.close()
     }
-}
-
-private nonisolated struct InitializeResult: Decodable {
-    let userAgent: String?
 }

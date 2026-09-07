@@ -1,13 +1,11 @@
 import AppKit
 
-/// 菜单面板淡入淡出的集中控制, 用 generation 丢弃过期动画完成回调
+/// 菜单面板淡入淡出的集中控制, 新动画取消旧的完成任务
 @MainActor
 final class MenuSurfaceFadeCoordinator {
     private let contentViewProvider: () -> NSView?
     private let closeActiveMenuSurface: () -> Void
-    private var fadeInCompletionTask: Task<Void, Never>?
-    private var fadeOutCompletionTask: Task<Void, Never>?
-    private var fadeGeneration = 0
+    private var completionTask: Task<Void, Never>?
 
     init(
         contentViewProvider: @escaping () -> NSView?,
@@ -18,10 +16,8 @@ final class MenuSurfaceFadeCoordinator {
     }
 
     func cancel() {
-        fadeInCompletionTask?.cancel()
-        fadeInCompletionTask = nil
-        fadeOutCompletionTask?.cancel()
-        fadeOutCompletionTask = nil
+        completionTask?.cancel()
+        completionTask = nil
     }
 
     func prepareForFadeIn() {
@@ -35,40 +31,40 @@ final class MenuSurfaceFadeCoordinator {
     }
 
     func fadeIn(duration: TimeInterval, completion: @escaping () -> Void) {
-        let operationGeneration = nextGeneration()
+        cancel()
         fade(to: 1, duration: duration)
 
-        fadeInCompletionTask = Task { @MainActor [weak self] in
+        completionTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(duration * 1000)))
-            guard let self, !Task.isCancelled, fadeGeneration == operationGeneration else {
+            guard let self, !Task.isCancelled else {
                 return
             }
 
             resetAlpha()
-            fadeInCompletionTask = nil
+            completionTask = nil
             completion()
         }
     }
 
     func fadeOut(duration: TimeInterval, completion: @escaping () -> Void) -> Bool {
+        cancel()
         guard let contentView else {
             return false
         }
 
-        let operationGeneration = nextGeneration()
         let activeMenuSurfaceWindow = contentView.window
         fade(to: 0, duration: duration)
 
-        fadeOutCompletionTask = Task { @MainActor [weak self, weak contentView, weak activeMenuSurfaceWindow] in
+        completionTask = Task { @MainActor [weak self, weak contentView, weak activeMenuSurfaceWindow] in
             try? await Task.sleep(for: .milliseconds(Int(duration * 1000)))
-            guard let self, !Task.isCancelled, fadeGeneration == operationGeneration else {
+            guard let self, !Task.isCancelled else {
                 return
             }
 
             closeActiveMenuSurface()
             contentView?.alphaValue = 1
             activeMenuSurfaceWindow?.alphaValue = 1
-            fadeOutCompletionTask = nil
+            completionTask = nil
             completion()
         }
 
@@ -77,11 +73,6 @@ final class MenuSurfaceFadeCoordinator {
 
     private var contentView: NSView? {
         contentViewProvider()
-    }
-
-    private func nextGeneration() -> Int {
-        fadeGeneration += 1
-        return fadeGeneration
     }
 
     private func fade(to alpha: CGFloat, duration: TimeInterval) {

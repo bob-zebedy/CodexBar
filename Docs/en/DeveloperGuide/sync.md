@@ -18,39 +18,17 @@ Local raw Hook JSONL
 
 Account data, rate limits, total tokens, Reset Credits, Automatic Reset settings and state, live tasks, and sleep-prevention state do not sync.
 
-## Goals and Non-Goals
-
-Sync does not replicate one Mac's database. It safely adds independent contributions from multiple devices for the same day.
-
-Its priorities are:
-
-1. Do not upload raw work content or identities directly tied to hardware
-2. Local metrics must remain displayable without CloudKit
-3. Rescans and file replacement must not create duplicate counts
-4. Preserve the last explainable remote snapshot during network failure
-5. Retries must be idempotent rather than depending on exactly-once requests
-
-The sync protocol explicitly excludes:
-
-- Live task state, which changes quickly and requires low-latency local evaluation
-- Account rate limits, which belong to the Codex account rather than device work history
-- Automatic Reset, whose multi-device convergence uses a deterministic idempotency key for the same `creditId`, not CloudKit locks or task records
-- Sleep-prevention state, which is a system side effect on the current Mac
-- Raw events, because cross-device statistics need only mergeable daily facts
-
-Placing sync after aggregation also improves maintenance: the raw Hook format can evolve independently while CloudKit sees a stable daily projection.
-
-## Sources of Authority
+## Data Sources
 
 Synced presentation combines three kinds of values:
 
 | Data | Authoritative source | Offline behavior |
 | --- | --- | --- |
-| Current-device contributions for today and history | Local `daily.jsonl` | Continues updating live |
+| Current-device contributions for today and history | Local `daily.jsonl` merged with same-source cloud cache by completeness | Local aggregation continues; cloud cache is retained |
 | Contributions from other devices | Last successfully fetched records in `cache.jsonl` | Preserves the last snapshot |
 | Upload confirmation and incremental position | `state.json` and `cursor.data` | Continues or rebuilds next time |
 
-The current device is always local-first. Its CloudKit copy exists for other devices, not as truth for its own UI. This rule avoids a value appearing once locally and then doubling after a round trip to the cloud.
+Current-device local aggregates and cloud copies are merged by source and completeness, counting each source once. The cloud can supply missing local data or a same-source aggregate with more events.
 
 The remote cache is a rebuildable projection, and the cursor is only an optimization. Any cursor failure can fall back to a full custom-zone read without requiring the user to delete local files.
 
@@ -69,7 +47,7 @@ Private-database content belongs only to the current iCloud account and is never
 
 The custom zone is more than a namespace. It provides zone change tokens and deletion events so devices can sync additions, modifications, and deletions incrementally instead of scanning the entire private database each cycle.
 
-Confirmed zone state and the account salt are cached in the actor across sync cycles, avoiding two fixed network round trips each time. Any sync failure invalidates both because an iCloud account switch may first appear as a request failure. Reconfirming next cycle is safer than continuing with the wrong account context.
+Zone confirmation and account salt are cached in the actor across cycles. Sync failure invalidates both for the next cycle to reread.
 
 ## Activation Conditions
 
@@ -80,7 +58,7 @@ Sync runs only when all conditions hold:
 - The current iCloud account is available
 - The local aggregation service is available
 
-First enable marks a backfill and uploads dates within local retention that need synchronization. Scheduling has a minimum 8-second cooldown to coalesce several local changes.
+Each sync checks all dates within local retention and uses hashes to select data that needs uploading, so initial sync and subsequent backfill use the same flow. Scheduling has a minimum 8-second cooldown to coalesce several local changes.
 
 ## Device Pseudonymization
 
@@ -93,7 +71,7 @@ Sync must distinguish device contributions without uploading a raw hardware iden
 
 The raw `IOPlatformUUID` is never uploaded. One device receives a stable pseudonym within one iCloud account and a different value in another account.
 
-HMAC is used instead of plain SHA-256. Hardware UUIDs have a fixed input format, so a simple hash would remain stable across accounts. A private per-account salt makes the same hardware unlinkable across accounts.
+The private account salt gives the same device a different pseudonym in each iCloud account.
 
 The salt lives in the same private custom zone. If several devices attempt initial creation, they converge on the existing record by reading it after a CloudKit conflict instead of keeping incompatible salts.
 
@@ -156,9 +134,9 @@ Every stage writes a `stage` field to logs, so an error identifies zone, device,
 
 The upload loop checks its 20-second budget before each batch. A batch already in progress continues waiting for its result. Once the budget is exhausted, remaining dates wait for a later sync.
 
-Stable JSON for each date is encoded and hashed once, and the same result drives filtering and success confirmation. Re-encoding in different phases could let dictionary order or optional fields make change detection drift.
+Each date’s stable JSON is encoded and hashed once, reusing the result for pending-upload filtering and upload confirmation.
 
-Uploads use `atomically: false`. On partial batch success, each CloudKit result is confirmed separately, while failed dates lose their local hash so they retry. The protocol relies on idempotent single-record identity rather than requiring all 25 records to succeed together.
+Uploads use `atomically: false`, allowing partial success remotely. If any error occurs in a batch, the caller removes local confirmation hashes for every date in that batch and rechecks it next cycle. Confirmations from earlier completed batches remain, and successful remote writes are not rolled back.
 
 ## Merge Semantics
 
@@ -166,15 +144,15 @@ One day may have records from several devices plus a newer local result that the
 
 Merge rules are:
 
-- Add contributions from other devices by field
-- Replace the current device's same-source cloud contribution with its latest local aggregation
-- Count a source generation at most once
-- Add generations confirmed to represent independent sources
-- Use a current-device cloud contribution only when local data is missing
+- Add other-device contributions by field
+- Use cloud contributions when the current device has no local aggregate
+- Match sources by `sourceGeneration` or legacy-record content; use the cloud aggregate if it has more events, otherwise use local data
+- If local source completeness is unconfirmed and no cloud record matches it, prefer existing cloud contributions
+- Continue adding unmatched independent cloud sources
 
-Replacing the current device's cloud value with its local value prevents double counting when sync just uploaded but the local UI was already updated.
+`confirmedDates` includes both successful uploads and dates skipped by the upload decision; it does not guarantee field-for-field equality between local and cloud content.
 
-### Why One Device Can Have Multiple Records for One Day
+### Multiple Sources for One Device and Date
 
 Legacy record names contain only `deviceId + date`. New source records may use `deviceId + date + sourceGeneration`.
 
@@ -196,11 +174,11 @@ Upload targets follow these rules:
 
 `sourceIsFresh` describes the completeness of the raw source for one read, not its timestamp. A newer timestamp is not more authoritative while a file is replaced, truncated, or awaiting stable-boundary confirmation.
 
-### Why Missing Cannot Become Zero
+### Missing Count Fields
 
 As the CloudKit record schema evolves, an old record may lack a new count field. `nil` means that device cannot provide the metric for that day; `0` means it explicitly observed zero occurrences.
 
-Preserving availability during merge lets the UI distinguish “all devices total zero” from “some historical sources do not support this metric.” Decoding missing as zero creates a false fact that cannot be repaired later.
+CloudKit decoding and persisted models preserve optional counts. The current `WorkflowDailyMetrics` display projection converts missing individual event counts to `0`; session and turn counts first fall back to their start or stop event counts, then to `0`. Unavailable daily statistics and a missing individual count are different UI cases.
 
 ## Source Replacement and Rebuild
 
@@ -213,7 +191,7 @@ When the user requests a rescan:
 
 This design limits a rebuild to correcting the current device's contribution.
 
-### Why Replacement Is a Persistent Transaction
+### Replacement Transaction
 
 Rebuild and CloudKit synchronization may not finish in one process lifetime, so `replacementDates` persists in `state.json` instead of memory only.
 
@@ -239,7 +217,7 @@ Sync state lives at:
 
 | File | Purpose |
 | --- | --- |
-| `state.json` | Sync schema, local hashes, backfill, and replacement state |
+| `state.json` | Sync schema, local hashes, and replacement state |
 | `cache.jsonl` | Cached daily aggregates from remote devices |
 | `cursor.data` | CloudKit zone change token |
 
@@ -259,7 +237,7 @@ The local `3 -> 4` read path rebuilds the remote cache before committing new sta
 
 Any change to record fields, identity, or schema is a compatibility decision. It must account for old apps still writing, new apps reading old fields, and whether downgrade can overwrite new records—not merely increment a constant.
 
-## Why the Scheduler Is Separate
+## Sync Scheduler
 
 Local maintenance and CloudKit sync share aggregation input but require different trigger rates. `WorkflowSyncScheduler` coalesces triggers into a single-threaded state machine.
 
@@ -277,31 +255,19 @@ Important details include:
 - Disabling sync during a wait clears pending sync but still allows required local maintenance
 - `@Published` subscriptions run during `willSet`, when rereading the property returns the old value, so activation is calculated explicitly from the new callback argument
 
-The last detail is easy to break while “cleaning up” Combine lifecycle code. Rereading settings appears simpler but would decide synchronization using the old value.
-
 ## Failure and Recovery Semantics
 
-A sync failure neither rolls back independently confirmed records nor clears the last usable cache. The next cycle converges through hashes, record IDs, and idempotent CloudKit APIs:
+A sync failure does not roll back remote writes or clear the last usable cache. The next cycle continues through hashes, record IDs, and CloudKit APIs:
 
 | Failure point | Preserved state | Next cycle |
 | --- | --- | --- |
 | Zone or account confirmation | Local aggregation and old cache | Reconfirm zone and salt |
 | Incremental fetch | Old cache | Fall back to a full rebuild |
-| Partial upload | Hashes for successful dates | Retry only unconfirmed dates |
+| Partial upload | Hashes from earlier completed batches and successful remote writes | Recheck all dates in the failed batch |
 | Replacement deletion | Replacement marker | Re-enumerate and delete idempotently |
 | Prune | In-retention data and upload results | Prune later |
 
-Account-level caches are invalidated after failure, but the disk cache is not immediately published as fact for a new account. The sync snapshot returns only after availability and device identity are confirmed again.
-
-## Checklist for Sync Protocol Changes
-
-1. Define field semantics first, especially whether missing, zero, and empty collections differ
-2. Decide whether record identity remains idempotent
-3. Evaluate concurrent writes by old and new app versions
-4. Define upgrade or rebuild paths for local state, cache, and cursor
-5. Confirm replacement can delete every old generation
-6. Recheck privacy boundaries and explicit opt-in
-7. Validate eventual convergence with two devices and an interrupted cycle
+A sync failure invalidates the actor’s cached zone confirmation and account salt. The next cycle resolves account and device identity again; a change from the device identity stored locally rebuilds the remote cache.
 
 ## Retention and Pruning
 
@@ -314,7 +280,7 @@ CloudKit records share the local Hook-history retention period of up to 210 days
 
 ## Error Classification
 
-The sync layer distinguishes these states for Settings and notifications:
+The sync layer distinguishes the following states for Settings and the main panel:
 
 - Network unavailable
 - iCloud account unavailable

@@ -8,20 +8,7 @@ CodexBar 在 [`Info.plist`](../../CodexBar/Resources/Info.plist) 中配置为 `L
 
 它没有 Dock 图标和普通主窗口生命周期。菜单栏、popover、浮动面板、设置窗口和通知点击都必须显式处理 App 激活与焦点。
 
-普通 SwiftUI Window 的默认行为不足以覆盖这些场景，因此 UI 采用 SwiftUI 内容加 AppKit Controller 的组合。
-
-## UI 架构的分工
-
-SwiftUI 负责声明内容，AppKit 负责窗口和事件生命周期：
-
-| 层 | 负责 | 不负责 |
-| --- | --- | --- |
-| SwiftUI View | 布局、数据展示、用户意图回调 | 创建长期服务、决定 key window、安装全局事件监听 |
-| ViewModel 和 Settings | 发布稳定快照、保存用户设置 | 持有窗口或判断屏幕坐标 |
-| AppKit Controller | popover, panel, window, focus, event monitor | 重新实现业务状态机 |
-| AppDelegate | 组装和持有长期对象 | 承载具体视图布局 |
-
-这个边界让同一份菜单内容可以装入 `NSPopover` 或 fallback `NSPanel`，同时避免 SwiftUI View 因 identity 变化而销毁 monitor、XPC 或通知服务。
+UI 使用 SwiftUI 声明内容，由 AppKit Controller 管理窗口。
 
 ## `LSUIElement` 下的 3 类焦点
 
@@ -39,29 +26,18 @@ SwiftUI 负责声明内容，AppKit 负责窗口和事件生命周期：
 
 [`CodexBarAppDelegate.swift`](../../CodexBar/Controllers/CodexBarAppDelegate.swift) 是普通模式的 composition root，[`StatusItemController.swift`](../../CodexBar/Controllers/StatusItemController.swift) 只负责菜单栏和相关窗口编排。
 
-AppDelegate 负责：
-
-- 创建长期 service, ViewModel 和 settings
-- 建立 monitor 与通知、防睡眠的观察关系，并装配自动重置状态机
-- 启动状态刷新和 Hook 活动读取
-- 创建状态栏控制器
-- 安装全局快捷键
-- 配置 Sparkle 更新
-- 在 App 终止时协调自动重置唤醒计划取消和防睡眠释放
-
-对象由 composition root 显式持有，避免 SwiftUI View 生命周期意外销毁长期服务。
-
-### 启动顺序为什么重要
+### 启动顺序
 
 普通模式的装配顺序体现依赖关系：
 
 ```text
-创建 settings 和数据服务
-  -> 建立 ViewModel
-  -> 创建 status item 和窗口 controller
-  -> 启动通知与自动重置副作用
+创建 settings、数据服务、ViewModel 和更新服务
+  -> 创建并安装 StatusItemController
+      -> 装配菜单栏、观察者和快捷键
+      -> 对账 Hook 并启动周期刷新
+  -> 启动通知与自动重置
+  -> 连接异常会话保护回调
   -> 启动 activity monitor 与 keep-alive 协调
-  -> 启动周期刷新与更新服务
 ```
 
 通知和防睡眠只消费 monitor 已发布的快照或转场，不反向控制 reader。Controller 通过闭包连接这些服务，从而避免服务层依赖 AppKit 容器。
@@ -75,10 +51,10 @@ AppDelegate 负责：
 任务状态点的优先级是：
 
 ```text
-等待批准 > 运行中 > 最近完成 > 最近中断 > 空闲
+等待批准（橙色） > 运行中（蓝色） > 完成后 30 秒内（绿色）
 ```
 
-图标生成结果按输入状态缓存，避免每次定时刷新重复绘制。非激活或不可用状态通过 alpha 表达。
+最近中断、空闲和完成高亮过期后均不显示任务状态点。图标生成结果按输入状态缓存，非激活或不可用状态通过 alpha 表达。
 
 ### 图像状态与 tooltip 状态分离
 
@@ -88,8 +64,6 @@ AppDelegate 负责：
 - 额度过期但仍展示缓存时，图标和进度使用降低后的 alpha
 - 指示点或额度条显隐变化时才启动约 0.18 秒的 10 帧动画
 - 新渲染状态到达时取消旧动画，每帧再次确认目标状态仍是当前状态
-
-如果直接对完整状态做 `NSImage` 重绘，每次计时文字变化都会打断动画并增加菜单栏绘制。将 render identity 显式建模是一个小而重要的性能边界。
 
 无状态点和额度条时图标保持 template image，让系统根据浅色、深色和菜单栏状态自动着色。一旦加入自定义颜色或进度条就使用显式颜色绘制。
 
@@ -110,7 +84,7 @@ CodexBar 自己管理 dismiss，原因包括：
 
 [`MenuSurfaceDismissMonitor.swift`](../../CodexBar/Controllers/MenuSurfaceDismissMonitor.swift) 监听全局和本地事件，[`MenuSurfaceFadeCoordinator.swift`](../../CodexBar/Controllers/MenuSurfaceFadeCoordinator.swift) 统一协调关闭动画。
 
-### 为什么需要显式开合状态机
+### 开合状态机
 
 `menuSurfaceState` 有 4 个状态：
 
@@ -127,7 +101,7 @@ hidden -> opening -> shown -> closing -> hidden
 
 只检查 `popover.isShown` 不足以表示 opening 或 fade-out 中的逻辑状态，也无法同时覆盖 fallback panel。
 
-### dismiss 规则为什么由一个监听器管理
+### 关闭事件监听
 
 主面板的允许点击区域是一个集合：
 
@@ -145,21 +119,17 @@ hidden -> opening -> shown -> closing -> hidden
 - 点击后重新固定 `NSVisualEffectView` 为 inactive，避免 AppKit 自动强调背景导致明暗跳变
 - 初次安装 observer 后 `Task.yield()` 再补一次窗口获取和聚焦，覆盖 popover window 尚未挂载的时机
 
-这些规则应作为一个交互表面整体修改。只给某个侧边 panel 单独添加 event monitor 会制造监听顺序和重复关闭问题。
+### 淡入淡出与完成任务
 
-### 淡入淡出作用在内容而不是窗口
+`MenuSurfaceFadeCoordinator` 同时调整活动容器的内容视图和窗口透明度，淡入为 0.24 秒，淡出为 0.18 秒。控制器只保存一个完成任务；新动画开始前取消旧任务，任务等待结束后检查取消状态，再标记已显示或完成关闭。
 
-popover 的系统窗口由 AppKit 管理，直接动画窗口 alpha 容易与系统显示状态冲突。`MenuSurfaceFadeCoordinator` 对活动容器的 content view 做动画，完成后再调用统一 close。
-
-关闭期间辅助窗口暂时拒绝 `makeKey()`。否则原本已打开的设置或日志窗口可能在菜单 fade-out 的几帧里突然跳到前面。
+关闭期间设置和日志窗口暂时拒绝 `makeKey()`，关闭完成后约 120 ms 恢复。完成任务弱引用当次窗口，关闭后恢复内容视图和窗口透明度。
 
 ## Fallback panel
 
 全局快捷键触发时，状态栏按钮的屏幕位置可能不可用或不可信。此时 [`FallbackPanelController.swift`](../../CodexBar/Controllers/FallbackPanelController.swift) 在鼠标所在屏幕显示浮动面板。
 
-popover 和 fallback panel 承载同一份 SwiftUI 内容和状态。业务逻辑不能依赖具体容器类型。
-
-### 锚点为何需要可信度检查
+### 锚点校验
 
 全局快捷键可能在 status item 尚未完成布局、菜单栏位于另一块屏幕，或系统暂时不给出 button window 时触发。代码不会只检查 button 非 nil，还验证：
 
@@ -184,8 +154,6 @@ fallback panel 在展示前根据 SwiftUI fitting size 和目标屏幕可见区�
 
 所有详情面板实现 `MenuSideDetailPanel` 并登记在 `sideDetailPanels` 数组。互斥关闭、主表面关闭和 hit testing 都遍历同一份名册。
 
-这比在每对面板之间写互相关闭更可扩展。新增第 4 个面板时只需要加入名册，不需要补齐 6 对互斥关系。
-
 hover 类型的热力图面板在打开其他面板前可以渐隐，点击类型的面板通常立即关闭旧面板。这是为了避免同一屏幕位置出现两个反向滑动动画叠加。
 
 热力图详情面板以包含标题、日期范围和方格矩阵的完整热力图区域作为垂直锚点，因此主面板区域重排后仍优先保持两者顶边对齐。如果详情面板从该位置向下会超过主面板底边，则定位逻辑将它整体上移到与主面板底边对齐。
@@ -201,9 +169,7 @@ hover 类型的热力图面板在打开其他面板前可以渐隐，点击类�
 
 设置与日志由独立的 `HostingWindowController` 管理 `NSWindow`
 
-`LSUIElement` App 打开普通窗口时需要暂时允许窗口成为 key、激活 App，再把焦点交给目标控件。关闭后恢复菜单栏 App 的非前台行为。
-
-焦点恢复使用约 120 ms 延迟，给 AppKit 完成窗口和 activation 状态切换。这类延迟属于系统生命周期协调，不能简单删除为同步调用。
+打开设置或日志窗口时，`HostingWindowController` 允许目标窗口成为 key 并激活 App。`AuxiliaryHostingWindow` 可以成为 key window，但不能成为 main window。
 
 上下文菜单 action 会延迟到 menu tracking 结束后执行，避免 AppKit 仍在菜单事件循环中时创建或激活窗口。
 
@@ -237,17 +203,17 @@ hover 类型的热力图面板在打开其他面板前可以渐隐，点击类�
 
 `MainPanelSettings` 使用稳定区域标识保存账户、任务中心、额度、Token 用量和底部状态的顺序与显隐。布局归一化会去重、忽略无效值、补齐缺失区域，并保证至少保留一个可见区域。`StatusItemController` 在读取到 Hook 关闭状态后调用 `updateHookEnabled(_:)`，持久化关闭任务中心；如果任务中心原本是唯一可见区域，则同时开启账户区域。设置面板只禁用任务中心开关，拖拽手柄仍保持可用。其他数据链路的临时可用性只影响当次渲染。
 
-布局排序使用手柄上的自定义 `DragGesture`。拖动项通过悬浮副本跟随指针，其他行在跨过半行距离时按视图内预览顺序实时让位，松手后才调用 `setSectionOrder(_:)` 一次性持久化最终顺序。不要改回系统 `.draggable` 和 `.dropDestination`，它们只能在落点命中后换位，无法提供连续排序动画。
+布局排序使用手柄上的自定义 `DragGesture`。拖动项通过悬浮副本跟随指针，其他行在跨过半行距离时按视图内预览顺序实时让位，松手后才调用 `setSectionOrder(_:)` 一次性持久化最终顺序。
 
 `SettingsWindowController` 持有这一窗口组唯一的 `UndoManager`。设置主窗口通过 `AuxiliaryHostingWindow` 暴露它，四个设置子面板展示时从父窗口取得同一实例，因此焦点位于设置主窗口或任一子面板时，`⌘Z` 和 `⌘⇧Z` 都作用于同一份布局历史。Hook 状态变化引起的任务中心自动关闭不进入用户撤销历史。
 
-### 120 ms 焦点恢复不是业务延迟
+### 代理配置对话框
 
-菜单关闭时 `AuxiliaryHostingWindow` 暂时把 `allowsKeyFocus` 设为 false。关闭完成后等待约 120 ms 再恢复。
+`CodexBarAppDelegate` 持有 `CodexProxySettings`，并经窗口控制器注入设置页。`AppSettingsView` 使用 SwiftUI `sheet` 展示 `ProxySettingsView`，打开前关闭侧边设置面板。
 
-这段时间给 AppKit 完成 popover order-out, activation 和 key window 重算。删除延迟可能只在开发机上偶尔复现设置窗口闪前，因此应把它视为系统事件排序约束，而不是可以随意优化掉的等待。
+未配置时点击整行或开关都会打开配置；已有配置时，行主体打开对话框，开关单独启停。对话框显示时从本机偏好加载草稿，关闭时取消测试并清空内存中的密码草稿。右上角清除菜单按保存记录是否存在显示，即使记录无法解码也可使用。
 
-右键菜单 action 也要等 `menuDidClose` 后通过主队列执行。menu tracking 是嵌套事件循环，在其中同步创建窗口会得到不稳定的 activation 顺序。
+关于页面的重连按钮紧邻 `Codex 版本` 标题，来源选择器位于行尾。重连及刷新期间两者禁用；没有可用来源时重连按钮禁用。
 
 ## 全局快捷键
 
@@ -269,38 +235,23 @@ Carbon API 适合无 Dock 菜单栏 App，不需要安装全局键盘事件 tap 
 2. 注册成功后才释放当前 registration
 3. 注册失败时清理候选资源并恢复设置中的旧值
 
-如果先注销旧快捷键，一次冲突会让用户同时失去新旧两组按键。`GlobalHotKeyRegistration` 在显式 invalidate 和 deinit 中都清理 Carbon 引用，避免重注册泄漏 handler。
-
-至少两个修饰键降低误触概率。Command-Space 和 Command-Tab 被拒绝，因为它们属于核心系统导航，即使注册 API 某次允许也不应抢占。
+`GlobalHotKeyRegistration` 在显式 invalidate 和 deinit 中清理 Carbon 引用。
 
 ## 自动刷新与面板打开
 
-app-server 状态默认每 60 秒刷新。面板打开时会安排约 160 ms 的延迟刷新，先完成动画和焦点切换，再更新数据。
+app-server 状态默认每 60 秒检查刷新。主面板打开后约 160 ms 调用 `refreshIfNeeded`，倒计时起点为空或距上次刷新结果提交超过 60 秒时才发起请求。成功和失败的结果提交都会重置倒计时；该检查可能发生在淡入动画结束之前。
 
-主面板显示倒计时。手动刷新由双击触发，避免单击状态栏本身与按钮动作产生歧义。
+主面板显示刷新倒计时，双击账户图标可立即手动刷新。
 
-刷新协调器合并并发触发，防止定时器、面板打开和用户操作重复创建相同请求。
+普通刷新在刷新或重连进行中被忽略。需要在当前请求后补刷的操作通过 `refreshAfterCurrent` 保存一个待执行触发，当前请求结束后再执行。
 
-面板打开时 Hook 统计立即从本地缓存刷新，app-server 请求延后约 160 ms。前者便宜且能快速填充内容，后者可能启动进程或发协议请求，放在开场动画之后可减少首帧卡顿。
-
-`refreshIfNeeded` 仍会执行 freshness 合并，160 ms 不是绕过协调器的第二套刷新路径。面板在等待期间关闭时 task 被取消，不再为不可见 UI 发请求。
-
-## 修改 UI 生命周期时的检查顺序
-
-1. 确定变化属于 SwiftUI 内容还是 AppKit 容器生命周期
-2. 检查 popover 和 fallback panel 是否共用相同行为
-3. 检查 opening 和 closing 中间态，不只验证稳定状态
-4. 检查点击区域是否需要加入 extra surface
-5. 检查 App active、key window 和逻辑 presented 是否可能分离
-6. 检查任务或 timer 在关闭和 uninstall 时是否取消
-7. 在多显示器、多 Space 和无可信 status item anchor 下验证
-8. 从通知点击、全局快捷键和右键菜单 3 个入口分别打开
+面板打开时立即刷新本地 Hook 统计；延迟任务还会对账已安装的 Hook 配置。面板在等待期间关闭时会取消该任务。
 
 ## 本地化和格式化
 
 简体中文和英文界面字符串位于 [`Localizable.xcstrings`](../../CodexBar/Resources/Localizable.xcstrings)
 
-日期、数字和百分比使用系统自动更新 locale。不在业务模型中固定中文格式，也不把本地化后的字符串作为状态机输入。
+百分比、时长和部分时间显示使用系统地区设置。`CodexDateFormat` 的日期键及日期范围固定为 `yyyy-MM-dd`，设置页最后上传时间和重置次数详情固定为本地时间 `yyyy-MM-dd HH:mm:ss`。本地化字符串不参与状态机判定。
 
 ## 自动更新
 
@@ -308,7 +259,7 @@ app-server 状态默认每 60 秒刷新。面板打开时会安排约 160 ms 的
 
 - appcast URL 来自 App 配置
 - 自动检查间隔为 3600 秒
-- 更新 UI 由设置页和上下文菜单触发
+- 更新 UI 由设置页和主面板的新版本提示触发
 - CodexBarHelper 变化在更新后单独执行 fingerprint 和注册状态检查
 
 发布脚本需要 Developer ID、签名和公证凭据，不属于日常本地构建流程。

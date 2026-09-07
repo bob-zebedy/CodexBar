@@ -53,8 +53,12 @@ extension View {
     }
 
     func liquidGlassCapsule(tint: Color) -> some View {
+        liquidGlassBadge(tint: tint, in: Capsule(style: .continuous))
+    }
+
+    func liquidGlassBadge(tint: Color, in shape: some InsettableShape) -> some View {
         background {
-            LiquidGlassCapsule(tint: tint)
+            LiquidGlassBadge(tint: tint, shape: shape)
         }
     }
 
@@ -311,24 +315,25 @@ private struct LiquidGlassFrostedTexture: View {
 }
 
 /// 小徽章背景, 用于计划名和当前运行状态
-private struct LiquidGlassCapsule: View {
+private struct LiquidGlassBadge<S: InsettableShape>: View {
     let tint: Color
+    let shape: S
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Capsule(style: .continuous)
+        shape
             .fill(fillColor)
             .overlay {
                 LiquidGlassFrostedTexture(isOuterSurface: false)
-                    .clipShape(Capsule(style: .continuous))
+                    .clipShape(shape)
                     .opacity(0.55)
             }
             .overlay {
-                Capsule(style: .continuous)
+                shape
                     .strokeBorder(borderColor, lineWidth: 0.8)
             }
             .overlay {
-                Capsule(style: .continuous)
+                shape
                     .strokeBorder(innerRimColor, lineWidth: 0.45)
                     .padding(0.8)
             }

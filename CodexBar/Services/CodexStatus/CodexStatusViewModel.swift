@@ -136,6 +136,8 @@ final class CodexStatusViewModel: ObservableObject {
                 )
                 codexConnectionInfo = result.connectionInfo
                 codexSourceSelection = result.selection
+                connectionErrorMessage = result.fetch.outcome.connectionErrorMessage
+                unavailableConnectionSource = nil
                 autoRefreshCountdownStartedAt = Date()
             }
         )
@@ -249,6 +251,9 @@ final class CodexStatusViewModel: ObservableObject {
         }
 
         pendingCodexSourceSelection = selection ?? codexSourceSelection
+        codexConnectionInfo = nil
+        snapshot = nil
+        loadState = .loading
         connectionErrorMessage = nil
         unavailableConnectionSource = nil
         connectionInfoGeneration &+= 1
@@ -268,15 +273,22 @@ final class CodexStatusViewModel: ObservableObject {
                 minimumVersion: requiresHooks ? CodexCLIMinimumVersion.hook : CodexCLIMinimumVersion.global
             )
             codexSourceSelection = await service.currentSourceSelection()
-            snapshot = nil
-            loadState = .loading
             didReconnect = true
             return true
-        } catch let CodexStatusError.sourceUnavailable(source) {
-            unavailableConnectionSource = source
-            return false
         } catch {
-            connectionErrorMessage = error.localizedDescription
+            loadState = switch error {
+            case CodexStatusError.notLoggedIn: .notLoggedIn
+            case let CodexStatusError.unsupportedVersion(minimum): .unsupportedVersion(minimum: minimum)
+            default: .initializationFailed
+            }
+            if case let CodexStatusError.sourceUnavailable(source) = error {
+                unavailableConnectionSource = source
+            } else {
+                connectionErrorMessage = error.localizedDescription
+            }
+            if let error = error as? CodexProxyError {
+                AppLog.settings.error("\(error.localizedDescription, privacy: .public)")
+            }
             return false
         }
     }

@@ -48,7 +48,7 @@ CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用，使用 Swift 6,
 
 ## 架构与编码约定
 
-启动时必须先调用 `WorkflowHookEventRecorder.handleIfRequested()` 方法。`--hook-event` 模式只读取 `stdin`，加锁写入 JSONL 并立即退出，不初始化 UI，失败也不能阻断 Codex。Handler 超时按事件从 `hookTimeoutSeconds(for:)` 取得，`SessionEnd` 为 3 秒，其他事件为 5 秒。普通模式由 `CodexBarAppDelegate` 统一装配长期服务。
+启动时必须先调用 `WorkflowHookEventRecorder.handleIfRequested()` 方法。`--hook-event` 模式从 `stdin` 接收事件，按需有界读取 rollout 元数据，加锁写入 JSONL 并立即退出，不初始化 UI，失败也不能阻断 Codex。Handler 超时按事件从 `hookTimeoutSeconds(for:)` 取得，`SessionEnd` 为 3 秒，其他事件为 5 秒。普通模式由 `CodexBarAppDelegate` 统一装配长期服务。
 
 工程默认采用 `MainActor` 隔离。UI, Controller, ViewModel 和 Settings 依赖默认隔离，共享可变状态放入 actor，DTO 和跨 actor 值类型按需添加 `nonisolated` 标记，禁止在主 actor 执行阻塞 I/O。类型命名使用 `UpperCamelCase` 风格，成员命名使用 `lowerCamelCase` 风格。注释只解释非显然的生命周期、焦点、actor 或系统 API 约束。
 

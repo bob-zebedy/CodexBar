@@ -2,25 +2,12 @@
 
 简体中文 | [English](../en/DeveloperGuide/app-server.md)
 
-## 设计出发点
-
-CodexBar 不重新实现 Codex 登录、token 刷新和账户协议，而是把本机 `codex app-server` 作为账户能力边界。
-
-这样做的原因是：
-
-- 认证和服务端协议由 Codex 自己维护，CodexBar 不复制一套容易漂移的客户端
-- App 通过 stdio 与本机子进程通信，账户主链路不需要直接暴露额外网络实现
-- 当前真正运行的 Codex 版本可以从 handshake 获得，能用于全局和 Hook 能力判断
-- 全局 CLI 与 App 内置 CLI 可以共享同一套上层数据模型
-
-代价是菜单栏 App 必须自己解决 shell 环境缺失、子进程生命周期、pipe 背压、混杂 stdout、超时和升级后的连接换代。
-
 ## 职责
 
 app-server 链路负责读取 Codex 账户和服务端状态：
 
 - 当前账户和套餐
-- 5 小时额度和周额度
+- Codex 返回的额度分组和窗口
 - token 用量与用量历史
 - Reset Credits 状态
 - Hook 功能开关、handler 列表和配置写入能力
@@ -69,7 +56,7 @@ CodexCLIResolver
 
 数据目录优先使用 `CODEX_HOME`，未设置时使用真实用户主目录下的 `~/.codex`
 
-### 为什么不能直接信任进程环境
+### 进程环境归一化
 
 从 Finder 或登录项启动的 `LSUIElement` App 通常没有用户交互式 shell 注入的完整 `PATH`。如果只调用 `/usr/bin/env codex`，Homebrew, Volta 或 npm 全局安装会在 Terminal 中可用，在 CodexBar 中却不可见。
 
@@ -81,11 +68,34 @@ resolver 会做 3 层归一化：
 
 `CodexCLISourceSelection.automatic` 优先使用全局 CLI，找不到时使用 App 内置 CLI。手动选择 `global` 或 `bundled` 后只使用指定来源，缺失时返回 `sourceUnavailable`。来源选择由 `CodexStatusService` 保存，重建连接时沿用。
 
-### 磁盘版本和运行版本为什么分开
+### 磁盘版本与运行版本
 
 设置页可以读取磁盘上两个候选 CLI 的版本，但全局和 Hook 最低版本检查只使用 `initialize` 返回的 app-server `userAgent`
 
 原因是连接最长复用 1 小时。用户在连接存活期间升级磁盘 binary 后，当前进程仍然是旧版本。用磁盘版本判断会让 UI 声称能力可用，实际调用的旧 app-server 却不支持对应方法。
+
+## App 内代理
+
+代理由以下类型协作完成：
+
+| 类型 | 职责 |
+| --- | --- |
+| [`CodexProxyConfiguration`](../../CodexBar/Models/CodexProxyConfiguration.swift) | HTTP/HTTPS 配置、输入校验和子进程环境变量 |
+| [`CodexProxyStore`](../../CodexBar/Services/Settings/CodexProxyStore.swift) | 在 UserDefaults 的 `CodexProxy.configuration` 中保存配置和密码 |
+| [`CodexProxySettings`](../../CodexBar/Services/Settings/CodexProxySettings.swift) | 已保存配置、编辑草稿、开关提交和测试状态 |
+| [`CodexProxyConnectionTester`](../../CodexBar/Services/CodexStatus/CodexProxyConnectionTester.swift) | 使用草稿启动独立测试进程 |
+
+未配置或未启用时，正式连接沿用 `CodexCLIResolver.environment`。启用后写入 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`WS_PROXY`、`WSS_PROXY` 及其小写形式，`NO_PROXY` 和 `no_proxy` 设为 `localhost,127.0.0.1,::1`。只有自定义代理进程追加 `-c features.respect_system_proxy=false`，配置不写入 Codex 全局文件。
+
+读取存储时保留可解码的原始输入。启用代理和保存编辑表单时校验地址、端口和认证用户名；停用时允许保存无效字段。无法解码的记录仍保留清除入口。
+
+开关在创建异步任务前更新显示状态并设置 `isSaving`，处理期间重复切换被忽略。`CodexStatusService.applyProxy` 串行保存设置、关闭旧连接并清空补充缓存，完成后恢复交互并触发刷新；失败时恢复原开关状态。配置对话框使用独立草稿，只有保存或清除才提交。
+
+### 连接测试
+
+测试将草稿临时视为启用，解析所选 Codex 来源，并通过 `AppServerSession.initializeAccount()` 执行与正式连接相同的握手和账户检查，随后调用 `account/rateLimits/read`。正式连接在握手之后继续读取额度和用量。
+
+测试请求共享 8 秒截止时间，不重试服务端业务错误，不记录交互日志。退出时关闭临时进程；进程清理仍使用 session 的关闭等待预算。编辑字段、取消测试或关闭窗口会取消外层任务和 worker，已取消任务返回的结果不会更新 UI。
 
 ## 进程与协议
 
@@ -126,7 +136,7 @@ stdout 可能包含非 JSON 输出。pipe reader 会持续读取完整行，只�
 
 只有实际版本满足全局门槛，并且 handshake 与首次账户读取都成功，connection 才进入 service 状态。版本低于 `0.143.0` 或无法解析时按不支持处理，关闭半初始化 session，不继续发送账户请求。
 
-### 为什么 stdout reader 只暴露完整行
+### Stdout 分行与响应匹配
 
 app-server 的 framing 是一行一个 JSON message。pipe 回调收到的 `Data` 块可能：
 
@@ -135,24 +145,24 @@ app-server 的 framing 是一行一个 JSON message。pipe 回调收到的 `Data
 - 在 JSON 行之间混有普通日志
 - 在进程结束时留下没有换行的最后一行
 
-`PipeReadBuffer` 因而自己维护 byte buffer，只在看到换行时发布完整非空行。会话层先轻量解码 response id，只有 id 匹配才完整解码 result 或 error。
+`PipeReadBuffer` 维护 byte buffer，读取期间按换行发布非空行，在 EOF 或停止读取时也会发布末尾尚未换行的非空内容。会话层先轻量解码 response ID，只有 ID 匹配才完整解码 result 或 error。
 
 这既避免把日志误判成协议错误，也让大响应只进行一次完整泛型解码。
 
-### 为什么 stderr 也必须持续读取
+### Stderr 排空
 
 即使 CodexBar 不展示 stderr 正文，也必须 drain pipe。子进程 pipe buffer 有上限，如果父进程从不读取 stderr，app-server 写满后会阻塞，随后的 stdout response 也不会到达。
 
-`PipeDrain` 不解析内容，只消除背压。这是进程正确性要求，不是日志功能。
+`PipeDrain` 不解析内容，只负责持续排空 stderr。
 
 ### 关闭策略
 
 session 关闭时按以下顺序收口：
 
 1. 停止 stdout 和 stderr reader
-2. 关闭 stdin 写端，给 app-server 正常感知 EOF 的机会
-3. 最多等待 1 秒优雅退出
-4. 仍未退出时发送强制终止，再等待 0.5 秒
+2. 关闭 stdin 写端
+3. 向仍在运行的进程发送 `SIGTERM`，最多等待 1 秒
+4. 仍未退出时发送 `SIGKILL`，再等待 0.5 秒
 5. 仍存活则记录诊断错误
 
 进程提前退出后继续写 pipe 可能触发 `SIGPIPE`。service 在初始化时忽略该 signal，让写入以 Swift error 返回并进入 transport failure 重建路径，而不是杀死整个菜单栏 App。
@@ -171,28 +181,22 @@ session 关闭时按以下顺序收口：
 
 每个 session 会缓存不支持的方法。一旦 app-server 明确返回 method unsupported，当前连接后续不会重复请求该方法。
 
-### 为什么 unsupported 只按 session 缓存
+### Session 能力缓存
 
 method unsupported 通常代表当前 app-server 版本缺少能力。每分钟重复调用只会制造日志和延迟。
 
 但这个结论不能永久保存到 UserDefaults。新连接可能来自升级后的 binary，因此 unsupported 集合只属于 `AppServerSession`，连接重建后重新探测。
-
-### 为什么配置也复用这条连接
-
-`config/read`, `hooks/list` 和 `config/batchWrite` 需要与账户刷新使用同一个实际 app-server 来源。
-
-如果设置页另起一套 resolver 或进程，可能出现主面板连接全局 CLI，Hook 校验却连接内置 CLI 的分裂状态。统一 service 保证能力检查、配置来源和运行版本来自同一个进程选择。
 
 ## 会话生命周期
 
 [`CodexStatusService.swift`](../../CodexBar/Services/CodexStatus/CodexStatusService.swift) 是 actor，持有连接和刷新状态：
 
 - 单次请求超时为 20 秒
-- 连接最长复用 1 小时
+- 请求时检查连接年龄，达到 1 小时则重建
 - 业务错误在 session 内最多重试 1 次
 - transport 失败最多重建连接 1 次
 - 认证需要刷新时，`account/read` 最多使用 `refreshToken = true` 再试 1 次
-- service 关闭或进程退出时终止子进程并完成所有挂起请求
+- 连接关闭或释放时执行子进程终止流程；请求读取遇到关闭时按连接错误处理
 
 业务错误与 transport 错误分开处理。前者可能是某个方法暂时失败，后者代表当前 stdio 会话已经不可信。
 
@@ -212,7 +216,9 @@ ready
   -> account missing after refresh: close and notLoggedIn
 ```
 
-1 小时不是数据刷新周期，而是连接最长寿命。定期重建的主要价值是让后台升级后的 Codex binary 最迟在一个连接周期后生效。
+1 小时是请求时检查的连接复用上限。达到上限后的下一次请求会重建连接并使用当时磁盘上的 Codex binary，没有独立的定时销毁任务。
+
+手动重连、切换来源和连接到期重建都先关闭旧连接；新连接失败时保持断开。来源选择只在手动重连成功后保存。自动刷新和手动重连的错误都会更新 `CodexStatusViewModel.connectionErrorMessage`，关于页面直接展示该状态。
 
 ### 错误分类矩阵
 
@@ -226,7 +232,7 @@ ready
 
 限制重建次数是为了避免故障状态下反复拉起子进程。一轮刷新结束后，下一次正常定时刷新仍有新的尝试机会。
 
-### 为什么认证刷新全程只有一次
+### 认证刷新预算
 
 一次刷新会读取 account、rate limits 和 usage，Reset Credits 明细包含在 rate limits 响应中。多个接口可能同时发现 token 过期。
 
@@ -236,7 +242,7 @@ ready
 
 ## 刷新模型
 
-状态 ViewModel 默认每 60 秒刷新。用户也可以在主面板双击刷新按钮立即触发。
+状态 ViewModel 默认每 60 秒刷新。用户也可以在主面板双击账户图标立即触发。
 
 一次刷新先解析账户，再读取额度和用量。补充数据缓存严格绑定到账户身份：
 
@@ -245,7 +251,7 @@ ready
 - 服务端明确不支持的方法显示为来源缺失
 - 来源缺失不能转换为业务值 `0`
 
-刷新任务通过协调器合并，避免定时刷新、面板打开和手动刷新并发创建重复请求。
+刷新或重连进行中会忽略普通刷新触发。需要补刷的操作通过 `refreshAfterCurrent` 保留一个待执行触发，待当前请求结束后执行；协调器负责取消和校验过期结果。
 
 ### 一次刷新如何组装快照
 
@@ -284,7 +290,7 @@ method unsupported 不使用旧缓存，因为它是明确能力结论。普通�
 
 stale 是数据可信度的一部分，新增展示时不能只复制数值而丢掉标记。
 
-### 刷新协调器为什么还需要 generation
+### 刷新结果的代际校验
 
 `isRefreshing` guard 可以阻止普通重复触发，但 cancellation 和对象生命周期仍可能让旧 Task 返回。
 
@@ -292,7 +298,7 @@ stale 是数据可信度的一部分，新增展示时不能只复制数值而�
 
 自动刷新每轮按距离上次完成的剩余时间等待。手动刷新完成后倒计时自然重新对齐，不会在几秒后又被原来的 timer 立刻刷新一次。
 
-### 模型层的小优化
+### 数据模型与展示投影
 
 `CodexUsageSnapshot` 构造时把可能重复的 daily bucket 聚合成 `tokensByDate`
 
@@ -352,7 +358,7 @@ account/rateLimitResetCredit/consume
 | `nothingToReset` | 当前没有可重置的额度窗口 | 凭证未消费，继续使用同一幂等键重试 |
 | `noCredit` | 当前账户没有可用凭证 | 强制刷新；目标消失时静默停止，否则按暂时不一致重试 |
 
-`alreadyRedeemed` 不是失败，也不是再次消费。它是同一逻辑请求已经成功的确认，因此收到这个结果的设备会停止重试并发送本机的“自动重置”通知。
+`alreadyRedeemed` 确认同一逻辑请求此前已成功；收到后停止重试，并按通知设置发送本机成功通知。
 
 ### 跨设备幂等契约
 
@@ -400,7 +406,6 @@ namespace、UUID 版本、原始 UTF-8 输入和小写输出共同构成跨版�
 
 自动重置触发完整额度刷新时，如果普通额度刷新正在执行，新刷新会排队到当前刷新结束后运行，不能被 `isRefreshing` guard 丢弃。
 
-
 ## Hook 版本与配置校验
 
 Hook 设置也复用 app-server 链路，但采用独立的可用性状态：
@@ -431,24 +436,15 @@ Hook 设置也复用 app-server 链路，但采用独立的可用性状态：
 
 日志用于观察进程启动、JSON-RPC 方法、重试和错误分类。不应写入 access token 或 Hook prompt 内容。
 
-### 两套日志为什么分开
+`CodexProxyError` 的配置错误只写入系统日志 `settings` 分类，不创建 app-server 请求日志。RPC 响应及错误写入交互日志前，先解析 JSON 转义并遍历字符串值，对 HTTP/HTTPS URL 的认证信息脱敏；非 JSON 文本使用文本脱敏。
+
+### 请求日志与系统日志
 
 系统统一日志只保存控制流分类，适合长期排查 App 是否在刷新，失败在哪个阶段。
 
 App 内 `RequestLog` 保存最多 500 条请求交互预览，只存在进程内存，适合用户主动检查协议细节。
 
 Reset Credits 明细包含 opaque credit ID。系统日志不能记录 ID 或原始响应，App 内请求日志仍只按既有规则保存在当前进程内存。对新 RPC 增加日志时，需要检查 payload 是否可能包含凭据或内容字段。
-
-## 扩展 app-server 字段的步骤
-
-1. 在外部 DTO 中按协议可选性建模，不先用展示默认值填充
-2. 在 `CodexStatusService` 决定该方法是账户核心还是补充数据
-3. 明确普通失败、unsupported 和认证失败各自如何降级
-4. 如果缓存该值，必须绑定账户 identity 并携带 stale 语义
-5. 在领域 snapshot 中转换时间戳、百分比和排序等稳定规则
-6. UI 只消费 snapshot，不直接访问原始 response
-7. 通知等副作用只使用可信快照
-8. 核对请求和日志是否扩大隐私边界
 
 ## 建议验证的故障场景
 
@@ -481,6 +477,8 @@ Reset Credits 明细包含 opaque credit ID。系统日志不能记录 ID 或原
 - 已知目标的单轮连续重试在临期触发 5 分钟后停止，后续普通额度刷新仍可重新开启一轮
 - 消费成功后的完整额度刷新不会被并发普通刷新丢弃
 - 手动刷新后 60 秒倒计时重新对齐
+
+代理相关验证还包括：停用无效配置、清除损坏记录、测试取消后旧结果隔离、快速连续切换只提交一次、提交失败回滚，以及普通 URL 和 JSON 转义 URL 的日志脱敏。
 
 ## 关键源码
 

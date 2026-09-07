@@ -2,19 +2,6 @@
 
 简体中文 | [English](../en/DeveloperGuide/activity-monitor.md)
 
-## 设计出发点
-
-实时任务不是 Hook 事件的直接映射。
-
-同一个 turn 可能出现事件缺失、迟到、重复、只有 session ID、新 prompt 覆盖旧 turn、`Stop` 与 rollout terminal 先后到达，或 App 在任务已经运行一段时间后才启动。
-
-`CodexActivityMonitor` 的工作是把这些不完整观察合并成一个保守的任务状态机，并同时提供两种不同输出：
-
-- snapshot 表示现在可以展示什么
-- transition 表示刚刚发生了什么，可以驱动一次性副作用
-
-如果消费者各自从 Hook 列表推断任务，菜单栏、通知和防睡眠会在边界场景下得出不同结论。
-
 ## 目标
 
 实时任务链路需要回答 4 个问题：
@@ -27,9 +14,9 @@
 Hook 事件提供低延迟信号，rollout 文件提供权威生命周期补充。[`CodexActivityMonitor.swift`](../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) 合并两者并发布唯一任务快照：
 
 ```text
-Hook JSONL -> HookEventTailReader -----+
-                                      +-> CodexActivityMonitor -> ActivitySnapshot
-rollout JSONL -> SessionLifecycleReader+
+Hook JSONL -> HookEventTailReader ---------+
+                                          +-> CodexActivityMonitor -> CodexActivitySnapshot
+rollout JSONL -> CodexSessionLifecycleReader+
 ```
 
 ### 两种来源的分工
@@ -45,7 +32,7 @@ rollout JSONL -> SessionLifecycleReader+
 
 Hook 优先解决低延迟，rollout 优先解决语义准确性。两者不是简单按时间戳覆盖，每个字段都有自己的可信来源。
 
-### snapshot 和 transition 为什么分开
+### 快照与转场
 
 snapshot 可以在 View 重建、新消费者订阅或设置变化时反复读取。transition 只允许 live 数据产生一次。
 
@@ -86,7 +73,7 @@ monitor 在 `.bootstrapStart` 时先清空上一次恢复态并暂停副作用�
 
 中间 batch 不应让 UI 或通知看到半恢复状态。
 
-### 稳定边界为什么要重试 3 次
+### 稳定边界重试
 
 reader 在每次尝试开始时固定所有日期文件的 inode 和 size，读取到这些上界后再次验证：
 
@@ -94,9 +81,9 @@ reader 在每次尝试开始时固定所有日期文件的 inode 和 size，读�
 - 当前日期允许在固定上界之后继续 append
 - 当前自然日不能在读取期间跨过零点
 
-任何条件不成立都从新的基线重试。连续 3 次失败后跳到当前文件末尾，是为了避免 App 永远卡在 bootstrap。代价通过 degraded health 明确传给异常保护，而不是假装成功。
+任何条件不成立都从新的基线重试。连续 3 次失败后跳到当前文件末尾，并发布 degraded health，暂停异常会话保护判断。
 
-### 为什么只推进完整行 offset
+### 完整行游标
 
 Hook recorder 可能正在写最后一行。reader 只把最后一个 newline 之前的字节计入 `completeOffset`
 
@@ -110,7 +97,7 @@ Hook recorder 可能正在写最后一行。reader 只把最后一个 newline �
 
 ### drainNow 读取屏障
 
-`drainNow()` 不是普通的立即刷新提示。每个调用方必须等待一轮在本次请求之后开始的读取：
+`drainNow()` 的每个调用方必须等待一轮在本次请求之后开始的读取：
 
 ```text
 调用 drainNow
@@ -158,7 +145,7 @@ resume 可能继续很早以前创建的 session。快速路径找不到时，�
 
 文件被移到 archive 后，已缓存 URL 不存在会清除 cursor 并允许重新完整定位。
 
-### rollout cursor 为什么从尾部 512 KB 开始
+### Rollout 读取预算
 
 实时任务只需要活跃 turn 附近的 lifecycle，全量读取一个长期 session 会增加常驻 I/O。
 
@@ -166,7 +153,7 @@ resume 可能继续很早以前创建的 session。快速路径找不到时，�
 
 effort backfill 只针对至少运行 2 秒，尚未 terminal 且仍缺 effort 的任务，同一 turn 重试间隔 10 秒。这避免刚创建任务时立刻做大范围回查。
 
-### 为什么只解析结构事件
+### Rollout 解析字段
 
 共享的 `CodexRolloutLineEnvelope` 只提取 turn context, lifecycle 和 progress 所需字段。prompt, response 和 tool 内容不会进入活动模型。
 
@@ -184,7 +171,7 @@ effort backfill 只针对至少运行 2 秒，尚未 terminal 且仍缺 effort �
 
 subagent 事件更新父任务的 subagent 活动，不创建独立顶层任务卡片。
 
-### 身份选择为什么按精度降级
+### 身份精度与回退
 
 `session ID + turn ID` 能精确区分同一 session 中顺序执行的 turn，是首选身份。
 
@@ -207,11 +194,11 @@ subagent 事件更新父任务的 subagent 活动，不创建独立顶层任务�
 
 明确的 `main` 或 `auxiliary` 事件随后命中同一 key 时，来源事实优先并清除这条忽略记忆。Auto-review 事件缺少 turn ID 时只忽略当前事件，不建立 session 级黑名单。
 
-其他 subagent 统一归类为 `auxiliary` 并保持原有行为，Memories 不因这项规则改变。原始 Hook 事件仍进入历史聚合，因此实时任务过滤不会改变统计或 CloudKit 数据。
+其他 subagent（包括 Memories）归类为 `auxiliary`，按辅助任务事件参与关联。原始 Hook 事件仍进入历史聚合，实时 Auto-review 过滤不改变统计或 CloudKit 数据。
 
-JSONL 中缺少 `origin` 或来源枚举无法识别时，来源字段先解码为 `unknown`。如果同一记录的 model 精确匹配 `codex-auto-review`，事件模型将 `origin` 归一化为 `.autoReview`；其他记录保持 `.unknown`。monitor 只回放最近 24 小时，不扫描历史 rollout，也不回写原始 Hook 记录。
+JSONL 中缺少 `origin` 或来源枚举无法识别时，来源字段先解码为 `unknown`。同一记录的 model 精确匹配 `codex-auto-review` 时，事件模型将来源归一化为 `.autoReview`；其他记录保持 `.unknown`。这一步只使用记录已有字段，不为来源分类额外扫描历史 rollout，也不回写原始 Hook 记录。
 
-### 为什么新 prompt 不直接把旧 turn 判为中断
+### 新 prompt 与终态宽限
 
 同一 session 的 turn 顺序执行。新 prompt 到来时旧 turn 必须立即离开活跃列表，否则 UI 会短暂显示两个顶层任务。
 
@@ -248,19 +235,6 @@ JSONL 中缺少 `origin` 或来源枚举无法识别时，来源字段先解码�
 
 匿名任务不向通知消费者发布等待批准或完成 transition、不触发任务触觉反馈、不进入 KeepAlive 的运行中或等待任务集合、不参与异常会话保护。`activityProtectionIdentifier` 对匿名 key 返回 nil，保护状态文件不会保存匿名任务记录。
 
-### 为什么匿名任务仍保留在 UI
-
-缺少 session ID 不等于任务不存在。完全丢弃会让用户看到 Codex 正在工作，CodexBar 却显示空闲。
-
-保留 UI 展示同时禁止高影响副作用，是对不确定身份的分层处理：
-
-- 可见性错误可以由后续事件自动修正
-- 错误通知会打扰用户
-- 错误防睡眠可能持续数小时
-- 持久化匿名 project key 可能压制未来另一个真实任务
-
-因此匿名任务使用橙色虚线人物图标明确表达能力受限，而不是伪装成普通精确任务。
-
 ## 状态机
 
 内部活动任务主要有以下状态：
@@ -294,7 +268,7 @@ JSONL 中缺少 `origin` 或来源枚举无法识别时，来源字段先解码�
 | running | 静默超过阈值 | suppressed | 隐藏并退出防睡眠贡献 |
 | suppressed | 新进展 | running | 清除持久化保护与旧通知 |
 
-### waiting approval 为什么采用两阶段确认
+### 等待批准的两阶段确认
 
 `PermissionRequest` 说明进入审批流程，但 reviewer 可能是 user, policy 或 auto review。
 
@@ -302,13 +276,11 @@ Hook event 到达时如果已经带有 reviewer，task 可以立即确认。revi
 
 只有 reviewer 明确为 user 才发布 waiting transition。不确定时维持 running 比误报用户正在被等待更符合事实。
 
-### effort 为什么可能变成 `mixed`
+### Effort 合并
 
 同一 turn 的多个上下文事件可能报告不同 reasoning effort。Task 不让最后一条静默覆盖前一条，而是在观察到冲突后标记为 `mixed`
 
-这向 UI 表达任务生命周期内确实出现过多个值，避免展示一个看似精确但只代表最后观察的 effort。
-
-### subagent 数为什么允许 unknown
+### Subagent 计数可靠性
 
 subagent 的 turn ID 属于 subagent 自己，父任务只能通过共享 session 关联。
 
@@ -334,21 +306,15 @@ subagent 的 turn ID 属于 subagent 自己，父任务只能通过共享 sessio
 - 通知系统
 - 防睡眠控制器
 
-### 为什么最近完成和最近中断有不同展示权重
-
-完成会在菜单栏保留 30 秒绿色高亮，这是短时正反馈。中断只进入最近记录、不发布完成 transition，也不显示绿色状态。
-
-任务中心保留 terminal 10 分钟，但用于防止迟到事件重复完成的 key 会保留 24 小时。展示期限和去重期限解决不同问题，不能为了“统一缓存”合并。
-
-### 为什么只在快照变化时发布
+### 快照发布
 
 monitor 每秒 poll rollout，还会按多个 deadline 自行刷新。如果每轮都给 `@Published` 赋相同值，SwiftUI 和所有 Combine 消费者会重复计算。
 
 新快照先与当前值比较，只有结构变化才发布。运行时长文案由 View 使用当前时间格式化，不要求每秒修改任务对象。
 
-### 排序为什么有稳定兜底
+### 稳定排序
 
-同一 batch 中多个任务可能具有相同时间戳，Swift sort 又不是稳定排序。
+同一 batch 中多个任务可能具有相同时间戳，仅按时间比较无法确定它们之间的顺序。
 
 所有列表先按最近时间降序，时间相同再按 display UUID 字符串排序。稳定顺序让 SwiftUI diff 不会因为等价任务随机交换位置而产生跳动。
 
@@ -372,11 +338,11 @@ monitor 同时管理完成高亮、terminal grace、活动保留、历史保留�
 
 如果新一轮读取失败、reader 被更换或数据源不可用，不得使用睡眠前快照继续判断任务静默。
 
-### 为什么系统睡眠期间必须暂停静默计时
+### 系统睡眠期间暂停判定
 
-系统睡眠时 Hook 与 rollout 都不会正常产生进展。如果只比较墙上时间，一次两小时睡眠会让所有运行任务在唤醒瞬间被判为异常静默。
+系统睡眠期间不进行异常静默判定。恢复后，monitor 根据新读取的 Hook 与 rollout 进展静默对账，再恢复正常判定。
 
-保护计时使用 `SuspendingClock` 安排下一次检查，但系统时间变化和数据源恢复仍需要显式重算。will-sleep 先进入 recovery，did-wake 再通过新的数据读取屏障恢复判定。
+检查任务使用 `SuspendingClock` 等待，但静默时长仍按 `Date` 与 `lastProgressAt` 的差值计算，不扣除系统睡眠经过的时间。will-sleep 进入 recovery，did-wake 通过新的数据读取屏障后重新判定。
 
 ### 唤醒顺序为何不能交换
 
@@ -401,7 +367,7 @@ rollout 对账必须发生在 Hook drain 成功之后。
 
 任务达到阈值后：
 
-1. 先持久化保护记录
+1. 先更新内存保护记录并加入串行持久化队列
 2. 同时启动通知提交和 3 秒 grace
 3. 通知提交完成或 grace 到期后再次校验候选
 4. 候选仍有效时从活动快照隐藏任务
@@ -417,14 +383,6 @@ rollout 对账必须发生在 Hook drain 成功之后。
 - Hook 数据源不可用
 - reader 正在更换
 
-### 保护针对的故障模型
-
-Hook 或 Codex 异常退出后，可能缺少 `Stop`, `SessionEnd` 和 rollout terminal。任务会一直停在 running，进而让防睡眠永久生效。
-
-异常会话保护不是判断 Codex 是否“真的卡住”，它只处理一个可观察事实：非匿名 running 任务在可信数据源下超过阈值没有任何 Hook 或 rollout 进展。
-
-等待批准被排除，因为等待用户本来就是合法静默。匿名任务被排除，因为 project key 不足以证明保护记录属于哪一个具体任务。
-
 ### progress generation 的作用
 
 只比较时间戳不足以保护异步尝试。两条进展可能具有相同秒级时间，设置阈值也可能在通知提交期间变化。
@@ -438,22 +396,11 @@ Hook 或 Codex 异常退出后，可能缺少 `Stop`, `SessionEnd` 和 rollout t
 
 通知返回或 3 秒 grace 到期时，四项都必须仍匹配才允许 suppress。任意新进展或阈值变化都会让旧尝试失效。
 
-### 为什么先持久化再隐藏
+### 保护记录的保存顺序
 
-一旦任务从快照隐藏，App 可能随即退出或系统休眠。如果保护记录还没有进入持久化队列，重启 bootstrap 会再次展示并重新支撑防睡眠。
+候选开始时同步更新内存记录，再由 Task 按顺序调用 `ActivityProtectionStateStore.apply`。磁盘写入失败会记录日志，不阻止任务隐藏。
 
-因此候选开始时先写入记录、再等待通知提交、最后隐藏。通知权限或系统服务失败不影响 suppress，因为释放错误防睡眠才是保护的核心目标。
-
-### 3 秒通知宽限的含义
-
-保护通知是有价值的解释，但不能无限阻塞释放防睡眠：
-
-- 通知先成功提交时立即完成 suppress
-- 3 秒内仍未完成时直接 suppress
-- 通知稍后成功返回但 attempt 已失效时立即撤回
-- grace 内出现新进展时取消 attempt 和持久化记录
-
-这个窗口只约束通知副作用，不改变静默阈值本身。
+已保存的记录用于下次 bootstrap 恢复保护状态。隐藏动作不等待磁盘提交，因此跨重启恢复取决于记录是否成功写入。
 
 ### 阈值改变如何对账
 
@@ -461,7 +408,7 @@ Hook 或 Codex 异常退出后，可能缺少 `Stop`, `SessionEnd` 和 rollout t
 
 阈值变长时，尚未超过新阈值的 suppressed 任务会静默恢复，清除对应保护记录和通知。已经仍超过新阈值的任务继续 suppressed，不制造重复通知。
 
-关闭防睡眠主开关会关闭异常保护并恢复全部 suppressed 任务，因为保护存在的目的就是避免错误防睡眠，不是永久隐藏任务。
+关闭防睡眠主开关会停用异常保护，并恢复当前进程内所有 suppressed 任务。
 
 ## 保护状态持久化
 
@@ -485,9 +432,7 @@ turn 和 session key 先使用带类型前缀与 NUL 分隔的 canonical 字符�
 
 类型和分隔符避免不同字段拼接后产生边界歧义。domain separator 避免同一原始 ID 在其他用途中的 hash 被直接关联。
 
-这不是用来抵抗已知 session ID 的穷举，而是避免状态文件直接泄露可读身份并限制跨用途关联。
-
-### Debug 与 Release 为什么共享文件还要加锁
+### 跨进程状态合并
 
 两个 App bundle ID 可以同时运行，但都观察同一份 Codex Hook 数据。如果各自保存独立保护状态，一个版本隐藏的异常任务可能被另一个版本重新用于防睡眠。
 
@@ -516,18 +461,6 @@ Monitor 为 reader 和异步恢复任务维护 generation：
 | task `progressGeneration` | 通知宽限期间的保护候选 |
 
 每一项都对应不同的“当前性”问题，不能合并成一个全局计数。例如 reader 没变但任务有新进展时，只需要让 protection attempt 失效，不应丢弃整个 reader。
-
-## 扩展任务状态机的步骤
-
-1. 先确定新输入是事实、metadata、progress 还是 terminal
-2. 定义 bootstrap 与 live 是否产生相同 snapshot，是否允许 transition
-3. 定义事件缺少 turn 或 session ID 时的降级行为
-4. 定义迟到和重复输入如何用 timestamp, terminal memory 或 generation 拒绝
-5. 如果读取 rollout 新字段，扩展最小 envelope 而不是读取正文
-6. 在 `CodexActivityTask` 中维护领域状态，在 monitor 中维护跨任务关联
-7. 更新 snapshot 前确认通知和防睡眠是否应该消费新状态
-8. 为系统睡眠、reader 替换和数据源不健康定义恢复路径
-9. 匿名任务默认不能获得新的高影响副作用，除非身份可靠性发生根本变化
 
 ## 建议验证的故障场景
 

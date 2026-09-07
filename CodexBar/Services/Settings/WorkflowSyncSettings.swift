@@ -45,9 +45,7 @@ final class WorkflowSyncSettings: ObservableObject {
             AppLog.sync.notice("同步开关变更: enabled=\(enabled ? 1 : 0)")
         }
         defaults.set(enabled, forKey: Self.enabledKey)
-        if enabled {
-            defaults.set(true, forKey: Self.needsBackfillKey)
-        } else {
+        if !enabled {
             clearSyncActivity()
         }
         isEnabled = enabled
@@ -100,14 +98,6 @@ final class WorkflowSyncSettings: ObservableObject {
 
     nonisolated static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         defaults.bool(forKey: enabledKey)
-    }
-
-    nonisolated static func needsBackfill(defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: needsBackfillKey)
-    }
-
-    nonisolated static func clearBackfillRequest(defaults: UserDefaults = .standard) {
-        defaults.set(false, forKey: needsBackfillKey)
     }
 
     private func observeSyncNotifications() {
@@ -208,7 +198,6 @@ final class WorkflowSyncSettings: ObservableObject {
     }
 
     private nonisolated static let enabledKey = "WorkflowSync.isEnabled"
-    private nonisolated static let needsBackfillKey = "WorkflowSync.needsBackfill"
 }
 
 /// 同步没生效时缺的是哪一项, 同时充当日志里的 reason= 取值

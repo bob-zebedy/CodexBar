@@ -8,20 +8,7 @@ CodexBar is configured as an `LSUIElement` in [`Info.plist`](../../../CodexBar/R
 
 It has no Dock icon or conventional main-window lifecycle. The menu bar, popover, floating panel, Settings window, and notification clicks must all manage app activation and focus explicitly.
 
-Default SwiftUI `Window` behavior does not cover these cases, so the UI combines SwiftUI content with AppKit controllers.
-
-## UI Responsibilities
-
-SwiftUI declares content; AppKit owns window and event lifecycles:
-
-| Layer | Responsible for | Not responsible for |
-| --- | --- | --- |
-| SwiftUI view | Layout, data presentation, callbacks for user intent | Creating long-lived services, choosing the key window, installing global event monitors |
-| View model and settings | Publishing stable snapshots, saving user settings | Owning windows or evaluating screen coordinates |
-| AppKit controller | Popovers, panels, windows, focus, event monitoring | Reimplementing business state machines |
-| AppDelegate | Assembling and retaining long-lived objects | Specific view layout |
-
-This boundary allows the same menu content to run in an `NSPopover` or fallback `NSPanel`, while preventing SwiftUI identity changes from destroying monitors, XPC connections, or notification services.
+The UI declares content in SwiftUI and manages windows through AppKit controllers.
 
 ## Three Kinds of Focus Under `LSUIElement`
 
@@ -39,29 +26,18 @@ The code therefore does not treat `NSApp.isActive` as the sole truth for the men
 
 [`CodexBarAppDelegate.swift`](../../../CodexBar/Controllers/CodexBarAppDelegate.swift) is the composition root for normal mode. [`StatusItemController.swift`](../../../CodexBar/Controllers/StatusItemController.swift) is responsible only for the menu bar and related window orchestration.
 
-AppDelegate:
-
-- Creates long-lived services, view models, and settings
-- Connects the monitor to notifications and sleep prevention, and assembles the Automatic Reset state machine
-- Starts status refresh and Hook activity reading
-- Creates the status-item controller
-- Installs the global shortcut
-- Configures Sparkle updates
-- Coordinates Automatic Reset wake-schedule cancellation and sleep-prevention release during termination
-
-The composition root retains these objects explicitly so SwiftUI view lifecycle cannot destroy long-running services accidentally.
-
-### Why Startup Order Matters
+### Startup Ordering
 
 Normal-mode assembly reflects dependency direction:
 
 ```text
-Create settings and data services
-  -> Build view models
-  -> Create status item and window controllers
-  -> Start notification and Automatic Reset side effects
-  -> Start activity monitoring and keep-alive coordination
-  -> Start periodic refresh and update services
+Create settings, data services, view models, and updater
+  -> Create and install StatusItemController
+      -> Set up the status item, observers, and hot key
+      -> Reconcile Hook and start periodic refresh
+  -> Start notifications and automatic reset
+  -> Connect Activity Protection callbacks
+  -> Start the activity monitor and keep-alive coordination
 ```
 
 Notifications and sleep prevention consume only snapshots or transitions already published by the monitor; they do not control readers upstream. Controllers connect these services through closures, keeping AppKit containers out of the service layer.
@@ -75,10 +51,10 @@ The status icon combines app-server loading state, the menu bar rate-limit setti
 Task-status priority is:
 
 ```text
-Waiting for approval > Running > Recently completed > Recently terminated > Idle
+Waiting for approval (orange) > Running (blue) > Within 30 seconds of completion (green)
 ```
 
-Rendered icons are cached by input state to avoid redrawing on every timed refresh. Inactive or unavailable state is expressed through alpha.
+Recent termination, idle state, and expired completion highlights show no task dot. Icon output is cached by input state; inactive or unavailable states use reduced alpha.
 
 ### Separating Image State from Tooltip State
 
@@ -88,8 +64,6 @@ Rendered icons are cached by input state to avoid redrawing on every timed refre
 - When expired rate-limit data remains visible from cache, the icon and progress indicator use reduced alpha
 - A roughly 0.18-second, 10-frame animation starts only when the indicator dot or rate-limit bar appears or disappears
 - A new render state cancels the previous animation; every frame confirms that its target is still current
-
-Redrawing `NSImage` from the complete state would interrupt animations and add menu bar work whenever timer text changes. Explicit render identity is a small but important performance boundary.
 
 With no status dot or rate-limit bar, the icon remains a template image so the system colors it for light mode, dark mode, and menu bar state. Adding custom colors or a progress bar switches to explicit color rendering.
 
@@ -110,7 +84,7 @@ CodexBar manages dismissal because:
 
 [`MenuSurfaceDismissMonitor.swift`](../../../CodexBar/Controllers/MenuSurfaceDismissMonitor.swift) observes global and local events. [`MenuSurfaceFadeCoordinator.swift`](../../../CodexBar/Controllers/MenuSurfaceFadeCoordinator.swift) coordinates closing animation.
 
-### Why Opening and Closing Need an Explicit State Machine
+### Open and Close State Machine
 
 `menuSurfaceState` has four states:
 
@@ -127,7 +101,7 @@ They resolve intermediate states from rapid repeated clicks:
 
 Checking only `popover.isShown` cannot represent logical opening or fade-out state and cannot cover the fallback panel.
 
-### Why One Monitor Owns Dismissal Rules
+### Dismiss Event Monitoring
 
 The allowed click region for the main panel is a set:
 
@@ -145,21 +119,17 @@ Special rules include:
 - After a click, the code pins `NSVisualEffectView` back to inactive so AppKit background emphasis does not cause a brightness jump
 - After first installing observers, `Task.yield()` performs a second window acquisition and focus pass in case the popover window was not attached yet
 
-Change these rules as a single interaction surface. Adding a separate event monitor to one side panel creates monitor-order and duplicate-dismissal problems.
+### Fades and Completion Tasks
 
-### Fade Content, Not the Window
+`MenuSurfaceFadeCoordinator` animates both the active container’s content view and window opacity, with a 0.24-second fade-in and a 0.18-second fade-out. It stores one completion task, cancels it before starting a new animation, and checks cancellation after waiting before marking the surface shown or completing the close.
 
-AppKit owns the popover's system window, so animating its alpha directly can conflict with system presentation state. `MenuSurfaceFadeCoordinator` animates the active container's content view, then calls the shared close operation.
-
-Auxiliary windows temporarily reject `makeKey()` while closing. Otherwise, an already-open Settings or Logs window can jump to the front for a few frames during menu fade-out.
+Settings and log windows temporarily reject `makeKey()` during closing and regain that ability about 120 ms after completion. The completion task holds a weak reference to that window and restores content and window opacity after closing.
 
 ## Fallback Panel
 
 The status-bar button's screen position may be unavailable or untrusted when a global shortcut fires. [`FallbackPanelController.swift`](../../../CodexBar/Controllers/FallbackPanelController.swift) then presents a floating panel on the screen under the pointer.
 
-The popover and fallback panel host identical SwiftUI content and state. Business logic must not depend on the container type.
-
-### Why the Anchor Needs a Trust Check
+### Anchor Validation
 
 A global shortcut may fire before status-item layout completes, while the menu bar is on another display, or when the system temporarily provides no button window. The code validates more than a non-`nil` button:
 
@@ -184,8 +154,6 @@ These panels are mutually exclusive. Opening one closes the others. Each adds it
 
 All detail panels implement `MenuSideDetailPanel` and register in the `sideDetailPanels` array. Mutual exclusion, main-surface closing, and hit testing all iterate over this one registry.
 
-This scales better than encoding every pairwise close relationship. Adding a fourth panel requires one registry entry rather than six new mutual-exclusion pairs.
-
 The hover-driven heatmap panel may fade before another panel opens; click-driven panels normally close the old panel immediately. This avoids two opposing slide animations at the same screen location.
 
 The heatmap detail panel uses the complete heatmap area, including its heading, date range, and square grid, as its vertical anchor. Reordering main-panel sections therefore still keeps their top edges aligned whenever possible. If the detail panel would extend below the main panel from that position, placement shifts it upward until their bottom edges align.
@@ -201,9 +169,7 @@ Related controllers include:
 
 Separate `HostingWindowController` instances manage `NSWindow` for Settings and Logs.
 
-When an `LSUIElement` app opens a normal window, it must temporarily allow that window to become key, activate the app, and transfer focus to the target control. Closing restores menu-bar-app foreground behavior.
-
-Focus recovery waits about 120 ms for AppKit to finish window and activation transitions. This delay coordinates system lifecycle and cannot simply become a synchronous call.
+When opening settings or logs, `HostingWindowController` allows the target window to become key and activates the app. `AuxiliaryHostingWindow` can become key but cannot become the main window.
 
 Context-menu actions wait until menu tracking finishes before running, avoiding window creation or activation inside AppKit's menu event loop.
 
@@ -237,17 +203,17 @@ When a condition becomes false, Settings sends the corresponding `close` action 
 
 `MainPanelSettings` stores the order and visibility of Account, Task Center, Quota, Token Usage, and Footer Status with stable section identifiers. Layout normalization removes duplicates, ignores invalid values, appends missing sections, and keeps at least one section visible. After reading a disabled Hook state, `StatusItemController` calls `updateHookEnabled(_:)` to persist Task Center as hidden. If Task Center was the only visible section, Account is enabled at the same time. The settings panel disables only the Task Center switch, so its drag handle remains available. Temporary availability of other data sources affects only the current rendering.
 
-Layout sorting uses a custom `DragGesture` on each handle. A floating copy follows the pointer, while the other rows make room using a view-local preview order whenever the drag crosses half a row. Only after release does the view call `setSectionOrder(_:)` once to persist the final order. Do not replace this with system `.draggable` and `.dropDestination`, which reorder only after a drop target is hit and cannot provide continuous sorting animation.
+Layout sorting uses a custom `DragGesture` on the handle. A floating copy follows the pointer, other rows move when it crosses half a row, and releasing calls `setSectionOrder(_:)` once to persist the final order.
 
 `SettingsWindowController` owns the only `UndoManager` for this window group. The Settings window exposes it through `AuxiliaryHostingWindow`, and each of the four settings child panels obtains the same instance from its parent when shown. `Command-Z` and `Command-Shift-Z` therefore operate on one layout history while focus is in either the Settings window or any child panel. Automatic Task Center changes caused by Hook state do not enter the user's undo history.
 
-### The 120 ms Focus Recovery Is Not Business Delay
+### Proxy Configuration Dialog
 
-While the menu closes, `AuxiliaryHostingWindow` temporarily sets `allowsKeyFocus` to false. It waits about 120 ms after closing before restoring it.
+`CodexBarAppDelegate` owns `CodexProxySettings` and injects it into Settings through the window controllers. `AppSettingsView` presents `ProxySettingsView` in a SwiftUI `sheet`, closing side settings panels first.
 
-This gives AppKit time to complete popover order-out, activation, and key-window recalculation. Removing it may produce an intermittent Settings-window flash only on some machines; treat it as a system event-ordering constraint, not arbitrary wait time.
+Without a configuration, clicking the row or toggle opens the dialog. With one saved, the row opens the dialog and the toggle independently enables or disables it. Presentation loads the draft from local preferences; dismissal cancels tests and clears the in-memory password draft. The top-right clear menu depends on whether a saved record exists and remains available when decoding fails.
 
-Right-click menu actions also dispatch on the main queue after `menuDidClose`. Menu tracking is a nested event loop, and creating a window synchronously inside it produces unstable activation order.
+In About, the reconnect button sits immediately after the Codex Versions title, with the source picker at the end of the row. Both are disabled during reconnection and refresh; Reconnect is also disabled when no source is available.
 
 ## Global Shortcut
 
@@ -269,38 +235,23 @@ Registration uses try-before-swap:
 2. Release the current registration only after the candidate succeeds
 3. On failure, clean up candidate resources and restore the previous setting
 
-Unregistering first would leave the user without either shortcut after one conflict. `GlobalHotKeyRegistration` releases Carbon references in both explicit invalidation and `deinit` to avoid leaking handlers during reregistration.
-
-At least two modifiers reduce accidental activation. Command-Space and Command-Tab are rejected because they are core system navigation shortcuts and should not be captured even if the registration API occasionally permits it.
+`GlobalHotKeyRegistration` clears Carbon references on explicit invalidation and deinitialization.
 
 ## Automatic Refresh and Panel Opening
 
-app-server state refreshes every 60 seconds by default. Opening the panel schedules a refresh after about 160 ms so animation and focus transitions finish before data updates.
+App-server state is checked for refresh every 60 seconds by default. About 160 ms after the main panel opens, `refreshIfNeeded` requests data if no countdown origin exists or more than 60 seconds have passed since the last refresh result was committed. Both successful and failed results reset the countdown; this check can occur before fade-in finishes.
 
-The main panel displays a countdown. A double-click triggers manual refresh, avoiding ambiguity between clicking the status item and invoking a button action.
+The main panel shows a refresh countdown. Double-clicking the account icon requests an immediate manual refresh.
 
-The refresh coordinator merges concurrent triggers so the timer, panel opening, and user action do not issue duplicate requests.
+Ordinary refreshes are ignored while a refresh or reconnect is in progress. Operations requiring a follow-up use `refreshAfterCurrent` to retain one pending trigger and run it after the current request finishes.
 
-When the panel opens, Hook metrics refresh immediately from local cache, while the app-server request waits about 160 ms. The former is cheap and fills content quickly; the latter may launch a process or make protocol requests, so deferring it reduces first-frame stalls.
-
-`refreshIfNeeded` still performs freshness coalescing; the 160 ms delay is not a second refresh path that bypasses coordination. If the panel closes while waiting, the task is canceled and no request runs for hidden UI.
-
-## Checklist for UI Lifecycle Changes
-
-1. Decide whether the change belongs to SwiftUI content or AppKit container lifecycle
-2. Confirm that the popover and fallback panel behave identically
-3. Test intermediate `opening` and `closing` states, not only stable states
-4. Determine whether a click region belongs to the extra surface
-5. Check whether app-active, key-window, and logical-presentation states can diverge
-6. Ensure tasks and timers are canceled on close and uninstall
-7. Test multiple displays, multiple Spaces, and an untrusted status-item anchor
-8. Open the UI separately from a notification click, global shortcut, and right-click menu
+Opening the panel immediately refreshes local Hook statistics. The delayed task also reconciles installed Hook configuration and is canceled if the panel closes while it waits.
 
 ## Localization and Formatting
 
 Simplified Chinese and English interface strings are in [`Localizable.xcstrings`](../../../CodexBar/Resources/Localizable.xcstrings).
 
-Dates, numbers, and percentages follow the system's automatically updating locale. Business models must not hard-code Chinese formatting or consume localized strings as state-machine inputs.
+Percentages, durations, and some time displays use system regional settings. `CodexDateFormat` fixes date keys and ranges to `yyyy-MM-dd`; the settings page’s last-upload time and reset-credit details use local time in `yyyy-MM-dd HH:mm:ss`. Localized strings do not drive state-machine decisions.
 
 ## Automatic Updates
 
@@ -308,7 +259,7 @@ Dates, numbers, and percentages follow the system's automatically updating local
 
 - The appcast URL comes from app configuration
 - Automatic checks run every 3,600 seconds
-- Settings and the context menu trigger update UI
+- Update UI is triggered from settings and the main panel’s new-version notice
 - After an update, CodexBar checks CodexBarHelper fingerprint and registration state separately if the helper changed
 
 Release scripts require Developer ID, signing, and notarization credentials and are not part of routine local builds.

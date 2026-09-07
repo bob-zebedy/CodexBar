@@ -2,17 +2,6 @@
 
 简体中文 | [English](../en/DeveloperGuide/data-and-privacy.md)
 
-## 原则
-
-CodexBar 只读取实现账户展示、自动重置、Hook 统计、实时任务和防睡眠所需的数据：
-
-- 原始数据能留在本机时不上传
-- 可以保存聚合时不保存正文
-- 可以保存哈希身份时不保存原始身份
-- 数据源不可用时显式标记缺失
-
-隐私边界不是一份静态字段黑名单，而是每条数据链路的架构约束。新字段即使技术上容易读取，也必须先回答“它是否是完成产品目标所必需的”。
-
 ## 数据分类模型
 
 数据按以下类别确定存储和传播范围：
@@ -22,8 +11,6 @@ CodexBar 只读取实现账户展示、自动重置、Hook 统计、实时任务
 | 内容 | prompt, response, tool 参数和输出 | 不采集 |
 | 身份和上下文 | session ID、完整路径、project 名 | 仅在必要链路最小化使用，上传前脱敏或删除 |
 | 聚合指标 | 每日事件数、model 计数 | 可本地持久化，用户 opt-in 后上传规定字段 |
-
-“只保存在本机”不等于没有隐私成本。本地日志、crash report、备份和同机其他进程仍可能扩大暴露面，所以不需要的数据应在解析入口就丢弃。
 
 ## 信任边界
 
@@ -49,8 +36,6 @@ Codex hook stdin / rollout / app-server
 
 ## 最小化发生在采集入口
 
-只在上传时删除敏感字段不够，因为原始字段可能已经进入本地 JSONL、内存日志或错误信息。
-
 CodexBar 的最小化顺序是：
 
 1. Hook recorder 从 stdin 只提取白名单结构字段
@@ -58,8 +43,6 @@ CodexBar 的最小化顺序是：
 3. 聚合器把较老 identity 明细压成计数
 4. sync model 再投影成 CloudKit 允许字段
 5. 日志层只记录阶段、分类和非敏感计数
-
-每一层都收窄一次数据形状，因此下游新增一个字段不能自动获得上游所有原文。
 
 ## 数据流总览
 
@@ -72,17 +55,6 @@ CodexBar 的最小化顺序是：
 | Activity Protection | 异常会话恢复 | 哈希身份，最长 24 小时 | 否 |
 | CodexBarHelper ownership | 系统睡眠恢复 | root 状态文件 | 否 |
 | 自动重置唤醒计划 | 固定 owner、`wake` 类型和下一次时间 | 系统电源管理 | 否 |
-
-### 为什么 3 条业务链路保持独立
-
-app-server、Hook 历史和实时活动读取不同事实，具有不同的新鲜度与失败模式：
-
-- app-server 失败不应让本地历史消失
-- Hook 聚合维护失败不应冻结实时任务
-- rollout 暂时不可用不应把额度标成错误
-- CloudKit 失败不应阻断当前设备聚合
-
-如果把它们压成一个“全局加载成功”状态，任一低敏感度或低优先级链路都会扩大另一条链路的数据访问和可用性影响面。
 
 ## 本地读取
 
@@ -117,8 +89,6 @@ Hook recorder 通过 `transcript_path` 读取当前 rollout，实时活动 reade
 这些读取只解析来源分类、生命周期、时间、turn context, progress, effort 和 reviewer 等结构字段，不把对话正文复制到 CodexBar 存储或展示到 UI。
 
 rollout reader 从文件尾部按预算扫描，一方面减少 I/O，另一方面降低无关历史内容进入进程内存的范围。解析 DTO 只声明所需字段，JSONDecoder 自动忽略其余内容。
-
-这不是对 rollout 文件的完整隐私隔离，因为 reader 仍需打开原文件。因此如果未来加入全文搜索或 prompt 展示，应视为新的产品隐私能力，不能当作现有 reader 的自然扩展。
 
 ### Reset Credits 明细
 
@@ -161,14 +131,6 @@ rollout reader 从文件尾部按预算扫描，一方面减少 I/O，另一方�
 
 最近 3 天的日聚合可以保留 session 和 turn ID 明细用于准确去重。更早数据只保留计数。
 
-3 天 identity 明细是精确去重与长期最小化之间的折中：
-
-- 近期 Hook 文件仍可能补写或重复，需要 identity 集合正确合并
-- 远期数据变化概率低，只保留总数可显著缩小长期身份暴露
-- 压缩后不能从计数恢复 identity，因此算法变化统一从仍在 210 天保留期内的原始 JSONL 重建
-
-原始事件和日聚合使用相同的 210 天上限，避免派生数据已经清理但更敏感的原始数据仍无限保留。
-
 匿名任务不生成异常会话保护标识，因此不会写入 `ActivityProtection/state.json`
 
 ### UserDefaults
@@ -178,14 +140,20 @@ UserDefaults 保存：
 - 功能开关和设置选项
 - 通知阈值和声音名称
 - 全局快捷键
+- 代理启用状态、协议、服务器、端口、认证用户名和密码
 - 菜单栏显示选择
 - 自动重置开关和提前量
 - 有界的通知去重 key
 - CodexBarHelper fingerprint 等运行配置
 
-持久化 key 改名、结构变化或默认值变化需要考虑旧版本升级行为。
+持久化 key、数据结构、枚举 raw value 或缺失默认值的变化属于兼容性问题，修改前必须确定迁移和降级策略。
 
-UserDefaults 不是无 schema 存储。对已有 key 改名、枚举 raw value 变化或缺失默认值变化都会改变升级用户行为。这类修改属于兼容性问题，必须先确定迁移和降级策略。
+代理使用 `CodexProxy.configuration` 保存一条包含 `configuration` 和 `password` 的 JSON 数据。密码明文保存在本机 UserDefaults，保存关闭身份验证的配置或删除配置时删除。Debug 与 Release 使用各自的偏好域，不共享代理配置：
+
+- Debug：`~/Library/Preferences/app.zabrian.codexbar.debug.plist`
+- Release：`~/Library/Preferences/app.zabrian.codexbar.plist`
+
+`CodexProxyStore` 区分记录不存在与解码失败；解码失败时保留记录，以便配置窗口提供清除入口。
 
 ### CodexBarHelper 目录
 
@@ -205,8 +173,6 @@ App 内 [`RequestLog.swift`](../../CodexBar/Services/CodexStatus/RequestLog.swif
 
 请求日志用于诊断 app-server 协议。即使只存在内存，也不应写入 OAuth token 或 Hook 内容。
 
-ring buffer 的 500 条上限既控制内存，也限制打开日志窗口时的渲染成本。它不是审计日志，不能承担跨启动问题追踪。需要跨启动诊断时使用统一系统日志，仍需遵守相同字段边界。
-
 统一系统日志 subsystem 为 `app.zabrian.codexbar`，Debug 版本带 `.debug` 后缀。
 
 系统日志只应记录：
@@ -224,16 +190,21 @@ ring buffer 的 500 条上限既控制内存，也限制打开日志窗口时的
 - 完整项目路径或敏感项目名
 - 账户额度和 token 用量明细
 
+`CodexProxyError` 的固定错误文案写入系统日志的 `settings` 分类，不包含配置值。app-server 响应写入 App 交互日志前会解析 JSON 转义，对字符串值中的 HTTP/HTTPS URL 认证信息脱敏；其他账户和协议字段仍按请求日志规则保留。
+
 ## 网络访问
 
 | 目标 | 用途 | 触发条件 |
 | --- | --- | --- |
 | CloudKit private database | 同步日级 Hook 聚合 | 用户主动开启同步 |
+| Codex 服务（app-server 子进程） | 认证、额度、用量和 Reset Credit 消费 | 正式刷新、代理测试或自动重置 |
 | Sparkle appcast 和更新资源 | 检查或安装更新 | 自动检查或用户手动检查 |
 
 账户、额度、token 用量、Reset Credits 明细和用户明确开启的 Reset Credit 消费通过本机 app-server stdio 完成。CodexBar 不为自动重置增加独立 HTTP 客户端。
 
 CodexBarHelper 不进行任何网络访问。
+
+启用代理后，地址及可选认证信息仅通过环境变量交给 CodexBar 启动的 app-server。配置不会修改系统网络设置、Sparkle、CloudKit 或其他 Codex 进程。连接测试另起临时 app-server，结束后关闭且不写入 App 交互日志。
 
 ## CloudKit 边界
 
@@ -258,10 +229,9 @@ CloudKit 不上传：
 - access token
 - App 请求日志
 - Activity Protection 状态
+- 代理配置和代理密码
 
 project 显示名可能由目录名派生，仍可能包含用户敏感信息。同步开关必须保持用户主动选择。
-
-HMAC 设备 pseudonym 只降低硬件身份关联，不会自动匿名化 project 名。private database 也不等于“数据不离开设备”。因此设置文案和开发文档都必须继续说明同步内容，不能因为 CloudKit 属于用户账户就改成默认开启。
 
 ## root helper 的数据隔离
 
@@ -274,7 +244,7 @@ CodexBarHelper 只需要知道 4 类状态：
 
 它不需要 task ID、project 名、Hook 路径、账户状态、`creditId` 或用户设置全文。XPC 只传布尔请求、client session ID、generation、update identifier 和有限 Unix 时间戳。
 
-这种能力最小化意味着即使普通 App 层以后新增网络或数据功能，root 进程也不会自动获得这些能力。不应为了复用文件读取或网络代码把业务 service 链接进 helper。
+helper target 只包含受限电源操作和共享 XPC 协议，不链接 App 的业务 service。
 
 helper 的 ownership 文件不是用户偏好，而是 crash recovery 事务记录。它必须由 root 拥有，拒绝 group 或 world 可写目录，并通过 full sync 加原子 rename 确保重启后能判断是否需要恢复。
 
@@ -286,20 +256,6 @@ helper 的 ownership 文件不是用户偏好，而是 crash recovery 事务记�
 - Activity Protection 文件权限为 `0600`
 - CodexBarHelper 状态通过 root owner、权限检查、full sync 和原子 rename 提交
 - Debug 和 Release 共享的数据必须使用锁和兼容 schema
-
-## 缺失、陈旧和不可用的隐私含义
-
-数据不可用时不能用看似友好的默认值掩盖：
-
-| 状态 | 正确表达 | 错误做法 |
-| --- | --- | --- |
-| 字段从旧来源缺失 | `nil` 或 unavailable | 解码成明确的 0 |
-| app-server 缓存过期 | stale 快照 | 继续触发通知 |
-| rollout 补充读取不可用 | 保留已有 Hook 任务状态，后续轮询继续补充生命周期 | 把缺少 rollout 结果解释为任务已结束 |
-| CloudKit 离线 | 保留带来源的旧 cache | 当作当前账户新数据 |
-| 电池读取失败 | 保留上次判定并标记 unreadable | 当作没有电池 |
-
-显式降级不仅提升正确性，也避免为了填满 UI 而读取更多备用来源或保存额外数据。
 
 ## 新增数据字段前的审查清单
 

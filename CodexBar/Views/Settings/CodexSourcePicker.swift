@@ -2,28 +2,45 @@ import AppKit
 import QuartzCore
 import SwiftUI
 
-/// 开合和悬停状态留在选择器内部, 避免交互时重新计算整个版本区
 struct CodexSourcePicker: View {
     let selection: CodexCLISourceSelection
     let options: [CodexCLISourceSelection]
     let isEnabled: Bool
     let onSelect: (CodexCLISourceSelection) -> Void
-    @State private var isHovered = false
-    @State private var isPresented = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var title: String {
-        options.contains(selection) ? selection.title : String(localized: "settings.codex-version.source.select")
-    }
 
     var body: some View {
+        SettingsDropdownPicker(
+            selection: selection,
+            options: options,
+            isEnabled: isEnabled,
+            title: options.contains(selection) ? selection.title : String(localized: "settings.codex-version.source.select"),
+            optionTitle: { $0.title },
+            onSelect: onSelect
+        )
+    }
+}
+
+/// 开合和悬停状态留在选择器内部, 避免交互时重新计算整个设置区域
+struct SettingsDropdownPicker<Option: Hashable & Sendable>: View {
+    let selection: Option
+    let options: [Option]
+    let isEnabled: Bool
+    let title: String
+    var height: CGFloat = SettingsRowMetrics.optionsButtonSize
+    let optionTitle: (Option) -> String
+    let onSelect: (Option) -> Void
+    @State private var isHovered = false
+    @State private var isPresented = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
         Button {
             isPresented.toggle()
         } label: {
             HStack(spacing: 6) {
                 ZStack(alignment: .leading) {
-                    ForEach(options) { option in
-                        Text(option.title).hidden()
+                    ForEach(options, id: \.self) { option in
+                        Text(optionTitle(option)).hidden()
                     }
                     Text(title)
                         .foregroundStyle(isEnabled ? .primary : .secondary)
@@ -35,32 +52,30 @@ struct CodexSourcePicker: View {
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .rotationEffect(.degrees(isPresented ? 180 : 0))
-                    .animation(reduceMotion ? nil : .codexStatus, value: isPresented)
-                    .accessibilityHidden(true)
+                    .animation(.codexStatus, value: isPresented)
             }
             .padding(.horizontal, 8)
-            .frame(height: SettingsRowMetrics.optionsButtonSize)
+            .frame(height: height)
             .background {
-                Capsule(style: .continuous)
+                shape
                     .fill(.primary.opacity((isHovered || isPresented) && isEnabled ? 0.06 : 0))
-                    .animation(reduceMotion ? nil : .codexStatus, value: isHovered || isPresented)
+                    .animation(.codexStatus, value: isHovered || isPresented)
             }
-            .liquidGlassCapsule(tint: isEnabled ? .accentColor : .secondary)
-            .contentShape(Capsule(style: .continuous))
+            .liquidGlassBadge(tint: isEnabled ? .accentColor : .secondary, in: shape)
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
         .controlSize(.small)
         .fixedSize()
         .disabled(!isEnabled)
         .onHover { isHovered = $0 }
-        .accessibilityValue(Text(title))
         .background {
-            CodexSourceDropdown(
+            SettingsDropdown(
                 isPresented: $isPresented,
                 selection: selection,
                 options: options,
                 isEnabled: isEnabled,
-                animates: !reduceMotion,
+                optionTitle: optionTitle,
                 onSelect: onSelect
             )
         }
@@ -79,13 +94,13 @@ struct CodexSourcePicker: View {
 }
 
 /// 浮层开合由同一处处理, 快速点击从当前呈现位置反向动画
-private struct CodexSourceDropdown: NSViewRepresentable {
+private struct SettingsDropdown<Option: Hashable & Sendable>: NSViewRepresentable {
     @Binding var isPresented: Bool
-    let selection: CodexCLISourceSelection
-    let options: [CodexCLISourceSelection]
+    let selection: Option
+    let options: [Option]
     let isEnabled: Bool
-    let animates: Bool
-    let onSelect: (CodexCLISourceSelection) -> Void
+    let optionTitle: (Option) -> String
+    let onSelect: (Option) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(configuration: self)
@@ -113,6 +128,10 @@ private struct CodexSourceDropdown: NSViewRepresentable {
     final class AnchorView: NSView {
         var onWindowChange: (() -> Void)?
 
+        /// Swift 6.3.3 的 EarlyPerfInliner 无法正确优化该泛型嵌套类型的合成析构函数
+        @_optimize(none)
+        deinit {}
+
         override func hitTest(_: NSPoint) -> NSView? {
             nil
         }
@@ -124,7 +143,7 @@ private struct CodexSourceDropdown: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, NSPopoverDelegate {
-        var configuration: CodexSourceDropdown
+        var configuration: SettingsDropdown
         weak var anchorView: AnchorView?
         private let popover = NSPopover()
         private weak var observedWindow: NSWindow?
@@ -137,13 +156,17 @@ private struct CodexSourceDropdown: NSViewRepresentable {
         private var isAnchorPressInProgress = false
         private var isDisposed = false
 
-        init(configuration: CodexSourceDropdown) {
+        init(configuration: SettingsDropdown) {
             self.configuration = configuration
             super.init()
             popover.delegate = self
             popover.behavior = .applicationDefined
             popover.animates = false
         }
+
+        /// Swift 6.3.3 的 EarlyPerfInliner 无法正确优化该泛型嵌套类型的合成析构函数
+        @_optimize(none)
+        deinit {}
 
         func scheduleReconcile() {
             guard reconcileTask == nil else { return }
@@ -185,9 +208,10 @@ private struct CodexSourceDropdown: NSViewRepresentable {
         }
 
         private func show(relativeTo anchor: NSView) -> Bool {
-            let content = CodexSourceOptions(
+            let content = SettingsDropdownOptions(
                 selection: configuration.selection,
                 options: configuration.options,
+                optionTitle: configuration.optionTitle,
                 onSelect: { [weak self] selection in
                     guard let self else { return }
                     setPresented(false)
@@ -225,7 +249,7 @@ private struct CodexSourceDropdown: NSViewRepresentable {
             // 整个窗口一起移动和淡入淡出, 避免系统边框和材质与内部图层变换不同步
             // animator 会从当前值转向新目标, 连续点击无需等待上一次动画结束
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = configuration.animates ? 0.18 * abs(targetOpacity - window.alphaValue) : 0
+                context.duration = 0.18 * abs(targetOpacity - window.alphaValue)
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 window.animator().alphaValue = targetOpacity
                 window.animator().setFrame(targetFrame, display: true)
@@ -340,15 +364,16 @@ private struct CodexSourceDropdown: NSViewRepresentable {
     }
 }
 
-private struct CodexSourceOptions: View {
-    let selection: CodexCLISourceSelection
-    let options: [CodexCLISourceSelection]
-    let onSelect: (CodexCLISourceSelection) -> Void
-    @State private var highlightedSelection: CodexCLISourceSelection?
+private struct SettingsDropdownOptions<Option: Hashable & Sendable>: View {
+    let selection: Option
+    let options: [Option]
+    let optionTitle: (Option) -> String
+    let onSelect: (Option) -> Void
+    @State private var highlightedSelection: Option?
 
     var body: some View {
         VStack(spacing: 3) {
-            ForEach(options) { option in
+            ForEach(options, id: \.self) { option in
                 Button {
                     onSelect(option)
                 } label: {
@@ -358,16 +383,14 @@ private struct CodexSourceOptions: View {
                             .foregroundStyle(.tint)
                             .opacity(option == selection ? 1 : 0)
                             .frame(width: 12)
-                            .accessibilityHidden(true)
 
-                        Text(option.title)
+                        Text(optionTitle(option))
                             .font(.caption.weight(.medium))
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         Color.clear
                             .frame(width: 12, height: 10)
-                            .accessibilityHidden(true)
                     }
                     .padding(.horizontal, 8)
                     .frame(height: 28)
@@ -384,7 +407,6 @@ private struct CodexSourceOptions: View {
                         highlightedSelection = option
                     }
                 }
-                .accessibilityAddTraits(option == selection ? .isSelected : [])
             }
         }
         .padding(6)

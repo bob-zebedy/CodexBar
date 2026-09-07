@@ -20,38 +20,36 @@ Automatic mode prefers the global Codex CLI. The `In Use` indicator on the About
 
 ## The Main Panel Says “Initialization Failed”
 
-Common causes include:
+Check the connection error in `Settings > About`, confirm Codex is installed at an available path, and review proxy settings. Click `Reconnect` after fixing the issue. If it persists, open Logs for details.
 
-- No executable Codex installation was found
-- Codex app-server failed to start
-- app-server did not respond before the timeout
-- app-server returned a response that could not be parsed
+## Proxy Configuration or Connection Failures
 
-Open the Logs window for the latest failed request and error details, then check the Codex path and version on the About page.
+Open `Settings > Advanced > Proxy` and use `Test Connection` to check the draft. Server and port are required; authentication also requires a username. Invalid fields are outlined in red with a short reason beside the test button.
+
+- If About reports an invalid server or username, correct and save the settings, or turn the proxy off
+- If the configuration cannot be read, use `⋯ > Delete Configuration` at the top right of the dialog
+- A correctly formatted but unreachable proxy can still be saved and enabled; use Test Connection to check connectivity
+- HTTPS requires the proxy endpoint itself to support TLS and present a valid certificate
 
 ## Rate Limits or Tokens Appear Dimmed
 
 A dimmed value means that the current read failed and CodexBar fell back to cached data for the same account.
 
-The cache preserves the last available information; it does not mean that the data refreshed successfully.
-
-Double-click the account icon to retry. If the values remain dimmed, check `account/rateLimits/read` and `account/usage/read` in the Logs window.
+Double-click the account icon to retry. If data remains faded, check the connection error in About or open Logs.
 
 ## CodexBar Hook Cannot Be Enabled or Validated
 
-| Message | Meaning | Recommended action |
-| --- | --- | --- |
-| A newer Codex version is required | The current app-server version is too old | Update Codex, then click Reconnect on the About page |
-| Codex Hook is disabled globally | `features.hooks` is disabled | Re-enable Hooks in the Codex configuration |
-| CodexBar Hook is incomplete | At least one required event is missing the current handler | Reopen Settings to trigger automatic repair; if it still fails, turn Hook off and on again |
-| CodexBar Hook is not trusted | Codex still considers the handler untrusted or modified | Re-enable the Hook and inspect the Codex configuration |
-| Unexpected CodexBar Hook source | app-server reported a source other than the active configuration file | Check `CODEX_HOME` and the active Codex source |
-| Invalid `hooks.json` format | The top-level value or `hooks` structure is not valid JSON | Repair the JSON, then try again |
-| Unable to validate Codex Hook | app-server is temporarily unavailable or validation failed | Check the logs and reopen Settings after Codex becomes available |
+| Message | Action |
+| --- | --- |
+| A newer Codex version is required | Update Codex, then click `Reconnect` in About |
+| Codex Hook is globally disabled | Re-enable `features.hooks` in Codex configuration |
+| CodexBar Hook is incomplete | Reopen Settings for automatic repair; if needed, turn Hook off and back on |
+| CodexBar Hook is untrusted | Re-enable Hook and review Codex’s trust prompts |
+| Unexpected CodexBar Hook source | Verify the selected Codex source and the location of `CODEX_HOME` |
+| Invalid `hooks.json` format | Repair the file’s JSON format and retry |
+| Cannot validate Codex Hook | Reopen Settings after the Codex connection recovers |
 
-The Hook configuration is at `$CODEX_HOME/hooks.json`, or `~/.codex/hooks.json` when `CODEX_HOME` is unset.
-
-CodexBar automatically restores required events and trust data missing from an enabled Hook at launch, when the menu opens, and after each quota refresh. If a transient error prevents automatic repair, turning Hook off and on still rebuilds the complete configuration.
+The default configuration file is `~/.codex/hooks.json`. If `CODEX_HOME` is set, use `hooks.json` in that directory.
 
 ## Live Tasks Do Not Appear
 
@@ -60,7 +58,7 @@ CodexBar automatically restores required events and trust data missing from an e
 3. Start a new Codex task to generate live events
 4. Open Settings to trigger Hook validation again
 
-CodexBar does not send notifications for old tasks during history replay. When data-source boundaries are unstable, it falls back safely and skips untrusted history.
+Restarting CodexBar does not replay old task notifications.
 
 ## System Notifications Do Not Arrive
 
@@ -105,17 +103,11 @@ Check in this order:
 
 1. `Automatic Reset` is enabled and its lead time is what you expect
 2. The Automatic Reset row does not report pending CodexBarHelper approval, missing registration, or wake-schedule failure; the lead-time options appear only after the Helper is approved
-3. The current app-server response includes a specific available banked reset and expiration time
+3. The main panel shows an available banked reset and its expiration time
 4. Network access and Codex sign-in were available at the scheduled time
 5. `Automatic Reset Notifications` is enabled if you expected a notification; disabling notifications does not stop Automatic Reset itself
 
-Automatic Reset processes only credits explicitly listed in the latest app-server response. A single round retries network or temporary service failures continuously for no more than 5 minutes. Later normal rate-limit refreshes can schedule another attempt for a credit that remains valid.
-
-Disabling Automatic Reset or quitting CodexBar cancels the current wake schedule. To inspect system schedules, run this command in Terminal:
-
-```bash
-pmset -g sched
-```
+Temporary failures retry for up to 5 minutes per round; later refreshes may try again. Disabling Automatic Reset or quitting CodexBar cancels its wake schedule.
 
 ## Cross-Device Sync Is Unavailable
 
@@ -129,9 +121,7 @@ A sync failure does not delete local Hook data. A later maintenance run retries 
 
 ## CodexBar Still Shows the Old Version After Updating Codex
 
-The current version comes from the running app-server handshake. The on-disk version comes from running Codex `--version` again.
-
-If About shows the new installed version but `In Use` still shows the old one, click Reconnect. Alternatively, the next request after the connection is one hour old rebuilds it automatically.
+Click `Reconnect` in About to use the updated Codex.
 
 ## Using the Logs Window
 
@@ -140,22 +130,14 @@ Open it by either:
 - Right-clicking the menu bar icon and selecting `Log`
 - Pressing `⌘L` while the main panel is open
 
-The Logs window keeps the latest 500 app-server requests from the current process.
+The Logs window retains the latest 500 Codex interactions from the current run.
 
 Each entry includes request time, method, status, and response time. Expand it to inspect a request, response, or error preview.
 
 You can view or copy the full content in a separate window. It cannot be recovered after you clear the log or quit the app.
 
-## Viewing System Logs
+## Report a Problem
 
-Run this command in Terminal:
+Include reproduction steps, CodexBar and Codex versions, and visible errors. Interaction logs may contain account and request content; review private information before sharing.
 
-```bash
-/usr/bin/log stream --predicate 'subsystem == "app.zabrian.codexbar"' --style compact
-```
-
-Debug builds use a `subsystem` with a `.debug` suffix.
-
-When reporting an issue, describe the reproduction steps and visible error. Before sharing logs, check whether the in-app interaction log contains request data that you do not want to disclose.
-
-Back to the [User Guide](README.md)
+Back to the [User Guide](README.md).

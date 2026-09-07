@@ -6,8 +6,8 @@
 
 - macOS 15.0 或更高版本
 - 已安装并登录 [Codex CLI](https://github.com/openai/codex)，或安装了内置 Codex 的 ChatGPT App 或 Codex App
-- 当前运行的 Codex app-server 版本需要为 `0.143.0` 或更高版本
-- 使用 Hook 相关功能时，当前运行的 Codex app-server 版本需要为 `0.145.0` 或更高版本
+- 当前使用的 Codex 版本需要为 `0.143.0` 或更高版本
+- 使用 Hook 相关功能时，当前使用的 Codex 版本需要为 `0.145.0` 或更高版本
 - 使用跨设备同步时，Mac 需要登录可用的 iCloud 账户
 
 CodexBar 默认自动选择来源，优先使用全局安装的 Codex CLI，找不到时再尝试 ChatGPT App 和 Codex App 内置的 Codex。可在“设置 > 关于 > Codex 版本 > 来源”中手动选择。
@@ -56,28 +56,18 @@ CodexBar 每 60 秒自动刷新一次账户、额度和 Token 用量，双击主
 
 全局快捷键优先在鼠标所在屏幕打开主面板，菜单栏锚点不可用时会使用独立浮动面板。
 
-## 功能依赖
+## 开启更多功能
 
-| 功能 | CodexBar Hook | 其他条件 |
-| --- | --- | --- |
-| 账户、套餐和额度 | 不需要 | Codex 已登录，app-server 不低于 `0.143.0` |
-| Token 汇总和热力图 | 不需要 | app-server 不低于 `0.143.0` |
-| 实时任务和任务中心 | 需要 | Hook 已通过校验 |
-| 每日 Hook 统计 | 需要 | 本机存在 Hook 原始事件 |
-| 额度类通知 | 不需要 | 系统通知总开关和权限已开启 |
-| 自动重置 | 不需要 | 每次开启需确认；系统睡眠期间按计划唤醒和显示临期选项需要 CodexBarHelper 获得批准；可选提前 15 分钟至 6 小时，默认提前 30 分钟 |
-| 任务类通知 | 需要 | Hook 已通过校验且通知已开启 |
-| 防止系统睡眠 | 需要 | 每次开启需确认；CodexBarHelper 已注册并获得系统批准 |
-| 跨设备同步 | 需要 | iCloud 可用且用户主动开启同步 |
-
-关闭 CodexBar Hook 不影响账户、额度、Token 热力图、更新检查或日志窗口。
+- [CodexBar Hook](activity-and-hook.md)：实时任务、每日活动统计和按任务防睡眠
+- [系统通知](notifications.md)：任务和额度提醒，需允许 macOS 通知权限
+- [自动重置](settings.md#自动重置)：提前使用即将过期的留存重置，可能短暂唤醒 Mac
+- [防止系统睡眠](sleep-prevention.md)：长任务期间保持 Mac 唤醒，需批准后台服务
+- [跨设备同步](sync-data-privacy.md)：合并多台 Mac 的 Hook 统计，需登录 iCloud
 
 ## 语言与地区
 
 CodexBar 提供简体中文和英文界面，默认跟随 macOS 的 App 语言偏好。
 
 需要单独切换时，可在 macOS 系统设置的语言与地区页面为 CodexBar 指定 App 语言。
-
-日期、时间、时长、百分比、月历和星期顺序始终跟随当前地区格式。
 
 下一步可以阅读 [主面板与菜单栏](main-panel.md) 或 [设置参考](settings.md)

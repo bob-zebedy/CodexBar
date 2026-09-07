@@ -2,23 +2,6 @@
 
 简体中文 | [English](../en/DeveloperGuide/architecture.md)
 
-## 这套架构要解决什么
-
-CodexBar 的核心挑战不是绘制菜单栏界面，而是在一个长期运行的 `LSUIElement` App 中同时协调短命 Hook 子进程、本机 app-server、持续追加的文件、CloudKit、系统通知和 root helper。
-
-完整的组件关系、数据链路和源码依据可在 [交互式运行时架构图](https://codexbar.zabrian.app/architecture) 中查看。
-
-架构需要持续满足以下目标：
-
-- 任意一条数据链路失败时，不连带关闭其他功能
-- 短命 Hook 模式和普通 App 模式共用可执行文件，但生命周期完全隔离
-- UI 只观察可解释的快照，不直接承担 I/O、去重或恢复逻辑
-- 特权操作保持最小接口，业务策略留在普通 App 进程
-- 每个异步结果都能证明自己仍属于当前配置和数据源代际
-- 可重建数据与不可重放副作用分开处理
-
-更完整的取舍背景见 [设计原则与关键决策](design-decisions.md)
-
 ## 技术基线
 
 CodexBar 是 macOS 15+ 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。
@@ -64,7 +47,7 @@ CodexBar executable
 | --- | --- | --- | --- |
 | Hook 子进程 | 单个事件，最长几秒 | 读取 stdin、提取最小字段、追加本地 JSONL | 初始化 UI、建立网络连接、等待长期服务 |
 | 主 App | 用户登录会话内长期运行 | 编排 UI、数据链路和副作用 | 直接以 root 修改系统设置 |
-| app-server | 最长复用 1 小时 | 通过 JSON-RPC 提供账户和配置能力 | 成为 Hook 历史或实时任务的替代来源 |
+| app-server | 达到 1 小时后的下一次请求重建 | 通过 JSON-RPC 提供账户和配置能力 | 成为 Hook 历史或实时任务的替代来源 |
 | CodexBarHelper | LaunchDaemon | 执行固定 `pmset` 操作、管理固定 owner 的 `wake` 事件并恢复系统状态 | 访问账户、Hook、rollout、网络或任意命令 |
 
 ## 目录职责
@@ -85,7 +68,7 @@ Scripts/            构建, DMG, appcast 和 CodexBarHelper 清理脚本
 
 ## 启动顺序
 
-[`CodexBarApp.swift`](../../CodexBar/App/CodexBarApp.swift) 的初始化顺序是架构约束，不是实现细节：
+[`CodexBarApp.swift`](../../CodexBar/App/CodexBarApp.swift) 按以下顺序分流启动：
 
 ```text
 进程启动
@@ -103,6 +86,7 @@ Scripts/            构建, DMG, appcast 和 CodexBarHelper 清理脚本
 普通模式由 `CodexBarAppDelegate` 统一创建和持有长期对象，主要包括：
 
 - `CodexStatusService` 和 `CodexStatusViewModel`
+- `CodexProxySettings`
 - `WorkflowService` 和对应 ViewModel
 - `CodexHookSettings`
 - `CodexActivityMonitor`
@@ -114,7 +98,7 @@ Scripts/            构建, DMG, appcast 和 CodexBarHelper 清理脚本
 
 App 退出时需要先取消自动重置唤醒计划并释放防睡眠状态。如果 CodexBarHelper 尚未回读确认两类系统状态都已恢复，终止流程会等待或取消退出。helper 启动时还会在接受新连接前清除固定 owner 的遗留唤醒事件，用于收敛突然断电或强制终止留下的状态。
 
-### 为什么 Hook 判断必须放在 `App.init`
+### Hook 启动分流
 
 `@NSApplicationDelegateAdaptor` 会把 AppKit 生命周期接入 SwiftUI App。一旦普通生命周期开始，可能创建菜单栏对象、注册通知 delegate 或访问 CloudKit。
 
@@ -122,20 +106,7 @@ Hook handler 在 Codex 的关键路径上，它需要的是接近命令行工具
 
 这个顺序还保证 Hook 采集失败不会污染正常退出诊断。`AppProcessDiagnostics.install()` 只在 `applicationDidFinishLaunching` 中执行，Hook 子进程不会被误记为一次异常退出的完整 App。
 
-### 为什么由 AppDelegate 持有长期对象
-
-SwiftUI View 会因为布局、条件分支和窗口重建而重复创建。如果 service 的所有权落在 View 中，一个看似普通的界面变化就可能终止 reader, app-server 或 XPC 连接。
-
-`CodexBarAppDelegate` 因而承担 composition root 职责：
-
-- 只在这里创建长期 service, settings 和 ViewModel
-- 在这里建立 monitor, notification 和 keep-alive 之间的回调
-- View 只接收已经创建好的引用
-- App 退出时从同一个所有者反向停止服务
-
-这不是要求所有逻辑都堆进 AppDelegate。它只负责装配和生命周期，业务规则仍在各自 service 或 controller 中。
-
-### 退出为什么可以被取消
+### 退出协调
 
 `applicationShouldTerminate` 先调用 `KeepAliveController.prepareForTermination()` 并返回 `.terminateLater`
 
@@ -152,13 +123,6 @@ CodexBar 不使用一个聚合服务承载所有状态。3 条链路的输入、
 | app-server | `codex app-server` JSON-RPC | 账户、额度、token 用量、Reset Credit 使用、Hook 配置能力 | 主面板、菜单栏额度、设置、自动重置状态机 |
 | Hook 历史 | Hook JSONL | 日级事件、session, turn, tool, model 聚合 | 活跃度热力图、历史统计、CloudKit |
 | 实时任务 | Hook 增量事件加 rollout 生命周期 | 运行、等待批准、完成、中断 | 菜单栏状态、任务中心、通知、防睡眠 |
-
-链路之间可以共享基础设施和模型，但不能互相替代：
-
-- app-server 不提供完整的实时任务状态
-- 历史聚合允许延迟和重建，实时任务不能等待聚合完成
-- 实时任务快照不可作为历史统计的持久来源
-- 某条链路不可用时，其他链路仍应保持可用
 
 ### 依赖方向
 
@@ -180,9 +144,7 @@ Hook + rollout --------> CodexActivityMonitor --------> UI
 
 箭头表示数据或只读状态的消费方向。下游不能反向成为上游的事实来源。
 
-例如，菜单栏可以把额度进度和任务状态画在同一个图标上，但图标是否存在不能决定任务 monitor 是否运行。同步 scheduler 可以复用历史维护的触发时机，但 CloudKit 是否可用不能决定本地聚合是否执行。
-
-### 共享触发不等于数据依赖
+### 共享刷新触发
 
 历史维护默认挂在 60 秒额度刷新完成事件上，这是为了减少常驻 timer 和日志噪音。两条链路共享调度时机，但没有共享事实。
 
@@ -219,7 +181,7 @@ Hook + rollout --------> CodexActivityMonitor --------> UI
 
 跨 actor 传递的 DTO 必须是不可变值类型，并按需要声明 `Sendable` 或 `nonisolated`
 
-### 为什么 monitor 仍在 MainActor
+### Monitor 的 MainActor 边界
 
 `CodexActivityMonitor` 的输入读取在 actor 中完成，但状态机本身与多个 Combine 消费者紧密相连。
 
@@ -231,23 +193,6 @@ Hook + rollout --------> CodexActivityMonitor --------> UI
 
 前提是 monitor 不能直接执行阻塞文件读取。`HookEventTailReader`, `CodexSessionLifecycleReader` 和 `ActivityProtectionStateStore` 各自承担 I/O 边界。
 
-### 非隔离 pipe reader 为什么使用锁
-
-app-server 是 stdio 协议，底层需要组合 `FileHandle`, `DispatchSourceRead` 和 semaphore。这些类型不是天然 `Sendable`，也不适合每读取一行都跨 Swift actor hop。
-
-`PipeReadBuffer` 把不安全边界收口在一个 `@unchecked Sendable` 类型中，所有可变状态由 `NSLock` 保护，读事件固定在专用 queue 上。上层只看到完整行和关闭状态。
-
-这里的 `@unchecked` 是经过封装的局部承诺，不是关闭整个模块的并发检查。
-
-### 跨进程文件不能只依赖 actor
-
-Hook recorder 是另一个进程，所以 `WorkflowService` actor 无法保护它。`stats.lock` 使用 `flock` 对事件文件和维护状态的联合修改提供进程级排他事务。
-
-同一个流程中会同时出现 actor 和 `flock`
-
-- actor 保证主 App 内多项维护不会并行改状态
-- `flock` 保证主 App 与短命 Hook 子进程不会同时提交冲突文件修改
-
 ## 模型分层
 
 项目没有让 app-server DTO、持久化模型和 View 直接共用同一个大对象：
@@ -258,7 +203,7 @@ Hook recorder 是另一个进程，所以 `WorkflowService` actor 无法保护�
 | 持久化模型 | 保存可恢复状态和 schema | 兼容旧值，明确 missing 语义 |
 | 领域快照 | 向消费者表达当前可信状态 | 不可变、可比较、跨 actor 安全 |
 | transition | 表达一次 live 状态变化 | 不从历史快照反推，需要上游去重 |
-| 展示格式 | 日期、百分比、文案和颜色 | 跟随 locale，不反向参与业务判定 |
+| 展示格式 | 日期、百分比、文案和颜色 | 按各展示字段的地区设置或固定格式输出，不参与业务判定 |
 
 例如 `CodexQuotaSnapshot` 可以同时携带当前值和 stale 标记。`CodexActivitySnapshot` 只保存展示需要的任务字段，原始 session ID 不进入 View。
 
@@ -268,7 +213,7 @@ Hook recorder 是另一个进程，所以 `WorkflowService` actor 无法保护�
 
 | 状态 | 生命周期 | 原因 |
 | --- | --- | --- |
-| app-server connection | 最长 1 小时 | 复用降低启动成本，定期重建让磁盘升级生效 |
+| app-server connection | 请求时检查 1 小时复用上限 | 后续请求重建连接时使用磁盘上的 binary |
 | app-server supplemental cache | 当前账户内 | 避免跨账户串值 |
 | Hook live bootstrap window | 24 小时 | 覆盖可能仍在运行的长任务 |
 | 完成高亮 | 30 秒 | 菜单栏短时反馈 |
@@ -282,23 +227,10 @@ Hook recorder 是另一个进程，所以 `WorkflowService` actor 无法保护�
 
 ## 状态所有权
 
-实时任务状态只有一个权威来源，即 [`CodexActivityMonitor.swift`](../../CodexBar/Services/Workflow/CodexActivityMonitor.swift)
-
-它的快照被以下模块消费：
-
-- 菜单栏图标和主面板任务卡片
-- 活动中心
-- 完成和等待批准通知
-- 防睡眠是否存在有效任务的判断
-- 异常会话保护
-
-消费者只能基于快照展示或执行副作用，不能各自重建一套任务状态机。
-
-### 状态所有权表
-
 | 状态 | 唯一所有者 | 其他模块的权限 |
 | --- | --- | --- |
-| app-server 连接与同账户缓存 | `CodexStatusService` | 请求只读结果 |
+| app-server 连接与同账户缓存 | `CodexStatusService` | 通过服务方法读取数据、修改配置或重连 |
+| 代理草稿、测试和开关交互 | `CodexProxySettings` | 设置页通过方法提交，`CodexStatusService` 应用正式连接配置 |
 | 主面板账户加载状态 | `CodexStatusViewModel` | 观察发布值 |
 | 自动重置的目标、deadline 和重试 | `AutoResetController` | 设置页只修改开关和提前量 |
 | 自动重置唤醒时间同步 | `AutoResetWakeScheduler` | `AutoResetController` 只提交下一次时间，`KeepAliveController` 只提交 helper 就绪状态 |
@@ -322,7 +254,7 @@ Hook recorder 是另一个进程，所以 `WorkflowService` actor 无法保护�
 - 恢复流程必须完成新的读取屏障后才能继续判定
 - 持久化文件写入需要原子替换或文件锁，避免 Debug 与 Release 并发破坏
 
-### 错误分类比统一重试更重要
+### 错误分类
 
 | 错误类别 | 典型处理 | 不应采取的处理 |
 | --- | --- | --- |
@@ -333,45 +265,6 @@ Hook recorder 是另一个进程，所以 `WorkflowService` actor 无法保护�
 | 迟到异步结果 | generation 不匹配时丢弃 | 覆盖新设置或新 reader 状态 |
 | 特权状态不确定 | 保留可能租约或唤醒事件并主动确认清理 | 假定 helper 没有执行 |
 | Hook recorder 失败 | 吞掉本次采集并退出成功 | 阻断 Codex 或弹 UI |
-
-### 日志为什么记录阶段而不是用户数据
-
-系统日志使用 `trigger`, `stage`, `reason`, `counts` 和 `elapsed` 解释流程，避免记录额度数值、项目路径或任务身份。
-
-这种日志结构允许区分：
-
-- 同步是在 zone, device, fetch, upload 还是 prune 阶段失败
-- app-server 使用新连接还是复用连接
-- 聚合是空转、增量写入还是标脏重建
-- 防睡眠被哪一个条件阻断
-
-诊断需要的是控制流证据，不需要复制用户数据。
-
-## 变更一个核心流程时怎么落点
-
-### 新增数据来源
-
-1. 先确定它是否属于现有 3 条链路
-2. 定义来源缺失、stale 和失败语义
-3. 在 actor service 内完成 I/O 和缓存
-4. 通过不可变快照进入 MainActor
-5. 单独审查网络和隐私边界
-
-### 新增一次性副作用
-
-1. 找到能证明“刚刚发生”的 live transition
-2. 不从当前快照或历史列表反推
-3. 定义进程内和跨重启去重范围
-4. 提交前检查事件是否仍相关
-5. 定义副作用失败是否可以影响主状态
-
-### 新增持久化状态
-
-1. 说明为什么内存状态不足
-2. 定义 schema、原子性和并发访问边界
-3. 定义旧版本读取新文件和新版本读取旧文件的行为
-4. 限制保存字段和保留时间
-5. 先确认兼容策略再修改格式
 
 ## 系统集成
 

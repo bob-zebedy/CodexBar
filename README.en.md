@@ -61,6 +61,7 @@ It can notify you when a task finishes, needs approval, or when your rate limits
 - Runs as a menu bar app without taking up space in the Dock
 - Supports a global keyboard shortcut, launch at login, and automatic updates
 - Provides Simplified Chinese and English interfaces
+- Configurable HTTP/HTTPS proxy for the Codex service
 - Optionally merges daily Hook metrics across Macs through iCloud
 
 ## Installation
@@ -102,7 +103,7 @@ The default global shortcut is `⌘⇧W`. You can record a different shortcut or
 
 ## Privacy
 
-CodexBar processes all data locally. It uploads aggregated data to your private iCloud database only when you enable cross-device sync.
+Raw Hook events and live tasks are processed locally. Enabling cross-device sync uploads daily Hook aggregates to your private iCloud database. Account and usage data come through the local Codex app-server, which connects to the service; update checks use Sparkle.
 
 See [Data, Sync, and Privacy](Docs/en/UserGuide/sync-data-privacy.md) for complete details about data access, local storage, and network boundaries.
 

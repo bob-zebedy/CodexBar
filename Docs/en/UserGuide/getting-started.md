@@ -6,8 +6,8 @@
 
 - macOS 15.0 or later
 - [Codex CLI](https://github.com/openai/codex) installed and signed in, or ChatGPT App or Codex App with bundled Codex installed
-- The running Codex app-server must be `0.143.0` or later
-- Hook features require the running Codex app-server to be `0.145.0` or later
+- The Codex currently in use must be `0.143.0` or later
+- Hook features require the Codex currently in use to be `0.145.0` or later
 - Cross-device sync requires an available iCloud account on the Mac
 
 By default, CodexBar automatically prefers a globally installed Codex CLI. If it cannot find one, it tries the Codex bundled with ChatGPT App and Codex App. You can select a source under Settings > About > Codex Versions > Source.
@@ -56,28 +56,18 @@ CodexBar refreshes account, rate-limit, and token usage data every 60 seconds. D
 
 The global shortcut opens the main panel on the screen under the pointer when possible. If the menu bar anchor is unavailable, CodexBar uses a standalone floating panel.
 
-## Feature Dependencies
+## Enable More Features
 
-| Feature | CodexBar Hook | Other requirements |
-| --- | --- | --- |
-| Account, plan, and rate limits | Not required | Signed in to Codex; app-server `0.143.0` or later |
-| Token totals and heatmap | Not required | app-server `0.143.0` or later |
-| Live tasks and Task Center | Required | Hook validation has passed |
-| Daily Hook metrics | Required | Local raw Hook events are available |
-| Rate-limit notifications | Not required | System Notifications and macOS permission are enabled |
-| Automatic Reset | Not required | Confirmation is required each time it is enabled; waking from system sleep and showing the lead-time options require approved CodexBarHelper access; lead time ranges from 15 minutes to 6 hours and defaults to 30 minutes |
-| Task notifications | Required | Hook validation has passed and notifications are enabled |
-| Prevent System Sleep | Required | Confirmation is required each time it is enabled; CodexBarHelper is registered and approved by macOS |
-| Cross-device sync | Required | iCloud is available and sync is explicitly enabled |
-
-Disabling CodexBar Hook does not affect account data, rate limits, the token heatmap, update checks, or the Logs window.
+- [CodexBar Hook](activity-and-hook.md): live tasks, daily activity statistics, and task-based sleep prevention
+- [System Notifications](notifications.md): task and quota alerts, requiring macOS notification permission
+- [Automatic Reset](settings.md#automatic-reset): use banked resets shortly before expiration; may briefly wake your Mac
+- [Prevent System Sleep](sleep-prevention.md): keep your Mac awake during long tasks, requiring background-service approval
+- [Cross-Device Sync](sync-data-privacy.md): combine Hook statistics across Macs, requiring iCloud sign-in
 
 ## Language and Region
 
 CodexBar provides Simplified Chinese and English interfaces. By default, it follows the macOS per-app language preference.
 
 To choose a language specifically for CodexBar, use Language & Region in macOS System Settings.
-
-Dates, times, durations, percentages, calendar layout, and the first day of the week always follow the current regional format.
 
 Next, read [Main Panel and Menu Bar](main-panel.md) or the [Settings Reference](settings.md).

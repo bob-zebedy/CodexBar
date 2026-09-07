@@ -2,19 +2,6 @@
 
 [简体中文](../../DeveloperGuide/activity-monitor.md) | English
 
-## Design Motivation
-
-A live task is not a direct mapping of Hook events.
-
-One turn may have missing, late, or duplicate events; only a session ID; a new prompt replacing an old turn; `Stop` and rollout terminal arriving in either order; or an app launch after the task has already run for some time.
-
-`CodexActivityMonitor` combines these incomplete observations into a conservative task state machine and produces two different outputs:
-
-- A snapshot describes what can be displayed now
-- A transition describes what just happened and may drive a one-time side effect
-
-If every consumer inferred tasks from Hook lists independently, the menu bar, notifications, and sleep prevention would disagree at edge cases.
-
 ## Goals
 
 The live-task flow answers four questions:
@@ -27,9 +14,9 @@ The live-task flow answers four questions:
 Hook events provide low-latency signals, and rollout files provide authoritative lifecycle context. [`CodexActivityMonitor.swift`](../../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) merges both into the sole task snapshot:
 
 ```text
-Hook JSONL -> HookEventTailReader -----+
-                                      +-> CodexActivityMonitor -> ActivitySnapshot
-rollout JSONL -> SessionLifecycleReader+
+Hook JSONL -> HookEventTailReader ---------+
+                                          +-> CodexActivityMonitor -> CodexActivitySnapshot
+rollout JSONL -> CodexSessionLifecycleReader+
 ```
 
 ### Division Between Sources
@@ -45,7 +32,7 @@ rollout JSONL -> SessionLifecycleReader+
 
 Hook prioritizes low latency; rollout prioritizes semantic accuracy. They do not simply overwrite by timestamp. Every field has its own trusted source.
 
-### Why Snapshot and Transition Are Separate
+### Snapshots and Transitions
 
 A snapshot may be read repeatedly after view reconstruction, a new subscription, or a settings change. A transition may be emitted once from live data only.
 
@@ -86,7 +73,7 @@ At `.bootstrapStart`, the monitor clears previous recovered state and pauses sid
 
 Neither UI nor notifications should observe a partially recovered intermediate batch.
 
-### Why Stable Boundaries Retry Three Times
+### Stable-Boundary Retries
 
 At the start of an attempt, the reader fixes inode and size for all relevant date files and validates them again after reading to those bounds:
 
@@ -94,9 +81,9 @@ At the start of an attempt, the reader fixes inode and size for all relevant dat
 - The current date may append only beyond the fixed upper bound
 - The calendar day must not cross midnight during the read
 
-If any condition fails, the reader retries from a new baseline. After three consecutive failures it moves to the current tail so bootstrap cannot block forever. Degraded health communicates the cost to Activity Protection instead of pretending success.
+If any condition fails, the reader retries from a new baseline. After three consecutive failures, it moves to the current tail and publishes degraded health, pausing Activity Protection checks.
 
-### Why Offset Advances Only Across Complete Lines
+### Complete-Line Cursor
 
 The Hook recorder may be writing the final line. The reader includes only bytes before the last newline in `completeOffset`.
 
@@ -110,7 +97,7 @@ When `UserPromptSubmit` predates the current incremental window, the reader can 
 
 ### `drainNow()` Read Barrier
 
-`drainNow()` is not an ordinary immediate-refresh hint. Every caller must wait for a read that begins after its request:
+Every caller of `drainNow()` must wait for a read that begins after its request:
 
 ```text
 Call drainNow
@@ -158,7 +145,7 @@ A resume can continue a session created long ago. If the fast path misses, each 
 
 If a file moves to the archive, a missing cached URL clears its cursor and allows full discovery again.
 
-### Why the Rollout Cursor Starts at the Last 512 KB
+### Rollout Read Budget
 
 Live tasks need lifecycle near an active turn, not a full read of a long-running session. Starting from the last 512 KB reduces resident I/O and discards the first potentially partial line.
 
@@ -166,7 +153,7 @@ If effort remains missing, a targeted lookup for that turn can read up to 8 MB.
 
 Effort backfill applies only to nonterminal tasks that have run for at least 2 seconds and still lack effort, with a 10-second retry interval per turn. This avoids a large search immediately after every task creation.
 
-### Why Only Structural Events Are Parsed
+### Rollout Fields
 
 The shared `CodexRolloutLineEnvelope` extracts only fields needed for turn context, lifecycle, and progress. Prompt, response, and tool content never enters the activity model.
 
@@ -184,7 +171,7 @@ A new prompt replaces the old turn in the same session. The old turn enters term
 
 Subagent events update activity under their parent task and do not create separate top-level cards.
 
-### Why Identity Degrades by Precision
+### Identity Precision and Fallback
 
 `session ID + turn ID` precisely distinguishes sequential turns in one session and is preferred.
 
@@ -207,11 +194,11 @@ When an exact Auto-review event arrives, the monitor:
 
 If an explicit `main` or `auxiliary` event later matches the same key, source truth wins and clears that ignored-key inference. An Auto-review event without a turn ID is ignored only for that event and never creates a session-wide blacklist.
 
-Other subagents normalize to `auxiliary` and retain their existing behavior; Memories does not change under this rule. Raw Hook events still enter historical aggregation, so live-task filtering does not change metrics or CloudKit data.
+Other subagents, including Memories, are classified as `auxiliary` and participate in auxiliary-task association. Raw Hook events still enter historical aggregation; live Auto-review filtering does not change statistics or CloudKit data.
 
-When JSONL omits `origin` or contains an unrecognized origin value, the origin field first decodes as `unknown`. If that record's model exactly equals `codex-auto-review`, the event model normalizes `origin` to `.autoReview`; other records remain `.unknown`. The monitor replays only the most recent 24 hours, does not scan historical rollouts, and does not rewrite raw Hook records.
+A missing or unrecognized JSONL `origin` first decodes as `unknown`. An exact `codex-auto-review` model match normalizes it to `.autoReview`; other records remain `.unknown`. This step uses existing record fields, performs no additional historical rollout scan for origin classification, and does not rewrite raw Hook records.
 
-### Why a New Prompt Does Not Immediately Terminate the Old Turn
+### New Prompts and Terminal Grace
 
 Turns in one session run sequentially. When a new prompt arrives, the old turn must leave the active list immediately or the UI briefly shows two top-level tasks.
 
@@ -248,19 +235,6 @@ Anonymous running tasks do not show precise elapsed time, and anonymous completi
 
 They publish no waiting or completion transitions to notification consumers, trigger no task haptics, enter neither the running nor waiting sets for KeepAlive, and do not participate in Stalled Task Protection. `activityProtectionIdentifier` returns `nil` for an anonymous key, so protection state never persists an anonymous task.
 
-### Why Anonymous Tasks Still Appear in the UI
-
-A missing session ID does not mean the task does not exist. Dropping it entirely would show Codex working while CodexBar appears idle.
-
-Keeping visibility while forbidding high-impact side effects is a layered response to uncertain identity:
-
-- Later events can correct a visibility error
-- A false notification interrupts the user
-- Incorrect sleep prevention may last for hours
-- Persisting an anonymous project key might suppress a different real task later
-
-The orange dashed-person icon therefore communicates limited capability instead of presenting an anonymous task as precise.
-
 ## State Machine
 
 Active tasks mainly use these internal states:
@@ -294,7 +268,7 @@ Terminal signals reconcile by reliability:
 | running | Silence exceeds threshold | suppressed | Hide and remove sleep-prevention contribution |
 | suppressed | New progress | running | Clear persisted protection and old notification |
 
-### Why Waiting for Approval Uses Two-Phase Confirmation
+### Two-Stage Approval Confirmation
 
 `PermissionRequest` indicates an approval flow, but reviewer may be user, policy, or automatic review.
 
@@ -302,13 +276,11 @@ If the Hook event includes reviewer, the task can confirm immediately. If review
 
 Only an explicit user reviewer emits a waiting transition. Remaining running while uncertain is more truthful than falsely telling the user Codex is waiting for them.
 
-### Why Effort Can Become `mixed`
+### Effort Merging
 
 Several context events in one turn may report different reasoning efforts. The task does not silently let the last overwrite the first. It marks `mixed` after observing conflict.
 
-This tells the UI that several values genuinely appeared over the task lifecycle rather than displaying a precise-looking value from only the final observation.
-
-### Why Subagent Count Can Be Unknown
+### Subagent Count Reliability
 
 A subagent turn ID belongs to the subagent, so its parent can be associated only by shared session.
 
@@ -334,21 +306,15 @@ The snapshot feeds:
 - Notification system
 - Sleep-prevention controller
 
-### Why Recent Completion and Termination Have Different Weight
-
-Completion produces a 30-second green menu bar highlight as short positive feedback. Termination appears only in recent records, emits no completion transition, and has no green state.
-
-Task Center retains terminal items for 10 minutes, while keys preventing duplicate completion from late events remain for 24 hours. Display retention and deduplication retention solve different problems and must not be combined into one cache.
-
-### Why Publish Only When the Snapshot Changes
+### Snapshot Publication
 
 The monitor polls rollout each second and also updates itself at several deadlines. Assigning the same value to `@Published` on every cycle would make SwiftUI and all Combine consumers recalculate unnecessarily.
 
 A candidate snapshot is compared with the current value and published only after structural change. Views format elapsed time from the current clock and do not require per-second mutation of task objects.
 
-### Stable Sorting Tie-Breaker
+### Stable Ordering
 
-Several tasks in one batch can share timestamps, and Swift sorting is unstable.
+Several tasks in one batch can share a timestamp; comparing timestamps alone does not determine their relative order.
 
 All lists sort by most recent time first and then display UUID string. Stable order keeps SwiftUI diffing from jumping when equivalent tasks randomly exchange positions.
 
@@ -372,11 +338,11 @@ Stalled Task Protection pauses when the system is about to sleep. Wake follows a
 
 If the new read fails, the reader is replaced, or the source is unavailable, evaluation must not continue from the pre-sleep snapshot.
 
-### Why Silence Timing Pauses During System Sleep
+### Evaluation Pauses During System Sleep
 
-Neither Hook nor rollout produces normal progress during system sleep. Comparing wall time alone would classify every running task as stalled immediately after a two-hour sleep.
+Silence evaluation stops during system sleep. On recovery, the monitor silently reconciles progress from newly read Hook and rollout data before resuming normal evaluation.
 
-Protection schedules its next check with `SuspendingClock`, but system-time changes and data-source recovery still require explicit recalculation. `will-sleep` enters recovery first; `did-wake` restores evaluation only through a new data read barrier.
+The check task waits with `SuspendingClock`, but silence duration is calculated from `Date` and `lastProgressAt` without subtracting time spent asleep. `will-sleep` enters recovery; `did-wake` reevaluates after a new data read barrier.
 
 ### Why Wake Order Cannot Be Reversed
 
@@ -401,7 +367,7 @@ Threshold options are:
 
 At the threshold:
 
-1. Persist a protection record first
+1. Update the in-memory protection record and enqueue its serial persistence
 2. Start notification submission and a 3-second grace period together
 3. Revalidate the candidate after notification completes or grace expires
 4. If still valid, hide it from the activity snapshot
@@ -417,14 +383,6 @@ Evaluation pauses during:
 - Hook data-source unavailability
 - Reader replacement
 
-### Failure Model Addressed by Protection
-
-After Hook or Codex exits abnormally, `Stop`, `SessionEnd`, and rollout terminal may all be missing. A task can remain running indefinitely and keep sleep prevention active forever.
-
-Protection does not decide whether Codex is “truly stuck.” It handles one observable fact: a non-anonymous running task made no Hook or rollout progress beyond the threshold while sources were trusted.
-
-Waiting tasks are excluded because waiting for the user is legitimate silence. Anonymous tasks are excluded because a project key cannot prove which specific task a persisted record belongs to.
-
 ### Purpose of Progress Generation
 
 Timestamps alone cannot protect an asynchronous attempt. Two progress events may share the same second, and the threshold setting may change while notification submission is in flight.
@@ -438,22 +396,11 @@ Every valid progress event increments `progressGeneration`. A protection candida
 
 All four must still match when notification returns or grace expires. Any new progress or threshold change invalidates the old attempt.
 
-### Why Persist Before Hiding
+### Protection Record Save Ordering
 
-After a task disappears from the snapshot, the app may immediately exit or the system may sleep. Without a queued persistence write, restart bootstrap could show it again and let it support sleep prevention.
+An attempt updates the in-memory record synchronously, then a task calls `ActivityProtectionStateStore.apply` in sequence. A disk-write failure is logged and does not prevent hiding the task.
 
-The attempt therefore writes the record first, waits for notification submission, then hides. Failed notification permission or service does not block suppression because releasing erroneous sleep prevention is the protection's core purpose.
-
-### Meaning of the 3-Second Notification Grace
-
-The protection notification is useful explanation but cannot block sleep restoration indefinitely:
-
-- Suppress immediately when notification submission succeeds
-- Suppress after 3 seconds if it has not finished
-- If notification succeeds later but the attempt is invalid, withdraw it immediately
-- New progress within grace cancels the attempt and persisted record
-
-This window constrains the notification side effect only; it does not alter the silence threshold.
+Saved records restore protection during the next bootstrap. Hiding does not wait for disk commit, so recovery across restarts depends on the write succeeding.
 
 ### Reconciling Threshold Changes
 
@@ -461,7 +408,7 @@ Shortening the threshold immediately reevaluates running tasks already past it.
 
 Lengthening it silently restores suppressed tasks that no longer exceed the new threshold and clears their records and notifications. Tasks still beyond the new threshold remain suppressed without duplicate alerts.
 
-Turning off Prevent System Sleep disables Activity Protection and restores all suppressed tasks because protection exists to prevent incorrect sleep blocking, not to hide tasks permanently.
+Turning off the sleep-prevention switch disables Activity Protection and restores all suppressed tasks in the current process.
 
 ## Protection-State Persistence
 
@@ -485,9 +432,7 @@ Turn and session keys first become canonical strings with type prefixes and NUL 
 
 Types and separators prevent boundary ambiguity between concatenated fields. The domain separator prevents directly correlating the same raw ID hashed for another use.
 
-This does not resist brute force when the session ID is already known. It prevents readable identity from appearing directly in the state file and limits cross-purpose correlation.
-
-### Why Debug and Release Share a Locked File
+### Cross-Process State Merge
 
 Both app bundle IDs can run together and observe the same Codex Hook data. With separate protection state, a stalled task hidden by one build might still drive sleep prevention in the other.
 
@@ -516,18 +461,6 @@ These constraints prevent false completion alerts and incorrect release during s
 | Task `progressGeneration` | Protection candidate during notification grace |
 
 Each answers a different “is this current?” question and cannot become one global counter. A task making progress without a reader change should invalidate only its protection attempt, not the entire reader.
-
-## Steps to Extend the Task State Machine
-
-1. Classify new input as fact, metadata, progress, or terminal
-2. Define whether bootstrap and live input produce the same snapshot and whether either may emit a transition
-3. Define degradation when turn or session ID is missing
-4. Define how timestamp, terminal memory, or generation rejects late and duplicate input
-5. If reading a new rollout field, extend the minimal envelope rather than reading content
-6. Keep per-task domain state in `CodexActivityTask` and cross-task association in the monitor
-7. Before changing the snapshot, decide whether notifications and sleep prevention should consume the new state
-8. Define recovery for system sleep, reader replacement, and unhealthy sources
-9. By default, anonymous tasks gain no new high-impact side effect unless identity reliability changes fundamentally
 
 ## Suggested Failure-Scenario Tests
 

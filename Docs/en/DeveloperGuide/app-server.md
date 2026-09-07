@@ -2,25 +2,12 @@
 
 [简体中文](../../DeveloperGuide/app-server.md) | English
 
-## Design Motivation
-
-CodexBar does not reimplement Codex sign-in, token refresh, or account protocols. It treats local `codex app-server` as the account-capability boundary.
-
-This design means:
-
-- Codex owns authentication and server protocols, so CodexBar does not duplicate a client that can drift
-- The app communicates with a local subprocess over stdio, avoiding another direct network implementation in the primary account flow
-- The version of Codex actually running comes from the handshake and can gate global and Hook capabilities
-- A global CLI and an app-bundled CLI share one upper-level data model
-
-The cost is that a menu bar app must handle missing shell environments, subprocess lifecycle, pipe backpressure, mixed stdout, timeouts, and connection rotation after upgrades.
-
 ## Responsibilities
 
 The app-server flow reads Codex account and server state:
 
 - Current account and plan
-- 5-hour and weekly rate limits
+- Rate-limit groups and windows returned by Codex
 - Token usage and usage history
 - Reset Credits state
 - Hook feature flags, handler lists, and configuration-write capabilities
@@ -69,7 +56,7 @@ A menu bar app launched from Finder may lack the complete `PATH` of an interacti
 
 The data directory uses `CODEX_HOME` when set and otherwise uses `~/.codex` under the real user's home directory.
 
-### Why the Process Environment Is Not Trusted Directly
+### Process Environment Normalization
 
 An `LSUIElement` app launched from Finder or Login Items usually lacks the complete `PATH` injected by an interactive shell. Calling only `/usr/bin/env codex` would make Homebrew, Volta, or global npm installations work in Terminal but disappear from CodexBar.
 
@@ -81,11 +68,34 @@ The resolver normalizes in three layers:
 
 `CodexCLISourceSelection.automatic` prefers the global CLI and falls back to the bundled CLI when none is found. Selecting `global` or `bundled` uses only that source and returns `sourceUnavailable` if it is missing. `CodexStatusService` saves the selection and reuses it when rebuilding the connection.
 
-### Why On-Disk and Running Versions Are Separate
+### Disk and Running Versions
 
 Settings may read versions from both CLI candidates on disk, but minimum-version checks for the primary flow and Hook use only the app-server `userAgent` returned by `initialize`.
 
 A connection may be reused for up to 1 hour. If the user upgrades the on-disk binary while it remains alive, the current process is still the old version. Checking the disk value would let the UI claim a capability is available while the running app-server does not support its method.
+
+## In-App Proxy
+
+The proxy is implemented by four types:
+
+| Type | Responsibility |
+| --- | --- |
+| [`CodexProxyConfiguration`](../../../CodexBar/Models/CodexProxyConfiguration.swift) | HTTP/HTTPS settings, input validation, and child-process environment |
+| [`CodexProxyStore`](../../../CodexBar/Services/Settings/CodexProxyStore.swift) | Settings and password stored under `CodexProxy.configuration` in UserDefaults |
+| [`CodexProxySettings`](../../../CodexBar/Services/Settings/CodexProxySettings.swift) | Saved configuration, editing draft, toggle commits, and test state |
+| [`CodexProxyConnectionTester`](../../../CodexBar/Services/CodexStatus/CodexProxyConnectionTester.swift) | Independent test process using the draft |
+
+Without an enabled configuration, the regular connection uses `CodexCLIResolver.environment`. Enabling a proxy sets `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `WS_PROXY`, `WSS_PROXY`, and their lowercase forms. `NO_PROXY` and `no_proxy` become `localhost,127.0.0.1,::1`. Only custom-proxy processes append `-c features.respect_system_proxy=false`; the configuration is not written to global Codex files.
+
+Loading preserves decodable raw input. Enabling the proxy and saving an edited form validate the server, port, and authentication username; disabling it permits invalid fields to remain stored. Undecodable records still have a clear action.
+
+The toggle updates its displayed state and sets `isSaving` before creating the asynchronous task; repeated toggles are ignored while it runs. `CodexStatusService.applyProxy` serially saves settings, closes the old connection, and clears supplemental caches. Completion restores interaction and triggers a refresh; failure restores the previous toggle state. The dialog edits a separate draft, committed only by Save or Clear.
+
+### Connection Tests
+
+Testing temporarily enables the draft, resolves the selected Codex source, and calls `AppServerSession.initializeAccount()` for the same handshake and account checks used by regular connections. It then calls `account/rateLimits/read`. Regular connections continue with rate limits and usage after the handshake.
+
+Test requests share an eight-second deadline, do not retry server business errors, and do not record interaction logs. The temporary process is closed on exit using the session’s shutdown wait budget. Editing fields, canceling a test, or closing the dialog cancels both the outer task and its worker; canceled results cannot update the UI.
 
 ## Process and Protocol
 
@@ -126,7 +136,7 @@ Resolve executable
 
 A connection enters service state only after the actual version passes the global threshold and both handshake and first account read succeed. A version below `0.143.0` or an unparseable version is treated as unsupported; the half-initialized session closes without further account requests.
 
-### Why the stdout Reader Exposes Complete Lines Only
+### Stdout Framing and Response Matching
 
 app-server frames one JSON message per line. A `Data` block delivered to the pipe callback may:
 
@@ -135,25 +145,25 @@ app-server frames one JSON message per line. A `Data` block delivered to the pip
 - Mix ordinary logs between JSON lines
 - End with an unterminated final line when the process exits
 
-`PipeReadBuffer` therefore maintains its own byte buffer and publishes only complete, nonempty lines terminated by a newline. The session first decodes only the response ID and fully decodes a result or error only when the ID matches.
+`PipeReadBuffer` maintains a byte buffer, emits nonempty newline-delimited lines during reading, and flushes a nonempty trailing fragment at EOF or when stopped. The session first decodes the response ID and fully decodes the result or error only for a matching ID.
 
 This avoids treating logs as protocol errors and fully decodes a large response only once.
 
-### Why stderr Must Also Be Drained
+### Stderr Draining
 
 Even though CodexBar does not display stderr content, it must drain the pipe. A subprocess pipe buffer is finite; if the parent never reads stderr, app-server eventually blocks while writing and no later stdout response can arrive.
 
-`PipeDrain` does not parse content. It only removes backpressure. This is required for process correctness, not a logging feature.
+`PipeDrain` does not parse content; it continuously drains stderr.
 
 ### Shutdown Strategy
 
 A session shuts down in this order:
 
 1. Stop stdout and stderr readers
-2. Close the stdin writer so app-server can observe EOF normally
-3. Wait up to 1 second for a graceful exit
-4. If still running, force termination and wait another 0.5 seconds
-5. If it remains alive, record a diagnostic error
+2. Close the stdin writer
+3. Send `SIGTERM` if the process is still running and wait up to 1 second
+4. If still running, send `SIGKILL` and wait another 0.5 seconds
+5. Record a diagnostic error if it remains alive
 
 Writing after an early process exit may raise `SIGPIPE`. The service ignores that signal during initialization so the write returns a Swift error and follows the transport-rebuild path instead of terminating the entire menu bar app.
 
@@ -171,28 +181,22 @@ Writing after an early process exit may raise `SIGPIPE`. The service ignores tha
 
 Each session caches unsupported methods. After app-server explicitly returns method unsupported, that connection does not request the method again.
 
-### Why Unsupported State Is Cached Per Session
+### Session Capability Cache
 
 Method unsupported usually means the running app-server lacks a capability. Calling it again every minute only adds logs and latency.
 
 The conclusion must not persist to UserDefaults, however, because a new connection may come from an upgraded binary. The unsupported set belongs only to `AppServerSession` and is probed again after reconstruction.
-
-### Why Configuration Reuses the Same Connection
-
-`config/read`, `hooks/list`, and `config/batchWrite` must use the same actual app-server source as account refresh.
-
-A separate resolver or process for Settings could connect the main panel to the global CLI while Hook validation connects to a bundled CLI. One service keeps capability checks, configuration source, and running version tied to the same process choice.
 
 ## Session Lifecycle
 
 [`CodexStatusService.swift`](../../../CodexBar/Services/CodexStatus/CodexStatusService.swift) is an actor that owns the connection and refresh state:
 
 - One request times out after 20 seconds
-- A connection is reused for at most 1 hour
+- Connection age is checked on requests; a connection aged 1 hour is rebuilt
 - A business error retries at most once in the same session
 - A transport failure rebuilds the connection at most once
 - When authentication requires refresh, `account/read` retries with `refreshToken = true` at most once
-- Closing the service or exiting the process terminates the subprocess and completes all pending requests
+- Closing or releasing a connection terminates its subprocess; a request that encounters a closed reader reports a connection error
 
 Business and transport errors are separate. The former may be a temporary failure of one method; the latter makes the current stdio session untrustworthy.
 
@@ -212,7 +216,9 @@ ready
   -> account missing after refresh: close and notLoggedIn
 ```
 
-One hour is the maximum connection lifetime, not the data-refresh interval. Periodic reconstruction ensures an upgraded Codex binary takes effect within one connection cycle.
+One hour is the reuse limit checked at request time. The next request after that limit rebuilds the connection using the Codex binary then on disk; no independent timer destroys the connection.
+
+Manual reconnection, source changes, and expired-connection rebuilding all close the old connection first; a failed replacement leaves the app disconnected. Source selection is saved only after successful manual reconnection. Automatic refresh and manual reconnect errors both update `CodexStatusViewModel.connectionErrorMessage`, which About displays.
 
 ### Error Classification Matrix
 
@@ -226,7 +232,7 @@ One hour is the maximum connection lifetime, not the data-refresh interval. Peri
 
 Limiting reconstructions prevents a fault from repeatedly launching subprocesses. The next normal timed refresh still gets a new attempt after the current cycle ends.
 
-### Why Authentication Refresh Happens Only Once per Cycle
+### Authentication Refresh Budget
 
 One refresh reads account, rate limits, and usage; Reset Credits details are included in the rate-limit response. Several interfaces may detect an expired token in the same cycle.
 
@@ -236,7 +242,7 @@ This avoids repeatedly refreshing the same credential during one UI refresh.
 
 ## Refresh Model
 
-The status view model refreshes every 60 seconds by default. The user can also double-click in the main panel for an immediate refresh.
+The status view model refreshes every 60 seconds by default. Users can double-click the account icon in the main panel to request an immediate refresh.
 
 Each refresh resolves the account first, then reads rate limits and usage. Supplemental caches are strictly bound to account identity:
 
@@ -245,7 +251,7 @@ Each refresh resolves the account first, then reads rate limits and usage. Suppl
 - An explicitly unsupported method appears as a missing source
 - A missing source must not become the business value `0`
 
-A coordinator coalesces refresh tasks so the timer, panel opening, and manual refresh do not issue duplicate concurrent requests.
+Ordinary refresh triggers are ignored during a refresh or reconnect. Operations requiring a follow-up use `refreshAfterCurrent` to retain one pending trigger until the current request ends; the coordinator handles cancellation and stale-result checks.
 
 ### Building One Snapshot
 
@@ -284,7 +290,7 @@ Method unsupported does not use old cache because it is an explicit capability r
 
 Stale is part of data confidence. A new presentation must not copy the value while dropping the marker.
 
-### Why the Refresh Coordinator Still Needs a Generation
+### Refresh Generation Checks
 
 An `isRefreshing` guard prevents ordinary duplicate triggers, but cancellation and object lifecycle may still let an old `Task` return.
 
@@ -292,7 +298,7 @@ An `isRefreshing` guard prevents ordinary duplicate triggers, but cancellation a
 
 Automatic refresh waits for the remaining interval since the last completion. After a manual refresh, the countdown realigns naturally rather than letting the old timer refresh again a few seconds later.
 
-### Small Model-Layer Optimizations
+### Data Models and Display Projection
 
 `CodexUsageSnapshot` aggregates potentially repeated daily buckets into `tokensByDate` during initialization.
 
@@ -352,7 +358,7 @@ Results have these semantics:
 | `nothingToReset` | No rate-limit window can currently be reset | Credit remains unredeemed; retry with the same idempotency key |
 | `noCredit` | The account currently has no available credit | Force refresh; stop silently if the target disappears, otherwise retry as temporary inconsistency |
 
-`alreadyRedeemed` is neither failure nor a second redemption. It confirms that the same logical request already succeeded, so a device receiving it stops retries and sends its local “Automatic Reset” notification.
+`alreadyRedeemed` confirms that the same logical request previously succeeded. It stops retries and sends a local success notification according to notification settings.
 
 ### Cross-Device Idempotency Contract
 
@@ -430,24 +436,15 @@ This is a capability-safety boundary. A future feature depending on an app-serve
 
 It helps inspect process startup, JSON-RPC methods, retries, and error classifications. It must not contain access tokens or Hook prompt content.
 
-### Why There Are Two Logging Channels
+`CodexProxyError` configuration failures go to the `settings` category in system logs without creating app-server request-log entries. Before RPC responses and errors enter the interaction log, JSON escapes are decoded and string values are traversed to redact HTTP/HTTPS URL credentials. Non-JSON messages use text redaction.
+
+### Request and System Logs
 
 Unified system logs retain only control-flow classifications and support long-term diagnosis of whether refresh ran and which stage failed.
 
 The in-app `RequestLog` keeps previews of at most 500 request interactions in current-process memory for user-initiated protocol inspection.
 
 Reset Credits details include opaque credit IDs. Unified logs must not record IDs or raw responses; the in-app request log remains current-process-only under its existing rules. Before logging a new RPC, check whether its payload can contain credentials or content fields.
-
-## Steps to Extend app-server Data
-
-1. Model protocol optionality in the external DTO without filling display defaults first
-2. Decide in `CodexStatusService` whether the method is account-critical or supplemental
-3. Define degradation separately for ordinary failure, unsupported, and authentication failure
-4. If cached, bind the value to account identity and carry stale semantics
-5. Convert timestamps, percentages, ordering, and other stable rules in the domain snapshot
-6. Let UI consume only the snapshot, never the raw response
-7. Let notifications and other side effects use only trusted snapshots
-8. Check whether requests or logging broaden privacy boundaries
 
 ## Suggested Failure-Scenario Tests
 
@@ -480,6 +477,8 @@ Reset Credits details include opaque credit IDs. Unified logs must not record ID
 - A known target stops continuous retries 5 minutes after the near-expiration trigger; a later normal refresh may start a new round
 - A full rate-limit refresh after redemption is not dropped behind a concurrent ordinary refresh
 - The 60-second countdown realigns after manual refresh
+
+Proxy checks also cover disabling invalid settings, clearing corrupt records, isolating canceled test results, submitting only once during rapid toggles, rolling back failed commits, and redacting credentials in plain and JSON-escaped URLs.
 
 ## Key Source Files
 

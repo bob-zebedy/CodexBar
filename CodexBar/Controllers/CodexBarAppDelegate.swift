@@ -5,6 +5,7 @@ import os
 @MainActor
 final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     private let codexStatusService = CodexStatusService()
+    lazy var proxySettings = CodexProxySettings(service: codexStatusService)
     lazy var viewModel = CodexStatusViewModel(service: codexStatusService)
     let workflowViewModel = WorkflowViewModel()
     lazy var codexHookSettings = CodexHookSettings(codexStatusService: codexStatusService)
@@ -52,7 +53,8 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             notificationSettings: notificationSettings,
             autoResetSettings: autoResetSettings,
             keepAliveController: keepAliveController,
-            appUpdater: appUpdater
+            appUpdater: appUpdater,
+            proxySettings: proxySettings
         )
         controller.install()
         statusItemController = controller

@@ -6,50 +6,14 @@
 
 [`CodexNotificationService.swift`](../../../CodexBar/Services/Notifications/CodexNotificationService.swift) is the single entry point for notification side effects.
 
-It consumes three kinds of state:
+It consumes four kinds of state:
 
-- app-server account, rate-limit, and Reset Credits snapshots
-- Task transitions and sleep-restoration events from `CodexActivityMonitor`
-- Confirmed redemption results or user-facing failures from `AutoResetController`
+- App-server account and quota snapshots
+- `CodexActivityMonitor` task transitions and Activity Protection candidates
+- `KeepAliveController` sleep-prevention restoration results
+- `AutoResetController` confirmed redemption results or reportable failures
 
-Views and other services do not create system notifications directly. They publish state changes; the notification service handles eligibility, deduplication, sound, and click behavior.
-
-## Design Principles
-
-A notification is not state. It is an external side effect triggered by a state change. A reliable notification requires all four conditions:
-
-```text
-The event occurred
-  + The user allows this category
-  + The event is still relevant
-  + It has not been sent in this lifecycle or persistence cycle
-```
-
-Centralizing these checks serves two purposes:
-
-- Upstream components publish facts and transitions without knowing about system permission, sounds, or deduplication storage
-- Every submission follows the same relevance checks, retry rules, and privacy-preserving logging
-
-Direct notification delivery from a view could repeat after SwiftUI reconstruction, repeated panel openings, or snapshot republication. Views may change settings or display state, but cannot own notification side effects.
-
-## Snapshots and Transitions Are Not Interchangeable
-
-Different notifications require different evidence:
-
-| Notification | Input | Reason |
-| --- | --- | --- |
-| Low rate limit | Consecutive trusted snapshots | Must compare values on both sides of a threshold |
-| Rate-limit reset | Consecutive trusted snapshots | Must observe consumption before observing a return to zero |
-| Reset Credits expiration | Current snapshot plus time scheduling | A future deadline triggers the reminder |
-| Automatic Reset | app-server mutation result | Only an explicit result proves that this Mac performed the automatic action |
-| Task completion | Monitor transition | Historical terminal snapshots must not replay |
-| Waiting for approval | Monitor transition plus current snapshot | Notify on new waiting state, then withdraw stale notifications |
-| Stalled Task Protection | A relevant candidate that has reached the silence threshold | Revalidate before notification submission and before hiding |
-| Sleep prevention stopped | Confirmed system-restoration result | Must not announce success before restoration |
-
-Inferring task completion from a current snapshot looks simpler, but every app launch would treat historical completed tasks as new events. Conversely, one transition alone cannot identify a low-rate-limit case when the app starts after the threshold was crossed.
-
-## App Settings and System Authorization Are Separate Gates
+## Settings and System Authorization
 
 `NotificationSettings` stores in-app intent separately from macOS authorization:
 
@@ -59,7 +23,7 @@ Inferring task completion from a current snapshot looks simpler, but every app l
 | `authorizationStatus` | Whether macOS permits notifications |
 | `canDeliver` | Effective eligibility when both allow delivery |
 
-The master switch is off by default, so first launch does not present an unexplained permission request. CodexBar invokes the authorization API only after the user enables it.
+The main switch defaults to off; system authorization is requested when the user enables it.
 
 The app rereads system state on app activation, when the settings window regains focus, and when settings are explicitly opened. A `denied` result preserves the in-app switch and displays a secondary-color permission message with an Open System Settings button. An actual `notDetermined` result turns the in-app switch off; enabling it again requests authorization. The initial placeholder status does not modify the saved switch.
 
@@ -67,7 +31,7 @@ While an authorization request is pending, duplicate requests are suppressed and
 
 After the authorization request finishes, permission reads use the normal refresh flow. If another focus refresh arrives during a query, the new query replaces the old one so stale results cannot overwrite the latest permission state.
 
-Haptic feedback does not depend on `UNUserNotificationCenter` authorization but still follows the in-app master switch. This is a capability boundary, not a way around user intent.
+Haptic feedback does not depend on `UNUserNotificationCenter` authorization but still follows the in-app master switch.
 
 ## Notification Switches
 
@@ -93,15 +57,11 @@ Stalled Task Protection follows Prevent System Sleep. Its notifications require 
 
 A rate-limit reset notification requires observing a consumed window first and then a new window restored to an unconsumed state.
 
-This prevents a notification merely because the first value seen after launch is 100%.
-
 Observation state is isolated by account and rate-limit window. An account change does not carry the previous account's consumption state into the new account.
 
 Each window also has an in-session lifecycle token. A window that disappears from trusted snapshots and later returns receives a new token. If a failed submission callback for the old window arrives late, it restores `hasObservedConsumption` only if the token still matches.
 
-This prevents a race in which app-server switches account or window while an old notification is submitting, then the late failure callback incorrectly marks the new window as previously consumed.
-
-Reset observation is not persisted. After launch, the app must observe consumption again before notifying. It deliberately accepts missing an offline reset in exchange for never misreporting 0% usage as a reset at startup.
+Reset state is not persisted. After each launch, the app observes consumption and a return to zero again; it does not replay resets that occurred while offline.
 
 ## Automatic Reset
 
@@ -110,7 +70,7 @@ An automatic reset operation and a rate-limit-window reset are separate events, 
 - “Automatic Reset” means CodexBar's automatic action returned `reset` or `alreadyRedeemed`
 - “Rate Limit Reset” means a normal rate-limit snapshot first showed consumption and later returned to zero
 
-One automatic reset may satisfy both, so the same Mac can receive both notifications. Similar wording is not a reason to merge them: one proves an automation action, the other represents the rate-limit lifecycle, and their sources and settings differ.
+One automatic reset can satisfy both conditions, so one device may receive both notifications, each controlled by its own switch.
 
 The success body prefers a fresh post-redemption read of remaining reset credits, including an explicit `0`. If that read fails, the explicit success still stands and CodexBar sends a title-only notification.
 
@@ -130,15 +90,11 @@ Success and failure share the Automatic Reset Notifications switch and sound, en
 
 Available thresholds are 5%, 10%, and 25%; the default is 10%.
 
-A notification is sent only when remaining allowance moves from above the threshold to the threshold or below. Remaining in the low region does not repeat on each refresh.
-
-The first trusted snapshot being below the threshold also counts as a downward crossing, covering app startup after the actual crossing.
-
 The persisted deduplication key contains the second-level reset time returned by app-server. For the same account and rate-limit window, a reset time within 60 seconds of the recorded value belongs to the same cycle; only a difference greater than 60 seconds creates a new cycle.
 
 Returning above the threshold rearms crossing detection, but one reset cycle still notifies only once. After a new reset cycle begins, the next downward crossing may notify again.
 
-### Why Detection Uses a Downward Crossing
+### Threshold Crossing
 
 “Currently below 10%” is a persistent state. “Just dropped below 10%” is the notification event. For each `account + limit + window`, the service stores the previous remaining percentage:
 
@@ -151,7 +107,7 @@ The settings subscription uses the new value passed to its callback. Combine pub
 
 A stale app-server snapshot neither advances the previous value nor triggers low-rate-limit or reset notifications. Old cache data supports display continuity but cannot prove a new side effect.
 
-### Why Reset Time Allows 60 Seconds of Drift
+### Reset Cycle Matching
 
 After rebuilding an app-server connection, the same window's `resetsAt` may receive a seconds-level correction. Absolute equality would treat it as a new cycle and notify twice.
 
@@ -163,7 +119,7 @@ When the number of Reset Credits is greater than `0` and an expiration date is a
 
 The deduplication key includes account, expiration date, and days remaining. Multiple refreshes on one day do not repeat the notification.
 
-The service does not create seven long-lived system pending requests. It schedules only the nearest future checkpoint, then recalculates from the current snapshot and schedules the next one when that point arrives.
+The service schedules only the nearest future checkpoint, then recalculates from the current snapshot and schedules the next one.
 
 This handles:
 
@@ -186,8 +142,6 @@ Task notifications respond only to new terminal transitions published by the mon
 Anonymous tasks are not published to task-notification consumers. The notification service filters `isAnonymous` again at the transition boundary, so anonymous tasks cannot send completion or approval notifications or trigger task haptics.
 
 Minimum completion duration is 30, 60, 120, or 300 seconds; the default is 60 seconds. A shorter completed task does not notify but may still appear briefly in the UI.
-
-Filtering anonymous tasks again is defense in depth at the side-effect boundary, even though the monitor already omits their transitions. If a future upstream refactor or new transition type changes that guarantee, a task without a session ID still cannot produce a system notification or haptic effect accidentally.
 
 Haptics start for every task transition. A new transition cancels the previous sequence of 10 pulses and begins again. Settings are rechecked before each pulse, so disabling haptics stops an old sequence immediately.
 
@@ -213,7 +167,7 @@ Relevance checks both before and after submission cover the asynchronous window.
 
 ## Stalled Task Protection
 
-When a non-anonymous running task reaches its silence threshold, Activity Protection records the candidate and starts notification submission alongside a 3-second grace period. When notification handling returns or the grace period expires, the monitor revalidates the candidate and hides the task if it remains relevant. Protection proceeds even if notification submission fails.
+When a non-anonymous running task reaches its silence threshold, Activity Protection updates its in-memory record and schedules an asynchronous save, then starts notification submission and a 3-second grace period together. After notification handling returns or grace expires, the monitor revalidates the candidate before hiding it. Hiding waits for neither disk commit nor notification success.
 
 The notification identifier uses `taskID + attemptID`. Checks before and after submission compare progress generation and silence duration. New progress invalidates the protection attempt and withdraws its notification.
 
@@ -221,11 +175,9 @@ Protection notifications use the system default sound and a `retryCount` of `0` 
 
 ## Sleep Prevention Stopped
 
-When low battery or the duration limit stops sleep prevention, `KeepAliveController` first revokes the CodexBarHelper lease and waits for a read-back confirmation of `SleepDisabled=0`.
+When low battery or the duration limit stops sleep prevention, `KeepAliveController` first releases its helper lease. It submits the notification only if the reply reports source `.codexBar` and `SleepDisabled=0`; other results clear the pending notice for that cycle.
 
 It submits the notification only after confirmation. The app idle assertion remains until notification submission completes, preventing a closed-lid Mac from sleeping before the notification reaches the system. The controller then releases the assertion and, if needed, issues a compensating lid-close sleep.
-
-This ensures the copy describes a completed system-level restoration while giving asynchronous submission time to converge.
 
 ## Sounds
 
@@ -250,7 +202,7 @@ Sound options persist stable IDs rather than absolute file paths:
 - Bundled IDs are reserved in advance so a same-named local file cannot change the meaning of a saved choice after restart
 - An unresolvable saved ID falls back to system default
 
-System default and silent choices cannot be previewed. Playing a system alert as a substitute for Notification Center's default sound creates a false expectation, so previews support only system and bundled sounds backed by explicit files.
+System default and silent choices cannot be previewed. Preview is available for system and built-in sounds with a concrete audio file.
 
 ## Haptic Feedback
 
@@ -264,7 +216,7 @@ This separation lets a user disable banners while keeping consistent task haptic
 
 Notifications are submitted through `UNUserNotificationCenter`:
 
-- One failed submission retries at most once
+- Ordinary failed submissions retry at most once; Activity Protection notifications do not retry
 - Sent deduplication keys persist in UserDefaults
 - No more than 300 keys are retained
 - Keys include enough account or task scope to avoid suppressing different objects
@@ -272,7 +224,7 @@ Notifications are submitted through `UNUserNotificationCenter`:
 
 Persistent deduplication prevents immediate repeats after restart but does not replace upstream terminal deduplication.
 
-### Two Deduplication Layers Solve Different Problems
+### In-Flight and Sent Deduplication
 
 `submittingDedupKeys` and `sentDedupKeys` cannot be merged:
 
@@ -285,8 +237,6 @@ The deduplication check and `submitting` insertion happen synchronously before c
 
 A key enters the sent set only after `UNUserNotificationCenter.add` succeeds and the event is still relevant afterward. Recording it earlier would permanently consume an alert after one system submission failure.
 
-The 300-entry cap prevents UserDefaults from becoming an unbounded event log. An old event could theoretically recur after eviction; that is accepted because upstream cycle identity and live-transition deduplication remain the first boundary.
-
 ### Shared Delivery Semantics
 
 All notification content eventually passes through the same `send` and `deliver` flow:
@@ -298,7 +248,7 @@ Synchronously check deduplication
   -> Call the system notification center
   -> Check relevance again after submission
   -> Persist deduplication after success
-  -> On failure, retry at most once and run category cleanup
+  -> Retry failures according to retryCount and perform classified cleanup (default 1, Activity Protection 0)
 ```
 
 Logs record only `kind` and the failure reason, never title or body. Notification bodies may contain project names or task information and must not be copied into logs even when those logs remain local.
@@ -307,26 +257,11 @@ Logs record only `kind` and the failure reason, never title or body. Notificatio
 
 CodexBar is an `LSUIElement`, so its notification-center delegate explicitly allows banners and sounds while the app is in the foreground.
 
-Clicking a notification opens the main panel. The status-bar controller performs the action and reuses existing popover or fallback-panel logic.
-
-The delegate explicitly returns banner, list, and sound for foreground presentation. An `LSUIElement` app often remains foregrounded or in unusual activation states; relying on default foreground policy would make notifications appear to disappear unpredictably.
-
 Click handling calls `openMenuSurface` instead of constructing a new window. This reuses the popover when its anchor is valid, uses the fallback panel otherwise, and preserves the same focus and dismissal rules.
-
-## Checklist for a New Notification Type
-
-1. Identify whether its input is a snapshot, transition, or confirmed side-effect result
-2. Define identity scoped to account, window, task, or attempt
-3. Decide whether it needs session deduplication, persistent deduplication, and relevance checks
-4. Define whether bootstrap, stale data, and anonymous tasks may trigger it
-5. Choose sound and failure-retry semantics
-6. Ensure sensitive fields from the body cannot enter logs
-7. Define defaults and behavior for missing old UserDefaults values
-8. Validate foreground display, click activation, and withdrawal after invalidation
 
 ## Codex TUI Notifications
 
-The Codex TUI Notifications setting belongs to Codex itself and is read and written through app-server `config/batchWrite`.
+Codex TUI notifications are Codex settings, read through app-server `config/read` and written through `config/batchWrite`.
 
 It is completely independent of CodexBar system notifications:
 

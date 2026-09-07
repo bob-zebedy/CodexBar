@@ -7,6 +7,8 @@ struct AppSettingsView: View {
     @EnvironmentObject private var appUpdater: AppUpdater
     @StateObject private var loginItemSettings = LoginItemSettings()
     @StateObject private var codexVersions = CodexCLIVersionViewModel()
+    @ObservedObject var proxySettings: CodexProxySettings
+    @State private var isShowingProxySettings = false
     @ObservedObject var codexHookSettings: CodexHookSettings
     @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
@@ -71,6 +73,11 @@ struct AppSettingsView: View {
             ),
             isOuterSurface: true
         )
+        .sheet(isPresented: $isShowingProxySettings) {
+            ProxySettingsView(source: statusViewModel.codexSourceSelection, settings: proxySettings) {
+                statusViewModel.refreshAfterCurrent(trigger: .settings)
+            }
+        }
         .onAppear {
             loginItemSettings.refresh()
             syncSettings.refresh()
@@ -153,6 +160,7 @@ private extension AppSettingsView {
         static let tabBarHeight: CGFloat = 38
         static let tabBarPadding: CGFloat = 4
         static let tabSpacing: CGFloat = 4
+        static let tabCornerRadius: CGFloat = 6
         static let tabVerticalPadding: CGFloat = 7
         static let tabContentSpacing = padding
         static let windowChromeHeight = padding * 2 + tabBarHeight + tabContentSpacing
@@ -177,6 +185,7 @@ private extension AppSettingsView {
         HStack(spacing: Metrics.tabSpacing) {
             ForEach(SettingsTab.allCases) { tab in
                 let isSelected = selectedTab == tab
+                let shape = RoundedRectangle(cornerRadius: Metrics.tabCornerRadius, style: .continuous)
 
                 Button {
                     selectSettingsTab(tab)
@@ -191,12 +200,12 @@ private extension AppSettingsView {
                     .font(.subheadline.weight(.medium))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, Metrics.tabVerticalPadding)
-                    .contentShape(Capsule(style: .continuous))
+                    .contentShape(shape)
                     .background {
                         if isSelected {
-                            Capsule(style: .continuous)
+                            shape
                                 .fill(.clear)
-                                .liquidGlassCapsule(tint: .accentColor)
+                                .liquidGlassBadge(tint: .accentColor, in: shape)
                         }
                     }
                 }
@@ -258,6 +267,11 @@ private extension AppSettingsView {
 
     var advancedSettingsPage: some View {
         VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
+            ProxySettingsRow(settings: proxySettings) {
+                onOptionsAction(.closeAll)
+                isShowingProxySettings = true
+            }
+            LiquidGlassDivider()
             codexHookRow
             LiquidGlassDivider()
             notificationRow

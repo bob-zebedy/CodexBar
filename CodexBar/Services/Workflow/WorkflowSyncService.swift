@@ -116,7 +116,6 @@ actor WorkflowSyncService {
             )
 
             stage = .upload
-            let forceBackfill = WorkflowSyncSettings.needsBackfill()
             let confirmedDates = try await uploadChangedAggregates(
                 localByDate: localByDate,
                 remoteRecords: loadCachedRecords(),
@@ -124,8 +123,6 @@ actor WorkflowSyncService {
             )
             try finalizeUpload(
                 confirmedDates: confirmedDates,
-                localByDate: localByDate,
-                forceBackfill: forceBackfill,
                 state: &state
             )
 
@@ -229,19 +226,12 @@ actor WorkflowSyncService {
 
     private func finalizeUpload(
         confirmedDates: Set<String>,
-        localByDate: [String: LocalSyncAggregate],
-        forceBackfill: Bool,
         state: inout WorkflowSyncState
     ) throws {
         let completedReplacementDates = Set(state.replacementDates).intersection(confirmedDates)
         if !completedReplacementDates.isEmpty {
             state.replacementDates.removeAll { completedReplacementDates.contains($0) }
             try saveState(state)
-        }
-
-        if forceBackfill,
-           backfillCompleted(localByDate: localByDate, confirmedDates: confirmedDates) {
-            WorkflowSyncSettings.clearBackfillRequest()
         }
     }
 
@@ -273,13 +263,6 @@ actor WorkflowSyncService {
                 sourceIsFresh: aggregate.sourceIsFresh
             )
         }
-    }
-
-    private func backfillCompleted(
-        localByDate: [String: LocalSyncAggregate],
-        confirmedDates: Set<String>
-    ) -> Bool {
-        localByDate.keys.allSatisfy(confirmedDates.contains)
     }
 
     private func snapshot(from state: WorkflowSyncState) -> WorkflowSyncSnapshot {
@@ -416,7 +399,6 @@ private extension WorkflowSyncService {
         }
 
         let pendingUploads = makePendingUploads(
-            for: Set(localByDate.keys),
             localByDate: localByDate,
             localHashByDate: localHashByDate,
             state: state
@@ -545,14 +527,12 @@ private extension WorkflowSyncService {
 
     /// hash 由调用方一次算好传进来, 这里只做筛选
     func makePendingUploads(
-        for candidateDates: Set<String>,
         localByDate: [String: LocalSyncAggregate],
         localHashByDate: [String: String],
         state: WorkflowSyncState
     ) -> [PendingUpload] {
-        candidateDates.compactMap { date in
-            guard let local = localByDate[date],
-                  let hash = localHashByDate[date],
+        localByDate.compactMap { date, local in
+            guard let hash = localHashByDate[date],
                   state.hashByDate[date] != hash else {
                 return nil
             }

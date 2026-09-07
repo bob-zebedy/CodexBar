@@ -39,7 +39,6 @@ struct CodexStatusMenuView: View {
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
     let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
     let onActivityCenterTap: (CodexActivityCenterPanelContext) -> Void
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @EnvironmentObject private var appUpdater: AppUpdater
 
     var body: some View {
@@ -48,7 +47,7 @@ struct CodexStatusMenuView: View {
         }
         .environment(
             \.mainPanelEntranceAnimationsEnabled,
-            mainPanelSettings.areEntranceAnimationsEnabled && !accessibilityReduceMotion
+            mainPanelSettings.areEntranceAnimationsEnabled
         )
         .padding(Metrics.padding)
         .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, isOuterSurface: true)

@@ -2,17 +2,6 @@
 
 简体中文 | [English](../en/DeveloperGuide/hook-and-aggregation.md)
 
-## 设计出发点
-
-Hook 链路同时服务两个看似接近但要求相反的目标：
-
-- 在 Codex 关键路径上尽快记录事实
-- 在主 App 中可靠地维护长期统计
-
-采集端必须短小、有界和允许失败。聚合端则可以异步运行，需要检测文件变化、修复损坏缓存并支持完整重建。
-
-因此实现采用 append-only 原始 JSONL 加可重建日聚合，而不是让 Hook 子进程直接更新一份复杂统计对象。
-
 ## 链路职责
 
 Hook 链路把 Codex 生命周期事件转换为可重建的本地历史统计：
@@ -28,31 +17,11 @@ Codex Hook
 
 原始事件是事实来源，日级聚合是可重建缓存。聚合算法或字段语义变化时，必须从保留期内的原始事件完整重建。
 
-### 为什么不在 Hook 子进程里直接聚合
-
-直接读改写 `daily.jsonl` 看起来少一层文件，实际会带来 4 个问题：
-
-- 每个 Hook 都要解码和重写历史数据，事件越多延迟越高
-- 子进程在 Codex 的超时预算内，聚合失败会放大成任务延迟
-- 算法升级后没有原始事实可重算
-- 多个并发 Codex session 更容易在读改写之间丢失更新
-
-当前方案把关键路径缩成一条 append。主 App 可以在自己的节奏里批量聚合，失败时保留原始事件等待下一轮修复。
-
-### 原始事实和缓存的责任
-
-| 文件 | 是否权威 | 允许怎样恢复 |
-| --- | --- | --- |
-| `events/YYYY-MM-DD.jsonl` | 是 | 只追加，超过保留期后清理 |
-| `daily.jsonl` | 否 | 可从原始事件完整重建 |
-| `maintenance.json` | 否 | 缺失或 schema 变化时重新对账 |
-| `stats.lock` | 不保存业务数据 | 只协调跨进程事务 |
-
 ## 安装与校验
 
-[`CodexHookSettings.swift`](../../CodexBar/Services/Settings/CodexHookSettings.swift) 通过 app-server 读取和修改 Hook 配置。
+[`CodexHookSettings.swift`](../../CodexBar/Services/Settings/CodexHookSettings.swift) 直接读写本地 `hooks.json`，通过 app-server 读取或修改相关配置，并在写入后调用 `hooks/list` 校验安装结果。
 
-启用前必须满足：
+启用流程检查以下条件，其中来源、信任和事件完整性在写入后校验：
 
 - 当前可执行文件路径可解析
 - 实际 app-server 版本不低于 `0.145.0`
@@ -72,21 +41,9 @@ Codex Hook
 
 `isEnabled` 表示当前进程中的 Hook 开启状态，首次从现有 CodexBar handler 恢复。`isVerified` 表示最近一次 app-server 校验通过。UI 只有在 `isOperable` 成立时把 Hook 当作可工作数据源。
 
-### 为什么安装和验证是两件事
+### 校验状态
 
-`hooks.json` 中存在命令只能证明配置写在磁盘上，不能证明 Codex 会执行它。
-
-实际执行还可能被以下条件阻止：
-
-- 当前 app-server 版本过低
-- `features.hooks` 被全局关闭
-- handler 事件集合不完整
-- app-server 解析到其他来源文件
-- handler 处于 untrusted 或 modified
-
-因此 `isEnabled` 是当前进程的开关状态，`isVerified` 是 Codex 对当前来源的最近明确结论。防睡眠和任务通知只依赖两者合成的 `isOperable`
-
-临时 RPC 失败只代表本轮无法验证，不能反推 handler 已失效。此时保留上一次明确结论，同时展示操作错误供用户排查。
+`hooks.json` 中有 handler 不代表 Codex 会执行。`isOperable` 由开启状态和最近明确校验结果共同决定。临时 RPC 失败保留上次结论并显示操作错误；版本、全局开关、来源、信任或事件集合不满足要求时校验失败。
 
 ### 已开启 Hook 的对账
 
@@ -115,11 +72,9 @@ App 启动、设置状态刷新、菜单面板打开以及每轮额度刷新完�
   -> 再次 hooks/list 完整校验
 ```
 
-前置检查发生在文件修改之前。版本或全局开关不满足时，用户文件一个字都不会改变。
-
 信任匹配同时要求 command 和 `sourcePath`。只按 executable 匹配可能误信任另一份配置中的相同命令，只按 source 匹配则可能碰到用户自己的 handler。
 
-### 禁用为什么先查询信任 key
+### 禁用与信任清理
 
 app-server 的 Hook key 来自它当前解析到的 handler。如果先从 `hooks.json` 删除命令，后续 `hooks/list` 已经无法反查对应 key。
 
@@ -127,11 +82,11 @@ app-server 的 Hook key 来自它当前解析到的 handler。如果先从 `hook
 
 信任清理失败不会把 handler 重新装回去。UI 会表达“Hook 已关闭，但清理未完成”，因为停止采集的用户意图已经成功。
 
-### 为什么每个事件使用独立 group
+### 事件分组
 
 CodexBar 不把命令塞进用户已有 group。独立 group 让卸载时可以只删除自身 handler，不需要理解用户 matcher 或其他 handler 之间的组合语义。
 
-对于结构异常的同级条目，移除逻辑选择跳过而不是让整个开关失败。CodexBar 只负责识别自己的命令，不把自己变成用户 Hook 配置的全局校验器。
+移除时跳过结构异常的同级条目，只处理能精确识别的 CodexBar 命令。
 
 ### 异步设置操作的代际
 
@@ -189,13 +144,13 @@ handler 超时由事件决定：
 
 stdin 无效、文件锁超时或写入失败都会被吞掉。Hook 子进程不能因为统计失败而阻断 Codex。
 
-### 为什么仍然返回成功
+### 失败退出
 
 Hook 统计是 CodexBar 的辅助能力，不是 Codex 完成任务的必要步骤。如果 recorder 把解析或磁盘错误作为非零退出码返回，一次统计故障就可能让用户的 Codex 流程失败。
 
 因此显式进入 `--hook-event` 后，无论输入是否有效都返回已处理并退出成功。失败只意味着少一条统计，不升级为上游任务故障。
 
-### 锁内事务为什么同时写事件和维护状态
+### 事件与维护状态的锁内事务
 
 一次采集在同一把 `stats.lock` 内完成：
 
@@ -211,7 +166,7 @@ Hook 统计是 CodexBar 的辅助能力，不是 Codex 完成任务的必要步�
 
 锁内联合提交让“文件已经增长”和“维护知道需要读取”保持一致。
 
-### 为什么锁等待只使用超时预算的一部分
+### 锁等待预算
 
 Codex 对 `SessionEnd` 最多等待 3 秒，其他事件最多 5 秒。recorder 把锁等待限制为总预算减 2 秒。
 
@@ -219,7 +174,7 @@ Codex 对 `SessionEnd` 最多等待 3 秒，其他事件最多 5 秒。recorder 
 
 等待从 1 ms 指数退避到最多 20 ms。主 App 的正常持锁区很短，小步起始能在锁刚释放时迅速继续，上限则避免高竞争时 busy loop。
 
-### 锁文件为什么用一次 `open(O_CREAT)` 创建并打开
+### 锁文件创建
 
 不能先判断文件不存在，创建后再打开。两个进程可能分别创建不同 inode，后创建的一方替换目录项后，双方会各自锁住不同文件并都认为自己独占。
 
@@ -235,7 +190,7 @@ Codex 对 `SessionEnd` 最多等待 3 秒，其他事件最多 5 秒。recorder 
 - model 和 reasoning effort
 - permission 与 approval reviewer
 - session ID 和 turn ID
-- agent 与 parent 关系
+- agent ID
 - 归一化来源 `origin`
 
 对于 `UserPromptSubmit` 和 `PermissionRequest`，输入事件可能不包含 reviewer 或 effort。recorder 会在必要时从 rollout transcript 尾部回查匹配的 `turn_context`
@@ -316,31 +271,17 @@ HookEvents/
 
 原始事件和日聚合最长保留 210 天。session ID 和 turn ID 的明细列表只保留 3 天，更早日期压缩为计数，降低本地文件体积和身份信息留存。
 
-### 为什么选择 JSONL
-
-JSONL 与这一链路的写入模式匹配：
-
-- recorder 只需要在文件尾追加一条完整记录
-- 单行损坏可以被隔离，不必让整个文件解码失败
-- 文件可以按日切分和保留期清理
-- 人工排查时仍可检查单条结构
-- 聚合缓存和远端缓存也能使用相同的逐行恢复策略
-
-普通 JSON 数组每次 append 都要改写尾部结构。数据库会增加 schema、锁和部署复杂度，但当前查询只按日期顺序扫描，没有足够收益。
-
 ### 完整行是提交单位
 
 reader 只推进到最后一个 newline 对应的 offset。文件尾如果正在写入半行，本轮保留旧 offset，下一轮等完整行出现后再处理。
 
 `JSONLines.decodeWithFailures` 按行解码。一条坏行只增加 corrupt count，不会连带丢掉同一读取块中的其他正确事件。
 
-### 为什么身份明细只保留 3 天
+### 身份明细压缩
 
 session 和 turn ID 用于近期精确去重，但长期展示只需要计数。
 
-3 天后把 identifiers 压缩为 count，可以同时降低文件体积和身份信息保留。聚合模型必须记录该字段当前是 retained 还是 compacted，否则无法判断后续新事件能否继续用 ID 精确去重。
-
-原始事件仍在 210 天保留期内，所以算法升级时可以完整重建。CloudKit 从不上传这些原始身份。
+3 天后把 identifiers 压缩为 count。累加器在 `finalized(identifierStorage:)` 中选择保留 ID 列表或只保存计数；`retained` 和 `compacted` 是此次输出的选择，不是单独持久化的模式字段。
 
 ## 增量读取与来源代际
 
@@ -377,7 +318,7 @@ source generation 让同一天的不同原始来源可被区分。同源结果�
 
 inode 与 size 能发现替换和截断，boundary hash 能发现保持相同长度的原地改写。
 
-### boundary hash 为什么还配合 mtime
+### Boundary hash 与 mtime
 
 每轮都给 210 天内所有文件重算 hash 会长时间持有 `stats.lock`，直接增加 Hook recorder 的等待概率。
 
@@ -385,7 +326,7 @@ inode 与 size 能发现替换和截断，boundary hash 能发现保持相同长
 
 正常 append 只修改 offset 之后的字节，所以 boundary 仍匹配，maintenance 可以继续增量处理。boundary 改变则创建新 generation 并标脏。
 
-### build 和 commit 为什么分开
+### 构建与提交校验
 
 聚合器不能在读取整天文件时一直持有 `stats.lock`，否则 Hook 子进程可能连续超时。
 
@@ -434,9 +375,9 @@ session 数使用当天除 `SessionEnd` 外所有事件中的非空 session ID �
 - 缺失表示该日期的历史来源无法提供该指标
 - `0` 表示来源可用且明确没有发生
 
-解码和 UI 展示必须保留这个区别。
+解码和持久化保留可选值。展示层通过 `WorkflowDailyMetrics` 把缺失的单项事件计数转换为 `0`；session 和 turn 计数优先使用 ID 去重结果或已压缩计数，再回退到对应事件计数。
 
-### 为什么成对事件使用 `max`
+### 成对事件计数
 
 `PreToolUse` 和 `PostToolUse` 描述同一次工具调用的两侧。recorder 允许失败后，任意一侧都可能缺失：
 
@@ -447,18 +388,13 @@ session 数使用当天除 `SessionEnd` 外所有事件中的非空 session ID �
 
 compaction 和 subagent 成对事件使用相同规则。
 
-如果未来 Hook 协议提供稳定 operation ID，去重算法可以升级为集合去重，但这属于聚合语义变化，必须递增 schema 并完整重建。
-
 ### 可用性如何穿过旧数据
 
 旧版本聚合可能没有某类 Hook count。重建时不能因为当前代码认识该事件，就假定旧来源也采集过。
 
 `WorkflowHookCountAvailability` 保存每类计数是否有来源。重建会继承现有日期对旧字段的可用性，新鲜来源则可以声明当前字段全部可用。
 
-这使 UI 能区分：
-
-- 明确发生 0 次
-- 当前日期的历史采集没有这个指标
+这种可用性保留在聚合和同步字段中，当前 UI 不逐项展示历史字段是否缺失。
 
 ## Schema 演进与重建
 
@@ -487,18 +423,9 @@ schema 变化通常把保留期内所有事件日期标脏。source generation �
 
 两者都不能用 App 版本号替代。一个 App 版本可能不改变聚合，开发构建也可能在不变更版本号时多次迭代 schema。
 
-### 为什么不做字段级迁移
+### 重建来源
 
-`daily.jsonl` 本来就是派生缓存，原始 JSONL 又在保留期内。为每个旧字段编写迁移会同时维护旧算法和新算法，更容易产生混合语义。
-
-完整重建的一次性成本可控，换来以下保证：
-
-- 同一 schema 下所有日期由同一套代码生成
-- 删除或改变字段语义时没有残留值
-- 损坏的聚合行也能一起修复
-- CloudKit replacement 可以统一跟随 source generation
-
-只有原始来源本身缺少字段时，才通过 missing 保留历史能力差异。
+聚合语义变化后使用原始 JSONL 完整重建。旧聚合已经丢失的身份或事件关系无法靠补字段恢复；只有原始来源缺少字段时，才保留 missing 语义。
 
 ### 用户手动重建的提交语义
 
@@ -514,7 +441,7 @@ schema 变化通常把保留期内所有事件日期标脏。source generation �
 
 维护任务与额度刷新周期协调，但两条数据链路没有数据依赖。Workflow ViewModel 对 UI 的最短刷新间隔为 5 秒，避免频繁文件变更造成重复渲染。
 
-### 为什么空转维护不写普通日志
+### 维护日志
 
 维护默认跟随 60 秒刷新。空闲机器一天会执行上千次没有变化的检查。
 
@@ -532,19 +459,6 @@ schema 变化通常把保留期内所有事件日期标脏。source generation �
 
 UI 打开只读取当前本地快照，不自动越过 scheduler 发起无条件 CloudKit 请求。
 
-## 新增 Hook 事件或指标的步骤
-
-1. 在 `CodexHookEvent` 登记协议名、配置名和 handler timeout
-2. 确认 recorder 只持久化计算所需的最小字段
-3. 更新 Hook 安装完整性校验
-4. 在 accumulator 中定义计数和去重语义
-5. 更新 aggregate 的 Codable 与 JSONL 编码，保留旧字段 missing 语义
-6. 递增 `WorkflowMaintenanceState.currentAggregationSchema`
-7. 更新 CloudKit record schema、上传和下载映射
-8. 确认旧 App 与新 record 共存策略后再修改兼容格式
-9. 补充 UI 展示和隐私边界
-10. 手动验证正常 append、单侧事件缺失、文件替换和完整重建
-
 ## 建议验证的故障场景
 
 - 多个 Codex session 并发写入时每行完整且无覆盖
@@ -555,7 +469,7 @@ UI 打开只读取当前本地快照，不自动越过 scheduler 发起无条件
 - inode 变化、文件缩小和 boundary 改写都触发新 generation
 - build 期间继续 append 时只提交固定上界，尾部保留 pending
 - schema 变化后保留期内日期全部用当前算法重建
-- 旧日期缺失字段仍显示 unavailable，不变成 `0`
+- 旧日期缺失字段在解码及持久化中保留可选值，展示投影按当前回退规则生成计数
 - 禁用 CodexBar Hook 不删除用户 handler 和信任项
 - 快速开关 Hook 时旧 RPC 结果不能覆盖最后一次操作
 

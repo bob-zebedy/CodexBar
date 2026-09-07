@@ -2,36 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 写作风格
-
-代码、代码注释和项目文档使用彼此独立的规则，不得把一类内容的标点约定直接套用到另一类内容。提交信息由 Git 规范单独约束。
-
-### 代码和注释
-
-代码和注释统一遵守：
-
-- 禁止使用中文标点，一律使用半角标点
-- 句中停顿和并列项使用空格或者逗号，顿号的位置也用空格或者逗号
-- 分号只用来断开完整句子，相当于句号；拿不准就把它换成句号读一遍，两边都能独立成句才保留
-- 行末禁止使用标点
-- 行内标点后如果还有文字，间隔一个英文空格
-- 注释中引用类型、成员、参数或命令后尽量不要紧跟标点，需要断句时补一个词或者使用空格再断
-- 一个注释段只解释一件事，需要说明多个独立主题时拆成多个注释段
-
-### 项目文档
-
-项目文档统一遵守：
-
-- 代码标识符、命令、路径、配置键、原始字段值和需要精确复制的版本号使用行内代码
-- 中文正文使用全角中文标点，包括 `，` `。` `；` `：` `！` `？` `“”` 和 `（）`
-- 中文短词或短语的并列使用 `、`；能独立表达语义的分句使用 `，`，两边都能独立成句时才考虑 `；`
-- 中文标点前后不加空格；中文与英文、数字或行内代码之间按词语边界保留一个半角空格
-- 不机械替换特殊内容中的英文标点。数字序列、行内代码序列或英文术语并列时，如果英文标点观感更好，使用英文标点并在其后保留一个半角空格
-- 普通正文行末使用与语义匹配的中文标点；引出列表、表格或代码块的正文使用 `：`
-- 标题、独立列表项、编号项和表格单元格行末不加标点
-- 如果一行以 Markdown 格式的链接或行内代码结尾，后面不加任何标点；链接或行内代码位于句中时仍按句子结构使用中文标点
-- Markdown 语法、代码块、命令、路径、URL、版本号和程序标识符内部的符号保持原样
-- 如果某句话的作用只是防止被质疑，而不是推进论证，请删除
+写作、构建、Git 与兼容性规则遵循 [AGENTS.md](AGENTS.md)
 
 ## 项目概述
 
@@ -78,29 +49,11 @@ Scripts/cleanup.swift --help
 
 Debug 与 Release 使用不同 bundle ID，分别是 `app.zabrian.codexbar.debug` 与 `app.zabrian.codexbar`。helper 相应带 `.debug.helper` 与 `.helper` 后缀，所以 `CodexBarHelper/` 下有两份 LaunchDaemon plist，`cleanup.swift` 也需要同时处理两套。
 
-## Git 规则
+## Git 补充规则
 
-- 不要主动 push，除非用户明确要求
-- 不要回滚、覆盖或丢弃不是你产生的未提交改动，工作树可能是脏的
-- 被要求提交时，**禁止**顺带修改任何文件内容：不格式化、不清理、不补文档，只把当前已有改动原样提交
-
-Commit message 使用 Conventional Commits 前缀和中文标题，需要 body 时空一行后写 4 空格缩进 bullet：
-
-- 标题写成 `<type>: <中文描述>` 的形式，不加句号；常用 type 有 `feat`、`fix`、`chore`、`refactor`、`docs`
-- message 里不要出现版本号或发布字样，只描述改动本身，版本信息由 tag 承载
-- 功能、修复、发布类提交必须写 body；简单文档或杂项可只写标题行
-- body 中多条 bullet 连续排列，bullet 之间不空行
-- 命令行提交时把完整 body 放进同一个 `-m` 参数或改用 `git commit -F` 传文件，不要为每条 bullet 单独 `-m`
-- message 中禁止使用中文标点，行末禁止使用标点，行内标点后如果有文字则间隔一个英文空格
-
-```text
-fix: 修复 Codex 状态刷新
-
-    - 合并设置页 onAppear 和 didBecomeActive 的重复版本检测
-    - 保留当前运行版本与磁盘安装版本不一致时的更新提示
-```
-
-Tag 名 `v{MARKETING_VERSION}` 里的版本号从 `Config/Version.xcconfig` 读取，使用附注 tag `git tag -a v3.x.y -m "Release v3.x.y"`
+- 功能、修复和发布类提交必须写 body；简单文档或杂项可以只写标题
+- commit message 使用半角标点，行末不加标点，行内标点后留一个英文空格
+- 多条 body bullet 连续排列，使用同一个 `-m` 参数或通过 `git commit -F` 传入文件
 
 ## 架构
 
@@ -108,7 +61,7 @@ Tag 名 `v{MARKETING_VERSION}` 里的版本号从 `Config/Version.xcconfig` 读�
 
 `CodexBar/App/CodexBarApp.swift` 的 `init()` 最先调用 `WorkflowHookEventRecorder.handleIfRequested()`
 
-- 带 `--hook-event` 启动 -> **Hook 子进程模式**：从 `stdin` 读取 JSON payload，在 `flock` 锁内追加一行 JSONL 后立即调用 `exit(EXIT_SUCCESS)` 退出，绝不初始化菜单栏 UI；写入失败时静默吞掉，不阻断 Codex
+- 带 `--hook-event` 启动 -> **Hook 子进程模式**：从 `stdin` 读取 JSON payload，按需有界读取 rollout 元数据，在 `flock` 锁内追加一行 JSONL 后立即调用 `exit(EXIT_SUCCESS)` 退出，绝不初始化菜单栏 UI；写入失败时静默吞掉，不阻断 Codex
 - Hook handler 超时统一由 `WorkflowHookEventRecorder.hookTimeoutSeconds(for:)` 提供，`SessionEnd` 是 3 秒，其他事件是 5 秒；等锁预算固定比对应事件超时少 2 秒，当前分别是 1 秒和 3 秒
 - 普通启动 -> `Controllers/CodexBarAppDelegate.swift` 中的 `CodexBarAppDelegate` 创建全部长期对象，再由 `StatusItemController.install()` 装配菜单栏；AppDelegate 是唯一的装配点，新增服务在这里注入
 
@@ -122,6 +75,14 @@ Tag 名 `v{MARKETING_VERSION}` 里的版本号从 `Config/Version.xcconfig` 读�
 - 主要方法有 `initialize`、`account/read`、`account/rateLimits/read`、`account/usage/read`、`config/read`、`config/batchWrite`、`hooks/list`
 - `SIGPIPE` 被忽略，app-server 退出后写管道由 write 抛错走重建路径
 - `stdout` 可能混有无关日志行，`AppServerSession` 先用轻量 `RPCIDEnvelope` 匹配 `id`，再完整解码
+
+代理配置由 AppDelegate 持有的 `CodexProxySettings` 管理，配置和密码保存在当前构建的 UserDefaults 中，key 为 `CodexProxy.configuration`。只支持 HTTP/HTTPS，可选 Basic 认证，不使用 Keychain。停用保留字段，无法读取的记录可从配置窗口清除。
+
+- 开关在异步提交前更新显示状态并禁用，重复操作被忽略，提交失败恢复原状态
+- `CodexStatusService.applyProxy` 保存后关闭旧连接并清空缓存，随后触发刷新
+- 手动和到期重连均先关闭旧连接，新连接失败后保持断开
+- 代理测试使用草稿启动独立进程，请求共享 8 秒截止时间，取消后旧结果不得提交
+- 配置错误写入 `AppLog.settings`，正式 RPC 响应中的代理 URL 认证信息脱敏后才进入内存交互日志
 
 **链路二：Hook 统计（历史聚合）**
 
@@ -153,7 +114,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `CodexActivityProtection.swift` 管理异常会话保护状态机，`ActivityProtectionSettings` 只保存静默阈值；保护开关跟随用户保存的 KeepAlive 主开关，不依赖 helper 是否已获系统授权
 - 静默阈值可选 30 分钟, 1, 2 或 4 小时，默认 1 小时，UserDefaults key 固定为 `KeepAlive.abnormalTaskInactivitySeconds`
 - 候选只包含非匿名 `.running` 任务，`.waitingApproval` 不参与异常判定；`lastProgressAt` 同时吸收 Hook 顶层事件、子 Agent 事件与 rollout 行时间
-- 达到阈值后先持久化候选记录并尝试提交本地通知，通知使用系统默认声音且不重试；最多等待 3 秒后无论通知是否提交成功都隐藏任务
+- 达到阈值后先更新内存候选记录并加入串行持久化队列，再提交本地通知；通知使用系统默认声音且不重试。通知处理返回或 3 秒宽限到期后重新校验候选，仍有效时隐藏任务；隐藏不等待磁盘写入成功
 - 通知以 task ID 与 attempt ID 共同标识，候选失效或任务恢复、终止、完成、过期时会撤回仍可识别的待处理和已送达通知；迟到的提交结果不得影响新的 attempt
 - 隐藏任务不进入 `CodexActivitySnapshot` 的运行中与等待批准列表，因而不参与 UI 和 KeepAlive 的活跃任务计算；后续进展会恢复任务并清除保护记录
 - KeepAlive 关闭时恢复当前进程内所有隐藏任务并撤回通知，已经隐藏任务的持久化记录保留；再次开启后按当前阈值和最近进展时间无通知对账
@@ -277,7 +238,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 ### 错误处理原则
 
-- 菜单面板的 `CodexFetchOutcome` 只暴露有数据、未登录、初始化失败三种结果，而启动失败、超时、断连、解析失败等细节全部只进日志窗口，由 `RequestLogStorage` 保存，上限 500 条
+- `CodexFetchOutcome` 包含有数据、未登录、版本不满足要求和初始化失败四种结果。主面板显示对应状态，关于页面显示连接失败原因；完整请求与响应由 `RequestLogStorage` 保存在内存日志中，上限 500 条
 - app-server 之外的模块走 `Services/Support/AppLog.swift` 写系统日志，用户可见文案只留步骤名，错误码与 `localizedDescription` 这类细节进 `os_log`；现有 `category` 为 `app`、`keepalive`、`activity`、`workflow`、`sync`、`hooks`、`codexcli`、`settings`、`notification`，helper 进程另用 `helper`
 - 日志的目标是出问题时能从中重建当时的状态，所以不只记失败，状态转换、关键操作与决策依据同样要记；启动时由 `logLaunchState` 记一条含全部开关的基线，后续变更日志都是相对它的增量
 - 进程终止靠 `AppProcessDiagnostics` 补线索，它和 `logLaunchState` 一样挂在 `app` category 下，ObjC 异常当场留痕，其余终止方式靠下次启动补记一条 `App 上次非正常退出`
@@ -303,7 +264,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 - 菜单栏按钮左键切换主面板；右键或 Control+点击打开上下文菜单；`⌘,` 打开自定义设置窗口，菜单面板打开时 `⌘L` 打开日志窗口；默认全局快捷键 `⌘⇧W` 由 `GlobalHotKeySettings` 与 `GlobalHotKeyController` 管理
 - 主面板是锚定 status item 的 `NSPopover` 弹窗，锚点不可信时回退到 `FallbackPanelController` 提供的屏幕顶部居中 `NSPanel` 面板，处理快捷键、屏幕选择和焦点时要保留这两个分支
-- 关闭逻辑统一由 `MenuSurfaceDismissMonitor` 管理，淡出由 `MenuSurfaceFadeCoordinator` 负责
+- 关闭逻辑统一由 `MenuSurfaceDismissMonitor` 管理；`MenuSurfaceFadeCoordinator` 同时调整内容视图和窗口透明度，淡入 0.24 秒、淡出 0.18 秒，只保留一个完成任务，新动画取消旧任务
 - 主面板的热力图详情、重置次数和任务中心使用 `borderless nonactivating child panel`；设置窗口的主面板布局、通知、自动重置和防睡眠选项使用可获得键盘焦点的 `borderless child panel`
 - 设置窗口的子面板占同一位置，展开一个必须先 `hide(immediate: true)` 收掉其余的；动作走 `SettingsOptionsPanelAction` 并带上目标 `SettingsOptionsPanel`，互斥与 `closeAll` 都只写在 `SettingsWindowController.handleOptionsAction` 一处，新增面板不会漏配对
 - 面板控制器只在首次展开时构造，收起动作走 `existingOptionsPanelController` 而不触发构造：`NSHostingController` 与动态面板订阅会常驻到 App 结束，而用户可能一次子面板都没开过
@@ -323,7 +284,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 设置子面板的公共内边距、间距与外观度量从 `SettingsOptionsPanelMetrics` 取；通知、自动重置和防睡眠面板的下拉控件共用 `SettingsOptionsPicker`；主面板布局使用独立的 28 点拖拽行高且不使用下拉控件
 - 设置子面板的内容工厂必须走 `SettingsOptionsPanelController.makeContentController(_:rebuiltBy:)`，否则首次展开时原生 Switch 只剩一条空轨道；重建信号由它接在内容外面，内容视图不必知道 `SidePanelEntryCue`
 - 原因是 thumb 由 `WindowPortal` 投射而不是画在开关上，面板首次布局那一轮 portal 建不起来，而且不会自愈，只有一次内容重建才补得上；第二次展开正常是因为 hosting controller 常驻，复用了已经建好的那份
-- 不要再用 `@_optimize(none)` 规避这个漏绘：它当年在通知子面板管用只是因为逼着 body 重算时判定那些行变过，与优化等级无关，换个写法就失效；`SidePanelSupport` 里剩下那一处标注规避的是编译器崩溃，与此无关
+- 开关首次绘制由内容重建处理；`SidePanelSupport` 中的 `@_optimize(none)` 用于规避编译器崩溃
 - 主面板的账户、任务中心、额度、Token 用量和底部状态由 `MainPanelSettings.layout` 统一保存顺序与显隐，模型始终保留至少一个区域；Hook 关闭时 `StatusItemController` 调用 `updateHookEnabled(_:)` 持久化关闭任务中心，任务中心原本是唯一可见区域时同步开启账户；设置面板只禁用任务中心开关，不能连带禁用拖拽手柄
 - 主面板布局排序由手柄上的自定义 `DragGesture` 驱动，悬浮副本跟手移动，其他行按预览顺序实时让位，松手后才通过 `setSectionOrder(_:)` 保存最终顺序；不要改回只在落点命中后换位的 `.draggable` 和 `.dropDestination`
 - 热力图详情面板跟随包含标题和方格矩阵的完整热力图区域定位，优先让两者顶边对齐；详情面板过高时通过 `SidePanelSupport.anchoredPosition` 上移到与主面板底边对齐，不能恢复为固定贴住主面板底边
@@ -361,12 +322,6 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 系统日志不写用户数据：额度与 Token 用量只记 `state=` 这类结果分类，任务内容、项目名、会话与轮次标识一律不记；可执行文件路径含用户名，用 `source=global|bundled` 之类的标识代替
 - 事件数、任务数、日期这类聚合数字可以记，它们是判断重建是否正确和定位哪天出问题的依据，不含任何内容
 
-## 代码修改原则
+## 验证与文档
 
-- 优先贴合现有文件结构和类型职责，不为小改动新建抽象
-- 改 shared controller、shared service、模型解析或持久化 key 时，要考虑旧数据和降级路径；用户设置要保持默认值；持久化 key 和旧版本迁移兼容
-- **任何兼容性问题都必须主动询问用户，不要自行决定**；只要改动会影响新旧共存就适用，不限于旧数据迁移或丢弃、持久化 key 改名或改结构、老版本升上来的降级路径、最低系统版本与 API 可用性取舍、云端记录格式变更；先说清影响面和几种做法的代价，等用户选定再动手
-- 处理窗口、菜单、快捷键、App 激活或事件监听时，特别注意 `LSUIElement` 应用特有的焦点行为
-- 注释保持克制，只解释非显然的生命周期、焦点、actor 或系统 API 约束；现有注释多为解释为什么的类型，沿用同样风格
-- 改动涉及菜单面板、窗口焦点、Hook、同步、通知、自动重置唤醒或防睡眠时，构建通过之外还要说明应手动覆盖的交互场景；helper 相关改动额外要验证 App 包内 helper 与 plist 位置、签名、首次系统授权、运行/等待切换、唤醒计划替换与清理和异常退出后的恢复
-- 不要把发布产物、DerivedData、临时 DMG、签名文件或个人凭据提交进仓库
+构建、日志和各功能验证入口见 [开发与验证](Docs/DeveloperGuide/development.md)。不要提交发布产物、DerivedData、临时 DMG、签名文件或个人凭据。

@@ -2,13 +2,7 @@
 
 简体中文 | [English](../en/DeveloperGuide/sleep-prevention.md)
 
-## 设计目标
-
-防睡眠功能需要同时满足 3 个目标：
-
-- 有符合条件的 Codex 任务时阻止 Mac 空闲睡眠
-- App 退出、崩溃或失联后可靠恢复系统设置
-- 不覆盖用户或其他应用已经设置的系统级防睡眠状态
+## 控制链路
 
 普通 App 进程负责策略和用户界面，CodexBarHelper 只执行受限的系统睡眠与唤醒操作：
 
@@ -27,9 +21,7 @@ AutoResetController
               -> IOPMSchedulePowerEvent
 ```
 
-## 为什么这不是一个 assertion 开关
-
-防睡眠表面上像一个布尔设置，实际上同时跨越用户意图、实时任务、电源状态、App 生命周期和 root 系统状态。任何一层都可能先于其他层变化，因此实现不能把 `isEnabled` 直接等同于系统已经禁止睡眠。
+## 状态分层
 
 系统把状态拆成 4 层：
 
@@ -40,14 +32,12 @@ AutoResetController
 | 请求状态 | `appliedSleepPreventionRequested` 和 `requestInFlight` | App 最近向 helper 请求了什么 |
 | 已确认效果 | `isPreventingSleep` 和 `sleepPreventionSource` | App 是否收到系统状态已经符合预期的证据 |
 
-这种区分解决了两个容易被 UI 掩盖的问题：
-
 - helper 暂时不可用时保留用户开关，修复依赖后可以自动恢复，不需要用户重新开启
 - XPC 请求发出但尚未确认时不提前显示成功，避免界面和系统实际状态相反
 
-`sleepBlockReason` 是所有条件的唯一决策出口。UI 派生状态、条件日志和实际切换都读取同一个结果，新增条件时必须在一个有穷的 `switch` 中说明设置入口是否仍应可用。这是一处刻意的防遗漏设计。
+`sleepBlockReason` 是所有条件的唯一决策出口。UI 派生状态、条件日志和实际切换都读取同一个结果，新增条件时必须在穷尽的 `switch` 中说明设置入口是否仍应可用。
 
-## App assertion 与系统设置为什么并存
+## 两层睡眠控制
 
 两套机制的作用域不同：
 
@@ -56,13 +46,11 @@ AutoResetController
 | IOKit assertion | App 进程 | 阻止空闲系统睡眠，可选阻止显示器睡眠 | App 退出后由系统自动回收 |
 | `pmset disablesleep` | 系统全局 | 覆盖 assertion 无法保证的系统睡眠路径 | 必须显式恢复，因此需要 ownership 和 watchdog |
 
-只使用 assertion 的恢复成本低，但能力不完整。只使用 `pmset` 的能力更强，但 App 崩溃后可能留下全局状态。CodexBar 同时使用两者，并把高风险的全局状态交给最小权限 helper 管理。
-
 App 侧 assertion 会在 XPC 获取流程开始前建立。这样 helper 切换期间不会出现短暂的空闲睡眠窗口。如果 helper 请求失败，统一清理路径会释放 assertion，避免形成只有 App 自己知道的半成功状态。
 
-## 获取与释放是确认式事务
+## 获取与释放事务
 
-获取流程不是先改 UI 再异步补系统操作，而是一个带验证的事务：
+获取流程在系统状态验证成功后更新已生效状态：
 
 ```text
 条件求值为允许
@@ -80,7 +68,7 @@ App 侧 assertion 会在 XPC 获取流程开始前建立。这样 helper 切换�
 ```text
 条件求值为阻断
   -> 请求 helper 撤销租约
-  -> helper 仅在 owned 且无其他租约时恢复系统值
+  -> helper 仅在有恢复责任且无其他租约时恢复系统值
   -> App 收到实测结果
   -> 发布未防睡眠状态并释放 display assertion
   -> 停止时长累计
@@ -89,11 +77,11 @@ App 侧 assertion 会在 XPC 获取流程开始前建立。这样 helper 切换�
   -> 必要时补发合盖睡眠
 ```
 
-通知放在 helper 确认 `SleepDisabled=0` 之后，是为了保证用户看到的“已停止防睡眠”描述的是事实，而不是尚未完成的意图。
+低电量和时长上限通知仅在 helper 回复来源为 `.codexBar` 且 `SleepDisabled=0` 后提交。
 
-App idle assertion 会多保留到通知提交结束。合盖机器在全局设置恢复后可能立即睡下，如果先释放最后一条 assertion，通知请求可能来不及交给系统。提交完成后立即释放 assertion 并执行合盖边沿补偿，这段短暂顺序不会重新声明系统所有权。
+App idle assertion 保留到通知提交结束，避免系统在提交前睡下。随后释放 assertion 并按需执行合盖睡眠补偿。
 
-## `mayHaveHelperLease` 为什么不能在超时时清除
+## 不确定的租约状态
 
 XPC 超时只证明 App 没收到回复，不证明 helper 没执行请求。请求可能已经把租约写入 helper，只是回复在连接断开时丢失。
 
@@ -103,9 +91,7 @@ XPC 超时只证明 App 没收到回复，不证明 helper 没执行请求。请
 - 超时或连接失效时保持 `true`
 - 只有一次已确认的释放结果才能清为 `false`
 
-这会让退出流程多做一次幂等释放，但能避免 App 误以为没有租约而直接退出。对全局系统状态而言，多释放一次的成本远低于遗留 `SleepDisabled=1`
-
-## generation 解决什么竞态
+## XPC 代际校验
 
 用户关闭开关、任务结束和重试可能在前一条 XPC 回复返回前连续发生。如果只按回复到达顺序更新状态，旧的“获取成功”可能覆盖新的“释放成功”。
 
@@ -114,8 +100,6 @@ App 和 helper 都使用单调递增 generation：
 - App 只接收当前 `requestGeneration` 的回调
 - helper 忽略比现有租约 generation 更旧的请求
 - 连接作废时 App 推进 generation，让在途回调自然失效
-
-generation 不是用来给请求排序的日志编号，而是异步状态提交的资格证明。
 
 ## 生效条件
 
@@ -233,14 +217,14 @@ CodexBarHelper 先通过以下命令读取当前值：
 
 - 如果 CodexBarHelper 观察到初始值已经是 `1`，它把状态标记为 external
 - external 状态不会被 CodexBar 声明为自己拥有
-- CodexBar 只在亲自完成 `0 -> 1` 切换后记录 owned
-- 只有 owned 状态才允许在租约结束时恢复为 `0`
+- CodexBar 读取到 `0` 后先持久化 owned，再执行并验证 `0 -> 1` 切换
+- 最后一个租约结束后，owned 或 restoring 状态执行恢复为 `0`
 
 因此，用户或其他工具预先开启的 `SleepDisabled=1` 不会在 CodexBar 退出时被关闭。
 
-### ownership 文件如何构成恢复事务
+### Ownership 恢复事务
 
-helper 的持久化顺序刻意偏向可恢复：
+helper 按以下顺序写入恢复记录和系统值：
 
 ```text
 获取: persist owned -> pmset 1 -> read back 1
@@ -259,8 +243,6 @@ helper 的持久化顺序刻意偏向可恢复：
 - 外部来源消失而任务仍在时重新申请租约，由 helper 完成新的 `0 -> 1`
 - helper 已经因为其他有效客户端转为 owned 时更新来源展示，不重复创建计时周期
 
-这项观察避免一个隐蔽空窗：用户先用其他工具开启防睡眠，CodexBar 因此判定为 external，随后其他工具关闭设置。如果 CodexBar 不重新观察，UI 会继续显示防睡眠，系统却已经可以睡眠。
-
 ## CodexBarHelper 状态持久化
 
 CodexBarHelper 把系统所有权记录保存在：
@@ -276,7 +258,7 @@ CodexBarHelper 把系统所有权记录保存在：
 - 目录不能被 group 或 world 写入
 - 文件由 root 拥有，权限为 `0600`
 - 使用临时文件、full sync 和原子 rename 提交
-- 启动时无法读取可信 owned 记录会执行恢复到 `disablesleep 0`
+- 启动时记录缺失则写入 idle；记录为 owned 或 restoring 时恢复 `disablesleep 0`；记录无法读取或不可信时也尝试恢复为 `0`
 
 该文件记录 CodexBar 对系统睡眠设置的所有权。
 
@@ -297,16 +279,16 @@ App 持有有效任务时保持带身份的 XPC lease。CodexBarHelper 不把一
 
 App 正常退出时先取消自动重置唤醒计划，再撤销租约和 IOKit assertion。如果 CodexBarHelper 尚未确认两类 root 状态都已清理，App 终止流程会等待，避免在不确定状态下直接离开。
 
-### 正常退出为什么可以被取消
+### 正常退出
 
 `applicationShouldTerminate` 不能在未确认释放时直接返回允许。`prepareForTermination()` 会先停止新重试，取消可能存在的自动重置唤醒计划，再请求释放可能存在的租约，然后等待 helper 回读结果：
 
 - 释放成功时继续终止
 - 释放失败时取消本次终止，恢复正常条件求值和重试
 
-取消退出看似比直接关闭更强硬，但这是可恢复性的一部分。正常退出是 App 唯一能主动确认 root 全局状态的机会，不应主动放弃这次确认。强制退出仍由 helper 的 15 秒 watchdog 兜底。
+强制退出时，helper 在 15 秒 watchdog 宽限结束后撤销失联客户端的租约。
 
-### helper 自检不是只看进程存活
+### Helper 自检
 
 helper 会分别检查 lease、ownership 记录和实测 `SleepDisabled`
 
@@ -316,7 +298,7 @@ helper 会分别检查 lease、ownership 记录和实测 `SleepDisabled`
 - 持久化记录不可信时采取 fail-safe 恢复，不把损坏记录当成继续持有权限的依据
 - 自动重置唤醒事件取消失败且已经没有连接所有者时，每 5 秒继续回读并清理固定 owner
 
-这里的周期检查不是替代事件驱动 XPC，而是修复系统设置被其他进程改写、回调丢失或进程重启造成的事实漂移。
+周期检查修复系统值被其他进程改写、回调丢失或进程重启后的状态偏差。
 
 ## 时长和电池策略
 
@@ -351,7 +333,7 @@ helper 会分别检查 lease、ownership 记录和实测 `SleepDisabled`
 
 任务集合使用稳定 task ID 判断“新任务”和“等待后恢复”，而不是只比较数量。如果一个任务结束同时另一个任务开始，数量仍为 1，但新的任务应得到完整时长预算。
 
-### 电池读取为何是三态
+### 电池读取状态
 
 电池读取使用 `unavailable`, `unreadable` 和 `present` 三态，不能压成一个可选值：
 
@@ -368,8 +350,6 @@ helper 会分别检查 lease、ownership 记录和实测 `SleepDisabled`
 ### 低电量锁存与滞回
 
 阈值为 `T` 时，进入条件是电池供电且电量不高于 `T`，退出条件是电量至少达到 `T + 5`
-
-这 5 个百分点不是展示层修饰，而是状态机滞回。没有它时，电量在阈值附近的测量抖动会反复执行 root 写入、assertion 切换和通知判断。
 
 低电量通知还保留单轮锁存：
 
@@ -399,8 +379,6 @@ CodexBar 在确认自己拥有的系统设置已恢复后读取 clamshell 状态
 - external 状态不是 CodexBar 改写的，不能替外部所有者决定何时睡眠
 - `SleepDisabled` 仍为 `1` 时不能请求
 - 无法读取合盖状态时不猜测
-
-这是典型的边沿事件修复，不能用“最终值已经正确”替代。
 
 ## 失败与重试策略
 

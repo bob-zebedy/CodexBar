@@ -23,9 +23,7 @@ When rate-limit data comes from cache, the icon and progress bar become transluc
 
 ## Layout Customization
 
-In `Settings > General > Main Panel Layout`, you can drag the `Account`, `Tasks`, `Quota`, `Usage`, and `Status` sections into a different order and control each section's visibility.
-
-The main panel always keeps at least one section visible. When Hook is disabled, the `Tasks` section turns off automatically and its switch is disabled, but the row remains draggable. If it was the only visible section, `Account` is enabled automatically. After Hook is enabled again, you can turn `Tasks` on manually. After reordering sections or changing their visibility, press `Command-Z` to undo changes in order and `Command-Shift-Z` to redo them.
+Reorder and show or hide sections in `Settings > General > Main Panel Layout`, with undo and redo support. See [Settings Reference](settings.md#main-panel-layout).
 
 ## Account
 
@@ -34,9 +32,10 @@ The main panel always keeps at least one section visible. When Hook is disabled,
 - Double-clicking the account icon refreshes account, rate-limit, and usage data immediately
 - Double-clicking the email toggles blurring
 - Shows `Not signed in` when no account is signed in
-- Shows `Initialization failed` when app-server cannot initialize
+- Shows the minimum-version requirement when the Codex currently in use is too old
+- Shows `Initialization failed` when the Codex connection cannot initialize
 
-The main panel presents only states that help you decide what to do. Detailed request errors remain available in the Logs window.
+The About page in Settings shows the connection failure reason; the Logs window provides complete requests and responses.
 
 ## Rate Limits
 
@@ -101,9 +100,9 @@ The card shows the following fields when available:
 
 When sleep prevention is actively engaged, a coffee-cup indicator appears on the right side of the activity card.
 
-If a Hook event has no session ID, the task still appears in the activity card and Task Center with an orange anonymous icon. Hovering over the icon shows `Anonymous tasks do not prevent sleep`.
+Tasks whose session cannot be identified show an orange anonymous icon with the tooltip `Anonymous tasks do not prevent sleep`.
 
-The activity card's `+N` shows only the total number of other active tasks; it does not break out anonymous tasks separately.
+The activity card’s `+N` shows the total number of other active tasks.
 
 Click a populated activity card to open Task Center.
 
@@ -116,13 +115,9 @@ Task Center groups tasks into:
 - Recently Completed
 - Recently Terminated
 
-Recently completed and recently terminated tasks remain in Task Center for 10 minutes. Completion and termination are distinct states.
+Recently completed and terminated records remain for 10 minutes. Completion means a turn ended; termination means it was interrupted and does not trigger a completion notification.
 
-Completion means that a task turn ended; it does not necessarily mean that the result was successful.
-
-Terminated tasks do not trigger task-completion notifications.
-
-Anonymous tasks use the same anonymous icon while running, waiting for approval, recently completed, or recently terminated.
+Completion does not guarantee a successful result.
 
 ## Footer Status
 

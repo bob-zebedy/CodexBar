@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// 对 app-server stdio JSON-RPC 的薄封装
 /// 负责日志记录, 超时和 unsupported 方法缓存
@@ -18,21 +19,127 @@ final nonisolated class AppServerSession {
     private let lineReader: JSONLineReader
     private let errorReader: PipeDrain
     private let timeout: TimeInterval
+    private let deadline: Date?
+    private let logStorage: RequestLogStorage?
     private var nextId = 1
     private var unsupportedMethods: Set<String> = []
 
-    init(
+    private init(
         process: Process,
         input: Pipe,
         lineReader: JSONLineReader,
         errorReader: PipeDrain,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        deadline: Date?
     ) {
         self.process = process
         self.input = input
         self.lineReader = lineReader
         self.errorReader = errorReader
         self.timeout = timeout
+        self.deadline = deadline
+        logStorage = deadline == nil ? .shared : nil
+    }
+
+    static func launch(
+        command: AppServerCommand,
+        environment: [String: String],
+        timeout: TimeInterval,
+        deadline: Date? = nil,
+        usesCustomProxy: Bool = false
+    ) throws -> AppServerSession {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: command.executablePath)
+        // 只覆盖本次子进程, 避免系统优先策略盖过用户在 App 中指定的代理
+        process.arguments = command.arguments + (usesCustomProxy ? ["-c", "features.respect_system_proxy=false"] : [])
+        process.environment = environment
+        let input = Pipe()
+        let output = Pipe()
+        let error = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = error
+        let reader = JSONLineReader(fileHandle: output.fileHandleForReading)
+        let errorReader = PipeDrain(fileHandle: error.fileHandleForReading)
+        do {
+            try process.run()
+        } catch {
+            reader.stop()
+            errorReader.stop()
+            throw error
+        }
+        return AppServerSession(
+            process: process,
+            input: input,
+            lineReader: reader,
+            errorReader: errorReader,
+            timeout: timeout,
+            deadline: deadline
+        )
+    }
+
+    static func redactingProxyCredentials(_ text: String) -> String {
+        func redact(_ value: Any) -> Any {
+            switch value {
+            case let string as String:
+                string.replacingOccurrences(
+                    of: #"(?i)(https?://)[^\s/"@]+@"#,
+                    with: "$1<redacted>@",
+                    options: .regularExpression
+                )
+            case let object as [String: Any]: object.mapValues(redact)
+            case let array as [Any]: array.map(redact)
+            default: value
+            }
+        }
+
+        // 先解码 JSON 转义, 避免 URL 中的斜杠或 Unicode 转义绕过脱敏
+        if let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: .fragmentsAllowed),
+           let data = try? JSONSerialization.data(withJSONObject: redact(object), options: [.fragmentsAllowed, .sortedKeys, .withoutEscapingSlashes]),
+           let result = String(data: data, encoding: .utf8) {
+            return result
+        }
+        return redact(text) as? String ?? text
+    }
+
+    func initializeAccount() throws -> (version: String, account: AccountReadResponse) {
+        let result = try request(
+            "initialize",
+            params: ["clientInfo": [
+                "name": "codex_bar",
+                "title": "Codex Bar",
+                "version": Self.clientVersion()
+            ]],
+            as: InitializeResult.self
+        )
+        let version = Self.serverVersion(fromUserAgent: result.userAgent)
+        let minimum = CodexCLIMinimumVersion.global
+        guard let version, CodexCLIVersionReader.isVersion(version, atLeast: minimum) == true else {
+            let error = CodexStatusError.unsupportedVersion(minimum: minimum)
+            if let logStorage {
+                let details = LogFields.joined("current=\(version ?? "unknown")", "minimum=\(minimum)")
+                AppLog.codexCLI.notice("Codex 版本不支持: \(details, privacy: .public)")
+                logStorage.recordFailure(message: error.localizedDescription)
+            }
+            throw error
+        }
+        try notify("initialized")
+        let account = try request("account/read", params: ["refreshToken": false], as: AccountReadResponse.self)
+        guard account.account != nil else { throw CodexStatusError.notLoggedIn }
+        return (version, account)
+    }
+
+    private static func clientVersion() -> String {
+        guard let version = Bundle.main.shortVersionString, !version.isEmpty else { return "1.0.0" }
+        return version
+    }
+
+    /// userAgent 首个 token 中 "/" 之后的部分才是实际运行版本
+    private static func serverVersion(fromUserAgent userAgent: String?) -> String? {
+        guard let firstToken = userAgent?.split(separator: " ").first,
+              let slashIndex = firstToken.firstIndex(of: "/") else { return nil }
+        let version = firstToken[firstToken.index(after: slashIndex)...]
+        return version.isEmpty ? nil : String(version)
     }
 
     func close() {
@@ -49,11 +156,11 @@ final nonisolated class AppServerSession {
             case .alreadyExited, .terminated:
                 break
             case .killed:
-                RequestLogStorage.shared.recordFailure(
+                logStorage?.recordFailure(
                     message: String(localized: "request-log.error.exit-timeout-killed")
                 )
             case .stillRunning:
-                RequestLogStorage.shared.recordFailure(
+                logStorage?.recordFailure(
                     message: String(localized: "request-log.error.exit-timeout-running")
                 )
             }
@@ -64,9 +171,9 @@ final nonisolated class AppServerSession {
         let encoded = try encodeMessage(method: method, id: nil, params: params)
 
         try writeEncoded(encoded) {
-            RequestLogStorage.shared.recordFailure(method: method, message: Self.writeFailureMessage)
+            logStorage?.recordFailure(method: method, message: Self.writeFailureMessage)
         }
-        RequestLogStorage.shared.recordRequestWithEmptyResponse(method: method, payload: encoded.text)
+        logStorage?.recordRequestWithEmptyResponse(method: method, payload: encoded.text)
     }
 
     func request<Response: Decodable>(
@@ -81,7 +188,7 @@ final nonisolated class AppServerSession {
         // app-server 偶发业务错误可重试一次; 传输错误由上层重建连接
         do {
             return try performRequestRememberingUnsupported(method, params: params, as: type)
-        } catch let error as CodexStatusError where error.isRetriableServerError {
+        } catch let error as CodexStatusError where deadline == nil && error.isRetriableServerError {
             return try performRequestRememberingUnsupported(method, params: params, as: type)
         }
     }
@@ -109,10 +216,10 @@ final nonisolated class AppServerSession {
         let id = nextId
         nextId += 1
         let encoded = try encodeMessage(method: method, id: id, params: params)
-        let token = RequestLogStorage.shared.beginRequest(method: method, payload: encoded.text)
+        let token = logStorage?.beginRequest(method: method, payload: encoded.text) ?? UUID()
 
         try writeEncoded(encoded) {
-            RequestLogStorage.shared.failRequest(token, message: Self.writeFailureMessage)
+            logStorage?.failRequest(token, message: Self.writeFailureMessage)
         }
 
         return try waitForResponse(id: id, token: token, decode: type)
@@ -164,11 +271,14 @@ final nonisolated class AppServerSession {
         token: UUID,
         decode type: Response.Type
     ) throws -> Response {
-        let deadline = Date().addingTimeInterval(timeout)
+        let deadline = min(deadline ?? .distantFuture, Date().addingTimeInterval(timeout))
         let decoder = JSONDecoder()
 
         // stdout 可能混有无关日志行, 只消费 id 匹配的 JSON-RPC 响应
         while Date() < deadline {
+            if self.deadline != nil {
+                try Task.checkCancellation()
+            }
             guard let line = try nextResponseLine(
                 matching: id,
                 before: deadline,
@@ -179,7 +289,7 @@ final nonisolated class AppServerSession {
             }
 
             let result = try decodeResponse(line, as: type, token: token, decoder: decoder)
-            RequestLogStorage.shared.finishRequest(token, response: line.text)
+            logStorage?.finishRequest(token, response: Self.redactingProxyCredentials(line.text))
             return result
         }
 
@@ -192,7 +302,9 @@ final nonisolated class AppServerSession {
         token: UUID,
         decoder: JSONDecoder
     ) throws -> ResponseLine? {
-        guard let text = lineReader.nextLine(timeout: max(0, deadline.timeIntervalSinceNow)) else {
+        let remaining = max(0, deadline.timeIntervalSinceNow)
+        let wait = self.deadline == nil ? remaining : min(0.1, remaining)
+        guard let text = lineReader.nextLine(timeout: wait) else {
             if lineReader.isClosed {
                 try failRequest(token, message: Self.responseConnectionClosedMessage, error: .serverConnectionClosed)
             }
@@ -225,7 +337,7 @@ final nonisolated class AppServerSession {
         }
 
         if let error = envelope.error {
-            try failRequest(token, message: line.text, error: .serverError(error.message))
+            try failRequest(token, message: line.text, error: .serverError(Self.redactingProxyCredentials(error.message)))
         }
         if let result = envelope.result {
             return result
@@ -235,9 +347,13 @@ final nonisolated class AppServerSession {
     }
 
     private func failRequest(_ token: UUID, message: String, error: CodexStatusError) throws -> Never {
-        RequestLogStorage.shared.failRequest(token, message: message)
+        logStorage?.failRequest(token, message: Self.redactingProxyCredentials(message))
         throw error
     }
+}
+
+private nonisolated struct InitializeResult: Decodable {
+    let userAgent: String?
 }
 
 /// 先轻量读取 id, 避免把其他请求或日志行误当成本次响应

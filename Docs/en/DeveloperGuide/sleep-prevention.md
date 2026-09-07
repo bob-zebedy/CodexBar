@@ -2,13 +2,7 @@
 
 [简体中文](../../DeveloperGuide/sleep-prevention.md) | English
 
-## Design Goals
-
-Sleep prevention must satisfy three goals at once:
-
-- Prevent idle sleep while an eligible Codex task exists
-- Restore system settings reliably after app exit, crash, or disconnection
-- Never overwrite a system sleep setting already owned by the user or another app
+## Control Flow
 
 The regular app process owns policy and UI. CodexBarHelper executes only constrained system sleep and wake operations:
 
@@ -27,9 +21,7 @@ AutoResetController
               -> IOPMSchedulePowerEvent
 ```
 
-## Why This Is Not an Assertion Switch
-
-Sleep prevention looks like one Boolean setting but spans user intent, live tasks, power state, app lifecycle, and root system state. Any layer can change before another, so `isEnabled` cannot mean that system sleep is already disabled.
+## State Layers
 
 State is split into four layers:
 
@@ -40,14 +32,12 @@ State is split into four layers:
 | Request state | `appliedSleepPreventionRequested` and `requestInFlight` | What did the app most recently request from the helper? |
 | Confirmed effect | `isPreventingSleep` and `sleepPreventionSource` | Has the app received evidence that system state matches? |
 
-This distinction resolves two issues often hidden by UI:
-
 - Temporary helper unavailability preserves the user's switch, allowing automatic recovery without requiring them to enable it again
 - UI does not claim success after an XPC request but before confirmation, avoiding disagreement with actual system state
 
-`sleepBlockReason` is the sole decision output for all conditions. Derived UI state, condition logging, and actual switching read the same result. Every new condition must use a finite `switch` to state whether the settings entry remains available. This intentionally prevents omissions.
+`sleepBlockReason` is the sole decision output for all conditions. Derived UI state, condition logging, and actual switching read the same result. Every new condition must state whether the settings entry remains available in an exhaustive `switch`.
 
-## Why App Assertions and System Settings Coexist
+## Two Layers of Sleep Control
 
 The mechanisms have different scopes:
 
@@ -56,13 +46,11 @@ The mechanisms have different scopes:
 | IOKit assertion | App process | Prevents idle system sleep and optionally display sleep | Reclaimed automatically after app exit |
 | `pmset disablesleep` | System-wide | Covers system-sleep paths not guaranteed by assertions | Requires explicit restoration, ownership, and a watchdog |
 
-Assertions are cheap to recover but incomplete. `pmset` is stronger but can leave global state after a crash. CodexBar uses both and delegates high-risk global state to a least-privileged helper.
-
 The app assertion is established before XPC acquisition begins so there is no idle-sleep gap while the helper switches state. A shared cleanup path releases it after helper failure, preventing a half-success known only to the app.
 
-## Acquisition and Release Are Confirmed Transactions
+## Acquire and Release Transactions
 
-Acquisition does not optimistically change UI and patch system state later. It is verified:
+Acquisition updates the effective state after system verification succeeds:
 
 ```text
 Conditions allow activation
@@ -80,7 +68,7 @@ Release converges in the opposite direction:
 ```text
 Conditions block activation
   -> Ask helper to revoke lease
-  -> Helper restores system value only when owned and no leases remain
+  -> Helper restores system value only when it has restoration responsibility and no leases remain
   -> App receives measured result
   -> Publish inactive state and release display assertion
   -> Stop duration accumulation
@@ -89,11 +77,11 @@ Conditions block activation
   -> Compensate for lid-close sleep if needed
 ```
 
-Notifications come after the helper confirms `SleepDisabled=0`, ensuring that “sleep prevention stopped” describes fact rather than pending intent.
+Low-battery and duration-limit notices are submitted only when the helper replies with source `.codexBar` and `SleepDisabled=0`.
 
-The app idle assertion remains until notification submission ends. A closed-lid Mac may sleep immediately after global restoration; releasing the last assertion first could prevent the request from reaching the notification system. CodexBar then releases it immediately and compensates for the lid edge without reclaiming system ownership.
+The app retains its idle assertion until notification submission finishes so the system does not sleep before submission. It then releases the assertion and applies lid-close sleep compensation if needed.
 
-## Why `mayHaveHelperLease` Survives a Timeout
+## Uncertain Lease State
 
 An XPC timeout proves only that the app received no reply, not that the helper did not execute the request. The helper may hold the lease while its reply was lost during disconnect.
 
@@ -103,9 +91,7 @@ An XPC timeout proves only that the app received no reply, not that the helper d
 - Remain `true` after timeout or connection invalidation
 - Change to `false` only after an explicitly confirmed release
 
-This may add one idempotent release during exit, but that is far cheaper than leaving global `SleepDisabled=1`.
-
-## The Race Solved by Generation
+## XPC Generation Checks
 
 The user may turn off the switch, a task may finish, and retry may start before an earlier XPC reply returns. Applying replies by arrival order could let old acquisition success overwrite newer release success.
 
@@ -114,8 +100,6 @@ Both app and helper use monotonically increasing generations:
 - The app accepts callbacks only for current `requestGeneration`
 - The helper ignores requests older than a lease's current generation
 - Invalidating a connection advances app generation so in-flight callbacks become stale
-
-Generation is not a logging sequence number. It proves eligibility to commit asynchronous state.
 
 ## Activation Conditions
 
@@ -233,14 +217,14 @@ Ownership rules prevent damage to external state:
 
 - If the initial observed value is already `1`, the helper marks it external
 - CodexBar does not claim external state
-- CodexBar records owned only after personally completing `0 -> 1`
-- Only owned state may restore to `0` when leases end
+- After observing `0`, CodexBar persists owned before performing and verifying its own `0 -> 1` transition
+- When the final lease ends, owned or restoring state restores to `0`
 
 Thus, `SleepDisabled=1` set earlier by a user or another tool remains on after CodexBar exits.
 
-### How the Ownership File Forms a Recovery Transaction
+### Ownership Recovery Transaction
 
-Persistence deliberately favors recoverability:
+The helper writes recovery records and system state in this order:
 
 ```text
 Acquire: persist owned -> pmset 1 -> read back 1
@@ -259,8 +243,6 @@ Release persists restoring first. A crash before `pmset 0` or final idle commit 
 - If it disappears while a task remains, reacquire a lease and let the helper perform a new `0 -> 1`
 - If another valid client already made helper state owned, update source presentation without restarting the duration period
 
-This avoids a subtle gap: another tool disables sleep first, so CodexBar reports external; that tool later restores sleep while the task still runs. Without observation, the UI would continue claiming prevention while the system could sleep.
-
 ## CodexBarHelper State Persistence
 
 CodexBarHelper stores ownership at:
@@ -276,7 +258,7 @@ Security and reliability requirements are:
 - Directory is not group- or world-writable
 - File is root-owned with `0600` permissions
 - Commits use a temporary file, full sync, and atomic rename
-- If a trusted owned record cannot be read at startup, recover to `disablesleep 0`
+- At startup, a missing record creates idle state; owned or restoring records restore `disablesleep 0`; unreadable or untrusted records also trigger restoration to `0`
 
 The file records CodexBar's ownership of system sleep settings.
 
@@ -297,16 +279,16 @@ After abnormal exit, connection invalidation, the watchdog, and persisted owners
 
 Normal app exit first cancels the Automatic Reset wake schedule, then revokes the lease and IOKit assertion. If the helper has not confirmed both root-state categories clean, app termination waits instead of leaving under uncertainty.
 
-### Why Normal Exit Can Be Canceled
+### Normal Exit
 
 `applicationShouldTerminate` cannot approve exit before confirmed release. `prepareForTermination()` stops new retries, cancels a possible Automatic Reset wake schedule, requests release of a possible lease, and waits for helper read-back:
 
 - Continue termination after successful release
 - Cancel this termination and resume normal condition evaluation and retries after failure
 
-Canceling exit is stricter than simply closing, but it is part of recoverability. Normal exit is the app's only opportunity to confirm root global state actively and should not discard it. Forced exit still falls back to the helper's 15-second watchdog.
+On forced exit, the helper revokes the disconnected client’s lease after the 15-second watchdog grace period.
 
-### Helper Self-Check Is More Than Process Liveness
+### Helper Self-Checks
 
 The helper checks leases, ownership records, and measured `SleepDisabled` independently:
 
@@ -316,7 +298,7 @@ The helper checks leases, ownership records, and measured `SleepDisabled` indepe
 - On an untrusted persistence record, fail safe by restoring rather than treating corruption as permission to remain active
 - If Automatic Reset cancellation failed and no connection owner remains, reread and clean the fixed owner every 5 seconds
 
-Periodic checks supplement event-driven XPC by repairing drift after another process changes settings, a callback is lost, or a process restarts.
+Periodic checks repair state divergence after external writes, lost callbacks, or process restarts.
 
 ## Duration and Battery Policy
 
@@ -351,7 +333,7 @@ When low battery or duration limit stops prevention, notification must follow co
 
 The task set uses stable task IDs to detect “new task” and “resumed from waiting,” not count alone. If one task ends as another starts, count remains one, but the new task deserves a full budget.
 
-### Why Battery Reading Has Three States
+### Battery Read States
 
 Battery reads use `unavailable`, `unreadable`, and `present` rather than one optional value:
 
@@ -368,8 +350,6 @@ Battery use comes from power-source state, not `isCharging`. A connected Mac tha
 ### Low-Battery Latch and Hysteresis
 
 For threshold `T`, protection enters while on battery at or below `T` and exits only at or above `T + 5`.
-
-The five points are state-machine hysteresis, not a display adjustment. Without it, measurement noise near the threshold would repeatedly cause root writes, assertion switches, and notification checks.
 
 Low-battery notification has a per-period latch:
 
@@ -399,8 +379,6 @@ Compensation applies only to `.codexBar` source:
 - External state was not changed by CodexBar, so it cannot decide sleep timing for its owner
 - It must not request sleep while `SleepDisabled` remains `1`
 - It does not guess when clamshell state is unreadable
-
-This repairs an edge event and cannot be replaced by merely reaching the correct final value.
 
 ## Failure and Retry
 

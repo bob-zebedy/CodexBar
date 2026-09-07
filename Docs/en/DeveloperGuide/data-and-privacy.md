@@ -2,17 +2,6 @@
 
 [简体中文](../../DeveloperGuide/data-and-privacy.md) | English
 
-## Principles
-
-CodexBar reads only the data required for account display, Automatic Reset, Hook metrics, live tasks, and sleep prevention:
-
-- Do not upload raw data when it can remain local
-- Store aggregates instead of content when possible
-- Store hashed identities instead of raw identities when possible
-- Mark missing data explicitly when a source is unavailable
-
-Privacy boundaries are architectural constraints on every data flow, not a static blacklist of fields. Even if a new field is technically easy to read, first ask whether it is necessary to achieve a product goal.
-
 ## Data Classification Model
 
 Classifying data during development helps determine its storage and propagation scope:
@@ -22,8 +11,6 @@ Classifying data during development helps determine its storage and propagation 
 | Content | Prompts, responses, tool arguments, and output | Do not collect |
 | Identity and context | Session IDs, full paths, project names | Minimize use to necessary flows; redact or remove before upload |
 | Aggregated metrics | Daily event counts, model counts | May persist locally; upload only specified fields after explicit opt-in |
-
-“Stored only on this Mac” does not mean zero privacy cost. Local logs, crash reports, backups, and other processes on the same machine can expand exposure, so unnecessary data should be discarded at the parsing boundary.
 
 ## Trust Boundaries
 
@@ -49,8 +36,6 @@ These boundaries mean:
 
 ## Minimize at the Capture Boundary
 
-Removing sensitive fields only during upload is insufficient because raw values may already have entered local JSONL, in-memory logs, or error messages.
-
 CodexBar narrows data in this order:
 
 1. The Hook recorder extracts only allowlisted structural fields from stdin
@@ -58,8 +43,6 @@ CodexBar narrows data in this order:
 3. The aggregator reduces older identity details to counts
 4. The sync model projects again into CloudKit-allowed fields
 5. Logging records only stages, classifications, and nonsensitive counts
-
-Every layer narrows the data shape, so adding a downstream field does not automatically expose all upstream source text.
 
 ## Data-Flow Overview
 
@@ -72,17 +55,6 @@ Every layer narrows the data shape, so adding a downstream field does not automa
 | Activity Protection | Stalled-task recovery | Hashed identity, up to 24 hours | No |
 | CodexBarHelper ownership | System-sleep recovery | Root-owned state file | No |
 | Automatic Reset wake schedule | Fixed owner, `wake` type, and next time | System power management | No |
-
-### Why the Three Business Flows Remain Independent
-
-app-server, Hook history, and live activity read different facts with different freshness and failure modes:
-
-- app-server failure must not erase local history
-- Hook aggregation maintenance failure must not freeze live tasks
-- Temporary rollout unavailability must not mark rate limits as erroneous
-- CloudKit failure must not block current-device aggregation
-
-Collapsing them into one “globally loaded” state would let a lower-sensitivity or lower-priority flow expand the data access and availability impact of another.
 
 ## Local Reads
 
@@ -117,8 +89,6 @@ The Hook recorder reads the current rollout through `transcript_path`, and the l
 These reads parse only structural fields such as origin classification, lifecycle, time, turn context, progress, effort, and reviewer. They neither copy conversation text into CodexBar storage nor present it in the UI.
 
 The rollout reader scans backward from file tails under a budget. This reduces I/O and limits how much unrelated historical content enters process memory. Parsing DTOs declare only required fields, and `JSONDecoder` ignores everything else.
-
-This is not complete privacy isolation from rollout files because the reader must still open them. A future full-text search or prompt display would be a new privacy capability, not a natural extension of the current reader.
 
 ### Reset Credits Details
 
@@ -161,14 +131,6 @@ A rate-limit response from stale cache may remain visible but cannot trigger a n
 
 Daily aggregations for the latest 3 days may retain session and turn ID details for exact deduplication. Older data retains counts only.
 
-Three days of identity detail balances exact deduplication against long-term minimization:
-
-- Recent Hook files may still receive late or duplicate writes and require identity sets for correct merging
-- Distant history rarely changes, and retaining only totals substantially reduces long-term identity exposure
-- Counts cannot restore identities after compaction, so algorithm changes rebuild from raw JSONL still inside the 210-day retention period
-
-Raw events and daily aggregations share the same 210-day limit, preventing more sensitive raw data from remaining indefinitely after derived data is gone.
-
 Anonymous tasks do not create Stalled Task Protection identifiers and therefore never write to `ActivityProtection/state.json`.
 
 ### UserDefaults
@@ -178,14 +140,20 @@ UserDefaults stores:
 - Feature switches and options
 - Notification thresholds and sound names
 - Global shortcut
+- Proxy enabled state, protocol, server, port, authentication username, and password
 - Menu bar display selection
 - Automatic Reset switch and lead time
 - Bounded notification deduplication keys
 - Runtime configuration such as the CodexBarHelper fingerprint
 
-Renaming a persistence key, changing its structure, or changing a default requires consideration of upgrades from older versions.
+Changes to persistence keys, data structures, enum raw values, or defaults for missing values require an agreed migration and downgrade strategy before implementation.
 
-UserDefaults is not schemaless. Renaming an existing key, changing an enum raw value, or changing the default for a missing value changes behavior for upgrading users. These are compatibility issues and require an agreed migration and degradation strategy first.
+The `CodexProxy.configuration` key stores one JSON data value containing `configuration` and `password`. Passwords are stored in plain text in local UserDefaults and removed when settings are saved with authentication disabled or the configuration is cleared. Debug and Release use separate preference domains:
+
+- Debug: `~/Library/Preferences/app.zabrian.codexbar.debug.plist`
+- Release: `~/Library/Preferences/app.zabrian.codexbar.plist`
+
+`CodexProxyStore` distinguishes a missing record from a decoding failure. A failed record remains available for the configuration dialog’s clear action.
 
 ### CodexBarHelper Directory
 
@@ -205,8 +173,6 @@ The in-app [`RequestLog.swift`](../../../CodexBar/Services/CodexStatus/RequestLo
 
 It diagnoses the app-server protocol. Even in memory, it must not contain OAuth tokens or Hook content.
 
-The 500-entry cap limits memory and rendering cost when the Logs window opens. It is not an audit log and cannot track problems across launches. Cross-launch diagnosis uses unified system logging under the same field boundaries.
-
 The unified logging subsystem is `app.zabrian.codexbar`, with a `.debug` suffix in Debug builds.
 
 System logs may contain only:
@@ -224,16 +190,21 @@ System logs must not contain:
 - Full project paths or sensitive project names
 - Account rate-limit or token-usage details
 
+Fixed `CodexProxyError` messages go to the `settings` system-log category without configuration values. Before app-server responses enter the app interaction log, JSON escapes are decoded and HTTP/HTTPS URL credentials in string values are redacted. Other account and protocol fields retain the existing request-log behavior.
+
 ## Network Access
 
 | Destination | Purpose | Trigger |
 | --- | --- | --- |
 | CloudKit private database | Sync daily Hook aggregations | User explicitly enables sync |
+| Codex service, through the app-server subprocess | Authentication, rate limits, usage, and Reset Credit consumption | Regular refreshes, proxy tests, or Automatic Reset |
 | Sparkle appcast and update resources | Check for or install updates | Automatic check or manual user request |
 
 Account data, rate limits, token usage, Reset Credits details, and explicitly enabled Reset Credit redemption use local app-server stdio. CodexBar does not add a separate HTTP client for Automatic Reset.
 
 CodexBarHelper performs no network access.
+
+When a proxy is enabled, its address and optional credentials are passed through environment variables to app-server processes started by CodexBar. This does not configure system networking, Sparkle, CloudKit, or other Codex processes. Connection tests use a temporary app-server, close it afterward, and do not write app interaction logs.
 
 ## CloudKit Boundary
 
@@ -258,10 +229,9 @@ CloudKit does not upload:
 - Access tokens
 - App request logs
 - Activity Protection state
+- Proxy settings and passwords
 
 A project display name may derive from a directory name and still contain sensitive information. Sync must remain an explicit user choice.
-
-An HMAC device pseudonym reduces linkability of hardware identity but does not anonymize project names. A private database also does not mean that data remains on the device. Settings copy and developer documentation must therefore continue to explain synced content rather than enabling it by default simply because CloudKit belongs to the user's account.
 
 ## Root Helper Data Isolation
 
@@ -274,7 +244,7 @@ CodexBarHelper needs only four kinds of state:
 
 It does not need task IDs, project names, Hook paths, account state, `creditId`, or complete user settings. XPC carries only Boolean requests, client session ID, generation, update identifier, and a bounded Unix timestamp.
 
-This capability minimization means future network or data features in the regular app do not automatically reach the root process. Business services must not be linked into the helper merely to reuse file or network code.
+The helper target contains restricted power operations and the shared XPC protocol; it does not link the app’s business services.
 
 The helper ownership file is a crash-recovery transaction record, not a user preference. It must be root-owned, reject group- or world-writable directories, and use full sync plus atomic rename so a restart can decide whether restoration is required.
 
@@ -286,20 +256,6 @@ The helper ownership file is a crash-recovery transaction record, not a user pre
 - Activity Protection files have `0600` permissions
 - CodexBarHelper state commits with root ownership, permission checks, full sync, and atomic rename
 - Data shared by Debug and Release uses locking and compatible schemas
-
-## Privacy Meaning of Missing, Stale, and Unavailable
-
-Do not hide unavailable data behind friendly-looking defaults:
-
-| State | Correct representation | Incorrect behavior |
-| --- | --- | --- |
-| Field missing from an older source | `nil` or unavailable | Decode as an explicit zero |
-| app-server cache expired | Stale snapshot | Continue triggering notifications |
-| Rollout supplemental read unavailable | Retain existing Hook task state and continue polling for lifecycle updates | Treat a missing rollout result as a task ending |
-| CloudKit offline | Preserve old cache with source attribution | Treat it as new data for the current account |
-| Battery read failed | Preserve prior decision and mark unreadable | Treat as no battery |
-
-Explicit degradation improves correctness and avoids reading extra fallback sources or storing additional data simply to fill the UI.
 
 ## Checklist Before Adding a Data Field
 

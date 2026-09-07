@@ -18,6 +18,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let notificationSettings: NotificationSettings
     private let autoResetSettings: AutoResetSettings
     private let keepAliveController: KeepAliveController
+    private let proxySettings: CodexProxySettings
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
@@ -41,6 +42,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private lazy var settingsWindowController = SettingsWindowController(
         viewModel: viewModel,
         appUpdater: appUpdater,
+        proxySettings: proxySettings,
         codexHookSettings: codexHookSettings,
         codexCLINotificationSettings: codexCLINotificationSettings,
         syncSettings: syncSettings,
@@ -121,7 +123,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         notificationSettings: NotificationSettings,
         autoResetSettings: AutoResetSettings,
         keepAliveController: KeepAliveController,
-        appUpdater: AppUpdater
+        appUpdater: AppUpdater,
+        proxySettings: CodexProxySettings
     ) {
         self.viewModel = viewModel
         self.workflowViewModel = workflowViewModel
@@ -136,6 +139,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.autoResetSettings = autoResetSettings
         self.keepAliveController = keepAliveController
         self.appUpdater = appUpdater
+        self.proxySettings = proxySettings
         super.init()
     }
 

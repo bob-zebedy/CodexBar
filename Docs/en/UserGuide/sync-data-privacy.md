@@ -2,136 +2,65 @@
 
 [简体中文](../../UserGuide/sync-data-privacy.md) | English
 
-## What Cross-Device Sync Includes
+## Cross-Device Sync
 
-Cross-device sync merges daily Hook aggregations from multiple Macs. It does not sync account data, rate limits, token usage, banked resets, or Automatic Reset settings.
+Enable `Cross-Device Sync` in `Settings > Advanced` to combine daily Hook statistics from Macs using the same iCloud account. CodexBar Hook must be enabled and an available iCloud account signed in.
 
-It requires:
+The first sync uploads statistics within local retention; later changes sync automatically. Turning sync off keeps local data.
 
-- CodexBar Hook to be enabled
-- An available iCloud account
-- `Sync Across Devices` to be explicitly enabled
-
-After you enable it, CodexBar uploads daily Hook aggregations within the local retention period, then uploads changed dates during later statistics maintenance.
-
-Each device stores its contribution for a date separately. CodexBar merges contributions from different devices for display while avoiding double-counting the current device's local and cloud copies.
-
-Sync uses the CloudKit private database in the `iCloud.app.zabrian.codexbar` container.
-
-## Sync Status
-
-The bottom of the main panel and the Settings page show these states:
-
-| Status | Meaning |
+| State | Meaning |
 | --- | --- |
-| Sync is off | You have not enabled sync, or CodexBar Hook is off |
-| Syncing | CodexBar is reading from or writing to CloudKit |
-| Synced | The most recent sync completed successfully |
-| Sync failed | The network, iCloud account, or service is temporarily unavailable |
+| Sync Off | Sync or CodexBar Hook is disabled |
+| Syncing | Data is being transferred |
+| Synced | The latest sync cycle succeeded |
+| Sync Failed | The network, iCloud account, or service is temporarily unavailable; CodexBar will retry |
 
-Settings also shows the time of the most recent successful upload.
+The main panel footer and Settings show sync status. Settings also shows the last successful upload time.
 
-## Rebuilding Data
+## Uploaded Data
 
-Use `Settings > Advanced > Rebuild Data` to regenerate daily aggregations for selected dates from local raw Hook events.
+Synced data is stored in your private iCloud database. It includes dates, daily event and session statistics, project display names, model names, and identifiers used to distinguish devices and avoid duplicate counts.
 
-This is useful when:
+The following are not synced:
 
-- Older aggregations lack metrics added by a newer version
-- Metrics for certain dates look incorrect
-- Local raw events were replaced or truncated
-- You need to replace the current device's cloud contribution for those dates with a local result
+- Raw Hook events, session and task identifiers, and full working-directory paths
+- Prompts, Codex replies, and tool parameters or output
+- Codex account data, quota, token usage, and banked resets
+- App settings, proxy configuration, and passwords
+- Logs, live task state, and Stalled Task Protection records
 
-The rebuild process works as follows:
+**Project display names are uploaded.** Disable cross-device sync if a project name contains information you do not want stored in iCloud.
 
-1. The date picker allows only dates within the raw Hook-event retention period
-2. Dates with raw data are marked
-3. After confirmation, CodexBar reparses the selected local JSONL files
-4. Unparseable lines are skipped and included in the result count
-5. If sync is enabled, the rebuilt dates replace this device's cloud contribution during a later sync
+## Local Data
 
-Rebuilding does not change your Codex account, rate limits, or token usage.
+| Data | Contents and retention |
+| --- | --- |
+| Hook records and daily statistics | Times, events, models, tools, projects, and task identifiers, retained for 210 days; session and turn details in daily statistics are retained for only the latest 3 days |
+| Stalled Task Protection | Irreversible task identifiers and times, retained for up to 24 hours after the last progress |
+| App settings | Stored on the current Mac, including proxy configuration; proxy passwords are stored in plain text |
+| Interaction logs | The latest 500 Codex requests and responses, retained only during the current run |
+| Background-service state | Used to restore sleep settings and clean up Automatic Reset wake schedules |
 
-## Data Stored Locally
+CodexBar reads local Codex task state and activity records without saving prompts, replies, or tool content, or copying Codex sign-in credentials.
 
-| Data | Contents | Location or lifetime |
-| --- | --- | --- |
-| Raw Hook events | Selected structured event fields | `~/Library/Application Support/CodexBar/HookEvents/events`, retained for 210 days |
-| Daily Hook aggregations | Event counts, sessions and turns, project-name counts, and model counts | `~/Library/Application Support/CodexBar/HookEvents/daily.jsonl`, retained for 210 days |
-| Hook maintenance state | File `offset`, `generation`, and pending dates | `~/Library/Application Support/CodexBar/HookEvents/maintenance.json` |
-| Sync cache | CloudKit cache, cursors, and upload state | `~/Library/Application Support/CodexBar/HookEvents/Sync` |
-| Stalled Task Protection | Hashed task identifiers and timestamps | `~/Library/Application Support/CodexBar/ActivityProtection/state.json`, up to 24 hours |
-| CodexBarHelper ownership | Sleep-state ownership and recovery transactions | `/Library/Application Support/CodexBar/helper-state.json` |
-| Automatic Reset wake schedule | CodexBar's fixed owner, `wake` type, and next time | macOS power management; removed after firing or cancellation |
-| App preferences | Switches, thresholds, shortcut, Automatic Reset lead time, and notification deduplication state | macOS UserDefaults |
-| app-server interaction log | The latest 500 requests and responses | Current app process memory only |
+Turning the proxy off retains its configuration and password. Saving with authentication disabled or choosing `Delete Configuration` removes the password.
 
-Daily aggregations retain lists of session and turn IDs only for the latest 3 days. Older dates are reduced to counts and the lists are removed.
+## Rebuild Data
 
-The CodexBarHelper ownership file is owned by root and is used to recover sleep state after an unexpected CodexBar or CodexBarHelper exit.
+If statistics look incorrect, choose a date range in `Settings > Advanced > Rebuild Data` and confirm. You can select from the last 210 days; dates with local records are marked.
 
-The Automatic Reset wake schedule contains no account data, banked resets, `creditId`, or idempotency key. CodexBarHelper removes schedules left by the same build identity when it starts. The app also cancels schedules when tasks change, the feature is disabled, or the app exits normally.
+Rebuilding recalculates Hook statistics from retained local records and displays the result. With sync enabled, the result replaces this device’s cloud statistics for those dates while preserving other devices’ contributions. Account, quota, and token usage are unaffected.
 
-Anonymous tasks do not participate in Stalled Task Protection, so they do not create hashed task identifiers or write to the protection-state file.
+## Network and Logs
 
-## Fields Uploaded to CloudKit
+| Network access | Purpose |
+| --- | --- |
+| Codex service | Read account, quota, and usage data; perform Automatic Reset |
+| Update service | Check for and download CodexBar updates |
+| iCloud | Transfer daily Hook statistics when sync is enabled |
 
-Each daily aggregation record may contain:
+The proxy applies only to CodexBar’s Codex service connection, not updates, iCloud, or other apps.
 
-- A pseudonymous device identifier scoped to the iCloud account
-- Date
-- The local Hook data source `generation`
-- Counts for each Hook event type
-- Session and turn counts
-- Project display-name counts
-- Model-name counts
-- Update time
+Interaction logs may contain account data and request or response content and are cleared when the app quits. Check for private information before sharing them.
 
-The pseudonymous device identifier is derived from the device UUID and a random salt in the iCloud private database. The raw device UUID is not uploaded.
-
-## Data Not Uploaded to CloudKit
-
-- Raw Hook event files
-- Session IDs, turn IDs, and agent IDs
-- Full working-directory paths
-- Prompts, Codex responses, tool arguments, or tool output
-- Codex account, rate-limit, or token usage data
-- Banked reset details, Automatic Reset settings, or redemption state
-- app-server interaction logs
-- Stalled Task Protection records
-- Codex authentication tokens
-
-Project display names and model names are synced. Do not enable cross-device sync if a project name itself contains sensitive information.
-
-## Local Data Access
-
-CodexBar reads the following local data:
-
-- Account, rate-limit, token usage, banked reset details, and Codex configuration through the local app-server
-- Raw Hook events to generate metrics and live tasks
-- Hook model fields and the first origin and lifecycle fields from local Codex rollout files to exclude Auto-review live tasks, distinguish completion from termination, and supplement progress timestamps
-
-Origin classification prefers rollout metadata. When rollout origin is `unknown`, only an exact `codex-auto-review` Hook model match classifies the event as `autoReview`. Origin reading is limited to 256 KiB and stores only the normalized result `main`, `autoReview`, `auxiliary`, or `unknown`. CodexBar does not store rollout paths or raw source values; other rollout reads likewise extract only lifecycle, time, reasoning-effort, and similar fields and never display or store conversation text or tool content.
-
-After you explicitly enable Automatic Reset, CodexBar uses banked resets that the same local app-server explicitly reports as near expiration. Raw `creditId` and idempotency keys are not written to disk or CloudKit. `UserDefaults` stores only the feature switch, lead time, notification switch, sound choice, and hashed notification-deduplication keys.
-
-CodexBar does not copy or persist Codex authentication tokens.
-
-## Network Activity
-
-| Network access | Purpose | Trigger |
-| --- | --- | --- |
-| Sparkle update feed | Check for and install CodexBar updates | Automatic checking is enabled or you check manually |
-| CloudKit private database | Sync daily Hook aggregations across devices | You enable cross-device sync |
-
-Account data, rate limits, token usage, banked reset details, and user-enabled Automatic Reset actions all use stdio communication with the local app-server. Automatic Reset does not add CloudKit requests. It sends CodexBarHelper only the time for a fixed system wake schedule, never account or banked reset data.
-
-## Log Privacy
-
-System logs contain only operation results, state classifications, counts, and error stages.
-
-They must not record account rate-limit values, token usage, project names, task content, session IDs, turn IDs, or OAuth tokens.
-
-The in-app app-server interaction log may contain request and response data, but it exists only in current-process memory and is shown only when you explicitly open the Logs window.
-
-Back to the [User Guide](README.md)
+Back to the [User Guide](README.md).

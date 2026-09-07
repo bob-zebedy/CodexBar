@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController: HostingWindowController {
     private let viewModel: CodexStatusViewModel
+    private let proxySettings: CodexProxySettings
     private let appUpdater: AppUpdater
     private let codexHookSettings: CodexHookSettings
     private let codexCLINotificationSettings: CodexCLINotificationSettings
@@ -33,6 +34,7 @@ final class SettingsWindowController: HostingWindowController {
     init(
         viewModel: CodexStatusViewModel,
         appUpdater: AppUpdater,
+        proxySettings: CodexProxySettings,
         codexHookSettings: CodexHookSettings,
         codexCLINotificationSettings: CodexCLINotificationSettings,
         syncSettings: WorkflowSyncSettings,
@@ -49,6 +51,7 @@ final class SettingsWindowController: HostingWindowController {
     ) {
         self.viewModel = viewModel
         self.appUpdater = appUpdater
+        self.proxySettings = proxySettings
         self.codexHookSettings = codexHookSettings
         self.codexCLINotificationSettings = codexCLINotificationSettings
         self.syncSettings = syncSettings
@@ -74,6 +77,7 @@ final class SettingsWindowController: HostingWindowController {
     override func makeWindow() -> NSWindow {
         let hostingController = NSHostingController(
             rootView: AppSettingsView(
+                proxySettings: proxySettings,
                 codexHookSettings: codexHookSettings,
                 syncSettings: syncSettings,
                 globalHotKeySettings: globalHotKeySettings,
