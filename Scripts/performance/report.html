@@ -1,0 +1,1286 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="width=device-width,initial-scale=1" />
+        <meta
+            name="color-scheme"
+            content="light dark" />
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'" />
+        <title>@@TITLE@@</title>
+        <style>
+            @font-face {
+                font-family: 'Report Latin';
+                src: local('MesloLGS NF Regular'), local('MesloLGS-NF-Regular');
+                font-style: normal;
+                font-weight: 400;
+                unicode-range: U+0000-024F, U+1E00-1EFF;
+            }
+
+            @font-face {
+                font-family: 'Report Latin';
+                src: local('MesloLGS NF Bold'), local('MesloLGS-NF-Bold');
+                font-style: normal;
+                font-weight: 700;
+                unicode-range: U+0000-024F, U+1E00-1EFF;
+            }
+
+            @font-face {
+                font-family: 'Report Latin';
+                src: local('MesloLGS NF Italic'), local('MesloLGS-NF-Italic');
+                font-style: italic;
+                font-weight: 400;
+                unicode-range: U+0000-024F, U+1E00-1EFF;
+            }
+
+            @font-face {
+                font-family: 'Report Latin';
+                src: local('MesloLGS NF Bold Italic'), local('MesloLGS-NF-Bold-Italic');
+                font-style: italic;
+                font-weight: 700;
+                unicode-range: U+0000-024F, U+1E00-1EFF;
+            }
+
+            :root {
+                --bg: #f2f4f3;
+                --card: #fff;
+                --ink: #172b31;
+                --muted: #607177;
+                --line: #dfe6e4;
+                --teal: #168c80;
+                --nav: #0e2930;
+                --warn: #a76412;
+                --soft: #e8f4f0;
+                --report-font: 'Report Latin', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+                --mono: var(--report-font);
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            html {
+                scroll-behavior: smooth;
+                scroll-padding-top: 30px;
+            }
+
+            body {
+                margin: 0;
+                background: var(--bg);
+                color: var(--ink);
+                font: 15px/1.75 var(--report-font);
+            }
+
+            body.dark {
+                --bg: #122128;
+                --card: #1a2b32;
+                --ink: #e5eeeb;
+                --muted: #a8baba;
+                --line: #31434a;
+                --soft: #203c3a;
+                --warn: #f0b45f;
+            }
+
+            a {
+                color: var(--teal);
+                text-decoration: none;
+            }
+
+            a:hover {
+                text-decoration: underline;
+            }
+
+            button {
+                font: inherit;
+                cursor: pointer;
+            }
+
+            button:focus-visible,
+            a:focus-visible,
+            summary:focus-visible {
+                outline: 3px solid #cc9a45;
+                outline-offset: 4px;
+            }
+
+            .shell {
+                display: grid;
+                grid-template-columns: 228px minmax(0, 1fr);
+                max-width: 1800px;
+                margin: auto;
+            }
+
+            .sidebar {
+                background: var(--nav);
+                color: #b6cbcc;
+                padding: 40px 25px;
+                position: sticky;
+                top: 0;
+                height: 100vh;
+            }
+
+            .brand {
+                font-size: 12px;
+                letter-spacing: 0.2em;
+                color: #e4c180;
+                font-weight: 700;
+            }
+
+            .sidebar strong {
+                display: block;
+                font-size: 24px;
+                color: white;
+                margin: 10px 0 36px;
+            }
+
+            .sidebar nav a {
+                display: block;
+                color: #b6cbcc;
+                padding: 9px 0;
+                font-size: 13px;
+            }
+
+            .sidebar nav span {
+                display: inline-block;
+                width: 28px;
+                color: #709292;
+                font-family: var(--mono);
+            }
+
+            .side-note {
+                border-top: 1px solid #365158;
+                margin-top: 45px;
+                padding-top: 22px;
+                font-size: 12px;
+            }
+
+            .main {
+                padding: 46px 5vw 64px;
+                min-width: 0;
+            }
+
+            .topline {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 15px;
+                flex-wrap: wrap;
+            }
+
+            .eyebrow {
+                font-size: 11px;
+                letter-spacing: 0.13em;
+                font-weight: 700;
+                text-transform: uppercase;
+                color: var(--teal);
+            }
+
+            .actions {
+                display: flex;
+                gap: 8px;
+            }
+
+            .actions button {
+                border: 1px solid var(--line);
+                border-radius: 7px;
+                background: var(--card);
+                color: var(--ink);
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+
+            h1 {
+                font-size: clamp(32px, 4vw, 54px);
+                line-height: 1.18;
+                letter-spacing: -0.045em;
+                margin: 23px 0 14px;
+            }
+
+            h2 {
+                font-size: 25px;
+                margin: 0;
+                letter-spacing: -0.025em;
+            }
+
+            h3 {
+                font-size: 18px;
+                line-height: 1.5;
+                margin: 7px 0 10px;
+            }
+
+            h4 {
+                font-size: 14px;
+                margin: 23px 0 12px;
+            }
+
+            p {
+                margin: 10px 0 17px;
+            }
+
+            .lead {
+                font-size: 16px;
+                color: var(--muted);
+                max-width: 740px;
+            }
+
+            .meta {
+                display: flex;
+                gap: 12px;
+                align-items: center;
+                flex-wrap: wrap;
+                font-size: 12px;
+                color: var(--muted);
+                margin: 23px 0 28px;
+            }
+
+            .badge {
+                display: inline-flex;
+                align-items: center;
+                border-radius: 30px;
+                padding: 4px 11px;
+                font-size: 11px;
+                white-space: nowrap;
+            }
+
+            .badge.ok {
+                background: var(--soft);
+                color: var(--teal);
+            }
+
+            .badge.warn {
+                background: #f4e7d5;
+                color: #976022;
+            }
+
+            .hero-rule {
+                height: 2px;
+                background: linear-gradient(90deg, var(--teal) 0 22%, var(--line) 22% 100%);
+                margin: 22px 0 30px;
+            }
+
+            .kpis {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 13px;
+            }
+
+            .kpi {
+                background: var(--card);
+                border: 1px solid var(--line);
+                padding: 21px;
+                border-radius: 10px;
+            }
+
+            .kpi .value {
+                font-family: var(--mono);
+                font-size: 34px;
+                letter-spacing: -0.06em;
+                margin: 11px 0 4px;
+            }
+
+            .kpi small {
+                font-size: 12px;
+                line-height: 1.5;
+                color: var(--muted);
+            }
+
+            .kpi .unit {
+                font: 12px var(--mono);
+                color: var(--muted);
+                margin-left: 6px;
+            }
+
+            .kpi .label {
+                font-size: 12px;
+                font-weight: 600;
+            }
+
+            .section {
+                margin-top: 48px;
+            }
+
+            .section-head {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 20px;
+                margin-bottom: 20px;
+            }
+
+            .section-index {
+                font: 12px var(--mono);
+                color: var(--muted);
+                margin-bottom: 6px;
+            }
+
+            .muted {
+                color: var(--muted);
+                font-size: 13px;
+            }
+
+            .panel,
+            .phase {
+                background: var(--card);
+                border: 1px solid var(--line);
+                border-radius: 10px;
+                padding: 25px;
+            }
+
+            .phase {
+                margin-bottom: 22px;
+            }
+
+            .phase .section-head {
+                margin-bottom: 4px;
+            }
+
+            .table-scroll {
+                overflow-x: auto;
+                border: 1px solid var(--line);
+                border-radius: 8px;
+                background: var(--card);
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 12px;
+                text-align: left;
+            }
+
+            th {
+                font-weight: 600;
+                color: var(--muted);
+                background: var(--bg);
+                padding: 12px 14px;
+                white-space: nowrap;
+            }
+
+            td {
+                padding: 12px 14px;
+                border-top: 1px solid var(--line);
+                vertical-align: top;
+                overflow-wrap: anywhere;
+            }
+
+            td:first-child {
+                font-weight: 550;
+            }
+
+            tr:hover td {
+                background: var(--soft);
+            }
+
+            .notice {
+                padding: 17px 20px;
+                border-left: 3px solid var(--teal);
+                background: var(--soft);
+                font-size: 13px;
+                margin: 18px 0;
+            }
+
+            .notice.warn {
+                border-left-color: var(--warn);
+            }
+
+            .two {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 18px;
+            }
+
+            .panel p {
+                font-size: 13px;
+            }
+
+            svg {
+                width: 100%;
+                height: auto;
+                display: block;
+                overflow: visible;
+            }
+
+            svg text {
+                font: 11px var(--mono);
+                fill: var(--muted);
+            }
+
+            svg .grid {
+                stroke: var(--line);
+                stroke-width: 1;
+            }
+
+            details {
+                border-top: 1px solid var(--line);
+                padding: 14px 0;
+                margin-top: 15px;
+            }
+
+            summary {
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+            }
+
+            details p {
+                font-size: 12px;
+                color: var(--muted);
+            }
+
+            .empty {
+                padding: 40px;
+                color: var(--muted);
+                text-align: center;
+            }
+
+            .footer {
+                margin-top: 48px;
+                border-top: 1px solid var(--line);
+                padding-top: 20px;
+                display: flex;
+                justify-content: space-between;
+                gap: 20px;
+                color: var(--muted);
+                font-size: 11px;
+            }
+
+            @media (min-width: 1450px) {
+                .main {
+                    padding-left: 70px;
+                    padding-right: 70px;
+                }
+            }
+
+            @media (max-width: 1100px) {
+                .shell {
+                    grid-template-columns: 180px minmax(0, 1fr);
+                }
+
+                .sidebar {
+                    padding: 30px 18px;
+                }
+
+                .main {
+                    padding: 32px 28px;
+                }
+
+                .kpi {
+                    padding: 16px;
+                }
+
+                .kpi .value {
+                    font-size: 27px;
+                }
+            }
+
+            @media (max-width: 800px) {
+                .shell {
+                    display: block;
+                }
+
+                .sidebar {
+                    display: none;
+                }
+
+                .main {
+                    padding: 25px 18px;
+                }
+
+                .kpis {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+
+                .two {
+                    grid-template-columns: 1fr;
+                }
+
+                .phase,
+                .panel {
+                    padding: 19px;
+                }
+
+                .section {
+                    margin-top: 34px;
+                }
+
+                .actions button {
+                    padding: 5px 9px;
+                }
+
+                .section-head {
+                    gap: 10px;
+                }
+
+                .footer {
+                    display: block;
+                }
+
+                h1 {
+                    font-size: 38px;
+                }
+            }
+
+            @media print {
+                body,
+                body.dark {
+                    --bg: #fff;
+                    --card: #fff;
+                    --ink: #111;
+                    --muted: #555;
+                    --line: #ddd;
+                    --soft: #f4f8f6;
+                    background: white;
+                    color: #111;
+                    font-size: 11px;
+                }
+
+                .sidebar,
+                .actions {
+                    display: none !important;
+                }
+
+                .shell {
+                    display: block;
+                }
+
+                .main {
+                    padding: 0;
+                }
+
+                .section {
+                    margin-top: 24px;
+                }
+
+                .phase,
+                .panel {
+                    break-inside: avoid;
+                }
+
+                .kpi {
+                    padding: 12px;
+                }
+
+                .kpi .value {
+                    font-size: 24px;
+                }
+
+                .table-scroll {
+                    overflow: visible;
+                }
+
+                th,
+                td {
+                    padding: 8px;
+                }
+
+                svg {
+                    max-height: 220px;
+                }
+
+                .footer {
+                    margin-top: 20px;
+                }
+
+                h1 {
+                    font-size: 34px;
+                }
+
+                a {
+                    color: inherit;
+                }
+
+                details {
+                    break-inside: auto;
+                }
+            }
+
+            .bar-chart {
+                margin-top: 16px;
+            }
+
+            .bar-group {
+                margin: 0 0 16px;
+            }
+
+            .bar-label {
+                font: 12px/1.5 var(--mono);
+                overflow-wrap: anywhere;
+                margin-bottom: 6px;
+                color: var(--ink);
+            }
+
+            .bar-entry {
+                display: grid;
+                grid-template-columns: 48px minmax(30px, 1fr) 104px;
+                gap: 8px;
+                align-items: center;
+                margin: 5px 0;
+            }
+
+            .bar-series {
+                font-size: 11px;
+                color: var(--muted);
+            }
+
+            .bar-track {
+                height: 10px;
+                background: var(--bg);
+                position: relative;
+                border-radius: 3px;
+                overflow: hidden;
+            }
+
+            .bar-track i {
+                position: absolute;
+                top: 0;
+                height: 100%;
+                border-radius: 2px;
+                min-width: 0;
+            }
+
+            .bar-track.missing {
+                background: repeating-linear-gradient(90deg, var(--line) 0 4px, transparent 4px 8px);
+                height: 2px;
+            }
+
+            .zero {
+                position: absolute;
+                top: 0;
+                height: 100%;
+                width: 1px;
+                background: var(--muted);
+                opacity: 0.5;
+            }
+
+            .bar-value {
+                font: 11px var(--mono);
+                text-align: right;
+                white-space: nowrap;
+                color: var(--ink);
+            }
+
+            .bar-value small {
+                font-size: 10px;
+                color: var(--muted);
+            }
+
+            .hotspot {
+                margin-top: 18px;
+            }
+
+            .hotspot > .two {
+                margin-top: 22px;
+            }
+
+            .hotspot .panel {
+                padding: 16px;
+                border: 0;
+                background: var(--bg);
+            }
+
+            .hotspot .bar-track {
+                background: var(--line);
+            }
+
+            .metric-strip {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 12px;
+                padding-top: 20px;
+                border-top: 1px solid var(--line);
+            }
+
+            .metric-strip span {
+                display: block;
+                color: var(--muted);
+                font-size: 11px;
+            }
+
+            .metric-strip b {
+                font: 18px var(--mono);
+            }
+
+            .thermal-phase {
+                display: grid;
+                grid-template-columns: 64px 1fr;
+                gap: 10px;
+                align-items: center;
+                margin-top: 14px;
+                font: 12px var(--mono);
+            }
+
+            .thermal-state {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 10px;
+                border-radius: 5px;
+                padding: 9px 12px;
+                grid-column: 2;
+            }
+
+            .thermal-phase > b + .thermal-state {
+                grid-column: auto;
+            }
+
+            .thermal-state span {
+                font-size: 10px;
+            }
+
+            .thermal-state.nominal {
+                background: var(--soft);
+                color: var(--teal);
+            }
+
+            .thermal-state.elevated {
+                background: #f4e7d5;
+                color: #976022;
+            }
+
+            .section > .two {
+                margin-top: 18px;
+            }
+
+            .two > .panel {
+                min-width: 0;
+            }
+
+            .hotspot summary {
+                font-size: 15px;
+            }
+
+            details.panel {
+                padding: 20px 25px;
+            }
+
+            @media (max-width: 800px) {
+                .bar-entry {
+                    grid-template-columns: 40px minmax(25px, 1fr) 90px;
+                }
+
+                .metric-strip {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+
+                .thermal-state {
+                    flex-wrap: wrap;
+                }
+
+                .section-head {
+                    align-items: flex-start;
+                    flex-direction: column;
+                }
+
+                .hotspot .panel {
+                    padding: 12px;
+                }
+
+                .hotspot {
+                    padding: 16px !important;
+                }
+            }
+
+            @media print {
+                .phase {
+                    break-inside: auto;
+                }
+
+                .bar-group,
+                .metric-strip,
+                .thermal-phase {
+                    break-inside: avoid;
+                }
+
+                .bar-track,
+                .bar-track i,
+                .thermal-state,
+                svg {
+                    -webkit-print-color-adjust: exact;
+                    print-color-adjust: exact;
+                }
+
+                .bar-label {
+                    font-size: 10px;
+                }
+
+                .bar-group {
+                    margin-bottom: 10px;
+                }
+            }
+
+            .trend-chart {
+                margin: 22px 0 28px;
+                padding-top: 15px;
+                border-top: 1px solid var(--line);
+            }
+
+            .trend-stats {
+                display: flex;
+                justify-content: space-between;
+                gap: 12px;
+                flex-wrap: wrap;
+            }
+
+            .trend-stats b {
+                font-size: 14px;
+            }
+
+            .trend-stats span {
+                font-size: 12px;
+                color: var(--muted);
+            }
+
+            .trend-chart svg {
+                touch-action: pan-y;
+            }
+
+            .cursor {
+                stroke: var(--ink);
+                stroke-width: 1;
+                stroke-dasharray: 4 4;
+                pointer-events: none;
+            }
+
+            .cursor[hidden] {
+                display: none;
+            }
+
+            .chart-control {
+                display: none;
+                align-items: center;
+                gap: 18px;
+                padding: 0 3% 0 7%;
+            }
+
+            .js .chart-control {
+                display: flex;
+            }
+
+            .chart-control input {
+                width: 45%;
+                accent-color: var(--teal);
+                cursor: ew-resize;
+            }
+
+            .chart-control output {
+                font: 12px var(--mono);
+                color: var(--ink);
+            }
+
+            .share-track {
+                display: flex;
+                height: 30px;
+                border-radius: 6px;
+                overflow: hidden;
+                margin: 30px 0 20px;
+            }
+
+            .share-track i {
+                display: block;
+                height: 100%;
+            }
+
+            .share-values {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 25px;
+            }
+
+            .share-values span,
+            .share-values small {
+                display: block;
+                font-size: 12px;
+                color: var(--muted);
+            }
+
+            .share-values b {
+                font: 28px/1.8 var(--mono);
+            }
+
+            .share-values > div {
+                border-top: 3px solid #168c80;
+                padding-top: 10px;
+            }
+
+            .share-values > div + div {
+                border-color: #5668cb;
+            }
+
+            .interval-axis {
+                display: flex;
+                justify-content: space-between;
+                color: var(--muted);
+                font: 11px var(--mono);
+                margin: 20px 0 10px;
+            }
+
+            .interval-row {
+                padding: 12px 0;
+                border-bottom: 1px solid var(--line);
+            }
+
+            .interval-row > b {
+                font: 12px var(--mono);
+            }
+
+            .interval-track {
+                position: relative;
+                height: 24px;
+                margin: 8px 6px;
+                background: linear-gradient(var(--line), var(--line)) center/100% 1px no-repeat;
+            }
+
+            .interval-line {
+                position: absolute;
+                top: 10px;
+                height: 4px;
+                background: #168c80;
+                opacity: 0.55;
+            }
+
+            .interval-point {
+                position: absolute;
+                top: 6px;
+                transform: translateX(-50%);
+                width: 12px;
+                height: 12px;
+                background: #168c80;
+                border: 2px solid #168c80;
+                border-radius: 50%;
+            }
+
+            .interval-point.bound {
+                width: 2px;
+                border: 0;
+                border-radius: 0;
+                top: 5px;
+                height: 14px;
+            }
+
+            .interval-point.head {
+                background: var(--card);
+            }
+
+            .interval-point.tail {
+                background: #5668cb;
+                border-color: #5668cb;
+            }
+
+            .interval-values,
+            .interval-key {
+                font: 11px/1.8 var(--mono);
+                color: var(--muted);
+                display: block;
+            }
+
+            .interval-key {
+                margin-top: 15px;
+            }
+
+            .bar-track {
+                height: 16px;
+                border-radius: 2px;
+            }
+
+            .bar-entry {
+                grid-template-columns: 48px minmax(30px, 1fr) 110px;
+            }
+
+            .bar-series:empty {
+                display: none;
+            }
+
+            .bar-entry:has(.bar-series:empty) {
+                grid-template-columns: minmax(30px, 1fr) 110px;
+            }
+
+            .bar-label {
+                line-height: 1.65;
+            }
+
+            .hotspot > .two {
+                grid-template-columns: 1fr;
+            }
+
+            .hotspot .bar-group {
+                margin-bottom: 18px;
+            }
+
+            .hotspot .bar-entry {
+                max-width: 100%;
+            }
+
+            @media (max-width: 800px) {
+                .trend-stats {
+                    display: block;
+                }
+
+                .trend-stats span {
+                    display: block;
+                    margin-top: 5px;
+                }
+
+                .chart-control {
+                    padding: 0;
+                    gap: 8px;
+                }
+
+                .chart-control output {
+                    font-size: 10px;
+                }
+
+                .trend-chart svg text {
+                    font-size: 16px;
+                }
+
+                .interval-values {
+                    font-size: 10px;
+                }
+
+                .share-values b {
+                    font-size: 24px;
+                }
+            }
+
+            @media print {
+                .chart-control {
+                    display: none !important;
+                }
+
+                .trend-chart {
+                    break-inside: avoid;
+                }
+
+                .share-track,
+                .share-values,
+                .interval-track,
+                .interval-point {
+                    -webkit-print-color-adjust: exact;
+                    print-color-adjust: exact;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="shell">
+            <aside class="sidebar">
+                <div class="brand">PERFORMANCE LAB</div>
+                <strong>@@APP@@</strong>
+                <nav aria-label="报告目录">
+                    <a href="#overview"><span>01</span>数据总览</a>
+                    <a href="#comparison"><span>02</span>阶段对比</a>
+                    <a href="#io"><span>03</span>唤醒与磁盘</a>
+                    <a href="#measurements"><span>04</span>运行曲线</a>
+                    <a href="#hotspots"><span>05</span>CPU 热点</a>
+                    <a href="#events"><span>06</span>事件与热状态</a>
+                    <a href="#environment"><span>07</span>采集记录</a>
+                </nav>
+                <div class="side-note">@@PRESET@@<br />@@VERSION@@<br />Instruments</div>
+            </aside>
+            <main class="main">
+                <header id="overview">
+                    <div class="topline">
+                        <span class="eyebrow">Runtime performance / @@PRESET@@</span>
+                        <div class="actions">
+                            <button
+                                id="theme"
+                                type="button"
+                                aria-label="切换深浅主题">
+                                切换主题
+                            </button>
+                            <button
+                                id="download"
+                                type="button">
+                                导出 JSON
+                            </button>
+                            <button
+                                id="print"
+                                type="button">
+                                打印报告
+                            </button>
+                        </div>
+                    </div>
+                    <h1>@@APP@@<br />性能数据报告</h1>
+                    <div class="meta">
+                        <span class="badge @@STATE_TONE@@">@@STATE@@</span><span>版本 @@VERSION@@</span><span>有效阶段 @@VALID@@ / @@PLANNED@@</span><span>@@STARTED@@</span>
+                    </div>
+                    <div class="hero-rule"></div>
+                    <div class="kpis">
+                        <div class="kpi">
+                            <div class="label">记录时间</div>
+                            <div class="value">@@MINUTES@@<span class="unit">min</span></div>
+                            <small>各阶段累计</small>
+                        </div>
+                        <div class="kpi">
+                            <div class="label">平均 CPU</div>
+                            <div class="value">@@CPU@@<span class="unit">%</span></div>
+                            <small>按观测时长加权</small>
+                        </div>
+                        <div class="kpi">
+                            <div class="label">footprint 峰值</div>
+                            <div class="value">@@MEMORY@@<span class="unit">MiB</span></div>
+                            <small>有效阶段最大值</small>
+                        </div>
+                        <div class="kpi">
+                            <div class="label">Hangs 记录</div>
+                            <div class="value">@@HANGS@@<span class="unit">条</span></div>
+                            <small>采集阶段数：@@HANG_PHASES@@</small>
+                        </div>
+                    </div>
+                    @@ERRORS@@
+                </header>
+                <section
+                    id="comparison"
+                    class="section">
+                    <div class="section-head">
+                        <div>
+                            <div class="section-index">02 / COMPARISON</div>
+                            <h2>阶段对比</h2>
+                        </div>
+                        <span class="muted">CPU 100% = 1 个逻辑核心</span>
+                    </div>
+                    <div class="two">@@COMPARISONS@@</div>
+                </section>
+                <section
+                    id="io"
+                    class="section">
+                    <div class="section-head">
+                        <div>
+                            <div class="section-index">03 / RESOURCES</div>
+                            <h2>唤醒、磁盘与系统负载</h2>
+                        </div>
+                    </div>
+                    <div class="two">@@IO_CHARTS@@</div>
+                </section>
+                <section
+                    id="measurements"
+                    class="section">
+                    <div class="section-head">
+                        <div>
+                            <div class="section-index">04 / TIME SERIES</div>
+                            <h2>运行曲线</h2>
+                        </div>
+                        <span class="muted">横轴：阶段内秒数 · 同一指标各阶段使用相同纵轴</span>
+                    </div>
+                    @@PHASES@@
+                </section>
+                <section
+                    id="hotspots"
+                    class="section">
+                    <div class="section-head">
+                        <div>
+                            <div class="section-index">05 / CPU PROFILE</div>
+                            <h2>CPU 采样分布与热点</h2>
+                        </div>
+                        <span class="muted">采样权重 / ms</span>
+                    </div>
+                    <div class="two">@@HOT_OVERVIEW@@</div>
+                    @@HOTSPOTS@@
+                </section>
+                <section
+                    id="events"
+                    class="section">
+                    <div class="section-head">
+                        <div>
+                            <div class="section-index">06 / EVENTS</div>
+                            <h2>事件与热状态</h2>
+                        </div>
+                    </div>
+                    <div class="two">@@EVENTS@@</div>
+                    @@EVENT_DETAILS@@
+                </section>
+                @@OPTIONAL@@
+                <section
+                    id="environment"
+                    class="section">
+                    <div class="section-head">
+                        <div>
+                            <div class="section-index">07 / RECORDS</div>
+                            <h2>采集记录</h2>
+                        </div>
+                    </div>
+                    @@RECORDS@@
+                    <div class="two section">
+                        <article class="panel">
+                            <h3>运行环境</h3>
+                            @@METADATA@@
+                        </article>
+                        <article class="panel">
+                            <h3>系统 Load Average</h3>
+                            @@LOAD@@
+                        </article>
+                    </div>
+                    <details>
+                        <summary>App 标识</summary>
+                        @@FINGERPRINT@@
+                    </details>
+                </section>
+                <footer class="footer"><span>@@APP@@ · Instruments</span><span>@@STARTED@@ — @@ENDED@@</span></footer>
+            </main>
+        </div>
+        <script
+            id="report-data"
+            type="application/json">
+            @@PAYLOAD@@
+        </script>
+        <script>
+            const data = JSON.parse(document.getElementById('report-data').textContent);
+            document.documentElement.classList.add('js');
+            document.querySelectorAll('.trend-chart').forEach((chart) => {
+                const points = data.phases[Number(chart.dataset.phase)].resources.series,
+                    key = chart.dataset.key,
+                    unit = chart.dataset.unit;
+                const svg = chart.querySelector('svg'),
+                    input = chart.querySelector('input');
+                const output = chart.querySelector('output'),
+                    cursor = chart.querySelector('.cursor');
+                const start = points[0].t,
+                    end = points[points.length - 1].t;
+
+                function select(index) {
+                    const t = points[index].t,
+                        value = points[index][key] ?? null,
+                        x = 68 + ((t - start) / Math.max(end - start, 1)) * 864;
+                    cursor.removeAttribute('hidden');
+                    cursor.setAttribute('x1', x);
+                    cursor.setAttribute('x2', x);
+                    output.textContent = `${t.toFixed(2)} s · ${value === null ? 'N/A' : value.toFixed(2) + ' ' + unit}`;
+                    input.value = index;
+                    input.setAttribute('aria-valuetext', output.textContent);
+                }
+
+                input.addEventListener('input', () => select(Number(input.value)));
+                svg.addEventListener('pointermove', (event) => {
+                    const rect = svg.getBoundingClientRect();
+                    const time = start + Math.max(0, Math.min(1, (((event.clientX - rect.left) / rect.width) * 960 - 68) / 864)) * (end - start);
+                    let index = 0;
+                    for (let i = 1; i < points.length; i++) if (Math.abs(points[i].t - time) < Math.abs(points[index].t - time)) index = i;
+                    select(index);
+                });
+                select(0);
+            });
+            document.getElementById('theme').addEventListener('click', () => document.body.classList.toggle('dark'));
+            document.getElementById('download').addEventListener('click', () => {
+                const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'performance-summary.json';
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            });
+            document.getElementById('print').addEventListener('click', () => window.print());
+            let openedForPrint = [];
+            window.addEventListener('beforeprint', () => {
+                openedForPrint = [...document.querySelectorAll('details:not([open])')];
+                openedForPrint.forEach((element) => (element.open = true));
+            });
+            window.addEventListener('afterprint', () => {
+                openedForPrint.forEach((element) => (element.open = false));
+                openedForPrint = [];
+            });
+        </script>
+    </body>
+</html>
