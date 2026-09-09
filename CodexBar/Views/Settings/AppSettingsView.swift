@@ -295,6 +295,8 @@ private extension AppSettingsView {
                 LiquidGlassDivider()
                 versionRow
                 LiquidGlassDivider()
+                HelperInstallationStatusRow(status: keepAliveController.helperStatus)
+                LiquidGlassDivider()
                 githubProjectRow
             }
             .padding(Metrics.panelPadding)
