@@ -13,7 +13,7 @@
 [![Downloads](https://img.shields.io/github/downloads/bob-zebedy/CodexBar/total?color=2EA043)](https://github.com/bob-zebedy/CodexBar/releases)
 [![License](https://img.shields.io/github/license/bob-zebedy/CodexBar?color=8957E5)](LICENSE)
 
-[Features](#features) | [Installation](#installation) | [Quick Start](#quick-start) | [Documentation](#documentation) | [Privacy](#privacy)
+[Features](#features) | [Installation](#installation) | [Quick Start](#quick-start) | [Documentation](#documentation) | [Privacy](#privacy) | [Runtime Architecture](https://codexbar.zabrian.app/architecture) | [Performance Report](https://codexbar.zabrian.app/performance)
 
 <img src="Images/preview-en.gif" width="640" alt="CodexBar preview">
 

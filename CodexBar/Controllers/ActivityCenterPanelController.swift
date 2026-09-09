@@ -73,11 +73,12 @@ final class ActivityCenterPanelController {
     func hide(immediate: Bool = false) {
         cancelScheduledPresentation()
         // 热力图 hover 等高频路径会盲调 hide; 已隐藏时跳过 @Published 写入, 避免整个菜单重算
-        guard presentationState.isPresented || presenter.isVisible else {
+        if presentationState.isPresented || presenter.isVisible {
+            cancelScheduledPanelUpdate()
+            presentationState.isPresented = false
+        } else if !immediate {
             return
         }
-        cancelScheduledPanelUpdate()
-        presentationState.isPresented = false
         presenter.hide(immediate: immediate)
     }
 

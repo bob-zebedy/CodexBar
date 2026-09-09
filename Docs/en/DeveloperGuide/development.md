@@ -69,6 +69,12 @@ Helper changes also require checking executable and plist placement inside the a
 
 Record the build, initial settings, action sequence, actual results, and relevant logs so validation can be reproduced.
 
+### Performance Validation
+
+View CPU, memory, wakeups, disk activity, and the recording environment in the [Performance Report](https://codexbar.zabrian.app/performance). Results apply to the build and workload recorded in the report.
+
+For collection, report generation, and baseline comparisons, see the [performance tool guide (Chinese)](../../../Scripts/performance/README.md).
+
 ## Debug and Release
 
 | Configuration | App bundle ID | Helper bundle ID |

@@ -264,7 +264,9 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 - 菜单栏按钮左键切换主面板；右键或 Control+点击打开上下文菜单；`⌘,` 打开自定义设置窗口，菜单面板打开时 `⌘L` 打开日志窗口；默认全局快捷键 `⌘⇧W` 由 `GlobalHotKeySettings` 与 `GlobalHotKeyController` 管理
 - 主面板是锚定 status item 的 `NSPopover` 弹窗，锚点不可信时回退到 `FallbackPanelController` 提供的屏幕顶部居中 `NSPanel` 面板，处理快捷键、屏幕选择和焦点时要保留这两个分支
-- 关闭逻辑统一由 `MenuSurfaceDismissMonitor` 管理；`MenuSurfaceFadeCoordinator` 同时调整内容视图和窗口透明度，淡入 0.24 秒、淡出 0.18 秒，只保留一个完成任务，新动画取消旧任务
+- `MenuSurfaceDismissMonitor` 将鼠标、键盘和激活事件汇总为关闭请求，`StatusItemController.popoverDidClose` 接收 AppKit 实际关闭回调；主动关闭容器前将 `activeMenuSurface` 设为 `none`，回调只对仍为当前容器的 popover 执行完整收尾
+- `MenuSurfaceFadeCoordinator` 同时调整内容视图和窗口透明度，淡入 0.24 秒、淡出 0.18 秒，只保留一个完成任务，新动画取消旧任务
+- popover 和备用面板分别持有 `MenuSurfaceAnimationState`，展示前允许动画，淡出期间保持开启，实际关闭后禁用；根视图在禁用时设置 `transaction.animation = nil` 和 `transaction.disablesAnimations = true`，后台刷新继续执行
 - 主面板的热力图详情、重置次数和任务中心使用 `borderless nonactivating child panel`；设置窗口的主面板布局、通知、自动重置和防睡眠选项使用可获得键盘焦点的 `borderless child panel`
 - 设置窗口的子面板占同一位置，展开一个必须先 `hide(immediate: true)` 收掉其余的；动作走 `SettingsOptionsPanelAction` 并带上目标 `SettingsOptionsPanel`，互斥与 `closeAll` 都只写在 `SettingsWindowController.handleOptionsAction` 一处，新增面板不会漏配对
 - 面板控制器只在首次展开时构造，收起动作走 `existingOptionsPanelController` 而不触发构造：`NSHostingController` 与动态面板订阅会常驻到 App 结束，而用户可能一次子面板都没开过
@@ -279,7 +281,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 自动重置或防睡眠的子面板入口条件失效时，`AppSettingsView` 会发送对应的 `close` 动作收起已展开面板；关闭开关时对应设置行不显示状态说明
 - 四个设置子面板都只由滑杆按钮展开；单个面板的展开和条件失效收起分别使用 `toggle` 与 `close`，切换分页时使用 `closeAll`，开启主开关不自动弹出
 - 设置子面板收起时，`SidePanelSupport.orderOut` 只有在被关闭面板仍是 key window 时才把焦点还给父窗口；如果焦点已经转移到主面板或其他窗口，不得主动抢回
-- 侧边面板公共能力集中在 `Controllers/SidePanelSupport.swift` 里，含 `SidePanelDrawerPresenter`、`SidePanelContentHost`、`SidePanelDrawerAnimator`、panel 工厂和定位夹紧；挂在主面板上的那三个面板优先复用 `SidePanelDrawerPresenter` 这一层，不要另起一套
+- 侧边面板公共能力集中在 `Controllers/SidePanelSupport.swift`，重置次数、任务中心和设置子面板复用 `SidePanelDrawerPresenter`；热力图详情独立处理切边和延迟隐藏，复用 `SidePanelContentHost`、`SidePanelDrawerAnimator`、panel 工厂和定位夹紧
+- 热力图详情和共享抽屉在立即关闭或窗口已不可见时，重置动画并执行 `orderOut`、移除父子窗口关系；任务中心已结束逻辑展示时，立即关闭请求仍传递给 presenter
 - 设置窗口的子面板直接复用 `Controllers/SettingsOptionsPanelController.swift`，它在 presenter 之上补齐了装配、两套关闭观察者、顶边对齐定位和高度重算；新增设置子面板只要给它内容工厂，动态高度面板再提供内容变化来源，不要另写一层壳
 - 设置子面板的公共内边距、间距与外观度量从 `SettingsOptionsPanelMetrics` 取；通知、自动重置和防睡眠面板的下拉控件共用 `SettingsOptionsPicker`；主面板布局使用独立的 28 点拖拽行高且不使用下拉控件
 - 设置子面板的内容工厂必须走 `SettingsOptionsPanelController.makeContentController(_:rebuiltBy:)`，否则首次展开时原生 Switch 只剩一条空轨道；重建信号由它接在内容外面，内容视图不必知道 `SidePanelEntryCue`

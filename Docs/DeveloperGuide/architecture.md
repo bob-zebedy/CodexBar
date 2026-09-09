@@ -2,6 +2,8 @@
 
 简体中文 | [English](../en/DeveloperGuide/architecture.md)
 
+进程、数据链路与恢复路径的交互式总览见[运行架构](https://codexbar.zabrian.app/architecture)
+
 ## 技术基线
 
 CodexBar 是 macOS 15+ 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。

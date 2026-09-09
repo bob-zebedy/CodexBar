@@ -23,6 +23,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let menuSurfaceVisibility = MenuSurfaceVisibilityState()
+    private let popoverAnimationState = MenuSurfaceAnimationState()
+    private let fallbackPanelAnimationState = MenuSurfaceAnimationState()
     private let activityCenterPresentationState = CodexActivityCenterPresentationState()
     private let heatmapDetailPanelController = HeatmapDetailPanelController()
     private let resetCreditsPanelController = ResetCreditsPanelController()
@@ -36,7 +38,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private lazy var fallbackPanelController = FallbackPanelController { [unowned self] in
-        makeMenuHostingController(usesPreferredContentSize: false)
+        makeMenuHostingController(animationState: fallbackPanelAnimationState, usesPreferredContentSize: false)
     }
 
     private lazy var settingsWindowController = SettingsWindowController(
@@ -492,14 +494,18 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func configurePopover() {
-        let hostingController = makeMenuHostingController(usesPreferredContentSize: true)
+        let hostingController = makeMenuHostingController(animationState: popoverAnimationState, usesPreferredContentSize: true)
 
+        popover.delegate = self
         popover.behavior = .applicationDefined
         popover.animates = false
         popover.contentViewController = hostingController
     }
 
-    private func makeMenuHostingController(usesPreferredContentSize: Bool) -> NSHostingController<AnyView> {
+    private func makeMenuHostingController(
+        animationState: MenuSurfaceAnimationState,
+        usesPreferredContentSize: Bool
+    ) -> NSHostingController<AnyView> {
         let rootView = CodexStatusMenuView(
             viewModel: viewModel,
             workflowViewModel: workflowViewModel,
@@ -509,6 +515,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             syncSettings: syncSettings,
             keepAliveController: keepAliveController,
             menuSurfaceVisibility: menuSurfaceVisibility,
+            animationState: animationState,
             activityCenterPresentationState: activityCenterPresentationState,
             onUsageHeatmapHoverChange: { [weak self] context in
                 self?.updateHeatmapDetailPanel(context)
@@ -939,6 +946,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menuSurfaceState = .opening
         activeMenuSurface = .popover
 
+        popoverAnimationState.allowsAnimations = true
         menuSurfaceFadeCoordinator.prepareForFadeIn()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         completeMenuSurfaceOpen()
@@ -947,6 +955,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func openFallbackPanel(on screen: NSScreen?) {
         cancelMenuSurfaceTasks()
 
+        fallbackPanelAnimationState.allowsAnimations = true
         fallbackPanelController.prepareForDisplay(on: screen)
         menuSurfaceState = .opening
         activeMenuSurface = .fallbackPanel
@@ -1116,6 +1125,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menuSurfaceVisibility.endPresentation()
 
         guard isActiveMenuSurfaceVisible else {
+            popoverAnimationState.allowsAnimations = false
+            fallbackPanelAnimationState.allowsAnimations = false
             menuSurfaceFadeCoordinator.resetAlpha()
             menuSurfaceState = .hidden
             activeMenuSurface = .none
@@ -1337,13 +1348,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func closeActiveMenuSurface() {
+        // 主动关闭先清除宿主身份, 避免同步的关闭回调重入清理流程
+        activeMenuSurface = .none
         if popover.isShown {
             popover.performClose(nil)
         }
 
         fallbackPanelController.orderOut()
 
-        activeMenuSurface = .none
+        popoverAnimationState.allowsAnimations = false
+        fallbackPanelAnimationState.allowsAnimations = false
     }
 
     private enum Metrics {
@@ -1398,6 +1412,21 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case none
         case popover
         case fallbackPanel
+    }
+}
+
+extension StatusItemController: NSPopoverDelegate {
+    func popoverDidClose(_ notification: Notification) {
+        guard notification.object as? NSPopover === popover, !popover.isShown else {
+            return
+        }
+
+        popoverAnimationState.allowsAnimations = false
+        guard activeMenuSurface == .popover else {
+            return
+        }
+
+        completeMenuSurfaceClose()
     }
 }
 

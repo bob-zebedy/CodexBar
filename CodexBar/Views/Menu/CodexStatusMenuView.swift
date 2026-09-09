@@ -21,6 +21,12 @@ final class MenuSurfaceVisibilityState: ObservableObject {
     }
 }
 
+/// 每个宿主独立控制动画, 淡出完成前仍保留可见内容的过渡
+@MainActor
+final class MenuSurfaceAnimationState: ObservableObject {
+    @Published var allowsAnimations = false
+}
+
 /// 菜单栏弹出面板根视图, 汇总账号; 实时活动; 额度; token; 同步状态和更新时间
 struct CodexStatusMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + MenuMetrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
@@ -35,6 +41,7 @@ struct CodexStatusMenuView: View {
     // 同 activityMonitor, 交给活动卡片自行观察, 不让 helper 状态变化重算整个菜单树
     let keepAliveController: KeepAliveController
     @ObservedObject var menuSurfaceVisibility: MenuSurfaceVisibilityState
+    @ObservedObject var animationState: MenuSurfaceAnimationState
     let activityCenterPresentationState: CodexActivityCenterPresentationState
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
     let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
@@ -57,6 +64,14 @@ struct CodexStatusMenuView: View {
         .animation(Metrics.statusAnimation, value: syncSettings.isEnabled)
         .animation(Metrics.statusAnimation, value: syncSettings.isSyncing)
         .animation(Metrics.statusAnimation, value: syncSettings.hasSyncFailure)
+        .transaction { transaction in
+            // 已关闭的 NSPopover 仍可能绘制数字过渡, 让字体缓存逐轮增长
+            guard !animationState.allowsAnimations else {
+                return
+            }
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
     }
 }
 

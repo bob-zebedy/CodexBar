@@ -13,7 +13,7 @@
 [![Downloads](https://img.shields.io/github/downloads/bob-zebedy/CodexBar/total?color=2EA043)](https://github.com/bob-zebedy/CodexBar/releases)
 [![License](https://img.shields.io/github/license/bob-zebedy/CodexBar?color=8957E5)](LICENSE)
 
-[功能](#功能) | [安装](#安装) | [快速开始](#快速开始) | [使用文档](#使用文档) | [隐私](#隐私)
+[功能](#功能) | [安装](#安装) | [快速开始](#快速开始) | [使用文档](#使用文档) | [隐私](#隐私) | [运行架构](https://codexbar.zabrian.app/architecture) | [性能报告](https://codexbar.zabrian.app/performance)
 
 <img src="Images/preview-zh.gif" width="640" alt="CodexBar 预览">
 

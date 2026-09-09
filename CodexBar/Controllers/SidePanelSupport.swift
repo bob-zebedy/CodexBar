@@ -247,11 +247,12 @@ final class SidePanelDrawerPresenter {
     }
 
     func hide(immediate: Bool = false) {
-        guard let panel, panel.isVisible else {
+        guard let panel else {
             return
         }
 
-        if immediate {
+        // 不可见的子窗口仍可能挂在父窗口上, 收尾不能只依据 isVisible
+        if immediate || !panel.isVisible {
             visibilityGeneration += 1
             drawerAnimator.resetVisualState(for: panel)
             isExitAnimationRunning = false

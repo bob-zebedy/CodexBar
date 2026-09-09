@@ -18,6 +18,11 @@
 | [数据与隐私边界](data-and-privacy.md) | 本地文件、网络访问、云端字段和日志边界 |
 | [开发与验证](development.md) | 工程结构、构建检查、调试和变更验收 |
 
+## 在线资料
+
+- [运行架构](https://codexbar.zabrian.app/architecture)
+- [性能报告](https://codexbar.zabrian.app/performance)
+
 ## 核心术语
 
 | 术语 | 在本项目中的准确含义 |

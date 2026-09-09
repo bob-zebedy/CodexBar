@@ -69,6 +69,12 @@ helper 改动还需检查 App 包内可执行文件和 plist 的位置、签名�
 
 记录验证使用的构建、前置设置、操作序列、实际结果和相关日志，便于复现。
 
+### 性能验证
+
+CPU、内存、唤醒、磁盘活动与采集环境见[性能报告](https://codexbar.zabrian.app/performance)
+
+结果对应报告中记录的构建和测试场景。采集、生成报告和基线对比方法见[性能采集工具说明](../../Scripts/performance/README.md)
+
 ## Debug 与 Release
 
 | 配置 | App bundle ID | Helper bundle ID |

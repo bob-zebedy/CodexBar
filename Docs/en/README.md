@@ -26,3 +26,8 @@
 - [UI and Lifecycle](DeveloperGuide/ui-and-lifecycle.md)
 - [Data and Privacy Boundaries](DeveloperGuide/data-and-privacy.md)
 - [Development and Validation](DeveloperGuide/development.md)
+
+## Online Resources
+
+- [Runtime Architecture](https://codexbar.zabrian.app/architecture)
+- [Performance Report](https://codexbar.zabrian.app/performance)

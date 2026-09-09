@@ -73,16 +73,9 @@ tooltip 只在存在实时任务持续时间时启动 60 秒计时器，空闲�
 
 ## 主面板
 
-主面板优先使用 `NSPopover`, `behavior` 设为 `applicationDefined`
+主面板优先使用 `NSPopover`，`behavior` 设为 `applicationDefined`，`animates` 设为 `false`
 
-CodexBar 自己管理 dismiss，原因包括：
-
-- 主面板可以打开设置、日志和侧边详情面板
-- `LSUIElement` 激活切换会制造普通 transient popover 的误关闭
-- 侧边面板需要被视为同一个交互表面
-- 关闭动画需要统一淡出
-
-[`MenuSurfaceDismissMonitor.swift`](../../CodexBar/Controllers/MenuSurfaceDismissMonitor.swift) 监听全局和本地事件，[`MenuSurfaceFadeCoordinator.swift`](../../CodexBar/Controllers/MenuSurfaceFadeCoordinator.swift) 统一协调关闭动画。
+[`MenuSurfaceDismissMonitor.swift`](../../CodexBar/Controllers/MenuSurfaceDismissMonitor.swift) 监听鼠标、键盘和激活事件，通过 `onDismiss` 请求关闭。[`MenuSurfaceFadeCoordinator.swift`](../../CodexBar/Controllers/MenuSurfaceFadeCoordinator.swift) 执行淡入淡出，`StatusItemController` 通过 `NSPopoverDelegate` 接收 popover 的实际关闭回调。
 
 ### 开合状态机
 
@@ -92,14 +85,16 @@ CodexBar 自己管理 dismiss，原因包括：
 hidden -> opening -> shown -> closing -> hidden
 ```
 
-它解决快速重复点击产生的中间态：
+各状态的操作如下：
 
 - `opening` 或 `shown` 时再次 toggle 进入关闭
 - `closing` 时再次 toggle 先完成旧关闭，再打开新表面
 - 关闭开始后取消延迟刷新和旧动画
-- 非动画关闭会直接完成状态收口，不等待不会发生的 animation completion
+- 非动画关闭直接完成状态清理
 
-只检查 `popover.isShown` 不足以表示 opening 或 fade-out 中的逻辑状态，也无法同时覆盖 fallback panel。
+`activeMenuSurface` 记录当前容器，取值为 `none`、`popover` 或 `fallbackPanel`。主动关闭容器前先将其设为 `none`
+
+`popoverDidClose` 只处理当前 popover 已关闭的通知，并关闭该宿主的动画许可。当前容器仍为 `popover` 时，它调用 `completeMenuSurfaceClose`，取消待执行任务、收起侧边面板、移除事件监听、结束展示状态并安排辅助窗口焦点恢复。
 
 ### 关闭事件监听
 
@@ -124,6 +119,14 @@ hidden -> opening -> shown -> closing -> hidden
 `MenuSurfaceFadeCoordinator` 同时调整活动容器的内容视图和窗口透明度，淡入为 0.24 秒，淡出为 0.18 秒。控制器只保存一个完成任务；新动画开始前取消旧任务，任务等待结束后检查取消状态，再标记已显示或完成关闭。
 
 关闭期间设置和日志窗口暂时拒绝 `makeKey()`，关闭完成后约 120 ms 恢复。完成任务弱引用当次窗口，关闭后恢复内容视图和窗口透明度。
+
+### 内容动画与展示状态
+
+popover 和备用面板分别持有 `MenuSurfaceAnimationState`。展示前将 `allowsAnimations` 设为 `true`，淡出期间保持开启，实际关闭后设为 `false`
+
+`CodexStatusMenuView` 在动画许可关闭时，将根视图事务的 `animation` 设为 `nil`、`disablesAnimations` 设为 `true`。后台数据刷新继续执行。
+
+`MenuSurfaceVisibilityState` 在面板展示后开启，在关闭开始时结束。每次展示递增 `presentationGeneration`，额度和用量区域以该值作为视图身份，重新执行入场动画。
 
 ## Fallback panel
 
@@ -154,7 +157,11 @@ fallback panel 在展示前根据 SwiftUI fitting size 和目标屏幕可见区�
 
 所有详情面板实现 `MenuSideDetailPanel` 并登记在 `sideDetailPanels` 数组。互斥关闭、主表面关闭和 hit testing 都遍历同一份名册。
 
-hover 类型的热力图面板在打开其他面板前可以渐隐，点击类型的面板通常立即关闭旧面板。这是为了避免同一屏幕位置出现两个反向滑动动画叠加。
+热力图悬停请求以动画收起其他侧边面板；重置次数和任务中心的点击请求立即关闭其他侧边面板。
+
+主面板关闭时立即清理侧边面板。热力图详情和共享抽屉在立即关闭或窗口已不可见时，重置抽屉动画、执行 `orderOut` 并移除父子窗口关系。任务中心已结束逻辑展示时，立即关闭请求仍传递给共享抽屉。
+
+热力图按格子的列、行位置错开入场。启用入场动画时，每个格子在自身入场延迟加 0.25 秒后接受悬停；关闭入场动画时立即接受悬停。
 
 热力图详情面板以包含标题、日期范围和方格矩阵的完整热力图区域作为垂直锚点，因此主面板区域重排后仍优先保持两者顶边对齐。如果详情面板从该位置向下会超过主面板底边，则定位逻辑将它整体上移到与主面板底边对齐。
 

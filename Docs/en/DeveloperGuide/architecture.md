@@ -2,6 +2,8 @@
 
 [简体中文](../../DeveloperGuide/architecture.md) | English
 
+Explore the processes, data flows, and recovery paths in the [Runtime Architecture](https://codexbar.zabrian.app/architecture).
+
 ## Technical Baseline
 
 CodexBar is a menu bar app for macOS 15 and later, built with Swift 6, SwiftUI, AppKit, and MVVM.

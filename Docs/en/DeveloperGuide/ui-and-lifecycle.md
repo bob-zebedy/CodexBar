@@ -73,16 +73,9 @@ Left-click opens the main panel. Right-click or Control-click opens the context 
 
 ## Main Panel
 
-The main panel prefers an `NSPopover` with `behavior` set to `applicationDefined`.
+The main panel prefers an `NSPopover` with `behavior` set to `applicationDefined` and `animates` set to `false`.
 
-CodexBar manages dismissal because:
-
-- The main panel can open Settings, Logs, and side detail panels
-- `LSUIElement` activation changes cause ordinary transient popovers to close incorrectly
-- Side panels must behave as part of one interaction surface
-- Closing needs a consistent fade-out
-
-[`MenuSurfaceDismissMonitor.swift`](../../../CodexBar/Controllers/MenuSurfaceDismissMonitor.swift) observes global and local events. [`MenuSurfaceFadeCoordinator.swift`](../../../CodexBar/Controllers/MenuSurfaceFadeCoordinator.swift) coordinates closing animation.
+[`MenuSurfaceDismissMonitor.swift`](../../../CodexBar/Controllers/MenuSurfaceDismissMonitor.swift) observes mouse, keyboard, and activation events and requests dismissal through `onDismiss`. [`MenuSurfaceFadeCoordinator.swift`](../../../CodexBar/Controllers/MenuSurfaceFadeCoordinator.swift) performs fades, and `StatusItemController` receives the popover's actual close callback through `NSPopoverDelegate`.
 
 ### Open and Close State Machine
 
@@ -92,14 +85,16 @@ CodexBar manages dismissal because:
 hidden -> opening -> shown -> closing -> hidden
 ```
 
-They resolve intermediate states from rapid repeated clicks:
+Operations follow these rules:
 
 - Toggling in `opening` or `shown` starts closing
 - Toggling in `closing` finishes the old close, then opens a new surface
 - Starting a close cancels delayed refresh and old animations
-- A nonanimated close converges state immediately rather than waiting for an animation completion that will never occur
+- A nonanimated close completes state cleanup immediately
 
-Checking only `popover.isShown` cannot represent logical opening or fade-out state and cannot cover the fallback panel.
+`activeMenuSurface` identifies the current container as `none`, `popover`, or `fallbackPanel`. An explicit container close sets it to `none` before closing the window.
+
+`popoverDidClose` handles notifications only for the owned popover when it is closed and disables that host's animations. If the current container is still `popover`, it calls `completeMenuSurfaceClose` to cancel pending tasks, hide side panels, remove event monitors, end presentation state, and schedule auxiliary-window focus restoration.
 
 ### Dismiss Event Monitoring
 
@@ -124,6 +119,14 @@ Special rules include:
 `MenuSurfaceFadeCoordinator` animates both the active container’s content view and window opacity, with a 0.24-second fade-in and a 0.18-second fade-out. It stores one completion task, cancels it before starting a new animation, and checks cancellation after waiting before marking the surface shown or completing the close.
 
 Settings and log windows temporarily reject `makeKey()` during closing and regain that ability about 120 ms after completion. The completion task holds a weak reference to that window and restores content and window opacity after closing.
+
+### Content Animations and Presentation State
+
+The popover and fallback panel each hold a separate `MenuSurfaceAnimationState`. `allowsAnimations` is set to `true` before presentation, remains enabled during fade-out, and becomes `false` after the surface closes.
+
+When animations are disabled, `CodexStatusMenuView` sets the root transaction's `animation` to `nil` and `disablesAnimations` to `true`. Background data refresh continues.
+
+`MenuSurfaceVisibilityState` begins after the panel is shown and ends when closing starts. Each presentation increments `presentationGeneration`; the rate-limit and usage sections use that value as their view identity and run their entrance animations again.
 
 ## Fallback Panel
 
@@ -154,7 +157,11 @@ These panels are mutually exclusive. Opening one closes the others. Each adds it
 
 All detail panels implement `MenuSideDetailPanel` and register in the `sideDetailPanels` array. Mutual exclusion, main-surface closing, and hit testing all iterate over this one registry.
 
-The hover-driven heatmap panel may fade before another panel opens; click-driven panels normally close the old panel immediately. This avoids two opposing slide animations at the same screen location.
+Heatmap hover requests animate the dismissal of other side panels. Click requests for Reset Credits and Task Center close other side panels immediately.
+
+Closing the main panel immediately cleans up its side panels. For an immediate close or an already invisible window, heatmap details and the shared drawer reset drawer animations, call `orderOut`, and remove the parent-child window relationship. Task Center forwards immediate-close requests to the shared drawer even when its logical presentation has ended.
+
+Heatmap squares enter with staggered delays based on their column and row. With entrance animations enabled, each square accepts hover after its own entrance delay plus 0.25 seconds. With entrance animations disabled, squares accept hover immediately.
 
 The heatmap detail panel uses the complete heatmap area, including its heading, date range, and square grid, as its vertical anchor. Reordering main-panel sections therefore still keeps their top edges aligned whenever possible. If the detail panel would extend below the main panel from that position, placement shifts it upward until their bottom edges align.
 

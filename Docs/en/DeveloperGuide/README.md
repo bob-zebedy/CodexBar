@@ -18,6 +18,11 @@
 | [Data and Privacy Boundaries](data-and-privacy.md) | Local files, network access, cloud fields, and logging boundaries |
 | [Development and Validation](development.md) | Project structure, build checks, debugging, and change acceptance |
 
+## Online Resources
+
+- [Runtime Architecture](https://codexbar.zabrian.app/architecture)
+- [Performance Report](https://codexbar.zabrian.app/performance)
+
 ## Core Terminology
 
 | Term | Precise meaning in this project |

@@ -53,11 +53,12 @@ final class HeatmapDetailPanelController {
         drawerTransition = .idle
         pendingSideSwitchRequest = nil
 
-        guard let panel = contentHost.panel, panel.isVisible else {
+        guard let panel = contentHost.panel else {
             return
         }
 
-        guard !immediate else {
+        // AppKit 隐藏父窗口后仍保留子窗口关系, 必须移除才能避免重开时恢复旧详情
+        guard !immediate, panel.isVisible else {
             drawerAnimator.resetVisualState(for: panel)
             orderOut(panel)
             return
