@@ -254,7 +254,6 @@ def write_report(data, destination):
     thermal += '</div>'
     metadata = [["App", target.get("name", "N/A")], ["Bundle ID", target.get("bundle_id", "N/A")],
                 ["版本 / 构建", f'{target.get("version", "N/A")} / {target.get("build", "N/A")}'],
-                ["主进程 PID", target.get("identity", {}).get("pid", "N/A")],
                 ["macOS / 架构", f'{env.get("os", "N/A")} / {env.get("arch", "N/A")}'],
                 ["芯片 / 逻辑核心", f'{env.get("chip", "N/A")} / {env.get("cores", "N/A")}'],
                 ["内存", number(int(env["memory_bytes"]) / 2 ** 30, 0, " GiB") if env.get("memory_bytes") else "N/A"],

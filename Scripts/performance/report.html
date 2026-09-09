@@ -370,6 +370,13 @@
                 font-weight: 550;
             }
 
+            .environment-panel th:first-child,
+            .environment-panel td:first-child {
+                width: 140px;
+                min-width: 140px;
+                white-space: nowrap;
+            }
+
             tr:hover td {
                 background: var(--soft);
             }
@@ -1204,7 +1211,7 @@
                     </div>
                     @@RECORDS@@
                     <div class="two section">
-                        <article class="panel">
+                        <article class="panel environment-panel">
                             <h3>运行环境</h3>
                             @@METADATA@@
                         </article>

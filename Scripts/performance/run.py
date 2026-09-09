@@ -25,10 +25,19 @@ from report import write_report
 
 VERSION = "1"
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMAS = ("activity-monitor-process-live", "time-profile", "potential-hangs", "hang-risks",
-           "device-thermal-state-intervals", "activity-monitor-system")
-PRESETS = {"quick": (5, 20, 2, 60, 20), "standard": (20, 60, 3, 300, 60),
-           "extended": (30, 120, 3, 900, 120)}
+SCHEMAS = (
+    "activity-monitor-process-live",
+    "time-profile",
+    "potential-hangs",
+    "hang-risks",
+    "device-thermal-state-intervals",
+    "activity-monitor-system"
+)
+PRESETS = {
+    "quick": (5, 30, 2, 90, 30),
+    "standard": (20, 60, 4, 300, 60),
+    "extended": (30, 120, 5, 900, 300)
+}
 
 
 def now():
@@ -88,7 +97,7 @@ def inspect_target(app, pid):
     for stream in (entitlements.stdout, entitlements.stderr):
         start = stream.find(b"<?xml")
         end = stream.find(b"</plist>")
-        if start >= 0 and end >= start:
+        if 0 <= start <= end:
             ent = plistlib.loads(stream[start:end + len(b"</plist>")])
             break
     uuids = optional(["/usr/bin/xcrun", "dwarfdump", "--uuid", str(executable)])
