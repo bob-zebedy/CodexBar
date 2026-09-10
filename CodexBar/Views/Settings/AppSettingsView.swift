@@ -293,9 +293,9 @@ private extension AppSettingsView {
             VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
                 codexVersionSection
                 LiquidGlassDivider()
-                versionRow
+                HelperInstallationStatusRow(status: keepAliveController.helperInstallationStatus)
                 LiquidGlassDivider()
-                HelperInstallationStatusRow(status: keepAliveController.helperStatus)
+                versionRow
                 LiquidGlassDivider()
                 githubProjectRow
             }
@@ -489,26 +489,31 @@ private extension AppSettingsView {
         guard autoResetSettings.isEnabled else {
             return nil
         }
-        if let errorMessage = keepAliveController.helperRegistrationErrorMessage {
-            return SettingsStatusCaption(message: errorMessage, isError: true)
+        if let caption = helperInstallationCaption {
+            return caption
         }
+        guard let errorMessage = keepAliveController.helperRegistrationErrorMessage
+            ?? keepAliveController.autoResetWakeScheduleErrorMessage else {
+            return nil
+        }
+        return SettingsStatusCaption(message: errorMessage, isError: true)
+    }
 
-        switch keepAliveController.helperStatus {
+    var helperInstallationCaption: SettingsStatusCaption? {
+        switch keepAliveController.helperInstallationStatus {
         case .requiresApproval:
-            return SettingsStatusCaption(
+            SettingsStatusCaption(
                 message: String(localized: "helper.status.authorization-required"),
                 showsSystemSettingsButton: true
             )
-        case .notRegistered, .notFound:
-            return SettingsStatusCaption(
+        case .notInstalled:
+            SettingsStatusCaption(
                 message: String(localized: "helper.status.not-registered")
             )
-        case .enabled:
-            guard let errorMessage = keepAliveController
-                .autoResetWakeScheduleErrorMessage else {
-                return nil
-            }
-            return SettingsStatusCaption(message: errorMessage, isError: true)
+        case let .unavailable(message):
+            SettingsStatusCaption(message: message, isError: true)
+        case .authorized:
+            nil
         }
     }
 
@@ -593,17 +598,11 @@ private extension AppSettingsView {
         guard keepAliveController.isEnabled else {
             return nil
         }
-        if keepAliveController.helperStatus == .requiresApproval {
-            return SettingsStatusCaption(
-                message: String(localized: "helper.status.authorization-required"),
-                showsSystemSettingsButton: true
-            )
+        if let caption = helperInstallationCaption {
+            return caption
         }
         if let errorMessage = keepAliveController.errorMessage {
             return SettingsStatusCaption(message: errorMessage, isError: true)
-        }
-        guard keepAliveController.helperStatus == .enabled else {
-            return SettingsStatusCaption(message: String(localized: "helper.status.not-registered"))
         }
         guard codexHookSettings.isVerified else {
             return SettingsStatusCaption(message: String(localized: "hook.status.inactive"))

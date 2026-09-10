@@ -163,6 +163,15 @@ CodexBarHelper 通过 `SMAppService` 注册为 LaunchDaemon。App 和 CodexBarHe
 - 防睡眠选项入口读取 `KeepAliveController.canShowOptions`，没有任务、低电量阻断、达到上限或 helper 刷新期间仍允许调整设置
 - 自动重置和防睡眠开关关闭时，设置行不显示状态说明
 
+关于页面和两个功能说明统一读取 `helperInstallationStatus`。系统注册状态、包校验结果与操作错误分别保存：
+
+- `.notRegistered` 和 `.notFound` 在没有已知安装异常时显示“未安装”
+- App 启动和再次激活时，后台校验 Helper 可执行文件、plist 关键配置、App 资源签名及 Helper 的签名团队和标识；签名校验不访问网络
+- 确认组件缺失、配置异常或签名无效时显示“不可用”，即使系统仍返回 `.enabled`；后续包校验成功后清除该异常
+- 安装前发现组件缺失时只更新包异常并发起新校验，不另存一份注册错误；旧校验结果不能覆盖新发现的缺失，关闭功能后修复组件也能通过再次校验恢复显示
+- 待授权和已授权状态不会被历史注册错误覆盖；未注册且安装失败时显示“不可用”
+- 校验结果只保存在内存中，不证明 Helper 的每次运行都成功；XPC 超时和具体电源操作失败仍按原操作错误处理
+
 唤醒计划采用系统状态收敛而不是只依赖正常退出清理：
 
 - helper 每次启动都在开放 XPC listener 前清除固定 owner 的遗留事件，App 重连后再按最新目标重新安排
@@ -390,7 +399,7 @@ CodexBar 在确认自己拥有的系统设置已恢复后读取 clamshell 状态
 - 连接失效会立即释放 App assertion，避免 UI 已降级但进程仍永久阻止空闲睡眠
 - 旧请求通过 generation 失效，不依赖每条取消路径都成功撤回底层消息
 
-诊断时应区分 registration error 和 operation error。前者表示 helper 未安装、待批准或更新失败，后者表示已安装 helper 的某次切换没有得到可信结果。
+诊断时应区分系统注册状态、包校验异常、注册错误和操作错误。未安装与待批准属于注册状态；组件缺失、配置或签名无效属于包校验异常；注册或更新失败属于注册错误；已安装 helper 的某次切换未得到可信结果属于操作错误。
 
 自动重置唤醒计划使用独立的有界同步策略：
 
@@ -421,6 +430,9 @@ App 更新可能改变内嵌 CodexBarHelper 的签名或内容。App 会记录 C
 - App 强制退出或 XPC 断开后，watchdog 恢复 owned 状态
 - 自动重置和防睡眠每次开启都显示确认，取消后保持关闭
 - 未注册、等待批准和已批准三种 helper 状态的确认文案与功能说明正确
+- 包完整且没有注册错误时，`.notRegistered` 和 `.notFound` 均显示“未安装”
+- 在测试包中分别移除 Helper、移除或篡改 plist、破坏签名，启动或再次激活后显示“不可用”，已授权状态也不能掩盖包异常
+- 安装前发现缺失后，旧校验结果不覆盖新异常；关闭两个功能并修复完整 App 包后，再次激活能清除异常，关于页面仍显示状态
 - 开启操作只触发 helper 注册，Helper 授权系统设置仅由设置行的 `打开系统设置` 按钮打开
 - 自动重置选项入口只在开关开启且 helper 已批准时显示，条件失效后已展开面板关闭
 - 自动重置开启且防睡眠关闭时仍能完成 helper 注册与批准
@@ -436,6 +448,7 @@ App 更新可能改变内嵌 CodexBarHelper 的签名或内容。App 会记录 C
 ## 关键源码
 
 - [`KeepAliveController.swift`](../../CodexBar/Services/KeepAlive/KeepAliveController.swift)
+- [`KeepAliveHelperConfiguration.swift`](../../CodexBar/Services/KeepAlive/KeepAliveHelperConfiguration.swift)
 - [`SystemSleepService.swift`](../../CodexBar/Services/KeepAlive/SystemSleepService.swift)
 - [`HelperRuntimeStatusMonitor.swift`](../../CodexBar/Services/KeepAlive/HelperRuntimeStatusMonitor.swift)
 - [`AutoResetWakeScheduler.swift`](../../CodexBar/Services/KeepAlive/AutoResetWakeScheduler.swift)

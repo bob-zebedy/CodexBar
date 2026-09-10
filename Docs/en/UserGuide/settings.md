@@ -78,11 +78,23 @@ Automatic Reset runs independently of notifications. Configure result alerts in 
 | Reconnect | Reconnect using the selected source; use after upgrading Codex to switch immediately to the new version |
 | Codex CLI / Codex APP | View detected versions; click a path to copy it |
 | Currently Using | Source and version used by the current connection |
-| Unavailable | A previously used or selected source can no longer be found |
+| Unavailable (Codex source) | A previously used or selected source can no longer be found |
+| CodexBar Helper | View the background component's installation and authorization status |
 | CodexBar Version / Check for Updates | View the version and check for updates |
 | GitHub Project | Open the project page |
 | Quit CodexBar | Exit the app |
 
 Source selection is temporarily disabled while connecting. Connection failure reasons appear below the version area to help you troubleshoot or choose another source.
+
+CodexBar Helper status always appears in About, regardless of the Automatic Reset and sleep prevention switches:
+
+| Status | Meaning |
+| --- | --- |
+| Not Installed | Not yet registered, with no detected component or installation issue; normal on first use |
+| Not Authorized | Registered, but still needs permission to run in the background |
+| Authorized | Background execution is approved and no component issue is currently detected; individual operations can still fail |
+| Unavailable | Components are missing, configuration or signatures are invalid, or installation failed while unregistered |
+
+A detected component issue displays Unavailable even if authorization was previously granted. See [CodexBarHelper Cannot Be Registered](troubleshooting.md#codexbarhelper-cannot-be-registered).
 
 Back to the [User Guide](README.md).

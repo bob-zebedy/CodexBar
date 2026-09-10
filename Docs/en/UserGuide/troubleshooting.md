@@ -91,10 +91,12 @@ If Settings says `System sleep is disabled by another source`, CodexBar does not
 
 ## CodexBarHelper Cannot Be Registered
 
-- Confirm that `Automatic Reset` or `Prevent System Sleep` is enabled; Helper status is hidden while both are off
-- If the Helper is awaiting approval, click `Open System Settings` below the settings row and allow CodexBar to run in the background
+- Check `CodexBar Helper` in About; turning off a feature hides only its settings-row caption, while About still shows the status
+- Not Installed is normal on first use; the app attempts installation and registration after you enable `Automatic Reset` or `Prevent System Sleep` and confirm
+- For Not Authorized, click `Open System Settings` below an enabled feature's settings row and allow CodexBar to run in the background
 - Confirm that CodexBar is in Applications and that the app bundle is complete
-- If the service is reported as unhealthy or the CodexBarHelper file is missing, reinstall the complete CodexBar app
+- `CodexBar Helper is missing components or configuration. Please reinstall CodexBar` means required bundle components or configuration are absent; `CodexBar Helper has invalid components or configuration. Please reinstall CodexBar` means configuration or signature validation failed; reinstall the complete CodexBar app in either case
+- After repairing the app bundle, restart or reactivate the app to recheck it; a successful check automatically clears the component issue without requiring either feature to be enabled
 - If failures continue after an update, quit CodexBar, reopen it, and check authorization again
 
 ## Automatic Reset Did Not Run on Time

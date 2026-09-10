@@ -2257,18 +2257,34 @@
         }
       }
     },
-    "keep-alive.error.helper-assets-missing" : {
+    "keep-alive.error.helper-assets-invalid" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Service unavailable; reinstall CodexBar"
+            "value" : "CodexBar Helper has invalid components or configuration. Please reinstall CodexBar"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "服务异常, 请重新安装 CodexBar"
+            "value" : "CodexBar Helper 组件或配置异常, 请重新安装 CodexBar"
+          }
+        }
+      }
+    },
+    "keep-alive.error.helper-assets-missing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CodexBar Helper is missing components or configuration. Please reinstall CodexBar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CodexBar Helper 组件或配置丢失, 请重新安装 CodexBar"
           }
         }
       }

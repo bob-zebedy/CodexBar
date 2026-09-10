@@ -163,6 +163,15 @@ Settings separates user confirmation, helper registration, and navigation to Hel
 - Sleep-prevention options read `KeepAliveController.canShowOptions`; settings remain adjustable with no task, low-battery block, limit reached, or helper refresh
 - Automatic Reset and sleep-prevention rows show no status explanation while their switches are off
 
+The About row and both feature captions use `helperInstallationStatus`. System registration, package validation, and operation errors remain separate facts:
+
+- `.notRegistered` and `.notFound` display Not Installed when there is no known installation failure
+- At startup and when the app becomes active, background validation checks the helper executable, key plist fields, the app resource seal, and the helper's signing team and identifier; signature validation does not access the network
+- Missing components, invalid configuration, or invalid signatures display Unavailable even when macOS still returns `.enabled`; a later successful package check clears the issue
+- Missing components found before registration update only the package issue and start a fresh check, without storing a duplicate registration error; older results cannot overwrite the new issue, and revalidation can restore the display after repairs even with both features off
+- Historical registration errors do not override pending approval or authorization; an unregistered helper with a failed installation displays Unavailable
+- Validation results stay in memory and do not guarantee successful execution; XPC timeouts and individual power-operation failures retain their existing error handling
+
 Wake schedules converge from actual system state rather than depending only on normal-exit cleanup:
 
 - Before opening the XPC listener on every startup, the helper removes stale events for its fixed owner; after reconnect, the app reschedules from the latest target
@@ -390,7 +399,7 @@ Sleep prevention uses bounded retries because each attempt reconstructs a privil
 - Release the app assertion immediately on connection invalidation so a degraded UI does not coexist with indefinite process-level idle prevention
 - Invalidate old requests by generation rather than relying on every cancellation path to retract the underlying message
 
-Diagnostics distinguish registration from operation errors. Registration means the helper is missing, awaiting approval, or failed to update. Operation error means an installed helper did not produce a trusted result for one transition.
+Diagnostics distinguish system registration status, package validation issues, registration errors, and operation errors. Not installed and awaiting approval are registration states. Missing components or invalid configuration or signatures are package issues. Failed registration or update produces a registration error. An operation error means an installed helper did not produce a trusted result for one transition.
 
 Automatic Reset wake scheduling uses a separate bounded synchronization policy:
 
@@ -421,6 +430,9 @@ Validation must cover:
 - Forced exit or XPC disconnect lets the watchdog restore owned state
 - Automatic Reset and sleep prevention show confirmation every time they are enabled and remain off after cancellation
 - Confirmation text and feature descriptions are correct for unregistered, awaiting-approval, and approved helper states
+- With a valid package and no registration error, both `.notRegistered` and `.notFound` display Not Installed
+- In a test bundle, separately remove the Helper, remove or alter the plist, and invalidate signatures; launch or reactivate to confirm Unavailable, including when already authorized
+- After detecting missing components before installation, older validation results cannot overwrite the new issue; disable both features, repair the complete app bundle, and reactivate to clear the issue while About continues showing the status
 - Enabling only triggers helper registration; authorization settings opens solely from `Open System Settings` on the row
 - Automatic Reset options appear only when enabled and approved and close when that condition fails
 - Automatic Reset can register and gain approval while sleep prevention remains off
@@ -436,6 +448,7 @@ Validation must cover:
 ## Key Source Files
 
 - [`KeepAliveController.swift`](../../../CodexBar/Services/KeepAlive/KeepAliveController.swift)
+- [`KeepAliveHelperConfiguration.swift`](../../../CodexBar/Services/KeepAlive/KeepAliveHelperConfiguration.swift)
 - [`SystemSleepService.swift`](../../../CodexBar/Services/KeepAlive/SystemSleepService.swift)
 - [`HelperRuntimeStatusMonitor.swift`](../../../CodexBar/Services/KeepAlive/HelperRuntimeStatusMonitor.swift)
 - [`AutoResetWakeScheduler.swift`](../../../CodexBar/Services/KeepAlive/AutoResetWakeScheduler.swift)

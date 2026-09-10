@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct HelperInstallationStatusRow: View {
-    let status: KeepAliveController.HelperStatus
+    let status: KeepAliveController.HelperInstallationStatus
 
     var body: some View {
         HStack(spacing: SettingsRowMetrics.spacing) {
@@ -23,13 +23,13 @@ struct HelperInstallationStatusRow: View {
 
     private var statusPresentation: (text: LocalizedStringKey, color: Color) {
         switch status {
-        case .notRegistered:
+        case .notInstalled:
             ("settings.about.helper.not-installed", .gray)
-        case .enabled:
+        case .authorized:
             ("settings.about.helper.authorized", .green)
         case .requiresApproval:
             ("settings.about.helper.requires-approval", .orange)
-        case .notFound:
+        case .unavailable:
             ("settings.about.helper.unavailable", .red)
         }
     }

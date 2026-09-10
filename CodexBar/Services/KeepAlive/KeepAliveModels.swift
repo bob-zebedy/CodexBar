@@ -89,6 +89,29 @@ extension KeepAliveController {
         }
     }
 
+    enum HelperInstallationStatus: Equatable {
+        case notInstalled
+        case authorized
+        case requiresApproval
+        case unavailable(String)
+
+        init(registration: HelperStatus, packageIssue: HelperPackageIssue?, registrationError: String?) {
+            if let packageIssue {
+                self = .unavailable(packageIssue.message)
+                return
+            }
+            switch registration {
+            case .enabled:
+                self = .authorized
+            case .requiresApproval:
+                self = .requiresApproval
+            case .notRegistered, .notFound:
+                // 系统尚无后台注册记录时也会返回 notFound
+                self = registrationError.map(Self.unavailable) ?? .notInstalled
+            }
+        }
+    }
+
     /// 防睡眠没生效时缺的是哪一项, 同时充当日志里的 reason= 取值
     enum SleepBlockReason: String {
         case notStarted
@@ -117,8 +140,23 @@ extension KeepAliveController {
     }
 }
 
+nonisolated enum HelperPackageIssue: Equatable, Sendable {
+    case missing
+    case invalid
+
+    var message: String {
+        switch self {
+        case .missing:
+            KeepAliveLocalizedMessage.helperAssetsMissing
+        case .invalid:
+            KeepAliveLocalizedMessage.helperAssetsInvalid
+        }
+    }
+}
+
 nonisolated enum KeepAliveLocalizedMessage {
     static let helperAssetsMissing = String(localized: "keep-alive.error.helper-assets-missing")
+    static let helperAssetsInvalid = String(localized: "keep-alive.error.helper-assets-invalid")
     static let registrationFailed = String(localized: "keep-alive.error.registration-failed")
     static let updateFailed = String(localized: "keep-alive.error.update-failed")
     static let preventIdleSleepFailed = String(localized: "keep-alive.error.prevent-idle-sleep-failed")

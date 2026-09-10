@@ -145,6 +145,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `hasRunningTasks` 与 `isRefreshingHelper` 都不带 `@Published` 标注，它们变得比结论频繁，各自发信号会把整个设置页拖着一起重算
 - helper 只做固定的系统电源操作；不要给 root helper 增加网络、任意命令执行或其他文件访问能力
 - helper 注册需求由防睡眠主开关与自动重置请求共同决定；自动重置开启时即使防睡眠关闭也要完成 `SMAppService` 注册和系统批准，设置行复用注册错误并单独展示唤醒计划同步错误
+- 关于页面和功能说明读取派生的 `helperInstallationStatus`；包完整且无注册错误时，`.notRegistered` 与 `.notFound` 均显示未安装；包校验异常优先于已授权状态，后续校验成功后清除，详见 [CodexBarHelper 安装与通信](Docs/DeveloperGuide/sleep-prevention.md#codexbarhelper-安装与通信)
 - 自动重置与防睡眠从关闭切换为开启时统一通过 `HelperFeatureConfirmation` 显示确认；`.notRegistered` 与 `.notFound` 提示需要安装并授权后台运行，`.requiresApproval` 提示已安装但仍需授权，`.enabled` 只显示功能说明
 - `ensureHelperRegistration()` 只负责注册与刷新 helper；Helper 授权系统设置仅由设置行的 `打开系统设置` 按钮调用 `openSystemSettings()` 打开，两个功能的开启动作不直接切换到系统设置
 - `AutoResetWakeScheduler` 与防睡眠租约使用独立 XPC 连接，只同步下一次唤醒时间；距现在不超过 5 秒的时间不交给 helper，由 App 内定时任务直接进入到点执行路径
