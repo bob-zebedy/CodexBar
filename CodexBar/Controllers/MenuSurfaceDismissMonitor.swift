@@ -246,6 +246,11 @@ final class MenuSurfaceDismissMonitor {
             return
         }
 
+        // 原生状态按钮收到的点击由 mouseUp 统一切换, 避免 mouseDown 先关闭后又重新打开
+        if let buttonWindow = statusButtonProvider()?.window, event.window === buttonWindow {
+            return
+        }
+
         dismissIfNeeded(at: screenPoint(for: event))
     }
 
@@ -327,9 +332,11 @@ final class MenuSurfaceDismissMonitor {
             return false
         }
 
-        let buttonRectInWindow = button.convert(button.bounds, to: nil)
-        let buttonScreenRect = buttonWindow.convertToScreen(buttonRectInWindow)
-        return buttonScreenRect.contains(screenPoint)
+        // 系统会把状态栏窗口上下留白内的点击交给按钮, 点击区域不能只取 button.bounds
+        let hitRect = buttonWindow.frame
+        // 屏幕顶边也属于菜单栏入口, 保持左右边界不重叠相邻状态项
+        return screenPoint.x >= hitRect.minX && screenPoint.x < hitRect.maxX
+            && screenPoint.y >= hitRect.minY && screenPoint.y <= hitRect.maxY
     }
 
     private enum Metrics {
