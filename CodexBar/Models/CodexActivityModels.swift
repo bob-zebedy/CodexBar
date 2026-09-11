@@ -165,7 +165,7 @@ nonisolated struct CodexActivitySnapshot: Equatable {
         return [mostRecentCompletion?.completedAt, mostRecentTermination?.terminatedAt]
             .compactMap(\.self)
             .max()?
-            .addingTimeInterval(30)
+            .addingTimeInterval(10)
     }
 }
 

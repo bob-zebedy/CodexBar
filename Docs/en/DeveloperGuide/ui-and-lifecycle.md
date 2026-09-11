@@ -51,10 +51,10 @@ The status icon combines app-server loading state, the menu bar rate-limit setti
 Icon priority is:
 
 ```text
-Account error > Waiting for approval > Running > Latest completion or termination within 30 seconds > Idle
+Account error > Waiting for approval > Running > Latest completion or termination within 10 seconds > Idle
 ```
 
-When no tasks are active, `CodexActivitySnapshot.statusItemActivity(at:)` selects the latest terminal timestamp. `StatusItemController` schedules expiration 30 seconds after that timestamp, then restores the plain person. It recalculates on wake and cancels the old task on state changes or uninstall.
+When no tasks are active, `CodexActivitySnapshot.statusItemActivity(at:)` selects the latest terminal timestamp. `StatusItemController` schedules expiration 10 seconds after that timestamp, then restores the plain person. It recalculates on wake and cancels the old task on state changes or uninstall.
 
 ### Separating Icon State from Tooltip State
 
@@ -62,7 +62,8 @@ When no tasks are active, `CodexActivitySnapshot.statusItemActivity(at:)` select
 
 - Minute-by-minute duration updates affect only the tooltip
 - Cached quota dims the symbol and arc
-- Symbol-name changes use nonrepeating `.replace.magic(fallback: .downUp.byLayer)` transitions
+- `StatusItemIconView` caches rasterized images by symbol name and display scale, reusing them during scaling to avoid stuttering from live rendering of badged symbols
+- Symbol-name changes crossfade the old and new images over 0.2 seconds while scaling between 75% and full size; quota visibility changes alone do not replace the image
 - Showing or hiding quota animates the colored arc between zero and the current percentage over 0.3 seconds; the track fades independently
 - Symbols share a baseline; hiding quota restores normal size with a 0.2-second size and position transition
 - Hiding quota retains its last percentage and color for retraction; zero and unavailable quota remain distinct
@@ -283,7 +284,8 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 ## Manual Validation Matrix
 
 - Left-click opens the main panel; right-click and Control-click open the context menu
-- Menu bar symbols follow task state; terminal feedback expires 30 seconds after the task ends and is recalculated on wake
+- Menu bar symbols follow task state; terminal feedback expires 10 seconds after the task ends and is recalculated on wake
+- Transitions between the plain person and all four task badges complete correctly, rapid changes settle on the latest state, and toggling quota visibility stays smooth with badges; initial presentation and wake reconciliation do not animate
 - Quota-arc visibility animates, zero quota retains the track, and cached quota dims
 - The sun badge rotates only while sleep prevention is active, Animation Effects is enabled, and its host panel is presented; disabling Animation Effects preserves a static sun, and enabling it again resumes rotation only in the visible host; no continuous rotation work occurs before the first opening or while tasks continue after closing; reopening, rapid toggling, and switching between popover and fallback hosts preserve a constant speed of one revolution every 2 seconds, and the badge disappears when tasks end
 - Password reveal transitions preserve text, selection, and focus

@@ -12,11 +12,11 @@ CodexBar combines a person symbol with an optional circular rate-limit arc:
 | Slashed person | You are signed out, initialization failed, or trusted rate-limit and usage data is unavailable |
 | Clock badge | At least one task is running |
 | Key badge | At least one task is waiting for approval |
-| Shield with a checkmark | A task finished within the last 30 seconds |
-| Shield with an exclamation mark | A task was terminated within the last 30 seconds |
+| Shield with a checkmark | A task finished within the last 10 seconds |
+| Shield with an exclamation mark | A task was terminated within the last 10 seconds |
 | Circular arc with a bottom gap | Remaining percentage in the selected rate-limit window, using the same colors as the panel |
 
-Account errors take priority, followed by waiting for approval, running, and the latest completion or termination within 30 seconds. The most recent timestamp determines which terminal state appears.
+Account errors take priority, followed by waiting for approval, running, and the latest completion or termination within 10 seconds. The most recent timestamp determines which terminal state appears.
 
 The person symbol grows when the quota arc is hidden.
 

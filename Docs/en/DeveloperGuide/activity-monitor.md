@@ -296,7 +296,7 @@ The activity card selects content through `primaryActivity` in this order:
 Waiting for approval > Running > Recently completed > Recently terminated > Idle
 ```
 
-The menu bar also prioritizes waiting and running tasks. With no active tasks, it selects the latest completion or termination until 30 seconds after the end timestamp. Task Center retains terminal records for 10 minutes; terminal deduplication memory lasts 24 hours.
+The menu bar also prioritizes waiting and running tasks. With no active tasks, it selects the latest completion or termination until 10 seconds after the end timestamp. Task Center retains terminal records for 10 minutes; terminal deduplication memory lasts 24 hours.
 
 The snapshot feeds:
 
@@ -320,7 +320,7 @@ All lists sort by most recent time first and then display UUID string. Stable or
 
 ### Cleanup Uses the Nearest Deadline
 
-The monitor manages terminal grace, activity retention, history retention, terminal deduplication, and protection-record expiration. `StatusItemController` independently manages the 30-second completion or termination indication; its expiration does not republish the activity snapshot.
+The monitor manages terminal grace, activity retention, history retention, terminal deduplication, and protection-record expiration. `StatusItemController` independently manages the 10-second completion or termination indication; its expiration does not republish the activity snapshot.
 
 The cleanup task waits for the nearest future deadline, processes it, then schedules the next.
 

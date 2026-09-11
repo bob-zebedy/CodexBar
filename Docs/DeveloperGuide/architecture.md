@@ -218,7 +218,7 @@ Hook + rollout --------> CodexActivityMonitor --------> UI
 | app-server connection | 请求时检查 1 小时复用上限 | 后续请求重建连接时使用磁盘上的 binary |
 | app-server supplemental cache | 当前账户内 | 避免跨账户串值 |
 | Hook live bootstrap window | 24 小时 | 覆盖可能仍在运行的长任务 |
-| 菜单栏完成或终止提示 | 30 秒 | 最新终态的短时反馈 |
+| 菜单栏完成或终止提示 | 10 秒 | 最新终态的短时反馈 |
 | 任务中心 terminal 历史 | 10 分钟 | 提供近期上下文但不长期占用 UI |
 | terminal 去重记忆 | 24 小时 | 防止迟到 Hook 或 rollout 复活旧任务 |
 | Hook 原始和日聚合 | 210 天 | 支持长期统计和重建 |
