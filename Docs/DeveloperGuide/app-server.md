@@ -29,7 +29,7 @@ CodexCLIResolver
 
 `CodexStatusService` 拥有连接和同账户缓存。`CodexStatusViewModel` 只拥有 UI 级加载状态、自动刷新节奏和最后一次连接信息。
 
-这个分工让设置页可以复用同一个 app-server session 读写 Hook 与 TUI 配置，同时不让 View 直接持有 `Process` 或 pipe。
+设置页复用该 session 读写 Hook 与 TUI 配置。
 
 ## Codex CLI 定位
 
@@ -238,8 +238,6 @@ ready
 
 `fetchData` 内部用同一个 `didRefresh` 锁存本轮刷新资格。第一个认证失败触发 `account/read(refreshToken: true)`，后续接口复用刷新结果。再次需要认证时直接归类为未登录。
 
-这避免一轮 UI 刷新对同一凭据连续触发多次 token refresh。
-
 ## 刷新模型
 
 状态 ViewModel 默认每 60 秒刷新。用户也可以在主面板双击账户图标立即触发。
@@ -266,8 +264,6 @@ ready
 ```
 
 rate limits 与 usage 是补充数据。只要账户有效，即使两个接口都没有数据，仍然生成快照让 UI 展示账户和明确的“暂无数据”。
-
-如果因为补充接口缺失就把整轮标成未登录，用户会看到身份状态在真实登录和错误之间抖动，也无法区分认证问题与单个新接口不支持。
 
 ### 缓存决策表
 
@@ -410,8 +406,8 @@ namespace、UUID 版本、原始 UTF-8 输入和小写输出共同构成跨版�
 
 Hook 设置也复用 app-server 链路，但采用独立的可用性状态：
 
-- `isEnabled` 表示目标 handler 已安装
-- `isVerified` 表示最近一次 app-server 显式校验通过
+- `isEnabled` 表示当前进程中的开启状态，首次从已有 handler 恢复；运行期间配置缺失时触发自愈
+- `isVerified` 默认 `true`，随后保存最近一次明确校验结论
 - `isOperable` 只有在两者都为 `true` 时成立
 - 短暂 RPC 失败保留上一次明确校验结果
 
@@ -427,8 +423,6 @@ Hook 设置也复用 app-server 链路，但采用独立的可用性状态：
 - 有连接时复用当前真实进程
 - 从 handshake user agent 解析运行版本
 - 无法解析版本时按不支持处理，不乐观放行
-
-这是能力安全边界。如果未来新增依赖某个 app-server 方法的功能，应把最低版本判断放在实际连接能力入口，不能只在“关于”页面展示磁盘版本。
 
 ## 请求日志
 

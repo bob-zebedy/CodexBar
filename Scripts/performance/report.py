@@ -34,7 +34,7 @@ def chart(series, key, label, color, unit, phase_index, ceiling=None, step=False
     y = lambda v: top + (1 - v / maximum) * (height - top - bottom)
     parts = [f'<div class="trend-chart" data-phase="{phase_index}" data-key="{escape(key)}" data-unit="{escape(unit)}">',
              f'<div class="trend-stats"><b>{escape(label)}</b><span>最低 {number(min(p[key] for p in points))} · 峰值 {number(peak[key])} {escape(unit)}</span></div>',
-             f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{escape(label)} 趋势, 单位 {escape(unit)}">']
+             f'<svg viewBox="0 0 {width} {height}">']
     for index in range(5):
         value = maximum * index / 4
         yy = y(value)
@@ -68,7 +68,7 @@ def chart(series, key, label, color, unit, phase_index, ceiling=None, step=False
     parts.append(f'<circle cx="{x(peak["t"]):.2f}" cy="{y(peak[key]):.2f}" r="4" fill="{color}"/>')
     parts.append(f'<text x="{x(peak["t"]):.2f}" y="{y(peak[key]) - 10:.2f}" text-anchor="{anchor}">峰值 {peak[key]:.2f}</text>')
     parts.append(f'<line class="cursor" x1="{left}" x2="{left}" y1="{top}" y2="{height - bottom}" hidden/></svg>')
-    parts.append(f'<div class="chart-control"><input type="range" min="0" max="{len(series) - 1}" value="0" aria-label="{escape(label)} 采样时间"><output aria-live="polite"></output></div></div>')
+    parts.append(f'<div class="chart-control"><input type="range" min="0" max="{len(series) - 1}" value="0"><output></output></div></div>')
     return "".join(parts)
 
 
@@ -88,7 +88,7 @@ def bars(groups, unit="", digits=2):
     low, high = min([0] + values), max([0] + values)
     extent = high - low or 1
     zero = -low / extent * 100
-    parts = [f'<div class="bar-chart" role="img" aria-label="{escape(unit)} 柱状图">']
+    parts = ['<div class="bar-chart">']
     for label, entries in groups:
         parts.append(f'<div class="bar-group"><div class="bar-label">{escape(label)}</div>')
         for name, value, color in entries:
@@ -116,7 +116,7 @@ def distribution(main, total):
     if not total:
         return '<div class="empty">无 CPU 样本</div>'
     ratio = main / total * 100
-    return f'''<div class="share-chart"><div class="share-track" role="img" aria-label="主线程 {ratio:.1f}%, 其他线程 {100 - ratio:.1f}%"><i style="width:{ratio:.4f}%;background:{COLORS[0]}"></i><i style="width:{100 - ratio:.4f}%;background:{COLORS[1]}"></i></div>
+    return f'''<div class="share-chart"><div class="share-track"><i style="width:{ratio:.4f}%;background:{COLORS[0]}"></i><i style="width:{100 - ratio:.4f}%;background:{COLORS[1]}"></i></div>
 <div class="share-values"><div><span>主线程</span><b>{ratio:.1f}%</b><small>{main:,.0f} ms</small></div><div><span>其他线程</span><b>{100 - ratio:.1f}%</b><small>{total - main:,.0f} ms</small></div></div></div>'''
 
 
@@ -135,7 +135,7 @@ def interval_chart(rows, paired=False):
         first, last = values[0], values[-1]
         description = (f'首段 {first:.1f} → 尾段 {last:.1f} MiB · 变化 {last - first:+.1f} MiB' if paired else
                        f'最小 {first:.1f} · 中位 {values[1]:.1f} · 峰值 {last:.1f} MiB')
-        parts.append(f'<div class="interval-track" role="img" aria-label="{escape(description)}"><i class="interval-line" style="left:{x(min(first, last)):.4f}%;width:{x(abs(last - first)):.4f}%"></i>')
+        parts.append(f'<div class="interval-track"><i class="interval-line" style="left:{x(min(first, last)):.4f}%;width:{x(abs(last - first)):.4f}%"></i>')
         for i, value in enumerate(values):
             kind = ("head" if i == 0 else "tail") if paired else ("median" if i == 1 else "bound")
             parts.append(f'<i class="interval-point {kind}" style="left:{x(value):.4f}%" title="{value:.2f} MiB"></i>')

@@ -270,7 +270,7 @@ Terminal signals reconcile by reliability:
 
 ### Two-Stage Approval Confirmation
 
-`PermissionRequest` indicates an approval flow, but reviewer may be user, policy, or automatic review.
+`PermissionRequest` accepts reviewers `user`, `auto_review`, and `guardian_subagent`.
 
 If the Hook event includes reviewer, the task can confirm immediately. If reviewer is missing, it saves `pendingApprovalRequestedAt` and waits for rollout polling to fill it in.
 
@@ -290,17 +290,17 @@ With missing IDs, stop-before-start, or several candidates in one session, the m
 
 ## Snapshot Priority
 
-When several tasks and temporary states coexist, the outward snapshot uses this priority:
+The activity card selects content through `primaryActivity` in this order:
 
 ```text
 Waiting for approval > Running > Recently completed > Recently terminated > Idle
 ```
 
-Completion remains green in the menu bar for 30 seconds. Task Center retains recent tasks for 10 minutes, while terminal deduplication memory lasts 24 hours.
+The menu bar also prioritizes waiting and running tasks. With no active tasks, it selects the latest completion or termination until 30 seconds after the end timestamp. Task Center retains terminal records for 10 minutes; terminal deduplication memory lasts 24 hours.
 
 The snapshot feeds:
 
-- Menu bar status dot
+- Menu bar person symbol
 - Main-panel task card
 - Task Center
 - Notification system
@@ -308,7 +308,7 @@ The snapshot feeds:
 
 ### Snapshot Publication
 
-The monitor polls rollout each second and also updates itself at several deadlines. Assigning the same value to `@Published` on every cycle would make SwiftUI and all Combine consumers recalculate unnecessarily.
+The monitor checks rollout each second and refreshes at cleanup deadlines.
 
 A candidate snapshot is compared with the current value and published only after structural change. Views format elapsed time from the current clock and do not require per-second mutation of task objects.
 
@@ -320,11 +320,9 @@ All lists sort by most recent time first and then display UUID string. Stable or
 
 ### Cleanup Uses the Nearest Deadline
 
-The monitor manages completion highlight, terminal grace, activity retention, history retention, terminal deduplication, and protection-record expiration.
+The monitor manages terminal grace, activity retention, history retention, terminal deduplication, and protection-record expiration. `StatusItemController` independently manages the 30-second completion or termination indication; its expiration does not republish the activity snapshot.
 
-It does not scan everything on a fixed high-frequency timer. It gathers future deadlines and schedules one `Task` for the nearest. After it fires, it recalculates the next.
-
-This reduces meaningless wakeups for a resident menu bar app and lets every retention period take effect on time even without a new Hook event.
+The cleanup task waits for the nearest future deadline, processes it, then schedules the next.
 
 ## System Sleep and Wake
 
@@ -350,7 +348,7 @@ Rollout reconciliation must occur after a successful Hook drain.
 
 Reading rollout first may find lifecycle data whose task key has not yet been added to the monitor from Hook events written during sleep. Resuming protection first could hide tasks from a pre-sleep last-progress time.
 
-`readerGeneration` prevents a returning wake task from using a reader replaced by a Hook settings change. `recoveryGeneration` prevents an older recovery from unpausing evaluation after two overlapping sleep or settings changes.
+`tailReaderGeneration` prevents a returning wake task from using a reader replaced by a Hook settings change. `activityProtectionRecoveryGeneration` prevents an older recovery from unpausing evaluation after two overlapping sleep or settings changes.
 
 ## Stalled Task Protection
 
@@ -406,7 +404,7 @@ Saved records restore protection during the next bootstrap. Hiding does not wait
 
 Shortening the threshold immediately reevaluates running tasks already past it.
 
-Lengthening it silently restores suppressed tasks that no longer exceed the new threshold and clears their records and notifications. Tasks still beyond the new threshold remain suppressed without duplicate alerts.
+Increasing the threshold silently restores suppressed tasks that no longer exceed it and clears their records and notifications. Tasks still beyond the threshold remain hidden.
 
 Turning off the sleep-prevention switch disables Activity Protection and restores all suppressed tasks in the current process.
 

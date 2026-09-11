@@ -106,7 +106,7 @@ Both app and helper use monotonically increasing generations:
 [`KeepAliveController.swift`](../../../CodexBar/Services/KeepAlive/KeepAliveController.swift) establishes sleep prevention only when all conditions hold:
 
 - Prevent System Sleep is enabled
-- Hook is enabled and validated
+- Hook’s `isOperable` is `true`
 - At least one live task qualifies under settings
 - CodexBarHelper is installed and connectable
 - The low-battery threshold is not active
@@ -170,7 +170,7 @@ The About row and both feature captions use `helperInstallationStatus`. System r
 - Missing components, invalid configuration, or invalid signatures display Unavailable even when macOS still returns `.enabled`; a later successful package check clears the issue
 - Missing components found before registration update only the package issue and start a fresh check, without storing a duplicate registration error; older results cannot overwrite the new issue, and revalidation can restore the display after repairs even with both features off
 - Historical registration errors do not override pending approval or authorization; an unregistered helper with a failed installation displays Unavailable
-- Validation results stay in memory and do not guarantee successful execution; XPC timeouts and individual power-operation failures retain their existing error handling
+- Package validation results stay in memory; separate operation errors report XPC timeouts and power-operation failures
 
 Wake schedules converge from actual system state rather than depending only on normal-exit cleanup:
 
@@ -268,8 +268,6 @@ Security and reliability requirements are:
 - File is root-owned with `0600` permissions
 - Commits use a temporary file, full sync, and atomic rename
 - At startup, a missing record creates idle state; owned or restoring records restore `disablesleep 0`; unreadable or untrusted records also trigger restoration to `0`
-
-The file records CodexBar's ownership of system sleep settings.
 
 Automatic Reset wake events are not stored there. macOS power management persists them under an identity formed from the current Debug or Release helper mach service plus `.auto-reset`, with fixed type `wake`.
 

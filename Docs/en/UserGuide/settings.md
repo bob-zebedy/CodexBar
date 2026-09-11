@@ -19,7 +19,7 @@ Right-click or Control-click the menu bar icon and choose `Settings`, or press `
 
 Click the options button to drag sections into order or toggle visibility, keeping at least one section visible. Use `⌘Z` to undo and `⌘⇧Z` to redo. Hiding a section does not stop its features.
 
-Disabling Hook turns off Tasks; enable it manually after re-enabling Hook. If Tasks was the only visible section, Account is enabled automatically.
+Disabling Hook hides Tasks; switching Hook from off to on shows Tasks automatically. You can still hide Tasks manually while Hook is enabled, and restarting the app preserves that choice. If Tasks was the only visible section, disabling Hook enables Account automatically.
 
 ### Menu Bar Quota Indicator
 
@@ -92,7 +92,7 @@ CodexBar Helper status always appears in About, regardless of the Automatic Rese
 | --- | --- |
 | Not Installed | Not yet registered, with no detected component or installation issue; normal on first use |
 | Not Authorized | Registered, but still needs permission to run in the background |
-| Authorized | Background execution is approved and no component issue is currently detected; individual operations can still fail |
+| Authorized | Background execution is approved and no component issue is currently detected |
 | Unavailable | Components are missing, configuration or signatures are invalid, or installation failed while unregistered |
 
 A detected component issue displays Unavailable even if authorization was previously granted. See [CodexBarHelper Cannot Be Registered](troubleshooting.md#codexbarhelper-cannot-be-registered).

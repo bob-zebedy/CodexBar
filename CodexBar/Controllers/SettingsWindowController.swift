@@ -274,7 +274,7 @@ final class SettingsWindowController: HostingWindowController {
                 optionsDismissedByClick = (panel, event)
             }
             handleOptionsAction(.closeAll)
-            // 保留到本次 mouseUp 分发完成, 避免影响之后的辅助功能按钮动作
+            // 保留到本次 mouseUp 分发完成, 避免影响之后的按钮动作
             DispatchQueue.main.async { [weak self] in
                 if self?.optionsDismissedByClick?.event === event {
                     self?.optionsDismissedByClick = nil

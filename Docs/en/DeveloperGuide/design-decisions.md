@@ -26,7 +26,7 @@ Sleep prevention represents these layers with `isEnabled`, `sleepBlockReason`, a
 | --- | --- |
 | Temporary app-server supplemental failure | Use same-account stale cache with reduced UI opacity; do not trigger quota alerts or automatic redemption |
 | Unsupported method | Cache missing capability for the session and probe again after rebuilding the connection |
-| Missing historical Hook count | Retain `nil` in persisted and sync models; current display projection still falls back to counts |
+| Missing historical Hook count | Persisted and sync models retain `nil`; display projection applies each metric’s fallback rule |
 | Live reader cannot obtain a stable boundary | Publish degraded health and pause Activity Protection |
 
 The source layer supplies these states; consumers determine whether to display data or perform effects. See [Hook Aggregation](hook-and-aggregation.md) for count projection and [app-server](app-server.md) for account caches.

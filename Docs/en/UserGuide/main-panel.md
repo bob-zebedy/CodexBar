@@ -4,22 +4,25 @@
 
 ## Menu Bar Icon
 
-CodexBar combines its icon, a status dot, and an optional rate-limit bar to show account, task, and rate-limit status:
+CodexBar combines a person symbol with an optional circular rate-limit arc:
 
 | Appearance | Meaning |
 | --- | --- |
-| Normal account icon | Account data is available |
-| Error account icon | You are signed out, initialization failed, or trusted rate-limit and usage data is unavailable |
-| Blue status dot | At least one task is running |
-| Orange status dot | At least one task is waiting for your approval |
-| Green status dot | A task has just finished; the highlight remains for 30 seconds |
-| Rate-limit bar beside the icon | Remaining percentage in the selected rate-limit window |
+| Plain person | Default or idle state |
+| Slashed person | You are signed out, initialization failed, or trusted rate-limit and usage data is unavailable |
+| Clock badge | At least one task is running |
+| Key badge | At least one task is waiting for approval |
+| Shield with a checkmark | A task finished within the last 30 seconds |
+| Shield with an exclamation mark | A task was terminated within the last 30 seconds |
+| Circular arc with a bottom gap | Remaining percentage in the selected rate-limit window, using the same colors as the panel |
 
-When several states exist at once, waiting for approval takes priority over running, and running takes priority over recently completed.
+Account errors take priority, followed by waiting for approval, running, and the latest completion or termination within 30 seconds. The most recent timestamp determines which terminal state appears.
+
+The person symbol grows when the quota arc is hidden.
 
 Hover over the menu bar icon to see the current task state, project name, elapsed time, number of concurrent tasks, and remaining percentage in the selected rate-limit window.
 
-When rate-limit data comes from cache, the icon and progress bar become translucent to indicate that the visible data is not the latest snapshot.
+Cached rate-limit data dims the icon and arc. Zero quota retains the empty track; unavailable or disabled quota hides the arc.
 
 ## Layout Customization
 
@@ -98,7 +101,7 @@ The card shows the following fields when available:
 - Number of other concurrent tasks
 - Anonymous-task icon
 
-When sleep prevention is actively engaged, a coffee-cup indicator appears on the right side of the activity card.
+While sleep prevention is active, a teal sun badge rotates continuously on the right side of the activity card. Hover over it to see the sleep-prevention source.
 
 Tasks whose session cannot be identified show an orange anonymous icon with the tooltip `Anonymous tasks do not prevent sleep`.
 
@@ -115,9 +118,7 @@ Task Center groups tasks into:
 - Recently Completed
 - Recently Terminated
 
-Recently completed and terminated records remain for 10 minutes. Completion means a turn ended; termination means it was interrupted and does not trigger a completion notification.
-
-Completion does not guarantee a successful result.
+Recently completed and terminated records remain for 10 minutes. Completion means a turn ended, without implying success. Termination means it was interrupted and does not trigger a completion notification.
 
 ## Footer Status
 

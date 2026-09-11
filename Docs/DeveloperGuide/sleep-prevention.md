@@ -106,7 +106,7 @@ App 和 helper 都使用单调递增 generation：
 [`KeepAliveController.swift`](../../CodexBar/Services/KeepAlive/KeepAliveController.swift) 只有在以下条件全部成立时才建立防睡眠：
 
 - 防睡眠主开关已开启
-- Hook 已启用且校验通过
+- Hook 的 `isOperable` 为 `true`
 - 至少存在一个符合设置的实时任务
 - CodexBarHelper 已安装并可连接
 - 未触发低电量阈值
@@ -170,7 +170,7 @@ CodexBarHelper 通过 `SMAppService` 注册为 LaunchDaemon。App 和 CodexBarHe
 - 确认组件缺失、配置异常或签名无效时显示“不可用”，即使系统仍返回 `.enabled`；后续包校验成功后清除该异常
 - 安装前发现组件缺失时只更新包异常并发起新校验，不另存一份注册错误；旧校验结果不能覆盖新发现的缺失，关闭功能后修复组件也能通过再次校验恢复显示
 - 待授权和已授权状态不会被历史注册错误覆盖；未注册且安装失败时显示“不可用”
-- 校验结果只保存在内存中，不证明 Helper 的每次运行都成功；XPC 超时和具体电源操作失败仍按原操作错误处理
+- 包校验结果只保存在内存中；XPC 超时和电源操作失败由操作错误单独表示
 
 唤醒计划采用系统状态收敛而不是只依赖正常退出清理：
 
@@ -268,8 +268,6 @@ CodexBarHelper 把系统所有权记录保存在：
 - 文件由 root 拥有，权限为 `0600`
 - 使用临时文件、full sync 和原子 rename 提交
 - 启动时记录缺失则写入 idle；记录为 owned 或 restoring 时恢复 `disablesleep 0`；记录无法读取或不可信时也尝试恢复为 `0`
-
-该文件记录 CodexBar 对系统睡眠设置的所有权。
 
 自动重置唤醒事件不写入该文件。它由 macOS 电源管理保存，身份固定为当前 Debug 或 Release helper 的 mach service 名加 `.auto-reset`，类型固定为 `wake`。
 

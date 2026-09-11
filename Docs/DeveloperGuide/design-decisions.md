@@ -26,7 +26,7 @@
 | --- | --- |
 | app-server 补充接口暂时失败 | 使用同账户缓存并标记 stale，降低 UI 透明度，不触发额度通知或自动消费 |
 | method unsupported | 当前 session 缓存能力缺失，重建连接后重新探测 |
-| 历史 Hook 计数字段缺失 | 持久化和同步模型保留 `nil`；当前展示投影仍会按规则回退为计数 |
+| 历史 Hook 计数字段缺失 | 持久化和同步模型保留 `nil`，展示投影按指标规则回退 |
 | 实时 reader 无法取得稳定边界 | 发布 degraded health，暂停异常会话保护 |
 
 这些状态由来源层给出，消费方按用途决定是否展示或执行副作用。计数投影见 [Hook 聚合](hook-and-aggregation.md)，账户缓存见 [app-server](app-server.md)

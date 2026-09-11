@@ -118,7 +118,7 @@ Releasing asynchronously in `applicationWillTerminate` is too late because that 
 
 ## Three Independent Data Flows
 
-CodexBar does not use a single aggregation service for all state. The three flows have different inputs, freshness needs, and failure semantics:
+Three data flows manage distinct inputs, freshness requirements, and failure states:
 
 | Flow | Input | Output | Main consumers |
 | --- | --- | --- | --- |
@@ -197,7 +197,7 @@ The monitor must not perform blocking file reads directly. `HookEventTailReader`
 
 ## Model Layers
 
-The project does not reuse one large object directly across app-server DTOs, persistence, and views:
+Models separate external input, persistence, domain state, and presentation:
 
 | Model type | Role | Design requirement |
 | --- | --- | --- |
@@ -211,14 +211,14 @@ For example, `CodexQuotaSnapshot` can carry both a current value and a stale mar
 
 ## Lifecycles and Retention
 
-Different states have different lifetimes and cannot share one cache duration:
+State lifetimes are:
 
 | State | Lifetime | Reason |
 | --- | --- | --- |
 | app-server connection | A 1-hour reuse limit checked on requests | Later requests rebuild with the binary on disk |
 | app-server supplemental cache | Current account only | Prevents values from leaking across accounts |
 | Hook live bootstrap window | 24 hours | Covers long-running tasks that may still be active |
-| Completion highlight | 30 seconds | Short menu bar feedback |
+| Menu bar completion or termination | 30 seconds | Brief feedback for the latest terminal state |
 | Task Center terminal history | 10 minutes | Provides recent context without occupying the UI indefinitely |
 | Terminal deduplication memory | 24 hours | Prevents late Hook or rollout data from reviving old tasks |
 | Raw Hook data and daily aggregations | 210 days | Supports long-term metrics and rebuilding |

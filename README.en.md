@@ -33,7 +33,7 @@ It can notify you when a task finishes, needs approval, or when your rate limits
 - See every rate-limit window, its remaining allowance, and reset time
 - Check available credits and banked resets
 - Automatically use banked resets from 15 minutes to 6 hours before they expire, with a default lead time of 30 minutes; CodexBar can wake your Mac at the scheduled time and revalidate availability before use
-- Show a selected rate-limit window directly beside the menu bar icon
+- Show the remaining percentage of a selected rate-limit window as a menu bar arc
 
 ### Understand your Codex usage
 
@@ -44,7 +44,7 @@ It can notify you when a task finishes, needs approval, or when your rate limits
 
 ### Keep track of active tasks
 
-- Menu bar status dots distinguish running tasks, tasks waiting for approval, and recently completed tasks
+- Menu bar person badges distinguish running tasks, tasks waiting for approval, recent completions, and recent terminations
 - The main panel shows the current task, project, model, reasoning effort, and elapsed time
 - Task Center brings concurrent, recently completed, and recently terminated tasks together
 - Receive alerts for completed tasks, approval requests, and stalled tasks

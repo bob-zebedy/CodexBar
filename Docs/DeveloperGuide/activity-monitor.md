@@ -270,7 +270,7 @@ JSONL 中缺少 `origin` 或来源枚举无法识别时，来源字段先解码�
 
 ### 等待批准的两阶段确认
 
-`PermissionRequest` 说明进入审批流程，但 reviewer 可能是 user, policy 或 auto review。
+`PermissionRequest` 的 reviewer 接受 `user`、`auto_review` 和 `guardian_subagent`。
 
 Hook event 到达时如果已经带有 reviewer，task 可以立即确认。reviewer 缺失时先保存 `pendingApprovalRequestedAt`，rollout poll 补齐后再决定是否进入 `waitingApproval`
 
@@ -290,17 +290,17 @@ subagent 的 turn ID 属于 subagent 自己，父任务只能通过共享 sessio
 
 ## 快照优先级
 
-多个任务和短时状态同时存在时，对外快照按以下优先级表达：
+活动卡片的 `primaryActivity` 按以下优先级选择内容：
 
 ```text
 等待批准 > 运行中 > 最近完成 > 最近中断 > 空闲
 ```
 
-完成状态在菜单栏保留 30 秒绿色提示。活动中心保留最近 10 分钟任务，terminal 去重记忆保留 24 小时。
+菜单栏同样优先展示等待批准和运行中任务；没有活跃任务时，从完成与终止记录中选择最新一条，显示到结束时间后 30 秒。任务中心的终态记录保留 10 分钟，terminal 去重记忆保留 24 小时。
 
 快照由以下模块消费：
 
-- 菜单栏状态点
+- 菜单栏人物图标
 - 主面板任务卡片
 - 活动中心
 - 通知系统
@@ -308,7 +308,7 @@ subagent 的 turn ID 属于 subagent 自己，父任务只能通过共享 sessio
 
 ### 快照发布
 
-monitor 每秒 poll rollout，还会按多个 deadline 自行刷新。如果每轮都给 `@Published` 赋相同值，SwiftUI 和所有 Combine 消费者会重复计算。
+monitor 每秒检查 rollout，并在清理 deadline 到达时刷新。
 
 新快照先与当前值比较，只有结构变化才发布。运行时长文案由 View 使用当前时间格式化，不要求每秒修改任务对象。
 
@@ -320,11 +320,9 @@ monitor 每秒 poll rollout，还会按多个 deadline 自行刷新。如果每�
 
 ### 清理采用最近 deadline
 
-monitor 同时管理完成高亮、terminal grace、活动保留、历史保留、terminal 去重和保护记录过期。
+monitor 管理 terminal grace、活动保留、历史保留、terminal 去重和保护记录过期。菜单栏完成或终止提示的 30 秒到期由 `StatusItemController` 独立管理，不为提示到期重新发布活动快照。
 
-它不使用固定高频 timer 扫描所有状态，而是收集所有未来 deadline，只为最近一项安排 Task。到点刷新后再计算下一项。
-
-这种实现减少常驻菜单栏 App 的无意义唤醒，也保证每种保留期都能在没有新 Hook 事件时准时生效。
+清理任务只等待最近的未来 deadline，到点处理后安排下一次。
 
 ## 系统睡眠与唤醒
 
@@ -350,7 +348,7 @@ rollout 对账必须发生在 Hook drain 成功之后。
 
 如果先读 rollout，此时 monitor 中可能还没有睡眠期间刚追加的任务 key，lifecycle 结果无法关联。如果先恢复保护判定，则会基于睡前 last progress 误隐藏任务。
 
-`readerGeneration` 防止唤醒 Task 返回时 reader 已因 Hook 设置变化被替换。`recoveryGeneration` 防止两次睡眠或设置变化交错后，较早恢复流程提前解除暂停。
+`tailReaderGeneration` 防止唤醒 Task 返回时 reader 已因 Hook 设置变化被替换。`activityProtectionRecoveryGeneration` 防止两次睡眠或设置变化交错后，较早恢复流程提前解除暂停。
 
 ## 异常会话保护
 
@@ -406,7 +404,7 @@ rollout 对账必须发生在 Hook drain 成功之后。
 
 阈值变短时，已经超过新阈值的 running 任务会立即重新判定。
 
-阈值变长时，尚未超过新阈值的 suppressed 任务会静默恢复，清除对应保护记录和通知。已经仍超过新阈值的任务继续 suppressed，不制造重复通知。
+阈值变长时，未超过新阈值的 suppressed 任务会静默恢复，并清除保护记录和通知；仍超过阈值的任务继续隐藏。
 
 关闭防睡眠主开关会停用异常保护，并恢复当前进程内所有 suppressed 任务。
 

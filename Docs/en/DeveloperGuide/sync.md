@@ -71,8 +71,6 @@ Sync must distinguish device contributions without uploading a raw hardware iden
 
 The raw `IOPlatformUUID` is never uploaded. One device receives a stable pseudonym within one iCloud account and a different value in another account.
 
-The private account salt gives the same device a different pseudonym in each iCloud account.
-
 The salt lives in the same private custom zone. If several devices attempt initial creation, they converge on the existing record by reading it after a CloudKit conflict instead of keeping incompatible salts.
 
 Local state records the most recently resolved `deviceId`. If it changes, sync clears the old cursor and remote cache while retaining pending replacement dates. A device-identity change means the cached account scope is untrusted and cannot continue incrementally.
@@ -154,7 +152,7 @@ Merge rules are:
 
 ### Multiple Sources for One Device and Date
 
-Legacy record names contain only `deviceId + date`. New source records may use `deviceId + date + sourceGeneration`.
+Record names support both `deviceId + date` and `deviceId + date + sourceGeneration`.
 
 A generation record identifies one raw source. Same-source local and cloud results replace one another, while clearly distinct sources may represent independent contributions created on the same day.
 
@@ -205,7 +203,7 @@ For each replacement date, sync:
 
 While replacement is in progress, the snapshot filters the current device's cloud cache for that date and shows the latest local aggregation. Even if the app quits between deletion and reupload, the UI does not add the old cloud contribution to the new local contribution.
 
-The full fetch before deletion is the crucial detail. An incremental cursor guarantees completeness only after its position; it cannot prove that an older app or manual deletion never caused the local cache to miss records. Full enumeration prevents ghost generations from remaining.
+Before replacement deletes records, a full fetch finds every generation for the device and date, including records missing from the incremental cache.
 
 ## Incremental Cursor and Local Cache
 
@@ -233,7 +231,7 @@ The three files have different recovery costs:
 
 `cursor.data` stores the opaque CloudKit token with secure coding; code does not inspect its structure. After a full fetch, sync must also create a new cursor baseline, or the next cycle may consume all recently fetched changes again from an empty cursor.
 
-The local `3 -> 4` read path rebuilds the remote cache before committing new state. An unknown schema falls back to empty sync state because misinterpreting upload confirmations is more dangerous than resynchronizing.
+Reading local schema `3` rebuilds the remote cache before saving schema `4`; unknown schemas resynchronize from empty local state.
 
 Any change to record fields, identity, or schema is a compatibility decision. It must account for old apps still writing, new apps reading old fields, and whether downgrade can overwrite new records—not merely increment a constant.
 

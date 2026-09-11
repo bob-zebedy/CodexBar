@@ -29,7 +29,7 @@ CodexCLIResolver
 
 `CodexStatusService` owns the connection and same-account cache. `CodexStatusViewModel` owns only UI loading state, automatic-refresh timing, and the latest connection information.
 
-This division lets Settings reuse the same app-server session to read and write Hook and TUI configuration without giving a view direct ownership of `Process` or pipes.
+Settings reuses this session for Hook and TUI configuration.
 
 ## Locating Codex CLI
 
@@ -238,8 +238,6 @@ One refresh reads account, rate limits, and usage; Reset Credits details are inc
 
 `fetchData` uses one `didRefresh` latch for the entire cycle. The first authentication failure triggers `account/read(refreshToken: true)`, and later methods reuse that result. A second authentication requirement is classified as signed out.
 
-This avoids repeatedly refreshing the same credential during one UI refresh.
-
 ## Refresh Model
 
 The status view model refreshes every 60 seconds by default. Users can double-click the account icon in the main panel to request an immediate refresh.
@@ -266,8 +264,6 @@ Confirm or create connection
 ```
 
 Rate limits and usage are supplemental. As long as the account is valid, CodexBar still creates a snapshot when both interfaces return no data so the UI can show the account and an explicit “No Data.”
-
-Treating missing supplemental interfaces as signed out would make identity flicker between real sign-in and error and would hide the difference between authentication problems and one unsupported new method.
 
 ### Cache Decision Table
 
@@ -410,8 +406,8 @@ When Automatic Reset requests a full rate-limit refresh while an ordinary refres
 
 Hook settings reuse the app-server flow but maintain independent availability state:
 
-- `isEnabled` means the target handler is installed
-- `isVerified` means the latest explicit app-server validation passed
+- `isEnabled` tracks enabled state for the current process, initially restored from an existing handler; configuration lost during runtime triggers repair
+- `isVerified` defaults to `true`, then retains the latest explicit validation result
 - `isOperable` is true only when both are `true`
 - A transient RPC failure preserves the last explicit validation result
 
@@ -427,8 +423,6 @@ Enabling or validating Hook calls `readyConnectionInfo()`:
 - If a connection exists, it reuses the actual current process
 - It parses the running version from the handshake user agent
 - An unparseable version is treated as unsupported rather than allowed optimistically
-
-This is a capability-safety boundary. A future feature depending on an app-server method must place its minimum-version check at the actual connection-capability entry point, not merely show an on-disk version on About.
 
 ## Request Logs
 

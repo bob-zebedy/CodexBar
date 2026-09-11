@@ -71,8 +71,6 @@ zone 确认和账户 salt 在 actor 内跨轮次缓存；同步失败时使两�
 
 原始 `IOPlatformUUID` 不会上传。同一设备在同一 iCloud 账户中得到稳定 pseudonym，不同账户得到不同结果。
 
-账户私有 salt 使同一设备在不同 iCloud 账户中得到不同 pseudonym。
-
 salt 存在同一个 private custom zone 中。多台设备先后创建时通过 CloudKit 冲突后回读现有记录收敛到同一份 salt，而不是让每台设备各自产生不兼容身份。
 
 本地状态记录最近解析出的 `deviceId`。如果它变化，同步会清除旧游标和远端缓存，但保留待 replacement 日期。设备身份变化意味着缓存的账户作用域已经不可信，不能继续增量套用。
@@ -154,7 +152,7 @@ salt 存在同一个 private custom zone 中。多台设备先后创建时通过
 
 ### 同设备同日的多来源记录
 
-早期记录名只包含 `deviceId + date`。新鲜来源可额外使用 `deviceId + date + sourceGeneration`
+记录名支持 `deviceId + date`，以及带来源代际的 `deviceId + date + sourceGeneration` 两种形式。
 
 generation 记录用于表达某一份原始来源的身份。同源的本地和云端结果是替换关系，明确不同的来源则可能是同一天先后产生的独立贡献。
 
@@ -205,7 +203,7 @@ CloudKit 解码及持久化模型保留可选计数字段。当前 `WorkflowDail
 
 replacement 进行中时，快照会临时过滤当前设备该日期的云端缓存，同时展示本机最新聚合。即使 App 在删除和重传之间退出，UI 也不会把旧云端贡献与新本地贡献相加。
 
-先全量拉取是这一事务最关键的小细节。增量 cursor 只保证从游标之后的变化完整，不保证本地缓存从未因旧版本或手动删除丢过记录。删除前全量枚举才能避免遗留幽灵 generation。
+replacement 删除前全量拉取当前设备同日记录，覆盖本地增量缓存中缺失的 generation。
 
 ## 增量游标与本地缓存
 
@@ -233,7 +231,7 @@ replacement 进行中时，快照会临时过滤当前设备该日期的云端�
 
 `cursor.data` 使用 secure coding 保存 CloudKit opaque token。代码不解析其内部结构。全量拉取后还要建立新的 cursor baseline，否则下一轮可能从空游标重复消费刚拉取的全部变化。
 
-本地 schema `3 -> 4` 的读取路径会先重建远端缓存再提交新状态。未知 schema 则回到空同步状态，因为错误解释上传确认信息比重新同步更危险。
+读取本地 schema `3` 时先重建远端缓存，再保存为 schema `4`；未知 schema 按空同步状态重新同步。
 
 任何 record 字段、identity 或 schema 的变化都是兼容性决策。需要同时考虑旧 App 仍在写入、新 App 如何读取旧字段，以及降级后是否会覆盖新记录，不能只递增一个常量。
 

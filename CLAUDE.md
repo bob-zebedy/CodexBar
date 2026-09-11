@@ -177,8 +177,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 首次读取在 `start()` 里单独判一次并记 `stage=start` 这条，不能改走 `refresh()` 那条路：后者按变化过滤，而读数初始值就是 `unreadable` 本身，首读失败会被静默吞掉，之后只留下一条没有配对失败行的恢复日志
 - 防睡眠上限累计的是**真正挡住睡眠**的那段时间，`begin` 起表 `pause` 收表，收表之后机器睡着或被低电量拦下都不占用户的上限
 - 上限计时用 `SuspendingClock` 而不是 `Date`，后者受系统时间调整影响且系统睡眠期间照走；排计时器的 `Task.sleep` 同样要传 `SuspendingClock`，否则睡一夜醒来会当场判定到期
-- 低电量是**纯条件**判定，不设“低过电”的粘滞标志：电量会回升，充上电就该自动恢复防睡眠；`hasReachedMaximumDuration` 之所以是粘滞标志只因为累计只增不减，两者不要照抄
-- 低电量必须同时满足在用电池与电量低于阈值，只看百分比会让“剩 5% 插上电再跑任务”当场被判低电量；判定用 `Power Source State`，不能用 `Is Charging`（接电停充时它也是 `false`）
+- 低电量判断使用 `isLowBatteryActive` 记录滞回状态；电池供电且电量不高于阈值时进入，达到阈值加 5 个百分点或接通电源时解除。时长上限由 `hasReachedMaximumDuration` 保持到下一轮任务或设置变化
+- 供电来源读取 `Power Source State`；接电停充时 `Is Charging` 为 `false`，不能用于判断是否正在使用电池
 - 电量读不到时维持上一次的判定，从没读到过就是不触发：误触发会当场断掉用户任务，漏触发最坏也有系统强制睡眠兜底
 - 已经在低电量保护中时读数失败不清零，否则一次瞬时失败会绕过滞回，让防睡眠反复开关并重发通知
 - 低电量通知只在 `isActivelyPreventingSleep` 为真且来源是 `codexBar` 时排队，外部来源不说“已恢复系统睡眠”；日志无条件记并用 `action=release|none` 区分，百分比只有那一条能看到
@@ -189,16 +189,15 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 触发与解除用 `阈值` 与 `阈值 + 5%` 两道门槛，否则电量在阈值附近抖动会反复切 pmset，合盖时还会反复补发 `IOPMSleepSystem`
 - 一轮低电量通知的终点是电量回到 `阈值 + 5%` 或者用户改了阈值，由 `hasNotifiedLowBattery` 记住；只看是否接电会让适配器接触不良时每翻一次供电状态就重发一条
 - `hasNotifiedLowBattery` 只在通知真的提交成功之后才置位，打在入队处或提交前都会让没送达的那一条吃掉整轮配额，使这一轮之后真正触发的低电量再也提醒不了
-- `hasNotifiedLowBattery` 只管通知不管判定，与上面“纯条件”不冲突：电量回到解除门槛以下再跌破仍算同一轮，不会重复提醒
 - `SleepConditions` 里只放 `battery` 布尔，放电量百分比会让每掉 1% 刷一条变化日志；真实电量只在触发那一条单独记
-- 状态只呈现在主面板活动卡片右侧的咖啡杯标记（带 tooltip），由 `KeepAliveController.isActivelyPreventingSleep` 驱动，`sleepPreventionSource` 区分外部来源与 CodexBar 所有权，卡片折叠成“暂无数据”时标记要跟着一起收
+- 防睡眠生效且活动卡片数据可用时，右侧显示青绿色 `sun.max.fill`，使用 `.symbolEffect(.rotate.byLayer, options: .repeat(.continuous))` 持续旋转；tooltip 按 `sleepPreventionSource` 区分外部来源与 CodexBar
 - 设置页那一行说明只在异常、外部来源、低电量生效或达到上限时出现，CodexBar 自己正常持有所有权时整行收起，`keepAliveCaption` 返回 `nil` 即代表收起
 - 最长防睡眠时间、异常会话保护阈值与低电量阈值都在防睡眠子面板里，台式机读不到电池时低电量那一行整行隐藏而不是置灰
 - 保持屏幕常亮跟 `isActivelyPreventingSleep` 走，由 `reconcileDisplayAwake` 单点切换，于是低电量拦下、达到上限、任务结束时屏幕都跟着放开
 - 显示断言只保证屏幕不睡，屏保与闲置锁屏跟的是系统 idle 计时，要靠 30 秒一次的 `IOPMAssertionDeclareUserActivity` 压住，两者缺一不可
 - 声明用户活动复用同一个 assertion ID，每次传 `null` 会新建一条，`pmset -g assertions` 里会堆成一串同名断言
 - 逐次声明不记日志，建立与释放各一条就够还原状态；两条断言都是进程级的，App 退出或崩溃时系统自动收回，不经过 helper
-- **菜单栏图标不承载防睡眠状态**，它要保持模板渲染让系统按菜单栏外观着色，自行着色在深浅和带染色的菜单栏下都会失控
+- 菜单栏由 `StatusItemIconView` 绘制人物符号和额度圆弧，并挂载在原生 `NSStatusBarButton` 中。人物使用系统前景色，圆弧使用 `QuotaPalette`；防睡眠状态只显示在活动卡片
 
 ### 自动重置
 
@@ -257,7 +256,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 成对的操作要留成对的日志，例如 XPC 的发送与回复各记一条并带同一个 `generation`，缺一条就说明请求丢在途中
 - 耗时用 `LogDuration` 取，只加在收尾那一条上
 - `Logger` 的插值是 autoclosure，里面直接访问属性会被要求显式 `self`，而 `.swiftformat` 配了 `--self remove`，两边会打架；把属性先取到局部常量再插值即可，不需要 lint 豁免
-- 账号有效时 `rate limits` 和 `usage` 允许单独失败，复用同账号旧缓存并标记 `stale`，UI 显示为半透明，无缓存则该区域不显示；账号变化时整体丢弃缓存避免串号
+- 账户有效时，额度和用量请求可以分别失败；同账户缓存标为 `stale` 并降低透明度。可见的数据区域均无数据时，在其中第一个区域显示“暂无数据”；Hook 开启时用量区域可保留本地统计。账户变化时清空补充缓存
 - 各 Settings 类把读取类错误与操作类错误分开存储，定时 `refresh` 不能抹掉用户操作或校验的结论，参见 `CodexHookSettings` 与 `KeepAliveController`
 - Hook 子进程任何失败都静默退出，优先保证不拖慢 Codex
 
@@ -289,8 +288,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 设置子面板的内容工厂必须走 `SettingsOptionsPanelController.makeContentController(_:rebuiltBy:)`，否则首次展开时原生 Switch 只剩一条空轨道；重建信号由它接在内容外面，内容视图不必知道 `SidePanelEntryCue`
 - 原因是 thumb 由 `WindowPortal` 投射而不是画在开关上，面板首次布局那一轮 portal 建不起来，而且不会自愈，只有一次内容重建才补得上；第二次展开正常是因为 hosting controller 常驻，复用了已经建好的那份
 - 开关首次绘制由内容重建处理；`SidePanelSupport` 中的 `@_optimize(none)` 用于规避编译器崩溃
-- 主面板的账户、任务中心、额度、Token 用量和底部状态由 `MainPanelSettings.layout` 统一保存顺序与显隐，模型始终保留至少一个区域；Hook 关闭时 `StatusItemController` 调用 `updateHookEnabled(_:)` 持久化关闭任务中心，任务中心原本是唯一可见区域时同步开启账户；设置面板只禁用任务中心开关，不能连带禁用拖拽手柄
-- 主面板布局排序由手柄上的自定义 `DragGesture` 驱动，悬浮副本跟手移动，其他行按预览顺序实时让位，松手后才通过 `setSectionOrder(_:)` 保存最终顺序；不要改回只在落点命中后换位的 `.draggable` 和 `.dropDestination`
+- `MainPanelSettings.layout` 保存主面板区域顺序与显隐，至少保留一个区域。`updateHookEnabled(_:)` 在 Hook 关闭时隐藏任务区域，必要时开启账户；从关闭切换为开启时显示任务区域，启动恢复开启状态时保留用户布局。Hook 关闭时任务开关禁用，拖拽手柄可用
+- 主面板布局排序由手柄上的自定义 `DragGesture` 驱动，悬浮副本跟手移动，其他行按预览顺序实时让位，松手后才通过 `setSectionOrder(_:)` 保存最终顺序
 - 热力图详情面板跟随包含标题和方格矩阵的完整热力图区域定位，优先让两者顶边对齐；详情面板过高时通过 `SidePanelSupport.anchoredPosition` 上移到与主面板底边对齐，不能恢复为固定贴住主面板底边
 - `SettingsWindowController` 持有窗口组唯一的 `UndoManager`，设置主窗口和四个可聚焦子面板必须共享这一撤销栈，保证焦点切换后 `⌘Z` 与 `⌘⇧Z` 仍然有效；Hook 自动联动不注册为用户操作
 - 设置窗口高度跟随当前 tab 的完整内容，只在内容超过屏幕可见高度时允许滚动；首次构造时 SwiftUI 可能早于 `HostingWindowController.window` 赋值上报高度，`SettingsWindowController` 必须缓存最近测量并在窗口就绪后应用，不能用初始高度或延迟掩盖

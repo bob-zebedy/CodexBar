@@ -1076,7 +1076,7 @@
             <aside class="sidebar">
                 <div class="brand">PERFORMANCE LAB</div>
                 <strong>@@APP@@</strong>
-                <nav aria-label="报告目录">
+                <nav>
                     <a href="#overview"><span>01</span>数据总览</a>
                     <a href="#comparison"><span>02</span>阶段对比</a>
                     <a href="#io"><span>03</span>唤醒与磁盘</a>
@@ -1094,8 +1094,7 @@
                         <div class="actions">
                             <button
                                 id="theme"
-                                type="button"
-                                aria-label="切换深浅主题">
+                                type="button">
                                 切换主题
                             </button>
                             <button
@@ -1256,7 +1255,6 @@
                     cursor.setAttribute('x2', x);
                     output.textContent = `${t.toFixed(2)} s · ${value === null ? 'N/A' : value.toFixed(2) + ' ' + unit}`;
                     input.value = index;
-                    input.setAttribute('aria-valuetext', output.textContent);
                 }
 
                 input.addEventListener('input', () => select(Number(input.value)));

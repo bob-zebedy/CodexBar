@@ -85,7 +85,7 @@ Check in this order:
 6. Low Battery Protection is not active
 7. The Keep-Awake Limit has not been reached
 
-The coffee cup indicates that system sleep is actually being prevented. An enabled switch without a coffee cup is not necessarily an error.
+The rotating sun badge appears only while sleep prevention is active and activity-card data is available.
 
 If Settings says `System sleep is disabled by another source`, CodexBar does not overwrite that source.
 
@@ -95,7 +95,7 @@ If Settings says `System sleep is disabled by another source`, CodexBar does not
 - Not Installed is normal on first use; the app attempts installation and registration after you enable `Automatic Reset` or `Prevent System Sleep` and confirm
 - For Not Authorized, click `Open System Settings` below an enabled feature's settings row and allow CodexBar to run in the background
 - Confirm that CodexBar is in Applications and that the app bundle is complete
-- `CodexBar Helper is missing components or configuration. Please reinstall CodexBar` means required bundle components or configuration are absent; `CodexBar Helper has invalid components or configuration. Please reinstall CodexBar` means configuration or signature validation failed; reinstall the complete CodexBar app in either case
+- `Helper incomplete. Reinstall CodexBar` means required bundle components or configuration are absent; `Helper validation failed. Reinstall CodexBar` means configuration or signature validation failed; reinstall the complete CodexBar app in either case
 - After repairing the app bundle, restart or reactivate the app to recheck it; a successful check automatically clears the component issue without requiring either feature to be enabled
 - If failures continue after an update, quit CodexBar, reopen it, and check authorization again
 

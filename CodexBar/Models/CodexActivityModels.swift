@@ -78,14 +78,12 @@ nonisolated struct CodexActivitySnapshot: Equatable {
     let runningTasks: [CodexActivityTaskSnapshot]
     let recentCompletions: [CodexActivityCompletion]
     let recentTerminations: [CodexActivityTermination]
-    let isCompletionHighlighted: Bool
 
     static let empty = CodexActivitySnapshot(
         waitingTasks: [],
         runningTasks: [],
         recentCompletions: [],
-        recentTerminations: [],
-        isCompletionHighlighted: false
+        recentTerminations: []
     )
 
     var primaryWaitingTask: CodexActivityTaskSnapshot? {
@@ -124,7 +122,7 @@ nonisolated struct CodexActivitySnapshot: Equatable {
         hasActiveTasks || !recentCompletions.isEmpty || !recentTerminations.isEmpty
     }
 
-    /// 等待批准 > 运行中 > 最近完成 > 最近终止 > 空闲; 菜单栏图标, tooltip 和活动卡片共用同一判定
+    /// 活动卡片优先展示等待批准和运行中任务, 空闲时保留最近完成或终止记录
     var primaryActivity: CodexPrimaryActivity {
         if let task = primaryWaitingTask {
             return .waiting(task)
@@ -133,20 +131,49 @@ nonisolated struct CodexActivitySnapshot: Equatable {
             return .running(task)
         }
         if let completion = mostRecentCompletion {
-            return .completed(completion, highlighted: isCompletionHighlighted)
+            return .completed(completion)
         }
         if let termination = mostRecentTermination {
             return .terminated(termination)
         }
         return .idle
     }
+
+    /// 菜单栏只短暂显示最新终态, 不改变活动卡片的历史展示规则
+    func statusItemActivity(at now: Date) -> CodexPrimaryActivity {
+        if let task = primaryWaitingTask {
+            return .waiting(task)
+        }
+        if let task = primaryRunningTask {
+            return .running(task)
+        }
+        guard let expiration = statusItemActivityExpiration, now < expiration else {
+            return .idle
+        }
+        if let termination = mostRecentTermination,
+           mostRecentCompletion.map({ termination.terminatedAt >= $0.completedAt }) ?? true {
+            return .terminated(termination)
+        }
+        if let completion = mostRecentCompletion {
+            return .completed(completion)
+        }
+        return .idle
+    }
+
+    var statusItemActivityExpiration: Date? {
+        guard !hasActiveTasks else { return nil }
+        return [mostRecentCompletion?.completedAt, mostRecentTermination?.terminatedAt]
+            .compactMap(\.self)
+            .max()?
+            .addingTimeInterval(30)
+    }
 }
 
-/// 快照归一后的主活动状态, highlighted 表示完成仍处于高亮时间窗内
+/// 快照归一后的主活动状态
 nonisolated enum CodexPrimaryActivity: Equatable {
     case waiting(CodexActivityTaskSnapshot)
     case running(CodexActivityTaskSnapshot)
-    case completed(CodexActivityCompletion, highlighted: Bool)
+    case completed(CodexActivityCompletion)
     case terminated(CodexActivityTermination)
     case idle
 }

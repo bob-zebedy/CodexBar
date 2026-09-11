@@ -97,17 +97,24 @@ final class MainPanelSettings: ObservableObject {
     }
 
     func updateHookEnabled(_ isEnabled: Bool) {
+        let wasEnabled = isHookEnabled
         isHookEnabled = isEnabled
-        guard !isEnabled else {
-            return
+        let updatedLayout: MainPanelLayout
+        if isEnabled {
+            // 首次恢复 Hook 状态时保留布局, 只有关闭到开启的转换才自动显示任务
+            guard wasEnabled == false else { return }
+            updatedLayout = MainPanelLayout(
+                orderedSections: layout.orderedSections,
+                hiddenSections: layout.hiddenSections.subtracting([.activity])
+            )
+        } else {
+            updatedLayout = layout.disablingActivitySection()
         }
-
-        let updatedLayout = layout.disablingActivitySection()
         guard updatedLayout != layout else {
             return
         }
 
-        AppLog.settings.notice("Hook 关闭已同步主面板任务中心")
+        AppLog.settings.notice("Hook 开关已同步主面板任务中心")
         saveAndPublish(updatedLayout)
     }
 

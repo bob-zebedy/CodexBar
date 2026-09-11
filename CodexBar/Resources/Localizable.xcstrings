@@ -1766,7 +1766,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper must be installed and authorized to run in the background"
+            "value" : "Install CodexBar Helper and allow background activity"
           }
         },
         "zh-Hans" : {
@@ -1782,7 +1782,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper is installed but still needs authorization to run in the background"
+            "value" : "CodexBar Helper installed. Allow background activity"
           }
         },
         "zh-Hans" : {
@@ -1862,7 +1862,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex Hook was disabled, but its trust state could not be cleared"
+            "value" : "Codex Hook disabled. Trust cleanup failed"
           }
         },
         "zh-Hans" : {
@@ -2262,7 +2262,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper has invalid components or configuration. Please reinstall CodexBar"
+            "value" : "Helper validation failed. Reinstall CodexBar"
           }
         },
         "zh-Hans" : {
@@ -2278,7 +2278,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper is missing components or configuration. Please reinstall CodexBar"
+            "value" : "Helper incomplete. Reinstall CodexBar"
           }
         },
         "zh-Hans" : {
@@ -3206,13 +3206,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A task in \"%@\" is waiting for approval to continue"
+            "value" : "A task in \"%@\" is waiting for action approval"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」正在等待批准下一步操作"
+            "value" : "「%@」正在等待批准操作"
           }
         }
       }
@@ -3782,7 +3782,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "app-server did not exit in time and was force-quit"
+            "value" : "app-server exit timed out; process killed"
           }
         },
         "zh-Hans" : {
@@ -3798,7 +3798,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "app-server did not exit in time and may still be running"
+            "value" : "app-server exit timed out; may still be running"
           }
         },
         "zh-Hans" : {

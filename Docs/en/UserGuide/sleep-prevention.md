@@ -10,7 +10,7 @@ CodexBar can keep your Mac awake while tasks run and restore sleep when tasks fi
 2. Enable `Prevent System Sleep` and confirm
 3. If background approval is required, click `Open System Settings` and allow CodexBar to run in the background
 
-Sleep prevention requires CodexBar to be running, Hook and its background service to be available, and an eligible task to exist. Low battery or the duration limit stops it; when conditions recover, task state determines whether it resumes. The coffee cup in the main panel indicates that sleep prevention is active.
+Sleep prevention requires CodexBar to be running, Hook and its background service to be available, and an eligible task to exist. Low battery or the duration limit stops it; when conditions recover, task state determines whether it resumes. The rotating sun badge on the activity card indicates that sleep prevention is active.
 
 Anonymous tasks and tasks hidden by Stalled Task Protection do not prevent sleep.
 

@@ -48,26 +48,29 @@ Shutdown reverses the order, except for helper-owned system state. AppDelegate f
 
 The status icon combines app-server loading state, the menu bar rate-limit setting, and the task-activity snapshot.
 
-Task-status priority is:
+Icon priority is:
 
 ```text
-Waiting for approval (orange) > Running (blue) > Within 30 seconds of completion (green)
+Account error > Waiting for approval > Running > Latest completion or termination within 30 seconds > Idle
 ```
 
-Recent termination, idle state, and expired completion highlights show no task dot. Icon output is cached by input state; inactive or unavailable states use reduced alpha.
+When no tasks are active, `CodexActivitySnapshot.statusItemActivity(at:)` selects the latest terminal timestamp. `StatusItemController` schedules expiration 30 seconds after that timestamp, then restores the plain person. It recalculates on wake and cancels the old task on state changes or uninstall.
 
-### Separating Image State from Tooltip State
+### Separating Icon State from Tooltip State
 
-`StatusIconState` contains both image and tooltip inputs, but `renderState` retains only fields that change pixels:
+`StatusIconState` retains activity and quota inputs. `StatusItemIconPresentation` publishes only changes to symbol name, quota, visibility, and stale state:
 
-- Active-task duration changes every minute and updates only the tooltip
-- When expired rate-limit data remains visible from cache, the icon and progress indicator use reduced alpha
-- A roughly 0.18-second, 10-frame animation starts only when the indicator dot or rate-limit bar appears or disappears
-- A new render state cancels the previous animation; every frame confirms that its target is still current
+- Minute-by-minute duration updates affect only the tooltip
+- Cached quota dims the symbol and arc
+- Symbol-name changes use nonrepeating `.replace.magic(fallback: .downUp.byLayer)` transitions
+- Showing or hiding quota animates the colored arc between zero and the current percentage over 0.3 seconds; the track fades independently
+- Symbols share a baseline; hiding quota restores normal size with a 0.2-second size and position transition
+- Hiding quota retains its last percentage and color for retraction; zero and unavailable quota remain distinct
+- Initial rendering and wake reconciliation disable transitions
 
-With no status dot or rate-limit bar, the icon remains a template image so the system colors it for light mode, dark mode, and menu bar state. Adding custom colors or a progress bar switches to explicit color rendering.
+A persistent SwiftUI view lives inside the native `NSStatusBarButton`, with a transparent image preserving automatic spacing. Symbols use the system foreground color. The hosting view rejects focus and hit testing, leaving mouse actions with the original button.
 
-The tooltip starts a 60-second timer only when a live task duration exists; it does not retain a permanent timer while idle. The app also sets `NSInitialToolTipDelay` to 500 ms so the status explanation for this small click target is easier to discover.
+The tooltip updates every 60 seconds while tasks are active and stops its timer when idle. `NSInitialToolTipDelay` is 500 ms.
 
 Left-click opens the main panel. Right-click or Control-click opens the context menu.
 
@@ -127,6 +130,10 @@ The popover and fallback panel each hold a separate `MenuSurfaceAnimationState`.
 When animations are disabled, `CodexStatusMenuView` sets the root transaction's `animation` to `nil` and `disablesAnimations` to `true`. Background data refresh continues.
 
 `MenuSurfaceVisibilityState` begins after the panel is shown and ends when closing starts. Each presentation increments `presentationGeneration`; the rate-limit and usage sections use that value as their view identity and run their entrance animations again.
+
+### Activity Card
+
+`CodexActivityCard` uses `primaryActivity`, prioritizing waiting for approval, running, recently completed, and recently terminated tasks. When `isActivelyPreventingSleep` is `true` and card data is available, it shows a teal `sun.max.fill` with continuous `.symbolEffect(.rotate.byLayer, options: .repeat(.continuous))` animation. The tooltip identifies `sleepPreventionSource`.
 
 ## Fallback Panel
 
@@ -189,11 +196,11 @@ Context-menu actions wait until menu tracking finishes before running, avoiding 
 - Placement prefers centering on the status item's screen, then falls back to the window screen or main screen
 - A minimized window is deminiaturized before activation
 
-Settings-window height follows the complete content of the current tab while pinning the top edge and constraining the window to the visible screen frame. When the content fits within that screen limit, the window must contain the entire page without a scrollbar; `ScrollView` is only a safety fallback when the content physically cannot fit in the visible area. The pinned top prevents the entire window from drifting vertically between tabs and keeps the title bar as a stable visual anchor.
+The Settings window sizes to the current tab, keeps its top edge fixed, and stays within the visible screen. `ScrollView` handles content taller than the available screen height.
 
-During initial construction, SwiftUI may report the page height before `HostingWindowController` stores `window`. `SettingsWindowController` caches the latest valid measurement and applies it once the window is ready. Otherwise, the only height callback can be discarded, leaving the window at its initial size until a tab switch triggers another measurement.
+SwiftUI may report height before window creation finishes. `SettingsWindowController` caches the latest valid measurement and applies it once `HostingWindowController.window` is ready.
 
-Secondary panels for main-panel layout, notifications, Automatic Reset, and sleep prevention are created on demand. Once created, a controller retains its content and any required content-height subscriptions for its lifetime. Prebuilding every panel at app launch would keep unused UI participating in updates.
+Secondary panels for main-panel layout, notifications, Automatic Reset, and sleep prevention are created on first use, then reuse their content and required height subscriptions.
 
 These four settings child panels contain interactive controls, so they use a keyable `KeyableBorderlessPanel`. The main panel's Heatmap, Reset Credits, and Task Center details use a nonactivating `NonactivatingSidePanel`. When a settings child panel closes, `SidePanelSupport.orderOut` restores focus to its parent only if that child panel is still the key window. If focus has already moved intentionally to the main panel or another window, it must not be taken back, or the newly opened interaction surface may close immediately after losing focus.
 
@@ -208,7 +215,7 @@ Each secondary-settings entry uses its own availability decision:
 
 When a condition becomes false, Settings sends the corresponding `close` action so an unavailable child panel does not remain visible. Automatic Reset and sleep-prevention rows show no status explanation while their main switches are off.
 
-`MainPanelSettings` stores the order and visibility of Account, Task Center, Quota, Token Usage, and Footer Status with stable section identifiers. Layout normalization removes duplicates, ignores invalid values, appends missing sections, and keeps at least one section visible. After reading a disabled Hook state, `StatusItemController` calls `updateHookEnabled(_:)` to persist Task Center as hidden. If Task Center was the only visible section, Account is enabled at the same time. The settings panel disables only the Task Center switch, so its drag handle remains available. Temporary availability of other data sources affects only the current rendering.
+`MainPanelSettings` stores the order and visibility of Account, Task Center, Quota, Token Usage, and Footer Status with stable section identifiers. Layout normalization removes duplicates, ignores invalid values, appends missing sections, and keeps at least one section visible. After reading a disabled Hook state, `StatusItemController` calls `updateHookEnabled(_:)` to persist Task Center as hidden. If Task Center was the only visible section, Account is enabled at the same time. Switching Hook from off to on automatically shows Task Center; initial restoration of an enabled Hook and repeated enabled notifications preserve the saved layout. The settings panel disables only the Task Center switch, so its drag handle remains available. Temporary availability of other data sources affects only the current rendering.
 
 Layout sorting uses a custom `DragGesture` on the handle. A floating copy follows the pointer, other rows move when it crosses half a row, and releasing calls `setSectionOrder(_:)` once to persist the final order.
 
@@ -252,7 +259,7 @@ The main panel shows a refresh countdown. Double-clicking the account icon reque
 
 Ordinary refreshes are ignored while a refresh or reconnect is in progress. Operations requiring a follow-up use `refreshAfterCurrent` to retain one pending trigger and run it after the current request finishes.
 
-Opening the panel immediately refreshes local Hook statistics. The delayed task also reconciles installed Hook configuration and is canceled if the panel closes while it waits.
+Opening the panel immediately reconciles Hook configuration and requests local statistics when Hook is enabled. The delayed task only checks whether account, rate-limit, and usage data need refreshing; closing the panel cancels it.
 
 ## Localization and Formatting
 
@@ -274,6 +281,10 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 ## Manual Validation Matrix
 
 - Left-click opens the main panel; right-click and Control-click open the context menu
+- Menu bar symbols follow task state; terminal feedback expires 30 seconds after the task ends and is recalculated on wake
+- Quota-arc visibility animates, zero quota retains the track, and cached quota dims
+- The sun badge rotates while sleep prevention is active, disappears when it ends, and shows the correct state when reopening
+- Password reveal transitions preserve text, selection, and focus
 - Clicking outside the main panel dismisses it; clicking a side panel does not
 - Heatmap, Reset Credits, and Task Center panels remain mutually exclusive
 - With Token Usage at different positions in the main-panel order, heatmap details align to the complete heatmap area's top edge when possible and fall back to the main panel's bottom edge when the detail height does not fit
@@ -283,7 +294,7 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 - On the first Settings open after a cold launch, General immediately uses its full content height; switching among all three tabs adapts the window height, with no scrollbar when screen space is sufficient
 - Main Panel Layout, Notification, Automatic Reset, and sleep-prevention child panels remain mutually exclusive, align their top edges with their setting rows, and resize correctly when content changes
 - With a settings child panel open, opening the main panel from the menu bar keeps the main panel open, closes the settings child panel, and does not steal focus back to Settings
-- While reordering the main panel, the floating row follows the pointer, other rows make room after the drag crosses half a row, and release settles smoothly while persisting only the final order; reordering and visibility changes can be undone step by step with `Command-Z` and redone with `Command-Shift-Z` while either the Settings window or any settings child panel has focus; the result persists across relaunches; the last visible section cannot be hidden; disabling Hook turns Task Center off and disables its switch without blocking drag, enables Account if Task Center was the only visible section, and does not enter automatic Hook changes into user undo history
+- While reordering the main panel, the floating row follows the pointer, other rows make room after the drag crosses half a row, and release settles smoothly while persisting only the final order; reordering and visibility changes can be undone step by step with `Command-Z` and redone with `Command-Shift-Z` while either the Settings window or any settings child panel has focus; the result persists across relaunches; the last visible section cannot be hidden; disabling Hook turns Task Center off and disables its switch without blocking drag, enables Account if Task Center was the only visible section; re-enabling Hook shows Task Center automatically, while a manual hide survives relaunch; automatic Hook changes do not enter user undo history
 - Opening Settings or Logs from the context menu does not lose focus
 - On multiple displays and with different menu bar locations, the fallback panel appears on the pointer's screen
 - The old shortcut still works after a new shortcut conflicts
@@ -300,3 +311,5 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 - [`SettingsWindowController.swift`](../../../CodexBar/Controllers/SettingsWindowController.swift)
 - [`LogWindowController.swift`](../../../CodexBar/Controllers/LogWindowController.swift)
 - [`CodexStatusMenuView.swift`](../../../CodexBar/Views/Menu/CodexStatusMenuView.swift)
+- [`StatusItemIconView.swift`](../../../CodexBar/Views/Menu/StatusItemIconView.swift)
+- [`CodexActivityCard.swift`](../../../CodexBar/Views/Menu/CodexActivityCard.swift)

@@ -96,13 +96,11 @@ struct ProxyPasswordField: NSViewRepresentable {
 
             // 两个原生控件保持挂载, 在同一轮更新中交接编辑器和选区
             // 淡化仅作用于文字所在的图层, 外部边框和焦点环不参与动画
-            if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-                let transition = CATransition()
-                transition.type = .fade
-                transition.duration = 0.1
-                transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                layer?.add(transition, forKey: "passwordVisibility")
-            }
+            let transition = CATransition()
+            transition.type = .fade
+            transition.duration = 0.1
+            transition.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer?.add(transition, forKey: "passwordVisibility")
             // 安全编辑器不能继续输入法组合, 交接时确认现有文字并保留完整内容
             if hasMarkedText {
                 editor?.unmarkText()

@@ -96,7 +96,7 @@ App 激活、设置窗口重新获得焦点或显式打开时会重新读取系�
 
 ### 阈值穿越判定
 
-“当前低于 10%”是一个持续状态，“刚刚低于 10%”才是通知事件。服务为每个 `account + limit + window` 保存上一帧剩余比例：
+服务为每个 `account + limit + window` 保存上一帧剩余比例，按以下规则判定通知：
 
 - 上一帧高于阈值且当前不高于阈值时发送
 - 会话内第一帧已经不高于阈值时发送一次
@@ -177,13 +177,14 @@ app-server 连接重建后，同一窗口的 `resetsAt` 可能出现秒级修正
 
 低电量或最长时长导致防睡眠停止时，`KeepAliveController` 先撤销 CodexBarHelper 租约。只有回复确认来源为 `.codexBar` 且 `SleepDisabled=0` 时，才提交对应通知；其他结果会清除本轮待发通知。
 
-确认后才提交通知。App idle assertion 会保留到通知提交结束，避免合盖机器在通知交给系统前立即睡下。随后 controller 释放 assertion 并按需补发合盖睡眠。
+App idle assertion 保留到通知提交结束，随后释放，并按需补发合盖睡眠。
 
 ## 声音
 
-[`NotificationSoundOption.swift`](../../CodexBar/Services/Notifications/NotificationSoundOption.swift) 汇总 3 类选择：
+[`NotificationSoundOption.swift`](../../CodexBar/Services/Notifications/NotificationSoundOption.swift) 提供以下声音选择：
 
-- 无声音
+- 系统默认通知音
+- 静音
 - macOS 可用系统声音
 - App bundle 内置声音
 
@@ -209,8 +210,6 @@ app-server 连接重建后，同一窗口的 `resetsAt` 可能出现秒级修正
 触觉反馈默认关闭。开启后使用 10 次脉冲，每次间隔约 100 ms。
 
 触觉是系统通知之外的独立本地反馈。它响应非匿名任务的完成或等待 transition，服从通知总开关和触觉开关，但不依赖系统通知授权、分类通知开关或完成时长阈值。
-
-这种分离让用户可以关闭 banner 仍保留统一的任务触觉。上游 transition 仍必须真实有效，bootstrap 历史和匿名任务不会触发。
 
 ## 提交与去重
 
@@ -273,7 +272,7 @@ App 是 `LSUIElement`，通知中心 delegate 明确允许 App 在前台时继�
 
 - 首次开启总开关时正确请求系统权限
 - 系统拒绝权限时设置页展示可理解状态
-- 低额度只在向下跨越阈值时通知
+- 首次读数不高于低额度阈值或向下跨越阈值时提醒，同一重置周期去重
 - 初次加载 100% 额度不误报重置
 - 自动重置明确返回 `reset` 时发送“自动重置”，后续额度归零时仍可独立发送“额度已重置”
 - 自动重置明确返回 `alreadyRedeemed` 时按成功通知并停止重试

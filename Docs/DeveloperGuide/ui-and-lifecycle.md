@@ -48,26 +48,29 @@ UI 使用 SwiftUI 声明内容，由 AppKit Controller 管理窗口。
 
 状态图标综合 app-server 加载状态、菜单栏额度设置和任务活动快照。
 
-任务状态点的优先级是：
+图标优先级是：
 
 ```text
-等待批准（橙色） > 运行中（蓝色） > 完成后 30 秒内（绿色）
+账户异常 > 等待批准 > 运行中 > 最近 30 秒内的完成或终止 > 空闲
 ```
 
-最近中断、空闲和完成高亮过期后均不显示任务状态点。图标生成结果按输入状态缓存，非激活或不可用状态通过 alpha 表达。
+`CodexActivitySnapshot.statusItemActivity(at:)` 在没有活跃任务时按结束时间选择最新终态。`StatusItemController` 按结束时间加 30 秒安排到期任务，到期后恢复普通人形；系统唤醒时按当前时间重算，状态变化和卸载时取消旧任务。
 
-### 图像状态与 tooltip 状态分离
+### 分离图标与 tooltip 状态
 
-`StatusIconState` 同时含图像输入和 tooltip 输入，但 `renderState` 只保留真正影响像素的字段：
+`StatusIconState` 保存活动和额度输入。`StatusItemIconPresentation` 只发布影响图像的符号名称、额度、显隐和缓存标记，相同渲染状态不会重复发布：
 
 - 活跃任务持续时间每分钟变化，只更新 tooltip
 - 额度过期但仍展示缓存时，图标和进度使用降低后的 alpha
-- 指示点或额度条显隐变化时才启动约 0.18 秒的 10 帧动画
-- 新渲染状态到达时取消旧动画，每帧再次确认目标状态仍是当前状态
+- `StatusItemIconView` 在符号名称变化时使用 `.replace.magic(fallback: .downUp.byLayer)` 非重复替换动画
+- 额度显隐在 0.3 秒内将彩色圆弧从零绘制到当前额度，或从当前额度收回到零，底轨独立淡入淡出
+- 人物按符号基线对齐，隐藏额度时恢复正常大小；大小和位置在 0.2 秒内过渡
+- 关闭额度时保留最后的额度和配色供收回动画使用，零额度与缺失额度保持不同语义
+- 初次渲染和唤醒重算时不播放过渡动画
 
-无状态点和额度条时图标保持 template image，让系统根据浅色、深色和菜单栏状态自动着色。一旦加入自定义颜色或进度条就使用显式颜色绘制。
+SwiftUI 视图持续挂载在原生 `NSStatusBarButton` 中，透明图片用于系统自适应占位。图标使用系统前景色，宿主视图不接受焦点或鼠标命中，左右键仍交给原按钮处理。
 
-tooltip 只在存在实时任务持续时间时启动 60 秒计时器，空闲时不保留永久 timer。App 还把 `NSInitialToolTipDelay` 调整为 500 ms，让菜单栏这种小点击目标的状态解释更容易被发现。
+tooltip 在存在活跃任务时每 60 秒更新，空闲时停止计时。`NSInitialToolTipDelay` 为 500 ms。
 
 左键打开主面板。右键或按住 Control 点击打开上下文菜单。
 
@@ -127,6 +130,10 @@ popover 和备用面板分别持有 `MenuSurfaceAnimationState`。展示前将 `
 `CodexStatusMenuView` 在动画许可关闭时，将根视图事务的 `animation` 设为 `nil`、`disablesAnimations` 设为 `true`。后台数据刷新继续执行。
 
 `MenuSurfaceVisibilityState` 在面板展示后开启，在关闭开始时结束。每次展示递增 `presentationGeneration`，额度和用量区域以该值作为视图身份，重新执行入场动画。
+
+### 活动卡片
+
+`CodexActivityCard` 使用 `primaryActivity`，优先级为等待批准、运行中、最近完成、最近终止。`isActivelyPreventingSleep` 为 `true` 且卡片数据可用时显示青绿色 `sun.max.fill`，通过 `.symbolEffect(.rotate.byLayer, options: .repeat(.continuous))` 持续旋转。tooltip 按 `sleepPreventionSource` 显示来源。
 
 ## Fallback panel
 
@@ -189,11 +196,11 @@ fallback panel 在展示前根据 SwiftUI fitting size 和目标屏幕可见区�
 - 优先在 status item 所在屏幕居中，再退到 window screen 或 main screen
 - miniaturized 窗口先 deminiaturize 再激活
 
-设置窗口的高度随当前 tab 的完整内容变化，但固定上边缘并限制到屏幕 visible frame。内容未超过屏幕限制时，窗口应完整容纳当前页面且不产生滚动条；只有内容物理上放不进可见区域时，`ScrollView` 才作为安全降级。固定上边缘可以减少切换 tab 时整窗上下漂移，让标题栏保持稳定视觉锚点。
+设置窗口按当前 tab 的完整内容调整高度，固定上边缘，并限制到屏幕可见区域。内容超出屏幕高度时使用 `ScrollView`。
 
-首次构造窗口时，SwiftUI 可能在 `HostingWindowController` 保存 `window` 之前就上报页面高度。`SettingsWindowController` 会先缓存最近一次有效测量，并在窗口就绪后应用；否则唯一一次高度回调会被丢弃，窗口停留在初始尺寸，直到切换 tab 再次触发测量。
+SwiftUI 可能在窗口创建完成前上报高度。`SettingsWindowController` 缓存最近一次有效测量，在 `HostingWindowController.window` 就绪后应用。
 
-主面板布局、通知、自动重置和防睡眠的二级设置面板按需创建。控制器一旦创建就会长期持有内容及必要的高度变化订阅，如果 App 启动时预建所有面板，从未使用的 UI 也会一直参与更新。
+主面板布局、通知、自动重置和防睡眠的二级设置面板在首次打开时创建，之后复用内容及必要的高度变化订阅。
 
 这四个设置子面板包含交互控件，因此使用可获得键盘焦点的 `KeyableBorderlessPanel`。主面板的热力图、Reset Credits 和活动中心详情使用不会激活的 `NonactivatingSidePanel`。收起设置子面板时，`SidePanelSupport.orderOut` 只在该子面板仍是 key window 时恢复父窗口焦点；如果焦点已经主动转移到主面板或其他窗口，则不能再抢回，否则新打开的交互表面可能因失焦立即关闭。
 
@@ -208,11 +215,11 @@ fallback panel 在展示前根据 SwiftUI fitting size 和目标屏幕可见区�
 
 入口条件失效时设置页发送对应的 `close` 动作，避免不可用的子面板继续显示。主开关关闭时，自动重置和防睡眠设置行不显示状态说明。
 
-`MainPanelSettings` 使用稳定区域标识保存账户、任务中心、额度、Token 用量和底部状态的顺序与显隐。布局归一化会去重、忽略无效值、补齐缺失区域，并保证至少保留一个可见区域。`StatusItemController` 在读取到 Hook 关闭状态后调用 `updateHookEnabled(_:)`，持久化关闭任务中心；如果任务中心原本是唯一可见区域，则同时开启账户区域。设置面板只禁用任务中心开关，拖拽手柄仍保持可用。其他数据链路的临时可用性只影响当次渲染。
+`MainPanelSettings` 使用稳定区域标识保存账户、任务中心、额度、Token 用量和底部状态的顺序与显隐。布局归一化会去重、忽略无效值、补齐缺失区域，并保证至少保留一个可见区域。`StatusItemController` 在读取到 Hook 关闭状态后调用 `updateHookEnabled(_:)`，持久化关闭任务中心；如果任务中心原本是唯一可见区域，则同时开启账户区域。从关闭切换到开启时自动显示任务中心，首次恢复开启状态和重复开启通知均保留用户布局。设置面板只禁用任务中心开关，拖拽手柄仍保持可用。其他数据链路的临时可用性只影响当次渲染。
 
 布局排序使用手柄上的自定义 `DragGesture`。拖动项通过悬浮副本跟随指针，其他行在跨过半行距离时按视图内预览顺序实时让位，松手后才调用 `setSectionOrder(_:)` 一次性持久化最终顺序。
 
-`SettingsWindowController` 持有这一窗口组唯一的 `UndoManager`。设置主窗口通过 `AuxiliaryHostingWindow` 暴露它，四个设置子面板展示时从父窗口取得同一实例，因此焦点位于设置主窗口或任一子面板时，`⌘Z` 和 `⌘⇧Z` 都作用于同一份布局历史。Hook 状态变化引起的任务中心自动关闭不进入用户撤销历史。
+`SettingsWindowController` 持有这一窗口组唯一的 `UndoManager`。设置主窗口通过 `AuxiliaryHostingWindow` 暴露它，四个设置子面板展示时从父窗口取得同一实例，因此焦点位于设置主窗口或任一子面板时，`⌘Z` 和 `⌘⇧Z` 都作用于同一份布局历史。Hook 状态变化引起的任务中心自动显隐不进入用户撤销历史。
 
 ### 代理配置对话框
 
@@ -252,7 +259,7 @@ app-server 状态默认每 60 秒检查刷新。主面板打开后约 160 ms 调
 
 普通刷新在刷新或重连进行中被忽略。需要在当前请求后补刷的操作通过 `refreshAfterCurrent` 保存一个待执行触发，当前请求结束后再执行。
 
-面板打开时立即刷新本地 Hook 统计；延迟任务还会对账已安装的 Hook 配置。面板在等待期间关闭时会取消该任务。
+面板打开时立即对账 Hook 配置，并在 Hook 开启时请求本地统计刷新。延迟任务只检查账户、额度和用量是否需要刷新；面板提前关闭时取消该任务。
 
 ## 本地化和格式化
 
@@ -274,6 +281,10 @@ app-server 状态默认每 60 秒检查刷新。主面板打开后约 160 ms 调
 ## 手动验证矩阵
 
 - 左键打开主面板，右键和 Control 点击打开上下文菜单
+- 菜单栏符号随任务状态切换，最新终态在结束 30 秒后恢复空闲，跨睡眠唤醒后按当前时间显示
+- 切换额度圆弧显隐时动画完整，零额度保留底轨，缓存额度变淡
+- 防睡眠生效时太阳徽标持续旋转，结束后消失，重开面板后状态正确
+- 代理密码显隐切换时淡化正常，输入内容、选区和焦点保留
 - 点击主面板外部正确关闭，点击侧边面板不误关闭
 - 热力图、Reset Credits 和活动中心保持互斥
 - Token 用量区域处于不同排序位置时，热力图详情优先与完整热力图区域顶边对齐；详情高度放不下时与主面板底边对齐
@@ -283,7 +294,7 @@ app-server 状态默认每 60 秒检查刷新。主面板打开后约 160 ms 调
 - 冷启动后首次打开设置时通用页直接使用完整内容高度；切换三个 tab 时窗口高度自适应，屏幕空间充足时均不显示滚动条
 - 主面板布局、通知、自动重置和防睡眠子面板互斥，顶边对齐对应设置行，内容变化后高度正确
 - 设置子面板展开时从菜单栏打开主面板，主面板保持打开，设置子面板收起且不把焦点抢回设置窗口
-- 主面板区域拖动时悬浮行跟随指针，跨过半行后其他行实时让位，松手后平滑落位并只保存最终顺序；拖拽和显隐操作可以通过 `⌘Z` 逐步撤销并通过 `⌘⇧Z` 重做，焦点在设置主窗口或任一设置子面板时均有效；重启后保持配置，最后一个可见区域无法关闭；Hook 关闭时任务中心自动关闭、开关置灰但仍可拖动，任务中心为唯一可见区域时账户自动开启，自动联动不进入用户撤销历史
+- 主面板区域拖动时悬浮行跟随指针，跨过半行后其他行实时让位，松手后平滑落位并只保存最终顺序；拖拽和显隐操作可以通过 `⌘Z` 逐步撤销并通过 `⌘⇧Z` 重做，焦点在设置主窗口或任一设置子面板时均有效；重启后保持配置，最后一个可见区域无法关闭；Hook 关闭时任务中心自动关闭、开关置灰但仍可拖动，任务中心为唯一可见区域时账户自动开启；重新开启 Hook 后任务中心自动显示，手动隐藏后重启仍保持隐藏，自动联动不进入用户撤销历史
 - 上下文菜单打开设置或日志时没有焦点丢失
 - 多显示器和不同菜单栏位置下 fallback panel 位于鼠标屏幕
 - 快捷键冲突后原快捷键仍可用
@@ -300,3 +311,5 @@ app-server 状态默认每 60 秒检查刷新。主面板打开后约 160 ms 调
 - [`SettingsWindowController.swift`](../../CodexBar/Controllers/SettingsWindowController.swift)
 - [`LogWindowController.swift`](../../CodexBar/Controllers/LogWindowController.swift)
 - [`CodexStatusMenuView.swift`](../../CodexBar/Views/Menu/CodexStatusMenuView.swift)
+- [`StatusItemIconView.swift`](../../CodexBar/Views/Menu/StatusItemIconView.swift)
+- [`CodexActivityCard.swift`](../../CodexBar/Views/Menu/CodexActivityCard.swift)

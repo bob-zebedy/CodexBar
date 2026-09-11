@@ -1167,22 +1167,18 @@ final class CodexActivityMonitor: ObservableObject {
         let runningTasks = sortedTasks(in: .running)
         let recentCompletions = completions.sorted(by: Self.recentFirst(\.completedAt, \.id))
         let recentTerminations = terminations.sorted(by: Self.recentFirst(\.terminatedAt, \.id))
-        let mostRecentCompletion = recentCompletions.first
 
         let newSnapshot = CodexActivitySnapshot(
             waitingTasks: waitingTasks.map(\.snapshot),
             runningTasks: runningTasks.map(\.snapshot),
             recentCompletions: recentCompletions,
-            recentTerminations: recentTerminations,
-            isCompletionHighlighted: mostRecentCompletion.map {
-                now < $0.completedAt.addingTimeInterval(Self.completionHighlightDuration)
-            } ?? false
+            recentTerminations: recentTerminations
         )
         if newSnapshot != snapshot {
             snapshot = newSnapshot
         }
 
-        scheduleNextCleanup(now: now, mostRecentCompletion: mostRecentCompletion)
+        scheduleNextCleanup(now: now)
         scheduleNextInactivityCheck(now: now)
     }
 
@@ -1241,10 +1237,7 @@ final class CodexActivityMonitor: ObservableObject {
         }
     }
 
-    private func scheduleNextCleanup(
-        now: Date,
-        mostRecentCompletion: CodexActivityCompletion?
-    ) {
+    private func scheduleNextCleanup(now: Date) {
         var deadlines = tasks.values.map {
             $0.lastActivityAt.addingTimeInterval(Self.activityRetention)
         }
@@ -1265,13 +1258,6 @@ final class CodexActivityMonitor: ObservableObject {
             $0.addingTimeInterval(Self.activityRetention)
         })
         deadlines.append(contentsOf: activityProtectionRecords.values.map(\.expiresAt))
-        if let mostRecentCompletion {
-            let highlightDeadline = mostRecentCompletion.completedAt
-                .addingTimeInterval(Self.completionHighlightDuration)
-            if highlightDeadline > now {
-                deadlines.append(highlightDeadline)
-            }
-        }
 
         guard let nextDeadline = deadlines.filter({ $0 > now }).min() else {
             cleanupTask?.cancel()
@@ -1296,7 +1282,6 @@ final class CodexActivityMonitor: ObservableObject {
         }
     }
 
-    private static let completionHighlightDuration: TimeInterval = 30
     private static let recentHistoryRetention: TimeInterval = 10 * 60
     static let completedTaskRetention: TimeInterval = 24 * 60 * 60
     static let activityRetention = CodexActivityRetention.window

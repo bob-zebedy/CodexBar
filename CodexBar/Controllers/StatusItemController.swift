@@ -105,7 +105,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var menuSurfaceState = MenuSurfaceState.hidden
     private var cancellables = Set<AnyCancellable>()
     private var statusIconState: StatusIconState?
-    private var statusIconAnimationTask: Task<Void, Never>?
+    private let statusIconPresentation = StatusItemIconPresentation()
+    private var statusIconHostingView: StatusItemIconHostingView?
+    private var statusIconExpirationTask: Task<Void, Never>?
     private var statusToolTipTask: Task<Void, Never>?
     private var registeredHotKeyShortcut: GlobalHotKeyShortcut?
     private var auxiliaryWindowFocusRestoreTask: Task<Void, Never>?
@@ -145,195 +147,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         super.init()
     }
 
-    /// 无状态点和额度条时使用模板渲染, 由系统按菜单栏外观着色
-    private static func makeStatusImage(
-        _ symbolName: String,
-        indicatorTint: NSColor?,
-        indicatorVisibility: CGFloat = 1,
-        progress: StatusIconProgress?,
-        progressVisibility: CGFloat = 1
-    ) -> NSImage? {
-        guard let symbolImage = makeStatusSymbolImage(symbolName) else {
-            return nil
-        }
-
-        let usesTemplateRendering = indicatorTint == nil && progress == nil
-        let statusImage = NSImage(size: Metrics.progressStatusImageSize, flipped: false) { _ in
-            Self.drawStatusSymbol(
-                symbolImage,
-                in: Metrics.progressStatusSymbolRect,
-                tint: usesTemplateRendering ? .black : .labelColor,
-                alpha: progress?.isStale == true ? Metrics.staleIconAlpha : 1
-            )
-            if let progress {
-                Self.drawProgress(
-                    progress,
-                    visibility: progressVisibility
-                )
-            }
-            if let indicatorTint {
-                Self.drawStatusIndicator(
-                    tint: indicatorTint,
-                    visibility: indicatorVisibility
-                )
-            }
-            return true
-        }
-        statusImage.isTemplate = usesTemplateRendering
-        statusImage.alignmentRect = Self.statusImageAlignmentRect(for: symbolImage)
-        return statusImage
-    }
-
-    private static func makeStatusSymbolImage(_ symbolName: String) -> NSImage? {
-        let configuration = NSImage.SymbolConfiguration(
-            pointSize: 16,
-            weight: .regular,
-            scale: .medium
-        )
-        return NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
-            .withSymbolConfiguration(configuration)
-    }
-
-    private static func drawStatusSymbol(
-        _ image: NSImage,
-        in rect: NSRect,
-        tint: NSColor,
-        alpha: CGFloat
-    ) {
-        NSGraphicsContext.saveGraphicsState()
-        tint.withAlphaComponent(alpha).setFill()
-        rect.fill()
-        image.draw(
-            in: rect,
-            from: .zero,
-            operation: .destinationIn,
-            fraction: 1
-        )
-        NSGraphicsContext.restoreGraphicsState()
-    }
-
-    private static func drawStatusIndicator(
-        tint: NSColor,
-        visibility: CGFloat
-    ) {
-        let visibility = clampedVisibility(visibility)
-        guard visibility > 0 else {
-            return
-        }
-
-        tint.withAlphaComponent(visibility).setFill()
-        NSBezierPath(ovalIn: Metrics.statusIndicatorRect).fill()
-    }
-
-    private static func statusImageAlignmentRect(for symbolImage: NSImage) -> NSRect {
-        NSRect(
-            x: 0,
-            y: symbolImage.alignmentRect.minY,
-            width: Metrics.progressStatusImageSize.width,
-            height: symbolImage.alignmentRect.height
-        )
-    }
-
-    private static func drawProgress(
-        _ progress: StatusIconProgress,
-        visibility: CGFloat
-    ) {
-        let visibility = clampedVisibility(visibility)
-        guard visibility > 0 else {
-            return
-        }
-
-        let trackRect = Metrics.progressTrackRect
-        let cornerRadius = Metrics.progressTrackCornerRadius
-        let progressAlpha = (progress.isStale ? Metrics.staleProgressAlpha : 1) * visibility
-        NSColor.tertiaryLabelColor
-            .withAlphaComponent(Metrics.progressTrackAlpha * progressAlpha)
-            .setFill()
-        NSBezierPath(
-            roundedRect: trackRect,
-            xRadius: cornerRadius,
-            yRadius: cornerRadius
-        )
-        .fill()
-
-        let fillHeight = trackRect.height * CGFloat(progress.percent) / 100
-        guard fillHeight > 0 else {
-            return
-        }
-
-        let fillRect = NSRect(
-            x: trackRect.minX,
-            y: trackRect.minY,
-            width: trackRect.width,
-            height: fillHeight
-        )
-        QuotaPalette.nsColor(for: progress.percent)
-            .withAlphaComponent(progressAlpha)
-            .setFill()
-        NSBezierPath(
-            roundedRect: fillRect,
-            xRadius: cornerRadius,
-            yRadius: cornerRadius
-        )
-        .fill()
-    }
-
-    private static func clampedVisibility(_ value: CGFloat) -> CGFloat {
-        min(max(value, 0), 1)
-    }
-
-    /// 色彩空间转换失败时 blended 返回 nil, 统一退到较近的一端
-    private static func blendedColor(
-        _ source: NSColor,
-        _ destination: NSColor,
-        progress: CGFloat
-    ) -> NSColor {
-        let progress = clampedVisibility(progress)
-        return source.blended(withFraction: progress, of: destination)
-            ?? (progress < 0.5 ? source : destination)
-    }
-
-    /// 图标动画中一条 0↔1 的过渡: 起止由布尔状态决定, 按动画进度取中间值
-    private static func transitionValue(
-        from source: Bool,
-        to destination: Bool,
-        progress: CGFloat
-    ) -> CGFloat {
-        let start: CGFloat = source ? 1 : 0
-        let end: CGFloat = destination ? 1 : 0
-        return start + (end - start) * progress
-    }
-
-    private static func easedVisibility(_ value: CGFloat) -> CGFloat {
-        let value = clampedVisibility(value)
-        return value * value * (3 - 2 * value)
-    }
-
     private struct StatusIconState: Equatable {
         let usesErrorImage: Bool
         let progress: StatusIconProgress?
         let activity: CodexActivitySnapshot
 
-        var symbolName: String {
-            usesErrorImage ? Metrics.errorStatusSymbolName : Metrics.normalStatusSymbolName
-        }
-
-        var indicator: ActivityIndicator? {
-            switch activity.primaryActivity {
-            case .waiting:
-                .waiting
-            case .running:
-                .running
-            case .completed(_, highlighted: true):
-                .completed
-            case .completed, .terminated, .idle:
-                nil
+        func symbolName(at now: Date) -> String {
+            if usesErrorImage {
+                return "person.slash.fill"
             }
-        }
-
-        /// 只包含影响图像像素的字段; tooltip 文本变化不应触发重绘
-        var renderState: StatusIconRenderState {
-            StatusIconRenderState(symbolName: symbolName, indicator: indicator, progress: progress)
+            switch activity.statusItemActivity(at: now) {
+            case .waiting: return "person.badge.key.fill"
+            case .running: return "person.badge.clock.fill"
+            case .completed: return "person.badge.shield.checkmark.fill"
+            case .terminated: return "person.badge.shield.exclamationmark.fill"
+            case .idle: return "person.fill"
+            }
         }
 
         var hasLiveDuration: Bool {
@@ -361,7 +190,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         private func activityToolTip(at now: Date) -> String? {
-            switch activity.primaryActivity {
+            switch activity.statusItemActivity(at: now) {
             case let .waiting(task):
                 var text = String(localized: "activity.status.codex-waiting-for-approval")
                 if let projectName = task.projectName {
@@ -381,7 +210,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                     text += " • \(CodexActivityDisplayFormat.runningDurationFragment(since: startedAt, now: now))"
                 }
                 return text
-            case .completed(let completion, highlighted: true):
+            case let .completed(completion):
                 var text = String(localized: "activity.status.codex-just-completed")
                 if let projectName = completion.projectName {
                     text += " • \(projectName)"
@@ -390,29 +219,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                     text += " • \(CodexActivityDisplayFormat.elapsedDurationFragment(for: duration))"
                 }
                 return text
-            case .completed, .terminated, .idle:
+            case let .terminated(termination):
+                var text = String(localized: "activity.status.codex-stopped")
+                if let projectName = termination.projectName {
+                    text += " • \(projectName)"
+                }
+                if let duration = termination.duration {
+                    text += " • \(CodexActivityDisplayFormat.elapsedDurationFragment(for: duration))"
+                }
+                return text
+            case .idle:
                 return nil
-            }
-        }
-    }
-
-    /// 状态图标中影响像素的渲染子状态, 用于跳过 tooltip-only 变化引发的重绘
-    private struct StatusIconRenderState: Equatable {
-        let symbolName: String
-        let indicator: ActivityIndicator?
-        let progress: StatusIconProgress?
-    }
-
-    private enum ActivityIndicator: Equatable {
-        case waiting
-        case running
-        case completed
-
-        var color: NSColor {
-            switch self {
-            case .waiting: .systemOrange
-            case .running: .systemBlue
-            case .completed: .systemGreen
             }
         }
     }
@@ -458,7 +275,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func uninstall() {
         closeMenuSurface(animated: false)
         auxiliaryWindowFocusRestoreTask?.cancel()
-        statusIconAnimationTask?.cancel()
+        statusIconExpirationTask?.cancel()
+        statusIconHostingView?.removeFromSuperview()
+        statusIconHostingView = nil
         statusToolTipTask?.cancel()
         workflowSyncScheduler.cancel()
         setAuxiliaryWindowKeyFocus(true)
@@ -491,6 +310,27 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleNone
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+
+        // 让系统按图像宽度计算留白, 固定 statusItem 长度会额外扩大实际占位
+        button.image = NSImage(size: StatusItemIconView.size, flipped: false) { _ in true }
+        let hostingView = StatusItemIconHostingView(rootView: StatusItemIconView(presentation: statusIconPresentation))
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        button.addSubview(hostingView)
+        NSLayoutConstraint.activate([
+            hostingView.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            hostingView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            hostingView.widthAnchor.constraint(equalToConstant: StatusItemIconView.size.width),
+            hostingView.heightAnchor.constraint(equalToConstant: StatusItemIconView.size.height)
+        ])
+        statusIconHostingView = hostingView
+
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.refreshStatusIconPresentation(animated: false)
+                self?.scheduleStatusIconExpiration()
+            }
+            .store(in: &cancellables)
     }
 
     private func configurePopover() {
@@ -714,94 +554,45 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - 菜单栏图标
 
     private func updateStatusImage(_ state: StatusIconState) {
-        statusItem.button?.toolTip = state.toolTip(at: Date())
-
-        guard state != statusIconState else {
-            return
-        }
-
         let previousState = statusIconState
+        guard previousState != state else { return }
         statusIconState = state
         if previousState?.hasLiveDuration != state.hasLiveDuration {
             configureStatusToolTipRefresh(for: state)
         }
-
-        guard let previousState else {
-            statusIconAnimationTask?.cancel()
-            renderStatusImage(state)
-            return
-        }
-        // tooltip-only 变化不重绘, 也不打断进行中的图标动画
-        guard previousState.renderState != state.renderState else {
-            return
-        }
-        statusIconAnimationTask?.cancel()
-
-        let progressVisibilityChanged = (previousState.progress == nil) != (state.progress == nil)
-        if previousState.indicator != state.indicator || progressVisibilityChanged {
-            animateStatusImage(from: previousState, to: state)
-            return
-        }
-
-        renderStatusImage(state)
+        refreshStatusIconPresentation(animated: previousState != nil)
+        scheduleStatusIconExpiration()
     }
 
-    private func renderStatusImage(_ state: StatusIconState) {
-        statusItem.button?.image = Self.makeStatusImage(
-            state.symbolName,
-            indicatorTint: state.indicator?.color,
-            progress: state.progress
+    private func refreshStatusIconPresentation(animated: Bool = true) {
+        guard let state = statusIconState else { return }
+        let now = Date()
+        let toolTip = state.toolTip(at: now)
+        statusItem.button?.toolTip = toolTip
+        statusIconPresentation.update(
+            symbolName: state.symbolName(at: now),
+            percent: state.progress?.percent,
+            isStale: state.progress?.isStale ?? false,
+            animated: animated
         )
     }
 
-    private func animateStatusImage(from previousState: StatusIconState, to finalState: StatusIconState) {
-        let renderedProgress = finalState.progress ?? previousState.progress
-
-        statusIconAnimationTask = Task { @MainActor [weak self] in
-            for frame in 0 ... Metrics.statusIconAnimationFrameCount {
-                guard let self,
-                      !Task.isCancelled,
-                      statusIconState?.renderState == finalState.renderState else {
-                    return
-                }
-
-                let rawProgress = CGFloat(frame) / CGFloat(Metrics.statusIconAnimationFrameCount)
-                let easedProgress = Self.easedVisibility(rawProgress)
-                statusItem.button?.image = Self.makeStatusImage(
-                    finalState.symbolName,
-                    indicatorTint: Self.interpolatedIndicatorTint(
-                        from: previousState.indicator,
-                        to: finalState.indicator,
-                        progress: easedProgress
-                    ),
-                    indicatorVisibility: Self.transitionValue(
-                        from: previousState.indicator != nil,
-                        to: finalState.indicator != nil,
-                        progress: easedProgress
-                    ),
-                    progress: renderedProgress,
-                    progressVisibility: Self.transitionValue(
-                        from: previousState.progress != nil,
-                        to: finalState.progress != nil,
-                        progress: easedProgress
-                    )
-                )
-
-                if frame < Metrics.statusIconAnimationFrameCount {
-                    try? await Task.sleep(
-                        nanoseconds: Metrics.statusIconAnimationFrameDelayNanoseconds
-                    )
-                }
-            }
-
-            guard let self,
-                  !Task.isCancelled,
-                  statusIconState?.renderState == finalState.renderState else {
+    /// 终态提示按墙上时间到期, 即使没有后续 Hook 事件也会恢复普通图标
+    private func scheduleStatusIconExpiration() {
+        statusIconExpirationTask?.cancel()
+        statusIconExpirationTask = nil
+        guard let expiration = statusIconState?.activity.statusItemActivityExpiration else { return }
+        let delay = expiration.timeIntervalSinceNow
+        guard delay > 0 else { return }
+        statusIconExpirationTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
                 return
             }
-
-            renderStatusImage(finalState)
-            statusIconAnimationTask = nil
+            guard let self, !Task.isCancelled else { return }
+            refreshStatusIconPresentation()
+            scheduleStatusIconExpiration()
         }
     }
 
@@ -821,24 +612,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                       state.hasLiveDuration else {
                     return
                 }
-                statusItem.button?.toolTip = state.toolTip(at: Date())
+                refreshStatusIconPresentation()
             }
-        }
-    }
-
-    private static func interpolatedIndicatorTint(
-        from source: ActivityIndicator?,
-        to destination: ActivityIndicator?,
-        progress: CGFloat
-    ) -> NSColor? {
-        switch (source, destination) {
-        case let (source?, destination?):
-            // 只在两端都有指示点时混色; 单端的显隐交给 indicatorVisibility
-            blendedColor(source.color, destination.color, progress: progress)
-        case let (indicator?, nil), let (nil, indicator?):
-            indicator.color
-        case (nil, nil):
-            nil
         }
     }
 
@@ -1361,44 +1136,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private enum Metrics {
-        static let normalStatusSymbolName = "person.fill.checkmark"
-        static let errorStatusSymbolName = "person.fill.xmark"
         static let fadeInDuration: TimeInterval = 0.24
         static let fadeOutDuration: TimeInterval = 0.18
         static let auxiliaryWindowKeyFocusRestoreDelayMilliseconds: UInt64 = 120
         static let minimumTrustedAnchorLength: CGFloat = 1
         static let anchorScreenTolerance: CGFloat = 1
-        static let progressStatusSymbolSize = NSSize(width: 24, height: 17)
-        static let progressStatusExtraWidth: CGFloat = 3
-        static let progressStatusContentOffsetX: CGFloat = 1
-        static let progressStatusImageSize = NSSize(
-            width: progressStatusSymbolSize.width + progressStatusExtraWidth,
-            height: progressStatusSymbolSize.height
-        )
-        static let progressStatusSymbolRect = NSRect(
-            x: progressStatusExtraWidth + progressStatusContentOffsetX,
-            y: 0,
-            width: progressStatusSymbolSize.width,
-            height: progressStatusSymbolSize.height
-        )
-        static let progressTrackRect = NSRect(
-            x: 0.5 + progressStatusContentOffsetX,
-            y: 1,
-            width: 2,
-            height: 15
-        )
-        static let progressTrackCornerRadius: CGFloat = 1
-        static let progressTrackAlpha: CGFloat = 0.34
-        static let statusIndicatorRect = NSRect(x: 21.5, y: 1, width: 5, height: 5)
-        static let staleIconAlpha: CGFloat = 0.75
-        static let staleProgressAlpha: CGFloat = 0.55
-        static let statusIconAnimationDuration: TimeInterval = 0.18
-        static let statusIconAnimationFrameCount = 10
-        static let statusIconAnimationFrameDelayNanoseconds = UInt64(
-            statusIconAnimationDuration
-                / Double(statusIconAnimationFrameCount)
-                * 1000000000
-        )
     }
 
     private enum MenuSurfaceState {

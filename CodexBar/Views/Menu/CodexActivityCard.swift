@@ -92,9 +92,10 @@ struct CodexActivityCard: View {
 
             if showsKeepAliveBadge {
                 // 防睡眠只在任务运行期间生效, 所以状态挂在活动卡片上而不是单独占一行
-                Image(systemName: "cup.and.saucer.fill")
+                Image(systemName: "sun.max.fill")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color.teal)
+                    .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
                     .transition(.opacity)
                     .help(keepAliveHelp)
             }
@@ -114,7 +115,7 @@ struct CodexActivityCard: View {
         }
         .animation(.codexStatus, value: showsKeepAliveBadge)
         .animation(.codexStatus, value: content.isAnonymous)
-        // 任务数变化会让 +N 增删, 咖啡杯跟着横移; 两者一起纳入动画上下文才不会跳
+        // 任务数变化会让 +N 增删, 防睡眠徽标跟着横移; 两者一起纳入动画上下文才不会跳
         .animation(.codexStatus, value: content.otherTaskCount)
         .padding(.horizontal, MenuMetrics.panelPadding)
         .frame(maxWidth: .infinity, minHeight: Metrics.height, maxHeight: Metrics.height)
@@ -156,7 +157,7 @@ struct CodexActivityCard: View {
                     now: now
                 )
             )
-        case let .completed(completion, _):
+        case let .completed(completion):
             let details = CodexActivityDisplayFormat.historyDetailComponents(
                 duration: completion.duration,
                 relativeText: CodexActivityDisplayFormat.completionRelativeText(completion.completedAt, now: now)

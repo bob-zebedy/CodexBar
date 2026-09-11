@@ -29,7 +29,7 @@ The following are not synced:
 - App settings, proxy configuration, and passwords
 - Logs, live task state, and Stalled Task Protection records
 
-**Project display names are uploaded.** Disable cross-device sync if a project name contains information you do not want stored in iCloud.
+Project display names are uploaded. Disable cross-device sync if you do not want those names stored in iCloud.
 
 ## Local Data
 

@@ -96,7 +96,7 @@ Returning above the threshold rearms crossing detection, but one reset cycle sti
 
 ### Threshold Crossing
 
-“Currently below 10%” is a persistent state. “Just dropped below 10%” is the notification event. For each `account + limit + window`, the service stores the previous remaining percentage:
+For each `account + limit + window`, the service stores the previous remaining percentage and applies these notification rules:
 
 - Notify when the previous value was above the threshold and the current value is not
 - Notify once when the first in-session value is already at or below the threshold
@@ -177,13 +177,14 @@ Protection notifications use the system default sound and a `retryCount` of `0` 
 
 When low battery or the duration limit stops sleep prevention, `KeepAliveController` first releases its helper lease. It submits the notification only if the reply reports source `.codexBar` and `SleepDisabled=0`; other results clear the pending notice for that cycle.
 
-It submits the notification only after confirmation. The app idle assertion remains until notification submission completes, preventing a closed-lid Mac from sleeping before the notification reaches the system. The controller then releases the assertion and, if needed, issues a compensating lid-close sleep.
+The app idle assertion remains until notification submission finishes, then is released before any compensating lid-close sleep.
 
 ## Sounds
 
-[`NotificationSoundOption.swift`](../../../CodexBar/Services/Notifications/NotificationSoundOption.swift) combines three option groups:
+[`NotificationSoundOption.swift`](../../../CodexBar/Services/Notifications/NotificationSoundOption.swift) provides these sound choices:
 
-- No sound
+- System default notification sound
+- Silence
 - System sounds available on macOS
 - Sounds bundled with the app
 
@@ -209,8 +210,6 @@ System default and silent choices cannot be previewed. Preview is available for 
 Haptic feedback is off by default. When enabled, it uses 10 pulses roughly 100 ms apart.
 
 Haptics are a separate local feedback channel from system notifications. They respond to completion or waiting transitions for non-anonymous tasks and follow the notification master switch and haptics switch, but do not depend on system authorization, a category switch, or the completion-duration threshold.
-
-This separation lets a user disable banners while keeping consistent task haptics. The upstream transition must still be valid; bootstrap history and anonymous tasks never trigger it.
 
 ## Submission and Deduplication
 
@@ -273,7 +272,7 @@ It is completely independent of CodexBar system notifications:
 
 - Enabling the master switch for the first time requests system permission correctly
 - Settings presents an understandable state when permission is denied
-- Low-rate-limit alerts occur only on downward threshold crossings
+- Low-quota alerts fire on a first reading at or below the threshold or a downward threshold crossing, with deduplication within each reset cycle
 - An initial 100% rate limit does not produce a false reset alert
 - Explicit Automatic Reset `reset` sends “Automatic Reset”; a later return to zero can independently send “Rate Limit Reset”
 - Explicit `alreadyRedeemed` is treated as success and stops retries
