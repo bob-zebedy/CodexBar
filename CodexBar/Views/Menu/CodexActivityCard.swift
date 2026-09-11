@@ -9,6 +9,7 @@ struct CodexActivityCard: View {
     @ObservedObject var keepAliveController: KeepAliveController
     let showsUnavailableState: Bool
     let onTaskCenterTap: (ScreenFrameProvider) -> Void
+    @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
     @State private var frameProvider = ScreenFrameProvider()
     @State private var isHovered = false
 
@@ -90,14 +91,20 @@ struct CodexActivityCard: View {
                     .transition(.opacity)
             }
 
+            // 防睡眠只在任务运行期间生效, 所以状态挂在活动卡片上而不是单独占一行
             if showsKeepAliveBadge {
-                // 防睡眠只在任务运行期间生效, 所以状态挂在活动卡片上而不是单独占一行
-                Image(systemName: "sun.max.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.teal)
-                    .symbolEffect(.rotate.byLayer, options: .repeat(.continuous))
-                    .transition(.opacity)
-                    .help(keepAliveHelp)
+                // 隐藏或关闭动画效果时移除整个旋转视图, 避免保留持续渲染调度
+                Group {
+                    if allowsAnimations {
+                        RotatingKeepAliveSun()
+                    } else {
+                        Image(systemName: "sun.max.fill")
+                    }
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.teal)
+                .transition(.opacity)
+                .help(keepAliveHelp)
             }
 
             if content.otherTaskCount > 0 {
@@ -265,6 +272,17 @@ struct CodexActivityCard: View {
 
     private enum Metrics {
         static let height: CGFloat = 58
+    }
+}
+
+private struct RotatingKeepAliveSun: View {
+    @State private var isRotating = false
+
+    var body: some View {
+        Image(systemName: "sun.max.fill")
+            .rotationEffect(.degrees(isRotating ? 360 : 0))
+            .animation(.linear(duration: 2).repeatForever(autoreverses: false), value: isRotating)
+            .onAppear { isRotating = true }
     }
 }
 

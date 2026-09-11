@@ -127,13 +127,13 @@ hidden -> opening -> shown -> closing -> hidden
 
 popover 和备用面板分别持有 `MenuSurfaceAnimationState`。展示前将 `allowsAnimations` 设为 `true`，淡出期间保持开启，实际关闭后设为 `false`
 
-`CodexStatusMenuView` 在动画许可关闭时，将根视图事务的 `animation` 设为 `nil`、`disablesAnimations` 设为 `true`。后台数据刷新继续执行。
+`CodexStatusMenuView` 在宿主动画许可关闭时，将根视图事务的 `animation` 设为 `nil`、`disablesAnimations` 设为 `true`。持续动画使用 `mainPanelAnimationsEnabled` 环境值，同时要求宿主动画许可和设置中的“动画效果”开关开启。宿主隐藏或用户关闭动画效果时必须移除持续动画视图，不能只依赖事务禁用。后台数据刷新继续执行。
 
 `MenuSurfaceVisibilityState` 在面板展示后开启，在关闭开始时结束。每次展示递增 `presentationGeneration`，额度和用量区域以该值作为视图身份，重新执行入场动画。
 
 ### 活动卡片
 
-`CodexActivityCard` 使用 `primaryActivity`，优先级为等待批准、运行中、最近完成、最近终止。`isActivelyPreventingSleep` 为 `true` 且卡片数据可用时显示青绿色 `sun.max.fill`，通过 `.symbolEffect(.rotate.byLayer, options: .repeat(.continuous))` 持续旋转。tooltip 按 `sleepPreventionSource` 显示来源。
+`CodexActivityCard` 使用 `primaryActivity`，优先级为等待批准、运行中、最近完成、最近终止。`isActivelyPreventingSleep` 为 `true` 且卡片数据可用时显示青绿色 `sun.max.fill`。所属宿主的 `mainPanelAnimationsEnabled` 开启时创建独立的旋转视图，以线性动画每 2 秒顺时针旋转一圈，不使用系统符号效果的启动加速阶段。关闭许可后移除旋转视图并切回静态图标；重新展示时仅在“动画效果”开启的情况下恢复旋转。popover 与 fallback 宿主各自控制，不互相激活动画。tooltip 按 `sleepPreventionSource` 显示来源。
 
 ## Fallback panel
 
@@ -229,6 +229,8 @@ SwiftUI 可能在窗口创建完成前上报高度。`SettingsWindowController` 
 
 关于页面的重连按钮紧邻 `Codex 版本` 标题，来源选择器位于行尾。重连及刷新期间两者禁用；没有可用来源时重连按钮禁用。
 
+重连按钮的持续绘制或摆动动画只在设置窗口可见且正在重连或刷新时创建。`SettingsWindowController` 根据窗口遮挡、最小化和关闭通知更新动画许可；窗口隐藏时移除整个动画分支，恢复可见后按当前忙碌状态重新创建。切离关于页时，现有分页分支会移除版本区。窗口是否获得键盘焦点不参与动画许可判断。
+
 ## 全局快捷键
 
 [`GlobalHotKeyController.swift`](../../CodexBar/Controllers/GlobalHotKeyController.swift) 使用 Carbon Hot Key API。
@@ -283,7 +285,7 @@ app-server 状态默认每 60 秒检查刷新。主面板打开后约 160 ms 调
 - 左键打开主面板，右键和 Control 点击打开上下文菜单
 - 菜单栏符号随任务状态切换，最新终态在结束 30 秒后恢复空闲，跨睡眠唤醒后按当前时间显示
 - 切换额度圆弧显隐时动画完整，零额度保留底轨，缓存额度变淡
-- 防睡眠生效时太阳徽标持续旋转，结束后消失，重开面板后状态正确
+- 防睡眠生效时太阳徽标仅在“动画效果”开启且所属面板展示期间旋转；关闭动画效果后保留静态太阳，再次开启后仅可见宿主恢复旋转；冷启动后不打开面板、关闭后继续运行任务时均无持续旋转开销；重开、快速开关和 popover 与 fallback 切换后均保持每 2 秒一圈的匀速旋转，任务结束后徽标消失
 - 代理密码显隐切换时淡化正常，输入内容、选区和焦点保留
 - 点击主面板外部正确关闭，点击侧边面板不误关闭
 - 热力图、Reset Credits 和活动中心保持互斥
@@ -291,6 +293,7 @@ app-server 状态默认每 60 秒检查刷新。主面板打开后约 160 ms 调
 - 全局快捷键在状态栏锚点有效和无效场景都能打开面板
 - 从通知点击激活 App 并打开面板
 - 设置窗口首次打开、关闭和再次打开时焦点正确
+- 关于页刷新或重连期间，关闭、最小化、完全遮挡设置窗口或切离关于页后，重连图标不再持续绘制或摆动；恢复展示后仅在仍忙碌时恢复动画，窗口失焦但仍可见时行为正常
 - 冷启动后首次打开设置时通用页直接使用完整内容高度；切换三个 tab 时窗口高度自适应，屏幕空间充足时均不显示滚动条
 - 主面板布局、通知、自动重置和防睡眠子面板互斥，顶边对齐对应设置行，内容变化后高度正确
 - 设置子面板展开时从菜单栏打开主面板，主面板保持打开，设置子面板收起且不把焦点抢回设置窗口

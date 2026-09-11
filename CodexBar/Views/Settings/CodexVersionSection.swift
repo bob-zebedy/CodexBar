@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Codex CLI/APP 版本区, 同时展示磁盘版本和当前 app-server 运行版本
 struct CodexVersionSection: View {
+    @EnvironmentObject private var animationState: SettingsWindowAnimationState
     let snapshot: CodexCLIVersionSnapshot
     let connectionInfo: CodexCLIConnectionInfo?
     let sourceSelection: CodexCLISourceSelection
@@ -77,7 +78,10 @@ struct CodexVersionSection: View {
         } label: {
             let icon = Image(systemName: "cable.coaxial")
             Group {
-                if #available(macOS 26.0, *), isWorking {
+                if !animationState.allowsAnimations || !isWorking {
+                    // 隐藏时移除动画分支, 同时停止 phaseAnimator 和持续符号效果
+                    icon
+                } else if #available(macOS 26.0, *) {
                     // DrawOn 保持激活会停在隐藏状态, 交替阶段才能持续重复绘制
                     icon.phaseAnimator([true, false]) { content, isHidden in
                         content.symbolEffect(.drawOn.byLayer, options: .repeat(.continuous), isActive: isHidden)
@@ -85,7 +89,7 @@ struct CodexVersionSection: View {
                         .linear(duration: 0.5)
                     }
                 } else {
-                    icon.symbolEffect(.wiggle.clockwise.byLayer, options: .repeat(.continuous), isActive: isWorking)
+                    icon.symbolEffect(.wiggle.clockwise.byLayer, options: .repeat(.continuous))
                 }
             }
             .frame(width: SettingsRowMetrics.optionsButtonSize, height: SettingsRowMetrics.optionsButtonSize)

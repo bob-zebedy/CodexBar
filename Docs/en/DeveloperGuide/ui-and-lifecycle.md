@@ -127,13 +127,13 @@ Settings and log windows temporarily reject `makeKey()` during closing and regai
 
 The popover and fallback panel each hold a separate `MenuSurfaceAnimationState`. `allowsAnimations` is set to `true` before presentation, remains enabled during fade-out, and becomes `false` after the surface closes.
 
-When animations are disabled, `CodexStatusMenuView` sets the root transaction's `animation` to `nil` and `disablesAnimations` to `true`. Background data refresh continues.
+When host animation permission is disabled, `CodexStatusMenuView` sets the root transaction's `animation` to `nil` and `disablesAnimations` to `true`. Continuous animations use the `mainPanelAnimationsEnabled` environment value, which requires both host permission and the Animation Effects setting. Hiding the host or disabling Animation Effects must remove the continuously animated view; disabling transaction animations alone is insufficient. Background data refresh continues.
 
 `MenuSurfaceVisibilityState` begins after the panel is shown and ends when closing starts. Each presentation increments `presentationGeneration`; the rate-limit and usage sections use that value as their view identity and run their entrance animations again.
 
 ### Activity Card
 
-`CodexActivityCard` uses `primaryActivity`, prioritizing waiting for approval, running, recently completed, and recently terminated tasks. When `isActivelyPreventingSleep` is `true` and card data is available, it shows a teal `sun.max.fill` with continuous `.symbolEffect(.rotate.byLayer, options: .repeat(.continuous))` animation. The tooltip identifies `sleepPreventionSource`.
+`CodexActivityCard` uses `primaryActivity`, prioritizing waiting for approval, running, recently completed, and recently terminated tasks. When `isActivelyPreventingSleep` is `true` and card data is available, it shows a teal `sun.max.fill`. While the host's `mainPanelAnimationsEnabled` is true, a separate rotating view uses linear animation for one clockwise revolution every 2 seconds, without the system symbol effect's acceleration phase. Disabling permission removes the rotating view and restores a static icon. Reopening restores rotation only when Animation Effects is enabled. Popover and fallback hosts control their animations independently. The tooltip identifies `sleepPreventionSource`.
 
 ## Fallback Panel
 
@@ -229,6 +229,8 @@ Without a configuration, clicking the row or toggle opens the dialog. With one s
 
 In About, the reconnect button sits immediately after the Codex Versions title, with the source picker at the end of the row. Both are disabled during reconnection and refresh; Reconnect is also disabled when no source is available.
 
+The reconnect button creates its continuous drawing or wiggle animation only while the Settings window is visible and reconnection or refresh is in progress. `SettingsWindowController` updates animation permission from window occlusion, minimization, and close notifications. Hiding the window removes the entire animated branch; becoming visible recreates it according to the current busy state. Switching away from About removes the version section through the existing page branches. Keyboard focus does not determine animation permission.
+
 ## Global Shortcut
 
 [`GlobalHotKeyController.swift`](../../../CodexBar/Controllers/GlobalHotKeyController.swift) uses the Carbon Hot Key API.
@@ -283,7 +285,7 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 - Left-click opens the main panel; right-click and Control-click open the context menu
 - Menu bar symbols follow task state; terminal feedback expires 30 seconds after the task ends and is recalculated on wake
 - Quota-arc visibility animates, zero quota retains the track, and cached quota dims
-- The sun badge rotates while sleep prevention is active, disappears when it ends, and shows the correct state when reopening
+- The sun badge rotates only while sleep prevention is active, Animation Effects is enabled, and its host panel is presented; disabling Animation Effects preserves a static sun, and enabling it again resumes rotation only in the visible host; no continuous rotation work occurs before the first opening or while tasks continue after closing; reopening, rapid toggling, and switching between popover and fallback hosts preserve a constant speed of one revolution every 2 seconds, and the badge disappears when tasks end
 - Password reveal transitions preserve text, selection, and focus
 - Clicking outside the main panel dismisses it; clicking a side panel does not
 - Heatmap, Reset Credits, and Task Center panels remain mutually exclusive
@@ -291,6 +293,7 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 - The global shortcut opens the panel with both valid and invalid status-bar anchors
 - Clicking a notification activates the app and opens the panel
 - Focus is correct when opening Settings for the first time, closing it, and reopening it
+- During refresh or reconnection in About, closing, minimizing, fully occluding Settings, or switching away from About stops the reconnect icon's continuous drawing or wiggle; showing it again resumes animation only if still busy, and losing focus while visible preserves normal behavior
 - On the first Settings open after a cold launch, General immediately uses its full content height; switching among all three tabs adapts the window height, with no scrollbar when screen space is sufficient
 - Main Panel Layout, Notification, Automatic Reset, and sleep-prevention child panels remain mutually exclusive, align their top edges with their setting rows, and resize correctly when content changes
 - With a settings child panel open, opening the main panel from the menu bar keeps the main panel open, closes the settings child panel, and does not steal focus back to Settings

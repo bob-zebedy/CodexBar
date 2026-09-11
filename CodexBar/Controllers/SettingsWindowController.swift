@@ -21,12 +21,13 @@ final class SettingsWindowController: HostingWindowController {
     private let onSyncChanged: (Bool) -> Void
     private let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
     private let mainPanelUndoManager = UndoManager()
+    private let animationState = SettingsWindowAnimationState()
     private var windowFocusObserver: AnyCancellable?
+    private var windowVisibilityObserver: AnyCancellable?
     /// 只在真的要展开时构造: hosting controller 与动态面板订阅会常驻到 App 结束, 而用户可能一次子面板都没开过
     private var optionsPanelControllers: [SettingsOptionsPanel: SettingsOptionsPanelController] = [:]
     private var optionsDismissEventMonitor: Any?
     private var optionsDismissFocusObserver: AnyCancellable?
-    private var optionsDismissWindowObserver: NSObjectProtocol?
     private var optionsDismissedByClick: (panel: SettingsOptionsPanel, event: NSEvent)?
     /// 首次构造窗口时 SwiftUI 可能先于 window 赋值上报高度 因此必须保留最近一次测量
     private var preferredContentHeight: CGFloat?
@@ -70,6 +71,9 @@ final class SettingsWindowController: HostingWindowController {
     override func open() {
         refreshSettingsState()
         super.open()
+        if let window {
+            animationState.update(for: window)
+        }
         installOptionsDismissMonitor()
         NotificationCenter.default.post(name: .settingsWindowDidOpen, object: nil)
     }
@@ -97,6 +101,7 @@ final class SettingsWindowController: HostingWindowController {
             )
             .environmentObject(viewModel)
             .environmentObject(appUpdater)
+            .environmentObject(animationState)
         )
         hostingController.sizingOptions = []
 
@@ -111,6 +116,21 @@ final class SettingsWindowController: HostingWindowController {
             .publisher(for: NSWindow.didBecomeKeyNotification, object: window)
             .sink { [weak notificationSettings] _ in
                 notificationSettings?.refreshAuthorizationStatus()
+            }
+        // 关闭后 hosting controller 仍然保留, 必须按窗口可见性停止持续动画
+        windowVisibilityObserver = Publishers.MergeMany([
+            NSWindow.didChangeOcclusionStateNotification,
+            NSWindow.didMiniaturizeNotification,
+            NSWindow.didDeminiaturizeNotification,
+            NSWindow.willCloseNotification
+        ].map { NotificationCenter.default.publisher(for: $0, object: window) })
+            .sink { [weak self, weak window] notification in
+                guard let self, let window else { return }
+                let isClosing = notification.name == NSWindow.willCloseNotification
+                animationState.update(for: window, isClosing: isClosing)
+                if isClosing {
+                    removeOptionsDismissMonitor()
+                }
             }
         return window
     }
@@ -299,15 +319,6 @@ final class SettingsWindowController: HostingWindowController {
                     handleOptionsAction(.closeAll)
                 }
             }
-        optionsDismissWindowObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.removeOptionsDismissMonitor()
-            }
-        }
     }
 
     private func removeOptionsDismissMonitor() {
@@ -317,12 +328,8 @@ final class SettingsWindowController: HostingWindowController {
         if let optionsDismissEventMonitor {
             NSEvent.removeMonitor(optionsDismissEventMonitor)
         }
-        if let optionsDismissWindowObserver {
-            NotificationCenter.default.removeObserver(optionsDismissWindowObserver)
-        }
         optionsDismissEventMonitor = nil
         optionsDismissFocusObserver = nil
-        optionsDismissWindowObserver = nil
         optionsDismissedByClick = nil
     }
 
@@ -468,6 +475,18 @@ final class SettingsWindowController: HostingWindowController {
         maximum: CGFloat
     ) -> CGFloat {
         min(maximum, max(minimum, value))
+    }
+}
+
+@MainActor
+final class SettingsWindowAnimationState: ObservableObject {
+    @Published private(set) var allowsAnimations = false
+
+    func update(for window: NSWindow, isClosing: Bool = false) {
+        let isVisible = !isClosing && window.isVisible && !window.isMiniaturized
+            && window.occlusionState.contains(.visible)
+        guard allowsAnimations != isVisible else { return }
+        allowsAnimations = isVisible
     }
 }
 
