@@ -419,7 +419,7 @@ App 更新可能改变内嵌 CodexBarHelper 的签名或内容。App 会记录 C
 - 更新后旧 owned 状态能够安全恢复
 - 更新前自动重置唤醒计划已取消，新 helper 就绪后按当前目标重新登记
 
-## 手动验证矩阵
+## 手动验证
 
 - 运行任务开始和结束时，App assertion 与 CodexBarHelper 租约同步切换
 - 等待批准设置关闭和开启时，有效任务判断正确

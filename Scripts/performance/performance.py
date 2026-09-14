@@ -3,108 +3,111 @@
 import html
 import json
 import math
+from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
+
+from .models import (
+    EventKey,
+    MetricKey,
+    Report,
+    ResourceValueKey,
+    Sample,
+    SeriesKey,
+    StatisticKey,
+)
+
+BarEntry = tuple[str, float | None, str]
+BarGroup = tuple[str, Sequence[BarEntry]]
 
 
-def escape(value):
+def escape(value: object) -> str:
     return html.escape(str(value))
 
 
-def number(value, digits=2, suffix=""):
+def number(value: float | None, digits: int = 2, suffix: str = "") -> str:
     return "N/A" if value is None else f"{value:,.{digits}f}{suffix}"
 
 
-def table(headers, rows):
+def table(headers: Sequence[str], rows: Sequence[Sequence[object]]) -> str:
     head = "".join(f"<th>{escape(h)}</th>" for h in headers)
-    body = "".join(
-        "<tr>" + "".join(f"<td>{escape(c)}</td>" for c in row) + "</tr>" for row in rows
-    )
+    body = "".join("<tr>" + "".join(f"<td>{escape(c)}</td>" for c in row) + "</tr>" for row in rows)
     if not body:
         body = f'<tr><td colspan="{len(headers)}" class="muted">无可用数据</td></tr>'
     return f'<div class="table-scroll"><table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
-def chart(series, key, label, color, unit, phase_index, ceiling=None, step=False):
+def chart(
+        series: Sequence[Sample], key: SeriesKey, label: str, color: str, unit: str,
+        phase_index: int, ceiling: float | None = None, step: bool = False,
+) -> str:
     width, height, left, right, top, bottom = 640, 240, 60, 24, 32, 40
-    points = [p for p in series if p.get(key) is not None]
+    points = [(p["t"], value) for p in series if (value := p[key]) is not None]
     if not points:
         return '<div class="empty">无可用采样数据</div>'
     start, end = min(p["t"] for p in series), max(p["t"] for p in series)
-    peak = max(points, key=lambda p: p[key])
-    maximum = ceiling or nice_max(peak[key])
-    x = lambda t: left + (t - start) / max(end - start, 1) * (width - left - right)
-    y = lambda v: top + (1 - v / maximum) * (height - top - bottom)
+    peak_time, peak_value = max(points, key=lambda p: p[1])
+    maximum = ceiling or nice_max(peak_value)
+
+    def x(t: float) -> float:
+        return left + (t - start) / max(end - start, 1) * (width - left - right)
+
+    def y(value: float) -> float:
+        return top + (1 - value / maximum) * (height - top - bottom)
+
     parts = [
         f'<div class="trend-chart" data-phase="{phase_index}" data-key="{escape(key)}" data-unit="{escape(unit)}">',
-        f'<div class="trend-stats"><b>{escape(label)}</b><span>最低 {number(min(p[key] for p in points))} · 峰值 {number(peak[key])} {escape(unit)}</span></div>',
+        f'<div class="trend-stats"><b>{escape(label)}</b><span>最低 {number(min(value for _, value in points))} · 峰值 {number(peak_value)} {escape(unit)}</span></div>',
         f'<svg viewBox="0 0 {width} {height}" data-plot-left="{left}" data-plot-width="{width - left - right}" role="img" aria-label="{escape(label)}运行曲线">',
     ]
     for index in range(5):
         value = maximum * index / 4
         yy = y(value)
-        parts.append(
-            f'<line class="grid" x1="{left}" x2="{width - right}" y1="{yy:.2f}" y2="{yy:.2f}"/>'
-        )
-        parts.append(
-            f'<text x="{left - 10}" y="{yy + 4:.2f}" text-anchor="end">{value:g}</text>'
-        )
+        parts.append(f'<line class="grid" x1="{left}" x2="{width - right}" y1="{yy:.2f}" y2="{yy:.2f}"/>')
+        parts.append(f'<text x="{left - 10}" y="{yy + 4:.2f}" text-anchor="end">{value:g}</text>')
     for index in range(6):
         t = start + (end - start) * index / 5
-        parts.append(
-            f'<text x="{x(t):.2f}" y="{height - 10}" text-anchor="middle">{t:.0f}s</text>'
-        )
-    segments, current = [], []
+        parts.append(f'<text x="{x(t):.2f}" y="{height - 10}" text-anchor="middle">{t:.0f}s</text>')
+    segments: list[list[tuple[float, float]]] = []
+    current: list[tuple[float, float]] = []
     previous = None
     for point in series:
-        if point.get(key) is None or (
-            previous is not None and point["t"] - previous > 5
+        value = point[key]
+        if value is None or (
+                previous is not None and point["t"] - previous > 5
         ):
             if current:
                 segments.append(current)
             current = []
-        if point.get(key) is not None:
-            current.append(point)
+        if value is not None:
+            current.append((point["t"], value))
         previous = point["t"]
     if current:
         segments.append(current)
     for segment in segments:
-        path = f"M {x(segment[0]['t']):.2f} {y(segment[0][key]):.2f}"
-        for point in segment[1:]:
+        path = f"M {x(segment[0][0]):.2f} {y(segment[0][1]):.2f}"
+        for timestamp, value in segment[1:]:
             path += (
-                f" H {x(point['t']):.2f} V {y(point[key]):.2f}"
+                f" H {x(timestamp):.2f} V {y(value):.2f}"
                 if step
-                else f" L {x(point['t']):.2f} {y(point[key]):.2f}"
+                else f" L {x(timestamp):.2f} {y(value):.2f}"
             )
-        parts.append(
-            f'<path d="{path} L {x(segment[-1]["t"]):.2f} {y(0):.2f} L {x(segment[0]["t"]):.2f} {y(0):.2f} Z" fill="{color}" opacity=".10"/>'
-        )
-        parts.append(
-            f'<path d="{path}" fill="none" stroke="{color}" stroke-width="2"/>'
-        )
+        parts.append(f'<path d="{path} L {x(segment[-1][0]):.2f} {y(0):.2f} L {x(segment[0][0]):.2f} {y(0):.2f} Z" fill="{color}" opacity=".10"/>')
+        parts.append(f'<path d="{path}" fill="none" stroke="{color}" stroke-width="2"/>')
         if len(segment) == 1:
-            parts.append(
-                f'<circle cx="{x(segment[0]["t"]):.2f}" cy="{y(segment[0][key]):.2f}" r="3" fill="{color}"/>'
-            )
-    anchor = "end" if x(peak["t"]) > width / 2 else "start"
-    parts.append(
-        f'<circle cx="{x(peak["t"]):.2f}" cy="{y(peak[key]):.2f}" r="4" fill="{color}"/>'
-    )
-    parts.append(
-        f'<text x="{x(peak["t"]):.2f}" y="{y(peak[key]) - 10:.2f}" text-anchor="{anchor}">峰值 {peak[key]:.2f}</text>'
-    )
-    parts.append(
-        f'<line class="cursor" x1="{left}" x2="{left}" y1="{top}" y2="{height - bottom}" hidden/></svg>'
-    )
-    parts.append(
-        f'<div class="chart-control"><input aria-label="{escape(label)}采样点" type="range" min="0" max="{len(series) - 1}" value="0"><output></output></div></div>'
-    )
+            parts.append(f'<circle cx="{x(segment[0][0]):.2f}" cy="{y(segment[0][1]):.2f}" r="3" fill="{color}"/>')
+    anchor = "end" if x(peak_time) > width / 2 else "start"
+    parts.append(f'<circle cx="{x(peak_time):.2f}" cy="{y(peak_value):.2f}" r="4" fill="{color}"/>')
+    parts.append(f'<text x="{x(peak_time):.2f}" y="{y(peak_value) - 10:.2f}" text-anchor="{anchor}">峰值 {peak_value:.2f}</text>')
+    parts.append(f'<line class="cursor" x1="{left}" x2="{left}" y1="{top}" y2="{height - bottom}" hidden/></svg>')
+    parts.append(f'<div class="chart-control"><input aria-label="{escape(label)}采样点" type="range" min="0" max="{len(series) - 1}" value="0"><output></output></div></div>')
     return "".join(parts)
 
 
-def nice_max(value):
+def nice_max(value: float) -> float:
     if value <= 0:
         return 1
-    magnitude = 10 ** math.floor(math.log10(value))
+    magnitude: float = 10 ** math.floor(math.log10(value))
     step = magnitude / 2
     return math.ceil(value * 1.1 / step) * step
 
@@ -112,7 +115,7 @@ def nice_max(value):
 COLORS = ["var(--teal)", "var(--violet)", "var(--warn)", "var(--rose)"]
 
 
-def bars(groups, unit="", digits=2):
+def bars(groups: Sequence[BarGroup], unit: str = "", digits: int = 2) -> str:
     values = [
         value for _, entries in groups for _, value, _ in entries if value is not None
     ]
@@ -121,48 +124,43 @@ def bars(groups, unit="", digits=2):
     zero = -low / extent * 100
     parts = ['<div class="bar-chart">']
     for label, entries in groups:
-        parts.append(
-            f'<div class="bar-group"><div class="bar-label">{escape(label)}</div>'
-        )
+        parts.append(f'<div class="bar-group"><div class="bar-label">{escape(label)}</div>')
         for name, value, color in entries:
-            parts.append(
-                f'<div class="bar-entry"><span class="bar-series">{escape(name)}</span>'
-            )
+            parts.append(f'<div class="bar-entry"><span class="bar-series">{escape(name)}</span>')
             if value is None:
-                parts.append(
-                    '<div class="bar-track missing"></div><b class="bar-value">N/A</b>'
-                )
+                parts.append('<div class="bar-track missing"></div><b class="bar-value">N/A</b>')
             else:
                 position = (min(0, value) - low) / extent * 100
                 width = abs(value) / extent * 100
-                parts.append(
-                    f'<div class="bar-track"><span class="zero" style="left:{zero:.4f}%"></span><i style="left:{position:.4f}%;width:{width:.4f}%;background:{color}" data-value="{value}"></i></div><b class="bar-value">{number(value, digits)} <small>{escape(unit)}</small></b>'
-                )
+                parts.append(f'<div class="bar-track"><span class="zero" style="left:{zero:.4f}%"></span><i style="left:{position:.4f}%;width:{width:.4f}%;background:{color}" data-value="{value}"></i></div><b class="bar-value">{number(value, digits)} <small>{escape(unit)}</small></b>')
             parts.append("</div>")
         parts.append("</div>")
     return (
-        "".join(parts)
-        + ('<div class="empty">无采集数据</div>' if not groups else "")
-        + "</div>"
+            "".join(parts)
+            + ('<div class="empty">无采集数据</div>' if not groups else "")
+            + "</div>"
     )
 
 
-def ranked(items, unit="ms", color=COLORS[0], digits=0):
+def ranked(
+        items: Sequence[tuple[str, float | None]], unit: str = "ms",
+        color: str = COLORS[0], digits: int = 0,
+) -> str:
     return bars([(label, [("", value, color)]) for label, value in items], unit, digits)
 
 
-def panel(title, content, note=""):
+def panel(title: str, content: str, note: str = "") -> str:
     return (
-        '<article class="panel"><h3>'
-        + escape(title)
-        + "</h3>"
-        + ('<p class="muted">' + escape(note) + "</p>" if note else "")
-        + content
-        + "</article>"
+            '<article class="panel"><h3>'
+            + escape(title)
+            + "</h3>"
+            + ('<p class="muted">' + escape(note) + "</p>" if note else "")
+            + content
+            + "</article>"
     )
 
 
-def distribution(main, total):
+def distribution(main: float, total: float) -> str:
     if not total:
         return '<div class="empty">无 CPU 样本</div>'
     ratio = main / total * 100
@@ -170,21 +168,27 @@ def distribution(main, total):
 <div class="share-values"><div><span>主线程</span><b>{ratio:.1f}%</b><small>{main:,.0f} ms</small></div><div><span>其他线程</span><b>{100 - ratio:.1f}%</b><small>{total - main:,.0f} ms</small></div></div></div>"""
 
 
-def interval_chart(rows, paired=False):
+def interval_chart(
+        rows: Sequence[tuple[str, Sequence[float | None]]], paired: bool = False,
+) -> str:
     values = [v for _, entries in rows for v in entries if v is not None]
     if not values:
         return '<div class="empty">无可用数据</div>'
     maximum = nice_max(max(values))
-    x = lambda value: 100 * value / maximum
+
+    def x(value: float) -> float:
+        return 100 * value / maximum
+
     parts = [
         '<div class="interval-chart">',
         '<div class="interval-axis"><span>0</span><span>'
         + number(maximum, 0)
         + " MiB</span></div>",
     ]
-    for label, values in rows:
+    for label, entries in rows:
         parts.append(f'<div class="interval-row"><b>{escape(label)}</b>')
-        if any(v is None for v in values):
+        values = [value for value in entries if value is not None]
+        if len(values) != len(entries):
             parts.append('<span class="muted">N/A</span></div>')
             continue
         first, last = values[0], values[-1]
@@ -193,21 +197,15 @@ def interval_chart(rows, paired=False):
             if paired
             else f"最小 {first:.1f} · 中位 {values[1]:.1f} · 峰值 {last:.1f} MiB"
         )
-        parts.append(
-            f'<div class="interval-track"><i class="interval-line" style="left:{x(min(first, last)):.4f}%;width:{x(abs(last - first)):.4f}%"></i>'
-        )
+        parts.append(f'<div class="interval-track"><i class="interval-line" style="left:{x(min(first, last)):.4f}%;width:{x(abs(last - first)):.4f}%"></i>')
         for i, value in enumerate(values):
             kind = (
                 ("head" if i == 0 else "tail")
                 if paired
                 else ("median" if i == 1 else "bound")
             )
-            parts.append(
-                f'<i class="interval-point {kind}" style="left:{x(value):.4f}%" title="{value:.2f} MiB"></i>'
-            )
-        parts.append(
-            '</div><span class="interval-values">' + description + "</span></div>"
-        )
+            parts.append(f'<i class="interval-point {kind}" style="left:{x(value):.4f}%" title="{value:.2f} MiB"></i>')
+        parts.append('</div><span class="interval-values">' + description + "</span></div>")
     parts.append(
         '<div class="interval-key">'
         + ("○ 首段　● 尾段" if paired else "┃ 最小值 / 峰值　● 中位数")
@@ -216,7 +214,7 @@ def interval_chart(rows, paired=False):
     return "".join(parts)
 
 
-def write_report(data, destination):
+def write_report(data: Report, destination: Path) -> None:
     import collections
     import re
 
@@ -224,22 +222,22 @@ def write_report(data, destination):
     valid = [p for p in phases if p.get("resources") and not p.get("errors")]
     target, env = data.get("target", {}), data.get("environment", {})
     measured = sum(p.get("recorded_s", 0) for p in phases)
-    cpu_phases = [p for p in valid if p["resources"].get("cpu_mean") is not None]
+    resources = [(p, resource) for p in valid if (resource := p.get("resources")) is not None]
+    cpu_phases = [(resource, mean) for _, resource in resources if (mean := resource["cpu_mean"]) is not None]
     cpu_durations = [
-        sum(point["dt"] for point in p["resources"]["series"] if point.get("cpu") is not None)
-        for p in cpu_phases
+        sum(duration for point in resource["series"] if point["cpu"] is not None and (duration := point["dt"]) is not None)
+        for resource, _ in cpu_phases
     ]
     span = sum(cpu_durations)
     cpu_mean = (
-        sum(p["resources"]["cpu_mean"] * duration for p, duration in zip(cpu_phases, cpu_durations))
+        sum(mean * duration for (_, mean), duration in zip(cpu_phases, cpu_durations))
         / span
         if span
         else None
     )
     footprints = [
-        p["resources"]["footprint"]["max"]
-        for p in valid
-        if p["resources"].get("footprint")
+        footprint["max"] for _, resource in resources
+        if (footprint := resource["footprint"]) is not None
     ]
     hang_phases = [p for p in valid if "potential-hangs" in p]
     hangs = (
@@ -255,27 +253,26 @@ def write_report(data, destination):
     if data.get("budget_breaches"):
         state, tone = "超过配置预算", "warn"
 
-    def resource_peak(key, nested=None):
-        values = [
-            (p["resources"].get(key) or {}).get(nested)
-            if nested
-            else p["resources"].get(key)
-            for p in valid
-        ]
-        return max((value for value in values if value is not None), default=None)
+    def resource_peak(key: ResourceValueKey) -> float | None:
+        values = [value for _, resource in resources if (value := resource[key]) is not None]
+        return max(values, default=None)
+
+    def metric_peak(key: MetricKey) -> float | None:
+        values = [metric["max"] for _, resource in resources if (metric := resource[key]) is not None]
+        return max(values, default=None)
 
     extra_kpis = [
         ("CPU 采样峰值", number(resource_peak("cpu_peak")), "%", "有效阶段最高采样值"),
-        ("RSS 峰值", number(resource_peak("rss", "max"), 1), "MiB", "驻留物理内存"),
+        ("RSS 峰值", number(metric_peak("rss"), 1), "MiB", "驻留物理内存"),
         (
             "线程峰值",
-            number(resource_peak("threads", "max"), 0),
+            number(metric_peak("threads"), 0),
             "个",
             "有效阶段最大线程数",
         ),
         (
             "资源采样点",
-            number(sum(p["resources"].get("samples", 0) for p in valid), 0),
+            number(sum(resource["samples"] for _, resource in resources), 0),
             "个",
             "有效阶段累计样本",
         ),
@@ -284,8 +281,8 @@ def write_report(data, destination):
         f'<div class="kpi"><div class="label">{label}</div><div class="value">{value}<span class="unit">{unit}</span></div><small>{note}</small></div>'
         for label, value, unit, note in extra_kpis
     )
-    matrix_rows = []
-    phase_buttons = []
+    matrix_rows: list[list[str]] = []
+    phase_buttons: list[str] = []
     for index, phase in enumerate(phases):
         r = phase.get("resources", {})
         matrix_rows.append(
@@ -295,13 +292,13 @@ def write_report(data, destination):
                 number(r.get("cpu_p50")),
                 number(r.get("cpu_p95")),
                 number(r.get("cpu_peak")),
-                number((r.get("footprint") or {}).get("max"), 1),
-                number((r.get("rss") or {}).get("max"), 1),
-                number((r.get("threads") or {}).get("max"), 0),
+                number(metric["max"] if (metric := r.get("footprint")) is not None else None, 1),
+                number(metric["max"] if (metric := r.get("rss")) is not None else None, 1),
+                number(metric["max"] if (metric := r.get("threads")) is not None else None, 0),
                 number(r.get("wakeups_per_s")),
                 number(
-                    r.get("written_bytes") / 1024
-                    if r.get("written_bytes") is not None
+                    written_bytes / 1024
+                    if (written_bytes := r.get("written_bytes")) is not None
                     else None,
                     1,
                 ),
@@ -328,11 +325,12 @@ def write_report(data, destination):
         matrix_rows,
     )
 
-    def resource_groups(specification, scale=1):
-        groups = []
-        for phase in valid:
-            r = phase["resources"]
-            entries = []
+    def resource_groups(
+            specification: Sequence[tuple[str, ResourceValueKey]], scale: float = 1,
+    ) -> list[BarGroup]:
+        groups: list[BarGroup] = []
+        for phase, r in resources:
+            entries: list[BarEntry] = []
             for index, (label, key) in enumerate(specification):
                 value = r.get(key)
                 entries.append(
@@ -348,21 +346,22 @@ def write_report(data, destination):
             bars(resource_groups([("P95", "cpu_p95"), ("峰值", "cpu_peak")]), "%"),
         ),
     ]
+    distribution_keys: tuple[StatisticKey, ...] = ("min", "median", "max")
     memory_rows = [
         (
             p["id"],
             [
-                (p["resources"].get("footprint") or {}).get(key)
-                for key in ("min", "median", "max")
+                footprint.get(key) if footprint is not None else None
+                for key in distribution_keys
             ],
         )
-        for p in valid
+        for p, resource in resources
+        for footprint in [resource["footprint"]]
     ]
     comparisons.append(panel("内存 footprint 分布", interval_chart(memory_rows)))
     trends = [
-        (p["id"], p["resources"]["memory_trend"])
-        for p in valid
-        if p["resources"].get("memory_trend")
+        (p["id"], trend) for p, resource in resources
+        if (trend := resource.get("memory_trend"))
     ]
     comparisons.append(
         panel(
@@ -422,12 +421,12 @@ def write_report(data, destination):
                     (
                         p["id"],
                         [
-                            ("均值", p["system"].get("cpu_load_mean"), COLORS[0]),
-                            ("峰值", p["system"].get("cpu_load_peak"), COLORS[1]),
+                            ("均值", system.get("cpu_load_mean"), COLORS[0]),
+                            ("峰值", system.get("cpu_load_peak"), COLORS[1]),
                         ],
                     )
                     for p in valid
-                    if p.get("system")
+                    if (system := p.get("system"))
                 ],
                 "%",
                 1,
@@ -435,30 +434,35 @@ def write_report(data, destination):
             "各逻辑核心合计",
         ),
     ]
-    profiles = [p for p in valid if p.get("profile")]
-    total = sum(p["profile"]["sampled_ms"] for p in profiles)
-    main = sum(p["profile"]["main_ms"] for p in profiles)
-    libraries = collections.Counter()
-    for p in profiles:
-        for name, weight in p["profile"].get("binaries", []):
+    profiles = [profile for p in valid if (profile := p.get("profile"))]
+    total = sum(profile["sampled_ms"] for profile in profiles)
+    main = sum(profile["main_ms"] for profile in profiles)
+    libraries: collections.defaultdict[str, float] = collections.defaultdict(float)
+    for profile in profiles:
+        for name, weight in profile["binaries"]:
             libraries[name] += weight
     hot_overview = panel("主线程 CPU 样本分布", distribution(main, total)) + panel(
-        "叶节点所属库 · 已导出 Top 10", ranked(libraries.most_common(10))
+        "叶节点所属库 · 已导出 Top 10", ranked(sorted(libraries.items(), key=lambda item: item[1], reverse=True)[:10])
     )
-    phase_html, hotspot_html, record_rows, event_rows = [], [], [], []
+    phase_html: list[str] = []
+    hotspot_html: list[str] = []
+    record_rows: list[list[object]] = []
+    event_rows: list[list[str]] = []
+    series_keys: tuple[SeriesKey, ...] = ("cpu", "footprint", "rss", "compressed", "threads")
+    memory_keys: tuple[MetricKey, ...] = ("footprint", "rss", "compressed")
     ceilings = {
         key: nice_max(
             max(
                 [
-                    point[key]
+                    value
                     for p in phases
                     for point in p.get("resources", {}).get("series", [])
-                    if point.get(key) is not None
+                    if (value := point[key]) is not None
                 ]
                 or [0]
             )
         )
-        for key in ("cpu", "footprint", "rss", "compressed", "threads")
+        for key in series_keys
     }
     for index, phase in enumerate(phases):
         r = phase.get("resources", {})
@@ -478,8 +482,8 @@ def write_report(data, destination):
                 (
                     "CPU 采样覆盖",
                     number(
-                        r.get("cpu_coverage") * 100
-                        if r.get("cpu_coverage") is not None
+                        coverage * 100
+                        if (coverage := r.get("cpu_coverage")) is not None
                         else None,
                         1,
                         "%",
@@ -488,20 +492,20 @@ def write_report(data, destination):
                 ("最大采样间隔", number(r.get("max_gap_s"), 2, " s")),
             ]
             content += (
-                '<div class="metric-strip">'
-                + "".join(
-                    f"<div><span>{escape(label)}</span><b>{escape(value)}</b></div>"
-                    for label, value in metrics
-                )
-                + "</div>"
+                    '<div class="metric-strip">'
+                    + "".join(
+                f"<div><span>{escape(label)}</span><b>{escape(value)}</b></div>"
+                for label, value in metrics
+            )
+                    + "</div>"
             )
             content += '<div class="chart-grid">' + chart(
                 r["series"], "cpu", "CPU", COLORS[0], "%", index, ceilings["cpu"]
             )
             for key, label, color in zip(
-                ["footprint", "rss", "compressed"],
-                ["Footprint", "RSS", "压缩内存"],
-                COLORS,
+                    memory_keys,
+                    ["Footprint", "RSS", "压缩内存"],
+                    COLORS,
             ):
                 content += chart(
                     r["series"], key, label, color, "MiB", index, ceilings[key]
@@ -516,27 +520,29 @@ def write_report(data, destination):
                 ceilings["threads"],
                 step=True,
             )
-            detail_rows = []
-            for key, label in [
+            detail_rows: list[list[str]] = []
+            memory_labels: tuple[tuple[MetricKey, str], ...] = (
                 ("footprint", "Footprint"),
                 ("rss", "RSS"),
                 ("compressed", "压缩内存"),
-            ]:
-                values = r.get(key) or {}
+            )
+            statistic_keys: tuple[StatisticKey, ...] = ("first", "last", "median")
+            for key, label in memory_labels:
+                values = r.get(key)
                 detail_rows.append(
                     [label]
-                    + [number(values.get(k), 2) for k in ("first", "last", "median")]
+                    + [number(values[k] if values is not None else None, 2) for k in statistic_keys]
                 )
             content += (
-                '<div class="sample-summary"><h4>内存采样明细 <span class="muted">MiB</span></h4>'
-                + table(["指标", "首值", "尾值", "中位数"], detail_rows)
+                    '<div class="sample-summary"><h4>内存采样明细 <span class="muted">MiB</span></h4>'
+                    + table(["指标", "首值", "尾值", "中位数"], detail_rows)
             )
             content += '<p class="muted">CPU 为区间使用率. 内存与线程为采样时刻值. 拖动滑块或移动指针查看单点数据</p></div></div>'
-        if phase.get("errors"):
+        if (phase_errors := phase.get("errors")):
             content += (
-                '<div class="notice warn">'
-                + "<br>".join(escape(e) for e in phase["errors"])
-                + "</div>"
+                    '<div class="notice warn">'
+                    + "<br>".join(escape(e) for e in phase_errors)
+                    + "</div>"
             )
         phase_html.append(content + "</article>")
         profile = phase.get("profile")
@@ -546,12 +552,12 @@ def write_report(data, destination):
                 "叶节点热点 · Top 12", ranked(profile["leaf"][:12])
             )
             hot += (
-                panel(
-                    "调用链热点 · Top 12",
-                    ranked(profile["inclusive"][:12], color=COLORS[1]),
-                    "权重包含子调用",
-                )
-                + "</div>"
+                    panel(
+                        "调用链热点 · Top 12",
+                        ranked(profile["inclusive"][:12], color=COLORS[1]),
+                        "权重包含子调用",
+                    )
+                    + "</div>"
             )
             hot += '<div class="two">' + panel(
                 "高 CPU 采样权重的 1 秒区间",
@@ -563,36 +569,36 @@ def write_report(data, destination):
                 ),
             )
             hot += (
-                panel(
-                    "调用栈采样记录",
-                    ranked(
-                        [
-                            (
-                                "有调用栈",
-                                profile["sampled_ms"] - profile["missing_stack_ms"],
-                            ),
-                            ("缺失调用栈", profile["missing_stack_ms"]),
-                            ("含 App 帧", profile["app_stack_ms"]),
-                            ("含命名 App 帧", profile["app_named_stack_ms"]),
-                        ],
-                        color=COLORS[2],
-                    ),
-                )
-                + "</div>"
+                    panel(
+                        "调用栈采样记录",
+                        ranked(
+                            [
+                                (
+                                    "有调用栈",
+                                    profile["sampled_ms"] - profile["missing_stack_ms"],
+                                ),
+                                ("缺失调用栈", profile["missing_stack_ms"]),
+                                ("含 App 帧", profile["app_stack_ms"]),
+                                ("含命名 App 帧", profile["app_named_stack_ms"]),
+                            ],
+                            color=COLORS[2],
+                        ),
+                    )
+                    + "</div>"
             )
             hot += "<details><summary>全部已导出热点</summary>" + table(
                 ["叶节点", "权重 / ms"],
                 [(name, number(weight, 0)) for name, weight in profile["leaf"]],
             )
             hot += (
-                table(
-                    ["调用链", "权重 / ms"],
-                    [
-                        (name, number(weight, 0))
-                        for name, weight in profile["inclusive"]
-                    ],
-                )
-                + "</details></details>"
+                    table(
+                        ["调用链", "权重 / ms"],
+                        [
+                            (name, number(weight, 0))
+                            for name, weight in profile["inclusive"]
+                        ],
+                    )
+                    + "</details></details>"
             )
             hotspot_html.append(hot)
         record_rows.append(
@@ -603,8 +609,8 @@ def write_report(data, destination):
                 r.get("samples", "N/A"),
                 number(r.get("max_gap_s"), 2, " s"),
                 number(
-                    r.get("cpu_coverage") * 100
-                    if r.get("cpu_coverage") is not None
+                    coverage * 100
+                    if (coverage := r.get("cpu_coverage")) is not None
                     else None,
                     1,
                     "%",
@@ -612,8 +618,9 @@ def write_report(data, destination):
                 "已采集" if phase in valid else "部分数据",
             ]
         )
-        for key, label in [("potential-hangs", "Hangs"), ("hang-risks", "Hang risks")]:
-            for event in phase.get(key, {}).get("events", []):
+        event_labels: tuple[tuple[EventKey, str], ...] = (("potential-hangs", "Hangs"), ("hang-risks", "Hang risks"))
+        for event_key, label in event_labels:
+            for event in phase.get(event_key, {}).get("events", []):
                 event_rows.append(
                     [
                         phase["id"],
@@ -646,7 +653,7 @@ def write_report(data, destination):
             thermal += f'<div class="thermal-state {"nominal" if state_name.lower() == "nominal" else "elevated"}"><b>{escape(state_name)}</b><span>{escape(event.get("start", ""))} → {escape(event.get("end", ""))}</span></div>'
         thermal += "</div>"
     thermal += "</div>"
-    metadata = [
+    metadata: list[list[object]] = [
         ["App", target.get("name", "N/A")],
         ["Bundle ID", target.get("bundle_id", "N/A")],
         [
@@ -657,8 +664,8 @@ def write_report(data, destination):
         ["芯片 / 逻辑核心", f"{env.get('chip', 'N/A')} / {env.get('cores', 'N/A')}"],
         [
             "内存",
-            number(int(env["memory_bytes"]) / 2**30, 0, " GiB")
-            if env.get("memory_bytes")
+            number(int(memory_bytes) / 2 ** 30, 0, " GiB")
+            if (memory_bytes := env.get("memory_bytes"))
             else "N/A",
         ],
         ["Instruments", env.get("instruments", "N/A")],
@@ -696,18 +703,18 @@ def write_report(data, destination):
                 ),
             )
             optional += (
-                panel(
-                    "footprint 中位数差值",
-                    ranked(
-                        [
-                            (r["phase"], r["footprint_mib"])
-                            for r in comparison["deltas"]
-                        ],
-                        "MiB",
-                        digits=2,
-                    ),
-                )
-                + "</div>"
+                    panel(
+                        "footprint 中位数差值",
+                        ranked(
+                            [
+                                (r["phase"], r["footprint_mib"])
+                                for r in comparison["deltas"]
+                            ],
+                            "MiB",
+                            digits=2,
+                        ),
+                    )
+                    + "</div>"
             )
         else:
             optional += table(
@@ -717,24 +724,24 @@ def write_report(data, destination):
         optional += "</section>"
     budgets = data.get("config", {})
     if (
-        budgets.get("cpu_mean_budget") is not None
-        or budgets.get("footprint_budget") is not None
+            budgets.get("cpu_mean_budget") is not None
+            or budgets.get("footprint_budget") is not None
     ):
         optional += (
-            '<section class="section"><h2>配置预算</h2>'
-            + table(
-                ["平均 CPU 上限", "footprint 峰值上限", "超出项"],
+                '<section class="section"><h2>配置预算</h2>'
+                + table(
+            ["平均 CPU 上限", "footprint 峰值上限", "超出项"],
+            [
                 [
-                    [
-                        number(budgets.get("cpu_mean_budget"), 2, "%"),
-                        number(budgets.get("footprint_budget"), 1, " MiB"),
-                        ", ".join(data.get("budget_breaches", [])) or "0",
-                    ]
-                ],
-            )
-            + "</section>"
+                    number(budgets.get("cpu_mean_budget"), 2, "%"),
+                    number(budgets.get("footprint_budget"), 1, " MiB"),
+                    ", ".join(data.get("budget_breaches", [])) or "0",
+                ]
+            ],
         )
-    portable = json.loads(json.dumps(data))
+                + "</section>"
+        )
+    portable = cast(Report, json.loads(json.dumps(data)))
     portable.get("target", {}).get("identity", {}).pop("path", None)
     for phase in portable.get("phases", []):
         phase.pop("commands", None)
@@ -753,9 +760,7 @@ def write_report(data, destination):
         "STARTED": escape(data.get("started", "N/A")),
         "ENDED": escape(data.get("ended", "采集中")),
         "PRESET": escape(data.get("config", {}).get("preset", "N/A")),
-        "VERSION": escape(
-            f"{target.get('version', 'N/A')} ({target.get('build', 'N/A')})"
-        ),
+        "VERSION": escape(f"{target.get('version', 'N/A')} ({target.get('build', 'N/A')})"),
         "MINUTES": number(measured / 60, 1),
         "CPU": number(cpu_mean, 2),
         "MEMORY": number(max(footprints) if footprints else None, 1),
@@ -764,9 +769,7 @@ def write_report(data, destination):
         "MATRIX": matrix,
         "PHASE_BUTTONS": "".join(phase_buttons),
         "HANG_PHASES": str(len(hang_phases)),
-        "ERRORS": '<div class="notice warn">'
-        + "<br>".join(escape(e) for e in errors)
-        + "</div>"
+        "ERRORS": '<div class="notice warn">' + "<br>".join(escape(e) for e in errors) + "</div>"
         if errors
         else "",
         "COMPARISONS": "".join(comparisons),

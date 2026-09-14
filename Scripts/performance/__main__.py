@@ -16,6 +16,8 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import FrameType
+from typing import Literal, cast
 
 sys.dont_write_bytecode = True
 
@@ -27,10 +29,13 @@ from .analyze import (
     system_summary,
 )
 from .performance import write_report
+from .models import (
+    CommandResult, Comparison, Phase, PhasePlan, ProcessIdentity, Report, SchemaKey, Schemas, Target,
+)
 
 VERSION = "1"
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMAS = (
+SCHEMAS: tuple[SchemaKey, ...] = (
     "activity-monitor-process-live",
     "time-profile",
     "potential-hangs",
@@ -45,15 +50,27 @@ PRESETS = {
 }
 
 
-def now():
+class Arguments(argparse.Namespace):
+    app: Path
+    pid: int | None
+    preset: str
+    output: Path | None
+    workload: str
+    baseline: Path | None
+    cpu_mean_budget: float | None
+    footprint_budget: float | None
+    render: Path | None
+
+
+def now() -> str:
     return dt.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def status(message):
+def status(message: str) -> None:
     print(f"[{now()}] {message}", flush=True)
 
 
-def capture(args, timeout=20):
+def capture(args: list[str], timeout: float = 20) -> str:
     result = subprocess.run(args, capture_output=True, timeout=timeout)
     if result.returncode:
         raise RuntimeError(
@@ -62,14 +79,14 @@ def capture(args, timeout=20):
     return result.stdout.decode(errors="replace").strip()
 
 
-def optional(args):
+def optional(args: list[str]) -> str | None:
     try:
         return capture(args)
     except (OSError, RuntimeError, subprocess.TimeoutExpired):
         return None
 
 
-def process_path(pid):
+def process_path(pid: int) -> Path | None:
     lib = ctypes.CDLL("/usr/lib/libproc.dylib")
     lib.proc_pidpath.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
     lib.proc_pidpath.restype = ctypes.c_int
@@ -78,13 +95,13 @@ def process_path(pid):
     return Path(os.fsdecode(buffer.value)).resolve() if size > 0 else None
 
 
-def identity(pid):
+def identity(pid: int) -> ProcessIdentity:
     path = process_path(pid)
     started = optional(["/bin/ps", "-p", str(pid), "-o", "lstart="])
     return {"pid": pid, "path": str(path) if path else None, "started": started}
 
 
-def inspect_target(app, pid):
+def inspect_target(app: Path, pid: int | None) -> Target:
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
     executable = (app / "Contents/MacOS" / info["CFBundleExecutable"]).resolve()
     if not executable.is_file():
@@ -110,7 +127,7 @@ def inspect_target(app, pid):
         start = stream.find(b"<?xml")
         end = stream.find(b"</plist>")
         if 0 <= start <= end:
-            ent = plistlib.loads(stream[start : end + len(b"</plist>")])
+            ent = plistlib.loads(stream[start: end + len(b"</plist>")])
             break
     uuids = optional(["/usr/bin/xcrun", "dwarfdump", "--uuid", str(executable)])
     uuid_list = re.findall(r"UUID: ([A-Fa-f0-9-]+) \(([^)]+)\)", uuids or "")
@@ -130,15 +147,19 @@ def inspect_target(app, pid):
     }
 
 
-def load_schemas(developer):
+def load_schemas(developer: str) -> Schemas:
     base = Path(developer).parent / "Applications/Instruments.app/Contents/Packages"
-    found = {}
+    found: Schemas = {}
     for path in base.rglob("schemas.xml"):
         for schema in ET.parse(path).getroot().findall("schema"):
-            if schema.get("name") in SCHEMAS:
-                found[schema.get("name")] = [
-                    c.get("mnemonic") for c in schema.findall("column")
-                ]
+            name = schema.get("name")
+            for known_name in SCHEMAS:
+                if name != known_name:
+                    continue
+                columns = [c.get("mnemonic") for c in schema.findall("column")]
+                if any(column is None for column in columns):
+                    raise ValueError(f"Missing column mnemonic in schema: {name}")
+                found[known_name] = [column for column in columns if column is not None]
     if "activity-monitor-process-live" not in found:
         raise RuntimeError(
             "No Activity Monitor column schema found in the selected Xcode"
@@ -146,13 +167,15 @@ def load_schemas(developer):
     return found
 
 
-def run_command(args, logfile, timeout, expected=None):
+def run_command(
+        args: list[str], logfile: Path, timeout: float, expected: ProcessIdentity | None = None,
+) -> CommandResult:
     began = time.monotonic()
     interrupted = False
     failure = None
     directory = logfile.parent.stat()
 
-    def check_output():
+    def check_output() -> None:
         try:
             current = logfile.parent.stat()
             if (current.st_dev, current.st_ino) == (directory.st_dev, directory.st_ino):
@@ -189,7 +212,7 @@ def run_command(args, logfile, timeout, expected=None):
                     os.killpg(process.pid, signal.SIGKILL)
                     process.wait(timeout=10)
     check_output()
-    result = {
+    result: CommandResult = {
         "argv": args,
         "exit_code": process.returncode,
         "elapsed_s": round(time.monotonic() - began, 2),
@@ -202,7 +225,7 @@ def run_command(args, logfile, timeout, expected=None):
     return result
 
 
-def save(data, output):
+def save(data: Report, output: Path) -> None:
     temporary = output / "performance.json.tmp"
     temporary.write_text(
         json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
@@ -211,7 +234,7 @@ def save(data, output):
     write_report(data, output / "performance.html")
 
 
-def analyze_phase(phase, output, schemas, pid):
+def analyze_phase(phase: Phase, output: Path, schemas: Schemas, pid: int) -> None:
     for name, columns in schemas.items():
         file = output / f"{phase['id']}-{name}.xml"
         if not file.exists() or name not in phase.get("exported", []):
@@ -229,14 +252,22 @@ def analyze_phase(phase, output, schemas, pid):
                     table, pid if name in ("potential-hangs", "hang-risks") else None
                 )
         except (ValueError, KeyError, ET.ParseError, TypeError) as error:
-            phase["errors"].append(f"{name}: {error}")
+            phase.setdefault("errors", []).append(f"{name}: {error}")
 
 
-def record_phase(phase, data, output, schemas):
-    target = data["target"]["identity"]
+def record_phase(phase: Phase, data: Report, output: Path, schemas: Schemas) -> None:
+    target = data["target"].get("identity")
+    if target is None:
+        raise RuntimeError("Target process identity is unavailable")
     if identity(target["pid"]) != target:
         raise RuntimeError("Target process changed before recording")
-    phase.update(started=now(), errors=[], commands=[], exported=[])
+    phase["started"] = now()
+    errors: list[str] = []
+    commands: list[CommandResult] = []
+    exported: list[SchemaKey] = []
+    phase["errors"] = errors
+    phase["commands"] = commands
+    phase["exported"] = exported
     phase["trace"] = phase["id"] + ".trace"
     args = [
         "/usr/bin/xcrun",
@@ -257,18 +288,18 @@ def record_phase(phase, data, output, schemas):
     command = run_command(
         args, output / f"{phase['id']}-record.log", phase["seconds"] + 150, target
     )
-    phase["commands"].append(command)
+    commands.append(command)
     if command["exit_code"] or command.get("error"):
-        phase["errors"].append(
+        errors.append(
             command.get("error", "xctrace recording failed; see record log")
         )
     elif "[Error]" in (output / command["log"]).read_text(errors="replace"):
-        phase["errors"].append("xctrace reported an error despite a zero exit code")
+        errors.append("xctrace reported an error despite a zero exit code")
     if identity(target["pid"]) != target:
-        phase["errors"].append("Target identity changed during recording")
+        errors.append("Target identity changed during recording")
     trace = output / phase["trace"]
     if not trace.exists():
-        phase["errors"].append("No trace artifact was created")
+        errors.append("No trace artifact was created")
         return
     toc = output / f"{phase['id']}-toc.xml"
     cmd = run_command(
@@ -285,19 +316,20 @@ def record_phase(phase, data, output, schemas):
         output / f"{phase['id']}-toc.log",
         120,
     )
-    phase["commands"].append(cmd)
+    commands.append(cmd)
     if cmd["exit_code"] or cmd.get("error"):
-        phase["errors"].append("TOC export failed")
+        errors.append("TOC export failed")
         return
     root = ET.parse(toc).getroot()
-    phase["recorded_s"] = float(root.findtext(".//summary/duration", "0"))
+    duration = root.findtext(".//summary/duration", "0")
+    phase["recorded_s"] = float(duration)
     phase["trace_started"] = root.findtext(".//summary/start-date")
     phase["hang_settings"] = [
         e.text for e in root.findall(".//instrument[@name='Hangs']//key")
     ]
     phase["tables"] = [e.get("schema") for e in root.findall(".//data/table")]
     if phase["recorded_s"] < phase["seconds"] * 0.9:
-        phase["errors"].append("Recording duration below 90% of requested duration")
+        errors.append("Recording duration below 90% of requested duration")
     for name in SCHEMAS:
         if name not in phase["tables"] or name not in schemas:
             continue
@@ -317,33 +349,33 @@ def record_phase(phase, data, output, schemas):
             output / f"{phase['id']}-{name}.log",
             120,
         )
-        phase["commands"].append(cmd)
+        commands.append(cmd)
         if cmd["exit_code"] or cmd.get("error"):
-            phase["errors"].append(f"{name}: export failed")
+            errors.append(f"{name}: export failed")
         else:
-            phase["exported"].append(name)
+            exported.append(name)
     analyze_phase(phase, output, schemas, target["pid"])
     if "resources" not in phase:
-        phase["errors"].append("No valid resource measurements")
+        errors.append("No valid resource measurements")
     else:
         resource = phase["resources"]
-        phase["errors"].extend(resource["errors"])
+        errors.extend(resource["errors"])
         if resource["span_s"] < phase["seconds"] * 0.8:
-            phase["errors"].append("Resource coverage below 80% of requested duration")
+            errors.append("Resource coverage below 80% of requested duration")
         if resource["max_gap_s"] > 5:
-            phase["errors"].append("Resource sample gap exceeds 5 seconds")
+            errors.append("Resource sample gap exceeds 5 seconds")
         if resource["cpu_coverage"] < 0.95:
-            phase["errors"].append("CPU sample coverage below 95%")
+            errors.append("CPU sample coverage below 95%")
         if resource.get("footprint") is None:
-            phase["errors"].append("Physical footprint was not available")
+            errors.append("Physical footprint was not available")
     if phase["template"] == "Time Profiler" and "profile" not in phase:
-        phase["errors"].append("No decoded CPU profile")
+        errors.append("No decoded CPU profile")
     phase["ended"] = now()
 
 
-def compare(data, path):
-    previous = json.loads(path.read_text())
-    keys = [
+def compare(data: Report, path: Path) -> Comparison:
+    previous = cast(Report, json.loads(path.read_text()))
+    keys: list[tuple[Literal["target", "environment", "config"], str]] = [
         ("target", "bundle_id"),
         ("environment", "os"),
         ("environment", "chip"),
@@ -372,7 +404,7 @@ def compare(data, path):
         (p["id"], p["seconds"]) for p in previous.get("phases", [])
     ]:
         differences.append("phase_plan")
-    result = {
+    result: Comparison = {
         "baseline_version": previous.get("target", {}).get("version"),
         "compatible": not differences,
         "differences": differences,
@@ -382,18 +414,21 @@ def compare(data, path):
         for current, old in zip(data["phases"], previous["phases"]):
             a, b = current.get("resources"), old.get("resources")
             if a and b and not current.get("errors") and not old.get("errors"):
+                current_cpu, old_cpu = a["cpu_mean"], b["cpu_mean"]
+                current_memory, old_memory = a["footprint"], b["footprint"]
+                if current_cpu is None or old_cpu is None or current_memory is None or old_memory is None:
+                    raise ValueError("Complete phases must contain CPU and footprint measurements")
                 result["deltas"].append(
                     {
                         "phase": current["id"],
-                        "cpu_pp": a["cpu_mean"] - b["cpu_mean"],
-                        "footprint_mib": a["footprint"]["median"]
-                        - b["footprint"]["median"],
+                        "cpu_pp": current_cpu - old_cpu,
+                        "footprint_mib": current_memory["median"] - old_memory["median"],
                     }
                 )
     return result
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(
         prog="python3 -m Scripts.performance", description=__doc__
     )
@@ -401,24 +436,16 @@ def main():
     parser.add_argument("--pid", type=int)
     parser.add_argument("--preset", choices=PRESETS, default="standard")
     parser.add_argument("--output", type=Path)
-    parser.add_argument(
-        "--workload", default="Natural workload; UI and active tasks uncontrolled"
-    )
+    parser.add_argument("--workload", default="Natural workload; UI and active tasks uncontrolled")
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--cpu-mean-budget", type=float)
-    parser.add_argument(
-        "--footprint-budget", type=float, help="Physical footprint budget in MiB"
-    )
-    parser.add_argument(
-        "--render",
-        type=Path,
-        help="Regenerate HTML from an existing performance.json without profiling",
-    )
-    args = parser.parse_args()
+    parser.add_argument("--footprint-budget", type=float, help="Physical footprint budget in MiB")
+    parser.add_argument("--render", type=Path, help="Regenerate HTML from an existing performance.json without profiling")
+    args = parser.parse_args(namespace=Arguments())
     if args.render:
-        data = json.loads(args.render.read_text())
+        render_data = cast(Report, json.loads(args.render.read_text()))
         destination = args.output or args.render.parent / "performance.html"
-        write_report(data, destination)
+        write_report(render_data, destination)
         print(destination)
         return 0
     for value in (args.cpu_mean_budget, args.footprint_budget):
@@ -426,14 +453,14 @@ def main():
             parser.error("Budgets must be finite positive numbers")
     timestamp = dt.datetime.now().strftime("%Y%m%d/%H%M%S")
     output = (
-        args.output or ROOT / "Performance" / f"{timestamp}-{args.preset}"
+            args.output or ROOT / "Performance" / f"{timestamp}-{args.preset}"
     ).resolve()
     try:
         output.mkdir(parents=True, exist_ok=False)
     except OSError as error:
         parser.error(f"Cannot create a new output directory: {error}")
     os.chmod(output, 0o700)
-    data = {
+    data: Report = {
         "format_version": VERSION,
         "started": now(),
         "state": "running",
@@ -450,7 +477,7 @@ def main():
     }
     exit_code = 0
 
-    def stop(signum, frame):
+    def stop(_signum: int, _frame: FrameType | None) -> None:
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, stop)
@@ -461,17 +488,22 @@ def main():
         source_directory = output / "tool-source"
         source_directory.mkdir()
         for name in (
-            "__init__.py",
-            "__main__.py",
-            "analyze.py",
-            "performance.py",
-            "performance.html",
+                "__init__.py",
+                "__main__.py",
+                "analyze.py",
+                "models.py",
+                "performance.py",
+                "performance.html",
         ):
             source = Path(__file__).with_name(name).read_bytes()
             (source_directory / name).write_bytes(source)
             data["tool_sha256"][name] = hashlib.sha256(source).hexdigest()
         status("Preflight: target, Xcode, templates, schemas")
-        data["target"] = inspect_target(args.app.resolve(), args.pid)
+        target = inspect_target(args.app.resolve(), args.pid)
+        data["target"] = target
+        target_identity = target.get("identity")
+        if target_identity is None:
+            raise RuntimeError("Target process identity is unavailable")
         env = data["environment"]
         env["instruments"] = capture(["/usr/bin/xcrun", "xctrace", "version"])
         env["chip"] = optional(["/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"])
@@ -480,9 +512,7 @@ def main():
         env["power"] = optional(["/usr/bin/pmset", "-g", "batt"])
         env["power_source"] = (env["power"] or "Unknown").splitlines()[0]
         env["load_before"] = list(os.getloadavg())
-        templates = capture(
-            ["/usr/bin/xcrun", "xctrace", "list", "templates"], timeout=60
-        )
+        templates = capture(["/usr/bin/xcrun", "xctrace", "list", "templates"], timeout=60)
         for template in ("Time Profiler", "Activity Monitor"):
             if template not in templates.splitlines():
                 raise RuntimeError(f"Missing Instruments template: {template}")
@@ -490,7 +520,7 @@ def main():
         (output / "schemas.json").write_text(json.dumps(schemas, indent=2))
         warmup, sample, repeats, soak, settle = PRESETS[args.preset]
         data["config"]["warmup_s"] = warmup
-        data["plan"] = [
+        plan: list[PhasePlan] = [
             {
                 "id": f"cpu-{i + 1}",
                 "label": f"CPU repeat {i + 1}",
@@ -498,7 +528,8 @@ def main():
                 "template": "Time Profiler",
             }
             for i in range(repeats)
-        ] + [
+        ]
+        plan.extend([
             {
                 "id": "soak",
                 "label": "Resource observation",
@@ -511,21 +542,23 @@ def main():
                 "seconds": settle,
                 "template": "Activity Monitor",
             },
-        ]
+        ])
+        data["plan"] = plan
         save(data, output)
         status(
-            f"Warm-up {warmup}s; target PID {data['target']['identity']['pid']}; output {output}"
+            f"Warm-up {warmup}s; target PID {target_identity['pid']}; output {output}"
         )
         time.sleep(warmup)
-        for planned in data["plan"]:
-            phase = dict(planned)
+        for planned in plan:
+            phase: Phase = {"id": planned["id"], "label": planned["label"],
+                            "seconds": planned["seconds"], "template": planned["template"]}
             data["phases"].append(phase)
             status(
                 f"Recording {phase['id']} ({phase['template']}, {phase['seconds']}s)"
             )
             record_phase(phase, data, output, schemas)
             status(
-                f"Finished {phase['id']}: {'incomplete' if phase['errors'] else 'valid'}"
+                f"Finished {phase['id']}: {'incomplete' if phase.get('errors') else 'valid'}"
             )
             save(data, output)
         data["state"] = (
@@ -536,20 +569,20 @@ def main():
         data["environment"]["load_after"] = list(os.getloadavg())
         if args.baseline:
             data["comparison"] = compare(data, args.baseline)
-        breached = []
+        breached: list[str] = []
         for phase in data["phases"]:
             resource = phase.get("resources", {})
             if phase.get("errors"):
                 continue
-            if (
-                args.cpu_mean_budget is not None
-                and resource.get("cpu_mean", 0) > args.cpu_mean_budget
-            ):
-                breached.append(phase["id"] + ": cpu_mean")
-            if (
-                args.footprint_budget is not None
-                and resource.get("footprint", {}).get("max", 0) > args.footprint_budget
-            ):
+            if args.cpu_mean_budget is not None:
+                cpu_mean = resource.get("cpu_mean", 0)
+                if cpu_mean is None:
+                    raise ValueError("CPU budget requires a valid mean measurement")
+                if cpu_mean > args.cpu_mean_budget:
+                    breached.append(phase["id"] + ": cpu_mean")
+            footprint = resource.get("footprint")
+            footprint_peak = footprint["max"] if footprint is not None else 0
+            if args.footprint_budget is not None and footprint_peak > args.footprint_budget:
                 breached.append(phase["id"] + ": footprint_peak")
         data["budget_breaches"] = breached
         exit_code = 2 if data["state"] != "complete" else 3 if breached else 0
@@ -564,6 +597,7 @@ def main():
     finally:
         data["ended"] = now()
         data["exit_code"] = exit_code
+        report_output: Path | None = output
         try:
             save(data, output)
         except Exception as error:
@@ -575,15 +609,15 @@ def main():
             for message in data["errors"]:
                 status(message)
             try:
-                output = Path(tempfile.mkdtemp(prefix="codexbar-performance-recovery-"))
-                save(data, output)
+                report_output = Path(tempfile.mkdtemp(prefix="codexbar-performance-recovery-"))
+                save(data, report_output)
             except Exception as recovery_error:
                 status(
                     f"Recovery save failed: {type(recovery_error).__name__}: {recovery_error}"
                 )
-                output = None
-        if output is not None:
-            status(f"Report: {output / 'performance.html'}; exit {exit_code}")
+                report_output = None
+        if report_output is not None:
+            status(f"Report: {report_output / 'performance.html'}; exit {exit_code}")
     return exit_code
 
 
