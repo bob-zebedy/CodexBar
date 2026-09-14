@@ -94,8 +94,6 @@ nonisolated struct CodexActivityProtectionNotice: Equatable, Sendable {
     let attemptID: UUID
     let projectName: String?
     let inactivityDurationText: String
-    let inactivityDurationSeconds: Int
-    let progressGeneration: UInt64
 }
 
 /// UI 只消费该快照, 不直接读取或解释 Hook 事件

@@ -186,7 +186,7 @@ For `UserPromptSubmit` and `PermissionRequest`, input may omit reviewer or effor
 
 The lookup:
 
-- Reads at most 512 KB once
+- Reads at most 8 MiB once
 - Extracts only structural fields such as reviewer and effort
 - Never writes prompt or response content to Hook statistics
 
@@ -223,7 +223,7 @@ Permissiveness exists only at the external-input boundary. After conversion to `
 
 ### Rollout Tail-Lookup Boundary
 
-The lookup reads only the last 512 KB of the transcript, discards a potentially truncated first line, then searches backward for the matching turn's `turn_context`.
+The lookup reads only the last 8 MiB of the transcript, discards a potentially truncated first line, then searches backward for the matching turn's `turn_context`.
 
 Backward search finds the latest context for a turn nearest the file tail. The read limit protects Hook timeout; a miss leaves the field absent instead of expanding into an unbounded scan.
 

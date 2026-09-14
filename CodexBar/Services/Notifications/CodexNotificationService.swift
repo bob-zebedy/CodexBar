@@ -235,9 +235,7 @@ final class CodexNotificationService: NSObject {
             isStillRelevant: { [weak self] in
                 self?.activityMonitor.isInactivityProtectionNoticeRelevant(
                     taskID: notice.taskID,
-                    attemptID: notice.attemptID,
-                    progressGeneration: notice.progressGeneration,
-                    inactivityDurationSeconds: notice.inactivityDurationSeconds
+                    attemptID: notice.attemptID
                 ) ?? false
             },
             retryCount: 0

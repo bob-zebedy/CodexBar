@@ -14,10 +14,20 @@ The live-task flow answers four questions:
 Hook events provide live progress and interruption signals, while rollout files supply lifecycle context. [`CodexActivityMonitor.swift`](../../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) merges both into the sole task snapshot:
 
 ```text
-Hook JSONL -> HookEventTailReader ---------+
-                                          +-> CodexActivityMonitor -> CodexActivitySnapshot
-rollout JSONL -> CodexSessionLifecycleReader+
+Codex Hook -> WorkflowHookEventRecorder -> Hook JSONL
+                                            |-> WorkflowService -> Daily history aggregates
+                                            |-> HookEventTailReader -----+
+                                                                         |-> CodexActivityMonitor
+rollout JSONL -> CodexSessionLifecycleReader ----------------------------+           |
+                                                                                     v
+                                                                            CodexActivitySnapshot
+                                                                                     |-> Activity card and task center
+                                                                                     |-> Glow and sleep prevention
 ```
+
+`WorkflowHookEventRecorder` extracts minimal fields from `stdin`, performs bounded rollout metadata lookup when needed, appends under a file lock, and exits. Historical aggregation and live monitoring independently read the same Hook JSONL. App-server quota and usage use a separate pipeline. See [Hook Collection and Aggregation](hook-and-aggregation.md) for collection details.
+
+Notifications and haptics consume live transitions from the monitor. Glow consumes snapshots and terminal presentation events: orange for user approval, cyan for running, green for completion, and red for termination. Waiting takes precedence among active tasks; a short terminal indication can temporarily override active state.
 
 ### Division Between Sources
 
@@ -28,7 +38,7 @@ rollout JSONL -> CodexSessionLifecycleReader+
 | Turn start | `UserPromptSubmit` | Rollout `startedAt` or historical lookup |
 | Completion candidate | `Stop` | Rollout terminal |
 | Explicit turn interruption | `Interrupt` | Rollout terminal |
-| Other terminal resolution | Rollout terminal | Grace-expiration fallback |
+| Other terminal resolution | Rollout terminal | Retain unresolved tasks until expiration |
 | Effort | Hook-recorder lookup | Rollout lifecycle backfill |
 
 Each field is resolved from the sources listed above. Hook polling waits 2 seconds after each read, and rollout polling waits 1 second after each reconciliation round.
@@ -39,8 +49,8 @@ A snapshot may be read repeatedly after view reconstruction, a new subscription,
 
 For example, bootstrap may recover a task already waiting for approval when the app starts:
 
-- The snapshot should show it waiting
-- No waiting transition should be emitted
+- The snapshot shows it waiting
+- No waiting transition is emitted
 - The notification service therefore does not replay a historical alert
 
 Completion works the same way. Notifications consume `.completed` transitions rather than scanning `recentCompletions`, preventing reminders on app restart or UI refresh.
@@ -53,16 +63,16 @@ Completion works the same way. Notifications consume `.completed` transitions ra
 
 Initial startup reads the latest 24 hours to establish a task baseline:
 
-- Read chunks of at most 512 KB
+- Read chunks of at most 512 KiB
 - Try at most 3 times to obtain stable file boundaries
 - Use inode and size to detect replacement or append during reading
 - Never trigger historical completion or waiting notifications from bootstrap results
 
-If it cannot obtain a stable boundary, the reader moves to the current file tail and publishes explicit unhealthy state. Incomplete history is not misrepresented as a real task change.
+If stable boundaries cannot be obtained, the reader clears recovered state, moves to each date file’s tail, and publishes unhealthy state.
 
 ### Bootstrap Is One Logical Transaction
 
-The 24-hour window may span two calendar-day files, and one file may arrive in several 512 KB batches.
+The 24-hour window may span two calendar-day files, and one file may arrive in several 512 KiB batches.
 
 At `.bootstrapStart`, the monitor clears previous recovered state and pauses side effects. It consumes every `.bootstrapEvents` batch, then waits until `.bootstrapEnd` to:
 
@@ -72,7 +82,7 @@ At `.bootstrapStart`, the monitor clears previous recovered state and pauses sid
 - Look up missing prompt starts selectively
 - Publish one complete snapshot
 
-Neither UI nor notifications should observe a partially recovered intermediate batch.
+Intermediate batches update internal task state only. Rollout backfill and protection reconciliation require a healthy source and an awake system.
 
 ### Stable-Boundary Retries
 
@@ -84,17 +94,21 @@ At the start of an attempt, the reader fixes inode and size for all relevant dat
 
 If any condition fails, the reader retries from a new baseline. After three consecutive failures, it moves to the current tail and publishes degraded health, pausing Activity Protection checks.
 
+A bootstrap that fails because a directory is unavailable or its boundaries are unstable is retried at most every 10 seconds. Existing events are replayed silently before normal incremental reading resumes. Complete malformed lines retain their coverage gaps without triggering repeated history scans.
+
 ### Complete-Line Cursor
 
 The Hook recorder may be writing the final line. The reader includes only bytes before the last newline in `completeOffset`.
 
-A partial line is neither discarded nor classified as corrupt. The next cycle rereads from the old offset and commits after the line is complete.
+A partial line is neither discarded nor classified as corrupt. The next cycle rereads from the old offset and commits after the line is complete. Until the fixed boundary is fully consumed, the barrier returns `sourceUnavailable`. A malformed complete line degrades its date cursor until that date leaves the reading window or a replacement file is replayed.
+
+While the Hook source is degraded, rollout reads continue for known tasks, accepting only explicit completion or interruption records from a complete current read with matching task identity. These tasks end silently. This path does not apply ordinary progress, backfill approval state, restore suppressed tasks, or resume Activity Protection. It pauses during system sleep and bootstrap, and discards results after cancellation or a reader generation change. Full lifecycle recovery still requires a successful Hook read barrier.
 
 ### Date Rollover and File Replacement
 
-Normal rollover drains the old date file before switching to the new date. An inode change or file shrink restarts bootstrap instead of reusing the old cursor.
+The reader keeps an independent cursor for each calendar date in the rolling 24-hour window. Every cycle covers all these dates, including intermediate dates after a long pause and late appends to the previous date. An inode change or file shrink restarts bootstrap.
 
-When `UserPromptSubmit` predates the current incremental window, the reader can look backward up to 8 MB to recover the prompt start of an existing task.
+When `UserPromptSubmit` predates the current incremental window, the reader can look backward up to 8 MiB to recover the prompt start of an existing task.
 
 ### `drainNow()` Read Barrier
 
@@ -127,14 +141,14 @@ Actors can reenter during `await`; `isProcessingReads` and `hasPendingDrain` con
 Rules are:
 
 - Poll every 1 second by default
-- Begin with a 512 KB tail window
-- Look back at most 8 MB for turn-context fields such as effort
+- Begin with a 512 KiB tail window
+- Look back at most 8 MiB for turn-context fields such as effort
 - Parse only lifecycle, turn, progress, effort, and reviewer
-- Never read or store conversation content for product presentation
+- Keep conversation content out of the activity model and product presentation
 
-Hook `Stop` marks the task as “Finishing up” and keeps it active. Tools, approvals, and other progress continue updating the same task. Rollout `task_complete` confirms completion and emits a completion transition.
+Hook `Stop` marks the task as “Finishing up” and keeps it active. Tools, approvals, and other progress continue updating the same task. Rollout `task_complete` confirms completion; transition freshness and recovery conditions determine whether a completion transition is emitted.
 
-If rollout is temporarily unreadable or the session or turn cannot be matched, the task continues waiting for reconciliation. `Stop` does not start a terminal timeout. A new turn or `SessionEnd` removes the old task from the active list and opens a five-second terminal-confirmation window. A late `Stop` updates only the pending task's metadata and progress, without restoring its presentation or resetting the deadline.
+If rollout is temporarily unreadable or the session or turn cannot be matched, the task continues waiting for reconciliation. `Stop` does not start a terminal timeout. A new turn or `SessionEnd` removes the old task from the active list and starts five seconds of fast terminal polling, followed by polling every 30 seconds. A late `Stop` updates only the pending task's metadata and progress, without restoring its presentation or resetting the deadline.
 
 ### Explicit Interruptions
 
@@ -150,23 +164,40 @@ The reader checks a few likely directories first:
 2. The current date directory
 3. `archived_sessions`
 
-A resume can continue a session created long ago. If the fast path misses, each active session lifecycle performs one recursive fallback scan at most, avoiding a full sessions-tree traversal every second.
+A resume can continue a session created long ago. If the fast path misses, the fast path can retry every 10 seconds and the recursive fallback every 60 seconds. This discovers delayed or moved files without traversing the tree every second.
 
 If a file moves to the archive, a missing cached URL clears its cursor and allows full discovery again.
 
 ### Rollout Read Budget
 
-Live tasks need lifecycle near an active turn, not a full read of a long-running session. Starting from the last 512 KB reduces resident I/O and discards the first potentially partial line.
+Live tasks need lifecycle near an active turn, not a full read of a long-running session. Starting from the last 512 KiB reduces resident I/O and discards the first potentially partial line.
 
-If effort remains missing, a targeted lookup for that turn can read up to 8 MB.
+If context, effort, or reviewer is missing, the reader replays up to 8 MiB to recover turn ownership, metadata, and progress together. Each file cursor stops looking back after one successful backfill; each cycle backfills at most one session.
 
-Effort backfill applies only to nonterminal tasks that have run for at least 2 seconds and still lack effort, with a 10-second retry interval per turn. This avoids a large search immediately after every task creation.
+Incremental scanning shares an 8 MiB budget per cycle across sessions in rotating order. At most 16 pending tasks are queried per cycle. Budget exhaustion and partial lines return `incomplete`, read failures return `unavailable`, and unresolved files return `notFound`. Cached facts do not establish successful current coverage. A complete read with turn context sets `lifecycleCoverageCheckedAt` to the check time; an incomplete or failed read, a missing file, or missing context clears it. Protection requires this timestamp to be present and less than five seconds old.
+
+The incremental scan advances its offset by complete lines. A line larger than 8 MiB returns `incomplete` from the same line start each cycle, preventing consumption of subsequent records.
+
+A malformed rollout line marks unfinished turns as having a coverage gap. Repeated context for the same turn does not clear the gap. New turns establish independent coverage, and explicit terminal records can end a task with incomplete history. Later malformed lines do not revoke known terminal facts. Failed or incomplete reads cannot use cached progress to advance task progress, restore suppressed tasks, or remove protection records.
+
+### Associating Rollout Progress with a Turn
+
+Each session file cursor stores its own `currentTurnId`, updated in JSONL file order:
+
+- Outer `type = "turn_context"`, or `type = "event_msg"` with `payload.type = "task_started"`, establishes context from `payload.turn_id`
+- An explicit `payload.turn_id` takes priority; a record without it inherits cursor context
+- `task_complete` or `turn_aborted` for the current turn clears context; a late terminal for another turn does not
+- Truncation or replacement rebuilds the cursor and clears both context and cached lifecycle states
+
+Progress includes records whose outer `type` is `response_item` or `token_usage_record`, and `event_msg` records whose `payload.type` is `token_count`, `item_completed`, `agent_message`, `agent_reasoning`, `task_started`, `task_complete`, or `turn_aborted`. Time comes from outer `timestamp`, then `payload.completed_at`, then `payload.started_at`.
+
+A record needs a usable timestamp and turn identity. It advances task progress only after a complete current read and when newer than `lastProgressAt`. A `token_usage_record` is treated as activity without comparing token totals. Records lacking both an explicit turn and cursor context do not contribute task progress.
 
 ### Rollout Fields
 
 The shared `CodexRolloutLineEnvelope` extracts only fields needed for turn context, lifecycle, and progress. Prompt, response, and tool content never enters the activity model.
 
-This tightens privacy boundaries and reduces decode cost for large rollouts. A new live field should extend the minimal envelope rather than decode the full transcript into a general JSON tree.
+Terminal resolution requires a nonempty `payload.turn_id` and a `complete` current read. With outer `type = "event_msg"`, `payload.type = "task_complete"` and a valid `payload.completed_at` confirm completion; `payload.type = "turn_aborted"` confirms interruption. Completion time uses Unix seconds, and `payload.duration_ms` is converted to seconds for duration display. A missing interruption timestamp uses reconciliation time for an active task or removal time for a pending task, never earlier than its last activity.
 
 ## Task Identity
 
@@ -176,7 +207,7 @@ The task key chooses the most precise available identity:
 2. `session ID`
 3. Anonymous project key
 
-A new prompt replaces the old turn in the same session. The old turn enters terminal grace for up to 5 seconds so late ending events can reconcile it.
+A new prompt replaces the old turn in the same session. The old turn waits for an explicit terminal result in the background: fast polling for five seconds, then every 30 seconds, retained for at most 24 hours after removal from the active list.
 
 Subagent events update activity under their parent task and do not create separate top-level cards.
 
@@ -184,7 +215,9 @@ Subagent events update activity under their parent task and do not create separa
 
 `session ID + turn ID` precisely distinguishes sequential turns in one session and is preferred.
 
-Some events contain only session ID. A session key still participates in state, but terminal matching must be more conservative. If one session has several candidates, the monitor returns ambiguous rather than guessing which task ended.
+Some events contain only session ID. A later top-level Hook that matches the task and supplies a turn ID fills the in-memory `associatedTurnId` and terminal alias for rollout lookup and deduplication, retaining the original key and protection hash.
+
+Terminal matching checks exact keys and aliases first, then pending tasks in the session. One pending candidate is selected; several return `ambiguous`. Active tasks are checked only when no pending candidate matches. Candidates must satisfy Hook timestamp ordering and turn identity conditions.
 
 Without a session ID, only a project key remains. It may merge concurrent anonymous tasks in one project, so anonymous tasks provide reversible UI visibility but cannot drive notifications, sleep prevention, or persisted protection.
 
@@ -205,29 +238,35 @@ Events missing a session ID or turn ID do not create origin memory; `unknown` an
 
 These rules apply to bootstrap and live reads. Other subagents, including Memories, are classified as `auxiliary` and follow auxiliary-task association rules. Historical aggregation still consumes all raw events. Origin memory is neither persisted nor uploaded.
 
-### New Prompts and Terminal Grace
+### New Prompts and Terminal Confirmation
 
-Turns in one session run sequentially. When a new prompt arrives, the old turn must leave the active list immediately or the UI briefly shows two top-level tasks.
-
-The new prompt may precede the old turn's rollout terminal, however. Recording termination immediately would misclassify a normally completed task.
-
-The old turn therefore moves to `pendingTerminalTasks`:
+A new prompt moves the previous turn in the same session to `pendingTerminalTasks` while rollout confirms its result:
 
 - Remove it from the active snapshot immediately
 - Retain task metadata and start time
-- Wait up to 5 seconds for rollout terminal
+- Poll quickly for five seconds, then every 30 seconds for rollout terminal
 - Classify accurately as completed or aborted when terminal arrives
-- Converge with a conservative fallback when grace expires without terminal
+- Remove unresolved tasks after 24 hours without inventing completion, termination, notification, or glow events
 
 `SessionEnd` uses the same confirmation window but moves all tasks in the session no later than that event.
 
 ### Rejecting Late Events
 
-Tasks store `lastActivityAt`. Completion and termination share the in-memory `recentlyEndedTaskAt` map of end times. Their display records remain separate and expire after 10 minutes; deduplication memory lasts 24 hours independently. Removing a record through origin filtering recomputes its session alias from the remaining terminal timestamps.
+Tasks store `lastHookEventAt` and `lastProgressAt`; `lastActivityAt` reads the same value as `lastProgressAt`:
+
+| Field | Source and purpose |
+| --- | --- |
+| `lastHookEventAt` | Latest accepted Hook timestamp, used to reject stale Hook state changes |
+| `lastProgressAt` | Latest progress from Hook and rollout, used by inactivity protection |
+| `lastActivityAt` | Computed from `lastProgressAt`, used for ordering, retention, and terminal timestamp adjustment |
+
+Rollout progress never advances `lastHookEventAt`. Reading a later rollout record first still allows a slightly earlier, valid permission, tool, compaction, interruption, or new-prompt Hook. Accepting such Hooks keeps `lastProgressAt` and `lastActivityAt` monotonic.
+
+Completion and termination share the in-memory `recentlyEndedTaskAt` map of end times. Their display records remain separate and expire after 10 minutes; deduplication memory lasts 24 hours independently. Removing a record through origin filtering recomputes its session alias from the remaining terminal timestamps.
 
 Late events follow these rules:
 
-- An event older than current last activity cannot overwrite newer state
+- Hook state changes and approval requests use `lastHookEventAt`; an approval request older than the latest Hook progress does not restore waiting
 - An exact turn cannot be recreated while terminal memory is retained; session and anonymous keys can be reused only by a newer prompt
 - A `Stop` matching several candidates is not guessed
 - A key already in terminal deduplication memory clears recovery tasks left by abnormal ordering
@@ -261,7 +300,7 @@ Task endings are handled by signal:
 - `Stop` marks the task as finishing while retaining it in the active list
 - `Interrupt` records the matching turn as terminated
 - Rollout terminal confirms completion or termination
-- A new turn or `SessionEnd` moves the old task into a five-second terminal-confirmation window; expiration without a terminal result records termination, while suppressed tasks only retain deduplication state
+- A new turn or `SessionEnd` removes the old task from the active list and starts background reconciliation; missing terminal evidence stays unresolved until cleanup
 
 ### Main Event-to-State Transitions
 
@@ -271,20 +310,23 @@ Task endings are handled by signal:
 | Absent | Top-level tool or compact | running | Recover task with unknown `startedAt` |
 | running | Tool, compact, or subagent progress | running | Update last progress and generation |
 | running | `PermissionRequest` + reviewer user | waitingApproval | Publish live waiting transition |
-| waitingApproval | New progress | running | Clear pending approval and protection record |
+| waitingApproval | Tool, compaction, or subagent Hook progress | running | Clear the pending approval candidate and update activity and progress |
 | running or waiting | `Stop` | running | Show Finishing up and retain the task until rollout confirms its terminal state |
-| active | New prompt or `SessionEnd` | pending terminal | Remove from snapshot and begin 5-second grace |
+| active | New prompt or `SessionEnd` | pending terminal | Remove from snapshot and begin background terminal polling |
 | active, suppressed, or pending terminal | `Interrupt` | terminated | Remove the matching task, record termination, and clear protection state and notifications |
-| running | Silence exceeds threshold | suppressed | Hide and remove sleep-prevention contribution |
-| suppressed | New progress | running | Clear persisted protection and old notification |
+| running | Protection conditions hold and silence reaches threshold | suppressed | Hide and remove sleep-prevention contribution |
+| suppressed | Valid tool, compaction, subagent, or `Stop` Hook, or new progress from healthy reconciliation | running | Clear persisted protection and old notification |
+| active, suppressed, or pending terminal | Matching rollout terminal from a complete read | completed or terminated | Record the terminal and remove the task; process silently while degraded |
 
 ### Two-Stage Approval Confirmation
 
-`PermissionRequest` accepts reviewers `user`, `auto_review`, and `guardian_subagent`.
+The task’s `approvalReviewer` comes from Hook records or rollout `payload.approvals_reviewer`, with values `user`, `auto_review`, or `guardian_subagent`.
 
-If the Hook event includes reviewer, the task can confirm immediately. If reviewer is missing, it saves `pendingApprovalRequestedAt` and waits for rollout polling to fill it in.
+A `PermissionRequest` enters waiting immediately when the task’s known reviewer is `user`. An unknown reviewer leaves `pendingApprovalRequestedAt` for rollout backfill. Automatic review routes retain the current state and clear the candidate during reconciliation.
 
-Only an explicit user reviewer emits a waiting transition. Remaining running while uncertain is more truthful than falsely telling the user Codex is waiting for them.
+Valid tool, compaction, subagent, or top-level `Stop` Hooks restore running and clear the pending candidate. Later reviewer backfill does not reopen cleared waiting. Rollout progress updates timestamps without clearing approval waiting on its own.
+
+Approval waiting is tracked per task. Valid Hook progress from another parallel tool or subagent within the same task also clears waiting.
 
 ### Effort Merging
 
@@ -294,9 +336,9 @@ Several context events in one turn may report different reasoning efforts. The t
 
 A subagent turn ID belongs to the subagent, so its parent can be associated only by shared session.
 
-Active subagent count is reliable only when exactly one active parent exists in that session, no pending-terminal ambiguity exists, and start/stop events carry stable agent IDs.
+Subagent Hooks associate with the session’s sole active parent. With an older pending task present, `SubagentStart` may associate; other subagent events require an `agent_id` already recorded under the active parent. Events with no unique parent are ignored.
 
-With missing IDs, stop-before-start, or several candidates in one session, the monitor lowers reliability and the UI omits a falsely precise number.
+Count reliability is initialized from whether the prompt start is known. A missing `agent_id` or a stop first observed for an agent sets reliability to `false`, hiding the count in the UI. Each agent’s running state follows its own event timestamps.
 
 ## Snapshot Priority
 
@@ -327,7 +369,9 @@ A candidate snapshot is compared with the current value and published only after
 
 `presentationPublisher` publishes the current snapshot and the batch's still-valid `terminalEvents` for Task Glow. Presentation events include anonymous tasks; notifications use the separate `transitionPublisher`.
 
-History reloads, sleep recovery, and source health changes clear pending events and update `terminalPresentationNotBefore`. Collection pauses during bootstrap, wake reconciliation, and unhealthy source state. Records ending before the recovery boundary do not produce brief indicators; tasks ending after recovery publish normally.
+Completion transitions and terminal indicators require an end timestamp no more than 10 seconds old and no earlier than their respective recovery boundaries. Waiting transitions confirmed directly by Hook also use a 10-second limit. Waiting confirmed by rollout reviewer backfill checks only that the request is no earlier than `sessionTransitionNotBefore`.
+
+History reloads, sleep recovery, and source health changes clear pending events and update `terminalPresentationNotBefore`. Publication pauses during bootstrap, recovery reconciliation, and unhealthy source state.
 
 ### Stable Ordering
 
@@ -337,13 +381,13 @@ All lists sort by most recent time first and then display UUID string. Stable or
 
 ### Cleanup Uses the Nearest Deadline
 
-The monitor manages terminal grace, activity retention, history retention, terminal deduplication, and protection-record expiration. Menu bar terminal hints and task glow have their expiry managed by `StatusItemController` and `TaskGlowController`, respectively. Hint expiry does not republish activity snapshots.
+The monitor manages expiration for pending tasks, active tasks, history, terminal deduplication, and protection records. Menu bar terminal hints and task glow have their expiry managed by `StatusItemController` and `TaskGlowController`, respectively. Hint expiry does not republish activity snapshots.
 
 The cleanup task waits for the nearest future deadline, processes it, then schedules the next.
 
 ## System Sleep and Wake
 
-Stalled Task Protection pauses when the system is about to sleep. Wake follows a strict recovery order:
+Stalled Task Protection pauses when the system is about to sleep. Full recovery after wake follows this order:
 
 1. Enter recovery and keep protection paused
 2. Wait for `HookEventTailReader.drainNow()` to succeed
@@ -351,7 +395,7 @@ Stalled Task Protection pauses when the system is about to sleep. Wake follows a
 4. Reconcile from the new Hook and rollout results together
 5. Resume Stalled Task Protection
 
-If the new read fails, the reader is replaced, or the source is unavailable, evaluation must not continue from the pre-sleep snapshot.
+If the Hook barrier returns `sourceUnavailable`, only explicit terminal records for known tasks are reconciled, silently, while protection stays paused. Later polling retries full recovery. Reader replacement or task cancellation discards that round’s results.
 
 ### Evaluation Pauses During System Sleep
 
@@ -359,13 +403,13 @@ Silence evaluation stops during system sleep. On recovery, the monitor silently 
 
 The check task waits with `SuspendingClock`, but silence duration is calculated from `Date` and `lastProgressAt` without subtracting time spent asleep. `will-sleep` enters recovery; `did-wake` reevaluates after a new data read barrier.
 
-### Why Wake Order Cannot Be Reversed
+### Identity and Generations During Wake Recovery
 
-Rollout reconciliation must occur after a successful Hook drain.
-
-Reading rollout first may find lifecycle data whose task key has not yet been added to the monitor from Hook events written during sleep. Resuming protection first could hide tasks from a pre-sleep last-progress time.
+Full recovery consumes Hook events first to establish task identities created during sleep, then merges rollout lifecycle and progress before resuming protection. Degraded terminal reconciliation handles known tasks only.
 
 `tailReaderGeneration` prevents a returning wake task from using a reader replaced by a Hook settings change. `activityProtectionRecoveryGeneration` prevents an older recovery from unpausing evaluation after two overlapping sleep or settings changes.
+
+If the recovery generation changes while bootstrap awaits rollout, its old lifecycle result is discarded. Bootstrap then enters a fresh read barrier instead of completing the newer recovery generation.
 
 ## Stalled Task Protection
 
@@ -464,8 +508,6 @@ The monitor maintains generations for readers and asynchronous recovery:
 - A canceled drain does not satisfy a recovery barrier
 - Explicitly unhealthy source state cannot reuse the last healthy snapshot for silence evaluation
 
-These constraints prevent false completion alerts and incorrect release during system wake, Hook reinstall, or `CODEX_HOME` change.
-
 ### Main Generations in the Monitor
 
 | Generation | Protected asynchronous path |
@@ -475,7 +517,7 @@ These constraints prevent false completion alerts and incorrect release during s
 | `activityProtectionRecoveryGeneration` | Sleep/wake recovery and rollout reconciliation results spanning recovery generations |
 | Task `progressGeneration` | Protection candidate during notification grace |
 
-Each answers a different “is this current?” question and cannot become one global counter. A task making progress without a reader change should invalidate only its protection attempt, not the entire reader.
+Task progress invalidates its protection attempt. Reader, bootstrap, and recovery generations each isolate their own asynchronous results.
 
 ## Suggested Failure-Scenario Tests
 
@@ -490,13 +532,16 @@ Each answers a different “is this current?” question and cannot become one g
 - Starting the app while a task is running shows it through bootstrap without replaying notifications
 - Bootstrap retries while files continuously append and eventually obtains a stable boundary
 - Three unstable attempts enter degraded state without starting silence evaluation
-- A new prompt immediately replaces the old turn, and rollout terminal within 5 seconds classifies it correctly
+- Replace an old turn with a new prompt and verify classification when the terminal arrives within and after the first five seconds
 - A `Stop` is not guessed when one session has several terminal candidates
+- Read an approval Hook and slightly later rollout progress in both orders; both show orange waiting and emit one waiting transition
+- Advance rollout progress before tool, compaction, or subagent Hooks; those Hooks still clear waiting and update activity. Delayed approval requests or reviewer backfill do not reopen cleared waiting; interruption and `SessionEnd` still end the corresponding task
+- Attribute turnless records after a new boundary only to the new turn; late old terminals, incremental reads, and file replacement preserve context isolation
 - A missing reviewer enters waiting only after rollout confirms user
 - Automatic review never emits a waiting transition
-- The UI omits a falsely precise subagent count when association is unreliable
+- The UI hides the subagent count when count reliability is `false`
 - Calling `drainNow()` during a read forces another new read
-- Protection remains paused after a failed wake drain
+- A failed wake drain keeps protection paused; explicit rollout terminals silently end known tasks during Hook corruption, while ordinary progress leaves suppressed tasks hidden
 - A silence candidate that progresses within the 3-second window is not hidden, and a late notification is withdrawn
 - Lengthening the threshold restores suppressed tasks below the new threshold
 - Concurrent Debug and Release updates do not let an old removal delete a new protection record

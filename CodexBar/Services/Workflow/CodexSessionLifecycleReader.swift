@@ -7,371 +7,237 @@ nonisolated struct CodexActivityTurnReference: Hashable {
     let startedAt: Date
 }
 
-/// 增量读取活跃 Codex session 的 rollout JSONL, 只提取 turn 生命周期字段
+/// 文件读取结果包含覆盖状态, 缓存事实不能替代本轮读取成功
 actor CodexSessionLifecycleReader {
     private let sessionsRootURL: URL
     private let archivedSessionsRootURL: URL
     private let fileManager: FileManager
+    private var roundRobinOffset = 0
     private var cursorsBySession: [String: SessionFileCursor] = [:]
     private var lastResolutionAttemptBySession: [String: Date] = [:]
-    private var recursiveFallbackSessionIds = Set<String>()
+    private var lastRecursiveAttemptBySession: [String: Date] = [:]
 
-    init(
-        codexHomeURL: URL = CodexCLIResolver.codexHomeDirectory(),
-        fileManager: FileManager = .default
-    ) {
+    init(codexHomeURL: URL = CodexCLIResolver.codexHomeDirectory(), fileManager: FileManager = .default) {
         sessionsRootURL = codexHomeURL.appendingPathComponent("sessions", isDirectory: true)
-        archivedSessionsRootURL = codexHomeURL.appendingPathComponent(
-            "archived_sessions",
-            isDirectory: true
-        )
+        archivedSessionsRootURL = codexHomeURL.appendingPathComponent("archived_sessions", isDirectory: true)
         self.fileManager = fileManager
     }
 
-    /// 返回 rollout 中已知的起点和终态, 不解码会话或工具内容
-    func lifecycleStates(
-        for references: [CodexActivityTurnReference]
-    ) -> [CodexSessionTaskLifecycleState] {
-        let referencesBySession = Dictionary(grouping: references, by: \CodexActivityTurnReference.sessionId)
-        let activeSessionIds = Set(referencesBySession.keys)
-        cursorsBySession = cursorsBySession.filter { activeSessionIds.contains($0.key) }
-        lastResolutionAttemptBySession = lastResolutionAttemptBySession.filter {
-            activeSessionIds.contains($0.key)
-        }
-        recursiveFallbackSessionIds.formIntersection(activeSessionIds)
-
+    func lifecycleStates(for references: [CodexActivityTurnReference]) -> [CodexSessionTaskLifecycleState] {
+        let grouped = Dictionary(grouping: references, by: \.sessionId)
+        let cutoff = Date().addingTimeInterval(-CodexActivityRetention.window)
+        cursorsBySession = cursorsBySession.filter { $0.value.lastReadAt > cutoff }
+        lastResolutionAttemptBySession = lastResolutionAttemptBySession.filter { $0.value > cutoff }
+        lastRecursiveAttemptBySession = lastRecursiveAttemptBySession.filter { $0.value > cutoff }
+        var budget = Self.contextByteLimit
+        var performedBackfill = false
         var states: [CodexSessionTaskLifecycleState] = []
-        var performedEffortBackfill = false
-        let now = Date()
-        for (sessionId, sessionReferences) in referencesBySession {
-            guard let reference = sessionReferences.max(by: { $0.startedAt < $1.startedAt }),
-                  var cursor = cursor(for: reference) else {
-                continue
-            }
-
-            scanNewLifecycleEvents(into: &cursor, fallbackReference: reference)
-            pruneEffortBackfillState(
-                in: &cursor,
-                activeTurnIds: Set(sessionReferences.map(\.turnId))
-            )
-            if !performedEffortBackfill,
-               let reference = effortBackfillReference(
-                   from: sessionReferences,
-                   cursor: cursor,
-                   now: now
-               ) {
-                performedEffortBackfill = true
-                cursor.lastEffortBackfillAttemptByTurnId[reference.turnId] = now
-                switch backfilledEffort(
-                    from: cursor.url,
-                    turnId: reference.turnId
-                ) {
-                case let .found(effort):
-                    var lifecycle = cursor.lifecycleByTurnId[reference.turnId]
-                        ?? SessionTurnLifecycle()
-                    lifecycle.apply(
-                        .context(approvalReviewer: nil, effort: effort)
-                    )
-                    cursor.lifecycleByTurnId[reference.turnId] = lifecycle
-                    cursor.completedEffortBackfillTurnIds.insert(reference.turnId)
-                    cursor.lastEffortBackfillAttemptByTurnId.removeValue(
-                        forKey: reference.turnId
-                    )
-                case .notFound:
-                    cursor.completedEffortBackfillTurnIds.insert(reference.turnId)
-                    cursor.lastEffortBackfillAttemptByTurnId.removeValue(
-                        forKey: reference.turnId
-                    )
-                case .unavailable:
-                    break
+        let sessions = grouped.keys.sorted()
+        let start = sessions.isEmpty ? 0 : roundRobinOffset % sessions.count
+        let ordered = Array(sessions.dropFirst(start)) + Array(sessions.prefix(start))
+        roundRobinOffset = sessions.isEmpty ? 0 : (start + 1) % sessions.count
+        for sessionId in ordered {
+            guard let sessionReferences = grouped[sessionId],
+                  let latest = sessionReferences.max(by: { $0.startedAt < $1.startedAt }) else { continue }
+            var status = CodexSessionReadStatus.notFound
+            if var cursor = cursor(for: latest) {
+                status = scan(into: &cursor, limit: min(Self.incrementalByteLimit, budget))
+                budget -= min(budget, cursor.lastReadByteCount)
+                let needsContext = sessionReferences.contains {
+                    let known = cursor.lifecycleByTurnId[$0.turnId]
+                    return known?.terminal == nil && (known?.hasContext != true || known?.effort == nil || known?.approvalReviewer == nil)
                 }
+                if status == .complete, needsContext, cursor.historicalOffset > 0,
+                   !cursor.didBackfill, !performedBackfill {
+                    status = backfillContext(into: &cursor)
+                    performedBackfill = true
+                }
+                cursor.lastReadAt = Date()
+                let referencedTurns = Set(sessionReferences.map(\.turnId))
+                cursor.lifecycleByTurnId = cursor.lifecycleByTurnId.filter {
+                    referencedTurns.contains($0.key) || ($0.value.lastProgressAt ?? .distantPast) > cutoff
+                }
+                cursorsBySession[sessionId] = cursor
             }
-            cursorsBySession[sessionId] = cursor
+            let cursor = cursorsBySession[sessionId]
             for reference in sessionReferences {
-                guard let lifecycle = cursor.lifecycleByTurnId[reference.turnId] else {
-                    continue
-                }
-                states.append(
-                    CodexSessionTaskLifecycleState(
-                        sessionId: reference.sessionId,
-                        turnId: reference.turnId,
-                        startedAt: lifecycle.startedAt,
-                        approvalReviewer: lifecycle.approvalReviewer,
-                        effort: lifecycle.effort,
-                        lastProgressAt: lifecycle.lastProgressAt,
-                        terminal: lifecycle.terminal
-                    )
-                )
+                let known = cursor?.lifecycleByTurnId[reference.turnId]
+                let hasReadGap = known?.hasReadGap ?? (cursor?.hasDecodeFailures == true)
+                let turnStatus: CodexSessionReadStatus = status == .complete && hasReadGap && known?.terminal == nil
+                    ? .incomplete : status
+                states.append(CodexSessionTaskLifecycleState(
+                    sessionId: sessionId, turnId: reference.turnId, startedAt: known?.startedAt,
+                    approvalReviewer: known?.approvalReviewer, effort: known?.effort,
+                    lastProgressAt: known?.lastProgressAt, terminal: turnStatus == .complete ? known?.terminal : nil,
+                    readStatus: turnStatus, hasContext: known?.hasContext == true,
+                    contextObservedAt: known?.contextObservedAt
+                ))
             }
         }
         return states
     }
 
-    private func pruneEffortBackfillState(
-        in cursor: inout SessionFileCursor,
-        activeTurnIds: Set<String>
-    ) {
-        cursor.completedEffortBackfillTurnIds.formIntersection(activeTurnIds)
-        cursor.lastEffortBackfillAttemptByTurnId = cursor
-            .lastEffortBackfillAttemptByTurnId
-            .filter { activeTurnIds.contains($0.key) }
-    }
-
-    private func effortBackfillReference(
-        from references: [CodexActivityTurnReference],
-        cursor: SessionFileCursor,
-        now: Date
-    ) -> CodexActivityTurnReference? {
-        guard cursor.hasUnscannedHistoricalPrefix else {
-            return nil
-        }
-
-        return references
-            .filter { reference in
-                guard now.timeIntervalSince(reference.startedAt)
-                    >= Self.effortBackfillMinimumTaskAge,
-                    cursor.lifecycleByTurnId[reference.turnId]?.effort == nil,
-                    cursor.lifecycleByTurnId[reference.turnId]?.terminal == nil,
-                    !cursor.completedEffortBackfillTurnIds.contains(reference.turnId) else {
-                    return false
-                }
-                guard let lastAttempt = cursor
-                    .lastEffortBackfillAttemptByTurnId[reference.turnId] else {
-                    return true
-                }
-                return now.timeIntervalSince(lastAttempt)
-                    >= Self.effortBackfillRetryInterval
-            }
-            .max(by: { $0.startedAt < $1.startedAt })
-    }
-
-    /// 唤醒后允许仍未定位到文件的活跃 session 重新执行一次递归兜底
     func resetResolutionFallbacks() {
         lastResolutionAttemptBySession.removeAll()
-        recursiveFallbackSessionIds.removeAll()
+        lastRecursiveAttemptBySession.removeAll()
     }
 
-    // MARK: - 会话文件定位
-
     private func cursor(for reference: CodexActivityTurnReference) -> SessionFileCursor? {
-        if let cursor = cursorsBySession[reference.sessionId],
-           fileManager.fileExists(atPath: cursor.url.path) {
+        if let cursor = cursorsBySession[reference.sessionId], fileManager.fileExists(atPath: cursor.url.path) {
             return cursor
         }
         if cursorsBySession.removeValue(forKey: reference.sessionId) != nil {
-            // 缓存文件可能被移动到 archived_sessions, 允许重新完整定位一次
-            recursiveFallbackSessionIds.remove(reference.sessionId)
+            lastResolutionAttemptBySession.removeValue(forKey: reference.sessionId)
+            lastRecursiveAttemptBySession.removeValue(forKey: reference.sessionId)
         }
-
         let now = Date()
-        if let lastAttempt = lastResolutionAttemptBySession[reference.sessionId],
-           now.timeIntervalSince(lastAttempt) < Self.fileResolutionRetryInterval {
+        if let last = lastResolutionAttemptBySession[reference.sessionId], now.timeIntervalSince(last) < 10 {
             return nil
         }
         lastResolutionAttemptBySession[reference.sessionId] = now
-
-        let url = locateLikelySessionFile(for: reference)
-            ?? recursiveSessionFileIfNeeded(for: reference)
-        guard let url else {
-            return nil
-        }
-        lastResolutionAttemptBySession.removeValue(forKey: reference.sessionId)
-        return initialCursor(for: url)
-    }
-
-    private func locateLikelySessionFile(for reference: CodexActivityTurnReference) -> URL? {
         let suffix = "-\(reference.sessionId).jsonl"
-        let likelyDirectories = [
-            sessionDirectory(for: reference.startedAt),
-            sessionDirectory(for: Date()),
-            archivedSessionsRootURL
-        ]
-
-        for directory in likelyDirectories {
-            if let match = matchingFile(in: directory, suffix: suffix) {
-                return match
+        for directory in [sessionDirectory(for: reference.startedAt), sessionDirectory(for: now), archivedSessionsRootURL] {
+            if let url = matchingFile(in: directory, suffix: suffix) {
+                return initialCursor(for: url)
             }
         }
-        return nil
-    }
-
-    private func recursiveSessionFileIfNeeded(
-        for reference: CodexActivityTurnReference
-    ) -> URL? {
-        guard recursiveFallbackSessionIds.insert(reference.sessionId).inserted else {
+        if let last = lastRecursiveAttemptBySession[reference.sessionId], now.timeIntervalSince(last) < 60 {
             return nil
         }
-
-        // resume 可能继续很早以前创建的 session; 每次活跃生命周期最多递归一次
-        let suffix = "-\(reference.sessionId).jsonl"
+        lastRecursiveAttemptBySession[reference.sessionId] = now
         guard let enumerator = fileManager.enumerator(
-            at: sessionsRootURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            at: sessionsRootURL, includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) else {
-            return nil
-        }
+        ) else { return nil }
         for case let url as URL in enumerator where url.lastPathComponent.hasSuffix(suffix) {
-            return url
+            return initialCursor(for: url)
         }
         return nil
     }
 
     private func matchingFile(in directory: URL, suffix: String) -> URL? {
-        guard let urls = try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else {
-            return nil
-        }
-        return urls.first { $0.lastPathComponent.hasSuffix(suffix) }
+        (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?
+            .first { $0.lastPathComponent.hasSuffix(suffix) }
     }
 
     private func sessionDirectory(for date: Date) -> URL {
-        // Codex 的 sessions 目录名是公历, 必须固定公历日历
-        let components = CodexDateFormat.localGregorianCalendar
-            .dateComponents([.year, .month, .day], from: date)
-        return sessionsRootURL
-            .appendingPathComponent(String(format: "%04d", components.year ?? 0), isDirectory: true)
-            .appendingPathComponent(String(format: "%02d", components.month ?? 0), isDirectory: true)
-            .appendingPathComponent(String(format: "%02d", components.day ?? 0), isDirectory: true)
+        let components = CodexDateFormat.localGregorianCalendar.dateComponents([.year, .month, .day], from: date)
+        return sessionsRootURL.appendingPathComponent(String(format: "%04d/%02d/%02d", components.year ?? 0, components.month ?? 0, components.day ?? 0))
     }
 
     private func initialCursor(for url: URL) -> SessionFileCursor {
         let stat = WorkflowStorage.fileStat(at: url)
         let size = stat?.size ?? 0
         let offset = size > Self.bootstrapByteLimit ? size - Self.bootstrapByteLimit : 0
-        return SessionFileCursor(
-            url: url,
-            fileIdentifier: stat?.identifier,
-            offset: offset,
-            discardsLeadingPartialLine: offset > 0,
-            lifecycleByTurnId: [:],
-            hasUnscannedHistoricalPrefix: offset > 0,
-            completedEffortBackfillTurnIds: [],
-            lastEffortBackfillAttemptByTurnId: [:]
+        return SessionFileCursor(url: url, fileIdentifier: stat?.identifier, offset: offset, historicalOffset: offset, discardsLeadingPartialLine: offset > 0)
+    }
+
+    private func backfillContext(into cursor: inout SessionFileCursor) -> CodexSessionReadStatus {
+        let end = cursor.offset
+        let start = end > UInt64(Self.contextByteLimit) ? end - UInt64(Self.contextByteLimit) : 0
+        var restored = SessionFileCursor(
+            url: cursor.url,
+            fileIdentifier: cursor.fileIdentifier,
+            offset: start,
+            historicalOffset: start,
+            discardsLeadingPartialLine: start > 0
         )
+        let status = scan(into: &restored, limit: Self.contextByteLimit, through: end)
+        guard status == .complete else { return status }
+        restored.didBackfill = true
+        cursor = restored
+        return .complete
     }
 
-    private func backfilledEffort(
-        from url: URL,
-        turnId: String
-    ) -> EffortBackfillResult {
-        let size = WorkflowStorage.fileSize(at: url)
-        guard size > 0,
-              let handle = try? FileHandle(forReadingFrom: url) else {
-            return .unavailable
-        }
-        defer {
-            try? handle.close()
-        }
-
-        let offset = size > Self.effortBackfillByteLimit
-            ? size - Self.effortBackfillByteLimit
-            : 0
-        guard (try? handle.seek(toOffset: offset)) != nil,
-              let data = try? handle.readToEnd(),
-              !data.isEmpty else {
-            return .unavailable
-        }
-
-        let completeData = offset > 0
-            ? JSONLines.droppingLeadingPartialLine(data)
-            : data
-        for envelope in JSONLines.decode(
-            CodexRolloutLineEnvelope.self,
-            from: completeData
-        ).reversed() where envelope.type == "turn_context"
-            && envelope.payload?.turnId == turnId {
-            if let effort = envelope.payload?.normalizedEffort {
-                return .found(effort)
-            }
-        }
-        return .notFound
-    }
-
-    // MARK: - 增量扫描
-
-    private func scanNewLifecycleEvents(
-        into cursor: inout SessionFileCursor,
-        fallbackReference: CodexActivityTurnReference
-    ) {
-        let stat = WorkflowStorage.fileStat(at: cursor.url)
-        let size = stat?.size ?? 0
-        let identifier = stat?.identifier
-        if size < cursor.offset
-            || (cursor.fileIdentifier != nil && identifier != nil && cursor.fileIdentifier != identifier) {
+    private func scan(into cursor: inout SessionFileCursor, limit: Int, through upperBound: UInt64? = nil) -> CodexSessionReadStatus {
+        cursor.lastReadByteCount = 0
+        guard let stat = WorkflowStorage.fileStat(at: cursor.url) else { return .unavailable }
+        if stat.size < cursor.offset || (cursor.fileIdentifier != nil && cursor.fileIdentifier != stat.identifier) {
             cursor = initialCursor(for: cursor.url)
         }
-
-        guard size > cursor.offset,
-              let handle = try? FileHandle(forReadingFrom: cursor.url) else {
-            return
-        }
-        defer {
-            try? handle.close()
-        }
-
+        let end = min(stat.size, upperBound ?? stat.size)
+        guard let handle = try? FileHandle(forReadingFrom: cursor.url) else { return .unavailable }
+        defer { try? handle.close() }
+        guard end > cursor.offset else { return .complete }
+        guard limit > 0 else { return .incomplete }
         guard (try? handle.seek(toOffset: cursor.offset)) != nil,
-              let data = try? handle.readToEnd(),
-              !data.isEmpty,
-              let lastNewlineIndex = data.lastIndex(of: JSONLines.newlineByte) else {
-            return
-        }
-
-        let consumedCount = data.distance(from: data.startIndex, to: lastNewlineIndex) + 1
-        cursor.offset += UInt64(consumedCount)
-        cursor.fileIdentifier = identifier
-
-        var completeData = Data(data[data.startIndex ... lastNewlineIndex])
+              let data = try? handle.read(upToCount: min(limit, Int(end - cursor.offset))), !data.isEmpty else { return .unavailable }
+        cursor.lastReadByteCount = data.count
+        guard let newline = data.lastIndex(of: JSONLines.newlineByte) else { return .incomplete }
+        let consumed = data.distance(from: data.startIndex, to: newline) + 1
+        cursor.offset += UInt64(consumed)
+        cursor.fileIdentifier = stat.identifier
+        var complete = Data(data[...newline])
         if cursor.discardsLeadingPartialLine {
-            completeData = JSONLines.droppingLeadingPartialLine(completeData)
+            complete = JSONLines.droppingLeadingPartialLine(complete)
             cursor.discardsLeadingPartialLine = false
         }
-
-        guard !completeData.isEmpty else {
-            return
-        }
-
-        for envelope in JSONLines.decode(CodexRolloutLineEnvelope.self, from: completeData) {
-            if let event = envelope.progressEvent(fallbackReference: fallbackReference) {
-                cursor.apply(event)
+        for line in complete.split(separator: JSONLines.newlineByte) {
+            let decoded = JSONLines.decodeWithFailures(CodexRolloutLineEnvelope.self, from: Data(line))
+            if decoded.failedLineCount > 0 {
+                cursor.markReadGap()
             }
-            if let event = envelope.lifecycleEvent {
-                cursor.apply(event)
+            for envelope in decoded.values {
+                cursor.apply(envelope)
             }
         }
+        guard let after = WorkflowStorage.fileStat(at: cursor.url), after.identifier == stat.identifier,
+              after.size >= end else { return .unavailable }
+        return cursor.offset == end ? .complete : .incomplete
     }
 
     private static let bootstrapByteLimit: UInt64 = 512 * 1024
-    private static let effortBackfillByteLimit: UInt64 = 8 * 1024 * 1024
-    private static let effortBackfillMinimumTaskAge: TimeInterval = 2
-    private static let effortBackfillRetryInterval: TimeInterval = 10
-    private static let fileResolutionRetryInterval: TimeInterval = 10
+    private static let incrementalByteLimit = 8 * 1024 * 1024
+    private static let contextByteLimit = 8 * 1024 * 1024
 }
 
 private nonisolated struct SessionFileCursor {
     let url: URL
     var fileIdentifier: UInt64?
     var offset: UInt64
+    let historicalOffset: UInt64
     var discardsLeadingPartialLine: Bool
-    var lifecycleByTurnId: [String: SessionTurnLifecycle]
-    let hasUnscannedHistoricalPrefix: Bool
-    var completedEffortBackfillTurnIds: Set<String>
-    var lastEffortBackfillAttemptByTurnId: [String: Date]
+    var currentTurnId: String?
+    var lifecycleByTurnId: [String: SessionTurnLifecycle] = [:]
+    var didBackfill = false
+    var hasDecodeFailures = false
+    var lastReadAt = Date()
+    var lastReadByteCount = 0
+
+    /// 损坏可能遮住 turn 边界, 只保留已明确结束的事实, 后续新 turn 独立建立覆盖
+    mutating func markReadGap() {
+        hasDecodeFailures = true
+        currentTurnId = nil
+        for turnId in lifecycleByTurnId.keys where lifecycleByTurnId[turnId]?.terminal == nil {
+            lifecycleByTurnId[turnId]?.hasReadGap = true
+        }
+    }
+
+    mutating func apply(_ envelope: CodexRolloutLineEnvelope) {
+        if envelope.startsTurnContext {
+            currentTurnId = envelope.payload?.turnId.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        if let event = envelope.progressEvent(currentTurnId: currentTurnId) {
+            apply(event)
+        }
+        if let event = envelope.lifecycleEvent {
+            apply(event)
+        }
+        if envelope.type == "turn_context", let turnId = currentTurnId {
+            var state = lifecycleByTurnId[turnId] ?? SessionTurnLifecycle()
+            state.hasContext = true
+            lifecycleByTurnId[turnId] = state
+        }
+        if envelope.endsTurnContext, envelope.payload?.turnId == currentTurnId {
+            currentTurnId = nil
+        }
+    }
 
     mutating func apply(_ event: SessionLifecycleEvent) {
-        var lifecycle = lifecycleByTurnId[event.turnId] ?? SessionTurnLifecycle()
-        lifecycle.apply(event.change)
-        lifecycleByTurnId[event.turnId] = lifecycle
+        var state = lifecycleByTurnId[event.turnId] ?? SessionTurnLifecycle()
+        state.apply(event.change)
+        lifecycleByTurnId[event.turnId] = state
     }
-}
-
-private nonisolated enum EffortBackfillResult {
-    case found(String)
-    case notFound
-    case unavailable
 }
 
 // MARK: - rollout 行解码
@@ -413,19 +279,28 @@ nonisolated struct CodexRolloutLinePayload: Decodable {
 }
 
 private nonisolated extension CodexRolloutLineEnvelope {
-    func progressEvent(
-        fallbackReference: CodexActivityTurnReference
-    ) -> SessionLifecycleEvent? {
+    var startsTurnContext: Bool {
+        type == "turn_context" || (type == "event_msg" && payload?.type == "task_started")
+    }
+
+    var endsTurnContext: Bool {
+        type == "event_msg" && (payload?.type == "task_complete" || payload?.type == "turn_aborted")
+    }
+
+    func progressEvent(currentTurnId: String?) -> SessionLifecycleEvent? {
+        let progressTypes: Set = ["token_count", "item_completed", "agent_message", "agent_reasoning", "task_started", "task_complete", "turn_aborted"]
+        guard type == "response_item" || type == "token_usage_record"
+            || (type == "event_msg" && payload?.type.map(progressTypes.contains) == true) else {
+            return nil
+        }
         let eventDate = timestamp.flatMap(CodexDateFormat.iso8601Date)
             ?? payload?.completedAt.flatMap(Self.date)
             ?? payload?.startedAt.flatMap(Self.date)
-        guard let eventDate,
-              eventDate >= fallbackReference.startedAt.addingTimeInterval(-1) else {
+        guard let eventDate else {
             return nil
         }
 
-        let turnId = payload?.turnId ?? fallbackReference.turnId
-        guard !turnId.isEmpty else {
+        guard let turnId = payload?.turnId ?? currentTurnId, !turnId.isEmpty else {
             return nil
         }
         return SessionLifecycleEvent(turnId: turnId, change: .progress(at: eventDate))
@@ -447,7 +322,8 @@ private nonisolated extension CodexRolloutLineEnvelope {
                 turnId: turnId,
                 change: .context(
                     approvalReviewer: payload.approvalReviewer,
-                    effort: effort
+                    effort: effort,
+                    observedAt: timestamp.flatMap(CodexDateFormat.iso8601Date)
                 )
             )
         }
@@ -496,12 +372,15 @@ private nonisolated struct SessionLifecycleEvent {
 private nonisolated enum SessionLifecycleChange {
     case progress(at: Date)
     case started(at: Date)
-    case context(approvalReviewer: CodexApprovalReviewer?, effort: String?)
+    case context(approvalReviewer: CodexApprovalReviewer?, effort: String?, observedAt: Date?)
     case completed(at: Date, duration: TimeInterval?)
     case aborted(at: Date?)
 }
 
 private nonisolated struct SessionTurnLifecycle {
+    var hasReadGap = false
+    var contextObservedAt: Date?
+    var hasContext = false
     var startedAt: Date?
     var approvalReviewer: CodexApprovalReviewer?
     var effort: String?
@@ -518,7 +397,9 @@ private nonisolated struct SessionTurnLifecycle {
             } else {
                 startedAt = at
             }
-        case let .context(reviewer, reasoningEffort):
+        case let .context(reviewer, reasoningEffort, observedAt):
+            hasContext = true
+            contextObservedAt = observedAt ?? contextObservedAt
             approvalReviewer = reviewer ?? approvalReviewer
             effort = reasoningEffort ?? effort
         case let .completed(at, duration):
@@ -537,6 +418,16 @@ nonisolated struct CodexSessionTaskLifecycleState {
     let effort: String?
     let lastProgressAt: Date?
     let terminal: CodexSessionTaskTerminalState?
+    var readStatus: CodexSessionReadStatus = .complete
+    var hasContext = false
+    var contextObservedAt: Date?
+}
+
+nonisolated enum CodexSessionReadStatus {
+    case complete
+    case incomplete
+    case unavailable
+    case notFound
 }
 
 nonisolated enum CodexSessionTaskTerminalState {

@@ -1,10 +1,10 @@
+import Darwin
 import Foundation
 
 nonisolated enum HookEventBatch {
     case bootstrapStart
     case bootstrapEvents([WorkflowHookEvent])
-    /// degraded 表示放弃回放直接跳到文件末尾, 这一轮的活跃任务是空的而不是真的没有
-    /// attempts 由 reader 给出, 它才知道循环跑了几轮以及放弃时补发过一次清场
+    /// degraded 表示历史覆盖不完整, 不得据此判断任务静默
     case bootstrapEnd(degraded: Bool, attempts: Int)
     case live([WorkflowHookEvent])
     case sourceHealthChanged(Bool)
@@ -17,7 +17,7 @@ nonisolated enum HookEventDrainResult: Sendable {
 }
 
 /// 在独立 actor 中按完整 JSONL 行读取 HookEvents/events
-/// bootstrap 覆盖滚动 24 小时并作为单次事务发送, live 随后按当日文件 offset 增量读取
+/// bootstrap 覆盖滚动 24 小时并作为单次事务发送, live 随后按窗口内各日期文件 offset 增量读取
 actor HookEventTailReader {
     private let onBatch: @MainActor @Sendable (HookEventBatch) -> Void
     private var pollTask: Task<Void, Never>?
@@ -26,14 +26,21 @@ actor HookEventTailReader {
     // actor 会在 await 期间重入; 所有外部读取请求通过这两个标记合并为单一读取流程
     private var isProcessingReads = false
     private var hasPendingDrain = false
-    private var activeDateKey = ""
-    private var activeFileOffset: UInt64 = 0
-    private var activeFileIdentifier: UInt64?
+    private var fileCursors: [String: HookFileCursor] = [:]
+    private let eventsDirectoryURL: URL
+    private let now: @Sendable () -> Date
+    private var bootstrapRetryAt: Date?
     private var lastReportedSourceHealth: Bool?
     private var requestedDrainGeneration: UInt64 = 0
     private var drainWaiters: [UInt64: CheckedContinuation<HookEventDrainResult, Never>] = [:]
 
-    init(onBatch: @escaping @MainActor @Sendable (HookEventBatch) -> Void) {
+    init(
+        eventsDirectoryURL: URL = WorkflowStorage.eventsDirectoryURL(),
+        now: @escaping @Sendable () -> Date = Date.init,
+        onBatch: @escaping @MainActor @Sendable (HookEventBatch) -> Void
+    ) {
+        self.eventsDirectoryURL = eventsDirectoryURL
+        self.now = now
         self.onBatch = onBatch
     }
 
@@ -152,8 +159,8 @@ actor HookEventTailReader {
         drainWaiters.removeValue(forKey: generation)?.resume(returning: .cancelled)
     }
 
-    private var activeFileURL: URL {
-        WorkflowStorage.eventLogURL(for: activeDateKey)
+    private func eventLogURL(for dateKey: String) -> URL {
+        WorkflowStorage.eventLogURL(for: dateKey, in: eventsDirectoryURL)
     }
 
     // MARK: - bootstrap
@@ -163,46 +170,50 @@ actor HookEventTailReader {
             guard isRunning, !Task.isCancelled else {
                 return
             }
-            if let result = await bootstrapAttempt(now: Date()) {
-                activeDateKey = result.activeDateKey
-                activeFileOffset = result.activeFileOffset
-                activeFileIdentifier = result.activeFileIdentifier
-                await onBatch(.bootstrapEnd(degraded: false, attempts: attempt + 1))
-                await reportSourceHealth(true)
+            if let result = await bootstrapAttempt(now: now()) {
+                bootstrapRetryAt = nil
+                fileCursors = result.cursors
+                let healthy = result.cursors.values.allSatisfy { !$0.isDegraded }
+                await onBatch(.bootstrapEnd(degraded: !healthy, attempts: attempt + 1))
+                await reportSourceHealth(healthy)
                 return
             }
         }
 
         // 连续读取失败时清空恢复态并跳过当前已有字节, 避免稍后误当 live 发送历史通知
         // 代价是丢掉最多 24 小时的任务状态, 所以要让下游知道这一轮是降级而不是真的没有历史
-        let dateKey = WorkflowStorage.dateKey(for: Date())
-        let stat = WorkflowStorage.fileStat(at: WorkflowStorage.eventLogURL(for: dateKey))
-        activeDateKey = dateKey
-        activeFileOffset = stat?.size ?? 0
-        activeFileIdentifier = stat?.identifier
+        let current = now()
+        bootstrapRetryAt = current.addingTimeInterval(Self.bootstrapRetryInterval)
+        fileCursors = Dictionary(uniqueKeysWithValues: Self.dateKeys(
+            from: current.addingTimeInterval(-Self.activityRetention), through: current
+        ).map { dateKey in
+            let stat = WorkflowStorage.fileStat(at: eventLogURL(for: dateKey))
+            return (dateKey, HookFileCursor(offset: stat?.size ?? 0, identifier: stat?.identifier, isDegraded: true))
+        })
         await onBatch(.bootstrapStart)
         await onBatch(.bootstrapEnd(degraded: true, attempts: Self.bootstrapAttemptLimit))
         await reportSourceHealth(false)
     }
 
     private func bootstrapAttempt(now: Date) async -> BootstrapResult? {
+        guard (try? FileManager.default.contentsOfDirectory(atPath: eventsDirectoryURL.path)) != nil else { return nil }
         let cutoff = now.addingTimeInterval(-Self.activityRetention)
         let dateKeys = Self.dateKeys(from: cutoff, through: now)
         let bootstrapDateKey = WorkflowStorage.dateKey(for: now)
-        let boundaries = dateKeys.map { dateKey in
-            let url = WorkflowStorage.eventLogURL(for: dateKey)
-            let stat = WorkflowStorage.fileStat(at: url)
+        guard let boundaries = try? dateKeys.map({ dateKey in
+            let url = eventLogURL(for: dateKey)
+            let stat = try readableStat(at: url)
             return HookFileBoundary(
                 dateKey: dateKey,
                 url: url,
                 size: stat?.size ?? 0,
                 fileIdentifier: stat?.identifier
             )
-        }
+        }) else { return nil }
 
         await onBatch(.bootstrapStart)
 
-        var activeCompleteOffset: UInt64 = 0
+        var cursors: [String: HookFileCursor] = [:]
         for boundary in boundaries {
             guard isRunning, !Task.isCancelled else {
                 return nil
@@ -218,22 +229,19 @@ actor HookEventTailReader {
             guard streamResult.didReachUpperBound else {
                 return nil
             }
-            if boundary.dateKey == bootstrapDateKey {
-                activeCompleteOffset = streamResult.completeOffset
-            }
+            cursors[boundary.dateKey] = HookFileCursor(
+                offset: streamResult.completeOffset,
+                identifier: boundary.fileIdentifier,
+                isDegraded: streamResult.hasDecodeFailures
+            )
         }
 
         guard boundariesAreStable(boundaries, activeDateKey: bootstrapDateKey),
-              WorkflowStorage.dateKey(for: Date()) == bootstrapDateKey else {
+              WorkflowStorage.dateKey(for: self.now()) == bootstrapDateKey else {
             return nil
         }
 
-        let activeBoundary = boundaries.first { $0.dateKey == bootstrapDateKey }
-        return BootstrapResult(
-            activeDateKey: bootstrapDateKey,
-            activeFileOffset: activeCompleteOffset,
-            activeFileIdentifier: activeBoundary?.fileIdentifier
-        )
+        return BootstrapResult(cursors: cursors)
     }
 
     // MARK: - 增量 tail
@@ -243,65 +251,62 @@ actor HookEventTailReader {
             return .cancelled
         }
 
-        let todayKey = WorkflowStorage.dateKey(for: Date())
-        if todayKey != activeDateKey {
-            // 跨零点先读完旧文件尾部, 再切到新日期文件
-            guard await readAppendedLines() else {
-                // bootstrap 已经完成切日; 临时失败则保留旧日期, 下一轮继续重试
-                return currentDrainResult()
-            }
-            guard isRunning, !Task.isCancelled else {
-                return .cancelled
-            }
-            activeDateKey = todayKey
-            activeFileOffset = 0
-            activeFileIdentifier = nil
+        guard (try? FileManager.default.contentsOfDirectory(atPath: eventsDirectoryURL.path)) != nil else {
+            await reportSourceHealth(false)
+            return .sourceUnavailable
         }
-
-        _ = await readAppendedLines()
-        guard isRunning, !Task.isCancelled else {
-            return .cancelled
+        let current = now()
+        if let bootstrapRetryAt {
+            guard current >= bootstrapRetryAt else { return .sourceUnavailable }
+            await bootstrapRecentActivity()
+            guard isRunning, !Task.isCancelled else { return .cancelled }
+            return lastReportedSourceHealth == true ? .completed : .sourceUnavailable
         }
-        return currentDrainResult()
+        let dates = Self.dateKeys(from: current.addingTimeInterval(-Self.activityRetention), through: current)
+        fileCursors = fileCursors.filter { dates.contains($0.key) }
+        var healthy = true
+        for dateKey in dates {
+            let url = eventLogURL(for: dateKey)
+            let stat: WorkflowFileStat?
+            do {
+                stat = try readableStat(at: url)
+            } catch {
+                await reportSourceHealth(false)
+                return .sourceUnavailable
+            }
+            var cursor = fileCursors[dateKey] ?? HookFileCursor()
+            if (cursor.identifier != nil && stat?.identifier != cursor.identifier)
+                || (stat?.size ?? 0) < cursor.offset {
+                await bootstrapRecentActivity()
+                return lastReportedSourceHealth == true ? .completed : .sourceUnavailable
+            }
+            let size = stat?.size ?? 0
+            let result = await streamEvents(
+                at: url, from: cursor.offset, through: size,
+                cutoff: current.addingTimeInterval(-Self.activityRetention), makeBatch: HookEventBatch.live
+            )
+            guard isRunning, !Task.isCancelled else { return .cancelled }
+            cursor.offset = result.completeOffset
+            cursor.identifier = stat?.identifier
+            cursor.isDegraded = cursor.isDegraded || result.hasDecodeFailures
+            fileCursors[dateKey] = cursor
+            healthy = healthy && result.didReachUpperBound && !cursor.isDegraded
+        }
+        await reportSourceHealth(healthy)
+        return healthy ? .completed : .sourceUnavailable
     }
 
-    private func currentDrainResult() -> HookEventDrainResult {
-        lastReportedSourceHealth == true ? .completed : .sourceUnavailable
-    }
-
-    /// 返回是否读到当前文件上界; 触发重新 bootstrap 或读取中断时为 false
-    private func readAppendedLines() async -> Bool {
-        let url = activeFileURL
-        let stat = WorkflowStorage.fileStat(at: url)
-        if activeFileIdentifier != nil, stat?.identifier != activeFileIdentifier {
-            await bootstrapRecentActivity()
-            return false
+    private func readableStat(at url: URL) throws -> WorkflowFileStat? {
+        guard let stat = WorkflowStorage.fileStat(at: url) else {
+            let code = errno
+            if code == ENOENT {
+                return nil
+            }
+            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
         }
-        if activeFileIdentifier == nil {
-            activeFileIdentifier = stat?.identifier
-        }
-
-        let size = stat?.size ?? 0
-        if size < activeFileOffset {
-            await bootstrapRecentActivity()
-            return false
-        }
-
-        guard size > activeFileOffset else {
-            await reportSourceHealth(true)
-            return true
-        }
-
-        let streamResult = await streamEvents(
-            at: url,
-            from: activeFileOffset,
-            through: size,
-            cutoff: nil,
-            makeBatch: HookEventBatch.live
-        )
-        activeFileOffset = streamResult.completeOffset
-        await reportSourceHealth(streamResult.didReachUpperBound)
-        return streamResult.didReachUpperBound
+        let handle = try FileHandle(forReadingFrom: url)
+        try handle.close()
+        return stat
     }
 
     private func reportSourceHealth(_ isHealthy: Bool) async {
@@ -337,10 +342,11 @@ actor HookEventTailReader {
         var readOffset = startOffset
         var completeOffset = startOffset
         var pending = Data()
+        var hasDecodeFailures = false
 
         while readOffset < upperBound {
             guard isRunning, !Task.isCancelled else {
-                return .interrupted(at: completeOffset)
+                return HookEventStreamResult(completeOffset: completeOffset, didReachUpperBound: false, hasDecodeFailures: hasDecodeFailures)
             }
 
             let requestedCount = Int(min(
@@ -349,7 +355,7 @@ actor HookEventTailReader {
             ))
             guard let chunk = try? handle.read(upToCount: requestedCount),
                   !chunk.isEmpty else {
-                return .interrupted(at: completeOffset)
+                return HookEventStreamResult(completeOffset: completeOffset, didReachUpperBound: false, hasDecodeFailures: hasDecodeFailures)
             }
 
             readOffset += UInt64(chunk.count)
@@ -367,7 +373,12 @@ actor HookEventTailReader {
                 : Data()
             completeOffset = readOffset - UInt64(pending.count)
 
-            var events = JSONLines.decode(WorkflowHookEvent.self, from: completeData)
+            let decoded = JSONLines.decodeWithFailures(WorkflowHookEvent.self, from: completeData)
+            if decoded.failedLineCount > 0 {
+                hasDecodeFailures = true
+                await reportSourceHealth(false)
+            }
+            var events = decoded.values
             if let cutoff {
                 events.removeAll { $0.timestamp < cutoff }
             }
@@ -377,14 +388,18 @@ actor HookEventTailReader {
             await Task.yield()
         }
 
-        return .completed(at: completeOffset)
+        return HookEventStreamResult(
+            completeOffset: completeOffset,
+            didReachUpperBound: completeOffset == upperBound,
+            hasDecodeFailures: hasDecodeFailures
+        )
     }
 
     /// 从 24 小时窗口之前的事件文件中定向查找 Prompt 起点, 供 bootstrap 后回填恢复任务的开始时间
     func findPromptStartTimes(
         for references: [CodexActivityPromptReference]
     ) -> [CodexActivityPromptReference: Date] {
-        let cutoff = Date().addingTimeInterval(-Self.activityRetention)
+        let cutoff = now().addingTimeInterval(-Self.activityRetention)
         var unresolvedKeys = Set(references)
         var startTimes: [CodexActivityPromptReference: Date] = [:]
         var remainingBytes = Self.promptSearchByteLimit
@@ -433,10 +448,10 @@ actor HookEventTailReader {
 
     private func eventLogURLs(onOrBefore cutoff: Date) -> [URL] {
         let cutoffDateKey = WorkflowStorage.dateKey(for: cutoff)
-        return WorkflowStorage.eventLogDateKeys()
+        return WorkflowStorage.eventLogDateKeys(in: eventsDirectoryURL)
             .filter { $0 <= cutoffDateKey }
             .sorted(by: >)
-            .map { WorkflowStorage.eventLogURL(for: $0) }
+            .map { eventLogURL(for: $0) }
     }
 
     private func boundariesAreStable(
@@ -483,6 +498,7 @@ actor HookEventTailReader {
     private static let readChunkByteCount = 512 * 1024
     private static let promptSearchByteLimit: UInt64 = 8 * 1024 * 1024
     private static let bootstrapAttemptLimit = 3
+    private static let bootstrapRetryInterval: TimeInterval = 10
 }
 
 private nonisolated struct HookFileBoundary {
@@ -492,15 +508,20 @@ private nonisolated struct HookFileBoundary {
     let fileIdentifier: UInt64?
 }
 
+private nonisolated struct HookFileCursor {
+    var offset: UInt64 = 0
+    var identifier: UInt64?
+    var isDegraded = false
+}
+
 private nonisolated struct BootstrapResult {
-    let activeDateKey: String
-    let activeFileOffset: UInt64
-    let activeFileIdentifier: UInt64?
+    let cursors: [String: HookFileCursor]
 }
 
 private nonisolated struct HookEventStreamResult {
     let completeOffset: UInt64
     let didReachUpperBound: Bool
+    var hasDecodeFailures = false
 
     static func completed(at offset: UInt64) -> Self {
         Self(completeOffset: offset, didReachUpperBound: true)

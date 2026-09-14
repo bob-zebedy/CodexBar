@@ -337,7 +337,7 @@ private nonisolated enum WorkflowTurnContextReader {
 
         let offset = size > searchByteLimit ? size - searchByteLimit : 0
         guard (try? handle.seek(toOffset: offset)) != nil,
-              let data = try? handle.readToEnd(),
+              let data = try? handle.read(upToCount: Int(size - offset)),
               !data.isEmpty else {
             return nil
         }
@@ -359,7 +359,7 @@ private nonisolated enum WorkflowTurnContextReader {
         return nil
     }
 
-    private static let searchByteLimit: UInt64 = 512 * 1024
+    private static let searchByteLimit: UInt64 = 8 * 1024 * 1024
 }
 
 private nonisolated struct WorkflowTurnContext {

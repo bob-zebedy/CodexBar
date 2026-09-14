@@ -23,6 +23,13 @@ enum CodexActivityTaskKey: Hashable {
         }
     }
 
+    var turnId: String? {
+        if case let .turn(_, turn) = self {
+            return turn
+        }
+        return nil
+    }
+
     var isAnonymous: Bool {
         if case .anonymous = self {
             return true
@@ -103,11 +110,18 @@ struct PendingTerminalTask {
     var task: CodexActivityTask
     let supersededAt: Date
     let deadline: Date
+    var nextPollAt: Date = .distantPast
+    var expiresAt: Date {
+        supersededAt.addingTimeInterval(CodexActivityRetention.window)
+    }
 }
 
 struct CodexActivityTask {
     let displayID: UUID
     let key: CodexActivityTaskKey
+    var associatedTurnId: String?
+    var lifecycleCoverageCheckedAt: Date?
+    var approvalContextObservedAt: Date?
     var state: CodexActivityTaskState
     var latestEvent: CodexActivityEvent
     var projectName: String?
@@ -116,7 +130,7 @@ struct CodexActivityTask {
     var toolName: String?
     var startedAt: Date?
     var stateChangedAt: Date
-    var lastActivityAt: Date
+    var lastHookEventAt: Date
     var lastProgressAt: Date
     var progressGeneration: UInt64
     var approvalReviewer: CodexApprovalReviewer?
@@ -135,6 +149,7 @@ struct CodexActivityTask {
     ) {
         self.displayID = displayID
         self.key = key
+        associatedTurnId = key.turnId
         self.state = state
         self.latestEvent = latestEvent
         projectName = event.projectDisplayName
@@ -143,10 +158,11 @@ struct CodexActivityTask {
         toolName = event.toolName
         self.startedAt = startedAt
         stateChangedAt = event.timestamp
-        lastActivityAt = event.timestamp
+        lastHookEventAt = event.timestamp
         lastProgressAt = event.timestamp
         self.progressGeneration = progressGeneration
         approvalReviewer = event.approvalReviewer
+        approvalContextObservedAt = event.approvalReviewer == nil ? nil : event.timestamp
         pendingApprovalRequestedAt = nil
         subagentsByID = [:]
         isSubagentCountReliable = startedAt != nil
@@ -181,7 +197,7 @@ struct CodexActivityTask {
     }
 
     var turnReference: CodexActivityTurnReference? {
-        guard case let .turn(sessionId, turnId) = key else {
+        guard let sessionId = key.sessionId, let turnId = associatedTurnId else {
             return nil
         }
         return CodexActivityTurnReference(
@@ -193,23 +209,48 @@ struct CodexActivityTask {
 
     var promptReference: CodexActivityPromptReference? {
         guard startedAt == nil,
-              case let .turn(sessionId, turnId) = key else {
+              let sessionId = key.sessionId, let turnId = associatedTurnId else {
             return nil
         }
         return CodexActivityPromptReference(sessionId: sessionId, turnId: turnId)
     }
 
+    var resolvedTurnKey: CodexActivityTaskKey? {
+        guard let session = key.sessionId, let turn = associatedTurnId else { return nil }
+        return .turn(session: session, turn: turn)
+    }
+
+    var lastActivityAt: Date {
+        lastProgressAt
+    }
+
+    func hasFreshLifecycle(at now: Date) -> Bool {
+        lifecycleCoverageCheckedAt.map { now.timeIntervalSince($0) < 5 } == true
+    }
+
     mutating func mergeMetadata(from event: WorkflowHookEvent) {
+        if associatedTurnId == nil, !key.isAnonymous, event.agentId == nil {
+            associatedTurnId = event.turnId
+        }
         projectName = event.projectDisplayName ?? projectName
         modelName = event.modelName ?? modelName
         _ = mergeEffort(event.effort)
         toolName = event.toolName ?? toolName
-        approvalReviewer = event.approvalReviewer ?? approvalReviewer
+        if let reviewer = event.approvalReviewer,
+           event.timestamp >= (approvalContextObservedAt ?? .distantPast) {
+            approvalReviewer = reviewer
+            approvalContextObservedAt = event.timestamp
+        }
+    }
+
+    /// Hook 顺序独立于 rollout 进展, 避免用量记录使稍早的状态事件失效
+    mutating func recordHookEvent(at timestamp: Date) {
+        lastHookEventAt = max(lastHookEventAt, timestamp)
+        recordProgress(at: timestamp)
     }
 
     mutating func recordProgress(at timestamp: Date) {
-        lastActivityAt = max(lastActivityAt, timestamp)
-        lastProgressAt = timestamp
+        lastProgressAt = max(lastProgressAt, timestamp)
         progressGeneration &+= 1
     }
 

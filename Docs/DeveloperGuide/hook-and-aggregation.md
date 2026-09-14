@@ -186,7 +186,7 @@ handler 超时由事件决定：
 
 回查范围如下：
 
-- 单次最多读取 512 KB
+- 单次最多读取 8 MiB
 - 只提取 reviewer 和 effort 等结构字段
 - 不把 prompt 或 response 内容写入 Hook 统计
 
@@ -223,7 +223,7 @@ Hook payload 在不同版本中可能把标识或时间表示为不同 JSON 类�
 
 ### rollout 尾部回查的边界
 
-回查只读取 transcript 最后 512 KB、丢弃可能被截断的第一行，再从后向前寻找匹配 turn 的 `turn_context`
+回查只读取 transcript 最后 8 MiB、丢弃可能被截断的第一行，再从后向前寻找匹配 turn 的 `turn_context`
 
 从后向前是因为同一个 turn 的最新上下文更接近文件尾。限制读取范围是为了守住 Hook 超时，找不到时保留字段缺失而不是扩大成无界扫描。
 

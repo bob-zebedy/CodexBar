@@ -137,7 +137,8 @@ Task notifications respond only to new terminal transitions published by the mon
 - Tasks established during bootstrap do not notify
 - The activity monitor retains terminal task keys for 24-hour deduplication
 - The notification service also tracks its own sent keys
-- `Stop` retains the finishing task; rollout confirmation emits one completion transition
+- `Stop` retains the finishing task; rollout confirmation emits a completion transition when its end time is no earlier than the recovery boundary and no more than 10 seconds old
+- Completion records update silently during bootstrap, recovery reconciliation, and unhealthy Hook source state
 - `Interrupt` and other termination records do not trigger completion notifications or task haptics
 
 Anonymous tasks are not published to task-notification consumers. The notification service filters `isAnonymous` again at the transition boundary, so anonymous tasks cannot send completion or approval notifications or trigger task haptics.
@@ -153,7 +154,8 @@ A waiting notification is sent only when the `PermissionRequest` reviewer is con
 - Automatic review does not notify
 - One waiting item notifies only once
 - Leaving waiting state removes the item from the relevant set
-- Waiting state found during bootstrap does not replay historical notifications
+- Waiting transitions pause during bootstrap, recovery reconciliation, and unhealthy Hook source state
+- Direct Hook confirmation requires waiting to have begun no earlier than the recovery boundary and no more than 10 seconds ago; rollout reviewer backfill checks only that the request is no earlier than the recovery boundary
 
 Whether waiting maintains sleep prevention is an independent setting and does not affect notification eligibility.
 

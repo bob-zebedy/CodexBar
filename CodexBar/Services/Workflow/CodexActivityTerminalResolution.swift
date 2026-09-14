@@ -28,7 +28,7 @@ extension CodexActivityMonitor {
             key = eventKey
             task = nil
         }
-        guard task.map({ event.timestamp >= $0.lastActivityAt }) ?? true else {
+        guard task.map({ event.timestamp >= $0.lastHookEventAt }) ?? true else {
             return
         }
         if recentEndedDate(for: key) != nil {
@@ -48,6 +48,9 @@ extension CodexActivityMonitor {
             duration: task?.preciseDuration(until: event.timestamp)
         )
         recordEndedTask(key, at: event.timestamp)
+        if let resolved = task?.resolvedTurnKey {
+            recordEndedTask(resolved, at: event.timestamp)
+        }
         recordEndedTask(eventKey, at: event.timestamp)
         if source == .live {
             AppLog.activity.notice("任务已终止: source=interruptHook")
@@ -70,7 +73,7 @@ extension CodexActivityMonitor {
         case .user:
             let wasWaiting = task.state == .waitingApproval
             task.confirmPendingApproval()
-            if !wasWaiting,
+            if !wasWaiting, canPublishActivityTransitions,
                !task.key.isAnonymous,
                let sessionTransitionNotBefore,
                requestedAt >= sessionTransitionNotBefore {
@@ -104,6 +107,9 @@ extension CodexActivityMonitor {
             let terminatedAt = max(reportedAt ?? abortFallback, task.lastActivityAt)
             storeTermination(task, at: terminatedAt, includesDuration: reportedAt != nil)
             recordEndedTask(key, at: terminatedAt)
+            if let resolved = task.resolvedTurnKey {
+                recordEndedTask(resolved, at: terminatedAt)
+            }
         case let .completed(completedAt, duration):
             let completion = storeResolvedCompletion(
                 task,
@@ -111,7 +117,8 @@ extension CodexActivityMonitor {
                 completedAt: completedAt,
                 reportedDuration: duration
             )
-            if !completion.isAnonymous,
+            if canPublishActivityTransitions, !completion.isAnonymous,
+               Date().timeIntervalSince(completion.completedAt) <= 10,
                let sessionTransitionNotBefore,
                completion.completedAt >= sessionTransitionNotBefore {
                 transitions.append(.completed(completion))
@@ -167,6 +174,9 @@ extension CodexActivityMonitor {
         terminalTaskKeyByID[completion.id] = key
         recordTerminalPresentationEvent(.completed(completion))
         recordEndedTask(key, at: recordedCompletedAt)
+        if let resolved = task.resolvedTurnKey {
+            recordEndedTask(resolved, at: recordedCompletedAt)
+        }
         return completion
     }
 
@@ -208,7 +218,7 @@ extension CodexActivityMonitor {
     }
 
     func recordTerminalPresentationEvent(_ event: CodexActivityTerminalEvent) {
-        guard !isBootstrapping, !isActivityProtectionRecoveryInProgress, isActivitySourceHealthy,
+        guard canPublishActivityTransitions, Date().timeIntervalSince(event.endedAt) <= 10,
               event.endedAt >= terminalPresentationNotBefore else {
             return
         }
@@ -226,6 +236,9 @@ extension CodexActivityMonitor {
         now: Date = Date()
     ) -> Date? {
         guard let date = recentlyEndedTaskAt[key] else {
+            return nil
+        }
+        if key.isSessionOnly, let startedAt = tasks[key]?.startedAt, startedAt > date {
             return nil
         }
         guard date > now.addingTimeInterval(-Self.endedTaskRetention) else {
@@ -262,17 +275,12 @@ extension CodexActivityMonitor {
 
     func finalizeExpiredPendingTerminalTasks(now: Date) {
         let expiredKeys = pendingTerminalTasks.compactMap { key, pending in
-            pending.deadline <= now ? key : nil
+            pending.expiresAt <= now ? key : nil
         }
         for key in expiredKeys {
             guard let pending = pendingTerminalTasks.removeValue(forKey: key) else {
                 continue
             }
-            let terminatedAt = max(pending.supersededAt, pending.task.lastActivityAt)
-            if pending.task.state != .suppressed {
-                storeTermination(pending.task, at: terminatedAt, includesDuration: true)
-            }
-            recordEndedTask(key, at: terminatedAt)
             clearActivityProtection(
                 for: key,
                 taskID: pending.task.displayID,
@@ -282,6 +290,7 @@ extension CodexActivityMonitor {
     }
 
     func publishWaitingApprovalTransitions(_ taskKeys: [CodexActivityTaskKey]) {
+        guard canPublishActivityTransitions else { return }
         var lastWaitingIndexByKey: [CodexActivityTaskKey: Int] = [:]
         for (index, key) in taskKeys.enumerated() {
             lastWaitingIndexByKey[key] = index
@@ -291,7 +300,10 @@ extension CodexActivityMonitor {
             guard !key.isAnonymous,
                   lastWaitingIndexByKey[key] == index,
                   let task = tasks[key],
-                  task.state == .waitingApproval else {
+                  task.state == .waitingApproval,
+                  let sessionTransitionNotBefore,
+                  task.stateChangedAt >= sessionTransitionNotBefore,
+                  Date().timeIntervalSince(task.stateChangedAt) <= 10 else {
                 continue
             }
             transitionSubject.send(.waitingApproval(task.snapshot))
