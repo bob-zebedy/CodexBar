@@ -10,6 +10,7 @@ Right-click or Control-click the menu bar icon and choose `Settings`, or press `
 | --- | --- | --- |
 | Main Panel Layout | Reorder and show or hide Account, Tasks, Quota, Usage, and Status | All visible; Tasks is off when Hook is disabled |
 | Animation Effects | Animate quota bars and the heatmap when opening the panel | On |
+| Glow Effect | Show task status with colors along the top of each display; requires Hook to be enabled and verified | Off |
 | Launch at Login | Start CodexBar when you sign in to your Mac | Follows the system login-item state |
 | Automatically Check for Updates | Periodically check for CodexBar updates | Follows the current update setting |
 | Menu Bar Quota Indicator | Show the remaining allowance in a selected window | Primary quota |
@@ -20,6 +21,21 @@ Right-click or Control-click the menu bar icon and choose `Settings`, or press `
 Click the options button to drag sections into order or toggle visibility, keeping at least one section visible. Use `⌘Z` to undo and `⌘⇧Z` to redo. Hiding a section does not stop its features.
 
 Disabling Hook hides Tasks; switching Hook from off to on shows Tasks automatically. You can still hide Tasks manually while Hook is enabled, and restarting the app preserves that choice. If Tasks was the only visible section, disabling Hook enables Account automatically.
+
+### Glow Effect
+
+Shows task status along the top of each display. CodexBar Hook must be enabled and verified. The switch is off by default and independent of the main panel's Animation Effects setting.
+
+| Color | Meaning |
+| --- | --- |
+| Cyan moving glow | Tasks are running |
+| Orange pulsing glow | Waiting for approval; takes priority over running |
+| Green | Task completed |
+| Red | Task terminated, including interruptions |
+
+When a task ends while others remain active, its completion or termination appears for 3 seconds before returning to the current task state. Once all tasks end, the latest ending is shown until 10 seconds after its end time.
+
+The glow is hidden while Hook is unavailable, preserving your switch preference. System sleep, display sleep, or an inactive user session also hides it. On return, it shows the current state without replaying expired terminal indicators.
 
 ### Menu Bar Quota Indicator
 

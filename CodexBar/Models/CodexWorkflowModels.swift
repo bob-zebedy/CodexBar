@@ -249,6 +249,7 @@ nonisolated struct WorkflowDailyMetrics: Equatable {
     let contextCompactionCount: Int
     let subagentCount: Int
     let modelCounts: [String: Int]
+    let interruptCount: Int?
 
     var mostUsedModel: String? {
         modelCounts
@@ -267,7 +268,8 @@ nonisolated struct WorkflowDailyMetrics: Equatable {
         permissionRequestCount: Int,
         contextCompactionCount: Int,
         subagentCount: Int,
-        modelCounts: [String: Int] = [:]
+        modelCounts: [String: Int] = [:],
+        interruptCount: Int? = nil
     ) {
         self.startDate = startDate
         self.sessionCount = sessionCount
@@ -277,6 +279,7 @@ nonisolated struct WorkflowDailyMetrics: Equatable {
         self.contextCompactionCount = contextCompactionCount
         self.subagentCount = subagentCount
         self.modelCounts = modelCounts
+        self.interruptCount = interruptCount
     }
 
     static func empty(startDate: String) -> WorkflowDailyMetrics {
@@ -302,7 +305,8 @@ nonisolated struct WorkflowDailyMetrics: Equatable {
         postCompactCount: Int,
         subagentStartCount: Int,
         subagentStopCount: Int,
-        modelCounts: [String: Int]
+        modelCounts: [String: Int],
+        interruptCount: Int? = nil
     ) {
         self.startDate = startDate
         self.sessionCount = sessionCount
@@ -312,6 +316,7 @@ nonisolated struct WorkflowDailyMetrics: Equatable {
         contextCompactionCount = max(preCompactCount, postCompactCount)
         subagentCount = max(subagentStartCount, subagentStopCount)
         self.modelCounts = modelCounts
+        self.interruptCount = interruptCount
     }
 
     func adding(_ other: WorkflowDailyMetrics) -> WorkflowDailyMetrics {
@@ -323,7 +328,8 @@ nonisolated struct WorkflowDailyMetrics: Equatable {
             permissionRequestCount: permissionRequestCount + other.permissionRequestCount,
             contextCompactionCount: contextCompactionCount + other.contextCompactionCount,
             subagentCount: subagentCount + other.subagentCount,
-            modelCounts: Self.mergedCounts(modelCounts, other.modelCounts)
+            modelCounts: Self.mergedCounts(modelCounts, other.modelCounts),
+            interruptCount: interruptCount.flatMap { lhs in other.interruptCount.map { lhs + $0 } }
         )
     }
 
@@ -479,6 +485,7 @@ nonisolated struct WorkflowDailyAccumulator {
         case .sessionEnd: Self.increment(&aggregate.sessionEndCount)
         case .userPromptSubmit: Self.increment(&aggregate.userPromptSubmitCount)
         case .stop: Self.increment(&aggregate.stopCount)
+        case .interrupt: Self.increment(&aggregate.interruptCount)
         case .preToolUse: Self.increment(&aggregate.preToolUseCount)
         case .postToolUse: Self.increment(&aggregate.postToolUseCount)
         case .permissionRequest: Self.increment(&aggregate.permissionRequestCount)
@@ -489,11 +496,11 @@ nonisolated struct WorkflowDailyAccumulator {
         case .none: break
         }
 
-        // SessionEnd 只关闭会话, Stop 只关闭轮次, 不单独构成对应的当日活跃记录
+        // 终态事件不单独构成对应的当日活跃轮次
         if event.hookEvent != .sessionEnd, let sessionId = event.sessionId {
             sessionIds.insert(sessionId)
         }
-        if event.hookEvent != .stop, let turnId = event.turnId {
+        if event.hookEvent != .stop, event.hookEvent != .interrupt, let turnId = event.turnId {
             turnIds.insert(turnId)
         }
 
@@ -538,6 +545,11 @@ nonisolated struct WorkflowHookCountAvailability {
         events: Set(CodexHookEvent.allCases)
     )
 
+    static let legacy = WorkflowHookCountAvailability(
+        includesEventCount: true,
+        events: Set(CodexHookEvent.allCases.filter { $0 != .interrupt })
+    )
+
     private let includesEventCount: Bool
     private let events: Set<CodexHookEvent>
 
@@ -570,6 +582,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
     var sessionEndCount: Int?
     var userPromptSubmitCount: Int?
     var stopCount: Int?
+    var interruptCount: Int?
     var preToolUseCount: Int?
     var postToolUseCount: Int?
     var permissionRequestCount: Int?
@@ -603,6 +616,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
         sessionEndCount = hookCountAvailability.initialCount(for: .sessionEnd)
         userPromptSubmitCount = hookCountAvailability.initialCount(for: .userPromptSubmit)
         stopCount = hookCountAvailability.initialCount(for: .stop)
+        interruptCount = hookCountAvailability.initialCount(for: .interrupt)
         preToolUseCount = hookCountAvailability.initialCount(for: .preToolUse)
         postToolUseCount = hookCountAvailability.initialCount(for: .postToolUse)
         permissionRequestCount = hookCountAvailability.initialCount(for: .permissionRequest)
@@ -628,6 +642,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
         sessionEndCount = try container.decodeIfPresent(Int.self, forKey: .sessionEndCount)
         userPromptSubmitCount = try container.decodeIfPresent(Int.self, forKey: .userPromptSubmitCount)
         stopCount = try container.decodeIfPresent(Int.self, forKey: .stopCount)
+        interruptCount = try container.decodeIfPresent(Int.self, forKey: .interruptCount)
         preToolUseCount = try container.decodeIfPresent(Int.self, forKey: .preToolUseCount)
         postToolUseCount = try container.decodeIfPresent(Int.self, forKey: .postToolUseCount)
         permissionRequestCount = try container.decodeIfPresent(Int.self, forKey: .permissionRequestCount)
@@ -662,37 +677,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
         turnIds = nil
     }
 
-    /// 正数压缩计数和可用 ID 集合优先, 空集合保留明确的 0
-    private var resolvedSessionCount: Int {
-        WorkflowCountResolution.resolvedCount(
-            compactedCount: sessionCount,
-            identifiers: sessionIds,
-            fallback: sessionStartCount ?? 0
-        )
-    }
-
-    private var resolvedTurnCount: Int {
-        WorkflowCountResolution.resolvedCount(
-            compactedCount: turnCount,
-            identifiers: turnIds,
-            fallback: stopCount ?? 0
-        )
-    }
-
     var metrics: WorkflowDailyMetrics {
-        WorkflowDailyMetrics(
-            startDate: date,
-            sessionCount: resolvedSessionCount,
-            turnCount: resolvedTurnCount,
-            preToolUseCount: preToolUseCount ?? 0,
-            postToolUseCount: postToolUseCount ?? 0,
-            permissionRequestCount: permissionRequestCount ?? 0,
-            preCompactCount: preCompactCount ?? 0,
-            postCompactCount: postCompactCount ?? 0,
-            subagentStartCount: subagentStartCount ?? 0,
-            subagentStopCount: subagentStopCount ?? 0,
-            modelCounts: modelCounts
-        )
+        syncedAggregate.metrics
     }
 
     static func normalized(
@@ -752,6 +738,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
         case .sessionEnd: sessionEndCount
         case .userPromptSubmit: userPromptSubmitCount
         case .stop: stopCount
+        case .interrupt: interruptCount
         case .preToolUse: preToolUseCount
         case .postToolUse: postToolUseCount
         case .permissionRequest: permissionRequestCount
@@ -771,6 +758,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
             sessionEndCount: sessionEndCount,
             userPromptSubmitCount: userPromptSubmitCount,
             stopCount: stopCount,
+            interruptCount: interruptCount,
             preToolUseCount: preToolUseCount,
             postToolUseCount: postToolUseCount,
             permissionRequestCount: permissionRequestCount,
@@ -806,6 +794,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
             ("sessionEndCount", sessionEndCount),
             ("userPromptSubmitCount", userPromptSubmitCount),
             ("stopCount", stopCount),
+            ("interruptCount", interruptCount),
             ("preToolUseCount", preToolUseCount),
             ("postToolUseCount", postToolUseCount),
             ("permissionRequestCount", permissionRequestCount),
@@ -833,6 +822,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
         case sessionEndCount
         case userPromptSubmitCount
         case stopCount
+        case interruptCount
         case preToolUseCount
         case postToolUseCount
         case permissionRequestCount
@@ -858,6 +848,7 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable {
     var sessionEndCount: Int?
     var userPromptSubmitCount: Int?
     var stopCount: Int?
+    var interruptCount: Int?
     var preToolUseCount: Int?
     var postToolUseCount: Int?
     var permissionRequestCount: Int?
@@ -888,7 +879,8 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable {
             postCompactCount: postCompactCount ?? 0,
             subagentStartCount: subagentStartCount ?? 0,
             subagentStopCount: subagentStopCount ?? 0,
-            modelCounts: modelCounts
+            modelCounts: modelCounts,
+            interruptCount: interruptCount
         )
     }
 
@@ -915,6 +907,7 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable {
             ("sessionEndCount", sessionEndCount),
             ("userPromptSubmitCount", userPromptSubmitCount),
             ("stopCount", stopCount),
+            ("interruptCount", interruptCount),
             ("preToolUseCount", preToolUseCount),
             ("postToolUseCount", postToolUseCount),
             ("permissionRequestCount", permissionRequestCount),
@@ -949,6 +942,7 @@ nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable {
         case sessionEndCount
         case userPromptSubmitCount
         case stopCount
+        case interruptCount
         case preToolUseCount
         case postToolUseCount
         case permissionRequestCount
@@ -973,6 +967,7 @@ extension WorkflowSyncedDailyAggregate {
         sessionEndCount = try container.decodeIfPresent(Int.self, forKey: .sessionEndCount)
         userPromptSubmitCount = try container.decodeIfPresent(Int.self, forKey: .userPromptSubmitCount)
         stopCount = try container.decodeIfPresent(Int.self, forKey: .stopCount)
+        interruptCount = try container.decodeIfPresent(Int.self, forKey: .interruptCount)
         preToolUseCount = try container.decodeIfPresent(Int.self, forKey: .preToolUseCount)
         postToolUseCount = try container.decodeIfPresent(Int.self, forKey: .postToolUseCount)
         permissionRequestCount = try container.decodeIfPresent(Int.self, forKey: .permissionRequestCount)

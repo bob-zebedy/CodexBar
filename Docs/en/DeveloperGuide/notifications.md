@@ -135,9 +135,10 @@ Date classification uses seconds remaining until expiration, with separate dedup
 Task notifications respond only to new terminal transitions published by the monitor and never infer them by scanning historical lists:
 
 - Tasks established during bootstrap do not notify
-- The activity monitor retains terminal IDs for 24-hour deduplication
+- The activity monitor retains terminal task keys for 24-hour deduplication
 - The notification service also tracks its own sent keys
-- `Stop` and rollout terminal data for the same turn reconcile into one notification
+- `Stop` retains the finishing task; rollout confirmation emits one completion transition
+- `Interrupt` and other termination records do not trigger completion notifications or task haptics
 
 Anonymous tasks are not published to task-notification consumers. The notification service filters `isAnonymous` again at the transition boundary, so anonymous tasks cannot send completion or approval notifications or trigger task haptics.
 
@@ -169,7 +170,7 @@ Relevance checks both before and after submission cover the asynchronous window.
 
 When a non-anonymous running task reaches its silence threshold, Activity Protection updates its in-memory record and schedules an asynchronous save, then starts notification submission and a 3-second grace period together. After notification handling returns or grace expires, the monitor revalidates the candidate before hiding it. Hiding waits for neither disk commit nor notification success.
 
-The notification identifier uses `taskID + attemptID`. Checks before and after submission compare progress generation and silence duration. New progress invalidates the protection attempt and withdraws its notification.
+The notification identifier uses `taskID + attemptID`, and relevance is determined by the monitor's current protection attempt. Checks before and after submission validate the attempt ID, progress generation, and silence duration. When the attempt becomes invalid, the notification service removes delivered and pending notifications with that identifier.
 
 Protection notifications use the system default sound and a `retryCount` of `0` to avoid retrying an obsolete candidate.
 

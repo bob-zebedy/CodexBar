@@ -114,10 +114,14 @@ final nonisolated class AppServerSession {
         )
         let version = Self.serverVersion(fromUserAgent: result.userAgent)
         let minimum = CodexCLIMinimumVersion.global
-        guard let version, CodexCLIVersionReader.isVersion(version, atLeast: minimum) == true else {
+        // 版本未知不能作为明确的低版本结论, 否则 Hook 对账会误删现有配置
+        guard let version, let isSupported = CodexCLIVersionReader.isVersion(version, atLeast: minimum) else {
+            throw CodexStatusError.invalidServerResponse
+        }
+        guard isSupported else {
             let error = CodexStatusError.unsupportedVersion(minimum: minimum)
             if let logStorage {
-                let details = LogFields.joined("current=\(version ?? "unknown")", "minimum=\(minimum)")
+                let details = LogFields.joined("current=\(version)", "minimum=\(minimum)")
                 AppLog.codexCLI.notice("Codex 版本不支持: \(details, privacy: .public)")
                 logStorage.recordFailure(message: error.localizedDescription)
             }

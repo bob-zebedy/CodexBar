@@ -281,7 +281,7 @@ struct CodexActivityCenterView: View {
     private func terminationRow(_ termination: CodexActivityTermination, now: Date) -> some View {
         row(
             symbolName: "xmark.circle.fill",
-            tint: .secondary,
+            tint: .red,
             projectName: termination.projectName,
             modelName: termination.modelName,
             effort: termination.effort,

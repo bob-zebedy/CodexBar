@@ -14,6 +14,7 @@ final class SettingsWindowController: HostingWindowController {
     private let globalHotKeySettings: GlobalHotKeySettings
     private let menuBarQuotaSettings: MenuBarQuotaSettings
     private let mainPanelSettings: MainPanelSettings
+    private let taskGlowSettings: TaskGlowSettings
     private let notificationSettings: NotificationSettings
     private let autoResetSettings: AutoResetSettings
     private let activityProtectionSettings: ActivityProtectionSettings
@@ -42,6 +43,7 @@ final class SettingsWindowController: HostingWindowController {
         globalHotKeySettings: GlobalHotKeySettings,
         menuBarQuotaSettings: MenuBarQuotaSettings,
         mainPanelSettings: MainPanelSettings,
+        taskGlowSettings: TaskGlowSettings,
         notificationSettings: NotificationSettings,
         autoResetSettings: AutoResetSettings,
         activityProtectionSettings: ActivityProtectionSettings,
@@ -59,6 +61,7 @@ final class SettingsWindowController: HostingWindowController {
         self.globalHotKeySettings = globalHotKeySettings
         self.menuBarQuotaSettings = menuBarQuotaSettings
         self.mainPanelSettings = mainPanelSettings
+        self.taskGlowSettings = taskGlowSettings
         self.notificationSettings = notificationSettings
         self.autoResetSettings = autoResetSettings
         self.activityProtectionSettings = activityProtectionSettings
@@ -87,6 +90,7 @@ final class SettingsWindowController: HostingWindowController {
                 globalHotKeySettings: globalHotKeySettings,
                 menuBarQuotaSettings: menuBarQuotaSettings,
                 mainPanelSettings: mainPanelSettings,
+                taskGlowSettings: taskGlowSettings,
                 notificationSettings: notificationSettings,
                 autoResetSettings: autoResetSettings,
                 keepAliveController: keepAliveController,
@@ -158,6 +162,7 @@ final class SettingsWindowController: HostingWindowController {
         syncSettings.refresh()
         menuBarQuotaSettings.refresh()
         mainPanelSettings.refresh()
+        taskGlowSettings.refresh()
         autoResetSettings.refresh()
         activityProtectionSettings.refresh()
         keepAliveController.refresh()

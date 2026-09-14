@@ -10,9 +10,9 @@ CodexBar Hook provides live task status, task notifications, haptics, task-based
 2. Enable `CodexBar Hook` and wait for validation
 3. Start a Codex task and check its status in the main panel
 
-Hook requires the Codex currently in use to be `0.145.0` or later. If the version warning remains after upgrading, click `Reconnect` in `Settings > About`. For other errors, see [Troubleshooting](troubleshooting.md#codexbar-hook-cannot-be-enabled-or-validated).
+Hook requires the Codex currently in use to be `0.150.0` or later. If the version warning remains after upgrading, click `Reconnect` in `Settings > About`. For other errors, see [Troubleshooting](troubleshooting.md#codexbar-hook-cannot-be-enabled-or-validated).
 
-CodexBar automatically checks and repairs enabled Hook configuration. Enabling or disabling it preserves Hooks belonging to you and other apps.
+CodexBar automatically checks and repairs enabled Hook configuration, preserving handlers belonging to users and other apps. If Codex is confirmed to be below the minimum version, Hook is disabled and CodexBar removes its handlers; enable Hook again after upgrading Codex. Configuration is retained for the next check if the connection or version is temporarily unavailable.
 
 ## Task States
 
@@ -21,11 +21,15 @@ CodexBar automatically checks and repairs enabled Hook configuration. Enabling o
 | Running | Codex is processing the task |
 | Waiting for Approval | You need to approve the next action |
 | Recently Completed | A turn ended; its result is not necessarily successful |
-| Recently Terminated | The task was interrupted; no completion notification is sent |
+| Recently Terminated | An interruption or other terminal signal confirmed termination; no completion notification is sent |
 
-Subagent activity is combined with its parent task. Internal automatic-review tasks do not appear separately or trigger task alerts or sleep prevention; their activity still contributes to daily statistics.
+After `Stop`, the task first shows “Finishing up”. A completion notification is sent after the turn is confirmed complete and the notification settings are satisfied. If another Hook continues the task, progress keeps updating; an interruption during that time is shown as terminated.
 
-Tasks whose session cannot be identified show an orange anonymous icon. You can view them, but they do not trigger notifications or haptics, prevent sleep, or participate in Stalled Task Protection.
+Interruption ends only the matching turn; a newer turn in the same session stays active. Task-based sleep prevention releases once all eligible tasks end.
+
+Subagent activity is combined with its parent task. Internal automatic-review tasks and tasks whose origin remains unconfirmed do not appear as live tasks or trigger Task Glow, task alerts, or sleep prevention; their activity still contributes to daily statistics. Once the same session and turn have been confirmed as a normal task, later events with a temporarily unknown origin continue updating its state.
+
+Tasks with a known origin whose session cannot be identified show an orange anonymous icon. You can view them, but they do not trigger notifications or haptics, prevent sleep, or participate in Stalled Task Protection.
 
 [Stalled Task Protection](sleep-prevention.md#stalled-task-protection) may hide running tasks that stop making progress. They reappear when progress resumes.
 
@@ -33,7 +37,7 @@ Tasks whose session cannot be identified show an orange anonymous icon. You can 
 
 Hover over a day in the main panel heatmap to view sessions, turns, tool calls, permission requests, context compactions, subagents, and the most-used model.
 
-Sessions and turns are deduplicated within each day; activity continuing into another day counts toward that day. Paired records such as tool-call events may be incomplete, so statistics reflect the activity CodexBar actually observed.
+Sessions and turns are deduplicated within each day; activity continuing into another day counts toward that day. Sessions with only a session-end event and turns with only completion-candidate or interruption events do not count as active that day. Tool calls use the larger of the start and end event counts.
 
 ## Disable Hook
 

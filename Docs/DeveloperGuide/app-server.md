@@ -110,7 +110,7 @@ codex app-server --listen stdio://
 ```text
 启动子进程
   -> initialize(clientInfo)
-  -> 校验实际版本 >= 0.143.0
+  -> 校验实际版本 >= 0.145.0
   -> initialized
   -> account/read
   -> account/rateLimits/read
@@ -127,14 +127,14 @@ stdout 可能包含非 JSON 输出。pipe reader 会持续读取完整行，只�
   -> 启动 Process
   -> initialize(clientInfo)
   -> 从 userAgent 保存实际版本
-  -> 校验实际版本 >= 0.143.0
+  -> 校验实际版本 >= 0.145.0
   -> initialized notification
   -> account/read(refreshToken: false)
   -> account 存在: 提交 connection
   -> account 缺失: 关闭进程并返回 notLoggedIn
 ```
 
-只有实际版本满足全局门槛，并且 handshake 与首次账户读取都成功，connection 才进入 service 状态。版本低于 `0.143.0` 或无法解析时按不支持处理，关闭半初始化 session，不继续发送账户请求。
+只有实际版本满足全局门槛，并且 handshake 与首次账户读取都成功，connection 才进入 service 状态。明确低于 `0.145.0` 时返回版本不支持；版本缺失或无法解析时返回无效响应，不能作为 Hook 自动清理的低版本依据。两种情况都会关闭半初始化 session，不继续发送账户请求。
 
 ### Stdout 分行与响应匹配
 
@@ -411,7 +411,7 @@ Hook 设置也复用 app-server 链路，但采用独立的可用性状态：
 - `isOperable` 只有在两者都为 `true` 时成立
 - 短暂 RPC 失败保留上一次明确校验结果
 
-启用或校验 Hook 时必须确认实际 app-server 版本不低于 `0.145.0`
+启用或校验 Hook 时必须确认实际 app-server 版本不低于 `0.150.0`
 
 详细配置流程见 [Hook 采集与历史聚合](hook-and-aggregation.md)
 
@@ -422,7 +422,7 @@ Hook 设置也复用 app-server 链路，但采用独立的可用性状态：
 - 没有连接时先建立连接
 - 有连接时复用当前真实进程
 - 从 handshake user agent 解析运行版本
-- 无法解析版本时按不支持处理，不乐观放行
+- 无法解析版本时拒绝连接，但不触发低版本 Hook 自动清理
 
 ## 请求日志
 
@@ -448,9 +448,9 @@ Reset Credits 明细包含 opaque credit ID。系统日志不能记录 ID 或原
 - stderr 持续输出时请求不会因 pipe 背压卡住
 - 复用连接的 transport failure 只重建一次
 - 磁盘 CLI 升级后，当前连接版本与磁盘版本能被区分
-- app-server 低于 `0.143.0` 时阻断账户主链路并提示升级
-- app-server 为 `0.143.x` 或 `0.144.x` 时账户主链路可用，但 Hook 仍提示需要 `0.145.0`
-- app-server 不低于 `0.145.0` 时账户主链路和 Hook 校验均可用
+- app-server 低于 `0.145.0` 时阻断账户主链路并提示升级
+- app-server 不低于 `0.145.0` 且低于 `0.150.0` 时账户主链路可用，但 Hook 仍提示需要 `0.150.0`
+- app-server 不低于 `0.150.0` 时账户主链路和 Hook 校验均可用
 - rate limits 失败但同账户有缓存时展示 stale，通知不误触发
 - 账户切换后旧额度和用量立即清空
 - unsupported method 不会每分钟重复请求

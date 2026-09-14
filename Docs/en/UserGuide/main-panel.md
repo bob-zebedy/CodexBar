@@ -89,7 +89,7 @@ When CodexBar Hook is enabled and data exists for that day, the details also inc
 
 ## Activity Card
 
-Activity-card states are prioritized as waiting for approval, running, recently completed, then recently terminated.
+The activity card prioritizes tasks waiting for approval, then running tasks. With no active tasks, it shows the latest completion or termination by end time, with termination taking precedence on ties.
 
 The card shows the following fields when available:
 
@@ -101,7 +101,7 @@ The card shows the following fields when available:
 - Number of other concurrent tasks
 - Anonymous-task icon
 
-While sleep prevention is active, a teal sun badge rotates continuously on the right side of the activity card. Hover over it to see the sleep-prevention source.
+While sleep prevention is active, a teal sun badge appears on the right side of the activity card. Hover over it to see the sleep-prevention source. The badge rotates while Animation Effects is enabled and stays static when it is disabled.
 
 Tasks whose session cannot be identified show an orange anonymous icon with the tooltip `Anonymous tasks do not prevent sleep`.
 
@@ -118,7 +118,7 @@ Task Center groups tasks into:
 - Recently Completed
 - Recently Terminated
 
-Recently completed and terminated records remain for 10 minutes. Completion means a turn ended, without implying success. Termination means it was interrupted and does not trigger a completion notification.
+Recently completed and terminated records remain for 10 minutes. Completion means a turn ended, without implying success. Termination records include interruptions and other task terminations, and do not trigger completion notifications.
 
 ## Footer Status
 

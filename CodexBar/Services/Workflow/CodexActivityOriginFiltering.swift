@@ -2,7 +2,7 @@ import Foundation
 import os
 
 extension CodexActivityMonitor {
-    /// Auto-review 事件只影响实时活动链路, 原始事件仍由历史聚合完整消费
+    /// 来源过滤只影响实时活动链路, 原始事件仍由历史聚合完整消费
     func shouldIgnoreForActivity(
         _ event: WorkflowHookEvent,
         source: CodexActivityEventSource
@@ -14,35 +14,45 @@ extension CodexActivityMonitor {
                 return true
             }
 
-            let now = Date()
-            let observedAt = min(event.timestamp, now)
-            let wasAlreadyIgnored = ignoredAutoReviewTaskAt[exactKey] != nil
-            ignoredAutoReviewTaskAt[exactKey] = max(
-                ignoredAutoReviewTaskAt[exactKey] ?? .distantPast,
-                observedAt
-            )
-            discardAutoReviewActivity(for: exactKey)
+            let wasAlreadyIgnored = activityTaskOrigins[exactKey]?.origin == .autoReview
+            rememberActivityOrigin(event.origin, for: exactKey, at: event.timestamp)
+            discardExcludedActivity(for: exactKey)
             if !wasAlreadyIgnored, source == .live {
                 AppLog.activity.notice("Auto-review 任务已过滤")
             }
             return true
         case .main, .auxiliary:
             if let exactKey {
-                ignoredAutoReviewTaskAt.removeValue(forKey: exactKey)
+                rememberActivityOrigin(event.origin, for: exactKey, at: event.timestamp)
             }
             return false
         case .unknown:
             guard let exactKey,
-                  let ignoredAt = ignoredAutoReviewTaskAt[exactKey] else {
-                return false
+                  let knownOrigin = activityTaskOrigins[exactKey] else {
+                return true
             }
-            let cutoff = Date().addingTimeInterval(-Self.activityRetention)
-            guard ignoredAt > cutoff else {
-                ignoredAutoReviewTaskAt.removeValue(forKey: exactKey)
-                return false
+            guard knownOrigin.observedAt > Date().addingTimeInterval(-Self.activityRetention) else {
+                activityTaskOrigins.removeValue(forKey: exactKey)
+                return true
             }
-            return true
+            guard knownOrigin.origin == .main || knownOrigin.origin == .auxiliary else {
+                return true
+            }
+            // 一次读取失败不推翻已确认来源, 迟到事件仍交给状态机检查时间顺序
+            rememberActivityOrigin(knownOrigin.origin, for: exactKey, at: event.timestamp)
+            return false
         }
+    }
+
+    private func rememberActivityOrigin(
+        _ origin: WorkflowEventOrigin,
+        for key: CodexActivityTaskKey,
+        at timestamp: Date
+    ) {
+        activityTaskOrigins[key] = (
+            origin: origin,
+            observedAt: max(activityTaskOrigins[key]?.observedAt ?? .distantPast, min(timestamp, Date()))
+        )
     }
 
     private static func exactTurnKey(for event: WorkflowHookEvent) -> CodexActivityTaskKey? {
@@ -53,7 +63,7 @@ extension CodexActivityMonitor {
         return .turn(session: sessionId, turn: turnId)
     }
 
-    private func discardAutoReviewActivity(for key: CodexActivityTaskKey) {
+    private func discardExcludedActivity(for key: CodexActivityTaskKey) {
         var taskIDs = Set<UUID>()
         if let task = tasks.removeValue(forKey: key) {
             taskIDs.insert(task.displayID)
@@ -74,24 +84,20 @@ extension CodexActivityMonitor {
         terminations.removeAll { terminalTaskKeyByID[$0.id] == key }
         terminalTaskKeyByID = terminalTaskKeyByID.filter { $0.value != key }
 
-        Self.removeTerminalMemory(for: key, storedIn: &recentlyCompletedTaskAt)
-        Self.removeTerminalMemory(for: key, storedIn: &recentlyTerminatedTaskAt)
+        removeTerminalMemory(for: key)
     }
 
-    private static func removeTerminalMemory(
-        for key: CodexActivityTaskKey,
-        storedIn dates: inout [CodexActivityTaskKey: Date]
-    ) {
-        guard let removedAt = dates.removeValue(forKey: key),
+    private func removeTerminalMemory(for key: CodexActivityTaskKey) {
+        guard let removedAt = recentlyEndedTaskAt.removeValue(forKey: key),
               let sessionId = key.sessionId else {
             return
         }
 
         let sessionKey = CodexActivityTaskKey.session(sessionId)
-        guard dates[sessionKey] == removedAt else {
+        guard recentlyEndedTaskAt[sessionKey] == removedAt else {
             return
         }
-        let remainingSessionDate = dates.compactMap { candidateKey, date -> Date? in
+        let remainingSessionDate = recentlyEndedTaskAt.compactMap { candidateKey, date -> Date? in
             guard candidateKey != sessionKey,
                   candidateKey.sessionId == sessionId else {
                 return nil
@@ -99,9 +105,9 @@ extension CodexActivityMonitor {
             return date
         }.max()
         if let remainingSessionDate {
-            dates[sessionKey] = remainingSessionDate
+            recentlyEndedTaskAt[sessionKey] = remainingSessionDate
         } else {
-            dates.removeValue(forKey: sessionKey)
+            recentlyEndedTaskAt.removeValue(forKey: sessionKey)
         }
     }
 }

@@ -6,8 +6,8 @@
 
 - macOS 15.0 or later
 - [Codex CLI](https://github.com/openai/codex) installed and signed in, or ChatGPT App or Codex App with bundled Codex installed
-- The Codex currently in use must be `0.143.0` or later
-- Hook features require the Codex currently in use to be `0.145.0` or later
+- The Codex currently in use must be `0.145.0` or later
+- Hook features require the Codex currently in use to be `0.150.0` or later
 - Cross-device sync requires an available iCloud account on the Mac
 
 By default, CodexBar automatically prefers a globally installed Codex CLI. If it cannot find one, it tries the Codex bundled with ChatGPT App and Codex App. You can select a source under Settings > About > Codex Versions > Source.

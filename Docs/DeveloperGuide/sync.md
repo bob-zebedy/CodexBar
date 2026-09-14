@@ -176,7 +176,9 @@ generation 记录用于表达某一份原始来源的身份。同源的本地和
 
 CloudKit record schema 演进时，旧记录可能没有新计数字段。`nil` 表示该设备那天无法提供这项统计，`0` 表示明确观察到零次。
 
-CloudKit 解码及持久化模型保留可选计数字段。当前 `WorkflowDailyMetrics` 展示投影会把缺失的单项事件计数转换为 `0`；session 和 turn 计数先回退到对应的开始或停止事件计数，再回退为 `0`。UI 中整日统计不可用与单个计数字段缺失是不同情况。
+CloudKit 解码及持久化模型保留可选计数字段。本地与远端聚合共用 `WorkflowDailyMetrics` 展示投影：保留 `interruptCount` 的缺失值，其他单项事件计数缺失时转换为 `0`；session 和 turn 计数缺失时先回退到对应的开始或停止事件计数，再回退为 `0`。
+
+CloudKit 使用可选整数字段 `interruptCount` 保存中断次数。同日合并的任一贡献缺少该字段时，中断次数合计保持不可用。
 
 ## 来源替换与重建
 
@@ -219,7 +221,7 @@ replacement 删除前全量拉取当前设备同日记录，覆盖本地增量�
 | `cache.jsonl` | 远端设备日聚合缓存 |
 | `cursor.data` | CloudKit zone change token |
 
-当前 CloudKit record schema 为 `5`。本地同步状态 schema 为 `4`，能读取上一版 schema `3`
+当前 CloudKit record schema 为 `6`。本地同步状态 schema 为 `4`，能读取上一版 schema `3`
 
 3 个文件有不同的可恢复等级：
 
@@ -293,6 +295,7 @@ CloudKit 记录保留期与本地 Hook 历史一致，最长 210 天：
 
 - 首次启用后上传保留期内本机聚合
 - 第二台设备能够合并显示，不重复当前设备贡献
+- 包含和缺少 `interruptCount` 的设备记录合并后，该指标保持不可用
 - 关闭同步后只显示本地统计
 - iCloud 未登录时显示明确状态，本地统计继续工作
 - 网络断开后使用最后缓存，恢复后完成增量同步

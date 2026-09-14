@@ -112,7 +112,7 @@ struct CodexActivityCard: View {
                     .font(.caption2.monospacedDigit().weight(.semibold))
                     // 必须是具体 Color, 层级样式在 numericText 的过渡层里会被重新解析成别的层级
                     .foregroundStyle(Color.codexSecondaryLabel)
-                    .numericRollTransition(value: Double(content.otherTaskCount))
+                    .contentTransition(.numericText(value: Double(content.otherTaskCount)))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
                     .background(.secondary.opacity(0.12), in: Capsule())
@@ -189,7 +189,7 @@ struct CodexActivityCard: View {
             )
             return ActivityCardContent(
                 symbolName: "xmark.circle.fill",
-                tint: .secondary,
+                tint: .red,
                 title: activityTitle(
                     modelName: termination.modelName,
                     effort: termination.effort,

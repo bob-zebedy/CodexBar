@@ -176,7 +176,9 @@ Upload targets follow these rules:
 
 As the CloudKit record schema evolves, an old record may lack a new count field. `nil` means that device cannot provide the metric for that day; `0` means it explicitly observed zero occurrences.
 
-CloudKit decoding and persisted models preserve optional counts. The current `WorkflowDailyMetrics` display projection converts missing individual event counts to `0`; session and turn counts first fall back to their start or stop event counts, then to `0`. Unavailable daily statistics and a missing individual count are different UI cases.
+CloudKit decoding and persisted models preserve optional counts. Local and remote aggregates share the `WorkflowDailyMetrics` display projection: a missing `interruptCount` stays unavailable, while other missing individual event counts become `0`. Missing session and turn counts fall back to the corresponding start or stop event counts, then to `0`.
+
+CloudKit stores interruption counts in the optional integer field `interruptCount`. If any contribution for a combined date lacks this field, the total interruption count remains unavailable.
 
 ## Source Replacement and Rebuild
 
@@ -219,7 +221,7 @@ Sync state lives at:
 | `cache.jsonl` | Cached daily aggregates from remote devices |
 | `cursor.data` | CloudKit zone change token |
 
-The current CloudKit record schema is `5`. The local sync-state schema is `4` and can read the previous schema `3`.
+The current CloudKit record schema is `6`. The local sync-state schema is `4` and can read the previous schema `3`.
 
 The three files have different recovery costs:
 
@@ -293,6 +295,7 @@ Transient errors preserve the last usable remote cache. After account switching 
 
 - First enable uploads local aggregations within retention
 - A second device merges contributions without duplicating the current device
+- Merging device records with and without `interruptCount` preserves its unavailable state
 - Disabling sync shows local metrics only
 - When iCloud is signed out, the app shows a clear state and local metrics keep working
 - After network loss, the app uses the last cache and completes incremental sync on recovery

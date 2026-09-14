@@ -110,7 +110,7 @@ The protocol is line-delimited JSON-RPC. A connection sends `initialize`, then `
 ```text
 Start subprocess
   -> initialize(clientInfo)
-  -> Validate actual version >= 0.143.0
+  -> Validate actual version >= 0.145.0
   -> initialized
   -> account/read
   -> account/rateLimits/read
@@ -127,14 +127,14 @@ Resolve executable
   -> Start Process
   -> initialize(clientInfo)
   -> Save actual version from userAgent
-  -> Validate actual version >= 0.143.0
+  -> Validate actual version >= 0.145.0
   -> initialized notification
   -> account/read(refreshToken: false)
   -> Account exists: commit connection
   -> Account missing: close process and return notLoggedIn
 ```
 
-A connection enters service state only after the actual version passes the global threshold and both handshake and first account read succeed. A version below `0.143.0` or an unparseable version is treated as unsupported; the half-initialized session closes without further account requests.
+A connection enters service state only after the actual version passes the global threshold and both handshake and first account read succeed. A confirmed version below `0.145.0` returns an unsupported-version error. A missing or unparseable version returns an invalid-response error and cannot trigger Hook removal for an unsupported version. Both cases close the half-initialized session without further account requests.
 
 ### Stdout Framing and Response Matching
 
@@ -411,7 +411,7 @@ Hook settings reuse the app-server flow but maintain independent availability st
 - `isOperable` is true only when both are `true`
 - A transient RPC failure preserves the last explicit validation result
 
-Enabling or validating Hook requires the actual app-server version to be at least `0.145.0`.
+Enabling or validating Hook requires the actual app-server version to be at least `0.150.0`.
 
 See [Hook Capture and Historical Aggregation](hook-and-aggregation.md) for the full configuration flow.
 
@@ -422,7 +422,7 @@ Enabling or validating Hook calls `readyConnectionInfo()`:
 - If no connection exists, it establishes one first
 - If a connection exists, it reuses the actual current process
 - It parses the running version from the handshake user agent
-- An unparseable version is treated as unsupported rather than allowed optimistically
+- An unparseable version rejects the connection without triggering Hook removal for an unsupported version
 
 ## Request Logs
 
@@ -448,9 +448,9 @@ Reset Credits details include opaque credit IDs. Unified logs must not record ID
 - Continuous stderr output does not stall requests through pipe backpressure
 - A transport failure on a reused connection rebuilds only once
 - After an on-disk CLI upgrade, the current connection version remains distinct from the disk version
-- app-server below `0.143.0` blocks the primary account flow and asks for an upgrade
-- app-server `0.143.x` or `0.144.x` supports the primary account flow while Hook still requires `0.145.0`
-- app-server `0.145.0` or later supports both the account flow and Hook validation
+- app-server below `0.145.0` blocks the primary account flow and asks for an upgrade
+- app-server from `0.145.0` up to but excluding `0.150.0` supports the primary account flow while Hook still requires `0.150.0`
+- app-server `0.150.0` or later supports both the account flow and Hook validation
 - A failed rate-limit read with same-account cache displays stale data without triggering notifications
 - An account switch clears old rate-limit and usage data immediately
 - An unsupported method is not retried every minute

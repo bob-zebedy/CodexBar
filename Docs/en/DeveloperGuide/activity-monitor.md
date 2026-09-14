@@ -11,7 +11,7 @@ The live-task flow answers four questions:
 - Did a recent task complete or terminate?
 - Which running tasks have made no progress for too long?
 
-Hook events provide low-latency signals, and rollout files provide authoritative lifecycle context. [`CodexActivityMonitor.swift`](../../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) merges both into the sole task snapshot:
+Hook events provide live progress and interruption signals, while rollout files supply lifecycle context. [`CodexActivityMonitor.swift`](../../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) merges both into the sole task snapshot:
 
 ```text
 Hook JSONL -> HookEventTailReader ---------+
@@ -27,10 +27,11 @@ rollout JSONL -> CodexSessionLifecycleReader+
 | User-approval candidate | `PermissionRequest` | Rollout reviewer confirmation |
 | Turn start | `UserPromptSubmit` | Rollout `startedAt` or historical lookup |
 | Completion candidate | `Stop` | Rollout terminal |
-| Completion versus termination | Rollout terminal | Grace-expiration fallback |
+| Explicit turn interruption | `Interrupt` | Rollout terminal |
+| Other terminal resolution | Rollout terminal | Grace-expiration fallback |
 | Effort | Hook-recorder lookup | Rollout lifecycle backfill |
 
-Hook prioritizes low latency; rollout prioritizes semantic accuracy. They do not simply overwrite by timestamp. Every field has its own trusted source.
+Each field is resolved from the sources listed above. Hook polling waits 2 seconds after each read, and rollout polling waits 1 second after each reconciliation round.
 
 ### Snapshots and Transitions
 
@@ -131,7 +132,15 @@ Rules are:
 - Parse only lifecycle, turn, progress, effort, and reviewer
 - Never read or store conversation content for product presentation
 
-Hook `Stop` is only a completion candidate. Rollout terminal state distinguishes actual completion, user cancellation, and abnormal termination.
+Hook `Stop` marks the task as “Finishing up” and keeps it active. Tools, approvals, and other progress continue updating the same task. Rollout `task_complete` confirms completion and emits a completion transition.
+
+If rollout is temporarily unreadable or the session or turn cannot be matched, the task continues waiting for reconciliation. `Stop` does not start a terminal timeout. A new turn or `SessionEnd` removes the old task from the active list and opens a five-second terminal-confirmation window. A late `Stop` updates only the pending task's metadata and progress, without restoring its presentation or resetting the deadline.
+
+### Explicit Interruptions
+
+`Interrupt` ends the matching top-level turn, clears protection state and notifications, and stores a termination record. It can match running, approval-waiting, suppressed, and pending-terminal tasks; a newer turn in the same session stays active. Ambiguous matches are ignored.
+
+Hook and rollout terminal signals share deduplication records, retaining the first confirmed completion or termination. Terminations are displayed without triggering completion notifications or haptics.
 
 ### Locating Session Files
 
@@ -179,24 +188,22 @@ Some events contain only session ID. A session key still participates in state, 
 
 Without a session ID, only a project key remains. It may merge concurrent anonymous tasks in one project, so anonymous tasks provide reversible UI visibility but cannot drive notifications, sleep prevention, or persisted protection.
 
-### Auto-review Origin Filtering
+### Live Task Origin Filtering
 
-`CodexActivityMonitor.apply` checks `WorkflowHookEvent.origin` before any state transition. At construction and decoding boundaries, `WorkflowHookEvent` prefers an explicit origin and uses an exact `model == "codex-auto-review"` match as the `.autoReview` fallback only when that origin is `unknown`. An `autoReview` event never enters the live-task state machine, so it cannot appear in the menu bar, activity card, Task Center, or task counts and cannot produce notifications, haptics, approval waiting, Stalled Task Protection, or sleep-prevention contribution.
+`CodexActivityMonitor.apply` checks `WorkflowHookEvent.origin` before task-state transitions. See [Origin Normalization](hook-and-aggregation.md#origin-normalization) for input classification.
 
-Filtering uses the exact `session ID + turn ID` because Codex subagent Hooks reuse the parent session ID. Filtering by session alone would also hide the real main task.
+The monitor remembers origins in memory for 24 hours by exact `session ID + turn ID`. Codex subagent Hooks reuse the parent session ID, so origin decisions do not apply to an entire session.
 
-When an exact Auto-review event arrives, the monitor:
+| Event origin | Live processing |
+| --- | --- |
+| `main`, `auxiliary` | Remember the explicit origin and apply normal state-machine rules |
+| `autoReview` | Ignore the event and remove the same key's activity, pending terminals, display records, and stalled-task protection; retain origin memory |
+| `unknown` with a valid remembered `main` or `auxiliary` origin for the same key | Continue processing with the confirmed origin |
+| `unknown` without valid normal-origin memory | Ignore the event |
 
-- Removes the active task and terminal-grace candidate for that key
-- Removes recent completion, recent termination, and terminal-deduplication memory for that key
-- Cancels Stalled Task Protection attempts, persisted records, and pending notifications
-- Remembers the exact key in a 24-hour bounded table so later `unknown` events cannot revive the same task
+Events missing a session ID or turn ID do not create origin memory; `unknown` and `autoReview` events are ignored. A task with a confirmed origin survives a temporary rollout read failure. Late events still pass the state machine's timestamp and terminal-deduplication checks.
 
-If an explicit `main` or `auxiliary` event later matches the same key, source truth wins and clears that ignored-key inference. An Auto-review event without a turn ID is ignored only for that event and never creates a session-wide blacklist.
-
-Other subagents, including Memories, are classified as `auxiliary` and participate in auxiliary-task association. Raw Hook events still enter historical aggregation; live Auto-review filtering does not change statistics or CloudKit data.
-
-A missing or unrecognized JSONL `origin` first decodes as `unknown`. An exact `codex-auto-review` model match normalizes it to `.autoReview`; other records remain `.unknown`. This step uses existing record fields, performs no additional historical rollout scan for origin classification, and does not rewrite raw Hook records.
+These rules apply to bootstrap and live reads. Other subagents, including Memories, are classified as `auxiliary` and follow auxiliary-task association rules. Historical aggregation still consumes all raw events. Origin memory is neither persisted nor uploaded.
 
 ### New Prompts and Terminal Grace
 
@@ -216,10 +223,12 @@ The old turn therefore moves to `pendingTerminalTasks`:
 
 ### Rejecting Late Events
 
-Tasks store `lastActivityAt`, and terminal memory stores completion or termination time:
+Tasks store `lastActivityAt`. Completion and termination share the in-memory `recentlyEndedTaskAt` map of end times. Their display records remain separate and expire after 10 minutes; deduplication memory lasts 24 hours independently. Removing a record through origin filtering recomputes its session alias from the remaining terminal timestamps.
+
+Late events follow these rules:
 
 - An event older than current last activity cannot overwrite newer state
-- A new prompt no later than a remembered terminal cannot revive the old task
+- An exact turn cannot be recreated while terminal memory is retained; session and anonymous keys can be reused only by a newer prompt
 - A `Stop` matching several candidates is not guessed
 - A key already in terminal deduplication memory clears recovery tasks left by abnormal ordering
 
@@ -247,12 +256,12 @@ Active tasks mainly use these internal states:
 
 `PermissionRequest` enters `waitingApproval` only when the reviewer is the user. Automatic or policy approval does not count as user waiting.
 
-Terminal signals reconcile by reliability:
+Task endings are handled by signal:
 
-- `SessionEnd` ends the session
-- Rollout terminal distinguishes completion from termination
-- `Stop` creates a completion candidate without stronger evidence
-- A new prompt may end the display lifecycle of the old turn
+- `Stop` marks the task as finishing while retaining it in the active list
+- `Interrupt` records the matching turn as terminated
+- Rollout terminal confirms completion or termination
+- A new turn or `SessionEnd` moves the old task into a five-second terminal-confirmation window; expiration without a terminal result records termination, while suppressed tasks only retain deduplication state
 
 ### Main Event-to-State Transitions
 
@@ -263,8 +272,9 @@ Terminal signals reconcile by reliability:
 | running | Tool, compact, or subagent progress | running | Update last progress and generation |
 | running | `PermissionRequest` + reviewer user | waitingApproval | Publish live waiting transition |
 | waitingApproval | New progress | running | Clear pending approval and protection record |
-| running or waiting | `Stop` | terminal candidate | Retain completion or wait for rollout reconciliation |
+| running or waiting | `Stop` | running | Show Finishing up and retain the task until rollout confirms its terminal state |
 | active | New prompt or `SessionEnd` | pending terminal | Remove from snapshot and begin 5-second grace |
+| active, suppressed, or pending terminal | `Interrupt` | terminated | Remove the matching task, record termination, and clear protection state and notifications |
 | running | Silence exceeds threshold | suppressed | Hide and remove sleep-prevention contribution |
 | suppressed | New progress | running | Clear persisted protection and old notification |
 
@@ -293,16 +303,17 @@ With missing IDs, stop-before-start, or several candidates in one session, the m
 The activity card selects content through `primaryActivity` in this order:
 
 ```text
-Waiting for approval > Running > Recently completed > Recently terminated > Idle
+Waiting for approval > Running > Latest completion or termination > Idle
 ```
 
-The menu bar also prioritizes waiting and running tasks. With no active tasks, it selects the latest completion or termination until 10 seconds after the end timestamp. Task Center retains terminal records for 10 minutes; terminal deduplication memory lasts 24 hours.
+`latestTerminalEvent` selects the latest completion or termination by end time, with termination taking precedence on ties. The activity card, menu bar, and idle task glow share this result. The menu bar uses `primaryActivity` and limits terminal display to 10 seconds after the end timestamp. Task Center retains terminal records for 10 minutes; terminal deduplication memory lasts 24 hours.
 
 The snapshot feeds:
 
 - Menu bar person symbol
 - Main-panel task card
 - Task Center
+- Task glow, receiving snapshots and new terminal events through `presentationPublisher`
 - Notification system
 - Sleep-prevention controller
 
@@ -312,6 +323,12 @@ The monitor checks rollout each second and refreshes at cleanup deadlines.
 
 A candidate snapshot is compared with the current value and published only after structural change. Views format elapsed time from the current clock and do not require per-second mutation of task objects.
 
+### Presentation Updates
+
+`presentationPublisher` publishes the current snapshot and the batch's still-valid `terminalEvents` for Task Glow. Presentation events include anonymous tasks; notifications use the separate `transitionPublisher`.
+
+History reloads, sleep recovery, and source health changes clear pending events and update `terminalPresentationNotBefore`. Collection pauses during bootstrap, wake reconciliation, and unhealthy source state. Records ending before the recovery boundary do not produce brief indicators; tasks ending after recovery publish normally.
+
 ### Stable Ordering
 
 Several tasks in one batch can share a timestamp; comparing timestamps alone does not determine their relative order.
@@ -320,7 +337,7 @@ All lists sort by most recent time first and then display UUID string. Stable or
 
 ### Cleanup Uses the Nearest Deadline
 
-The monitor manages terminal grace, activity retention, history retention, terminal deduplication, and protection-record expiration. `StatusItemController` independently manages the 10-second completion or termination indication; its expiration does not republish the activity snapshot.
+The monitor manages terminal grace, activity retention, history retention, terminal deduplication, and protection-record expiration. Menu bar terminal hints and task glow have their expiry managed by `StatusItemController` and `TaskGlowController`, respectively. Hint expiry does not republish activity snapshots.
 
 The cleanup task waits for the nearest future deadline, processes it, then schedules the next.
 
@@ -454,14 +471,22 @@ These constraints prevent false completion alerts and incorrect release during s
 | Generation | Protected asynchronous path |
 | --- | --- |
 | `tailReaderGeneration` | Reader batch, rollout polling, and prompt backfill |
-| `bootstrapCompletionGeneration` | Asynchronous lifecycle completion after repeated bootstrap attempts |
-| `activityProtectionRecoveryGeneration` | Sleep, wake, and data-source recovery |
+| `bootstrapCompletionGeneration` | Bootstrap lifecycle completion and rollout reconciliation results spanning a bootstrap |
+| `activityProtectionRecoveryGeneration` | Sleep/wake recovery and rollout reconciliation results spanning recovery generations |
 | Task `progressGeneration` | Protection candidate during notification grace |
 
 Each answers a different “is this current?” question and cannot become one global counter. A task making progress without a reader change should invalidate only its protection attempt, not the entire reader.
 
 ## Suggested Failure-Scenario Tests
 
+- Continue from a Stop handler, then complete or interrupt, without premature completion notifications
+- Interrupt while a Stop handler is running and confirm one termination record and red hint
+- Keep rollout unreadable for more than five seconds, then recover and confirm completion once
+- Request approval after Stop continuation, then interrupt and clear the waiting task
+- Interrupt running, waiting, and suppressed tasks; verify state, duration, protection cleanup, and no completion notification
+- Deliver Hook and rollout termination in both orders; verify one record and one hint
+- Interrupt an old turn after starting a new one; keep the new turn active
+- Replay duplicate Interrupt and late tool/prompt events without restoring the ended turn
 - Starting the app while a task is running shows it through bootstrap without replaying notifications
 - Bootstrap retries while files continuously append and eventually obtains a stable boundary
 - Three unstable attempts enter degraded state without starting silence evaluation

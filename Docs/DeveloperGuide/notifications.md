@@ -135,9 +135,10 @@ app-server 连接重建后，同一窗口的 `resetsAt` 可能出现秒级修正
 任务通知只响应 monitor 发布的新 terminal 转场，不扫描历史列表推导：
 
 - bootstrap 建立的历史任务不发送通知
-- terminal ID 在活动监控层保留 24 小时去重
+- 终态任务键在活动监控层保留 24 小时去重
 - 通知服务还维护自己的已发送 key
-- 同一 turn 的 `Stop` 和 rollout terminal 对账后只发送一次
+- `Stop` 保留正在收尾的任务，rollout 确认完成后只发布一次完成转场
+- `Interrupt` 和其他终止记录不触发完成通知或任务触觉反馈
 
 匿名任务不会发布给任务通知消费者。通知服务在 transition 入口再次过滤 `isAnonymous`，因此匿名任务不发送完成或等待批准通知，也不触发任务触觉反馈。
 
@@ -169,7 +170,7 @@ app-server 连接重建后，同一窗口的 `resetsAt` 可能出现秒级修正
 
 非匿名运行任务静默达到阈值时，Activity Protection 先更新内存保护记录并安排异步保存，再并行启动通知提交和 3 秒宽限。通知处理返回或宽限到期后，monitor 重新校验候选，仍有效时才隐藏任务。隐藏不等待磁盘写入或通知成功。
 
-通知使用 `taskID + attemptID` 作为 identifier，提交前后校验 progress generation 和静默时长。新进展会使保护尝试失效，并撤回对应通知。
+通知使用 `taskID + attemptID` 作为 identifier，有效性由 monitor 的当前保护尝试决定。提交前后校验 attempt ID、progress generation 和静默时长。保护尝试失效时，通知服务按该 identifier 移除 delivered 和 pending notification。
 
 保护通知使用系统默认声音，`retryCount` 为 `0`，避免重试已经失效的候选。
 

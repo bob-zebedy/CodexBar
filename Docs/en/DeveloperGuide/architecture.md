@@ -124,7 +124,7 @@ Three data flows manage distinct inputs, freshness requirements, and failure sta
 | --- | --- | --- | --- |
 | app-server | `codex app-server` JSON-RPC | Account, rate limits, token usage, Reset Credit use, Hook configuration capabilities | Main panel, menu bar rate limit, Settings, Automatic Reset state machine |
 | Hook history | Hook JSONL | Daily event, session, turn, tool, and model aggregations | Activity heatmap, historical metrics, CloudKit |
-| Live tasks | Incremental Hook events plus rollout lifecycle | Running, waiting for approval, completed, terminated | Menu bar status, Task Center, notifications, sleep prevention |
+| Live tasks | Incremental Hook events plus rollout lifecycle | Running, waiting for approval, completed, terminated | Menu bar status, Task Center, task glow, notifications, sleep prevention |
 
 ### Dependency Direction
 
@@ -238,7 +238,7 @@ Before changing one time window, check for paired invariants. For example, the t
 | Automatic Reset wake-time synchronization | `AutoResetWakeScheduler` | `AutoResetController` submits only the next time; `KeepAliveController` submits only helper readiness |
 | Hook installation and validation | `CodexHookSettings` | Read `isOperable` |
 | Historical aggregation and maintenance cursor | `WorkflowService` | Request snapshots or rebuilds |
-| Live tasks | `CodexActivityMonitor` | Read snapshots or transitions |
+| Live tasks | `CodexActivityMonitor` | Read snapshots, notification transitions, or presentation updates containing new terminal events |
 | Sync cursors and remote cache | `WorkflowSyncService` | Request merged snapshots |
 | Sleep-prevention policy and app assertion | `KeepAliveController` | Read derived state or invoke settings entry points |
 | Root sleep ownership | `CodexBarHelper` | Request and query through XPC |

@@ -43,6 +43,7 @@ extension CodexActivityMonitor {
     func beginActivityProtectionRecovery() -> UInt64 {
         activityProtectionRecoveryGeneration &+= 1
         isActivityProtectionRecoveryInProgress = true
+        resetTerminalPresentationEvents()
         cancelInactivityCheck()
         cancelAllActivityProtectionAttempts()
         return activityProtectionRecoveryGeneration
@@ -52,6 +53,7 @@ extension CodexActivityMonitor {
         guard generation == activityProtectionRecoveryGeneration else {
             return
         }
+        resetTerminalPresentationEvents()
         isActivityProtectionRecoveryInProgress = false
         reconcileActivityProtection(now: Date(), sendsNotification: false)
     }

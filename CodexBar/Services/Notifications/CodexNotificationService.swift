@@ -22,7 +22,6 @@ final class CodexNotificationService: NSObject {
     private var cancellables = Set<AnyCancellable>()
     private var taskHapticFeedbackTask: Task<Void, Never>?
     private var taskWaitingNotificationIdentifiers = Set<String>()
-    private var activityProtectionNotificationIdentifiers = Set<String>()
     private let creditExpiryReminderScheduler = ReminderCheckScheduler()
     private var latestQuotaSnapshot: CodexQuotaSnapshot?
 
@@ -226,7 +225,6 @@ final class CodexNotificationService: NSObject {
             taskID: notice.taskID,
             attemptID: notice.attemptID
         )
-        activityProtectionNotificationIdentifiers.insert(identifier)
         let deliveryTask = send(
             .activityProtection(
                 project: notice.projectName,
@@ -242,16 +240,9 @@ final class CodexNotificationService: NSObject {
                     inactivityDurationSeconds: notice.inactivityDurationSeconds
                 ) ?? false
             },
-            onSubmissionFailure: { [weak self] in
-                self?.activityProtectionNotificationIdentifiers.remove(identifier)
-            },
             retryCount: 0
         )
-        let wasSubmitted = await deliveryTask?.value ?? false
-        if !wasSubmitted {
-            activityProtectionNotificationIdentifiers.remove(identifier)
-        }
-        return wasSubmitted
+        return await deliveryTask?.value ?? false
     }
 
     func invalidateActivityProtectionNotification(taskID: UUID, attemptID: UUID) {
@@ -259,9 +250,6 @@ final class CodexNotificationService: NSObject {
             taskID: taskID,
             attemptID: attemptID
         )
-        guard activityProtectionNotificationIdentifiers.remove(identifier) != nil else {
-            return
-        }
         removeNotifications(withIdentifiers: [identifier])
     }
 

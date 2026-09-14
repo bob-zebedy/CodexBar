@@ -11,6 +11,7 @@ nonisolated enum CodexHookEvent: String, CaseIterable, Hashable {
     case preCompact = "PreCompact"
     case postCompact = "PostCompact"
     case stop = "Stop"
+    case interrupt = "Interrupt"
     case subagentStart = "SubagentStart"
     case subagentStop = "SubagentStop"
 

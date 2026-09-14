@@ -124,7 +124,7 @@ Hook handler 在 Codex 的关键路径上，它需要的是接近命令行工具
 | --- | --- | --- | --- |
 | app-server | `codex app-server` JSON-RPC | 账户、额度、token 用量、Reset Credit 使用、Hook 配置能力 | 主面板、菜单栏额度、设置、自动重置状态机 |
 | Hook 历史 | Hook JSONL | 日级事件、session, turn, tool, model 聚合 | 活跃度热力图、历史统计、CloudKit |
-| 实时任务 | Hook 增量事件加 rollout 生命周期 | 运行、等待批准、完成、中断 | 菜单栏状态、任务中心、通知、防睡眠 |
+| 实时任务 | Hook 增量事件加 rollout 生命周期 | 运行、等待批准、完成、终止 | 菜单栏状态、任务中心、任务流光、通知、防睡眠 |
 
 ### 依赖方向
 
@@ -238,7 +238,7 @@ Hook + rollout --------> CodexActivityMonitor --------> UI
 | 自动重置唤醒时间同步 | `AutoResetWakeScheduler` | `AutoResetController` 只提交下一次时间，`KeepAliveController` 只提交 helper 就绪状态 |
 | Hook 安装与验证 | `CodexHookSettings` | 读取 `isOperable` |
 | 历史聚合和维护游标 | `WorkflowService` | 请求快照或重建 |
-| 实时任务 | `CodexActivityMonitor` | 读取 snapshot 或 transition |
+| 实时任务 | `CodexActivityMonitor` | 读取快照、通知转场或包含新增终态的展示更新 |
 | 同步游标与远端缓存 | `WorkflowSyncService` | 请求合并快照 |
 | 防睡眠策略与 App assertion | `KeepAliveController` | 读取派生状态或调用设置入口 |
 | root 睡眠所有权 | `CodexBarHelper` | 通过 XPC 请求和查询 |

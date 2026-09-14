@@ -24,7 +24,7 @@ Codex Hook
 启用流程检查以下条件，其中来源、信任和事件完整性在写入后校验：
 
 - 当前可执行文件路径可解析
-- 实际 app-server 版本不低于 `0.145.0`
+- 实际 app-server 版本不低于 `0.150.0`
 - `features.hooks` 可用
 - `hooks/list` 返回可信来源
 - 所需事件集合完整
@@ -49,7 +49,7 @@ Codex Hook
 
 App 启动、设置状态刷新、主面板打开和每轮额度刷新完成时，都会对账已开启的 Hook。自动刷新间隔为上一轮完成后 60 秒：
 
-- 只有已确认的实际 app-server 版本低于当前 Hook 最低版本时，才按手动关闭流程移除 CodexBar handler 和对应信任项
+- 只有已确认的实际 app-server 版本低于当前 Hook 最低版本时，才移除 CodexBar handler 并尽力清理对应信任项；低于全局最低版本时也执行本地移除
 - 版本无法确认或 RPC 临时失败时保留用户配置
 - 配置在当前进程中丢失不会关闭开关，而是标记配置损坏并触发自愈
 - 版本受支持时遍历 `CodexHookEvent.allCases`，为缺失或非标准事件重建独立 group，然后复用信任和完整性校验
@@ -61,7 +61,7 @@ App 启动、设置状态刷新、主面板打开和每轮额度刷新完成时�
 ### 启用事务的顺序
 
 ```text
-确认运行中 app-server >= 0.145.0
+确认运行中 app-server >= 0.150.0
   -> 确认 features.hooks 没有全局关闭
   -> 读取现有 hooks.json
   -> 只移除当前 executable 的旧 CodexBar handler
@@ -80,7 +80,7 @@ app-server 的 Hook key 来自它当前解析到的 handler。如果先从 `hook
 
 因此禁用流程先保存精确匹配条目的 key、再删 handler、最后从 `hooks.state` 中清理这些 key。清理时先读取完整 state 再 replace，保留用户和其他工具的信任项。
 
-信任清理失败不会把 handler 重新装回去。UI 会表达“Hook 已关闭，但清理未完成”，因为停止采集的用户意图已经成功。
+低于全局最低版本时，app-server 连接已被拒绝，禁用流程直接移除本地 handler，保留无法查询和删除的信任项，不额外显示信任清理提示。其他情况下，信任查询或清理失败显示无法清理信任状态的提示，Hook 保持关闭。本地配置移除失败仍显示错误，并在后续对账时重试。
 
 ### 事件分组
 
@@ -109,6 +109,7 @@ CodexBar 订阅以下 Hook 事件：
 | `PreCompact` | 记录上下文压缩开始 |
 | `PostCompact` | 记录上下文压缩结束 |
 | `Stop` | 形成任务完成候选 |
+| `Interrupt` | 结束对应 turn 并记录中断统计 |
 | `SubagentStart` | 记录 subagent 启动 |
 | `SubagentStop` | 记录 subagent 结束 |
 
@@ -137,7 +138,7 @@ handler 超时由事件决定：
 
 | 事件 | 超时 |
 | --- | --- |
-| `SessionEnd` | 3 秒 |
+| `SessionEnd`、`Interrupt` | 3 秒 |
 | 其他事件 | 5 秒 |
 
 锁等待预算为 handler 超时减 2 秒。获取锁时从 1 ms 开始指数退避，单次等待最多 20 ms。
@@ -206,7 +207,7 @@ recorder 在写入前完成来源解析，JSONL 的来源字段只保存上述�
 
 JSONL 中缺少 `origin`，或枚举值无法识别时，来源字段先解码为 `unknown`。`WorkflowHookEvent` 解码器随后应用相同的精确 model 后备判定，因此 `model == "codex-auto-review"` 的事件在内存中的 `origin` 为 `autoReview`。读取过程不会回填或重写原始 JSONL。
 
-来源分类只改变实时活动过滤，不改变历史统计输入。Auto-review 事件仍参与 session、turn、model、tool、project 和事件计数；聚合 schema 和 CloudKit 投影不包含来源分类。
+历史聚合按全部 Hook 事件统计，包含 `autoReview` 和 `unknown` 来源；聚合结果和 CloudKit 投影不包含来源字段。
 
 ### 输入归一化
 
@@ -350,7 +351,7 @@ inode 与 size 能发现替换和截断，boundary hash 能发现保持相同长
 - project 分布
 - model 分布
 
-session 数使用当天除 `SessionEnd` 外所有事件中的非空 session ID 去重计算。turn 数使用当天除 `Stop` 外所有事件中的非空 turn ID 去重计算。跨天 session 或 turn 只要当天仍有未被排除的事件，就计入当天；当天只有 `SessionEnd` 的 session 和只有 `Stop` 的 turn 不计入。
+session 数使用当天除 `SessionEnd` 外所有事件中的非空 session ID 去重计算。turn 数使用当天除 `Stop` 和 `Interrupt` 外所有事件中的非空 turn ID 去重计算。跨天 session 或 turn 只要当天仍有未被排除的事件，就计入当天；当天只有 `SessionEnd` 的 session 和只有 `Stop` 或 `Interrupt` 的 turn 不计入。
 
 成对事件可能只有一侧成功落盘。因此计数使用能够避免重复且允许缺失的规则：
 
@@ -363,7 +364,7 @@ session 数使用当天除 `SessionEnd` 外所有事件中的非空 session ID �
 - 缺失表示该日期的历史来源无法提供该指标
 - `0` 表示来源可用且明确没有发生
 
-解码和持久化保留可选值。展示层通过 `WorkflowDailyMetrics` 把缺失的单项事件计数转换为 `0`；session 和 turn 计数优先使用 ID 去重结果或已压缩计数，再回退到对应事件计数。
+解码和持久化保留可选值。`WorkflowDailyMetrics` 保留 `interruptCount` 的缺失值，其他单项事件计数缺失时显示为 `0`；session 和 turn 计数优先使用 ID 去重结果或已压缩计数，再回退到对应事件计数。
 
 ### 成对事件计数
 
@@ -376,17 +377,15 @@ session 数使用当天除 `SessionEnd` 外所有事件中的非空 session ID �
 
 compaction 和 subagent 成对事件使用相同规则。
 
-### 可用性如何穿过旧数据
+### 计数可用性
 
-旧版本聚合可能没有某类 Hook count。重建时不能因为当前代码认识该事件，就假定旧来源也采集过。
+`WorkflowHookCountAvailability` 保存每类计数的来源可用性。重建继承已有日期的可用性；没有聚合时使用 `.legacy`，其中 `interruptCount` 为不可用，其他事件计数从 `0` 开始。实际读到 `Interrupt` 后，中断计数从缺失变为正数；其他事件保留其缺失值。
 
-`WorkflowHookCountAvailability` 保存每类计数是否有来源。重建会继承现有日期对旧字段的可用性，新鲜来源则可以声明当前字段全部可用。
-
-这种可用性保留在聚合和同步字段中，当前 UI 不逐项展示历史字段是否缺失。
+`interruptCount` 在展示投影中仍为可选值，同日任一贡献缺失时合计也不可用。热力图详情不展示此指标。
 
 ## Schema 演进与重建
 
-当前聚合 schema 为 `6`，由 `WorkflowMaintenanceState.currentAggregationSchema` 管理。
+当前聚合 schema 为 `9`，由 `WorkflowMaintenanceState.currentAggregationSchema` 管理。
 
 以下变化必须递增 schema：
 
@@ -433,7 +432,7 @@ schema 变化通常把保留期内所有事件日期标脏。source generation �
 
 维护默认跟随 60 秒刷新。空闲机器一天会执行上千次没有变化的检查。
 
-`WorkflowService` 累计连续 idle 轮数，只有真正写入、跳过、失败或清理时才输出一条摘要，并附带之前空转次数。这样日志既能证明维护一直在运行，又不会淹没真正故障。
+`WorkflowService` 累计连续 idle 轮数，在写入、跳过、失败或清理时输出摘要，并附带累计空转次数。
 
 ### scheduler 如何合并请求
 

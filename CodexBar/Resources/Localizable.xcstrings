@@ -337,6 +337,22 @@
         }
       }
     },
+    "activity.event.finishing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finishing up"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "即将结束"
+          }
+        }
+      }
+    },
     "activity.event.starting-subagent" : {
       "localizations" : {
         "en" : {
@@ -1857,18 +1873,18 @@
         }
       }
     },
-    "hook.error.trust-cleanup-failed" : {
+    "hook.error.trust-cleanup-unavailable" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex Hook disabled. Trust cleanup failed"
+            "value" : "Codex Hook disabled. Cannot clear trust"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已关闭 Codex Hook, 清理信任状态失败"
+            "value" : "已关闭 Codex Hook, 无法清理信任状态"
           }
         }
       }
@@ -4669,6 +4685,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "任务等待通知"
+          }
+        }
+      }
+    },
+    "settings.screen-edge-indicator.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glow Effect"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "流光效果"
           }
         }
       }

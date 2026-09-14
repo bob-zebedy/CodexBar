@@ -200,7 +200,7 @@ actor WorkflowService {
         var aggregates = loadDailyAggregates() ?? []
         let hookCountAvailability = aggregates
             .first(where: { $0.date == dateKey })?
-            .hookCountAvailability ?? .all
+            .hookCountAvailability ?? .legacy
         let task = try prepareRebuildTask(
             for: dateKey,
             hookCountAvailability: hookCountAvailability
@@ -508,7 +508,7 @@ actor WorkflowService {
                 for: dateKey,
                 day: day,
                 hookCountAvailability: dailyByDate[dateKey]?
-                    .hookCountAvailability ?? .all
+                    .hookCountAvailability ?? .legacy
             )
         }
 
@@ -531,7 +531,7 @@ actor WorkflowService {
                     day: day,
                     size: size,
                     hookCountAvailability: existingAggregate?
-                        .hookCountAvailability ?? .all
+                        .hookCountAvailability ?? .legacy
                 ))
                 continue
             }
@@ -568,7 +568,7 @@ actor WorkflowService {
         for dateKey: String,
         day: WorkflowDayMaintenanceState,
         size: UInt64? = nil,
-        hookCountAvailability: WorkflowHookCountAvailability = .all
+        hookCountAvailability: WorkflowHookCountAvailability = .legacy
     ) -> WorkflowMaintenanceTask {
         let stat = WorkflowStorage.fileStat(at: eventLogURL(for: dateKey))
         return WorkflowMaintenanceTask(
@@ -1239,7 +1239,7 @@ nonisolated struct WorkflowDayMaintenanceState: Codable, Equatable {
 /// maintenance.json 的全局状态, pending 表示可增量, dirty 表示需全量重建
 nonisolated struct WorkflowMaintenanceState: Codable, Equatable {
     /// 原始事件到每日聚合的算法版本, 变化时统一从原始 JSONL 重建
-    static let currentAggregationSchema = 6
+    static let currentAggregationSchema = 9
 
     var schema: Int
     var pending: [String]

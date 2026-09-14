@@ -48,6 +48,7 @@ It can notify you when a task finishes, needs approval, or when your rate limits
 - The main panel shows the current task, project, model, reasoning effort, and elapsed time
 - Task Center brings concurrent, recently completed, and recently terminated tasks together
 - Receive alerts for completed tasks, approval requests, and stalled tasks
+- Optional task glow along the top of each display shows running, waiting, completed, and terminated states
 
 ### Let long-running tasks finish
 
@@ -80,8 +81,8 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 
 - macOS 15.0 or later
 - [Codex CLI](https://github.com/openai/codex) installed and signed in, or ChatGPT App or Codex App with bundled Codex installed
-- The running Codex version must be `0.143.0` or later
-- Live tasks and other Hook features require the running Codex version to be `0.145.0` or later
+- The running Codex version must be `0.145.0` or later
+- Live tasks and other Hook features require the running Codex version to be `0.150.0` or later
 - Cross-device sync requires an available iCloud account on the Mac
 
 ## Quick Start

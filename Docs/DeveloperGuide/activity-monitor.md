@@ -8,10 +8,10 @@
 
 - 当前是否有任务正在运行
 - 当前是否在等待用户批准
-- 最近任务是完成还是中断
+- 最近任务是完成还是终止
 - 哪些运行任务已经长时间没有进展
 
-Hook 事件提供低延迟信号，rollout 文件提供权威生命周期补充。[`CodexActivityMonitor.swift`](../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) 合并两者并发布唯一任务快照：
+Hook 事件提供实时进展和中断信号，rollout 文件补充生命周期信息。[`CodexActivityMonitor.swift`](../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) 合并两者并发布唯一任务快照：
 
 ```text
 Hook JSONL -> HookEventTailReader ---------+
@@ -27,10 +27,11 @@ rollout JSONL -> CodexSessionLifecycleReader+
 | 用户审批候选 | `PermissionRequest` | rollout reviewer 确认 |
 | turn 起点 | `UserPromptSubmit` | rollout startedAt 或历史回查 |
 | 完成候选 | `Stop` | rollout terminal |
-| 完成与中断分类 | rollout terminal | grace 到期 fallback |
+| 明确的 turn 中断 | `Interrupt` | rollout terminal |
+| 其他终态确认 | rollout terminal | grace 到期 fallback |
 | effort | Hook recorder 回查 | rollout lifecycle backfill |
 
-Hook 优先解决低延迟，rollout 优先解决语义准确性。两者不是简单按时间戳覆盖，每个字段都有自己的可信来源。
+各字段按上表中的来源解析。Hook 每轮读取后等待 2 秒，rollout 每轮对账后等待 1 秒。
 
 ### 快照与转场
 
@@ -131,7 +132,15 @@ actor 在 `await` 期间可以重入，因此 `isProcessingReads` 和 `hasPendin
 - 只解析生命周期、turn, progress, effort 和 reviewer
 - 不读取或保存对话内容用于产品展示
 
-Hook 的 `Stop` 只是完成候选。rollout 中的 terminal 状态用于区分真正完成、用户取消和异常中断。
+Hook 的 `Stop` 将任务标记为“正在收尾”，保留在活动列表。后续工具、审批等进展继续更新同一任务，rollout 确认 `task_complete` 后才记录完成并发布完成转场。
+
+rollout 暂时不可读或无法关联 session、turn 时，任务继续等待对账。`Stop` 不启动终态超时；新 turn 或 `SessionEnd` 将旧任务移出活动列表，开启 5 秒终态确认窗口。迟到的 `Stop` 只更新待确认任务的元数据与进展，不恢复展示或重置窗口。
+
+### 明确中断
+
+`Interrupt` 结束匹配的顶层 turn，清理保护状态和通知，并保存终止记录。运行、等待批准、已隐藏和待确认终态的任务均可匹配；同一 session 的新 turn 保持活跃。身份有歧义时忽略该事件。
+
+同一任务的 Hook 和 rollout 终态共用去重记录，先确认的完成或终止结果保留。终止记录用于展示，不触发完成通知或触觉反馈。
 
 ### session 文件如何定位
 
@@ -179,24 +188,22 @@ subagent 事件更新父任务的 subagent 活动，不创建独立顶层任务�
 
 完全没有 session ID 时只能使用 project key。这个 key 可能把同项目并发匿名任务合并，所以匿名任务只承担可撤销的 UI 展示，不驱动通知、防睡眠或持久化保护。
 
-### Auto-review 来源过滤
+### 实时任务来源过滤
 
-`CodexActivityMonitor.apply` 在任何状态转换之前检查 `WorkflowHookEvent.origin`。`WorkflowHookEvent` 在构造和解码边界优先使用明确来源，只有来源为 `unknown` 时才以精确匹配的 `model == "codex-auto-review"` 作为 `.autoReview` 后备判定。`autoReview` 不进入实时任务状态机，因此不会出现在菜单栏、活动卡片、任务中心和任务计数中，也不会产生通知、触觉反馈、等待批准、异常会话保护或防睡眠贡献。
+`CodexActivityMonitor.apply` 先检查 `WorkflowHookEvent.origin`，再执行任务状态转换。来源归一化规则见 [Hook 来源归一化](hook-and-aggregation.md#来源归一化)
 
-过滤使用精确的 `session ID + turn ID`，因为 Codex 的 subagent Hook 复用父 session ID。只按 session 过滤会连同真正的主任务一起隐藏。
+monitor 按精确的 `session ID + turn ID` 在内存中保存来源，保留 24 小时。Codex 的 subagent Hook 复用父 session ID，因此来源判定不扩大到整个 session。
 
-当一条精确 Auto-review 事件到达时，monitor 会：
+| 事件来源 | 实时处理 |
+| --- | --- |
+| `main`、`auxiliary` | 记录明确来源，并按正常状态机处理 |
+| `autoReview` | 忽略事件，清理同 key 的活动任务、待确认终态、展示记录和异常保护；保留来源记忆 |
+| `unknown`，同 key 有有效的 `main` 或 `auxiliary` 来源 | 沿用已确认来源，继续处理事件 |
+| `unknown`，没有有效的正常来源记忆 | 忽略事件 |
 
-- 删除同 key 的活动任务和 terminal grace 候选
-- 删除同 key 的最近完成、最近终止和 terminal 去重记忆
-- 取消异常会话保护尝试、持久化记录和待处理通知
-- 在 24 小时有界表中记住该精确 key，让同一任务后续 `unknown` 事件无法恢复它
+缺少 session ID 或 turn ID 时不保存来源记忆，`unknown` 和 `autoReview` 事件直接忽略。来源已确认的任务不会因一次 rollout 读取失败被移除；迟到事件仍须通过状态机的时间和终态去重检查。
 
-明确的 `main` 或 `auxiliary` 事件随后命中同一 key 时，来源事实优先并清除这条忽略记忆。Auto-review 事件缺少 turn ID 时只忽略当前事件，不建立 session 级黑名单。
-
-其他 subagent（包括 Memories）归类为 `auxiliary`，按辅助任务事件参与关联。原始 Hook 事件仍进入历史聚合，实时 Auto-review 过滤不改变统计或 CloudKit 数据。
-
-JSONL 中缺少 `origin` 或来源枚举无法识别时，来源字段先解码为 `unknown`。同一记录的 model 精确匹配 `codex-auto-review` 时，事件模型将来源归一化为 `.autoReview`；其他记录保持 `.unknown`。这一步只使用记录已有字段，不为来源分类额外扫描历史 rollout，也不回写原始 Hook 记录。
+这些规则同时用于 bootstrap 和实时读取。其他 subagent（包括 Memories）归类为 `auxiliary`，按辅助任务规则关联。历史聚合仍消费全部原始事件，来源记忆不持久化或上传。
 
 ### 新 prompt 与终态宽限
 
@@ -216,10 +223,12 @@ JSONL 中缺少 `origin` 或来源枚举无法识别时，来源字段先解码�
 
 ### 迟到事件如何被拒绝
 
-任务保存 `lastActivityAt`，terminal 记忆保存完成或中断时间：
+任务保存 `lastActivityAt`，完成和终止共用内存中的 `recentlyEndedTaskAt` 记录结束时间。展示记录仍分别保存在完成和终止列表，保留 10 分钟；去重记忆保留 24 小时，不随展示记录一起删除。来源过滤移除记录时，从剩余终态记忆重新计算对应 session 别名的最新时间。
+
+迟到事件按以下规则处理：
 
 - 早于当前任务最后活动的事件不覆盖新状态
-- 不晚于已记录 terminal 的新 prompt 不会复活旧任务
+- 精确 turn 在终态记忆保留期间不允许重新创建；session 和匿名键只允许时间更新的新 prompt 复用
 - `Stop` 命中多个候选时不猜测
 - 已进入 terminal 去重记忆的 key 会清除异常顺序留下的恢复任务
 
@@ -247,12 +256,12 @@ JSONL 中缺少 `origin` 或来源枚举无法识别时，来源字段先解码�
 
 `PermissionRequest` 只有在 reviewer 是用户时才进入 `waitingApproval`。自动审批或策略审批不会被视为用户等待。
 
-终止信号按可靠性对账：
+任务结束按以下信号处理：
 
-- `SessionEnd` 结束 session
-- rollout terminal 区分完成和中断
-- `Stop` 在缺少更强信号时形成完成候选
-- 新 prompt 可以结束旧 turn 的展示生命周期
+- `Stop` 将任务标记为正在收尾，继续保留在活动列表
+- `Interrupt` 将匹配的 turn 记录为终止
+- rollout terminal 确认完成或终止
+- 新 turn 或 `SessionEnd` 将旧任务移入 5 秒终态确认窗口，到期仍无终态时记录终止；已隐藏任务只记录去重状态
 
 ### 事件到状态的主要转换
 
@@ -263,8 +272,9 @@ JSONL 中缺少 `origin` 或来源枚举无法识别时，来源字段先解码�
 | running | tool, compact, subagent progress | running | 更新 last progress 和 generation |
 | running | `PermissionRequest` + reviewer user | waitingApproval | 发布 live waiting transition |
 | waitingApproval | 新进展 | running | 清除 pending approval 和保护记录 |
-| running 或 waiting | `Stop` | terminal candidate | 保存完成或等待 rollout 对账 |
+| running 或 waiting | `Stop` | running | 显示正在收尾，保留任务直到 rollout 确认终态 |
 | active | 新 prompt 或 `SessionEnd` | pending terminal | 从快照移除并开启 5 秒 grace |
+| active、suppressed 或 pending terminal | `Interrupt` | terminated | 移除匹配任务、记录终止并清理保护状态和通知 |
 | running | 静默超过阈值 | suppressed | 隐藏并退出防睡眠贡献 |
 | suppressed | 新进展 | running | 清除持久化保护与旧通知 |
 
@@ -293,16 +303,17 @@ subagent 的 turn ID 属于 subagent 自己，父任务只能通过共享 sessio
 活动卡片的 `primaryActivity` 按以下优先级选择内容：
 
 ```text
-等待批准 > 运行中 > 最近完成 > 最近中断 > 空闲
+等待批准 > 运行中 > 最新的完成或终止 > 空闲
 ```
 
-菜单栏同样优先展示等待批准和运行中任务；没有活跃任务时，从完成与终止记录中选择最新一条，显示到结束时间后 10 秒。任务中心的终态记录保留 10 分钟，terminal 去重记忆保留 24 小时。
+`latestTerminalEvent` 按结束时间选择最新的完成或终止，时间相同优先终止。活动卡片、菜单栏和空闲时的任务流光共用该结果。菜单栏在 `primaryActivity` 的基础上限制终态显示到结束时间后 10 秒。任务中心的终态记录保留 10 分钟，terminal 去重记忆保留 24 小时。
 
 快照由以下模块消费：
 
 - 菜单栏人物图标
 - 主面板任务卡片
 - 活动中心
+- 任务流光
 - 通知系统
 - 防睡眠控制器
 
@@ -312,6 +323,12 @@ monitor 每秒检查 rollout，并在清理 deadline 到达时刷新。
 
 新快照先与当前值比较，只有结构变化才发布。运行时长文案由 View 使用当前时间格式化，不要求每秒修改任务对象。
 
+### 展示更新
+
+`presentationPublisher` 发布当前快照和本轮仍有效的 `terminalEvents`，供任务流光使用。展示事件包含匿名任务；通知使用独立的 `transitionPublisher`
+
+历史重读、睡眠恢复和数据源健康状态变化时清空待发布事件，并更新 `terminalPresentationNotBefore`。bootstrap、唤醒对账和数据源不健康期间暂停收集；结束时间早于恢复界限的记录不产生短提示，恢复后结束的任务正常发布。
+
 ### 稳定排序
 
 同一 batch 中多个任务可能具有相同时间戳，仅按时间比较无法确定它们之间的顺序。
@@ -320,7 +337,7 @@ monitor 每秒检查 rollout，并在清理 deadline 到达时刷新。
 
 ### 清理采用最近 deadline
 
-monitor 管理 terminal grace、活动保留、历史保留、terminal 去重和保护记录过期。菜单栏完成或终止提示的 10 秒到期由 `StatusItemController` 独立管理，不为提示到期重新发布活动快照。
+monitor 管理 terminal grace、活动保留、历史保留、terminal 去重和保护记录过期。菜单栏终态提示和任务流光分别由 `StatusItemController`、`TaskGlowController` 管理到期时间。提示到期不重新发布活动快照。
 
 清理任务只等待最近的未来 deadline，到点处理后安排下一次。
 
@@ -454,14 +471,22 @@ Monitor 为 reader 和异步恢复任务维护 generation：
 | generation | 保护的异步路径 |
 | --- | --- |
 | `tailReaderGeneration` | reader batch, rollout poll 和 prompt backfill |
-| `bootstrapCompletionGeneration` | 多次 bootstrap 重试后的异步 lifecycle 补齐 |
-| `activityProtectionRecoveryGeneration` | 睡眠、唤醒和数据源恢复 |
+| `bootstrapCompletionGeneration` | bootstrap 的异步 lifecycle 补齐，以及跨 bootstrap 的 rollout 对账结果 |
+| `activityProtectionRecoveryGeneration` | 睡眠、唤醒恢复流程，以及跨恢复批次的 rollout 对账结果 |
 | task `progressGeneration` | 通知宽限期间的保护候选 |
 
 每一项都对应不同的“当前性”问题，不能合并成一个全局计数。例如 reader 没变但任务有新进展时，只需要让 protection attempt 失效，不应丢弃整个 reader。
 
 ## 建议验证的故障场景
 
+- Stop handler 要求继续后完成或中断，确认没有提前完成提醒
+- Stop handler 执行期间中断，只产生一条终止记录和红色提示
+- rollout 不可读超过 5 秒仍不判定完成，恢复后只确认一次
+- Stop 后继续请求用户批准，等待状态和中断清理正常
+- 中断运行、等待批准和隐藏任务，确认状态、耗时、保护清理且无完成通知
+- Hook 与 rollout 终止以两种顺序到达，确认单条记录和单次提示
+- 新 turn 开始后收到旧 turn 中断，新任务保持活跃
+- 重复 Interrupt 和迟到工具或 prompt 事件不能恢复已结束的 turn
 - App 在任务已运行时启动，bootstrap 展示任务但不补发通知
 - bootstrap 文件持续追加时能重试并最终获得稳定边界
 - 连续 3 次不稳定后进入 degraded，不启动异常静默判断

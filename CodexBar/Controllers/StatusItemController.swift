@@ -15,6 +15,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let globalHotKeySettings: GlobalHotKeySettings
     private let menuBarQuotaSettings: MenuBarQuotaSettings
     private let mainPanelSettings: MainPanelSettings
+    private let taskGlowSettings: TaskGlowSettings
     private let notificationSettings: NotificationSettings
     private let autoResetSettings: AutoResetSettings
     private let keepAliveController: KeepAliveController
@@ -51,6 +52,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         globalHotKeySettings: globalHotKeySettings,
         menuBarQuotaSettings: menuBarQuotaSettings,
         mainPanelSettings: mainPanelSettings,
+        taskGlowSettings: taskGlowSettings,
         notificationSettings: notificationSettings,
         autoResetSettings: autoResetSettings,
         activityProtectionSettings: activityMonitor.activityProtectionSettings,
@@ -101,7 +103,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             self?.isPointInDetailPanel(screenPoint) == true
         }
     )
-    private var delayedStatusRefreshTask: Task<Void, Never>?
     private var menuSurfaceState = MenuSurfaceState.hidden
     private var cancellables = Set<AnyCancellable>()
     private var statusIconState: StatusIconState?
@@ -124,6 +125,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         globalHotKeySettings: GlobalHotKeySettings,
         menuBarQuotaSettings: MenuBarQuotaSettings,
         mainPanelSettings: MainPanelSettings,
+        taskGlowSettings: TaskGlowSettings,
         notificationSettings: NotificationSettings,
         autoResetSettings: AutoResetSettings,
         keepAliveController: KeepAliveController,
@@ -139,6 +141,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.globalHotKeySettings = globalHotKeySettings
         self.menuBarQuotaSettings = menuBarQuotaSettings
         self.mainPanelSettings = mainPanelSettings
+        self.taskGlowSettings = taskGlowSettings
         self.notificationSettings = notificationSettings
         self.autoResetSettings = autoResetSettings
         self.keepAliveController = keepAliveController
@@ -709,14 +712,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         return trustedScreenFrame.intersects(buttonScreenRect)
     }
 
-    private func cancelMenuSurfaceTasks() {
-        delayedStatusRefreshTask?.cancel()
-        delayedStatusRefreshTask = nil
-        menuSurfaceFadeCoordinator.cancel()
-    }
-
     private func openPopover(relativeTo button: NSStatusBarButton) {
-        cancelMenuSurfaceTasks()
+        menuSurfaceFadeCoordinator.cancel()
 
         menuSurfaceState = .opening
         activeMenuSurface = .popover
@@ -728,7 +725,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func openFallbackPanel(on screen: NSScreen?) {
-        cancelMenuSurfaceTasks()
+        menuSurfaceFadeCoordinator.cancel()
 
         fallbackPanelAnimationState.allowsAnimations = true
         fallbackPanelController.prepareForDisplay(on: screen)
@@ -742,7 +739,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func completeMenuSurfaceOpen() {
         menuSurfaceVisibility.beginPresentation()
-        refreshWorkflowIfHookEnabled(performMaintenance: false)
         menuSurfaceDismissMonitor.install(
             onDismiss: { [weak self] in
                 self?.closeMenuSurface()
@@ -753,10 +749,12 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
 
         menuSurfaceFadeCoordinator.fadeIn(duration: Metrics.fadeInDuration) { [weak self] in
-            self?.menuSurfaceState = .shown
+            guard let self, isActiveMenuSurfaceVisible else { return }
+            menuSurfaceState = .shown
+            // 展开完成后再刷新共享状态, 避免主面板与设置窗口在淡入期间一起重算
+            refreshWorkflowIfHookEnabled(performMaintenance: false)
+            viewModel.refreshIfNeeded(trigger: .panelOpen)
         }
-
-        scheduleDelayedStatusRefresh()
     }
 
     // MARK: - 右键菜单
@@ -894,7 +892,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             return
         }
 
-        cancelMenuSurfaceTasks()
+        menuSurfaceFadeCoordinator.cancel()
         hideSideDetailPanels()
         menuSurfaceDismissMonitor.remove()
         menuSurfaceVisibility.endPresentation()
@@ -929,7 +927,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func completeMenuSurfaceClose(hidesDetailPanel: Bool = true) {
-        cancelMenuSurfaceTasks()
+        menuSurfaceFadeCoordinator.cancel()
         if hidesDetailPanel {
             hideSideDetailPanels()
         }
@@ -987,18 +985,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     // MARK: - 刷新与同步
-
-    private func scheduleDelayedStatusRefresh() {
-        delayedStatusRefreshTask?.cancel()
-        delayedStatusRefreshTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(160))
-            guard let self, !Task.isCancelled, isActiveMenuSurfaceVisible else {
-                return
-            }
-
-            viewModel.refreshIfNeeded(trigger: .panelOpen)
-        }
-    }
 
     private func refreshWorkflowIfHookEnabled(performMaintenance: Bool) {
         // Hook 与额度使用同一刷新节奏, 配置和信任状态损坏后都能自动收敛

@@ -6,8 +6,8 @@
 
 - macOS 15.0 或更高版本
 - 已安装并登录 [Codex CLI](https://github.com/openai/codex)，或安装了内置 Codex 的 ChatGPT App 或 Codex App
-- 当前使用的 Codex 版本需要为 `0.143.0` 或更高版本
-- 使用 Hook 相关功能时，当前使用的 Codex 版本需要为 `0.145.0` 或更高版本
+- 当前使用的 Codex 版本需要为 `0.145.0` 或更高版本
+- 使用 Hook 相关功能时，当前使用的 Codex 版本需要为 `0.150.0` 或更高版本
 - 使用跨设备同步时，Mac 需要登录可用的 iCloud 账户
 
 CodexBar 默认自动选择来源，优先使用全局安装的 Codex CLI，找不到时再尝试 ChatGPT App 和 Codex App 内置的 Codex。可在“设置 > 关于 > Codex 版本 > 来源”中手动选择。

@@ -62,7 +62,7 @@ Debug 与 Release 使用不同 bundle ID，分别是 `app.zabrian.codexbar.debug
 `CodexBar/App/CodexBarApp.swift` 的 `init()` 最先调用 `WorkflowHookEventRecorder.handleIfRequested()`
 
 - 带 `--hook-event` 启动 -> **Hook 子进程模式**：从 `stdin` 读取 JSON payload，按需有界读取 rollout 元数据，在 `flock` 锁内追加一行 JSONL 后立即调用 `exit(EXIT_SUCCESS)` 退出，绝不初始化菜单栏 UI；写入失败时静默吞掉，不阻断 Codex
-- Hook handler 超时统一由 `WorkflowHookEventRecorder.hookTimeoutSeconds(for:)` 提供，`SessionEnd` 是 3 秒，其他事件是 5 秒；等锁预算固定比对应事件超时少 2 秒，当前分别是 1 秒和 3 秒
+- Hook handler 超时统一由 `WorkflowHookEventRecorder.hookTimeoutSeconds(for:)` 提供，`SessionEnd` 和 `Interrupt` 是 3 秒，其他事件是 5 秒；等锁预算固定比对应事件超时少 2 秒，当前分别是 1 秒和 3 秒
 - 普通启动 -> `Controllers/CodexBarAppDelegate.swift` 中的 `CodexBarAppDelegate` 创建全部长期对象，再由 `StatusItemController.install()` 装配菜单栏；AppDelegate 是唯一的装配点，新增服务在这里注入
 
 ### 三条数据链路
@@ -97,17 +97,17 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 **链路三：实时任务，由 `CodexActivityMonitor` 驱动**
 
-`CodexActivityMonitor` 是菜单栏图标、活动卡片、通知、触觉反馈和防睡眠的**唯一任务状态来源**，由两个 reader 供料。
+`CodexActivityMonitor` 为菜单栏、活动卡片、任务流光、通知、触觉反馈和防睡眠提供统一任务状态，由两个 reader 读取数据。
 
 - `HookEventTailReader`（actor）的 bootstrap 覆盖滚动 24 小时并作为单次事务发送，之后按当日文件 offset 增量 tail，同时向下游报告数据源健康状态
 - `CodexSessionLifecycleReader`（actor）增量读取 `~/.codex/sessions` 与 `archived_sessions` 下的 rollout JSONL，只提取 turn 生命周期与最近进展时间，不解码会话或工具内容
 - 任务监控只在 `codexHookSettings.isOperable` 为 `true` 时运行，即本地已安装且最近一次明确校验没有失败；链路失效时立即停 reader 并清空实时状态
-- `SessionEnd` 没有 `turn_id`，收到后按 session 把对应任务立即移出活跃列表并放进 5 秒终态确认窗口；rollout 在窗口内补回准确的完成或终止分类，超时后按终止处理
+- `Stop` 保留正在收尾的任务，rollout 确认后才记录完成；`Interrupt` 结束匹配轮次；新 turn 或 `SessionEnd` 将旧任务移入 5 秒终态确认窗口。来源过滤、终态去重和恢复规则见 [实时任务监控](Docs/DeveloperGuide/activity-monitor.md)
 - `HookEventTailReader.drainNow()` 是读取屏障，每个调用方等待一轮在本次请求之后开始的读取，返回 `completed`、`sourceUnavailable` 或 `cancelled`
 - 缺少 session ID 的 Hook 事件使用匿名 project key，`isAnonymous` 会保留到活动快照、完成记录和终止记录；活动卡片和任务中心显示橙色 `person.crop.circle.dashed` 图标，`help` 为 `匿名任务不参与防睡眠`，`+N` 只显示其他活跃任务总数
 - 匿名任务不向通知消费者发布等待或完成 transition，不触发触觉反馈，不参与 KeepAlive 或异常会话保护，`activityProtectionIdentifier` 为 `nil`
 
-系统唤醒时，`NSWorkspace.didWakeNotification` 先暂停异常会话保护。读取屏障成功时重置生命周期解析回退，并在完成 rollout 对账后恢复判定；数据源不可用时继续由 source health 门槛暂停，reader generation 变化时直接丢弃旧结果。
+系统睡眠前暂停异常会话保护。`NSWorkspace.didWakeNotification` 触发新的读取屏障，成功后重置生命周期解析回退，完成 rollout 对账后恢复判定；数据源不可用时继续暂停，reader generation 变化时丢弃旧结果。
 
 #### 异常会话保护
 
@@ -139,9 +139,9 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 - `shouldDisableSleep` 由 `sleepBlockReason == nil` 派生，要求服务已启动、App 未退出、主开关与 Hook 可用、存在符合条件的任务、helper 已批准且未刷新、低电量与时长上限均未阻断；依赖变化保留用户保存的 `isEnabled`
 - `hasRunningTasks` 只表示非匿名且仍可见的运行中任务；`hasKeepAliveTasks` 在此基础上纳入 `keepsAwakeWhileWaiting` 开启时的非匿名等待任务，被异常会话保护隐藏的任务不参与防睡眠
-- Hook 状态在类内只认 `isHookEnabled` 这份镜像，它跟的是 `codexHookSettings.isOperable`；不要回读那个属性，订阅回调跑在 `willSet`，那一刻它的两个输入里正在变的那一项还是旧值，只能认 `CombineLatest` 给的闭包参数
+- Hook 状态在类内只认 `isHookEnabled` 这份镜像，它跟的是 `codexHookSettings.isOperable`；不要回读那个属性，订阅回调跑在 `willSet`，此时正在变更的属性仍是旧值，使用 `CombineLatest` 传入的新值
 - 新增拦截条件一律加进 `sleepBlockReason` 的顺序判断里，它和 `shouldDisableSleep` 同源，顺带保证日志的 `reason=` 不会漏项
-- UI 用的 `isLowBatteryBlocking` 与 `canShowOptions` 由 `reconcileSleepState` 从 `sleepBlockReason` 单点派生，新增拦截条件时 `allowsOptions` 那个穷举 `switch` 会强制表态，于是不会出现入口亮着却点不动
+- UI 用的 `isLowBatteryBlocking` 与 `canShowOptions` 由 `reconcileSleepState` 从 `sleepBlockReason` 单点派生，`allowsOptions` 的穷尽 `switch` 定义各阻断条件下的选项入口状态
 - `hasRunningTasks` 与 `isRefreshingHelper` 都不带 `@Published` 标注，它们变得比结论频繁，各自发信号会把整个设置页拖着一起重算
 - helper 只做固定的系统电源操作；不要给 root helper 增加网络、任意命令执行或其他文件访问能力
 - helper 注册需求由防睡眠主开关与自动重置请求共同决定；自动重置开启时即使防睡眠关闭也要完成 `SMAppService` 注册和系统批准，设置行复用注册错误并单独展示唤醒计划同步错误
@@ -163,7 +163,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 异常断连后租约宽限 15 秒；同一 App 在宽限内重连会续上原租约，watchdog 只会释放仍处于断连状态的那一个 client session
 - helper 以 `owned` 或 `restoring` 启动时先恢复为 0 再接受新接管；以 `idle` 启动时不修改当前值，因为那个值可能属于其他来源
 - 更新 helper 前 App 冻结新防睡眠请求和自动重置唤醒同步，确认固定唤醒事件已取消后执行 unregister/register；旧 helper 终止时负责恢复 owned 睡眠状态，新 helper 就绪后对当前指纹执行一次 `resetSleepAfterUpdate` 并收到状态回复才完成更新，系统仍在等待首次批准时除外
-- 切换失败按 2/4/8...256 秒重试，列表耗尽即放弃（延时累计约 8.5 分钟，每轮再等一次超时约 10 分钟），瞬时抖动能自愈，权限类故障不该无限重试
+- 切换失败按 2/4/8…256 秒重试，重试次数耗尽后保留错误状态
 - XPC 请求带超时并汇进同一条重试路径；launchd 拉不起 helper 时 XPC 方法既不回复也不触发 `errorHandler`，没有它界面会显示防睡眠开着而实际没生效，日志里只剩没有配对回复的 `Helper XPC 请求已发送`
 - 超时取值放在 `CodexBarHelperIPC.requestTimeoutSeconds` 而不是控制器里，它与 `watchdogGraceSeconds` 是一对：必须更小，App 先放手 helper 才能靠 watchdog 兜底，分处两个 module 会让人改了一边不知道另一边
 - 开发期间用 `xcodebuild` 覆盖正在运行的 App bundle 可能使 launchd 注册信息与磁盘上的 helper 不一致；重启 App 后通过 `KeepAliveHelperConfiguration.registrationNeedsRefresh(defaults:)` 检查指纹并刷新注册
@@ -179,10 +179,10 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 上限计时用 `SuspendingClock` 而不是 `Date`，后者受系统时间调整影响且系统睡眠期间照走；排计时器的 `Task.sleep` 同样要传 `SuspendingClock`，否则睡一夜醒来会当场判定到期
 - 低电量判断使用 `isLowBatteryActive` 记录滞回状态；电池供电且电量不高于阈值时进入，达到阈值加 5 个百分点或接通电源时解除。时长上限由 `hasReachedMaximumDuration` 保持到下一轮任务或设置变化
 - 供电来源读取 `Power Source State`；接电停充时 `Is Charging` 为 `false`，不能用于判断是否正在使用电池
-- 电量读不到时维持上一次的判定，从没读到过就是不触发：误触发会当场断掉用户任务，漏触发最坏也有系统强制睡眠兜底
+- 电量不可读时维持上一次判定，从未取得有效读数时不触发低电量保护
 - 已经在低电量保护中时读数失败不清零，否则一次瞬时失败会绕过滞回，让防睡眠反复开关并重发通知
 - 低电量通知只在 `isActivelyPreventingSleep` 为真且来源是 `codexBar` 时排队，外部来源不说“已恢复系统睡眠”；日志无条件记并用 `action=release|none` 区分，百分比只有那一条能看到
-- 排队的通知要等 helper 恢复睡眠的 XPC 回复确认成功才发得出去，恢复失败走重试直至放弃，提前说“已恢复系统睡眠”会把用户骗去合盖然后把电耗干
+- 恢复睡眠的通知在 helper 的 XPC 回复确认成功后提交；恢复失败时进入有界重试
 - 补发 `IOPMSleepSystem` 之前还要 `await` 到通知真的提交完成，只把提交排进下一个 MainActor job 的话同一个 job 里的补发会抢在它前面
 - 那次 `await` 之后要重认一次 `generation` 再走 `finishSleepRestore` 这一步，挂起期间可能已有新的禁用请求接管，否则会释放掉刚建立的空闲断言
 - 设置页那句低电量说明看 `isLowBatteryBlocking` 而不是 `isLowBatteryActive`，后者在没有任务时也成立，那时无话可说
@@ -190,7 +190,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 一轮低电量通知的终点是电量回到 `阈值 + 5%` 或者用户改了阈值，由 `hasNotifiedLowBattery` 记住；只看是否接电会让适配器接触不良时每翻一次供电状态就重发一条
 - `hasNotifiedLowBattery` 只在通知真的提交成功之后才置位，打在入队处或提交前都会让没送达的那一条吃掉整轮配额，使这一轮之后真正触发的低电量再也提醒不了
 - `SleepConditions` 里只放 `battery` 布尔，放电量百分比会让每掉 1% 刷一条变化日志；真实电量只在触发那一条单独记
-- 防睡眠生效且活动卡片数据可用时，右侧显示青绿色 `sun.max.fill`，使用 `.symbolEffect(.rotate.byLayer, options: .repeat(.continuous))` 持续旋转；tooltip 按 `sleepPreventionSource` 区分外部来源与 CodexBar
+- 防睡眠生效且活动卡片数据可用时，右侧显示青绿色 `sun.max.fill`；主面板可见且“动画效果”开启时每 2 秒匀速旋转一圈，关闭动画时显示静态图标。tooltip 按 `sleepPreventionSource` 显示来源
 - 设置页那一行说明只在异常、外部来源、低电量生效或达到上限时出现，CodexBar 自己正常持有所有权时整行收起，`keepAliveCaption` 返回 `nil` 即代表收起
 - 最长防睡眠时间、异常会话保护阈值与低电量阈值都在防睡眠子面板里，台式机读不到电池时低电量那一行整行隐藏而不是置灰
 - 保持屏幕常亮跟 `isActivelyPreventingSleep` 走，由 `reconcileDisplayAwake` 单点切换，于是低电量拦下、达到上限、任务结束时屏幕都跟着放开
@@ -242,7 +242,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - app-server 之外的模块走 `Services/Support/AppLog.swift` 写系统日志，用户可见文案只留步骤名，错误码与 `localizedDescription` 这类细节进 `os_log`；现有 `category` 为 `app`、`keepalive`、`activity`、`workflow`、`sync`、`hooks`、`codexcli`、`settings`、`notification`，helper 进程另用 `helper`
 - 日志的目标是出问题时能从中重建当时的状态，所以不只记失败，状态转换、关键操作与决策依据同样要记；启动时由 `logLaunchState` 记一条含全部开关的基线，后续变更日志都是相对它的增量
 - 进程终止靠 `AppProcessDiagnostics` 补线索，它和 `logLaunchState` 一样挂在 `app` category 下，ObjC 异常当场留痕，其余终止方式靠下次启动补记一条 `App 上次非正常退出`
-- 那条补记只能用 `.notice` 级别，因为 kill 与强制退出和真崩溃无法区分，用 `.error` 会让按级别筛的排查开局就追一个不存在的故障
+- 非正常退出补记使用 `.notice`，该记录无法区分强制退出与崩溃
 - **级别只用 `.notice` 与 `.error`**，状态转换和降级决策用 `.notice`，失败用 `.error`；`.info` 与 `.debug` 只落在内存环形缓冲里，事后 `log show` 捞不全，一律不用
 - 详细度靠**结果字段化**而不是多记几条：一次操作只留开始与收尾两条，每一步的成功结果压成收尾那条里的一个字段，只有失败才单独发一条 `.error` 带 `stage=` 与 `detail=`；逐事件与逐快照这类高频路径仍然一律不记，例如两个 Reader 的 `try?` 文件 IO 失败是预期常态，记了会刷屏
 - 文案骨架是 `<主体><动作>: 字段=值; 字段=值`，标题只说发生了什么，理由进 `reason=`，处置进 `action=`；起止用 `开始` `完成` `失败`，中间状态用 `已<动作>`
@@ -255,7 +255,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 设置项的变更日志照抄设置页那一行的标题，例如 `菜单栏额度指示变更`、`开机自动启动变更`，用户说“我改了那个开关”时能直接对上；只有本身带完整链路的才用链路词根，例如 Hook、同步、通知、KeepAlive、快捷键
 - 成对的操作要留成对的日志，例如 XPC 的发送与回复各记一条并带同一个 `generation`，缺一条就说明请求丢在途中
 - 耗时用 `LogDuration` 取，只加在收尾那一条上
-- `Logger` 的插值是 autoclosure，里面直接访问属性会被要求显式 `self`，而 `.swiftformat` 配了 `--self remove`，两边会打架；把属性先取到局部常量再插值即可，不需要 lint 豁免
+- `Logger` 的插值是 autoclosure，里面直接访问属性会被要求显式 `self`，而 `.swiftformat` 配了 `--self remove`，两者要求冲突；先将属性保存为局部常量再插值
 - 账户有效时，额度和用量请求可以分别失败；同账户缓存标为 `stale` 并降低透明度。可见的数据区域均无数据时，在其中第一个区域显示“暂无数据”；Hook 开启时用量区域可保留本地统计。账户变化时清空补充缓存
 - 各 Settings 类把读取类错误与操作类错误分开存储，定时 `refresh` 不能抹掉用户操作或校验的结论，参见 `CodexHookSettings` 与 `KeepAliveController`
 - Hook 子进程任何失败都静默退出，优先保证不拖慢 Codex
@@ -267,6 +267,8 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - `MenuSurfaceDismissMonitor` 将鼠标、键盘和激活事件汇总为关闭请求，`StatusItemController.popoverDidClose` 接收 AppKit 实际关闭回调；主动关闭容器前将 `activeMenuSurface` 设为 `none`，回调只对仍为当前容器的 popover 执行完整收尾
 - `MenuSurfaceFadeCoordinator` 同时调整内容视图和窗口透明度，淡入 0.24 秒、淡出 0.18 秒，只保留一个完成任务，新动画取消旧任务
 - popover 和备用面板分别持有 `MenuSurfaceAnimationState`，展示前允许动画，淡出期间保持开启，实际关闭后禁用；根视图在禁用时设置 `transaction.animation = nil` 和 `transaction.disablesAnimations = true`，后台刷新继续执行
+- 主面板淡入完成且仍可见时，检查 Hook 配置、本地统计和账户数据是否需要刷新；淡入完成前关闭面板会取消该回调
+- 任务流光消费独立展示更新，开关与主面板动画独立；多屏、焦点和终态时限见 [任务流光](Docs/DeveloperGuide/ui-and-lifecycle.md#任务流光)
 - 主面板的热力图详情、重置次数和任务中心使用 `borderless nonactivating child panel`；设置窗口的主面板布局、通知、自动重置和防睡眠选项使用可获得键盘焦点的 `borderless child panel`
 - 设置窗口的子面板占同一位置，展开一个必须先 `hide(immediate: true)` 收掉其余的；动作走 `SettingsOptionsPanelAction` 并带上目标 `SettingsOptionsPanel`，互斥与 `closeAll` 都只写在 `SettingsWindowController.handleOptionsAction` 一处，新增面板不会漏配对
 - 面板控制器只在首次展开时构造，收起动作走 `existingOptionsPanelController` 而不触发构造：`NSHostingController` 与动态面板订阅会常驻到 App 结束，而用户可能一次子面板都没开过
@@ -302,7 +304,7 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 - 只识别并移除 command 同时包含当前 CodexBar 可执行路径与 `--hook-event` 的 handler，必须保留用户已有 Hook 以及其他 App 的 Hook 和同事件下的其他 handler
 - 每个 `CodexHookEvent.allCases` 事件追加一个独立 group，handler 超时从 `WorkflowHookEventRecorder.hookTimeoutSeconds(for:)` 取得；新增事件时不得复制一份超时常量
-- 启用和校验 Hook 前要求当前 app-server 握手版本至少为 `0.145.0`；必须检查 `readyConnectionInfo()` 返回的实际连接版本，不能用磁盘版本代替，否则升级后尚未重连的旧进程会被误判为可用
+- 账户主链路要求当前 app-server 至少为 `0.145.0`，Hook 启用和校验要求至少为 `0.150.0`；版本依据为握手返回的实际连接信息
 - 写入前通过 app-server `config/read` 确认全局未禁用 Hook，写入后用 `hooks/list` 验证；两处读取共用 `readGlobalHookDisabled`，开关流程与校验流程对“全局禁用”的判断不会分叉
 - 读取失败（I/O 或 JSON 格式错误）不提供 Hook 装没装的信息，必须保留上次已知值，不能当成用户关闭了 Hook
 - `isEnabled` 表示当前进程中的 Hook 开启状态，首次从已有 handler 恢复；开启后配置缺失会触发自愈。`isVerified` 保存最近一次校验的明确结论，`isOperable` 为两者的合取

@@ -37,12 +37,27 @@ Create settings, data services, view models, and updater
       -> Reconcile Hook and start periodic refresh
   -> Start notifications and automatic reset
   -> Connect Activity Protection callbacks
+  -> Start the task-glow subscription
   -> Start the activity monitor and keep-alive coordination
 ```
 
 Notifications and sleep prevention consume only snapshots or transitions already published by the monitor; they do not control readers upstream. Controllers connect these services through closures, keeping AppKit containers out of the service layer.
 
 Shutdown reverses the order, except for helper-owned system state. AppDelegate first confirms asynchronously that the Automatic Reset wake schedule is canceled and the sleep-prevention lease is released, then allows process termination. See [Sleep Prevention System](sleep-prevention.md) for the transaction.
+
+## Task Glow
+
+`TaskGlowController` presents activity while both `TaskGlowSettings.isEnabled` and Hook's `isOperable` are `true`, independently of the main panel's animation setting. It consumes snapshots and terminal events from `CodexActivityMonitor.presentationPublisher`; see [Presentation Updates](activity-monitor.md#presentation-updates).
+
+| Scenario | Presentation rule |
+| --- | --- |
+| Active tasks exist | Orange approval waiting takes priority over cyan running |
+| A task ending is confirmed while others remain active | The latest event overrides activity for 3 seconds, fading during the final 0.5 seconds; a new event replaces it and restarts the timer |
+| No active tasks | The snapshot's latest terminal state remains until 10 seconds after its end time, fading during the final second |
+
+Completion is green and termination is red, with termination taking priority on equal end times. Durations include entrance animations. The latest snapshot determines the state after expiration.
+
+The glow uses nonactivating, mouse-transparent `NSPanel` windows across Spaces and full-screen apps. System sleep, display sleep, or an inactive user session removes the windows. On return, valid state resumes according to the current time. Screen configuration changes rebuild the windows; all displays share a motion clock.
 
 ## Status Bar Icon
 
@@ -93,7 +108,7 @@ Operations follow these rules:
 
 - Toggling in `opening` or `shown` starts closing
 - Toggling in `closing` finishes the old close, then opens a new surface
-- Starting a close cancels delayed refresh and old animations
+- Starting a close cancels the pending fade-in completion task
 - A nonanimated close completes state cleanup immediately
 
 `activeMenuSurface` identifies the current container as `none`, `popover`, or `fallbackPanel`. An explicit container close sets it to `none` before closing the window.
@@ -134,7 +149,7 @@ When host animation permission is disabled, `CodexStatusMenuView` sets the root 
 
 ### Activity Card
 
-`CodexActivityCard` uses `primaryActivity`, prioritizing waiting for approval, running, recently completed, and recently terminated tasks. When `isActivelyPreventingSleep` is `true` and card data is available, it shows a teal `sun.max.fill`. While the host's `mainPanelAnimationsEnabled` is true, a separate rotating view uses linear animation for one clockwise revolution every 2 seconds, without the system symbol effect's acceleration phase. Disabling permission removes the rotating view and restores a static icon. Reopening restores rotation only when Animation Effects is enabled. Popover and fallback hosts control their animations independently. The tooltip identifies `sleepPreventionSource`.
+`CodexActivityCard` uses `primaryActivity`, prioritizing waiting for approval, then running, then the latest completion or termination by end time, with termination taking precedence on ties. When `isActivelyPreventingSleep` is `true` and card data is available, it shows a teal `sun.max.fill`. While the host's `mainPanelAnimationsEnabled` is true, a separate rotating view uses linear animation for one clockwise revolution every 2 seconds, without the system symbol effect's acceleration phase. Disabling permission removes the rotating view and restores a static icon. Reopening restores rotation only when Animation Effects is enabled. Popover and fallback hosts control their animations independently. The tooltip identifies `sleepPreventionSource`.
 
 ## Fallback Panel
 
@@ -172,6 +187,8 @@ Closing the main panel immediately cleans up its side panels. For an immediate c
 Heatmap squares enter with staggered delays based on their column and row. With entrance animations enabled, each square accepts hover after its own entrance delay plus 0.25 seconds. With entrance animations disabled, squares accept hover immediately.
 
 The heatmap detail panel uses the complete heatmap area, including its heading, date range, and square grid, as its vertical anchor. Reordering main-panel sections therefore still keeps their top edges aligned whenever possible. If the detail panel would extend below the main panel from that position, placement shifts it upward until their bottom edges align.
+
+While the main panel is visible, digits roll as values change and Token values fade when switching to or from pending or unavailable placeholders. Animation Effects controls entrance animations and sun-badge rotation; it does not control numeric updates.
 
 Related controllers include:
 
@@ -256,13 +273,13 @@ Registration uses try-before-swap:
 
 ## Automatic Refresh and Panel Opening
 
-App-server state is checked for refresh every 60 seconds by default. About 160 ms after the main panel opens, `refreshIfNeeded` requests data if no countdown origin exists or more than 60 seconds have passed since the last refresh result was committed. Both successful and failed results reset the countdown; this check can occur before fade-in finishes.
+App-server state is checked for refresh every 60 seconds by default. Once the main panel's 0.24-second fade-in finishes and the panel is still visible, `refreshIfNeeded` requests data if no countdown origin exists or more than 60 seconds have passed since the last refresh result was committed. Both successful and failed results reset the countdown.
 
 The main panel shows a refresh countdown. Double-clicking the account icon requests an immediate manual refresh.
 
 Ordinary refreshes are ignored while a refresh or reconnect is in progress. Operations requiring a follow-up use `refreshAfterCurrent` to retain one pending trigger and run it after the current request finishes.
 
-Opening the panel immediately reconciles Hook configuration and requests local statistics when Hook is enabled. The delayed task only checks whether account, rate-limit, and usage data need refreshing; closing the panel cancels it.
+The fade-in completion callback triggers Hook configuration reconciliation, a local-statistics refresh check when Hook is enabled, and an account, rate-limit, and usage refresh check in that order. Closing the panel before fade-in finishes cancels the completion task and its pending refresh work.
 
 ## Localization and Formatting
 
@@ -284,6 +301,8 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 ## Manual Validation Matrix
 
 - Left-click opens the main panel; right-click and Control-click open the context menu
+- During concurrent running or approval waiting, completion and termination trigger a 3-second glow indicator; consecutive endings and the end of all tasks use the correct color and expiration
+- History reloads and wake reconciliation do not replay old terminal hints; subsequent real task endings still produce hints, and motion and expiry stay aligned across displays and screen configuration changes
 - Menu bar symbols follow task state; terminal feedback expires 10 seconds after the task ends and is recalculated on wake
 - Transitions between the plain person and all four task badges complete correctly, rapid changes settle on the latest state, and toggling quota visibility stays smooth with badges; initial presentation and wake reconciliation do not animate
 - Quota-arc visibility animates, zero quota retains the track, and cached quota dims
@@ -304,6 +323,7 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 - On multiple displays and with different menu bar locations, the fallback panel appears on the pointer's screen
 - The old shortcut still works after a new shortcut conflicts
 - Panel-open refresh does not stall animation or issue duplicate requests
+- Initial numeric decreases, consecutive changes, Token unit changes, and month boundaries roll in the correct direction; numeric animations stop when the main panel closes
 
 ## Key Source Files
 

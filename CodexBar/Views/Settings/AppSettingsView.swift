@@ -13,7 +13,8 @@ struct AppSettingsView: View {
     @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
     @ObservedObject var menuBarQuotaSettings: MenuBarQuotaSettings
-    @ObservedObject var mainPanelSettings: MainPanelSettings
+    let mainPanelSettings: MainPanelSettings
+    let taskGlowSettings: TaskGlowSettings
     @ObservedObject var notificationSettings: NotificationSettings
     @ObservedObject var autoResetSettings: AutoResetSettings
     @ObservedObject var keepAliveController: KeepAliveController
@@ -83,6 +84,7 @@ struct AppSettingsView: View {
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
             mainPanelSettings.refresh()
+            taskGlowSettings.refresh()
             autoResetSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
             refreshStatusRows()
@@ -92,6 +94,7 @@ struct AppSettingsView: View {
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
             mainPanelSettings.refresh()
+            taskGlowSettings.refresh()
             autoResetSettings.refresh()
             refreshStatusRows()
         }
@@ -248,7 +251,12 @@ private extension AppSettingsView {
             VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
                 mainPanelLayoutRow
                 LiquidGlassDivider()
-                mainPanelEntranceAnimationsRow
+                MainPanelEntranceAnimationsSettingsRow(settings: mainPanelSettings)
+                LiquidGlassDivider()
+                TaskGlowSettingsRow(
+                    settings: taskGlowSettings,
+                    codexHookSettings: codexHookSettings
+                )
                 LiquidGlassDivider()
                 launchAtLoginRow
                 LiquidGlassDivider()
@@ -406,17 +414,6 @@ private extension AppSettingsView {
                 .toggle(panel: .mainPanel, anchorProvider: anchorProvider)
             )
         }
-    }
-
-    var mainPanelEntranceAnimationsRow: some View {
-        SettingsToggleRow(
-            icon: "sparkles",
-            title: "settings.main-panel.entrance-animations",
-            isOn: Binding(
-                get: { mainPanelSettings.areEntranceAnimationsEnabled },
-                set: { mainPanelSettings.setEntranceAnimationsEnabled($0) }
-            )
-        )
     }
 
     // MARK: - 高级页各行

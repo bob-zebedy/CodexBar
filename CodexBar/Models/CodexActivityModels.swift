@@ -16,6 +16,7 @@ nonisolated enum CodexActivityEvent: Equatable {
     case subagentStarted
     case subagentFinished
     case approvalRequested
+    case stopRequested
 }
 
 /// bootstrap 后需要向更早日期定向查找 Prompt 起点的精确任务引用
@@ -51,7 +52,32 @@ nonisolated struct CodexActivityCompletion: Equatable, Identifiable {
     let duration: TimeInterval?
 }
 
-/// 最近确认终止的任务; 终止不会被视为完成, 也不会触发完成提醒
+/// 本轮确认的终态和快照一起发布, 历史恢复只发布快照
+nonisolated struct CodexActivityPresentationUpdate {
+    let snapshot: CodexActivitySnapshot
+    let terminalEvents: [CodexActivityTerminalEvent]
+}
+
+nonisolated enum CodexActivityTerminalEvent: Equatable {
+    case completed(CodexActivityCompletion)
+    case terminated(CodexActivityTermination)
+
+    var id: UUID {
+        switch self {
+        case let .completed(completion): completion.id
+        case let .terminated(termination): termination.id
+        }
+    }
+
+    var endedAt: Date {
+        switch self {
+        case let .completed(completion): completion.completedAt
+        case let .terminated(termination): termination.terminatedAt
+        }
+    }
+}
+
+/// 最近确认终止的任务; 中断和其他终止都不会触发完成提醒
 nonisolated struct CodexActivityTermination: Equatable, Identifiable {
     let id: UUID
     let isAnonymous: Bool
@@ -102,6 +128,14 @@ nonisolated struct CodexActivitySnapshot: Equatable {
         recentTerminations.first
     }
 
+    var latestTerminalEvent: CodexActivityTerminalEvent? {
+        if let termination = mostRecentTermination,
+           mostRecentCompletion.map({ termination.terminatedAt >= $0.completedAt }) ?? true {
+            return .terminated(termination)
+        }
+        return mostRecentCompletion.map(CodexActivityTerminalEvent.completed)
+    }
+
     var waitingCount: Int {
         waitingTasks.count
     }
@@ -130,42 +164,33 @@ nonisolated struct CodexActivitySnapshot: Equatable {
         if let task = primaryRunningTask {
             return .running(task)
         }
-        if let completion = mostRecentCompletion {
-            return .completed(completion)
-        }
-        if let termination = mostRecentTermination {
+        switch latestTerminalEvent {
+        case let .terminated(termination):
             return .terminated(termination)
+        case let .completed(completion):
+            return .completed(completion)
+        case nil:
+            return .idle
         }
-        return .idle
     }
 
     /// 菜单栏只短暂显示最新终态, 不改变活动卡片的历史展示规则
     func statusItemActivity(at now: Date) -> CodexPrimaryActivity {
-        if let task = primaryWaitingTask {
-            return .waiting(task)
+        let activity = primaryActivity
+        switch activity {
+        case .completed, .terminated:
+            guard let expiration = statusItemActivityExpiration, now < expiration else {
+                return .idle
+            }
+            return activity
+        case .waiting, .running, .idle:
+            return activity
         }
-        if let task = primaryRunningTask {
-            return .running(task)
-        }
-        guard let expiration = statusItemActivityExpiration, now < expiration else {
-            return .idle
-        }
-        if let termination = mostRecentTermination,
-           mostRecentCompletion.map({ termination.terminatedAt >= $0.completedAt }) ?? true {
-            return .terminated(termination)
-        }
-        if let completion = mostRecentCompletion {
-            return .completed(completion)
-        }
-        return .idle
     }
 
     var statusItemActivityExpiration: Date? {
         guard !hasActiveTasks else { return nil }
-        return [mostRecentCompletion?.completedAt, mostRecentTermination?.terminatedAt]
-            .compactMap(\.self)
-            .max()?
-            .addingTimeInterval(10)
+        return latestTerminalEvent?.endedAt.addingTimeInterval(10)
     }
 }
 
@@ -246,6 +271,8 @@ nonisolated enum CodexActivityDisplayFormat {
             String(localized: "activity.event.subagent-completed")
         case .approvalRequested:
             String(localized: "activity.status.waiting-for-approval")
+        case .stopRequested:
+            String(localized: "activity.event.finishing")
         }
     }
 

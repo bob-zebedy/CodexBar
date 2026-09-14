@@ -38,6 +38,9 @@ codesign2
 # Logs
 *.log
 
+# Performance reports
+/Performance/
+
 # Editor
 .zed/
 

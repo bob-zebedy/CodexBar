@@ -8,7 +8,6 @@ import os
 final class WorkflowSyncSettings: ObservableObject {
     @Published private(set) var isEnabled: Bool
     @Published private(set) var isSyncing = false
-    @Published private(set) var hasSyncFailure = false
     @Published private(set) var syncFailureMessage: String?
     @Published private(set) var lastUploadAt: Date?
     @Published private(set) var syncAvailability = WorkflowSyncAvailability.unknown
@@ -55,6 +54,10 @@ final class WorkflowSyncSettings: ObservableObject {
 
     var isSyncAvailable: Bool {
         syncAvailability.isAvailable
+    }
+
+    var hasSyncFailure: Bool {
+        syncFailureMessage != nil
     }
 
     /// "同步是否实际生效"的唯一判定: Hook 已启用且同步开关打开且 iCloud 可用
@@ -169,12 +172,10 @@ final class WorkflowSyncSettings: ObservableObject {
     }
 
     private func clearSyncFailure() {
-        hasSyncFailure = false
         syncFailureMessage = nil
     }
 
     private func applySyncFailure(_ message: String?) {
-        hasSyncFailure = isEnabled
         syncFailureMessage = isEnabled
             ? message ?? WorkflowSyncFailureReason.retryLater.message
             : nil

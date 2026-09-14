@@ -59,7 +59,7 @@ final class CodexHookSettings: ObservableObject {
                 in: config,
                 executablePath: currentExecutablePath
             )
-            if installed {
+            if installed, !isEnabled {
                 isEnabled = true
             }
             let isComplete = Self.containsAllCodexBarHooks(
@@ -76,7 +76,9 @@ final class CodexHookSettings: ObservableObject {
             if isEnabled, !isComplete {
                 assignVerified(false, reason: .configurationDamaged)
             }
-            readErrorMessage = nil
+            if readErrorMessage != nil {
+                readErrorMessage = nil
+            }
         } catch {
             // 只有 I/O 失败和 JSON 格式错误会走到这里, 它们对「Hook 装没装」不提供信息
             // 文件不存在或配置里没有 CodexBar 都由 readConfigIfPresent 正常返回
@@ -132,13 +134,22 @@ final class CodexHookSettings: ObservableObject {
     }
 
     /// 与手动关闭共用同一事务, 自动关闭也不会遗留另一套清理语义
-    private func disableCodexBarHooks(generation: Int) async throws {
+    private func disableCodexBarHooks(generation: Int, cleanupTrust: Bool = true) async throws {
         // 关闭前先通过 hooks/list 拿到 key
         // hooks.json 删除后 app-server 就无法再反查这些 key
-        let cleanupPlan = try await hookTrustCleanupPlan(generation: generation)
+        let cleanupPlan: CodexHookTrustCleanupPlan? = if cleanupTrust {
+            try await hookTrustCleanupPlan(generation: generation)
+        } else {
+            nil
+        }
+        try ensureCurrentUpdate(generation)
         try writeCodexBarHookConfig(enabled: false)
         try ensureCurrentUpdate(generation)
         isEnabled = false
+        operationErrorMessage = nil
+        guard let cleanupPlan else {
+            return
+        }
         await cleanupCodexHookTrust(
             removing: cleanupPlan.keys,
             discoveryError: cleanupPlan.discoveryError,
@@ -151,6 +162,14 @@ final class CodexHookSettings: ObservableObject {
             try await ensureCodexHookVersionSupported()
             try ensureCurrentUpdate(generation)
         } catch is CancellationError {
+            return
+        } catch CodexStatusError.unsupportedVersion(minimum: _) {
+            // 低于全局门槛的连接已关闭, 无法通过 app-server 查询或删除信任项
+            await disableUnsupportedCodexBarHooks(
+                error: .unsupportedCodexVersion(minimum: CodexCLIMinimumVersion.hook),
+                generation: generation,
+                cleanupTrust: false
+            )
             return
         } catch let error as HookConfigError {
             guard case .unsupportedCodexVersion = error else {
@@ -181,7 +200,9 @@ final class CodexHookSettings: ObservableObject {
             try await validateInstalledHooksWithAppServer()
             try ensureCurrentUpdate(generation)
             assignVerified(true, reason: .verified)
-            operationErrorMessage = nil
+            if operationErrorMessage != nil {
+                operationErrorMessage = nil
+            }
         } catch is CancellationError {
             return
         } catch {
@@ -189,11 +210,15 @@ final class CodexHookSettings: ObservableObject {
         }
     }
 
-    private func disableUnsupportedCodexBarHooks(error: HookConfigError, generation: Int) async {
-        assignVerified(false, reason: .unsupportedVersion)
-
+    private func disableUnsupportedCodexBarHooks(
+        error: HookConfigError,
+        generation: Int,
+        cleanupTrust: Bool = true
+    ) async {
         do {
-            try await disableCodexBarHooks(generation: generation)
+            try ensureCurrentUpdate(generation)
+            assignVerified(false, reason: .unsupportedVersion)
+            try await disableCodexBarHooks(generation: generation, cleanupTrust: cleanupTrust)
             try ensureCurrentUpdate(generation)
             if operationErrorMessage == nil {
                 operationErrorMessage = error.localizedDescription
@@ -566,8 +591,8 @@ private extension CodexHookSettings {
                     "stage=discovery",
                     "detail=\(discoveryError.localizedDescription)"
                 )
-                AppLog.hooks.error("Hook 信任清理失败: \(details, privacy: .public)")
-                operationErrorMessage = String(localized: "hook.error.trust-cleanup-failed")
+                AppLog.hooks.error("无法清理 Hook 信任状态: \(details, privacy: .public)")
+                operationErrorMessage = String(localized: "hook.error.trust-cleanup-unavailable")
             } else {
                 operationErrorMessage = nil
             }
@@ -582,8 +607,8 @@ private extension CodexHookSettings {
                 "stage=remove",
                 "detail=\(error.localizedDescription)"
             )
-            AppLog.hooks.error("Hook 信任清理失败: \(details, privacy: .public)")
-            operationErrorMessage = String(localized: "hook.error.trust-cleanup-failed")
+            AppLog.hooks.error("无法清理 Hook 信任状态: \(details, privacy: .public)")
+            operationErrorMessage = String(localized: "hook.error.trust-cleanup-unavailable")
         }
     }
 

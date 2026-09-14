@@ -138,7 +138,7 @@ private struct AnimatedQuotaPercentageText: View, Animatable {
                     targetPercent: targetPercent
                 )
             )
-            .numericRollTransition(value: Double(roundedPercent))
+            .contentTransition(.numericText(value: Double(roundedPercent)))
     }
 
     private var roundedPercent: Int {

@@ -85,7 +85,7 @@ Check in this order:
 6. Low Battery Protection is not active
 7. The Keep-Awake Limit has not been reached
 
-The rotating sun badge appears only while sleep prevention is active and activity-card data is available.
+The sun badge appears only while sleep prevention is active and activity-card data is available. It stays static when Animation Effects is disabled.
 
 If Settings says `System sleep is disabled by another source`, CodexBar does not overwrite that source.
 

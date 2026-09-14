@@ -58,11 +58,6 @@ enum CodexActivityTaskKey: Hashable {
     }
 }
 
-enum CodexActivityLiveTransition {
-    case waitingApproval(CodexActivityTaskKey)
-    case completed(CodexActivityCompletion)
-}
-
 enum CodexActivityEventSource {
     case bootstrap
     case live

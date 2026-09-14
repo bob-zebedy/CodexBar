@@ -11,7 +11,6 @@ struct TokenCountText: View {
         content
             .font(font)
             .lineLimit(1)
-            .minimumScaleFactor(0.8)
     }
 
     @ViewBuilder
@@ -21,7 +20,8 @@ struct TokenCountText: View {
         if let reservedNumericWidth {
             HStack(spacing: 0) {
                 Text(parts.number)
-                    .numericRollTransition(value: Double(tokens))
+                    .contentTransition(.numericText(value: Double(tokens)))
+                    .truncationMode(.tail)
                     .frame(minWidth: reservedNumericWidth, alignment: .trailing)
 
                 if let unit = parts.unit {
@@ -32,33 +32,6 @@ struct TokenCountText: View {
         } else {
             Text(parts.text)
         }
-    }
-}
-
-/// 根据新旧数值方向选择 numericText 的滚动方向
-private struct NumericRollTransition: ViewModifier {
-    let value: Double
-    @State private var previous: Double?
-
-    func body(content: Content) -> some View {
-        content
-            .contentTransition(.numericText(countsDown: countsDown))
-            .onChange(of: value) { _, newValue in
-                previous = newValue
-            }
-    }
-
-    private var countsDown: Bool {
-        guard let previous else {
-            return false
-        }
-        return value < previous
-    }
-}
-
-extension View {
-    func numericRollTransition(value: Double) -> some View {
-        modifier(NumericRollTransition(value: value))
     }
 }
 

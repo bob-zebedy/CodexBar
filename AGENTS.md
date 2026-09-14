@@ -45,14 +45,15 @@ CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用，使用 Swift 6,
 - 如果一行以 Markdown 格式的链接或行内代码结尾，后面不加任何标点；链接或行内代码位于句中时仍按句子结构使用中文标点
 - Markdown 语法、代码块、命令、路径、URL、版本号和程序标识符内部的符号保持原样
 - 如果某句话的作用只是防止被质疑，而不是推进论证，请删除这句话
+- 文档只描述当前行为，不记录或者强调变更过程，同时删除没有实质信息的防御性表述
 
 ## 架构与编码约定
 
-启动时必须先调用 `WorkflowHookEventRecorder.handleIfRequested()` 方法。`--hook-event` 模式从 `stdin` 接收事件，按需有界读取 rollout 元数据，加锁写入 JSONL 并立即退出，不初始化 UI，失败也不能阻断 Codex。Handler 超时按事件从 `hookTimeoutSeconds(for:)` 取得，`SessionEnd` 为 3 秒，其他事件为 5 秒。普通模式由 `CodexBarAppDelegate` 统一装配长期服务。
+启动时必须先调用 `WorkflowHookEventRecorder.handleIfRequested()` 方法。`--hook-event` 模式从 `stdin` 接收事件，按需有界读取 rollout 元数据，加锁写入 JSONL 并立即退出，不初始化 UI，失败也不能阻断 Codex。Handler 超时按事件从 `hookTimeoutSeconds(for:)` 取得，`SessionEnd` 和 `Interrupt` 为 3 秒，其他事件为 5 秒。普通模式由 `CodexBarAppDelegate` 统一装配长期服务。
 
 工程默认采用 `MainActor` 隔离。UI, Controller, ViewModel 和 Settings 依赖默认隔离，共享可变状态放入 actor，DTO 和跨 actor 值类型按需添加 `nonisolated` 标记，禁止在主 actor 执行阻塞 I/O。类型命名使用 `UpperCamelCase` 风格，成员命名使用 `lowerCamelCase` 风格。注释只解释非显然的生命周期、焦点、actor 或系统 API 约束。
 
-保持三条数据链路独立：app-server 额度与用量、Hook 历史聚合、`CodexActivityMonitor` 实时任务。helper 只能执行固定的睡眠控制和自动重置唤醒计划，不得增加网络、任意命令执行或额外文件访问。账户主链路必须检查当前 app-server 的实际版本不低于 `0.143.0`。修改 Hook 配置时必须保留用户和其他应用已有的 handler。启用和校验 Hook 必须额外检查当前 app-server 的实际版本不低于 `0.145.0`。新增网络访问、日志数据或 CloudKit 字段前先核对隐私边界。
+保持三条数据链路独立：app-server 额度与用量、Hook 历史聚合、`CodexActivityMonitor` 实时任务。helper 只能执行固定的睡眠控制和自动重置唤醒计划，不得增加网络、任意命令执行或额外文件访问。账户主链路必须检查当前 app-server 的实际版本不低于 `0.145.0`。修改 Hook 配置时必须保留用户和其他应用已有的 handler。启用和校验 Hook 必须额外检查当前 app-server 的实际版本不低于 `0.150.0`。新增网络访问、日志数据或 CloudKit 字段前先核对隐私边界。
 
 自动重置默认关闭，提前量可选 15 分钟、30 分钟、1 小时、2 小时、4 小时或 6 小时，默认 30 分钟。状态机只处理新鲜响应明确列出的 `available + codexRateLimits + expiresAt` 凭证，每轮连续重试最多 5 分钟。CodexBarHelper 只接收有限时间戳，使用固定 owner 和固定 `wake` 类型维护一个系统事件；目标变化、功能关闭、App 退出、对应 XPC 连接断开或 helper 启动时必须收敛并清理该事件。修改 owner 或事件类型属于清理兼容性问题。
 

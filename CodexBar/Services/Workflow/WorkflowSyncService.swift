@@ -313,7 +313,7 @@ private extension WorkflowSyncService {
     }
 
     enum Metrics {
-        static let syncSchemaVersion = 5
+        static let syncSchemaVersion = 6
         static let syncZoneName = "CodexBarZone"
         static let saltByteCount = 32
         static let recordFetchLimit = 200
@@ -338,6 +338,7 @@ private extension WorkflowSyncService {
         static let sessionEndCount = "sessionEndCount"
         static let userPromptSubmitCount = "userPromptSubmitCount"
         static let stopCount = "stopCount"
+        static let interruptCount = "interruptCount"
         static let preToolUseCount = "preToolUseCount"
         static let postToolUseCount = "postToolUseCount"
         static let permissionRequestCount = "permissionRequestCount"
@@ -1036,6 +1037,7 @@ private extension WorkflowSyncService {
         record[FieldKeys.sessionEndCount] = aggregate.sessionEndCount as CKRecordValue?
         record[FieldKeys.userPromptSubmitCount] = aggregate.userPromptSubmitCount as CKRecordValue?
         record[FieldKeys.stopCount] = aggregate.stopCount as CKRecordValue?
+        record[FieldKeys.interruptCount] = aggregate.interruptCount as CKRecordValue?
         record[FieldKeys.preToolUseCount] = aggregate.preToolUseCount as CKRecordValue?
         record[FieldKeys.postToolUseCount] = aggregate.postToolUseCount as CKRecordValue?
         record[FieldKeys.permissionRequestCount] = aggregate.permissionRequestCount as CKRecordValue?
@@ -1237,6 +1239,7 @@ private extension WorkflowSyncService {
             sessionEndCount: optionalIntValue(record[FieldKeys.sessionEndCount]),
             userPromptSubmitCount: optionalIntValue(record[FieldKeys.userPromptSubmitCount]),
             stopCount: optionalIntValue(record[FieldKeys.stopCount]),
+            interruptCount: optionalIntValue(record[FieldKeys.interruptCount]),
             preToolUseCount: optionalIntValue(record[FieldKeys.preToolUseCount]),
             postToolUseCount: optionalIntValue(record[FieldKeys.postToolUseCount]),
             permissionRequestCount: optionalIntValue(record[FieldKeys.permissionRequestCount]),

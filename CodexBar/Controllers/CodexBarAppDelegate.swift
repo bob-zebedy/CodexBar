@@ -25,11 +25,13 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     let globalHotKeySettings = GlobalHotKeySettings()
     let menuBarQuotaSettings = MenuBarQuotaSettings()
     let mainPanelSettings = MainPanelSettings()
+    let taskGlowSettings = TaskGlowSettings()
     let notificationSettings = NotificationSettings()
     let autoResetSettings = AutoResetSettings()
     let appUpdater = AppUpdater()
 
     private var statusItemController: StatusItemController?
+    private var taskGlowController: TaskGlowController?
     private var notificationService: CodexNotificationService?
     private var autoResetController: AutoResetController?
     private var terminationPreparationTask: Task<Void, Never>?
@@ -50,6 +52,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             globalHotKeySettings: globalHotKeySettings,
             menuBarQuotaSettings: menuBarQuotaSettings,
             mainPanelSettings: mainPanelSettings,
+            taskGlowSettings: taskGlowSettings,
             notificationSettings: notificationSettings,
             autoResetSettings: autoResetSettings,
             keepAliveController: keepAliveController,
@@ -91,6 +94,13 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         activityMonitor.onInactivityProtectionInvalidated = { [weak notificationService] taskID, attemptID in
             notificationService?.invalidateActivityProtectionNotification(taskID: taskID, attemptID: attemptID)
         }
+        let taskGlowController = TaskGlowController(
+            settings: taskGlowSettings,
+            activityMonitor: activityMonitor,
+            hookSettings: codexHookSettings
+        )
+        taskGlowController.start()
+        self.taskGlowController = taskGlowController
         activityMonitor.start()
         keepAliveController.start()
         logLaunchState()
@@ -104,6 +114,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         statusItemController?.uninstall()
         autoResetController?.stop()
         keepAliveController.stop()
+        taskGlowController?.stop()
         activityMonitor.stop()
     }
 

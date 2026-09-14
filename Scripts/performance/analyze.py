@@ -60,7 +60,7 @@ def resource_summary(table, pid):
     if len(points) < 3:
         raise ValueError("Fewer than 3 target resource samples")
     series, errors = [], []
-    previous = None
+    interval_end = points[0]["start"]
     for point in points:
         timestamp = point["start"] / 1e9
         item = {"t": timestamp, "cpu": None, "dt": None}
@@ -69,26 +69,30 @@ def resource_summary(table, pid):
             value = point.get(source)
             item[destination] = value / 2 ** 20 if value is not None else None
         item["threads"] = point.get("thread-count")
-        if previous is not None:
-            dt = (point["start"] - previous["start"]) / 1e9
-            current_cpu, last_cpu = point.get("cpu-total"), previous.get("cpu-total")
-            if dt > 0 and current_cpu is not None and last_cpu is not None:
-                delta = (current_cpu - last_cpu) / 1e9
-                if delta < 0:
-                    errors.append("CPU counter decreased; possible process reset or invalid data")
+        duration, cpu = point.get("duration"), point.get("cpu-percent")
+        if duration is None or duration <= 0:
+            errors.append("Resource sample duration is missing or nonpositive")
+        elif point["start"] < interval_end:
+            errors.append("Resource sample intervals overlap")
+        else:
+            interval_end = point["start"] + duration
+            # Instruments pairs each CPU percentage with the duration in the same row
+            if cpu is not None:
+                if cpu < 0:
+                    errors.append("CPU percentage is negative")
                 else:
-                    item.update(cpu=100 * delta / dt, dt=dt)
+                    item.update(cpu=cpu, dt=duration / 1e9)
         series.append(item)
-        previous = point
     span = series[-1]["t"] - series[0]["t"]
     if span <= 0:
         raise ValueError("Resource sample time did not advance")
     cpu_points = [p for p in series if p["cpu"] is not None]
     observed_seconds = sum(p["dt"] for p in cpu_points)
+    cpu_span = (max(interval_end, points[-1]["start"]) - points[0]["start"]) / 1e9
     cpu = [p["cpu"] for p in cpu_points]
     result = {"samples": len(series), "span_s": span, "series": series, "errors": errors,
               "max_gap_s": max(b["t"] - a["t"] for a, b in zip(series, series[1:])),
-              "cpu_coverage": observed_seconds / span,
+              "cpu_coverage": observed_seconds / cpu_span,
               "cpu_mean": sum(p["cpu"] * p["dt"] for p in cpu_points) / observed_seconds if observed_seconds else None,
               "cpu_p50": percentile(cpu, .5), "cpu_p95": percentile(cpu, .95),
               "cpu_peak": max(cpu) if cpu else None}

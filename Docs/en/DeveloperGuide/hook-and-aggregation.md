@@ -24,7 +24,7 @@ Raw events are the fact source; daily aggregation is a rebuildable cache. A chan
 The enable flow checks the following conditions, validating source, trust, and event completeness after writing:
 
 - A resolvable current executable path
-- Actual app-server version `0.145.0` or later
+- Actual app-server version `0.150.0` or later
 - Available `features.hooks`
 - A trusted source returned by `hooks/list`
 - A complete required event set
@@ -49,7 +49,7 @@ A handler in `hooks.json` does not prove Codex will execute it. `isOperable` com
 
 An enabled Hook is reconciled at app launch, when Settings refreshes, when the main panel opens, and after each quota refresh. Automatic refresh waits 60 seconds after the previous round completes:
 
-- Only a confirmed running app-server version below the current Hook minimum triggers the normal disable flow, which removes CodexBar handlers and their matching trust entries
+- Only a confirmed running app-server version below the current Hook minimum triggers removal of CodexBar handlers and best-effort cleanup of matching trust entries; versions below the global minimum also trigger local removal
 - An unknown version or transient RPC failure preserves the user's configuration
 - Configuration lost during the current process does not turn off the switch; CodexBar marks it damaged and starts repair
 - A supported version traverses `CodexHookEvent.allCases`, rebuilds a separate group for every missing or noncanonical event, then reuses trust and completeness validation
@@ -61,7 +61,7 @@ Reconciliation compares the required event set with the configuration and restor
 ### Enable Transaction Order
 
 ```text
-Confirm running app-server >= 0.145.0
+Confirm running app-server >= 0.150.0
   -> Confirm features.hooks is not globally disabled
   -> Read existing hooks.json
   -> Remove only old CodexBar handlers for this executable
@@ -80,7 +80,7 @@ An app-server Hook key comes from the handler it currently parsed. Removing the 
 
 Disable therefore saves keys for exact matches, removes handlers, then removes those keys from `hooks.state`. Cleanup reads and replaces the complete state so trust entries belonging to users and other tools survive.
 
-A failed trust cleanup does not reinstall the handler. The UI reports that Hook is off but cleanup is incomplete because the user's intent to stop capture succeeded.
+Below the global minimum, the app-server connection has already been rejected, so disabling directly removes local handlers and preserves trust entries that cannot be queried or deleted, without an additional trust-cleanup warning. In other cases, trust discovery or cleanup failures report that trust cannot be cleared, while Hook remains disabled. Failure to remove local configuration still displays an error and is retried during subsequent reconciliation.
 
 ### Event Groups
 
@@ -109,6 +109,7 @@ CodexBar subscribes to:
 | `PreCompact` | Record context-compaction start |
 | `PostCompact` | Record context-compaction end |
 | `Stop` | Create a task-completion candidate |
+| `Interrupt` | Ends the matching turn and records interruption statistics |
 | `SubagentStart` | Record subagent start |
 | `SubagentStop` | Record subagent end |
 
@@ -137,7 +138,7 @@ Timeout depends on event:
 
 | Event | Timeout |
 | --- | --- |
-| `SessionEnd` | 3 seconds |
+| `SessionEnd`, `Interrupt` | 3 seconds |
 | Other events | 5 seconds |
 
 The lock-wait budget is the handler timeout minus 2 seconds. Lock acquisition starts with 1 ms exponential backoff capped at 20 ms per wait.
@@ -206,7 +207,7 @@ The recorder resolves origin before writing, and the JSONL origin field stores o
 
 When JSONL omits `origin` or contains an unrecognized enum value, the origin field first decodes as `unknown`. The `WorkflowHookEvent` decoder then applies the same exact model fallback, so an event with `model == "codex-auto-review"` has `origin` equal to `autoReview` in memory. Reading never backfills or rewrites raw JSONL.
 
-Origin classification changes only live-activity filtering, not historical aggregation input. Auto-review events still contribute to session, turn, model, tool, project, and event counts; neither the aggregation schema nor the CloudKit projection contains origin classification.
+Historical aggregation counts all Hook events, including `autoReview` and `unknown` origins. Aggregates and CloudKit projections do not contain an origin field.
 
 ### Input Normalization
 
@@ -350,7 +351,7 @@ Daily results include:
 - Project distribution
 - Model distribution
 
-The session count deduplicates nonempty session IDs from all events except `SessionEnd` on that day. The turn count deduplicates nonempty turn IDs from all events except `Stop` on that day. A session or turn spanning multiple days contributes to each day with a nonexcluded event; a session observed only through `SessionEnd` and a turn observed only through `Stop` do not contribute.
+The session count deduplicates nonempty session IDs from all events except `SessionEnd` on that day. The turn count deduplicates nonempty turn IDs from all events except `Stop` and `Interrupt` on that day. A session or turn spanning multiple days contributes to each day with a nonexcluded event; a session observed only through `SessionEnd` and a turn observed only through `Stop` or `Interrupt` do not contribute.
 
 Only one side of a paired event may persist. Counts therefore use rules that avoid duplicates while tolerating missing data:
 
@@ -363,7 +364,7 @@ A missing field differs from numeric `0`:
 - Missing means the historical source cannot provide this metric for the date
 - `0` means the source is available and explicitly observed none
 
-Decoding and persistence retain optional values. The `WorkflowDailyMetrics` display projection converts missing individual event counts to `0`; session and turn counts use deduplicated IDs or compacted counts first, then fall back to corresponding event counts.
+Decoding and persistence retain optional values. The `WorkflowDailyMetrics` display projection preserves a missing `interruptCount` and converts other missing individual event counts to `0`; session and turn counts use deduplicated IDs or compacted counts first, then fall back to corresponding event counts.
 
 ### Paired Event Counts
 
@@ -376,17 +377,15 @@ Decoding and persistence retain optional values. The `WorkflowDailyMetrics` disp
 
 Compaction and subagent pairs follow the same rule.
 
-### Carrying Availability Through Old Data
+### Count Availability
 
-Older aggregations may not have a newer Hook count. Rebuild cannot assume that an old source captured an event merely because current code understands it.
+`WorkflowHookCountAvailability` records source availability for each count. Rebuild inherits availability from the existing date's aggregate. Without an aggregate, it uses `.legacy`, where `interruptCount` is unavailable and other event counts start at `0`. Reading an `Interrupt` changes a missing interruption count to a positive value; other events preserve its absence.
 
-`WorkflowHookCountAvailability` records source availability for each count. Rebuild inherits an existing date's availability for old fields, while a fresh source can declare all current fields available.
-
-This availability is retained in aggregate and sync fields; the current UI does not display missing historical fields individually.
+`interruptCount` remains optional in the display projection. If any contribution for a day lacks it, the total is unavailable. Heatmap details do not display this metric.
 
 ## Schema Evolution and Rebuild
 
-The current aggregation schema is `6`, managed by `WorkflowMaintenanceState.currentAggregationSchema`.
+The current aggregation schema is `9`, managed by `WorkflowMaintenanceState.currentAggregationSchema`.
 
 Increment the schema for:
 
@@ -433,7 +432,7 @@ Maintenance coordinates with the rate-limit refresh cycle but has no data depend
 
 Maintenance normally follows the 60-second refresh. An idle machine would otherwise emit more than a thousand no-change checks per day.
 
-`WorkflowService` accumulates consecutive idle cycles and logs one summary only after a write, skip, failure, or cleanup, including the preceding idle count. Logs can prove that maintenance runs without burying real failures.
+`WorkflowService` accumulates consecutive idle cycles and emits a summary on a write, skip, failure, or cleanup, including the accumulated idle count.
 
 ### How the Scheduler Coalesces Requests
 
