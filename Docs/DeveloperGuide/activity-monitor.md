@@ -41,7 +41,7 @@ rollout JSONL -> CodexSessionLifecycleReader ----------------------------+      
 | 其他终态确认 | rollout terminal | 无明确终态时保留待确认任务，到期清理 |
 | effort | Hook recorder 回查 | rollout lifecycle backfill |
 
-各字段按上表中的来源解析。Hook 每轮读取后等待 2 秒，rollout 每轮对账后等待 1 秒。
+Hook 每轮读取后等待 2 秒，rollout 每轮对账后等待 1 秒。
 
 ### 快照与转场
 
@@ -143,10 +143,10 @@ actor 在 `await` 期间可以重入，因此 `isProcessingReads` 和 `hasPendin
 - 默认每 1 秒检查一次
 - 初始尾部窗口为 512 KiB
 - effort 等 turn context 字段最多回查 8 MiB
-- 只解析生命周期、turn, progress, effort 和 reviewer
+- 只解析线程归属、生命周期、turn、progress、effort 和 reviewer
 - 对话内容不进入活动模型或产品展示
 
-Hook 的 `Stop` 将任务标记为“正在收尾”，保留在活动列表。后续工具、审批等进展继续更新同一任务；rollout 的 `task_complete` 确认完成，满足转场时效和恢复条件时发布完成转场。
+Hook 的 `Stop` 将任务标记为“正在收尾”，保留在活动列表；仍有其他 Agent 等待用户批准时优先显示等待。后续工具、审批等进展继续更新同一任务；rollout 的完成记录确认本轮结束，满足转场时效和恢复条件时发布完成转场。
 
 rollout 暂时不可读或无法关联 session、turn 时，任务继续等待对账。`Stop` 不启动终态超时；新 turn 或 `SessionEnd` 将旧任务移出活动列表，开始前 5 秒的快速终态查询，之后每 30 秒继续查询。迟到的 `Stop` 只更新待确认任务的元数据与进展，不恢复展示或重置窗口。
 
@@ -168,6 +168,8 @@ resume 可能继续很早以前创建的 session。快速路径找不到时，�
 
 文件被移到 archive 后，已缓存 URL 不存在会清除 cursor 并允许重新完整定位。
 
+文件名按线程 ID 精确匹配，允许线程 ID 后带一个下划线和 UUID 后缀。候选文件须唯一，且首条 `session_meta.id` 与目标线程一致；读取元数据时采用与 Hook recorder 相同的[有界首行解析](hook-and-aggregation.md#来源归一化)
+
 ### Rollout 读取预算
 
 实时任务只需要活跃 turn 附近的 lifecycle，全量读取一个长期 session 会增加常驻 I/O。
@@ -184,20 +186,22 @@ rollout 坏行将当时尚未结束的 turn 标记为有覆盖缺口，后续重
 
 每个 session 的文件游标保存独立的 `currentTurnId`，按 JSONL 文件顺序更新：
 
-- 外层 `type = "turn_context"`，或外层 `type = "event_msg"` 且 `payload.type = "task_started"` 时，以 `payload.turn_id` 建立上下文
-- 记录自带 `payload.turn_id` 时优先使用该字段；缺失时沿用游标上下文
-- 当前 turn 的 `task_complete` 或 `turn_aborted` 清空上下文；迟到的其他 turn 终态不清空它
+- 外层 `type = "turn_context"`，或外层 `type = "event_msg"` 且 `payload.type` 为 `task_started` 或 `turn_started` 时，以 `payload.turn_id` 建立上下文
+- `response_item` 优先使用 `payload.internal_chat_message_metadata_passthrough.turn_id`；其他进展记录使用 `payload.turn_id`，缺失时沿用游标上下文
+- 当前 turn 的 `task_complete`、`turn_complete` 或 `turn_aborted` 清空上下文；迟到的其他 turn 终态不清空它
 - 文件截断或替换时重建游标，同时清空上下文和已缓存的生命周期
 
-进展记录包括外层 `type` 为 `response_item` 或 `token_usage_record` 的记录，以及外层为 `event_msg`、`payload.type` 为 `token_count`、`item_completed`、`agent_message`、`agent_reasoning`、`task_started`、`task_complete` 或 `turn_aborted` 的记录。时间依次取外层 `timestamp`、`payload.completed_at`、`payload.started_at`。
+进展记录包括外层 `type` 为 `response_item` 或 `token_usage_record` 的记录，以及外层为 `event_msg`、`payload.type` 为 `token_count`、`item_completed`、`agent_message`、`agent_reasoning`、`task_started`、`turn_started`、`task_complete`、`turn_complete` 或 `turn_aborted` 的记录。时间依次取外层 `timestamp`、`payload.completed_at`、`payload.started_at`。
 
 记录须有可用时间和 turn 归属，本轮读取完整且时间晚于任务的 `lastProgressAt` 时才更新进展。`token_usage_record` 按活动记录处理，不比较 token 数量是否增加。缺少显式 turn 和游标上下文的记录不计入任务进展。
+
+能用于推断审批恢复的执行进展单独记录为 `lastExecutionProgressAt`：包括 `response_item` 中 `role = "assistant"` 的记录及类型为 `function_call_output`、`custom_tool_call_output`、`tool_search_output` 的工具结果，以及 `agent_message`、`agent_reasoning` 事件。只有同一 Agent／轮次中晚于审批请求的执行进展才清除该等待；用量记录等普通活动只更新任务进展时间。
 
 ### Rollout 解析字段
 
 共享的 `CodexRolloutLineEnvelope` 只提取 turn context, lifecycle 和 progress 所需字段。prompt, response 和 tool 内容不会进入活动模型。
 
-终态要求 `payload.turn_id` 非空，并且本轮读取状态为 `complete`。外层 `type = "event_msg"` 时，`payload.type = "task_complete"` 配合有效的 `payload.completed_at` 确认完成；`payload.type = "turn_aborted"` 确认中断。完成时间使用 Unix 秒，`payload.duration_ms` 换算为秒后用于耗时展示；中断时间缺失时，活动任务使用对账时间，待确认任务使用移出活动列表的时间，结果均不早于任务最后活动时间。
+终态要求 `payload.turn_id` 非空，并且本轮读取状态为 `complete`。外层 `type = "event_msg"` 时，`payload.type` 为 `task_complete` 或 `turn_complete` 确认完成，完成时间优先使用有效的 `payload.completed_at`（Unix 秒），缺失或无效时使用外层 `timestamp`；两者均不可用时不确认完成。`payload.type = "turn_aborted"` 确认中断。非负且有限的 `payload.duration_ms` 换算为秒后用于耗时展示；中断时间缺失时，活动任务使用对账时间，待确认任务使用移出活动列表的时间，结果均不早于任务最后活动时间。
 
 ## 任务身份
 
@@ -223,7 +227,7 @@ subagent 事件更新父任务的 subagent 活动，不创建独立顶层任务�
 
 ### 实时任务来源过滤
 
-`CodexActivityMonitor.apply` 先检查 `WorkflowHookEvent.origin`，再执行任务状态转换。来源归一化规则见 [Hook 来源归一化](hook-and-aggregation.md#来源归一化)
+`CodexActivityMonitor.apply` 先解析实时链路的有效来源，再执行任务状态转换。沿用缓存来源时，事件副本使用该来源进行过滤和执行身份判断，原始 JSONL 保持不变。来源归一化规则见 [Hook 来源归一化](hook-and-aggregation.md#来源归一化)
 
 monitor 按精确的 `session ID + turn ID` 在内存中保存来源，保留 24 小时。Codex 的 subagent Hook 复用父 session ID，因此来源判定不扩大到整个 session。
 
@@ -252,21 +256,23 @@ monitor 按精确的 `session ID + turn ID` 在内存中保存来源，保留 24
 
 ### 迟到事件如何被拒绝
 
-任务保存 `lastHookEventAt` 和 `lastProgressAt`，`lastActivityAt` 直接读取 `lastProgressAt` 的值：
+Hook 顺序按 Agent／轮次隔离，任务整体进展另行汇总：
 
 | 字段 | 来源与用途 |
 | --- | --- |
-| `lastHookEventAt` | 已接受的最新 Hook 时间，用于拒绝迟到的 Hook 状态变化 |
+| execution 的 `lastHookEventAt` | 同一 Agent／轮次已接受的最新 Hook 时间，用于拒绝该执行的迟到状态变化 |
+| `lastMainHookEventAt` | 主 Agent 的最新 Hook 时间，用于顶层 prompt、中断及会话结束判断 |
+| execution 的 `lastExecutionProgressAt` | 同一执行的 Hook 恢复信号与 rollout 执行进展时间，用于审批恢复和迟到审批过滤 |
 | `lastProgressAt` | Hook 与 rollout 的最新进展时间，用于异常会话保护 |
 | `lastActivityAt` | 由 `lastProgressAt` 派生，用于展示排序、保留期和终态时间校正 |
 
-rollout 进展不会推进 `lastHookEventAt`。较晚的 rollout 记录先被读取时，仍可接受时间稍早但有效的 `PermissionRequest`、工具、压缩、中断或新 prompt 事件。接受这些 Hook 时，`lastProgressAt` 和 `lastActivityAt` 保持单调递增。
+rollout 进展不会推进 Hook 时钟，其他 Agent 的较晚事件也不阻止本 Agent 的合法事件。审批请求还须不早于同一执行已知的执行进展，并晚于上次审批请求；任务的 `lastProgressAt` 和 `lastActivityAt` 保持单调递增。
 
 完成和终止共用内存中的 `recentlyEndedTaskAt` 记录结束时间。展示记录仍分别保存在完成和终止列表，保留 10 分钟；去重记忆保留 24 小时，不随展示记录一起删除。来源过滤移除记录时，从剩余终态记忆重新计算对应 session 别名的最新时间。
 
 迟到事件按以下规则处理：
 
-- Hook 状态变化和审批请求统一按 `lastHookEventAt` 排序；早于最新 Hook 进展的审批请求不恢复等待
+- 工具、压缩、子 Agent 和审批 Hook 按执行归属检查时间；已确认终态的执行不接受新的状态变化
 - 精确 turn 在终态记忆保留期间不允许重新创建；session 和匿名键只允许时间更新的新 prompt 复用
 - `Stop` 命中多个候选时不猜测
 - 已进入 terminal 去重记忆的 key 会清除异常顺序留下的恢复任务
@@ -290,7 +296,7 @@ rollout 进展不会推进 `lastHookEventAt`。较晚的 rollout 记录先被读
 | 状态 | 含义 |
 | --- | --- |
 | `running` | Codex 正在处理当前 turn |
-| `waitingApproval` | 当前 turn 明确等待用户批准 |
+| `waitingApproval` | 任务内至少一个主 Agent 或子 Agent 的执行正在等待用户批准 |
 | `suppressed` | 任务被异常会话保护隐藏，等待新进展恢复 |
 
 `PermissionRequest` 只有在 reviewer 是用户时才进入 `waitingApproval`。自动审批或策略审批不会被视为用户等待。
@@ -310,8 +316,9 @@ rollout 进展不会推进 `lastHookEventAt`。较晚的 rollout 记录先被读
 | 不存在 | 顶层 tool 或 compact | running | 恢复任务，startedAt 暂缺 |
 | running | tool, compact, subagent progress | running | 更新 last progress 和 generation |
 | running | `PermissionRequest` + reviewer user | waitingApproval | 发布 live waiting transition |
-| waitingApproval | tool、compact 或 subagent Hook 进展 | running | 清除待审批候选，更新活动和进展 |
-| running 或 waiting | `Stop` | running | 显示正在收尾，保留任务直到 rollout 确认终态 |
+| waitingApproval | 审批所属 Agent／轮次的有效 Hook 或 rollout 执行进展 | waitingApproval 或 running | 清除该执行的审批；仍有其他等待时保持等待 |
+| waitingApproval | 其他 Agent 的进展 | waitingApproval | 更新进展，保留等待及其工具展示 |
+| running 或 waiting | 顶层 `Stop` | running 或 waitingApproval | 清除主执行等待；仍有子 Agent 等待时继续显示等待，否则显示正在收尾 |
 | active | 新 prompt 或 `SessionEnd` | pending terminal | 从快照移除并开始后台终态查询 |
 | active、suppressed 或 pending terminal | `Interrupt` | terminated | 移除匹配任务、记录终止并清理保护状态和通知 |
 | running | 满足保护条件且静默达到阈值 | suppressed | 隐藏并退出防睡眠贡献 |
@@ -320,13 +327,13 @@ rollout 进展不会推进 `lastHookEventAt`。较晚的 rollout 记录先被读
 
 ### 等待批准的两阶段确认
 
-任务的 `approvalReviewer` 来自 Hook 记录或 rollout 的 `payload.approvals_reviewer`，取值为 `user`、`auto_review` 或 `guardian_subagent`
+任务按 Agent／轮次保存执行记录，主 Agent 使用无 `agentId` 的明确主来源身份，子 Agent 使用自身线程 ID。每个执行独立保存 `approvalReviewer`，来源为 Hook 或 rollout 的 `payload.approvals_reviewer`，取值为 `user`、`auto_review` 或 `guardian_subagent`
 
-收到 `PermissionRequest` 时，任务已有 reviewer 为 `user` 就立即进入等待。任务 reviewer 未知时保存 `pendingApprovalRequestedAt`，由 rollout 补齐后决定状态。自动审批路由保持当前状态，并在对账时清除候选。
+每个执行只有一份可选审批记录：`pending` 表示路由待确认，`waiting` 表示等待用户。收到 `PermissionRequest` 后，已知 reviewer 为 `user` 时立即确认等待，未知时保留候选；确认为自动审批时清除候选。请求时间、工具名和顺序随审批记录保存，重复请求不覆盖正在等待的展示信息。
 
-有效的工具、压缩、子 Agent 或顶层 `Stop` Hook 将任务恢复为运行中，并清除待审批候选；随后补齐 reviewer 不会重新打开已清除的等待。rollout 进展只更新时间，不单独解除审批等待。
+只有身份可靠且属于同一 Agent／轮次的进展才能清除该执行的审批。有效的工具、压缩、子 Agent 生命周期或顶层 `Stop` Hook 按现有恢复规则处理；rollout 执行进展须严格晚于请求时间。已清除的候选不会因后续 reviewer 回填重新进入等待，子线程的明确 rollout 终态也会清除对应执行的等待。
 
-审批等待按任务维护。同一任务内其他并行工具或子 Agent 的有效 Hook 进展也会解除等待。
+任务中仍有任意用户等待时保持 `waitingApproval`，展示请求时间最早的等待；同时间按记录顺序选择。等待持续期间切换展示对象不重置任务的等待起点。其他 Agent 的进展和身份不完整的进展不解除已知等待。同一 Agent／轮次内的并行调用仍共享审批记录，恢复依据是进展推断。
 
 ### Effort 合并
 
@@ -334,11 +341,11 @@ rollout 进展不会推进 `lastHookEventAt`。较晚的 rollout 记录先被读
 
 ### Subagent 计数可靠性
 
-subagent 的 turn ID 属于 subagent 自己，父任务只能通过共享 session 关联。
+子 Agent Hook 的 `agent_id` 和 `turn_id` 标识子线程及其轮次。monitor 读取相关子线程 rollout，使用 `session_meta.id` 校验线程，使用 `parent_thread_id`（缺失时取 `source.subagent.thread_spawn.parent_thread_id`）校验父线程信息，并通过上下文或开始事件中的 `root_turn_id` 关联根任务轮次。`root_turn_id` 指向根轮次，不是直接父 Agent 的轮次。
 
-子任务 Hook 关联同 session 唯一的活动父任务。存在待确认旧任务时，`SubagentStart` 可以关联；其他子任务事件要求其 `agent_id` 已记录在当前父任务中。父任务不唯一时忽略事件。
+根会话 ID 优先取 `session_meta.session_id`，缺失时使用已有关联或该子轮次 Hook 中唯一的根会话 ID。关联前暂存身份完整的子事件，确认后按原始来源重放；字段不足或关联冲突时不回退到当前唯一活动任务。子 Agent 活动只更新匹配的活动根任务，不创建独立卡片。
 
-计数可靠性由是否已知 prompt 起点初始化。缺少 `agent_id`，或首次观察某个 agent 就收到 stop 时，可靠性设为 `false`，UI 隐藏数量。每个 agent 按自己的事件时间更新运行状态。
+活跃子 Agent 数按已关联的 `SubagentStart` 和 `SubagentStop` 维护，与审批记录分开。计数可靠性由是否已知 prompt 起点初始化；首次观察某个 Agent 就收到 stop 时设为 `false`，UI 隐藏数量。每个 Agent 按自己的事件时间更新运行状态，已确认结束的执行不会被迟到的 start 计为运行。
 
 ## 快照优先级
 
@@ -369,7 +376,7 @@ monitor 每秒检查 rollout，并在清理 deadline 到达时刷新。
 
 `presentationPublisher` 发布当前快照和本轮仍有效的 `terminalEvents`，供任务流光使用。展示事件包含匿名任务；通知使用独立的 `transitionPublisher`
 
-完成转场和终态短提示要求结束时间距当前不超过 10 秒，并且不早于各自的恢复界限。直接由 Hook 确认的等待转场也检查 10 秒时效；rollout 补齐 reviewer 后确认的等待转场只检查请求时间不早于 `sessionTransitionNotBefore`。
+完成转场和终态短提示要求结束时间距当前不超过 10 秒，并且不早于各自的恢复界限。Hook 直接确认或 rollout 补齐 reviewer 后确认的等待转场，均要求任务进入等待的时间距当前不超过 10 秒且不早于 `sessionTransitionNotBefore`。
 
 历史重读、睡眠恢复和数据源健康状态变化时清空待发布事件，并更新 `terminalPresentationNotBefore`。bootstrap、恢复对账和数据源不健康期间暂停发布。
 
@@ -535,8 +542,9 @@ Monitor 为 reader 和异步恢复任务维护 generation：
 - 连续 3 次不稳定后进入 degraded，不启动异常静默判断
 - 新 prompt 替换旧 turn，分别验证终态在前 5 秒及之后到达时的补分类
 - 同 session 多个 terminal 候选时不猜测 `Stop` 归属
-- 同一组审批 Hook 和稍晚的 rollout 进展以两种顺序读取，均显示橙色等待且只发布一次等待转场
-- rollout 先推进进展后，工具、压缩或子 Agent Hook 仍解除等待并更新活动；迟到审批或 reviewer 回填不恢复已清除的等待，中断和 `SessionEnd` 仍能结束对应任务
+- 主 Agent 与多个子 Agent 同时等待，逐个恢复时只清除自己的等待，最后一项清除后才切回运行
+- 普通 rollout 活动保持等待；同一执行的较新执行进展清除等待，同时间进展保持等待，迟到审批或 reviewer 回填不恢复已清除的等待
+- 子线程 `root_turn_id` 指向旧轮次时不更新新任务；关联缺失或冲突时不猜测父任务
 - 新 turn 边界后无 `turn_id` 的记录只推进新任务；迟到旧终态、分批读取和文件替换不串用上下文
 - reviewer 缺失后由 rollout 确认为 user 才进入等待
 - auto review 始终不发布等待 transition
@@ -552,6 +560,7 @@ Monitor 为 reader 和异步恢复任务维护 generation：
 
 - [`CodexActivityMonitor.swift`](../../CodexBar/Services/Workflow/CodexActivityMonitor.swift)
 - [`CodexActivityTask.swift`](../../CodexBar/Services/Workflow/CodexActivityTask.swift)
+- [`CodexActivitySubagentTracking.swift`](../../CodexBar/Services/Workflow/CodexActivitySubagentTracking.swift)
 - [`CodexActivityTerminalResolution.swift`](../../CodexBar/Services/Workflow/CodexActivityTerminalResolution.swift)
 - [`HookEventTailReader.swift`](../../CodexBar/Services/Workflow/HookEventTailReader.swift)
 - [`CodexSessionLifecycleReader.swift`](../../CodexBar/Services/Workflow/CodexSessionLifecycleReader.swift)

@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-CodexBar 是一个 macOS 菜单栏应用，以 `LSUIElement` 方式运行，没有 Dock 图标，展示本机 Codex 的账号状态、额度、Token 用量、实时任务和工作流统计。技术栈为 Swift 6 + SwiftUI + AppKit + MVVM，唯一外部依赖是 Sparkle `2.9.6+`（SwiftPM）。最低系统版本为 macOS `15.0`
+CodexBar 是一个 macOS 菜单栏应用，以 `LSUIElement` 方式运行，没有 Dock 图标，展示本机 Codex 的账号状态、额度、Token 用量、实时任务和工作流统计。技术栈为 Swift 6 + SwiftUI + AppKit + MVVM，唯一外部依赖是 Sparkle `2.10.0+`（SwiftPM）。最低系统版本为 macOS `15.0`
 
-Xcode 工程有两个 target：主 App `CodexBar` 和随 App 嵌入的 root helper `CodexBarHelper`（command-line tool + LaunchDaemon）。**没有测试 target**，验证依靠构建通过和实际运行。
+Xcode 工程有三个 target：主 App `CodexBar`、随 App 嵌入的 root helper `CodexBarHelper`（command-line tool + LaunchDaemon），以及使用 Swift Testing 的无宿主单元测试 `CodexBarTests`。测试直接编译 App 与 `Shared/` 源码，通过测试 target 独有的 `CODEXBAR_TESTING` 条件移除可执行入口。
 
 App Sandbox 未开启，entitlements 只声明 iCloud/CloudKit，因为需要启动本机 `codex` 进程、读取用户 Codex 登录状态、写入用户级 Hook 配置。
 
@@ -18,10 +18,13 @@ App Sandbox 未开启，entitlements 只声明 iCloud/CloudKit，因为需要启
 # 日常编译验证 (唯一 scheme 是 CodexBar)
 xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build
 
+# 单元测试: 使用独立临时目录和 UserDefaults suite
+xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'platform=macOS' test
+
 # 格式化: 配置在 .swiftformat, 覆盖整个仓库 (Swift 6 语言模式, 4 空格缩进)
 swiftformat .
 
-# Lint: 配置在 .swiftlint.yml, included 只有 CodexBar/
+# Lint: 配置在 .swiftlint.yml, included 包含 CodexBar/ 和 CodexBarTests/
 # 即 Shared/ CodexBarHelper/ Scripts/ 不在 lint 范围内
 swiftlint
 
@@ -99,10 +102,10 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 
 `CodexActivityMonitor` 为菜单栏、活动卡片、任务流光、通知、触觉反馈和防睡眠提供统一任务状态，由两个 reader 读取数据。
 
-- `HookEventTailReader`（actor）的 bootstrap 覆盖滚动 24 小时并作为单次事务发送，之后按当日文件 offset 增量 tail，同时向下游报告数据源健康状态
-- `CodexSessionLifecycleReader`（actor）增量读取 `~/.codex/sessions` 与 `archived_sessions` 下的 rollout JSONL，只提取 turn 生命周期与最近进展时间，不解码会话或工具内容
+- `HookEventTailReader`（actor）的 bootstrap 覆盖滚动 24 小时并作为单次事务发送，之后按窗口内各日期文件的 offset 增量 tail，同时向下游报告数据源健康状态
+- `CodexSessionLifecycleReader`（actor）增量读取 Codex 目录中 `sessions` 与 `archived_sessions` 下的 rollout JSONL，提取线程归属、turn 生命周期、执行进展和审批上下文，不解码会话或工具内容
 - 任务监控只在 `codexHookSettings.isOperable` 为 `true` 时运行，即本地已安装且最近一次明确校验没有失败；链路失效时立即停 reader 并清空实时状态
-- `Stop` 保留正在收尾的任务，rollout 确认后才记录完成；`Interrupt` 结束匹配轮次；新 turn 或 `SessionEnd` 将旧任务移入 5 秒终态确认窗口。来源过滤、终态去重和恢复规则见 [实时任务监控](Docs/DeveloperGuide/activity-monitor.md)
+- `Stop` 保留正在收尾的任务，其他 Agent 等待审批时优先展示等待；rollout 确认后才记录完成。`Interrupt` 结束匹配轮次；新 turn 或 `SessionEnd` 将旧任务移出活动列表，前 5 秒快速查询终态，之后每 30 秒补查，最长保留 24 小时。审批归属、来源过滤和恢复规则见 [实时任务监控](Docs/DeveloperGuide/activity-monitor.md)
 - `HookEventTailReader.drainNow()` 是读取屏障，每个调用方等待一轮在本次请求之后开始的读取，返回 `completed`、`sourceUnavailable` 或 `cancelled`
 - 缺少 session ID 的 Hook 事件使用匿名 project key，`isAnonymous` 会保留到活动快照、完成记录和终止记录；活动卡片和任务中心显示橙色 `person.crop.circle.dashed` 图标，`help` 为 `匿名任务不参与防睡眠`，`+N` 只显示其他活跃任务总数
 - 匿名任务不向通知消费者发布等待或完成 transition，不触发触觉反馈，不参与 KeepAlive 或异常会话保护，`activityProtectionIdentifier` 为 `nil`

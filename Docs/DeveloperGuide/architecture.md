@@ -8,14 +8,15 @@
 
 CodexBar 是 macOS 15+ 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。
 
-工程只有 `CodexBar` scheme，包含两个 target：
+工程只有 `CodexBar` scheme，包含三个 target：
 
 | Target | 职责 |
 | --- | --- |
 | `CodexBar` | 菜单栏 UI、Codex 数据采集、自动重置、通知、同步和系统电源编排 |
 | `CodexBarHelper` | 以 root LaunchDaemon 运行，负责固定的系统睡眠开关和自动重置唤醒计划 |
+| `CodexBarTests` | 无 App 宿主的 Swift Testing 单元测试，直接编译生产源码并隔离测试数据 |
 
-两个 target 通过 [`CodexBarHelperXPC.swift`](../../Shared/CodexBarHelperXPC.swift) 共享 XPC 协议。
+App 与 helper 通过 [`CodexBarHelperXPC.swift`](../../Shared/CodexBarHelperXPC.swift) 共享 XPC 协议。
 
 App 使用 Sparkle 检查更新。工程默认启用 `MainActor` 隔离，Debug 和 Release 使用不同的 App 与 CodexBarHelper bundle ID。
 

@@ -19,12 +19,12 @@ Codex hook stdin / rollout / app-server
                   |
                   v
           普通用户权限的 CodexBar
-           |                    |
-           v                    v
-   CloudKit private DB     受限 XPC 接口
-                                |
-                                v
-                       root CodexBarHelper
+          |                   |
+          v                   v
+  CloudKit private DB    受限 XPC 接口
+                              |
+                              v
+                        CodexBarHelper
 ```
 
 边界含义如下：
@@ -76,7 +76,7 @@ Hook 子进程从 stdin 提取：
 - permission 和 reviewer
 - session, turn 和 agent 身份
 
-Hook 子进程优先从 `transcript_path` 指向的 rollout 第一条完整 `session_meta` 中提取并归一化来源。rollout 来源为 `unknown` 时，stdin 中已经提取的 model 只有精确匹配 `codex-auto-review` 才归类为 `autoReview`。JSONL 的来源字段只持久化 `main`, `autoReview`, `auxiliary` 或 `unknown`；rollout 读取按 32 KiB 分块且总计不超过 256 KiB。
+Hook 子进程从 rollout 首条 `session_meta` 的完整记录或已完成字段前缀中提取来源，按 32 KiB 分块且总计不超过 256 KiB。JSONL 只持久化归一化后的 `main`、`autoReview`、`auxiliary` 或 `unknown`，具体分类与 model 后备规则见 [来源归一化](hook-and-aggregation.md#来源归一化)
 
 不把 prompt, response, tool 参数或 tool 输出写入 CodexBar Hook 文件。
 
@@ -84,9 +84,9 @@ Hook 子进程优先从 `transcript_path` 指向的 rollout 第一条完整 `ses
 
 ### Rollout 文件
 
-Hook recorder 通过 `transcript_path` 读取当前 rollout，实时活动 reader 还会访问 `$CODEX_HOME/sessions` 和 `$CODEX_HOME/archived_sessions`
+Hook recorder 通过 `transcript_path` 读取当前 rollout，`SubagentStop` 的来源使用子线程自身的 `agent_transcript_path`。实时活动 reader 访问 `$CODEX_HOME/sessions` 和 `$CODEX_HOME/archived_sessions` 中相关主线程及子线程的文件。
 
-这些读取只解析来源分类、生命周期、时间、turn context, progress, effort 和 reviewer 等结构字段，不把对话正文复制到 CodexBar 存储或展示到 UI。
+这些读取只解析来源分类、线程及轮次归属、生命周期、时间、turn context、progress、effort 和 reviewer 等结构字段。线程关联只在内存中使用，对话正文不进入 CodexBar 存储或 UI。
 
 rollout reader 从文件尾部按预算扫描，一方面减少 I/O，另一方面降低无关历史内容进入进程内存的范围。解析 DTO 只声明所需字段，JSONDecoder 自动忽略其余内容。
 

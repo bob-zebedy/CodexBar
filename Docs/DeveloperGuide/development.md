@@ -4,19 +4,40 @@
 
 ## 环境与构建
 
-需要 macOS 15+、Xcode、Swift 6、`swiftformat` 和 `swiftlint`。唯一 scheme 为 `CodexBar`，包含 App 与 `CodexBarHelper` 两个 target，没有 XCTest target。
+需要 macOS 15+、Xcode、Swift 6、`swiftformat` 和 `swiftlint`。唯一 scheme 为 `CodexBar`，包含 App、`CodexBarHelper` 和 `CodexBarTests` 三个 target。
 
 ```bash
 xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build
+xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'platform=macOS' test
 swiftformat .
 swiftlint
 ```
 
-格式配置见 `.swiftformat`，使用 Swift 6 和 4 空格缩进。`swiftlint` 只检查 `CodexBar/`，不覆盖 `Shared/`、`CodexBarHelper/` 和 `Scripts/`
+格式配置见 `.swiftformat`，使用 Swift 6 和 4 空格缩进。`swiftlint` 检查 `CodexBar/` 和 `CodexBarTests/`，不覆盖 `Shared/`、`CodexBarHelper/` 和 `Scripts/`
 
 修改前检查 `git status --short`。已有未提交改动时，仅格式化本次涉及的 Swift 文件，或使用 `swiftformat --lint . --cache ignore` 检查。`swiftlint --no-cache` 可避免写入缓存。
 
 日常构建不需要 Developer ID 或公证凭据。写作、Git 和兼容性规则见 [AGENTS.md](../../AGENTS.md)
+
+## 单元测试
+
+`CodexBarTests` 使用 Swift Testing，并加入共享的 `CodexBar` scheme，可用 Xcode 的 Test 操作或上述命令执行。
+
+测试 target 无 App 宿主，与 App 使用相同的 Swift 6、`MainActor` 和并发设置，直接编译 `CodexBar/` 与 `Shared/` 源码。`CODEXBAR_TESTING` 仅在测试 target 定义，用于移除 `@main`；测试不实例化 App，不启动 Codex、CloudKit 同步或 helper。这样无需为测试拆分生产模块，代价是测试构建会额外编译一份 App 源码。
+
+| 测试范围 | 关键约束 |
+| --- | --- |
+| Hook 与 JSONL | 名称归一化、坏行隔离、元数据读取预算、半行补齐、bootstrap 与 live 分流、文件替换 |
+| 实时任务 | 匿名身份、时长、乱序进展、子 Agent 计数、各执行归属独立的审批状态 |
+| rollout 生命周期 | 完成与进展、读取覆盖、损坏行、文件丢失或替换、归档定位 |
+| 聚合与同步模型 | ID 去重、事件对计数、缺失计数、增量与重放一致性、同设备 generation 去重 |
+| 持久化与设置 | 保护记录过期、跨实例合并、条件删除、旧记录默认值、配置损坏与回填 |
+| 额度、代理与展示 | 凭证筛选、稳定 UUID、实际运行版本、代理输入和环境变量、日期与热力图状态 |
+| 异步刷新 | 取消和代际过期后不提交结果、不结束较新的刷新 |
+
+每个文件测试创建独立临时目录，每个偏好测试创建独立 `UserDefaults` suite，并在结束时清理。测试使用固定时间、显式日历和受控异步检查点；新增测试应沿用这些隔离方式。
+
+单元测试不覆盖真实 CloudKit、app-server、系统通知、窗口焦点和 helper 电源行为。这些流程仍按下方手动场景验证。
 
 ## 修改入口
 
@@ -44,7 +65,7 @@ swiftlint
 
 1. 检查修改范围，确认未覆盖已有工作
 2. 格式化并运行 `swiftlint`
-3. 构建 App 与 helper
+3. 构建 App 与 helper，并运行单元测试
 4. 手动验证受影响的正常、失败和恢复流程
 5. 检查文档及 `git diff --check`
 

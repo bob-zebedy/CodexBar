@@ -57,6 +57,10 @@ Shutdown reverses the order, except for helper-owned system state. AppDelegate f
 
 Completion is green and termination is red, with termination taking priority on equal end times. Durations include entrance animations. The latest snapshot determines the state after expiration.
 
+Switching the setting from off to on while Hook is available sends a `TaskGlowSettings.previewRequests` event for one cyan running preview. After one 2.7-second round trip, presentation returns to the actual state. Startup and settings refresh restore the switch value without requesting a preview. Real task updates continue during the preview, which produces no task events.
+
+New preview requests are ignored during playback and dismissal. Turning the switch off uses the glow's existing dismissal path to retract quickly to the center and fade out. Preview occupancy clears once every display finishes dismissal. Hook unavailability, system sleep, display sleep, or an inactive session cancels the preview.
+
 The glow uses nonactivating, mouse-transparent `NSPanel` windows across Spaces and full-screen apps. System sleep, display sleep, or an inactive user session removes the windows. On return, valid state resumes according to the current time. Screen configuration changes rebuild the windows; all displays share a motion clock.
 
 ## Status Bar Icon
@@ -301,6 +305,7 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 ## Manual Validation Matrix
 
 - Left-click opens the main panel; right-click and Control-click open the context menu
+- Enabling Task Glow plays one preview; disabling retracts and fades it out. Dismissal blocks replay, and enabling again after dismissal can preview again. Task changes during preview resume with the actual state
 - During concurrent running or approval waiting, completion and termination trigger a 3-second glow indicator; consecutive endings and the end of all tasks use the correct color and expiration
 - History reloads and wake reconciliation do not replay old terminal hints; subsequent real task endings still produce hints, and motion and expiry stay aligned across displays and screen configuration changes
 - Menu bar symbols follow task state; terminal feedback expires 10 seconds after the task ends and is recalculated on wake

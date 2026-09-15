@@ -2,13 +2,14 @@
 
 ## 项目结构与模块组织
 
-CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。工程只有 `CodexBar` scheme，包含主 App 与 `CodexBarHelper` 两个 target。
+CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。工程只有 `CodexBar` scheme，包含主 App、`CodexBarHelper` 和 `CodexBarTests` 三个 target。
 
 `CodexBar/` 按 `App/` `Views/` `Controllers/` `Models/` `Services/` 和 `Resources/` 分层。root LaunchDaemon 位于 `CodexBarHelper/` 目录，跨 target XPC 接口位于 `Shared/` 目录。`Scripts/` 提供发布和 helper 清理工具，`Images/` 存放 README 资源。
 
 ## 构建、测试与开发命令
 
 - `xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build` 执行代码变更后的构建验证
+- `xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'platform=macOS' test` 执行无宿主单元测试
 - `swiftformat .` 按 `.swiftformat` 格式化全部 Swift，使用 Swift 6 和 4 空格缩进
 - `swiftlint` 按 `.swiftlint.yml` 检查
 - `/usr/bin/log stream --predicate 'subsystem == "app.zabrian.codexbar"' --style compact` 查看系统日志，Debug 版 subsystem 带 `.debug` 后缀
@@ -71,7 +72,9 @@ CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用，使用 Swift 6,
 
 ## 测试规范
 
-仓库没有 XCTest target 或覆盖率门槛。每次改动至少应完成构建，运行 `swiftformat` 和 `swiftlint` 两项检查，并手动验证受影响流程。菜单、窗口焦点、Hook、同步、通知和防睡眠改动必须说明手动验证场景。Debug 与 Release 使用不同 App 和 helper bundle ID，排查时不要混用。
+`CodexBarTests` 使用 Swift Testing，无 App 宿主，直接编译 `CodexBar/` 与 `Shared/` 源码。测试 target 独有的 `CODEXBAR_TESTING` 条件只移除 `@main`，不启动 App、Codex、CloudKit 或 helper。文件测试使用独立临时目录，偏好测试使用独立 `UserDefaults` suite，禁止读写真实用户数据。仓库没有覆盖率门槛。
+
+每次代码改动至少应完成构建和单元测试，运行 `swiftformat` 和 `swiftlint` 两项检查，并手动验证受影响流程。菜单、窗口焦点、Hook、同步、通知和防睡眠改动必须说明手动验证场景。Debug 与 Release 使用不同 App 和 helper bundle ID，排查时不要混用。
 
 ## Git 规范
 

@@ -26,6 +26,8 @@ Disabling Hook hides Tasks; switching Hook from off to on shows Tasks automatica
 
 Shows task status along the top of each display. CodexBar Hook must be enabled and verified. The switch is off by default and independent of the main panel's Animation Effects setting.
 
+Turning it on plays one cyan round-trip preview, then shows actual task status. Turning it off quickly retracts the glow to the screen center and fades it out. Repeated toggles during preview playback or dismissal do not replay it; turning it on after dismissal finishes can start another preview.
+
 | Color | Meaning |
 | --- | --- |
 | Cyan moving glow | Tasks are running |

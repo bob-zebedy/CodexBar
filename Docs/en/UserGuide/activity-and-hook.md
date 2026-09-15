@@ -23,11 +23,13 @@ CodexBar automatically checks and repairs enabled Hook configuration, preserving
 | Recently Completed | A turn ended; its result is not necessarily successful |
 | Recently Terminated | An interruption or other terminal signal confirmed termination; no completion notification is sent |
 
-After `Stop`, the task first shows “Finishing up”. A completion notification is sent after the turn is confirmed complete and the notification settings are satisfied. If another Hook continues the task, progress keeps updating; an interruption during that time is shown as terminated.
+After `Stop`, the task shows “Finishing up”, with approval waiting taking priority while a subagent still waits. A completion notification is sent after the turn is confirmed complete and the notification settings are satisfied; an interruption during that time is shown as terminated.
 
 Interruption ends only the matching turn; a newer turn in the same session stays active. Task-based sleep prevention releases once all eligible tasks end.
 
 Subagent activity is combined with its parent task. Internal automatic-review tasks and tasks whose origin remains unconfirmed do not appear as live tasks or trigger Task Glow, task alerts, or sleep prevention; their activity still contributes to daily statistics. Once the same session and turn have been confirmed as a normal task, later events with a temporarily unknown origin continue updating its state.
+
+When the main agent or a subagent waits for approval, progress from another agent does not clear its wait. The card stays in the waiting state while any user approval wait remains in that task.
 
 Tasks with a known origin whose session cannot be identified show an orange anonymous icon. You can view them, but they do not trigger notifications or haptics, prevent sleep, or participate in Stalled Task Protection.
 

@@ -143,10 +143,10 @@ Rules are:
 - Poll every 1 second by default
 - Begin with a 512 KiB tail window
 - Look back at most 8 MiB for turn-context fields such as effort
-- Parse only lifecycle, turn, progress, effort, and reviewer
+- Parse only thread relationships, lifecycle, turn, progress, effort, and reviewer
 - Keep conversation content out of the activity model and product presentation
 
-Hook `Stop` marks the task as “Finishing up” and keeps it active. Tools, approvals, and other progress continue updating the same task. Rollout `task_complete` confirms completion; transition freshness and recovery conditions determine whether a completion transition is emitted.
+Hook `Stop` marks the task as “Finishing up” and keeps it active; approval waiting takes priority while another agent is still waiting. Tools, approvals, and other progress continue updating the same task. Rollout completion records confirm the end of the turn; transition freshness and recovery conditions determine whether a completion transition is emitted.
 
 If rollout is temporarily unreadable or the session or turn cannot be matched, the task continues waiting for reconciliation. `Stop` does not start a terminal timeout. A new turn or `SessionEnd` removes the old task from the active list and starts five seconds of fast terminal polling, followed by polling every 30 seconds. A late `Stop` updates only the pending task's metadata and progress, without restoring its presentation or resetting the deadline.
 
@@ -168,6 +168,8 @@ A resume can continue a session created long ago. If the fast path misses, the f
 
 If a file moves to the archive, a missing cached URL clears its cursor and allows full discovery again.
 
+Filenames match the thread ID exactly, optionally followed by an underscore and UUID suffix. A candidate must be unique, and its initial `session_meta.id` must match the requested thread. Metadata uses the same [bounded first-line parser](hook-and-aggregation.md#origin-normalization) as the Hook recorder.
+
 ### Rollout Read Budget
 
 Live tasks need lifecycle near an active turn, not a full read of a long-running session. Starting from the last 512 KiB reduces resident I/O and discards the first potentially partial line.
@@ -184,20 +186,22 @@ A malformed rollout line marks unfinished turns as having a coverage gap. Repeat
 
 Each session file cursor stores its own `currentTurnId`, updated in JSONL file order:
 
-- Outer `type = "turn_context"`, or `type = "event_msg"` with `payload.type = "task_started"`, establishes context from `payload.turn_id`
-- An explicit `payload.turn_id` takes priority; a record without it inherits cursor context
-- `task_complete` or `turn_aborted` for the current turn clears context; a late terminal for another turn does not
+- Outer `type = "turn_context"`, or `type = "event_msg"` with `payload.type` equal to `task_started` or `turn_started`, establishes context from `payload.turn_id`
+- `response_item` prefers `payload.internal_chat_message_metadata_passthrough.turn_id`; other progress records use `payload.turn_id`, falling back to cursor context when absent
+- `task_complete`, `turn_complete`, or `turn_aborted` for the current turn clears context; a late terminal for another turn does not
 - Truncation or replacement rebuilds the cursor and clears both context and cached lifecycle states
 
-Progress includes records whose outer `type` is `response_item` or `token_usage_record`, and `event_msg` records whose `payload.type` is `token_count`, `item_completed`, `agent_message`, `agent_reasoning`, `task_started`, `task_complete`, or `turn_aborted`. Time comes from outer `timestamp`, then `payload.completed_at`, then `payload.started_at`.
+Progress includes records whose outer `type` is `response_item` or `token_usage_record`, and `event_msg` records whose `payload.type` is `token_count`, `item_completed`, `agent_message`, `agent_reasoning`, `task_started`, `turn_started`, `task_complete`, `turn_complete`, or `turn_aborted`. Time comes from outer `timestamp`, then `payload.completed_at`, then `payload.started_at`.
 
 A record needs a usable timestamp and turn identity. It advances task progress only after a complete current read and when newer than `lastProgressAt`. A `token_usage_record` is treated as activity without comparing token totals. Records lacking both an explicit turn and cursor context do not contribute task progress.
+
+Execution progress eligible to infer approval recovery is recorded separately as `lastExecutionProgressAt`: `response_item` records with `role = "assistant"` or a type of `function_call_output`, `custom_tool_call_output`, or `tool_search_output`, and `agent_message` or `agent_reasoning` events. Only execution progress from the same agent and turn, later than the approval request, clears that wait. Ordinary activity such as usage records updates only task progress time.
 
 ### Rollout Fields
 
 The shared `CodexRolloutLineEnvelope` extracts only fields needed for turn context, lifecycle, and progress. Prompt, response, and tool content never enters the activity model.
 
-Terminal resolution requires a nonempty `payload.turn_id` and a `complete` current read. With outer `type = "event_msg"`, `payload.type = "task_complete"` and a valid `payload.completed_at` confirm completion; `payload.type = "turn_aborted"` confirms interruption. Completion time uses Unix seconds, and `payload.duration_ms` is converted to seconds for duration display. A missing interruption timestamp uses reconciliation time for an active task or removal time for a pending task, never earlier than its last activity.
+Terminal resolution requires a nonempty `payload.turn_id` and a `complete` current read. With outer `type = "event_msg"`, `payload.type` equal to `task_complete` or `turn_complete` confirms completion. Completion time prefers a valid `payload.completed_at` in Unix seconds, falling back to outer `timestamp` when absent or invalid; neither being usable leaves completion unconfirmed. `payload.type = "turn_aborted"` confirms interruption. A finite, nonnegative `payload.duration_ms` is converted to seconds for duration display. A missing interruption timestamp uses reconciliation time for an active task or removal time for a pending task, never earlier than its last activity.
 
 ## Task Identity
 
@@ -223,7 +227,7 @@ Without a session ID, only a project key remains. It may merge concurrent anonym
 
 ### Live Task Origin Filtering
 
-`CodexActivityMonitor.apply` checks `WorkflowHookEvent.origin` before task-state transitions. See [Origin Normalization](hook-and-aggregation.md#origin-normalization) for input classification.
+`CodexActivityMonitor.apply` resolves the effective live origin before task-state transitions. When using a cached origin, an event copy carries that origin through filtering and execution identity checks; raw JSONL remains unchanged. See [Origin Normalization](hook-and-aggregation.md#origin-normalization) for input classification.
 
 The monitor remembers origins in memory for 24 hours by exact `session ID + turn ID`. Codex subagent Hooks reuse the parent session ID, so origin decisions do not apply to an entire session.
 
@@ -252,21 +256,23 @@ A new prompt moves the previous turn in the same session to `pendingTerminalTask
 
 ### Rejecting Late Events
 
-Tasks store `lastHookEventAt` and `lastProgressAt`; `lastActivityAt` reads the same value as `lastProgressAt`:
+Hook ordering is isolated by agent and turn, while overall task progress is aggregated separately:
 
 | Field | Source and purpose |
 | --- | --- |
-| `lastHookEventAt` | Latest accepted Hook timestamp, used to reject stale Hook state changes |
+| Execution `lastHookEventAt` | Latest accepted Hook timestamp for an agent and turn, used to reject that execution's stale state changes |
+| `lastMainHookEventAt` | Latest main-agent Hook timestamp, used for top-level prompt, interruption, and session-end decisions |
+| Execution `lastExecutionProgressAt` | Hook recovery signals and rollout execution progress for the same execution, used for approval recovery and rejecting stale requests |
 | `lastProgressAt` | Latest progress from Hook and rollout, used by inactivity protection |
 | `lastActivityAt` | Computed from `lastProgressAt`, used for ordering, retention, and terminal timestamp adjustment |
 
-Rollout progress never advances `lastHookEventAt`. Reading a later rollout record first still allows a slightly earlier, valid permission, tool, compaction, interruption, or new-prompt Hook. Accepting such Hooks keeps `lastProgressAt` and `lastActivityAt` monotonic.
+Rollout progress never advances Hook clocks, and a later event from another agent does not block this agent's valid events. An approval request must also be no earlier than known execution progress for the same owner and later than its previous approval request. Task `lastProgressAt` and `lastActivityAt` remain monotonic.
 
 Completion and termination share the in-memory `recentlyEndedTaskAt` map of end times. Their display records remain separate and expire after 10 minutes; deduplication memory lasts 24 hours independently. Removing a record through origin filtering recomputes its session alias from the remaining terminal timestamps.
 
 Late events follow these rules:
 
-- Hook state changes and approval requests use `lastHookEventAt`; an approval request older than the latest Hook progress does not restore waiting
+- Tool, compaction, subagent, and approval Hooks check time within their execution scope; an execution with a confirmed terminal rejects further state changes
 - An exact turn cannot be recreated while terminal memory is retained; session and anonymous keys can be reused only by a newer prompt
 - A `Stop` matching several candidates is not guessed
 - A key already in terminal deduplication memory clears recovery tasks left by abnormal ordering
@@ -290,7 +296,7 @@ Active tasks mainly use these internal states:
 | State | Meaning |
 | --- | --- |
 | `running` | Codex is processing the current turn |
-| `waitingApproval` | The current turn is explicitly waiting for user approval |
+| `waitingApproval` | At least one main-agent or subagent execution in the task is waiting for user approval |
 | `suppressed` | Stalled Task Protection hid the task pending new progress |
 
 `PermissionRequest` enters `waitingApproval` only when the reviewer is the user. Automatic or policy approval does not count as user waiting.
@@ -310,8 +316,9 @@ Task endings are handled by signal:
 | Absent | Top-level tool or compact | running | Recover task with unknown `startedAt` |
 | running | Tool, compact, or subagent progress | running | Update last progress and generation |
 | running | `PermissionRequest` + reviewer user | waitingApproval | Publish live waiting transition |
-| waitingApproval | Tool, compaction, or subagent Hook progress | running | Clear the pending approval candidate and update activity and progress |
-| running or waiting | `Stop` | running | Show Finishing up and retain the task until rollout confirms its terminal state |
+| waitingApproval | Valid Hook or rollout execution progress from the agent and turn owning the approval | waitingApproval or running | Clear that execution's approval; retain waiting while other waits remain |
+| waitingApproval | Progress from another agent | waitingApproval | Update progress while preserving the wait and its tool presentation |
+| running or waiting | Top-level `Stop` | running or waitingApproval | Clear the main execution's wait; show waiting while a subagent still waits, otherwise Finishing up |
 | active | New prompt or `SessionEnd` | pending terminal | Remove from snapshot and begin background terminal polling |
 | active, suppressed, or pending terminal | `Interrupt` | terminated | Remove the matching task, record termination, and clear protection state and notifications |
 | running | Protection conditions hold and silence reaches threshold | suppressed | Hide and remove sleep-prevention contribution |
@@ -320,13 +327,13 @@ Task endings are handled by signal:
 
 ### Two-Stage Approval Confirmation
 
-The task’s `approvalReviewer` comes from Hook records or rollout `payload.approvals_reviewer`, with values `user`, `auto_review`, or `guardian_subagent`.
+Tasks keep execution records by agent and turn. The main agent uses an explicit main origin without `agentId`; subagents use their own thread IDs. Each execution has its own `approvalReviewer`, sourced from Hook or rollout `payload.approvals_reviewer`, with values `user`, `auto_review`, or `guardian_subagent`.
 
-A `PermissionRequest` enters waiting immediately when the task’s known reviewer is `user`. An unknown reviewer leaves `pendingApprovalRequestedAt` for rollout backfill. Automatic review routes retain the current state and clear the candidate during reconciliation.
+Each execution has one optional approval record: `pending` means the route is unconfirmed, and `waiting` means user approval is required. A `PermissionRequest` is confirmed immediately when the known reviewer is `user`; an unknown reviewer retains the candidate, and an automatic reviewer clears it. The record carries request time, tool name, and sequence. Repeated requests do not overwrite an existing wait's presentation.
 
-Valid tool, compaction, subagent, or top-level `Stop` Hooks restore running and clear the pending candidate. Later reviewer backfill does not reopen cleared waiting. Rollout progress updates timestamps without clearing approval waiting on its own.
+Only progress reliably attributed to the same agent and turn can clear that execution's approval. Valid tool, compaction, subagent lifecycle, and top-level `Stop` Hooks follow their recovery rules; rollout execution progress must be strictly later than the request. Reviewer backfill cannot reopen a cleared candidate. An explicit child rollout terminal also clears that execution's wait.
 
-Approval waiting is tracked per task. Valid Hook progress from another parallel tool or subagent within the same task also clears waiting.
+The task stays in `waitingApproval` while any user wait remains, displaying the earliest request and using sequence to break time ties. Changing the displayed wait does not reset the task's waiting start time. Other agents' progress and progress with incomplete identity do not clear known waits. Parallel calls within one agent and turn share an approval record, with recovery inferred from progress.
 
 ### Effort Merging
 
@@ -334,11 +341,11 @@ Several context events in one turn may report different reasoning efforts. The t
 
 ### Subagent Count Reliability
 
-A subagent turn ID belongs to the subagent, so its parent can be associated only by shared session.
+Subagent Hook `agent_id` and `turn_id` identify the child thread and turn. The monitor reads that thread's rollout, validates thread identity with `session_meta.id`, checks parent-thread information using `parent_thread_id` or its fallback `source.subagent.thread_spawn.parent_thread_id`, and associates the root task through `root_turn_id` in context or start records. `root_turn_id` identifies the root turn, not the direct parent agent's turn.
 
-Subagent Hooks associate with the session’s sole active parent. With an older pending task present, `SubagentStart` may associate; other subagent events require an `agent_id` already recorded under the active parent. Events with no unique parent are ignored.
+The root session ID comes first from `session_meta.session_id`, falling back to an existing association or the unique root session ID in Hooks for that child turn. Child events with complete identity are buffered until association, then replayed with their original source. Missing fields or conflicting associations do not fall back to the sole active task. Subagent activity updates only the matching active root task and creates no independent card.
 
-Count reliability is initialized from whether the prompt start is known. A missing `agent_id` or a stop first observed for an agent sets reliability to `false`, hiding the count in the UI. Each agent’s running state follows its own event timestamps.
+The active subagent count follows associated `SubagentStart` and `SubagentStop` events, separately from approval records. Reliability is initialized from whether the prompt start is known; a stop first observed for an agent sets it to `false`, hiding the count in the UI. Each agent's running state follows its own event timestamps. A late start does not count an execution already confirmed ended as running.
 
 ## Snapshot Priority
 
@@ -369,7 +376,7 @@ A candidate snapshot is compared with the current value and published only after
 
 `presentationPublisher` publishes the current snapshot and the batch's still-valid `terminalEvents` for Task Glow. Presentation events include anonymous tasks; notifications use the separate `transitionPublisher`.
 
-Completion transitions and terminal indicators require an end timestamp no more than 10 seconds old and no earlier than their respective recovery boundaries. Waiting transitions confirmed directly by Hook also use a 10-second limit. Waiting confirmed by rollout reviewer backfill checks only that the request is no earlier than `sessionTransitionNotBefore`.
+Completion transitions and terminal indicators require an end timestamp no more than 10 seconds old and no earlier than their respective recovery boundaries. Waiting transitions, whether confirmed directly by Hook or through rollout reviewer backfill, require the task's waiting start time to be no more than 10 seconds old and no earlier than `sessionTransitionNotBefore`.
 
 History reloads, sleep recovery, and source health changes clear pending events and update `terminalPresentationNotBefore`. Publication pauses during bootstrap, recovery reconciliation, and unhealthy source state.
 
@@ -534,8 +541,9 @@ Task progress invalidates its protection attempt. Reader, bootstrap, and recover
 - Three unstable attempts enter degraded state without starting silence evaluation
 - Replace an old turn with a new prompt and verify classification when the terminal arrives within and after the first five seconds
 - A `Stop` is not guessed when one session has several terminal candidates
-- Read an approval Hook and slightly later rollout progress in both orders; both show orange waiting and emit one waiting transition
-- Advance rollout progress before tool, compaction, or subagent Hooks; those Hooks still clear waiting and update activity. Delayed approval requests or reviewer backfill do not reopen cleared waiting; interruption and `SessionEnd` still end the corresponding task
+- Put the main agent and multiple subagents into waiting; each recovery clears only its own wait, and running resumes after the last wait clears
+- Ordinary rollout activity preserves waiting; newer execution progress from the same owner clears it, equal-time progress preserves it, and late approvals or reviewer backfill do not reopen cleared waits
+- A child `root_turn_id` pointing to an old turn does not update the new task; missing or conflicting associations do not guess the parent
 - Attribute turnless records after a new boundary only to the new turn; late old terminals, incremental reads, and file replacement preserve context isolation
 - A missing reviewer enters waiting only after rollout confirms user
 - Automatic review never emits a waiting transition
@@ -551,6 +559,7 @@ Task progress invalidates its protection attempt. Reader, bootstrap, and recover
 
 - [`CodexActivityMonitor.swift`](../../../CodexBar/Services/Workflow/CodexActivityMonitor.swift)
 - [`CodexActivityTask.swift`](../../../CodexBar/Services/Workflow/CodexActivityTask.swift)
+- [`CodexActivitySubagentTracking.swift`](../../../CodexBar/Services/Workflow/CodexActivitySubagentTracking.swift)
 - [`CodexActivityTerminalResolution.swift`](../../../CodexBar/Services/Workflow/CodexActivityTerminalResolution.swift)
 - [`HookEventTailReader.swift`](../../../CodexBar/Services/Workflow/HookEventTailReader.swift)
 - [`CodexSessionLifecycleReader.swift`](../../../CodexBar/Services/Workflow/CodexSessionLifecycleReader.swift)

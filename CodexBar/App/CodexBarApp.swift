@@ -2,8 +2,11 @@ import AppKit
 import Darwin
 import SwiftUI
 
+// 无宿主测试编译同一份源码, 仅移除可执行入口以避免启动常驻服务
+#if !CODEXBAR_TESTING
+    @main
+#endif
 /// 应用入口; Hook 子进程模式会在初始化阶段记录事件并退出
-@main
 struct CodexBarApp: App {
     @NSApplicationDelegateAdaptor(CodexBarAppDelegate.self) private var appDelegate
 

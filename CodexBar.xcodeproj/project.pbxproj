@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		B10000000000000000000005 /* CodexBarHelper in Embed CodexBar Helper */ = {isa = PBXBuildFile; fileRef = B10000000000000000000014 /* CodexBarHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		C42A52F12FDACDEC004A2B53 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C42A52F02FDACDEC004A2B53 /* Sparkle */; };
+		D10000000000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C42A52F02FDACDEC004A2B53 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -45,6 +46,7 @@
 		B10000000000000000000014 /* CodexBarHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = CodexBarHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		C449FB5030203E0000ED2123 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
 		C4A0FD952FD9302E000263A7 /* CodexBar Debug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "CodexBar Debug.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D10000000000000000000002 /* CodexBarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -54,6 +56,14 @@
 				Resources/Info.plist,
 			);
 			target = C4A0FD942FD9302E000263A7 /* CodexBar */;
+		};
+		D10000000000000000000003 /* Exceptions for "CodexBar" folder in "CodexBarTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Resources/AppIcon.icon,
+				Resources/Info.plist,
+			);
+			target = D10000000000000000000010 /* CodexBarTests */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -72,6 +82,7 @@
 		9E664A4C2FDD47530016B96E /* CodexBar */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
+				D10000000000000000000003 /* Exceptions for "CodexBar" folder in "CodexBarTests" target */,
 				9E664A582FDD47540016B96E /* Exceptions for "CodexBar" folder in "CodexBar" target */,
 			);
 			path = CodexBar;
@@ -90,6 +101,11 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
+		D10000000000000000000004 /* CodexBarTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CodexBarTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -102,6 +118,12 @@
 			isa = PBXFrameworksBuildPhase;
 			files = (
 				C42A52F12FDACDEC004A2B53 /* Sparkle in Frameworks */,
+			);
+		};
+		D10000000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+				D10000000000000000000001 /* Sparkle in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -119,6 +141,7 @@
 			isa = PBXGroup;
 			children = (
 				9E664A4C2FDD47530016B96E /* CodexBar */,
+				D10000000000000000000004 /* CodexBarTests */,
 				C449FB4E30203A1100ED2123 /* Shared */,
 				C449FB3A3020367500ED2123 /* CodexBarHelper */,
 				C449FB5130203E0000ED2123 /* Config */,
@@ -130,6 +153,7 @@
 			isa = PBXGroup;
 			children = (
 				C4A0FD952FD9302E000263A7 /* CodexBar Debug.app */,
+				D10000000000000000000002 /* CodexBarTests.xctest */,
 				B10000000000000000000014 /* CodexBarHelper */,
 			);
 			name = Products;
@@ -183,6 +207,29 @@
 			productReference = C4A0FD952FD9302E000263A7 /* CodexBar Debug.app */;
 			productType = "com.apple.product-type.application";
 		};
+		D10000000000000000000010 /* CodexBarTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D10000000000000000000011 /* Build configuration list for PBXNativeTarget "CodexBarTests" */;
+			buildPhases = (
+				D10000000000000000000006 /* Sources */,
+				D10000000000000000000005 /* Frameworks */,
+				D10000000000000000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				9E664A4C2FDD47530016B96E /* CodexBar */,
+				C449FB4E30203A1100ED2123 /* Shared */,
+				D10000000000000000000004 /* CodexBarTests */,
+			);
+			name = CodexBarTests;
+			packageProductDependencies = (
+				C42A52F02FDACDEC004A2B53 /* Sparkle */,
+			);
+			productName = CodexBarTests;
+			productReference = D10000000000000000000002 /* CodexBarTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -219,6 +266,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				D10000000000000000000010 /* CodexBarTests */,
 				C4A0FD942FD9302E000263A7 /* CodexBar */,
 				B10000000000000000000031 /* CodexBarHelper */,
 			);
@@ -227,6 +275,11 @@
 
 /* Begin PBXResourcesBuildPhase section */
 		C4A0FD932FD9302E000263A7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		D10000000000000000000007 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
 			);
@@ -240,6 +293,11 @@
 			);
 		};
 		C4A0FD912FD9302E000263A7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		D10000000000000000000006 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
 			);
@@ -482,6 +540,50 @@
 			};
 			name = Release;
 		};
+		D10000000000000000000012 /* Debug configuration for PBXNativeTarget "CodexBarTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../Frameworks",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) CODEXBAR_TESTING";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+			};
+			name = Debug;
+		};
+		D10000000000000000000013 /* Release configuration for PBXNativeTarget "CodexBarTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../Frameworks",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) CODEXBAR_TESTING";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -509,6 +611,14 @@
 			);
 			defaultConfigurationName = Release;
 		};
+		D10000000000000000000011 /* Build configuration list for PBXNativeTarget "CodexBarTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D10000000000000000000012 /* Debug configuration for PBXNativeTarget "CodexBarTests" */,
+				D10000000000000000000013 /* Release configuration for PBXNativeTarget "CodexBarTests" */,
+			);
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -517,7 +627,7 @@
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.9.6;
+				minimumVersion = 2.10.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

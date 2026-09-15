@@ -28,7 +28,7 @@ extension CodexActivityMonitor {
             key = eventKey
             task = nil
         }
-        guard task.map({ event.timestamp >= $0.lastHookEventAt }) ?? true else {
+        guard task.map({ event.timestamp >= $0.lastMainHookEventAt }) ?? true else {
             return
         }
         if recentEndedDate(for: key) != nil {
@@ -64,23 +64,13 @@ extension CodexActivityMonitor {
         for task: inout CodexActivityTask,
         into transitions: inout [CodexActivityTransition]
     ) -> Bool {
-        guard let requestedAt = task.pendingApprovalRequestedAt,
-              let approvalReviewer = task.approvalReviewer else {
-            return false
-        }
-
-        switch approvalReviewer {
-        case .user:
-            let wasWaiting = task.state == .waitingApproval
-            task.confirmPendingApproval()
-            if !wasWaiting, canPublishActivityTransitions,
-               !task.key.isAnonymous,
-               let sessionTransitionNotBefore,
-               requestedAt >= sessionTransitionNotBefore {
-                transitions.append(.waitingApproval(task.snapshot))
-            }
-        case .autoReview, .guardianSubagent:
-            task.pendingApprovalRequestedAt = nil
+        let wasWaiting = task.state == .waitingApproval
+        guard task.resolvePendingApprovals() else { return false }
+        if !wasWaiting, task.state == .waitingApproval, canPublishActivityTransitions,
+           !task.key.isAnonymous, let sessionTransitionNotBefore,
+           task.stateChangedAt >= sessionTransitionNotBefore,
+           Date().timeIntervalSince(task.stateChangedAt) <= 10 {
+            transitions.append(.waitingApproval(task.snapshot))
         }
         return true
     }
@@ -271,6 +261,8 @@ extension CodexActivityMonitor {
         recentlyEndedTaskAt.removeAll()
         terminalTaskKeyByID.removeAll()
         activityTaskOrigins.removeAll()
+        pendingSubagentEvents.removeAll()
+        subagentTurnLinks.removeAll()
     }
 
     func finalizeExpiredPendingTerminalTasks(now: Date) {
@@ -290,7 +282,14 @@ extension CodexActivityMonitor {
     }
 
     func publishWaitingApprovalTransitions(_ taskKeys: [CodexActivityTaskKey]) {
-        guard canPublishActivityTransitions else { return }
+        for transition in waitingApprovalTransitions(taskKeys) {
+            transitionSubject.send(transition)
+        }
+    }
+
+    func waitingApprovalTransitions(_ taskKeys: [CodexActivityTaskKey]) -> [CodexActivityTransition] {
+        guard canPublishActivityTransitions else { return [] }
+        var transitions: [CodexActivityTransition] = []
         var lastWaitingIndexByKey: [CodexActivityTaskKey: Int] = [:]
         for (index, key) in taskKeys.enumerated() {
             lastWaitingIndexByKey[key] = index
@@ -306,7 +305,8 @@ extension CodexActivityMonitor {
                   Date().timeIntervalSince(task.stateChangedAt) <= 10 else {
                 continue
             }
-            transitionSubject.send(.waitingApproval(task.snapshot))
+            transitions.append(.waitingApproval(task.snapshot))
         }
+        return transitions
     }
 }

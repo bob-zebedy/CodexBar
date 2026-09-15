@@ -4,19 +4,40 @@
 
 ## Environment and Build
 
-Requires macOS 15+, Xcode, Swift 6, `swiftformat`, and `swiftlint`. The only scheme is `CodexBar`, containing the app and `CodexBarHelper` targets. There is no XCTest target.
+Requires macOS 15+, Xcode, Swift 6, `swiftformat`, and `swiftlint`. The only scheme is `CodexBar`, containing the app, `CodexBarHelper`, and `CodexBarTests` targets.
 
 ```bash
 xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build
+xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'platform=macOS' test
 swiftformat .
 swiftlint
 ```
 
-`.swiftformat` configures Swift 6 and 4-space indentation. `swiftlint` checks only `CodexBar/`, excluding `Shared/`, `CodexBarHelper/`, and `Scripts/`.
+`.swiftformat` configures Swift 6 and 4-space indentation. `swiftlint` checks `CodexBar/` and `CodexBarTests/`, excluding `Shared/`, `CodexBarHelper/`, and `Scripts/`.
 
 Check `git status --short` before editing. With existing uncommitted work, format only Swift files touched by the change, or check with `swiftformat --lint . --cache ignore`. `swiftlint --no-cache` avoids cache writes.
 
 Daily builds do not need Developer ID or notarization credentials. See [AGENTS.md](../../../AGENTS.md) for writing, Git, and compatibility rules.
+
+## Unit Tests
+
+`CodexBarTests` uses Swift Testing and belongs to the shared `CodexBar` scheme. Run it with Xcode’s Test action or the command above.
+
+The test target has no app host. It compiles the production sources in `CodexBar/` and `Shared/` with the same Swift 6, `MainActor`, and concurrency settings. The test-only `CODEXBAR_TESTING` condition removes `@main`; tests do not instantiate the app or start Codex, CloudKit sync, or the helper. This avoids extracting production modules solely for testing, at the cost of compiling the app sources again for tests.
+
+| Test area | Key constraints |
+| --- | --- |
+| Hook and JSONL | Name normalization, corrupt-line isolation, metadata read budget, partial lines, bootstrap/live separation, file replacement |
+| Live tasks | Anonymous identity, duration, out-of-order progress, subagent counts, approvals scoped to each execution |
+| Rollout lifecycle | Completion and progress, read coverage, corrupt lines, missing/replaced files, archived sessions |
+| Aggregation and sync models | Identifier deduplication, paired events, missing counts, incremental/replay equivalence, same-device generation deduplication |
+| Persistence and settings | Protection expiry, merging across store instances, conditional removal, legacy defaults, corrupt configuration and draft restoration |
+| Quota, proxy, and presentation | Credit filtering, stable UUIDs, actual running versions, proxy validation and environment, dates and heatmap states |
+| Asynchronous refresh | Cancellation and stale generations cannot commit results or finish newer refreshes |
+
+Each file test creates and removes its own temporary directory. Each preferences test uses and cleans up a unique `UserDefaults` suite. Tests use fixed dates, explicit calendars, and controlled asynchronous checkpoints; follow these isolation patterns when adding tests.
+
+Unit tests do not cover live CloudKit, app-server, system notifications, window focus, or helper power behavior. Validate those flows with the manual scenarios below.
 
 ## Implementation Entry Points
 
@@ -44,7 +65,7 @@ For asynchronous changes, check cancellation, commit eligibility, and generation
 
 1. Review the change scope and preserve existing work
 2. Format and run `swiftlint`
-3. Build the app and helper
+3. Build the app and helper, and run unit tests
 4. Manually verify affected normal, failure, and recovery flows
 5. Review documentation and run `git diff --check`
 

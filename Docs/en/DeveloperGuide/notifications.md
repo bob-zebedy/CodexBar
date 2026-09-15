@@ -152,10 +152,10 @@ Haptics start for every task transition. A new transition cancels the previous s
 A waiting notification is sent only when the `PermissionRequest` reviewer is confirmed to be the user:
 
 - Automatic review does not notify
-- One waiting item notifies only once
+- A task notifies once during a continuous wait; progress from other agents does not end that wait. See [Two-Stage Approval Confirmation](activity-monitor.md#two-stage-approval-confirmation) for ownership rules
 - Leaving waiting state removes the item from the relevant set
 - Waiting transitions pause during bootstrap, recovery reconciliation, and unhealthy Hook source state
-- Direct Hook confirmation requires waiting to have begun no earlier than the recovery boundary and no more than 10 seconds ago; rollout reviewer backfill checks only that the request is no earlier than the recovery boundary
+- Both direct Hook confirmation and rollout reviewer backfill require the task's waiting start time to be no earlier than the recovery boundary and no more than 10 seconds ago
 
 Whether waiting maintains sleep prevention is an independent setting and does not affect notification eligibility.
 

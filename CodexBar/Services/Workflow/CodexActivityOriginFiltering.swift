@@ -2,16 +2,27 @@ import Foundation
 import os
 
 extension CodexActivityMonitor {
-    /// 来源过滤只影响实时活动链路, 原始事件仍由历史聚合完整消费
-    func shouldIgnoreForActivity(
-        _ event: WorkflowHookEvent,
+    /// 仅为实时链路归一化事件副本, 来源过滤和执行身份使用同一判断
+    func activityEvent(from event: WorkflowHookEvent, source: CodexActivityEventSource) -> WorkflowHookEvent? {
+        guard let origin = activityOrigin(for: event, source: source) else { return nil }
+        guard origin != event.origin else { return event }
+        return WorkflowHookEvent(
+            timestamp: event.timestamp, name: event.name, origin: origin,
+            directoryPath: event.directoryPath, toolName: event.toolName, modelName: event.modelName,
+            effort: event.effort, permissionMode: event.permissionMode, approvalReviewer: event.approvalReviewer,
+            sessionId: event.sessionId, turnId: event.turnId, agentId: event.agentId
+        )
+    }
+
+    private func activityOrigin(
+        for event: WorkflowHookEvent,
         source: CodexActivityEventSource
-    ) -> Bool {
+    ) -> WorkflowEventOrigin? {
         let exactKey = Self.exactTurnKey(for: event)
         switch event.origin {
         case .autoReview:
             guard let exactKey else {
-                return true
+                return nil
             }
 
             let wasAlreadyIgnored = activityTaskOrigins[exactKey]?.origin == .autoReview
@@ -20,27 +31,27 @@ extension CodexActivityMonitor {
             if !wasAlreadyIgnored, source == .live {
                 AppLog.activity.notice("Auto-review 任务已过滤")
             }
-            return true
+            return nil
         case .main, .auxiliary:
             if let exactKey {
                 rememberActivityOrigin(event.origin, for: exactKey, at: event.timestamp)
             }
-            return false
+            return event.origin
         case .unknown:
             guard let exactKey,
                   let knownOrigin = activityTaskOrigins[exactKey] else {
-                return true
+                return nil
             }
             guard knownOrigin.observedAt > Date().addingTimeInterval(-Self.activityRetention) else {
                 activityTaskOrigins.removeValue(forKey: exactKey)
-                return true
+                return nil
             }
             guard knownOrigin.origin == .main || knownOrigin.origin == .auxiliary else {
-                return true
+                return nil
             }
             // 一次读取失败不推翻已确认来源, 迟到事件仍交给状态机检查时间顺序
             rememberActivityOrigin(knownOrigin.origin, for: exactKey, at: event.timestamp)
-            return false
+            return knownOrigin.origin
         }
     }
 

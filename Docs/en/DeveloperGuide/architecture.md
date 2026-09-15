@@ -8,14 +8,15 @@ Explore the processes, data flows, and recovery paths in the [Runtime Architectu
 
 CodexBar is a menu bar app for macOS 15 and later, built with Swift 6, SwiftUI, AppKit, and MVVM.
 
-The project has one `CodexBar` scheme with two targets:
+The project has one `CodexBar` scheme with three targets:
 
 | Target | Responsibility |
 | --- | --- |
 | `CodexBar` | Menu bar UI, Codex data collection, Automatic Reset, notifications, sync, and system-power orchestration |
 | `CodexBarHelper` | A root LaunchDaemon that handles fixed system-sleep controls and Automatic Reset wake schedules |
+| `CodexBarTests` | Swift Testing unit tests without an app host, compiling production sources with isolated test data |
 
-The targets share their XPC protocol through [`CodexBarHelperXPC.swift`](../../../Shared/CodexBarHelperXPC.swift).
+The app and helper share their XPC protocol through [`CodexBarHelperXPC.swift`](../../../Shared/CodexBarHelperXPC.swift).
 
 The app uses Sparkle for update checks. The project enables `MainActor` isolation by default, and Debug and Release use different app and CodexBarHelper bundle IDs.
 

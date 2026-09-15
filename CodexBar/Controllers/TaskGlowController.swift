@@ -16,6 +16,8 @@ final class TaskGlowController {
     private var expirationTask: Task<Void, Never>?
     private var scheduledExpiration: Date?
     private var hidePanelsTask: Task<Void, Never>?
+    private var previewTask: Task<Void, Never>?
+    private var isPreviewVisible = false
     private var isSystemSleeping = false
     private var isDisplaySleeping = false
     private var isSessionActive = true
@@ -33,6 +35,7 @@ final class TaskGlowController {
     deinit {
         expirationTask?.cancel()
         hidePanelsTask?.cancel()
+        previewTask?.cancel()
     }
 
     func start() {
@@ -44,10 +47,20 @@ final class TaskGlowController {
         )
         .sink { [weak self] enabled, hookEnabled, hookVerified in
             guard let self else { return }
+            if !hookEnabled || !hookVerified {
+                cancelPreview()
+            }
+            if !enabled {
+                isPreviewVisible = false
+            }
             isEnabled = enabled && hookEnabled && hookVerified
             consume(CodexActivityPresentationUpdate(snapshot: activityMonitor.snapshot, terminalEvents: []))
         }
         .store(in: &cancellables)
+
+        settings.previewRequests
+            .sink { [weak self] in self?.previewEnabled() }
+            .store(in: &cancellables)
 
         activityMonitor.presentationPublisher
             .sink { [weak self] update in self?.consume(update) }
@@ -81,9 +94,39 @@ final class TaskGlowController {
         expirationTask?.cancel()
         expirationTask = nil
         scheduledExpiration = nil
+        cancelPreview()
         presentation = TaskGlowPresentationState()
         isEnabled = false
         removePanels()
+    }
+
+    private func previewEnabled() {
+        guard previewTask == nil, hidePanelsTask == nil, isEnabled, hookSettings.isOperable,
+              !isSystemSleeping, !isDisplaySleeping, isSessionActive else { return }
+        // 播放和收尾期间不重播, 提前关闭时由实际收尾完成释放预览
+        removePanels()
+        isPreviewVisible = true
+        motionClock.setRunning(true)
+        let startTime = motionClock.startTime()
+        previewTask = Task { @MainActor [weak self] in
+            do {
+                let remaining = max(0, startTime + TaskGlowMotionClock.cycleDuration - CACurrentMediaTime())
+                try await Task.sleep(for: .seconds(remaining))
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            previewTask = nil
+            isPreviewVisible = false
+            refreshPresentation()
+        }
+        updatePanels()
+    }
+
+    private func cancelPreview() {
+        previewTask?.cancel()
+        previewTask = nil
+        isPreviewVisible = false
     }
 
     private func consume(_ update: CodexActivityPresentationUpdate) {
@@ -136,23 +179,27 @@ final class TaskGlowController {
 
     private func updatePanels() {
         guard !isSystemSleeping, !isDisplaySleeping, isSessionActive else {
+            cancelPreview()
             removePanels()
             return
         }
-        let state = presentation.state
+        let state: TaskGlowState = isPreviewVisible ? .running : presentation.state
         motionClock.setRunning(state == .running)
         if state == .hidden {
-            guard !panels.isEmpty, hidePanelsTask == nil else { return }
+            guard !panels.isEmpty else {
+                cancelPreview()
+                return
+            }
+            guard hidePanelsTask == nil else { return }
             for panel in panels {
                 panel.indicatorView.update(state: .hidden)
             }
-            hidePanelsTask = Task { @MainActor [weak self] in
-                do {
-                    try await Task.sleep(for: .seconds(TaskGlowView.dismissalDuration))
-                } catch {
-                    return
+            hidePanelsTask = Task { @MainActor [weak self, closingPanels = panels] in
+                for panel in closingPanels {
+                    guard await panel.indicatorView.waitForDismissal() else { return }
                 }
-                guard let self, !Task.isCancelled, presentation.state == .hidden else { return }
+                guard let self, !Task.isCancelled, !isPreviewVisible, presentation.state == .hidden else { return }
+                cancelPreview()
                 removePanels()
             }
             return
@@ -163,7 +210,11 @@ final class TaskGlowController {
             panels = NSScreen.screens.map { TaskGlowPanel(screen: $0, motionClock: motionClock) }
         }
         for panel in panels {
-            panel.indicatorView.update(state: state, terminalPresentation: presentation.terminal)
+            panel.indicatorView.update(
+                state: state,
+                terminalPresentation: isPreviewVisible ? nil : presentation.terminal,
+                repeatsMotion: !isPreviewVisible
+            )
             if !panel.isVisible {
                 panel.orderFrontRegardless()
             }
@@ -321,6 +372,7 @@ private final class TaskGlowMotionClock {
     static let travelDuration = 2.0
     static let offscreenDuration = 0.2
     static let centerRetractionDuration = 0.3
+    static let cycleDuration = travelDuration + offscreenDuration * 2 + centerRetractionDuration
     private var isRunning = false
     private var startedAt: CFTimeInterval?
 
@@ -392,7 +444,6 @@ private final class TaskGlowView: NSView {
     private var lightSegments: [CAShapeLayer] = []
     static let visibilityDuration = 0.24
     private static let edgeTraversalDuration = 0.7
-    static let dismissalDuration = edgeTraversalDuration / 2 + visibilityDuration
     private static let segmentsPerSide = 32
     private static let stationaryColorAlpha: CGFloat = 0.9
     private let convergencePoint = 0.5
@@ -401,6 +452,7 @@ private final class TaskGlowView: NSView {
     private var terminalPresentation: TaskGlowTerminalPresentation?
     private var contentState: TaskGlowState?
     private var transitionTask: Task<Void, Never>?
+    private var repeatsMotion = true
 
     init(
         geometry: TaskGlowGeometry,
@@ -443,8 +495,9 @@ private final class TaskGlowView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func update(state: TaskGlowState, terminalPresentation: TaskGlowTerminalPresentation? = nil) {
-        guard presentationState != state || self.terminalPresentation != terminalPresentation else { return }
+    func update(state: TaskGlowState, terminalPresentation: TaskGlowTerminalPresentation? = nil, repeatsMotion: Bool = true) {
+        guard presentationState != state || self.terminalPresentation != terminalPresentation || self.repeatsMotion != repeatsMotion else { return }
+        let continuesRunning = presentationState == .running && state == .running
         let continuesTerminal = presentationState == state && self.terminalPresentation != nil && terminalPresentation != nil
         // 同色提示延长时保留尚未完成的展开, 收尾会读取最新的淡出期限
         if continuesTerminal, transitionTask != nil {
@@ -455,15 +508,18 @@ private final class TaskGlowView: NSView {
         let hasArtwork = contentState != nil && (layer?.presentation()?.opacity ?? layer?.opacity ?? 0) > 0.001
         presentationState = state
         self.terminalPresentation = terminalPresentation
+        self.repeatsMotion = repeatsMotion
         transitionTask?.cancel()
         transitionTask = nil
         freezeArtwork()
         if state != .hidden {
             contentState = state
+            animateVisibility(to: 1)
         }
 
-        if state != .hidden {
-            animateVisibility(to: 1)
+        if continuesRunning {
+            showStable(.running)
+            return
         }
 
         if let terminalOpacity {
@@ -488,6 +544,8 @@ private final class TaskGlowView: NSView {
                 if state == .hidden {
                     contentState = nil
                     animateVisibility(to: 0)
+                    try await Task.sleep(for: .seconds(Self.visibilityDuration))
+                    try Task.checkCancellation()
                 } else {
                     if hasArtwork {
                         try await Task.sleep(for: .seconds(0.06))
@@ -509,6 +567,12 @@ private final class TaskGlowView: NSView {
                 return
             }
         }
+    }
+
+    /// 面板等待实际收回和淡出结束, 不用独立计时器提前移除仍可见的光带
+    func waitForDismissal() async -> Bool {
+        await transitionTask?.value
+        return !Task.isCancelled && presentationState == .hidden && transitionTask == nil
     }
 
     func stopAnimating() {
@@ -741,9 +805,9 @@ private final class TaskGlowView: NSView {
         // 每个单程独立缓入缓出, 保证两端掉头都平滑
         let travel = CAAnimationGroup()
         travel.animations = [outward, inward]
-        travel.duration = outwardDuration + inwardDuration
+        travel.duration = TaskGlowMotionClock.cycleDuration
         travel.beginTime = segment.convertTime(startTime, from: nil)
-        travel.repeatCount = .infinity
+        travel.repeatCount = repeatsMotion ? .infinity : 0
         segment.add(travel, forKey: "emission")
     }
 

@@ -6,6 +6,7 @@ DerivedData/
 Build/
 *.xcarchive
 *.xcresult
+*.profraw
 *.dSYM
 *.moved-aside
 

@@ -26,7 +26,7 @@ actor ActivityProtectionStateStore {
     private let lockURL: URL
     private let fileManager: FileManager
 
-    init(fileManager: FileManager = .default) {
+    init(directoryURL: URL? = nil, fileManager: FileManager = .default) {
         self.fileManager = fileManager
         let applicationSupportURL = fileManager.urls(
             for: .applicationSupportDirectory,
@@ -34,11 +34,11 @@ actor ActivityProtectionStateStore {
         ).first ?? URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
-        directoryURL = applicationSupportURL
+        self.directoryURL = directoryURL ?? applicationSupportURL
             .appendingPathComponent("CodexBar", isDirectory: true)
             .appendingPathComponent("ActivityProtection", isDirectory: true)
-        stateURL = directoryURL.appendingPathComponent("state.json", isDirectory: false)
-        lockURL = directoryURL.appendingPathComponent("state.lock", isDirectory: false)
+        stateURL = self.directoryURL.appendingPathComponent("state.json", isDirectory: false)
+        lockURL = self.directoryURL.appendingPathComponent("state.lock", isDirectory: false)
     }
 
     func load(now: Date = Date()) -> [String: ActivityProtectionRecord] {

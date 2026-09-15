@@ -119,7 +119,7 @@ CodexBar 订阅以下 Hook 事件：
 
 把两类需求统一在一条最小原始记录中，可以让 recorder 只写一次，两个下游各自选择所需字段。但新增字段前仍要证明至少有一个消费者需要它，不能因为 Hook payload 中存在就全部持久化。
 
-`transcript_path` 可用时，recorder 会为来源分类有界读取 rollout 首行。rollout 来源无法确定时，只有精确匹配 `codex-auto-review` 的 model 才作为 Auto-review 来源的后备判定。`PermissionRequest` 和 `UserPromptSubmit` 的 reviewer 或 effort 可能不在 Hook payload 中，只有这两个事件还会按 turn 定向读取 rollout 尾部。
+recorder 为来源分类有界读取 rollout 首行。普通事件使用 `transcript_path`，`SubagentStop` 使用指向子线程自身的 `agent_transcript_path`。rollout 来源无法确定时，只有精确匹配 `codex-auto-review` 的 model 才作为 Auto-review 来源的后备判定。`PermissionRequest` 和 `UserPromptSubmit` 的 reviewer 或 effort 可能不在 Hook payload 中，只有这两个事件还会按 turn 定向读取 rollout 尾部。
 
 ## Hook 子进程
 
@@ -201,7 +201,7 @@ handler 超时由事件决定：
 | `auxiliary` | `source` 明确表示其他 subagent，包括 `review`, `thread_spawn` 和 Memories 相关来源 |
 | `unknown` | 字段缺失、结构损坏、无法读取或遇到未知顶层来源，并且 model 不满足 Auto-review 后备判定 |
 
-来源读取从文件起点按 32 KiB 分块，遇到第一个 newline 立即停止，总预算为 256 KiB。第一条完整记录不是 `session_meta`、超过预算或任何文件与解码操作失败时，rollout 来源回退到 `unknown`，不等待、不重试，也不能让 Hook 失败。model 后备判定只接受精确字符串，不做前缀、别名或模糊匹配。
+来源读取从文件起点按 32 KiB 分块，总预算为 256 KiB。遇到首个 newline 时解码完整首行；首行尚未读完时，在完整字段边界构造可解码的元数据前缀。确认类型为 `session_meta` 且 `source` 已完整解码后即可返回，大型指令字段无需读完。预算内无法取得来源、记录类型不符或读取与解码失败时，rollout 来源回退到 `unknown`。model 后备判定只接受精确字符串。
 
 recorder 在写入前完成来源解析，JSONL 的来源字段只保存上述枚举值。`transcript_path`、原始 `source`、任意 `other` 字符串和 transcript 内容都不会写入 Hook 文件或系统日志。
 

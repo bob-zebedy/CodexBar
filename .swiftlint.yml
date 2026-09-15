@@ -1,5 +1,6 @@
 included:
     - CodexBar
+    - CodexBarTests
 
 line_length:
     warning: 180

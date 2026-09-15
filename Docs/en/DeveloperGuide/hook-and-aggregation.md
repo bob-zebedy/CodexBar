@@ -119,7 +119,7 @@ Historical counts need event name, date, project, model, and identity sets. Live
 
 One minimal raw record lets the recorder write once while both consumers select their fields. A new field still requires a demonstrated consumer; its presence in the Hook payload does not justify persisting everything.
 
-When `transcript_path` is available, the recorder performs a bounded read of the rollout's first line to classify origin. If the rollout origin cannot be determined, only an exact `codex-auto-review` model match serves as the Auto-review fallback. Reviewer or effort for `PermissionRequest` and `UserPromptSubmit` may be absent from the Hook payload, so only those two events also read the rollout tail for that turn.
+The recorder performs a bounded read of the rollout's first line to classify origin. Ordinary events use `transcript_path`; `SubagentStop` uses `agent_transcript_path`, which points to the child thread itself. If the rollout origin cannot be determined, only an exact `codex-auto-review` model match serves as the Auto-review fallback. Reviewer or effort for `PermissionRequest` and `UserPromptSubmit` may be absent from the Hook payload, so only those two events also read the rollout tail for that turn.
 
 ## Hook Subprocess
 
@@ -201,7 +201,7 @@ The lookup:
 | `auxiliary` | `source` explicitly represents another subagent, including `review`, `thread_spawn`, and Memories-related sources |
 | `unknown` | The field is missing, malformed, unreadable, or an unknown top-level source, and the model does not satisfy the Auto-review fallback |
 
-Origin reading starts at byte zero in 32 KiB chunks, stops at the first newline, and has a total budget of 256 KiB. If the first complete record is not `session_meta`, exceeds the budget, or any file or decoding operation fails, the rollout origin falls back to `unknown` without waiting or retrying and without failing the Hook. The model fallback accepts only the exact string, with no prefix, alias, or fuzzy matching.
+Origin reading starts at byte zero in 32 KiB chunks with a total budget of 256 KiB. At the first newline, the parser decodes the complete first line. Before that line is complete, it constructs a decodable metadata prefix at a complete field boundary. It can return once the type is confirmed as `session_meta` and `source` has been fully decoded, without reading large instruction fields to completion. Missing origin within the budget, a different record type, or a read or decoding failure yields `unknown`. The model fallback accepts only the exact string.
 
 The recorder resolves origin before writing, and the JSONL origin field stores only this enum. It never stores `transcript_path`, raw `source`, arbitrary `other` strings, or transcript content, and none of those values enter system logs.
 

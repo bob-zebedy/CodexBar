@@ -5,6 +5,15 @@ nonisolated struct CodexActivityTurnReference: Hashable {
     let sessionId: String
     let turnId: String
     let startedAt: Date
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.sessionId == rhs.sessionId && lhs.turnId == rhs.turnId
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(sessionId)
+        hasher.combine(turnId)
+    }
 }
 
 /// 文件读取结果包含覆盖状态, 缓存事实不能替代本轮读取成功
@@ -42,6 +51,9 @@ actor CodexSessionLifecycleReader {
             var status = CodexSessionReadStatus.notFound
             if var cursor = cursor(for: latest) {
                 status = scan(into: &cursor, limit: min(Self.incrementalByteLimit, budget))
+                if cursor.metadata?.id != sessionId {
+                    status = .unavailable
+                }
                 budget -= min(budget, cursor.lastReadByteCount)
                 let needsContext = sessionReferences.contains {
                     let known = cursor.lifecycleByTurnId[$0.turnId]
@@ -70,7 +82,12 @@ actor CodexSessionLifecycleReader {
                     approvalReviewer: known?.approvalReviewer, effort: known?.effort,
                     lastProgressAt: known?.lastProgressAt, terminal: turnStatus == .complete ? known?.terminal : nil,
                     readStatus: turnStatus, hasContext: known?.hasContext == true,
-                    contextObservedAt: known?.contextObservedAt
+                    contextObservedAt: known?.contextObservedAt,
+                    rootTurnId: known?.rootTurnId,
+                    threadId: cursor?.metadata?.id,
+                    rootSessionId: cursor?.metadata?.sessionId,
+                    parentThreadId: cursor?.metadata?.parentThreadId,
+                    lastExecutionProgressAt: known?.lastExecutionProgressAt
                 ))
             }
         }
@@ -83,7 +100,8 @@ actor CodexSessionLifecycleReader {
     }
 
     private func cursor(for reference: CodexActivityTurnReference) -> SessionFileCursor? {
-        if let cursor = cursorsBySession[reference.sessionId], fileManager.fileExists(atPath: cursor.url.path) {
+        if let cursor = cursorsBySession[reference.sessionId],
+           matchingFile(in: cursor.url.deletingLastPathComponent(), threadId: reference.sessionId) == cursor.url {
             return cursor
         }
         if cursorsBySession.removeValue(forKey: reference.sessionId) != nil {
@@ -95,10 +113,12 @@ actor CodexSessionLifecycleReader {
             return nil
         }
         lastResolutionAttemptBySession[reference.sessionId] = now
-        let suffix = "-\(reference.sessionId).jsonl"
         for directory in [sessionDirectory(for: reference.startedAt), sessionDirectory(for: now), archivedSessionsRootURL] {
-            if let url = matchingFile(in: directory, suffix: suffix) {
-                return initialCursor(for: url)
+            if let url = matchingFile(in: directory, threadId: reference.sessionId) {
+                let cursor = initialCursor(for: url)
+                if cursor.metadata?.id == reference.sessionId {
+                    return cursor
+                }
             }
         }
         if let last = lastRecursiveAttemptBySession[reference.sessionId], now.timeIntervalSince(last) < 60 {
@@ -109,15 +129,27 @@ actor CodexSessionLifecycleReader {
             at: sessionsRootURL, includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else { return nil }
-        for case let url as URL in enumerator where url.lastPathComponent.hasSuffix(suffix) {
-            return initialCursor(for: url)
-        }
-        return nil
+        let matches = enumerator.compactMap { $0 as? URL }.filter { Self.matchesFile($0, threadId: reference.sessionId) }
+        guard matches.count == 1, let url = matches.first else { return nil }
+        let cursor = initialCursor(for: url)
+        return cursor.metadata?.id == reference.sessionId ? cursor : nil
     }
 
-    private func matchingFile(in directory: URL, suffix: String) -> URL? {
-        (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?
-            .first { $0.lastPathComponent.hasSuffix(suffix) }
+    private func matchingFile(in directory: URL, threadId: String) -> URL? {
+        let matches = (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?
+            .filter { Self.matchesFile($0, threadId: threadId) } ?? []
+        return matches.count == 1 ? matches.first : nil
+    }
+
+    private static func matchesFile(_ url: URL, threadId: String) -> Bool {
+        let name = url.lastPathComponent
+        guard name.hasPrefix("rollout-"), name.hasSuffix(".jsonl") else { return false }
+        let stem = String(name.dropLast(6))
+        if stem.hasSuffix("-\(threadId)") {
+            return true
+        }
+        guard let separator = stem.lastIndex(of: "_"), UUID(uuidString: String(stem[stem.index(after: separator)...])) != nil else { return false }
+        return stem[..<separator].hasSuffix("-\(threadId)")
     }
 
     private func sessionDirectory(for date: Date) -> URL {
@@ -129,7 +161,11 @@ actor CodexSessionLifecycleReader {
         let stat = WorkflowStorage.fileStat(at: url)
         let size = stat?.size ?? 0
         let offset = size > Self.bootstrapByteLimit ? size - Self.bootstrapByteLimit : 0
-        return SessionFileCursor(url: url, fileIdentifier: stat?.identifier, offset: offset, historicalOffset: offset, discardsLeadingPartialLine: offset > 0)
+        return SessionFileCursor(
+            url: url, fileIdentifier: stat?.identifier, offset: offset, historicalOffset: offset,
+            discardsLeadingPartialLine: offset > 0,
+            metadata: WorkflowRolloutMetadataReader.metadata(transcriptPath: url.path)
+        )
     }
 
     private func backfillContext(into cursor: inout SessionFileCursor) -> CodexSessionReadStatus {
@@ -140,7 +176,8 @@ actor CodexSessionLifecycleReader {
             fileIdentifier: cursor.fileIdentifier,
             offset: start,
             historicalOffset: start,
-            discardsLeadingPartialLine: start > 0
+            discardsLeadingPartialLine: start > 0,
+            metadata: cursor.metadata
         )
         let status = scan(into: &restored, limit: Self.contextByteLimit, through: end)
         guard status == .complete else { return status }
@@ -197,6 +234,7 @@ private nonisolated struct SessionFileCursor {
     var offset: UInt64
     let historicalOffset: UInt64
     var discardsLeadingPartialLine: Bool
+    var metadata: WorkflowRolloutMetadataPayload?
     var currentTurnId: String?
     var lifecycleByTurnId: [String: SessionTurnLifecycle] = [:]
     var didBackfill = false
@@ -216,6 +254,11 @@ private nonisolated struct SessionFileCursor {
     mutating func apply(_ envelope: CodexRolloutLineEnvelope) {
         if envelope.startsTurnContext {
             currentTurnId = envelope.payload?.turnId.flatMap { $0.isEmpty ? nil : $0 }
+            if let turnId = currentTurnId, let rootTurnId = envelope.payload?.rootTurnId, !rootTurnId.isEmpty {
+                var state = lifecycleByTurnId[turnId] ?? SessionTurnLifecycle()
+                state.rootTurnId = rootTurnId
+                lifecycleByTurnId[turnId] = state
+            }
         }
         if let event = envelope.progressEvent(currentTurnId: currentTurnId) {
             apply(event)
@@ -253,6 +296,9 @@ nonisolated struct CodexRolloutLineEnvelope: Decodable {
 nonisolated struct CodexRolloutLinePayload: Decodable {
     let type: String?
     let turnId: String?
+    let rootTurnId: String?
+    let messageMetadata: CodexRolloutMessageMetadata?
+    let role: String?
     let startedAt: Double?
     let completedAt: Double?
     let durationMilliseconds: Double?
@@ -268,8 +314,10 @@ nonisolated struct CodexRolloutLinePayload: Decodable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type
+        case type, role
         case turnId = "turn_id"
+        case rootTurnId = "root_turn_id"
+        case messageMetadata = "internal_chat_message_metadata_passthrough"
         case startedAt = "started_at"
         case completedAt = "completed_at"
         case durationMilliseconds = "duration_ms"
@@ -278,17 +326,28 @@ nonisolated struct CodexRolloutLinePayload: Decodable {
     }
 }
 
+nonisolated struct CodexRolloutMessageMetadata: Decodable {
+    let turnId: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case turnId = "turn_id"
+    }
+}
+
 private nonisolated extension CodexRolloutLineEnvelope {
     var startsTurnContext: Bool {
-        type == "turn_context" || (type == "event_msg" && payload?.type == "task_started")
+        type == "turn_context" || (type == "event_msg" && ["task_started", "turn_started"].contains(payload?.type ?? ""))
     }
 
     var endsTurnContext: Bool {
-        type == "event_msg" && (payload?.type == "task_complete" || payload?.type == "turn_aborted")
+        type == "event_msg" && ["task_complete", "turn_complete", "turn_aborted"].contains(payload?.type ?? "")
     }
 
     func progressEvent(currentTurnId: String?) -> SessionLifecycleEvent? {
-        let progressTypes: Set = ["token_count", "item_completed", "agent_message", "agent_reasoning", "task_started", "task_complete", "turn_aborted"]
+        let progressTypes: Set = [
+            "token_count", "item_completed", "agent_message", "agent_reasoning",
+            "task_started", "turn_started", "task_complete", "turn_complete", "turn_aborted"
+        ]
         guard type == "response_item" || type == "token_usage_record"
             || (type == "event_msg" && payload?.type.map(progressTypes.contains) == true) else {
             return nil
@@ -300,10 +359,16 @@ private nonisolated extension CodexRolloutLineEnvelope {
             return nil
         }
 
-        guard let turnId = payload?.turnId ?? currentTurnId, !turnId.isEmpty else {
+        let explicitTurnId = type == "response_item" ? payload?.messageMetadata?.turnId : payload?.turnId
+        guard let turnId = explicitTurnId ?? currentTurnId, !turnId.isEmpty else {
             return nil
         }
-        return SessionLifecycleEvent(turnId: turnId, change: .progress(at: eventDate))
+        let isExecutionProgress = if type == "response_item" {
+            payload?.role == "assistant" || ["function_call_output", "custom_tool_call_output", "tool_search_output"].contains(payload?.type ?? "")
+        } else {
+            type == "event_msg" && ["agent_message", "agent_reasoning"].contains(payload?.type ?? "")
+        }
+        return SessionLifecycleEvent(turnId: turnId, change: .progress(at: eventDate, resumesApproval: isExecutionProgress))
     }
 
     var lifecycleEvent: SessionLifecycleEvent? {
@@ -333,13 +398,13 @@ private nonisolated extension CodexRolloutLineEnvelope {
         }
 
         switch payload.type {
-        case "task_started":
+        case "task_started", "turn_started":
             guard let startedAt = payload.startedAt.flatMap(Self.date) else {
                 return nil
             }
             return SessionLifecycleEvent(turnId: turnId, change: .started(at: startedAt))
-        case "task_complete":
-            guard let completedAt = payload.completedAt.flatMap(Self.date) else {
+        case "task_complete", "turn_complete":
+            guard let completedAt = payload.completedAt.flatMap(Self.date) ?? timestamp.flatMap(CodexDateFormat.iso8601Date) else {
                 return nil
             }
             let duration = payload.durationMilliseconds.flatMap { milliseconds in
@@ -370,7 +435,7 @@ private nonisolated struct SessionLifecycleEvent {
 }
 
 private nonisolated enum SessionLifecycleChange {
-    case progress(at: Date)
+    case progress(at: Date, resumesApproval: Bool)
     case started(at: Date)
     case context(approvalReviewer: CodexApprovalReviewer?, effort: String?, observedAt: Date?)
     case completed(at: Date, duration: TimeInterval?)
@@ -378,6 +443,7 @@ private nonisolated enum SessionLifecycleChange {
 }
 
 private nonisolated struct SessionTurnLifecycle {
+    var rootTurnId: String?
     var hasReadGap = false
     var contextObservedAt: Date?
     var hasContext = false
@@ -385,12 +451,16 @@ private nonisolated struct SessionTurnLifecycle {
     var approvalReviewer: CodexApprovalReviewer?
     var effort: String?
     var lastProgressAt: Date?
+    var lastExecutionProgressAt: Date?
     var terminal: CodexSessionTaskTerminalState?
 
     mutating func apply(_ change: SessionLifecycleChange) {
         switch change {
-        case let .progress(at):
+        case let .progress(at, resumesApproval):
             lastProgressAt = max(lastProgressAt ?? .distantPast, at)
+            if resumesApproval {
+                lastExecutionProgressAt = max(lastExecutionProgressAt ?? .distantPast, at)
+            }
         case let .started(at):
             if let currentStartedAt = startedAt {
                 startedAt = min(currentStartedAt, at)
@@ -421,6 +491,11 @@ nonisolated struct CodexSessionTaskLifecycleState {
     var readStatus: CodexSessionReadStatus = .complete
     var hasContext = false
     var contextObservedAt: Date?
+    var rootTurnId: String?
+    var threadId: String?
+    var rootSessionId: String?
+    var parentThreadId: String?
+    var lastExecutionProgressAt: Date?
 }
 
 nonisolated enum CodexSessionReadStatus {

@@ -46,7 +46,9 @@ nonisolated enum WorkflowHookEventRecorder {
         let turnId = payload.string(for: "turn_id")
         let agentId = payload.string(for: "agent_id")
         let transcriptPath = payload.string(for: "transcript_path")
-        let origin = WorkflowEventOriginReader.origin(transcriptPath: transcriptPath)
+        let sourcePath = hookEvent == .subagentStop
+            ? payload.string(for: "agent_transcript_path") : transcriptPath
+        let origin = WorkflowRolloutMetadataReader.origin(transcriptPath: sourcePath)
         let turnContext = readTurnContext(
             transcriptPath: transcriptPath,
             hookEvent: hookEvent,
@@ -191,15 +193,19 @@ nonisolated enum WorkflowHookEventRecorder {
 }
 
 /// Codex 把来源写在大型指令字段之前, 在固定预算内读取已完成的元数据字段
-private nonisolated enum WorkflowEventOriginReader {
+nonisolated enum WorkflowRolloutMetadataReader {
     static func origin(transcriptPath: String?) -> WorkflowEventOrigin {
+        metadata(transcriptPath: transcriptPath)?.source?.origin ?? .unknown
+    }
+
+    static func metadata(transcriptPath: String?) -> WorkflowRolloutMetadataPayload? {
         guard let transcriptPath else {
-            return .unknown
+            return nil
         }
 
         let url = URL(fileURLWithPath: transcriptPath)
         guard let handle = try? FileHandle(forReadingFrom: url) else {
-            return .unknown
+            return nil
         }
         defer {
             try? handle.close()
@@ -210,28 +216,28 @@ private nonisolated enum WorkflowEventOriginReader {
             let readCount = min(readChunkByteCount, firstLineByteLimit - data.count)
             guard let chunk = try? handle.read(upToCount: readCount),
                   !chunk.isEmpty else {
-                return .unknown
+                return nil
             }
             data.append(chunk)
 
             if let newlineIndex = data.firstIndex(of: JSONLines.newlineByte) {
-                return decodedOrigin(from: Data(data[..<newlineIndex])) ?? .unknown
+                return decodedMetadata(from: Data(data[..<newlineIndex]))
             }
 
             if let prefix = metadataPrefix(from: data),
-               let origin = decodedOrigin(from: prefix) {
-                return origin
+               let metadata = decodedMetadata(from: prefix), metadata.source != nil {
+                return metadata
             }
         }
-        return .unknown
+        return nil
     }
 
-    private static func decodedOrigin(from data: Data) -> WorkflowEventOrigin? {
+    private static func decodedMetadata(from data: Data) -> WorkflowRolloutMetadataPayload? {
         guard let envelope = try? JSONDecoder().decode(WorkflowRolloutMetadataEnvelope.self, from: data),
               envelope.type == "session_meta" else {
             return nil
         }
-        return envelope.payload?.source?.origin
+        return envelope.payload
     }
 
     /// 只在外层或 payload 的完整字段边界补齐对象, 字符串和嵌套值交给 JSONDecoder 验证
@@ -293,12 +299,26 @@ private nonisolated struct WorkflowRolloutMetadataEnvelope: Decodable {
     let payload: WorkflowRolloutMetadataPayload?
 }
 
-private nonisolated struct WorkflowRolloutMetadataPayload: Decodable {
+nonisolated struct WorkflowRolloutMetadataPayload: Decodable {
+    let id: String?
+    let sessionId: String?
+    private let explicitParentThreadId: String?
+    var parentThreadId: String? {
+        explicitParentThreadId ?? source?.parentThreadId
+    }
+
     let source: WorkflowRolloutSource?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, source
+        case sessionId = "session_id"
+        case explicitParentThreadId = "parent_thread_id"
+    }
 }
 
-private nonisolated struct WorkflowRolloutSource: Decodable {
+nonisolated struct WorkflowRolloutSource: Decodable {
     let origin: WorkflowEventOrigin
+    var parentThreadId: String?
 
     init(from decoder: Decoder) throws {
         if let name = try? decoder.singleValueContainer().decode(String.self) {
@@ -311,10 +331,9 @@ private nonisolated struct WorkflowRolloutSource: Decodable {
             return
         }
         if let subagentKey = container.allKeys.first(where: { $0.stringValue == "subagent" }) {
-            origin = (try? container.decode(
-                WorkflowRolloutSubagentSource.self,
-                forKey: subagentKey
-            ))?.origin ?? .unknown
+            let subagent = try? container.decode(WorkflowRolloutSubagentSource.self, forKey: subagentKey)
+            origin = subagent?.origin ?? .unknown
+            parentThreadId = subagent?.parentThreadId
             return
         }
         if let customKey = container.allKeys.first(where: { $0.stringValue == "custom" }),
@@ -336,6 +355,7 @@ private nonisolated struct WorkflowRolloutSource: Decodable {
 
 private nonisolated struct WorkflowRolloutSubagentSource: Decodable {
     let origin: WorkflowEventOrigin
+    var parentThreadId: String?
 
     init(from decoder: Decoder) throws {
         if let name = try? decoder.singleValueContainer().decode(String.self) {
@@ -347,6 +367,11 @@ private nonisolated struct WorkflowRolloutSubagentSource: Decodable {
               !container.allKeys.isEmpty else {
             origin = .unknown
             return
+        }
+        if let spawnKey = container.allKeys.first(where: { $0.stringValue == "thread_spawn" }),
+           let spawn = try? container.nestedContainer(keyedBy: WorkflowRolloutSourceKey.self, forKey: spawnKey),
+           let parentKey = spawn.allKeys.first(where: { $0.stringValue == "parent_thread_id" }) {
+            parentThreadId = try? spawn.decode(String.self, forKey: parentKey)
         }
         if let otherKey = container.allKeys.first(where: { $0.stringValue == "other" }) {
             guard let name = try? container.decode(String.self, forKey: otherKey),

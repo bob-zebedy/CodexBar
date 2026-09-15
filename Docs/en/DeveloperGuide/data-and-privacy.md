@@ -19,12 +19,12 @@ Codex hook stdin / rollout / app-server
                   |
                   v
         User-privileged CodexBar
-           |                    |
-           v                    v
-   CloudKit private DB    Constrained XPC interface
-                                |
-                                v
-                       root CodexBarHelper
+        |                      |
+        v                      v
+CloudKit private DB   Constrained XPC interface
+                               |
+                               v
+                         CodexBarHelper
 ```
 
 These boundaries mean:
@@ -76,7 +76,7 @@ The Hook subprocess extracts from stdin:
 - Permission and reviewer
 - Session, turn, and agent identities
 
-The Hook subprocess first extracts and normalizes origin from the first complete `session_meta` record in the rollout referenced by `transcript_path`. When the rollout origin is `unknown`, the model already extracted from stdin classifies the event as `autoReview` only if it exactly equals `codex-auto-review`. The JSONL origin field persists only `main`, `autoReview`, `auxiliary`, or `unknown`; rollout reading uses 32 KiB chunks with a total limit of 256 KiB.
+The Hook subprocess extracts origin from the first rollout `session_meta`, using either the complete record or a prefix of completed fields. Reads use 32 KiB chunks with a total limit of 256 KiB. JSONL persists only the normalized `main`, `autoReview`, `auxiliary`, or `unknown` value. See [Origin Normalization](hook-and-aggregation.md#origin-normalization) for classification and model fallback rules.
 
 It does not write prompt text, responses, tool arguments, or tool output to CodexBar Hook files.
 
@@ -84,9 +84,9 @@ The working directory is used only to derive a project display name and live-tas
 
 ### Rollout Files
 
-The Hook recorder reads the current rollout through `transcript_path`, and the live-activity reader also accesses `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions`.
+The Hook recorder reads the current rollout through `transcript_path`; origin for `SubagentStop` uses the child thread's own `agent_transcript_path`. The live-activity reader accesses relevant main-thread and child-thread files under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions`.
 
-These reads parse only structural fields such as origin classification, lifecycle, time, turn context, progress, effort, and reviewer. They neither copy conversation text into CodexBar storage nor present it in the UI.
+These reads parse only structural fields such as origin classification, thread and turn relationships, lifecycle, time, turn context, progress, effort, and reviewer. Thread associations remain in memory, and conversation text does not enter CodexBar storage or UI.
 
 The rollout reader scans backward from file tails under a budget. This reduces I/O and limits how much unrelated historical content enters process memory. Parsing DTOs declare only required fields, and `JSONDecoder` ignores everything else.
 
