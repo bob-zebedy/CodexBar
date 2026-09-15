@@ -181,8 +181,12 @@ struct QuotaLimitsSection: View {
 
                 Spacer(minLength: 8)
 
-                if showsPrimaryMetadata, let credits, let value = creditsDisplayValue(credits) {
-                    metadataCapsule(String(localized: "quota.credits.value", defaultValue: "\(value)"))
+                if showsPrimaryMetadata, let credits {
+                    let value = creditsDisplayValue(credits)
+                    metadataCapsule(
+                        String(localized: "quota.credits.value", defaultValue: "\(value)"),
+                        tint: credits.unlimited || credits.hasCredits ? .green : .orange
+                    )
                 }
 
                 if showsPrimaryMetadata, let resetCreditsAvailableCount, resetCreditsAvailableCount > 0 {
@@ -198,34 +202,29 @@ struct QuotaLimitsSection: View {
         }
     }
 
-    private func creditsDisplayValue(_ credits: RateLimitCreditsSnapshot) -> String? {
+    private func creditsDisplayValue(_ credits: RateLimitCreditsSnapshot) -> String {
         if credits.unlimited {
             return String(localized: "quota.value.unlimited")
         }
 
         return normalizedCreditsBalance(credits.balance)
-            ?? (credits.hasCredits ? String(localized: "common.status.available") : nil)
+            ?? String(localized: "common.status.available")
     }
 
     private func normalizedCreditsBalance(_ balance: String?) -> String? {
-        guard var balance = balance?.trimmingCharacters(in: .whitespacesAndNewlines), !balance.isEmpty else {
+        guard let balance = balance?.trimmingCharacters(in: .whitespacesAndNewlines), !balance.isEmpty else {
             return nil
         }
 
-        guard let decimalPoint = balance.firstIndex(of: "."),
-              decimalPoint != balance.startIndex,
-              balance[balance.index(after: decimalPoint)...].allSatisfy(\.isNumber) else {
+        guard let value = Double(balance), value.isFinite else {
             return balance
         }
 
-        while balance.hasSuffix("0") {
-            balance.removeLast()
-        }
-        if balance.hasSuffix(".") {
-            balance.removeLast()
+        if value > 0, value < 1 {
+            return "< 1"
         }
 
-        return balance
+        return value.rounded(.towardZero).formatted(.number.grouping(.never).precision(.fractionLength(0)))
     }
 
     private func resetCreditsButton(count: Int) -> some View {
@@ -243,16 +242,16 @@ struct QuotaLimitsSection: View {
         .buttonStyle(.plain)
     }
 
-    private func metadataCapsule(_ text: String) -> some View {
+    private func metadataCapsule(_ text: String, tint: Color = .green) -> some View {
         Text(text)
             .font(.caption2.weight(.medium))
             .monospacedDigit()
-            .foregroundStyle(.green)
+            .foregroundStyle(tint)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .liquidGlassCapsule(tint: .green)
+            .liquidGlassCapsule(tint: tint)
     }
 }
 
