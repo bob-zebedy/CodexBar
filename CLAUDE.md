@@ -292,7 +292,6 @@ Hook 子进程按天写入 `~/Library/Application Support/CodexBar/HookEvents/ev
 - 设置子面板的公共内边距、间距与外观度量从 `SettingsOptionsPanelMetrics` 取；通知、自动重置和防睡眠面板的下拉控件共用 `SettingsOptionsPicker`；主面板布局使用独立的 28 点拖拽行高且不使用下拉控件
 - 设置子面板的内容工厂必须走 `SettingsOptionsPanelController.makeContentController(_:rebuiltBy:)`，否则首次展开时原生 Switch 只剩一条空轨道；重建信号由它接在内容外面，内容视图不必知道 `SidePanelEntryCue`
 - 原因是 thumb 由 `WindowPortal` 投射而不是画在开关上，面板首次布局那一轮 portal 建不起来，而且不会自愈，只有一次内容重建才补得上；第二次展开正常是因为 hosting controller 常驻，复用了已经建好的那份
-- 开关首次绘制由内容重建处理；`SidePanelSupport` 中的 `@_optimize(none)` 用于规避编译器崩溃
 - `MainPanelSettings.layout` 保存主面板区域顺序与显隐，至少保留一个区域。`updateHookEnabled(_:)` 在 Hook 关闭时隐藏任务区域，必要时开启账户；从关闭切换为开启时显示任务区域，启动恢复开启状态时保留用户布局。Hook 关闭时任务开关禁用，拖拽手柄可用
 - 主面板布局排序由手柄上的自定义 `DragGesture` 驱动，悬浮副本跟手移动，其他行按预览顺序实时让位，松手后才通过 `setSectionOrder(_:)` 保存最终顺序
 - 热力图详情面板跟随包含标题和方格矩阵的完整热力图区域定位，优先让两者顶边对齐；详情面板过高时通过 `SidePanelSupport.anchoredPosition` 上移到与主面板底边对齐，不能恢复为固定贴住主面板底边

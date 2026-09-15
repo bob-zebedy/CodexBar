@@ -273,7 +273,7 @@ final class SidePanelDrawerPresenter {
             to: hidden,
             duration: SidePanelSupport.Metrics.drawerExitDuration,
             timing: .easeIn
-        ) {
+        ) { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self,
                       generation == visibilityGeneration else {
@@ -316,10 +316,6 @@ final class SidePanelContentHost<Root: View> {
         self.sizingOptions = sizingOptions
         self.cornerRadius = cornerRadius
     }
-
-    /// Swift 6.3.3 的 EarlyPerfInliner 会在优化该泛型类型的合成析构函数时崩溃
-    @_optimize(none)
-    deinit {}
 
     var contentView: NSView? {
         hostingController?.view

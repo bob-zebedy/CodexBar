@@ -128,10 +128,6 @@ private struct SettingsDropdown<Option: Hashable & Sendable>: NSViewRepresentabl
     final class AnchorView: NSView {
         var onWindowChange: (() -> Void)?
 
-        /// Swift 6.3.3 的 EarlyPerfInliner 无法正确优化该泛型嵌套类型的合成析构函数
-        @_optimize(none)
-        deinit {}
-
         override func hitTest(_: NSPoint) -> NSView? {
             nil
         }
@@ -163,10 +159,6 @@ private struct SettingsDropdown<Option: Hashable & Sendable>: NSViewRepresentabl
             popover.behavior = .applicationDefined
             popover.animates = false
         }
-
-        /// Swift 6.3.3 的 EarlyPerfInliner 无法正确优化该泛型嵌套类型的合成析构函数
-        @_optimize(none)
-        deinit {}
 
         func scheduleReconcile() {
             guard reconcileTask == nil else { return }

@@ -83,7 +83,7 @@ final class HeatmapDetailPanelController {
                 to: hidden,
                 duration: SidePanelSupport.Metrics.drawerExitDuration,
                 timing: .easeIn
-            ) {
+            ) { [weak self] in
                 Task { @MainActor [weak self] in
                     guard let self,
                           generation == visibilityGeneration else {
@@ -209,7 +209,7 @@ final class HeatmapDetailPanelController {
             to: hidden,
             duration: SidePanelSupport.Metrics.drawerExitDuration,
             timing: .easeIn
-        ) {
+        ) { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self,
                       generation == visibilityGeneration,
@@ -239,7 +239,7 @@ final class HeatmapDetailPanelController {
             to: 0,
             duration: SidePanelSupport.Metrics.drawerEnterDuration,
             timing: .easeOut
-        ) {
+        ) { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self,
                       generation == visibilityGeneration,
