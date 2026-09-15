@@ -190,7 +190,7 @@ nonisolated enum WorkflowHookEventRecorder {
     }
 }
 
-/// rollout 格式不是稳定 Hook 接口, 只读取首条完整 session_meta 并在固定预算内失败开放
+/// Codex 把来源写在大型指令字段之前, 在固定预算内读取已完成的元数据字段
 private nonisolated enum WorkflowEventOriginReader {
     static func origin(transcriptPath: String?) -> WorkflowEventOrigin {
         guard let transcriptPath else {
@@ -214,19 +214,74 @@ private nonisolated enum WorkflowEventOriginReader {
             }
             data.append(chunk)
 
-            guard let newlineIndex = data.firstIndex(of: JSONLines.newlineByte) else {
-                continue
+            if let newlineIndex = data.firstIndex(of: JSONLines.newlineByte) {
+                return decodedOrigin(from: Data(data[..<newlineIndex])) ?? .unknown
             }
-            let line = Data(data[..<newlineIndex])
-            guard let envelope = try? JSONDecoder().decode(
-                WorkflowRolloutMetadataEnvelope.self,
-                from: line
-            ), envelope.type == "session_meta" else {
-                return .unknown
+
+            if let prefix = metadataPrefix(from: data),
+               let origin = decodedOrigin(from: prefix) {
+                return origin
             }
-            return envelope.payload?.source?.origin ?? .unknown
         }
         return .unknown
+    }
+
+    private static func decodedOrigin(from data: Data) -> WorkflowEventOrigin? {
+        guard let envelope = try? JSONDecoder().decode(WorkflowRolloutMetadataEnvelope.self, from: data),
+              envelope.type == "session_meta" else {
+            return nil
+        }
+        return envelope.payload?.source?.origin
+    }
+
+    /// 只在外层或 payload 的完整字段边界补齐对象, 字符串和嵌套值交给 JSONDecoder 验证
+    private static func metadataPrefix(from data: Data) -> Data? {
+        var containers: [UInt8] = []
+        var isInString = false
+        var isEscaped = false
+        var prefixEnd: Int?
+        var closingBraces = 0
+
+        for (index, byte) in data.enumerated() {
+            if isInString {
+                if isEscaped {
+                    isEscaped = false
+                } else if byte == 0x5C {
+                    isEscaped = true
+                } else if byte == 0x22 {
+                    isInString = false
+                }
+                continue
+            }
+
+            switch byte {
+            case 0x22:
+                isInString = true
+            case 0x7B, 0x5B:
+                guard containers.count < 64 else { return nil }
+                containers.append(byte)
+            case 0x7D, 0x5D:
+                let opening: UInt8 = byte == 0x7D ? 0x7B : 0x5B
+                guard containers.popLast() == opening else { return nil }
+                if containers.isEmpty {
+                    return data
+                }
+                if containers == [0x7B] {
+                    prefixEnd = index + 1
+                    closingBraces = 1
+                }
+            case 0x2C:
+                if containers == [0x7B] || containers == [0x7B, 0x7B] {
+                    prefixEnd = index
+                    closingBraces = containers.count
+                }
+            default:
+                break
+            }
+        }
+
+        guard let prefixEnd else { return nil }
+        return Data(data.prefix(prefixEnd)) + Data(repeating: 0x7D, count: closingBraces)
     }
 
     private static let readChunkByteCount = 32 * 1024
