@@ -818,6 +818,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             keyEquivalent: keyEquivalent
         )
         item.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        if #available(macOS 27.0, *) {
+            item.preferredImageVisibility = .visible
+        }
         item.target = self
         return item
     }
