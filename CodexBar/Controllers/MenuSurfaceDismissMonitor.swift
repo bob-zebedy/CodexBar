@@ -14,9 +14,12 @@ final class MenuSurfaceDismissMonitor {
     private var activeMenuSurfaceWindowResignKeyObserver: NSObjectProtocol?
     private var deferredWindowFocusTask: Task<Void, Never>?
     private var suppressActivationDismissTask: Task<Void, Never>?
-    private var suppressesActivationDismiss = false
     private var onDismiss: (() -> Void)?
     private var onLogShortcut: (() -> Void)?
+
+    private var suppressesActivationDismiss: Bool {
+        suppressActivationDismissTask != nil
+    }
 
     init(
         isPresented: @escaping () -> Bool,
@@ -74,12 +77,17 @@ final class MenuSurfaceDismissMonitor {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            // 激活通知可能早于状态按钮事件送达, 必须在进入 Task 前保存此次按下位置
+            let mouseDownLocation = NSEvent.pressedMouseButtons & 0b11 != 0 ? NSEvent.mouseLocation : nil
             let activatedProcessIdentifier = (
                 notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             )?.processIdentifier
 
             Task { @MainActor [weak self, activatedProcessIdentifier] in
-                self?.dismissIfDifferentApplication(processIdentifier: activatedProcessIdentifier)
+                self?.dismissIfDifferentApplication(
+                    processIdentifier: activatedProcessIdentifier,
+                    mouseDownLocation: mouseDownLocation
+                )
             }
         }
 
@@ -101,7 +109,6 @@ final class MenuSurfaceDismissMonitor {
         deferredWindowFocusTask = nil
         suppressActivationDismissTask?.cancel()
         suppressActivationDismissTask = nil
-        suppressesActivationDismiss = false
         removeEventMonitor(&localEventMonitor)
         removeEventMonitor(&globalMouseEventMonitor)
         removeObserver(&appResignActiveObserver)
@@ -153,12 +160,17 @@ final class MenuSurfaceDismissMonitor {
         onDismiss?()
     }
 
-    private func dismissIfDifferentApplication(processIdentifier: pid_t?) {
+    private func dismissIfDifferentApplication(processIdentifier: pid_t?, mouseDownLocation: NSPoint?) {
         guard !suppressesActivationDismiss else {
             return
         }
 
         if let processIdentifier, processIdentifier == NSRunningApplication.current.processIdentifier {
+            return
+        }
+
+        // 状态按钮的同一次点击由 mouseUp 切换, 不能被应用激活通知提前关闭
+        if let mouseDownLocation, isPointInStatusButton(mouseDownLocation) {
             return
         }
 
@@ -229,14 +241,12 @@ final class MenuSurfaceDismissMonitor {
         // Command-Space 会切换系统搜索焦点
         // 需要短暂抑制失活关闭避免误关面板
         suppressActivationDismissTask?.cancel()
-        suppressesActivationDismiss = true
         suppressActivationDismissTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(Metrics.activationDismissSuppressionMilliseconds))
             guard let self, !Task.isCancelled else {
                 return
             }
 
-            suppressesActivationDismiss = false
             suppressActivationDismissTask = nil
         }
     }
