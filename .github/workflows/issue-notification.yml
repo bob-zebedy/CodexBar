@@ -1,0 +1,77 @@
+name: Issue notification
+
+on:
+    issues:
+        types: [opened]
+    issue_comment:
+        types: [created]
+    workflow_dispatch:
+
+permissions: {}
+
+jobs:
+    notify:
+        name: Send notification
+        runs-on: ubuntu-latest
+        timeout-minutes: 2
+        env:
+            BARK_TOKEN: ${{ secrets.BARK_TOKEN }}
+            BARK_ICON_URL: https://bucket.zabrian.com/codexbar/icon.png
+            BARK_SERVER_URL: https://bark.zebedy.com
+            SELF_LOGIN: ${{ vars.SELF_LOGIN || github.repository_owner }}
+        steps:
+            - name: Build and send notification
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  if [[ -z "$BARK_TOKEN" ]]; then
+                      echo "::error::Missing BARK_TOKEN secret"
+                      exit 1
+                  fi
+
+                  case "$GITHUB_EVENT_NAME" in
+                      issues)
+                          issue_title="$(jq -r '.issue.title' "$GITHUB_EVENT_PATH")"
+                          title="CodexBar 有新的 Issues"
+                          body="$issue_title"
+                          ;;
+                      issue_comment)
+                          if jq -e '.issue.pull_request != null' "$GITHUB_EVENT_PATH" >/dev/null; then
+                              echo "Pull request comment ignored"
+                              exit 0
+                          fi
+
+                          actor="$(jq -r '.comment.user.login' "$GITHUB_EVENT_PATH")"
+                          shopt -s nocasematch
+                          if [[ "$actor" == "$SELF_LOGIN" ]]; then
+                              echo "Comment from ${SELF_LOGIN} ignored"
+                              exit 0
+                          fi
+
+                          issue_title="$(jq -r '.issue.title' "$GITHUB_EVENT_PATH")"
+                          title="CodexBar Issues 有新的评论"
+                          body="$issue_title"
+                          ;;
+                      workflow_dispatch)
+                          title="CodexBar Issues 通知测试"
+                          body="Bark 配置有效"
+                          ;;
+                      *)
+                          echo "::error::Unsupported event: ${GITHUB_EVENT_NAME}"
+                          exit 1
+                          ;;
+                  esac
+
+                  encoded_title="$(jq -rn --arg value "$title" '$value | @uri')"
+                  encoded_body="$(jq -rn --arg value "$body" '$value | @uri')"
+
+                  curl \
+                      --fail-with-body \
+                      --show-error \
+                      --silent \
+                      --connect-timeout 10 \
+                      --max-time 30 \
+                      --get \
+                      --data-urlencode "icon=${BARK_ICON_URL}" \
+                      "${BARK_SERVER_URL}/${BARK_TOKEN}/${encoded_title}/${encoded_body}"
