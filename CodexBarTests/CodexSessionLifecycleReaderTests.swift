@@ -30,10 +30,105 @@ struct CodexSessionLifecycleReaderTests {
         let partial = try #require(await reader.lifecycleStates(for: [reference]).first)
         #expect(partial.readStatus == .incomplete)
         #expect(partial.terminal == nil)
+        let unchanged = try #require(await reader.lifecycleStates(for: [reference]).first)
+        #expect(unchanged.readStatus == .incomplete)
+        #expect(unchanged.terminal == nil)
         try append("\n", to: url)
         let complete = try #require(await reader.lifecycleStates(for: [reference]).first)
         #expect(complete.readStatus == .complete)
         #expect(complete.terminal != nil)
+    }
+
+    @Test func incompleteTailWaitsForFullThresholdAndGrowthRestartsObservation() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let url = try writeRollout(in: directory, lines: [context, start])
+        try append(String(completion.dropLast()), to: url)
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        let firstObserved = TestFixtures.now.addingTimeInterval(7200)
+        var task = CodexActivityTask(
+            displayID: UUID(), key: CodexActivityTaskKey(event: TestFixtures.event()), event: TestFixtures.event(),
+            state: .running, latestEvent: .promptSubmitted, startedAt: TestFixtures.now, progressGeneration: 1
+        )
+
+        for elapsed in [0.0, 3599, 3600] {
+            let now = firstObserved.addingTimeInterval(elapsed)
+            let state = try #require(await reader.lifecycleStates(for: [reference], now: now).first)
+            #expect(state.readStatus == .incomplete)
+            #expect(state.incompleteTailUnchangedSince == firstObserved)
+            task.recordLifecycleRead(state, at: now)
+            let deadline = try #require(task.activityProtectionDeadline(at: now, inactivityDuration: 3600))
+            #expect((deadline <= now) == (elapsed == 3600))
+            #expect(!task.hasFreshLifecycle(at: now))
+            #expect(task.lastProgressAt == TestFixtures.now)
+        }
+
+        try append("}", to: url)
+        let growthTime = firstObserved.addingTimeInterval(3601)
+        let growing = try #require(await reader.lifecycleStates(for: [reference], now: growthTime).first)
+        #expect(growing.incompleteTailUnchangedSince == growthTime)
+        task.recordLifecycleRead(growing, at: growthTime)
+        #expect(task.activityProtectionDeadline(at: growthTime, inactivityDuration: 3600) == growthTime.addingTimeInterval(3600))
+
+        try append("\n", to: url)
+        let completed = try #require(await reader.lifecycleStates(for: [reference], now: growthTime).first)
+        #expect(completed.readStatus == .complete)
+        #expect(completed.terminal != nil)
+        #expect(completed.incompleteTailUnchangedSince == nil)
+    }
+
+    @Test func restartAndFileReplacementStartNewTailObservation() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let url = try writeRollout(in: directory, lines: [context, start])
+        try append(completion, to: url)
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        _ = await reader.lifecycleStates(for: [reference], now: TestFixtures.now)
+        let later = TestFixtures.now.addingTimeInterval(3600)
+        let restarted = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        #expect(await restarted.lifecycleStates(for: [reference], now: later).first?.incompleteTailUnchangedSince == later)
+
+        let replacement = (metadata(session: "session-a") + "\n" + context + "\n" + start + "\n" + completion)
+        try Data(replacement.utf8).write(to: url, options: .atomic)
+        #expect(await reader.lifecycleStates(for: [reference], now: later).first?.incompleteTailUnchangedSince == later)
+    }
+
+    @Test func unreadableTailClearsObservationAndRecoveryStartsAgain() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let url = try writeRollout(in: directory, lines: [context, start])
+        try append(completion, to: url)
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        _ = await reader.lifecycleStates(for: [reference], now: TestFixtures.now)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
+        let unavailable = try #require(await reader.lifecycleStates(for: [reference], now: TestFixtures.now.addingTimeInterval(1)).first)
+        #expect(unavailable.readStatus == .unavailable)
+        #expect(unavailable.incompleteTailUnchangedSince == nil)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        let later = TestFixtures.now.addingTimeInterval(3600)
+        #expect(await reader.lifecycleStates(for: [reference], now: later).first?.incompleteTailUnchangedSince == later)
+    }
+
+    @Test(arguments: ["missing-context", "read-gap", "known-terminal"])
+    func incompleteTailRequiresContextWithoutOtherGapsOrTerminal(scenario: String) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let lines = switch scenario {
+        case "missing-context": [start]
+        case "read-gap": [context, start, "broken"]
+        default: [context, start, completion]
+        }
+        let url = try writeRollout(in: directory, lines: lines)
+        try append("{", to: url)
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        for _ in 0 ..< 2 {
+            let state = try #require(await reader.lifecycleStates(for: [reference]).first)
+            #expect(state.readStatus == .incomplete)
+            #expect(state.incompleteTailUnchangedSince == nil)
+            #expect(state.terminal == nil)
+        }
     }
 
     @Test func corruptGapBlocksInactivityButExplicitTerminalStillResolves() async throws {
@@ -44,6 +139,46 @@ struct CodexSessionLifecycleReaderTests {
         let partial = try #require(await reader.lifecycleStates(for: [reference]).first)
         #expect(partial.readStatus == .incomplete)
         try append(completion + "\n", to: url)
+        let resolved = try #require(await reader.lifecycleStates(for: [reference]).first)
+        #expect(resolved.readStatus == .complete)
+        #expect(resolved.terminal != nil)
+    }
+
+    @Test func lineLargerThanIncrementalBudgetContinuesAcrossReads() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let url = try writeRollout(in: directory, lines: [context, start])
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        _ = await reader.lifecycleStates(for: [reference])
+
+        let compacted = oversizedLine(type: "compacted", payloadByteCount: 9 * 1024 * 1024)
+        try append(compacted + "\n" + completion + "\n", to: url)
+
+        let partial = try #require(await reader.lifecycleStates(for: [reference]).first)
+        #expect(partial.readStatus == .incomplete)
+        #expect(partial.terminal == nil)
+        #expect(partial.incompleteTailUnchangedSince == nil)
+        let resolved = try #require(await reader.lifecycleStates(for: [reference]).first)
+        #expect(resolved.readStatus == .complete)
+        #expect(resolved.terminal != nil)
+    }
+
+    @Test func lineLargerThanBufferLimitIsSkippedWithoutBlockingTerminal() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let url = try writeRollout(in: directory, lines: [context, start])
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        _ = await reader.lifecycleStates(for: [reference])
+
+        let compacted = oversizedLine(type: "compacted", payloadByteCount: 17 * 1024 * 1024)
+        try append(compacted + "\n" + completion + "\n", to: url)
+
+        for _ in 0 ..< 2 {
+            let partial = try #require(await reader.lifecycleStates(for: [reference]).first)
+            #expect(partial.readStatus == .incomplete)
+            #expect(partial.terminal == nil)
+            #expect(partial.incompleteTailUnchangedSince == nil)
+        }
         let resolved = try #require(await reader.lifecycleStates(for: [reference]).first)
         #expect(resolved.readStatus == .complete)
         #expect(resolved.terminal != nil)
@@ -121,6 +256,10 @@ struct CodexSessionLifecycleReaderTests {
 
     private func metadata(session: String) -> String {
         "{\"type\":\"session_meta\",\"payload\":{\"id\":\"\(session)\",\"source\":\"cli\"}}"
+    }
+
+    private func oversizedLine(type: String, payloadByteCount: Int) -> String {
+        "{\"type\":\"\(type)\",\"payload\":{\"data\":\"\(String(repeating: "x", count: payloadByteCount))\"}}"
     }
 
     private func writeRollout(in directory: TestDirectory, lines: [String], session: String = "session-a") throws -> URL {

@@ -114,7 +114,7 @@ extension CodexActivityMonitor {
         let restorableKeys = tasks.compactMap { key, task -> CodexActivityTaskKey? in
             guard !key.isAnonymous,
                   task.state == .suppressed,
-                  task.lastProgressAt.addingTimeInterval(threshold) > now else {
+                  task.activityProtectionReferenceAt.addingTimeInterval(threshold) > now else {
                 return nil
             }
             return key
@@ -126,8 +126,8 @@ extension CodexActivityMonitor {
         let overdueKeys = tasks.compactMap { key, task -> CodexActivityTaskKey? in
             guard !key.isAnonymous,
                   task.state == .running,
-                  task.hasFreshLifecycle(at: now),
-                  task.lastProgressAt.addingTimeInterval(threshold) <= now else {
+                  let deadline = task.activityProtectionDeadline(at: now, inactivityDuration: threshold),
+                  deadline <= now else {
                 return nil
             }
             return key
@@ -148,11 +148,10 @@ extension CodexActivityMonitor {
         let nextDeadline = tasks.compactMap { key, task -> Date? in
             guard !key.isAnonymous,
                   task.state == .running,
-                  task.hasFreshLifecycle(at: now),
                   activityProtectionAttempts[key] == nil else {
                 return nil
             }
-            return task.lastProgressAt.addingTimeInterval(threshold)
+            return task.activityProtectionDeadline(at: now, inactivityDuration: threshold)
         }.min()
 
         guard let nextDeadline else {
@@ -194,9 +193,9 @@ extension CodexActivityMonitor {
         let candidates = tasks.compactMap { key, task -> ActivityProtectionCandidate? in
             guard !key.isAnonymous,
                   task.state == .running,
-                  task.hasFreshLifecycle(at: now),
                   activityProtectionAttempts[key] == nil,
-                  task.lastProgressAt.addingTimeInterval(threshold) <= now else {
+                  let deadline = task.activityProtectionDeadline(at: now, inactivityDuration: threshold),
+                  deadline <= now else {
                 return nil
             }
             return ActivityProtectionCandidate(
@@ -336,18 +335,11 @@ extension CodexActivityMonitor {
         now: Date
     ) {
         guard !key.isAnonymous,
-              isStarted,
-              isActivityProtectionEnabled,
-              tailReader != nil,
-              !isBootstrapping,
-              !isActivityProtectionRecoveryInProgress,
-              isActivitySourceHealthy,
+              canEvaluateActivityProtection,
               let task = tasks[key],
               task.state == .running,
-              task.hasFreshLifecycle(at: now),
-              task.lastProgressAt.addingTimeInterval(
-                  activityProtectionSettings.inactivityDuration.timeInterval
-              ) <= now else {
+              let deadline = task.activityProtectionDeadline(at: now, inactivityDuration: activityProtectionSettings.inactivityDuration.timeInterval),
+              deadline <= now else {
             return
         }
         suppressActivityTaskSilently(key, markedAt: now)
@@ -405,13 +397,12 @@ extension CodexActivityMonitor {
               let task = tasks[candidate.key],
               task.displayID == candidate.taskID,
               task.state == .running,
-              task.hasFreshLifecycle(at: now),
               task.lastProgressAt == candidate.lastProgressAt,
               task.progressGeneration == candidate.progressGeneration else {
             return false
         }
-        return task.lastProgressAt
-            .addingTimeInterval(candidate.inactivityDuration.timeInterval) <= now
+        return task.activityProtectionDeadline(at: now, inactivityDuration: candidate.inactivityDuration.timeInterval)
+            .map { $0 <= now } == true
     }
 
     func isInactivityProtectionNoticeRelevant(

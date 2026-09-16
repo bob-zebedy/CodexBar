@@ -331,8 +331,10 @@ final class CodexActivityMonitor: ObservableObject {
 
         let hadLifecycleCoverage = task.lifecycleCoverageCheckedAt != nil
         if !terminalOnly {
-            task.lifecycleCoverageCheckedAt = state.readStatus == .complete && state.hasContext ? Date() : nil
-            if task.lifecycleCoverageCheckedAt == nil {
+            let now = Date()
+            task.recordLifecycleRead(state, at: now)
+            if task.activityProtectionDeadline(at: now, inactivityDuration: activityProtectionSettings.inactivityDuration.timeInterval)
+                .map({ $0 <= now }) != true {
                 cancelActivityProtectionAttempt(for: key)
             }
         }

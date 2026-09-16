@@ -176,9 +176,13 @@ Live tasks need lifecycle near an active turn, not a full read of a long-running
 
 If context, effort, or reviewer is missing, the reader replays up to 8 MiB to recover turn ownership, metadata, and progress together. Each file cursor stops looking back after one successful backfill; each cycle backfills at most one session.
 
-Incremental scanning shares an 8 MiB budget per cycle across sessions in rotating order. At most 16 pending tasks are queried per cycle. Budget exhaustion and partial lines return `incomplete`, read failures return `unavailable`, and unresolved files return `notFound`. Cached facts do not establish successful current coverage. A complete read with turn context sets `lifecycleCoverageCheckedAt` to the check time; an incomplete or failed read, a missing file, or missing context clears it. Protection requires this timestamp to be present and less than five seconds old.
+Incremental scanning shares an 8 MiB budget per cycle across sessions in rotating order. At most 16 pending tasks are queried per cycle. Budget exhaustion and partial lines return `incomplete`, read failures return `unavailable`, and unresolved files return `notFound`. Cached facts do not establish successful current coverage. A complete read with turn context sets `lifecycleCoverageCheckedAt` to the check time; an incomplete or failed read, a missing file, or missing context clears it. Normal inactivity protection requires this timestamp to be present and less than five seconds old.
 
-The incremental scan advances its offset by complete lines. A line larger than 8 MiB returns `incomplete` from the same line start each cycle, preventing consumption of subsequent records.
+The incremental scan advances its offset by bytes read and carries an unfinished line across cycles. The per-cycle read budget remains 8 MiB, while a single line may buffer up to 16 MiB. Larger lines mark a read gap and are skipped in chunks through their newline so later records remain consumable. An explicit rollout terminal remains authoritative despite an earlier read gap.
+
+When the file is readable and scanning reaches its actual end with only a bounded partial line remaining, the reader records the first observation or latest append time. A task with turn context, no other coverage gap or known terminal, and an observation less than five seconds old may use a partial-tail fallback: both its last progress and the tail's last growth must be at least the configured inactivity threshold ago before suppression. Further growth restarts the timer. Read failures, file replacement or truncation, and app restarts require a new observation period. Unread backlog, missing context, and oversized lines being discarded do not qualify.
+
+A partial tail always returns `incomplete`. Its observation affects protection timing, scheduling, and revalidation before hiding; it does not establish a terminal or progress, or directly restore a task. Once the line is completed, normal complete-read progress and terminal handling apply.
 
 A malformed rollout line marks unfinished turns as having a coverage gap. Repeated context for the same turn does not clear the gap. New turns establish independent coverage, and explicit terminal records can end a task with incomplete history. Later malformed lines do not revoke known terminal facts. Failed or incomplete reads cannot use cached progress to advance task progress, restore suppressed tasks, or remove protection records.
 
@@ -448,6 +452,7 @@ Evaluation pauses during:
 - Wake recovery
 - Hook data-source unavailability
 - Reader replacement
+- An incomplete rollout that does not qualify for the partial-tail fallback, a read failure, missing context, or an expired read result
 
 ### Purpose of Progress Generation
 
@@ -462,6 +467,8 @@ Every valid progress event increments `progressGeneration`. A protection candida
 
 All four must still match when notification returns or grace expires. Any new progress or threshold change invalidates the old attempt.
 
+Candidates using the partial-tail fallback also revalidate observation freshness and the inactivity deadline. Further tail growth or a read failure cancels a pending suppression attempt.
+
 ### Protection Record Save Ordering
 
 An attempt updates the in-memory record synchronously, then a task calls `ActivityProtectionStateStore.apply` in sequence. A disk-write failure is logged and does not prevent hiding the task.
@@ -473,6 +480,8 @@ Saved records restore protection during the next bootstrap. Hiding does not wait
 Shortening the threshold immediately reevaluates running tasks already past it.
 
 Increasing the threshold silently restores suppressed tasks that no longer exceed it and clears their records and notifications. Tasks still beyond the threshold remain hidden.
+
+Restoration and suppression use the same timing reference: the later of task progress and the retained observation of the partial tail's last growth. Restoration after increasing the threshold does not require the read result to remain within its five-second validity window. Suppressing the task again still requires fresh read evidence and reaching the new deadline.
 
 Turning off the sleep-prevention switch disables Activity Protection and restores all suppressed tasks in the current process.
 

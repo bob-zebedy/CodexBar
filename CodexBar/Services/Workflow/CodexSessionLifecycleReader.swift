@@ -32,9 +32,9 @@ actor CodexSessionLifecycleReader {
         self.fileManager = fileManager
     }
 
-    func lifecycleStates(for references: [CodexActivityTurnReference]) -> [CodexSessionTaskLifecycleState] {
+    func lifecycleStates(for references: [CodexActivityTurnReference], now: Date = Date()) -> [CodexSessionTaskLifecycleState] {
         let grouped = Dictionary(grouping: references, by: \.sessionId)
-        let cutoff = Date().addingTimeInterval(-CodexActivityRetention.window)
+        let cutoff = now.addingTimeInterval(-CodexActivityRetention.window)
         cursorsBySession = cursorsBySession.filter { $0.value.lastReadAt > cutoff }
         lastResolutionAttemptBySession = lastResolutionAttemptBySession.filter { $0.value > cutoff }
         lastRecursiveAttemptBySession = lastRecursiveAttemptBySession.filter { $0.value > cutoff }
@@ -50,7 +50,7 @@ actor CodexSessionLifecycleReader {
                   let latest = sessionReferences.max(by: { $0.startedAt < $1.startedAt }) else { continue }
             var status = CodexSessionReadStatus.notFound
             if var cursor = cursor(for: latest) {
-                status = scan(into: &cursor, limit: min(Self.incrementalByteLimit, budget))
+                status = scan(into: &cursor, limit: min(Self.incrementalByteLimit, budget), now: now)
                 if cursor.metadata?.id != sessionId {
                     status = .unavailable
                 }
@@ -64,7 +64,7 @@ actor CodexSessionLifecycleReader {
                     status = backfillContext(into: &cursor)
                     performedBackfill = true
                 }
-                cursor.lastReadAt = Date()
+                cursor.lastReadAt = now
                 let referencedTurns = Set(sessionReferences.map(\.turnId))
                 cursor.lifecycleByTurnId = cursor.lifecycleByTurnId.filter {
                     referencedTurns.contains($0.key) || ($0.value.lastProgressAt ?? .distantPast) > cutoff
@@ -87,7 +87,9 @@ actor CodexSessionLifecycleReader {
                     threadId: cursor?.metadata?.id,
                     rootSessionId: cursor?.metadata?.sessionId,
                     parentThreadId: cursor?.metadata?.parentThreadId,
-                    lastExecutionProgressAt: known?.lastExecutionProgressAt
+                    lastExecutionProgressAt: known?.lastExecutionProgressAt,
+                    incompleteTailUnchangedSince: status == .incomplete && !hasReadGap && known?.hasContext == true && known?.terminal == nil
+                        ? cursor?.incompleteTailUnchangedSince : nil
                 ))
             }
         }
@@ -163,7 +165,7 @@ actor CodexSessionLifecycleReader {
         let offset = size > Self.bootstrapByteLimit ? size - Self.bootstrapByteLimit : 0
         return SessionFileCursor(
             url: url, fileIdentifier: stat?.identifier, offset: offset, historicalOffset: offset,
-            discardsLeadingPartialLine: offset > 0,
+            isDiscardingLine: offset > 0,
             metadata: WorkflowRolloutMetadataReader.metadata(transcriptPath: url.path)
         )
     }
@@ -176,7 +178,7 @@ actor CodexSessionLifecycleReader {
             fileIdentifier: cursor.fileIdentifier,
             offset: start,
             historicalOffset: start,
-            discardsLeadingPartialLine: start > 0,
+            isDiscardingLine: start > 0,
             metadata: cursor.metadata
         )
         let status = scan(into: &restored, limit: Self.contextByteLimit, through: end)
@@ -186,46 +188,40 @@ actor CodexSessionLifecycleReader {
         return .complete
     }
 
-    private func scan(into cursor: inout SessionFileCursor, limit: Int, through upperBound: UInt64? = nil) -> CodexSessionReadStatus {
+    private func scan(into cursor: inout SessionFileCursor, limit: Int, through upperBound: UInt64? = nil, now: Date = Date()) -> CodexSessionReadStatus {
         cursor.lastReadByteCount = 0
+        var previousTailUnchangedSince = cursor.incompleteTailUnchangedSince
+        cursor.incompleteTailUnchangedSince = nil
         guard let stat = WorkflowStorage.fileStat(at: cursor.url) else { return .unavailable }
         if stat.size < cursor.offset || (cursor.fileIdentifier != nil && cursor.fileIdentifier != stat.identifier) {
             cursor = initialCursor(for: cursor.url)
+            previousTailUnchangedSince = nil
         }
         let end = min(stat.size, upperBound ?? stat.size)
         guard let handle = try? FileHandle(forReadingFrom: cursor.url) else { return .unavailable }
         defer { try? handle.close() }
-        guard end > cursor.offset else { return .complete }
-        guard limit > 0 else { return .incomplete }
-        guard (try? handle.seek(toOffset: cursor.offset)) != nil,
-              let data = try? handle.read(upToCount: min(limit, Int(end - cursor.offset))), !data.isEmpty else { return .unavailable }
-        cursor.lastReadByteCount = data.count
-        guard let newline = data.lastIndex(of: JSONLines.newlineByte) else { return .incomplete }
-        let consumed = data.distance(from: data.startIndex, to: newline) + 1
-        cursor.offset += UInt64(consumed)
-        cursor.fileIdentifier = stat.identifier
-        var complete = Data(data[...newline])
-        if cursor.discardsLeadingPartialLine {
-            complete = JSONLines.droppingLeadingPartialLine(complete)
-            cursor.discardsLeadingPartialLine = false
-        }
-        for line in complete.split(separator: JSONLines.newlineByte) {
-            let decoded = JSONLines.decodeWithFailures(CodexRolloutLineEnvelope.self, from: Data(line))
-            if decoded.failedLineCount > 0 {
-                cursor.markReadGap()
-            }
-            for envelope in decoded.values {
-                cursor.apply(envelope)
-            }
+        if end > cursor.offset {
+            guard limit > 0 else { return .incomplete }
+            guard (try? handle.seek(toOffset: cursor.offset)) != nil,
+                  let data = try? handle.read(upToCount: min(limit, Int(end - cursor.offset))), !data.isEmpty else { return .unavailable }
+            cursor.lastReadByteCount = data.count
+            cursor.offset += UInt64(data.count)
+            cursor.fileIdentifier = stat.identifier
+            cursor.consume(data, maximumBufferedLineByteCount: Self.maximumBufferedLineByteCount)
         }
         guard let after = WorkflowStorage.fileStat(at: cursor.url), after.identifier == stat.identifier,
               after.size >= end else { return .unavailable }
-        return cursor.offset == end ? .complete : .incomplete
+        // 只有实际文件末尾的有界半行可以计时, 积压和跳过的大行不能作为静默依据
+        if cursor.offset == after.size, cursor.hasPartialLine, !cursor.isDiscardingLine {
+            cursor.incompleteTailUnchangedSince = cursor.lastReadByteCount > 0 ? now : previousTailUnchangedSince ?? now
+        }
+        return cursor.offset == end && !cursor.hasPartialLine ? .complete : .incomplete
     }
 
     private static let bootstrapByteLimit: UInt64 = 512 * 1024
     private static let incrementalByteLimit = 8 * 1024 * 1024
     private static let contextByteLimit = 8 * 1024 * 1024
+    private static let maximumBufferedLineByteCount = 16 * 1024 * 1024
 }
 
 private nonisolated struct SessionFileCursor {
@@ -233,14 +229,76 @@ private nonisolated struct SessionFileCursor {
     var fileIdentifier: UInt64?
     var offset: UInt64
     let historicalOffset: UInt64
-    var discardsLeadingPartialLine: Bool
+    var isDiscardingLine: Bool
     var metadata: WorkflowRolloutMetadataPayload?
     var currentTurnId: String?
     var lifecycleByTurnId: [String: SessionTurnLifecycle] = [:]
+    var partialLineData = Data()
     var didBackfill = false
     var hasDecodeFailures = false
     var lastReadAt = Date()
     var lastReadByteCount = 0
+    var incompleteTailUnchangedSince: Date?
+
+    var hasPartialLine: Bool {
+        isDiscardingLine || !partialLineData.isEmpty
+    }
+
+    /// 读取预算可以在一行中间结束, 游标仍需推进并在下一轮继续拼接
+    /// 超过缓冲上限后只扫描到换行, 避免异常大行阻塞后续终态
+    mutating func consume(_ data: Data, maximumBufferedLineByteCount: Int) {
+        var fragmentStart = data.startIndex
+        while let newline = data[fragmentStart...].firstIndex(of: JSONLines.newlineByte) {
+            consumeLineFragment(
+                data[fragmentStart ..< newline],
+                completesLine: true,
+                maximumBufferedLineByteCount: maximumBufferedLineByteCount
+            )
+            fragmentStart = data.index(after: newline)
+        }
+        if fragmentStart < data.endIndex {
+            consumeLineFragment(
+                data[fragmentStart...],
+                completesLine: false,
+                maximumBufferedLineByteCount: maximumBufferedLineByteCount
+            )
+        }
+    }
+
+    private mutating func consumeLineFragment(
+        _ fragment: Data.SubSequence,
+        completesLine: Bool,
+        maximumBufferedLineByteCount: Int
+    ) {
+        if isDiscardingLine {
+            if completesLine {
+                isDiscardingLine = false
+            }
+            return
+        }
+
+        guard fragment.count <= maximumBufferedLineByteCount - partialLineData.count else {
+            partialLineData.removeAll(keepingCapacity: false)
+            markReadGap()
+            isDiscardingLine = !completesLine
+            return
+        }
+
+        partialLineData.append(contentsOf: fragment)
+        guard completesLine else { return }
+        let keepsCapacity = partialLineData.count <= Self.retainedLineCapacityByteLimit
+        defer { partialLineData.removeAll(keepingCapacity: keepsCapacity) }
+
+        let decoded = JSONLines.decodeWithFailures(CodexRolloutLineEnvelope.self, from: partialLineData)
+        if decoded.failedLineCount > 0 {
+            markReadGap()
+        }
+        for envelope in decoded.values {
+            apply(envelope)
+        }
+    }
+
+    private static let retainedLineCapacityByteLimit = 512 * 1024
 
     /// 损坏可能遮住 turn 边界, 只保留已明确结束的事实, 后续新 turn 独立建立覆盖
     mutating func markReadGap() {
@@ -496,6 +554,7 @@ nonisolated struct CodexSessionTaskLifecycleState {
     var rootSessionId: String?
     var parentThreadId: String?
     var lastExecutionProgressAt: Date?
+    var incompleteTailUnchangedSince: Date?
 }
 
 nonisolated enum CodexSessionReadStatus {

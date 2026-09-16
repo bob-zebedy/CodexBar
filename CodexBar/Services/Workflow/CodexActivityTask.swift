@@ -121,6 +121,8 @@ struct CodexActivityTask {
     let key: CodexActivityTaskKey
     var associatedTurnId: String?
     var lifecycleCoverageCheckedAt: Date?
+    var incompleteTailCheckedAt: Date?
+    var incompleteTailUnchangedSince: Date?
     var state: CodexActivityTaskState
     var latestEvent: CodexActivityEvent
     var projectName: String?
@@ -222,6 +224,27 @@ struct CodexActivityTask {
 
     func hasFreshLifecycle(at now: Date) -> Bool {
         lifecycleCoverageCheckedAt.map { now.timeIntervalSince($0) < 5 } == true
+    }
+
+    mutating func recordLifecycleRead(_ state: CodexSessionTaskLifecycleState, at now: Date) {
+        lifecycleCoverageCheckedAt = state.readStatus == .complete && state.hasContext ? now : nil
+        incompleteTailUnchangedSince = state.readStatus == .incomplete && state.hasContext ? state.incompleteTailUnchangedSince : nil
+        incompleteTailCheckedAt = incompleteTailUnchangedSince == nil ? nil : now
+    }
+
+    /// 阈值调整与隐藏共用计时起点, 恢复不要求读取结果仍在有效期内
+    var activityProtectionReferenceAt: Date {
+        max(lastProgressAt, incompleteTailUnchangedSince ?? lastProgressAt)
+    }
+
+    /// 隐藏还要求新鲜的读取依据, 半行观察不作为完整覆盖或任务进展
+    func activityProtectionDeadline(at now: Date, inactivityDuration: TimeInterval) -> Date? {
+        if hasFreshLifecycle(at: now) {
+            return activityProtectionReferenceAt.addingTimeInterval(inactivityDuration)
+        }
+        guard let incompleteTailCheckedAt, now.timeIntervalSince(incompleteTailCheckedAt) < 5,
+              incompleteTailUnchangedSince != nil else { return nil }
+        return activityProtectionReferenceAt.addingTimeInterval(inactivityDuration)
     }
 
     mutating func mergeMetadata(from event: WorkflowHookEvent) {

@@ -51,6 +51,165 @@ struct CodexActivityTaskTests {
         #expect(task.progressGeneration == 3)
     }
 
+    @Test func incompleteTailDeadlineAlsoWaitsForLatestHookProgressAndUsesCurrentThreshold() {
+        var task = makeTask()
+        let observed = TestFixtures.now
+        let checked = observed.addingTimeInterval(3600)
+        task.recordLifecycleRead(incompleteTail(since: observed), at: checked)
+        task.recordProgress(at: observed.addingTimeInterval(1800))
+        #expect(task.activityProtectionDeadline(at: checked, inactivityDuration: 3600) == observed.addingTimeInterval(5400))
+        #expect(task.activityProtectionDeadline(at: checked, inactivityDuration: 1800) == checked)
+        #expect(!task.hasFreshLifecycle(at: checked))
+        #expect(task.activityProtectionDeadline(at: checked.addingTimeInterval(5), inactivityDuration: 3600) == nil)
+    }
+
+    @Test(arguments: [CodexSessionReadStatus.incomplete, .unavailable, .notFound])
+    func losingTailEvidenceRevokesProtectionEligibility(status: CodexSessionReadStatus) {
+        var task = makeTask()
+        let now = TestFixtures.now.addingTimeInterval(3600)
+        task.recordLifecycleRead(incompleteTail(since: TestFixtures.now), at: now)
+        #expect(task.activityProtectionDeadline(at: now, inactivityDuration: 3600) == now)
+        var lost = incompleteTail(since: TestFixtures.now)
+        lost.readStatus = status
+        lost.incompleteTailUnchangedSince = nil
+        task.recordLifecycleRead(lost, at: now)
+        #expect(task.activityProtectionDeadline(at: now, inactivityDuration: 3600) == nil)
+        #expect(task.incompleteTailCheckedAt == nil)
+    }
+
+    @Test func incompleteTailCannotResumeApprovalButCompleteProgressCan() {
+        var task = makeTask()
+        _ = task.recordApprovalRequest(from: TestFixtures.event(.permissionRequest))
+        let now = TestFixtures.now.addingTimeInterval(3600)
+        var state = incompleteTail(since: TestFixtures.now)
+        state.lastExecutionProgressAt = now
+        let owner = CodexActivityExecutionKey(agentId: nil, turnId: "turn-a")
+        task.recordLifecycleRead(state, at: now)
+        task.mergeExecutionLifecycle(state, owner: owner)
+        #expect(task.state == .waitingApproval)
+        #expect(!task.hasFreshLifecycle(at: now))
+
+        state.readStatus = .complete
+        state.incompleteTailUnchangedSince = nil
+        task.recordLifecycleRead(state, at: now)
+        task.mergeExecutionLifecycle(state, owner: owner)
+        #expect(task.hasFreshLifecycle(at: now))
+        #expect(task.incompleteTailCheckedAt == nil)
+        #expect(task.state == .running)
+    }
+
+    private func incompleteTail(since date: Date) -> CodexSessionTaskLifecycleState {
+        CodexSessionTaskLifecycleState(
+            sessionId: "session-a", turnId: "turn-a", startedAt: nil, approvalReviewer: nil, effort: nil,
+            lastProgressAt: nil, terminal: nil, readStatus: .incomplete, hasContext: true,
+            incompleteTailUnchangedSince: date
+        )
+    }
+
+    @Test(arguments: ["unchanged", "growth", "unavailable", "stale"])
+    func suppressionRevalidatesTailAfterNotification(scenario: String) throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = try makeProtectionMonitor(in: directory, preferences: preferences)
+        defer { monitor.stop() }
+        let now = Date()
+        var task = makeTask(TestFixtures.event(at: now.addingTimeInterval(-7200)))
+        task.recordLifecycleRead(incompleteTail(since: now.addingTimeInterval(-3601)), at: now)
+        monitor.tasks[task.key] = task
+        let candidate = ActivityProtectionCandidate(
+            key: task.key, taskID: task.displayID, projectName: task.projectName,
+            lastProgressAt: task.lastProgressAt, progressGeneration: task.progressGeneration, inactivityDuration: .oneHour
+        )
+        #expect(monitor.isActivityProtectionCandidateRelevant(candidate, now: now))
+
+        switch scenario {
+        case "growth": task.recordLifecycleRead(incompleteTail(since: now), at: now)
+        case "unavailable":
+            var state = incompleteTail(since: now)
+            state.readStatus = .unavailable
+            task.recordLifecycleRead(state, at: now)
+        case "stale": task.incompleteTailCheckedAt = now.addingTimeInterval(-5)
+        default: break
+        }
+        monitor.tasks[task.key] = task
+        let attemptID = UUID()
+        monitor.activityProtectionAttempts[task.key] = ActivityProtectionAttempt(
+            id: attemptID, candidate: candidate, markedAt: now, timeoutTask: Task {}
+        )
+        monitor.finishActivityProtectionAttempt(task.key, attemptID: attemptID, taskID: task.displayID, notificationWasSubmitted: false)
+        #expect(monitor.tasks[task.key]?.state == (scenario == "unchanged" ? .suppressed : .running))
+        #expect(monitor.activityProtectionAttempts.isEmpty)
+    }
+
+    @Test(arguments: [false, true], [ActivityProtectionSettings.InactivityDuration.thirtyMinutes, .oneHour])
+    func longerThresholdRestoresTailSuppressionAndUsesNewDeadline(
+        expiredObservation: Bool, previousDuration: ActivityProtectionSettings.InactivityDuration
+    ) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = try makeProtectionMonitor(in: directory, preferences: preferences)
+        defer { monitor.stop() }
+        let changedAt = Date()
+        let hiddenAfter: TimeInterval = previousDuration == .thirtyMinutes ? 3000 : 3600
+        let newDuration: ActivityProtectionSettings.InactivityDuration = previousDuration == .thirtyMinutes ? .oneHour : .twoHours
+        let tailStoppedAt = changedAt.addingTimeInterval(-hiddenAfter - 300)
+        let hiddenAt = tailStoppedAt.addingTimeInterval(hiddenAfter)
+        let newDeadline = tailStoppedAt.addingTimeInterval(newDuration.timeInterval)
+        var task = makeTask(TestFixtures.event(at: tailStoppedAt.addingTimeInterval(-3600)))
+        let key = task.key
+        let identifier = try #require(key.activityProtectionIdentifier)
+        task.recordLifecycleRead(incompleteTail(since: tailStoppedAt), at: hiddenAt)
+        monitor.tasks[key] = task
+        monitor.activityProtectionSettings.setInactivityDuration(previousDuration)
+        monitor.reconcileActivityProtection(now: hiddenAt, sendsNotification: false)
+        #expect(monitor.tasks[key]?.state == .suppressed)
+        #expect(monitor.activityProtectionRecords[identifier] != nil)
+
+        let checkedAt = expiredObservation ? changedAt.addingTimeInterval(-5) : changedAt
+        monitor.tasks[key]?.recordLifecycleRead(incompleteTail(since: tailStoppedAt), at: checkedAt)
+        monitor.activityProtectionSettings.setInactivityDuration(newDuration)
+        monitor.handleActivityProtectionTimingChange()
+        #expect(monitor.tasks[key]?.state == .running)
+        #expect(monitor.activityProtectionRecords[identifier] == nil)
+        #expect(monitor.tasks[key]?.lastProgressAt == task.lastProgressAt)
+        #expect(monitor.tasks[key]?.hasFreshLifecycle(at: changedAt) == false)
+
+        monitor.reconcileActivityProtection(now: newDeadline, sendsNotification: false)
+        #expect(monitor.tasks[key]?.state == .running)
+        monitor.tasks[key]?.recordLifecycleRead(incompleteTail(since: tailStoppedAt), at: newDeadline.addingTimeInterval(-1))
+        monitor.reconcileActivityProtection(now: newDeadline.addingTimeInterval(-1), sendsNotification: false)
+        #expect(monitor.tasks[key]?.state == .running)
+        monitor.reconcileActivityProtection(now: newDeadline, sendsNotification: false)
+        #expect(monitor.tasks[key]?.state == .suppressed)
+        #expect(monitor.activityProtectionRecords[identifier] != nil)
+        monitor.cancelInactivityCheck()
+        await monitor.activityProtectionPersistenceTask?.value
+    }
+
+    private func makeProtectionMonitor(in directory: TestDirectory, preferences: TestPreferences) throws -> CodexActivityMonitor {
+        let monitor = try CodexActivityMonitor(
+            codexHookSettings: CodexHookSettings(
+                hooksURL: directory.url.appendingPathComponent("hooks.json"),
+                codexStatusService: makeStatusService(suiteName: preferences.suite)
+            ),
+            activityProtectionSettings: ActivityProtectionSettings(defaults: preferences.defaults),
+            activityProtectionStateStore: ActivityProtectionStateStore(directoryURL: directory.url)
+        )
+        monitor.isStarted = true
+        monitor.isActivityProtectionEnabled = true
+        monitor.isActivitySourceHealthy = true
+        monitor.tailReader = HookEventTailReader(eventsDirectoryURL: directory.url) { _ in }
+        return monitor
+    }
+
+    private nonisolated func makeStatusService(suiteName: String) throws -> CodexStatusService {
+        try CodexStatusService(defaults: #require(UserDefaults(suiteName: suiteName)))
+    }
+
     @Test func subagentCountDeduplicatesAndRejectsOlderEvents() {
         var task = makeTask()
         #expect(task.snapshot.activeSubagentCount == 0)
