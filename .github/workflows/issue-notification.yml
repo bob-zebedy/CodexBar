@@ -16,8 +16,8 @@ jobs:
         timeout-minutes: 2
         env:
             BARK_TOKEN: ${{ secrets.BARK_TOKEN }}
-            BARK_ICON_URL: https://bucket.zabrian.com/codexbar/icon.png
-            BARK_SERVER_URL: https://bark.zebedy.com
+            BARK_ICON_URL: ${{ secrets.BARK_ICON_URL }}
+            BARK_SERVER_URL: ${{ secrets.BARK_SERVER_URL }}
             SELF_LOGIN: ${{ vars.SELF_LOGIN || github.repository_owner }}
         steps:
             - name: Build and send notification

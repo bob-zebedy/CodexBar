@@ -79,7 +79,7 @@ MOUNT_POINT=""
 
 cleanup() {
     if [[ -n "${MOUNT_POINT}" ]]; then
-        hdiutil detach "${MOUNT_POINT}" >/dev/null 2>&1 || true
+        diskutil eject "${MOUNT_POINT}" >/dev/null 2>&1 || true
     fi
 
     rm -rf "${STAGING_DIR}"
@@ -94,7 +94,15 @@ require_command() {
     fi
 }
 
-require_command hdiutil
+run_quietly() {
+    local output
+    if ! output="$("$@" 2>&1)"; then
+        printf '%s\n' "${output}" >&2
+        return 1
+    fi
+}
+
+require_command diskutil
 require_command osascript
 require_command ditto
 
@@ -105,20 +113,20 @@ echo "==> Preparing DMG contents"
 ditto "${APP_PATH}" "${STAGING_DIR}/${APP_NAME}.app"
 
 echo "==> Creating writable DMG"
-hdiutil create \
-    -volname "${VOLUME_NAME}" \
-    -srcfolder "${STAGING_DIR}" \
-    -ov \
-    -format UDRW \
-    "${RW_DMG}" >/dev/null
+run_quietly diskutil image create from \
+    --format RAW \
+    --volumeName "${VOLUME_NAME}" \
+    "${STAGING_DIR}" \
+    "${RW_DMG}"
 
 echo "==> Mounting writable DMG"
-ATTACH_OUTPUT="$(hdiutil attach -readwrite -noverify -noautoopen "${RW_DMG}")"
-MOUNT_POINT="$(printf '%s\n' "${ATTACH_OUTPUT}" | awk '/\/Volumes\// {print substr($0, index($0, "/Volumes/")); exit}')"
+MOUNT_POINT="${STAGING_DIR}/mount"
+run_quietly diskutil image attach \
+    --mountPoint "${MOUNT_POINT}" \
+    "${RW_DMG}"
 
 if [[ -z "${MOUNT_POINT}" || ! -d "${MOUNT_POINT}" ]]; then
     echo "error: 挂载 DMG 失败" >&2
-    printf '%s\n' "${ATTACH_OUTPUT}" >&2
     exit 1
 fi
 
@@ -161,16 +169,14 @@ else
 fi
 
 sync
-hdiutil detach "${MOUNT_POINT}" >/dev/null
+run_quietly diskutil eject "${MOUNT_POINT}"
 MOUNT_POINT=""
 
 echo "==> Creating compressed DMG"
-hdiutil convert \
+run_quietly diskutil image create from \
+    --format UDZO \
     "${RW_DMG}" \
-    -format UDZO \
-    -imagekey zlib-level=9 \
-    -ov \
-    -o "${TEMP_OUTPUT_PATH}" >/dev/null
+    "${TEMP_OUTPUT_PATH}"
 
 mv -f "${TEMP_OUTPUT_PATH}" "${OUTPUT_PATH}"
 
