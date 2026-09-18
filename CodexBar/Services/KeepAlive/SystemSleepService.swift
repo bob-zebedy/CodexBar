@@ -5,15 +5,6 @@ import os
 
 @MainActor
 final class SystemSleepService {
-    struct Status: Equatable, Sendable {
-        let isLidClosed: Bool
-        let lidClosureCausesSleep: Bool
-
-        var shouldSleepForLidClosure: Bool {
-            isLidClosed && lidClosureCausesSleep
-        }
-    }
-
     /// 两条断言只差类型与名字, 持有和释放的规则完全一样
     /// 名称必须是 ASCII: 含中文时 pmset -g assertions 的 named 会显示成空串, 断言就失去了标识
     private struct Assertion {
@@ -154,57 +145,6 @@ final class SystemSleepService {
         }
     }
 
-    static func currentStatus() -> Status? {
-        let rootDomain = IOServiceGetMatchingService(
-            kIOMainPortDefault,
-            IOServiceMatching("IOPMrootDomain")
-        )
-        guard rootDomain != IO_OBJECT_NULL else {
-            return nil
-        }
-        defer {
-            IOObjectRelease(rootDomain)
-        }
-
-        guard let isLidClosed = booleanProperty("AppleClamshellState", of: rootDomain),
-              let lidClosureCausesSleep = booleanProperty(
-                  "AppleClamshellCausesSleep",
-                  of: rootDomain
-              ) else {
-            return nil
-        }
-        return Status(
-            isLidClosed: isLidClosed,
-            lidClosureCausesSleep: lidClosureCausesSleep
-        )
-    }
-
-    static func requestSystemSleep() -> IOReturn {
-        let connection = IOPMFindPowerManagement(mach_port_t(MACH_PORT_NULL))
-        guard connection != IO_OBJECT_NULL else {
-            return kIOReturnNotFound
-        }
-        defer {
-            IOServiceClose(connection)
-        }
-        return IOPMSleepSystem(connection)
-    }
-
     /// 节拍取得比系统能设的最短屏保等待时间 (1 分钟) 小
     private static let userActivityInterval = Duration.seconds(30)
-
-    private static func booleanProperty(
-        _ key: String,
-        of rootDomain: io_service_t
-    ) -> Bool? {
-        guard let value = IORegistryEntryCreateCFProperty(
-            rootDomain,
-            key as CFString,
-            kCFAllocatorDefault,
-            0
-        )?.takeRetainedValue() else {
-            return nil
-        }
-        return (value as? NSNumber)?.boolValue
-    }
 }

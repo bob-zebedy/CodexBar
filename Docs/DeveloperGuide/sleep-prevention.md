@@ -74,12 +74,11 @@ App 侧 assertion 会在 XPC 获取流程开始前建立。这样 helper 切换�
   -> 停止时长累计
   -> 提交低电量或时长上限通知
   -> 释放 App idle assertion
-  -> 必要时补发合盖睡眠
 ```
 
 低电量和时长上限通知仅在 helper 回复来源为 `.codexBar` 且 `SleepDisabled=0` 后提交。
 
-App idle assertion 保留到通知提交结束，避免系统在提交前睡下。随后释放 assertion 并按需执行合盖睡眠补偿。
+App idle assertion 保留到通知提交结束，避免系统在提交前进入空闲睡眠。随后释放 assertion，由 macOS 按系统电源策略决定睡眠时机。
 
 ## 不确定的租约状态
 
@@ -375,17 +374,11 @@ helper 会分别检查 lease、ownership 记录和实测 `SleepDisabled`
 
 assertion 名称使用 ASCII。某些系统版本中带中文的名称会在 `pmset -g assertions` 中显示为空，使诊断信息失去标识。
 
-## 合盖恢复的边沿补偿
+## 恢复系统电源管理
 
-合盖睡眠是一个边沿事件。如果合盖时 `SleepDisabled=1`，系统错过该边沿后不会仅因为稍后恢复为 `0` 就再次自动评估。
+任务结束、关闭功能、低电量或达到时长上限时，CodexBar 释放租约和 App assertion。Helper 仅在持有恢复责任且无其他租约时恢复系统睡眠设置，外部来源的设置保持原样。
 
-CodexBar 在确认自己拥有的系统设置已恢复后读取 clamshell 状态。当盖子仍闭合且该硬件模式应因合盖睡眠时，主动请求一次系统睡眠。
-
-补偿只用于 `.codexBar` 来源：
-
-- external 状态不是 CodexBar 改写的，不能替外部所有者决定何时睡眠
-- `SleepDisabled` 仍为 `1` 时不能请求
-- 无法读取合盖状态时不猜测
+解除防睡眠不主动请求系统睡眠。合盖和外接显示器场景均由 macOS 按系统电源策略决定是否睡眠，任务结束不保证立即进入睡眠。
 
 ## 失败与重试策略
 
@@ -422,6 +415,10 @@ App 更新可能改变内嵌 CodexBarHelper 的签名或内容。App 会记录 C
 ## 手动验证
 
 - 运行任务开始和结束时，App assertion 与 CodexBarHelper 租约同步切换
+- 合盖、接电并使用外接显示器时，任务结束仅解除保活，不主动熄屏或锁屏
+- 开盖时，任务结束后恢复系统设定的闲置睡眠
+- 无外接显示器且合盖运行任务时，记录任务结束后系统实际进入睡眠的时机
+- 关闭防睡眠、低电量和时长上限触发时，租约与 assertion 正确释放且不发起软件睡眠
 - 等待批准设置关闭和开启时，有效任务判断正确
 - 外部先设置 `disablesleep 1` 时，CodexBar 不声明所有权也不恢复为 `0`
 - App 正常退出时恢复 owned 状态

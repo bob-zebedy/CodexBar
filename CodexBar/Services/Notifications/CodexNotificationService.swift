@@ -472,7 +472,7 @@ final class CodexNotificationService: NSObject {
 
     /// 由 KeepAliveController 在低电量导致睡眠恢复成功之后调用, 恢复失败不会走到这里
     /// 不做去重: 调用方自己保证同一轮低电量只发一次, 电量回到解除门槛以上才算下一轮
-    /// async 是为了让调用方能等提交完再补发睡眠, 否则合着盖的机器会先睡下去
+    /// 调用方在提交完成前保留空闲断言, 避免系统先进入空闲睡眠
     /// 返回是否真的发出去了: 调用方据此决定这一轮算不算已通知, 提交失败就不该占掉这一轮
     func notifyLowBatteryProtection(percent: Int) async -> Bool {
         guard settings.canDeliver, settings.isLowBatteryEnabled else {
@@ -488,7 +488,7 @@ final class CodexNotificationService: NSObject {
     // MARK: - 防睡眠时长上限
 
     /// 由 KeepAliveController 在达到时长上限且睡眠恢复成功之后调用
-    /// 调用时机与低电量通知相同, 必须赶在可能补发合盖睡眠之前完成提交
+    /// 调用方在提交完成前保留空闲断言, 与低电量通知一致
     func notifyKeepAliveLimitReached(durationText: String) async -> Bool {
         guard settings.canDeliver, settings.isKeepAliveLimitEnabled else {
             return false

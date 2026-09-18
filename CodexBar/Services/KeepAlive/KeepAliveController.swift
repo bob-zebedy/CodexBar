@@ -72,8 +72,7 @@ final class KeepAliveController: ObservableObject {
 
     /// 低电量导致睡眠恢复之后回调一次, 参数是触及阈值时的电量; 由 AppDelegate 接到通知服务
     /// 用事件回调而不是 @Published: 触发是一次性动作, 电量回升到解除门槛以上后再次跌破要能重新发一次
-    /// async 是为了让补发睡眠等到通知真的提交完: 同步回调只把提交排进下一个 MainActor job,
-    /// 而 IOPMSleepSystem 就在当前这个 job 里, 机器会先睡下去
+    /// 通知提交完成前保留空闲断言, 避免恢复系统策略后先进入空闲睡眠
     /// 返回值是通知有没有真的发出去, 决定这一轮算不算已通知
     var onLowBatteryTriggered: ((Int) async -> Bool)?
 
@@ -1032,13 +1031,10 @@ final class KeepAliveController: ObservableObject {
         generation: UInt64,
         isObservation: Bool
     ) {
-        let lidStatus = SystemSleepService.currentStatus()
-        let lidCausesSleep = lidStatus.map { $0.lidClosureCausesSleep ? "1" : "0" } ?? "unknown"
         if !isObservation || source != previousSource {
             let details = LogFields.joined(
                 "generation=\(generation)",
-                "source=\(String(describing: source))",
-                "lidCausesSleep=\(lidCausesSleep)"
+                "source=\(String(describing: source))"
             )
             AppLog.keepAlive.notice("已防止系统睡眠: \(details, privacy: .public)")
         }
@@ -1089,33 +1085,6 @@ final class KeepAliveController: ObservableObject {
         }
 
         AppLog.keepAlive.notice("系统睡眠已恢复: sleepDisabled=\(sleepDisabled)")
-
-        let lidStatus = SystemSleepService.currentStatus()
-        let shouldRequestSystemSleep = !sleepDisabledAfterOperation
-            && lidStatus?.shouldSleepForLidClosure == true
-
-        // 合盖是边沿事件, 错过那一刻系统不会再评估
-        // 只有 CodexBar 自己挡过并恢复为 0 才补发, 外部来源不属于我们的合盖边沿
-        guard shouldRequestSystemSleep else {
-            let reason: String = if sleepDisabledAfterOperation {
-                "stillDisabled"
-            } else if let lidStatus {
-                lidStatus.isLidClosed ? "clamshellMode" : "lidOpen"
-            } else {
-                "unknown"
-            }
-            AppLog.keepAlive.notice(
-                "睡眠补发已跳过: reason=\(reason, privacy: .public)"
-            )
-            return
-        }
-
-        AppLog.keepAlive.notice("睡眠补发已请求")
-        let result = SystemSleepService.requestSystemSleep()
-        if result != kIOReturnSuccess {
-            AppLog.keepAlive.error("睡眠补发失败: code=\(result)")
-            operationErrorMessage = KeepAliveLocalizedMessage.requestSystemSleepFailed
-        }
     }
 
     private func completePendingRequest(success: Bool) {

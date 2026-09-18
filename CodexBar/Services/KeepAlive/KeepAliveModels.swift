@@ -162,7 +162,6 @@ nonisolated enum KeepAliveLocalizedMessage {
     static let preventIdleSleepFailed = String(localized: "keep-alive.error.prevent-idle-sleep-failed")
     static let toggleSleepFailed = String(localized: "keep-alive.error.toggle-sleep-failed")
     static let restoreIdleSleepFailed = String(localized: "keep-alive.error.restore-idle-sleep-failed")
-    static let requestSystemSleepFailed = String(localized: "keep-alive.error.request-system-sleep-failed")
     static let connectionFailed = String(localized: "keep-alive.error.connection-failed")
     static let noResponse = String(localized: "keep-alive.error.no-response")
     static let retryLimitReached = String(localized: "keep-alive.error.retry-limit-reached")

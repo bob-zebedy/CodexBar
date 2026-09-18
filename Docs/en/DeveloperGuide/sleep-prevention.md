@@ -74,12 +74,11 @@ Conditions block activation
   -> Stop duration accumulation
   -> Submit low-battery or duration-limit notification
   -> Release app idle assertion
-  -> Compensate for lid-close sleep if needed
 ```
 
 Low-battery and duration-limit notices are submitted only when the helper replies with source `.codexBar` and `SleepDisabled=0`.
 
-The app retains its idle assertion until notification submission finishes so the system does not sleep before submission. It then releases the assertion and applies lid-close sleep compensation if needed.
+The app retains its idle assertion until notification submission finishes to prevent idle sleep before submission. It then releases the assertion, leaving sleep timing to macOS power management.
 
 ## Uncertain Lease State
 
@@ -375,17 +374,11 @@ A failed display assertion records its own error without overriding primary slee
 
 Assertion names use ASCII. On some system versions, Chinese names appear empty in `pmset -g assertions` and lose diagnostic identity.
 
-## Lid-Close Edge Compensation
+## Restoring System Power Management
 
-Lid-close sleep is an edge event. If `SleepDisabled=1` at lid close, later restoring it to `0` does not necessarily make the system reevaluate the missed edge.
+When tasks finish, the feature is disabled, the battery runs low, or the duration limit is reached, CodexBar releases its lease and app assertions. The helper restores system sleep settings only when it has restoration responsibility and no other leases remain. Settings owned by external sources remain unchanged.
 
-After confirming restoration of CodexBar-owned state, CodexBar reads clamshell state. If the lid remains closed and that hardware mode should sleep on close, it explicitly requests system sleep once.
-
-Compensation applies only to `.codexBar` source:
-
-- External state was not changed by CodexBar, so it cannot decide sleep timing for its owner
-- It must not request sleep while `SleepDisabled` remains `1`
-- It does not guess when clamshell state is unreadable
+Releasing sleep prevention does not explicitly request system sleep. macOS decides whether to sleep according to system power policy, including when the lid is closed or external displays are connected. Task completion does not guarantee immediate sleep.
 
 ## Failure and Retry
 
@@ -422,6 +415,10 @@ Validation must cover:
 ## Manual Validation Matrix
 
 - App assertion and CodexBarHelper lease switch together when a running task starts and ends
+- With the lid closed, AC power connected, and external displays in use, task completion releases sleep prevention without explicitly sleeping the displays or locking the screen
+- With the lid open, task completion restores the configured system idle-sleep policy
+- With the lid closed and no external displays, record when the system actually sleeps after task completion
+- Disabling sleep prevention, low battery, and the duration limit release leases and assertions without requesting software sleep
 - Eligible-task decisions are correct with Keep Awake While Waiting off and on
 - If an external source sets `disablesleep 1` first, CodexBar neither claims ownership nor restores `0`
 - Normal app exit restores owned state

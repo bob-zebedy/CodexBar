@@ -33,13 +33,14 @@ final class HelperRuntimeStatusMonitor {
         case cancelled
     }
 
-    private(set) var isRequestInFlight = false
+    var isRequestInFlight: Bool {
+        requestContinuation != nil
+    }
 
     private var requestGeneration: UInt64 = 0
     private var requestContinuation: CheckedContinuation<RequestResult, Never>?
     private var requestTimeoutTask: Task<Void, Never>?
     private var observationTask: Task<Void, Never>?
-    private var observationToken: UUID?
 
     func fetch(
         connection: NSXPCConnection,
@@ -143,9 +144,7 @@ final class HelperRuntimeStatusMonitor {
             return
         }
 
-        let token = UUID()
-        observationToken = token
-        observationTask = Task { @MainActor [weak self] in
+        observationTask = Task { @MainActor in
             while !Task.isCancelled {
                 try? await Task.sleep(for: interval)
                 guard !Task.isCancelled else {
@@ -153,18 +152,12 @@ final class HelperRuntimeStatusMonitor {
                 }
                 await action()
             }
-            guard let self, observationToken == token else {
-                return
-            }
-            observationTask = nil
-            observationToken = nil
         }
     }
 
     func cancelObservation() {
         observationTask?.cancel()
         observationTask = nil
-        observationToken = nil
     }
 
     func cancelRequest() {
@@ -185,7 +178,6 @@ final class HelperRuntimeStatusMonitor {
         }
 
         return await withCheckedContinuation { continuation in
-            isRequestInFlight = true
             requestGeneration &+= 1
             let generation = requestGeneration
             requestContinuation = continuation
@@ -277,16 +269,14 @@ final class HelperRuntimeStatusMonitor {
     }
 
     private func finishRequest(_ result: RequestResult, generation: UInt64) {
-        guard generation == requestGeneration, isRequestInFlight else {
+        guard generation == requestGeneration, let continuation = requestContinuation else {
             return
         }
 
         requestTimeoutTask?.cancel()
         requestTimeoutTask = nil
-        isRequestInFlight = false
-        let continuation = requestContinuation
         requestContinuation = nil
-        continuation?.resume(returning: result)
+        continuation.resume(returning: result)
     }
 
     private enum RequestResult {

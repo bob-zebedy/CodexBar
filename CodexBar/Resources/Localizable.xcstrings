@@ -156,7 +156,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "长时间没有进展时隐藏任务并停止参与防睡眠"
+            "value" : "任务长时间没有进展时隐藏并停止参与防睡眠"
           }
         }
       }
@@ -2365,22 +2365,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "注册服务失败"
-          }
-        }
-      }
-    },
-    "keep-alive.error.request-system-sleep-failed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Could not request system sleep"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "请求系统睡眠失败"
           }
         }
       }

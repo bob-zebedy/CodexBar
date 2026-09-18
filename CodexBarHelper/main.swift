@@ -743,7 +743,7 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
         }
 
         guard ownership.needsRestore else {
-            // 未取得所有权时不写 pmset, 保留最近一次实测值供 App 判断是否需要补发系统睡眠
+            // 未取得所有权时不写 pmset, 返回最近一次实测值
             return SleepOperationResult(
                 exitCode: 0,
                 source: source,

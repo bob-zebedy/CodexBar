@@ -180,7 +180,7 @@ app-server 连接重建后，同一窗口的 `resetsAt` 可能出现秒级修正
 
 低电量或最长时长导致防睡眠停止时，`KeepAliveController` 先撤销 CodexBarHelper 租约。只有回复确认来源为 `.codexBar` 且 `SleepDisabled=0` 时，才提交对应通知；其他结果会清除本轮待发通知。
 
-App idle assertion 保留到通知提交结束，随后释放，并按需补发合盖睡眠。
+App idle assertion 保留到通知提交结束，随后释放，由 macOS 按系统电源策略决定睡眠时机。
 
 ## 声音
 
