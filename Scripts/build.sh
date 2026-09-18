@@ -1312,4 +1312,3 @@ validate_final_app "${OUTPUT_APP_PATH}"
 clean_intermediate_build_artifacts
 
 echo "==> Built ${OUTPUT_APP_PATH}"
-echo "==> Next: Scripts/dmg.sh \"${OUTPUT_APP_PATH}\""

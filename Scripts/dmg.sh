@@ -58,9 +58,19 @@ VERSION="$(
       }
     ' "${VERSION_CONFIG}" 2>/dev/null || true
 )"
+BUILD="$(
+    awk -F= '
+      $1 ~ /^[[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*$/ {
+        value = $2
+        gsub(/^[[:space:]]+|[[:space:];]+$/, "", value)
+        print value
+        exit
+      }
+    ' "${VERSION_CONFIG}" 2>/dev/null || true
+)"
 
-if [[ -z "${VERSION}" ]]; then
-    echo "error: 无法从 Config/Version.xcconfig 读取 MARKETING_VERSION" >&2
+if [[ -z "${VERSION}" || -z "${BUILD}" ]]; then
+    echo "error: 无法从 Config/Version.xcconfig 读取 MARKETING_VERSION 或 CURRENT_PROJECT_VERSION" >&2
     exit 1
 fi
 
@@ -181,4 +191,6 @@ run_quietly diskutil image create from \
 mv -f "${TEMP_OUTPUT_PATH}" "${OUTPUT_PATH}"
 
 echo "==> Created ${OUTPUT_PATH}"
-echo "==> Update appcast with: Scripts/appcast.sh \"${OUTPUT_PATH}\""
+CHECKSUM="$(shasum -a 256 "${OUTPUT_PATH}" | awk '{print $1}')"
+echo "    Version: ${VERSION} (${BUILD})"
+echo "    SHA-256: ${CHECKSUM}"
