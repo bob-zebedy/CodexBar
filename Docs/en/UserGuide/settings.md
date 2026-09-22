@@ -24,18 +24,20 @@ Disabling Hook hides Tasks; switching Hook from off to on shows Tasks automatica
 
 ### Glow Effect
 
-Shows task status along the top of each display. CodexBar Hook must be enabled and verified. The switch is off by default and independent of the main panel's Animation Effects setting.
+Shows task status along the top of each display. CodexBar Hook must be enabled and verified. The switch is off by default and independent of the main panel's Animation Effects setting. Once enabled, click the options button to adjust status colors, animation speed, brightness, and end duration.
 
-Turning it on plays one cyan round-trip preview, then shows actual task status. Turning it off quickly retracts the glow to the screen center and fades it out. Repeated toggles during preview playback or dismissal do not replay it; turning it on after dismissal finishes can start another preview.
+Turning it on plays one round-trip preview using the current running color, speed, and brightness, then shows actual task status. Turning it off quickly retracts the glow to the screen center and fades it out. Repeated toggles during preview playback or dismissal do not replay it; turning it on after dismissal finishes can start another preview.
 
-| Color | Meaning |
+| Default color | Meaning |
 | --- | --- |
 | Cyan moving glow | Tasks are running |
 | Orange pulsing glow | Waiting for approval; takes priority over running |
 | Green | Task completed |
 | Red | Task terminated, including interruptions |
 
-When a task ends while others remain active, its completion or termination appears for 3 seconds before returning to the current task state. Once all tasks end, the latest ending is shown until 10 seconds after its end time.
+Colors use six-digit Display P3 hexadecimal values. Letters are converted to uppercase, and empty fields show the default color as a placeholder. Invalid colors have a red border and revert to the default on Return, focus loss, or panel dismissal. Animation Speed offers Slower, Standard, and Faster, with Standard as the default. Brightness ranges from 20% to 100%, defaulting to 100%.
+
+When a task ends while others remain active, its completion or termination appears for 3 seconds before returning to the current task state. Once all tasks end, the latest ending is shown for the selected End Duration, measured from its end time. Choices are 3, 5, 10, 15, 30, or 60 seconds; the default is 10 seconds.
 
 The glow is hidden while Hook is unavailable, preserving your switch preference. System sleep, display sleep, or an inactive user session also hides it. On return, it shows the current state without replaying expired terminal indicators.
 

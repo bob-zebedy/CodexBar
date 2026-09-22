@@ -51,17 +51,17 @@ Shutdown reverses the order, except for helper-owned system state. AppDelegate f
 
 | Scenario | Presentation rule |
 | --- | --- |
-| Active tasks exist | Orange approval waiting takes priority over cyan running |
+| Active tasks exist | Approval waiting takes priority over running |
 | A task ending is confirmed while others remain active | The latest event overrides activity for 3 seconds, fading during the final 0.5 seconds; a new event replaces it and restarts the timer |
-| No active tasks | The snapshot's latest terminal state remains until 10 seconds after its end time, fading during the final second |
+| No active tasks | The snapshot's latest terminal state uses the configured end duration, defaulting to 10 seconds after its end time, fading during the final second |
 
-Completion is green and termination is red, with termination taking priority on equal end times. Durations include entrance animations. The latest snapshot determines the state after expiration.
+`TaskGlowSettings.appearance` supplies colors, speed, brightness, and end duration. The default colors are cyan for running, orange for approval waiting, green for completion, and red for termination. Termination takes priority on equal end times. Durations include entrance animations. The latest snapshot determines the state after expiration.
 
-Switching the setting from off to on while Hook is available sends a `TaskGlowSettings.previewRequests` event for one cyan running preview. After one 2.7-second round trip, presentation returns to the actual state. Startup and settings refresh restore the switch value without requesting a preview. Real task updates continue during the preview, which produces no task events.
+Switching the setting from off to on while Hook is available sends a `TaskGlowSettings.previewRequests` event for one running preview using the current appearance settings. After one round trip, presentation returns to the actual state; the cycle lasts 2.7 seconds at Standard speed. Startup and settings refresh restore the switch value without requesting a preview. Real task updates continue during the preview, which produces no task events.
 
 New preview requests are ignored during playback and dismissal. Turning the switch off uses the glow's existing dismissal path to retract quickly to the center and fade out. Preview occupancy clears once every display finishes dismissal. Hook unavailability, system sleep, display sleep, or an inactive session cancels the preview.
 
-The glow uses nonactivating, mouse-transparent `NSPanel` windows across Spaces and full-screen apps. System sleep, display sleep, or an inactive user session removes the windows. On return, valid state resumes according to the current time. Screen configuration changes rebuild the windows; all displays share a motion clock.
+The glow uses nonactivating, mouse-transparent `NSPanel` windows across Spaces and full-screen apps. System sleep, display sleep, or an inactive user session removes the windows. On return, valid state resumes according to the current time. Screen configuration changes rebuild the windows; all displays share a motion clock. The clock calculates the cycle from segment durations and speed, preserving progress when speed changes.
 
 ## Status Bar Icon
 
@@ -222,15 +222,16 @@ The Settings window sizes to the current tab, keeps its top edge fixed, and stay
 
 SwiftUI may report height before window creation finishes. `SettingsWindowController` caches the latest valid measurement and applies it once `HostingWindowController.window` is ready.
 
-Secondary panels for main-panel layout, notifications, Automatic Reset, and sleep prevention are created on first use, then reuse their content and required height subscriptions.
+Secondary panels for main-panel layout, task glow, notifications, Automatic Reset, and sleep prevention are created on first use, then reuse their content and required height subscriptions.
 
-These four settings child panels contain interactive controls, so they use a keyable `KeyableBorderlessPanel`. The main panel's Heatmap, Reset Credits, and Task Center details use a nonactivating `NonactivatingSidePanel`. When a settings child panel closes, `SidePanelSupport.orderOut` restores focus to its parent only if that child panel is still the key window. If focus has already moved intentionally to the main panel or another window, it must not be taken back, or the newly opened interaction surface may close immediately after losing focus.
+These settings child panels use a keyable `KeyableBorderlessPanel`. Opening a panel preserves focus in the Settings window; clicking a text field begins editing. Closing a panel ends native editing, and the color field validates and synchronizes its display in the end-editing callback. The main panel's Heatmap, Reset Credits, and Task Center details use a nonactivating `NonactivatingSidePanel`. When a settings child panel closes, `SidePanelSupport.orderOut` restores focus to its parent only if that child panel is still the key window. If focus has moved to another window, parent focus is not restored.
 
 When Automatic Reset or Prevent System Sleep changes from off to on, `AppSettingsView` presents a shared confirmation through `HelperFeatureConfirmation`. It combines guidance from `KeepAliveController.HelperStatus` with the feature description and writes enabled state only after user confirmation. An enabled settings row in `.requiresApproval` shows `Open System Settings`.
 
 Each secondary-settings entry uses its own availability decision:
 
 - Main Panel Layout is always available
+- Task Glow requires `TaskGlowSettings.isEnabled` and Hook's `isOperable` to be `true`, with no Hook update in progress
 - Notifications reads `NotificationSettings.canShowOptions`
 - Automatic Reset requires `AutoResetSettings.isEnabled` and `KeepAliveController.helperStatus == .enabled`
 - Sleep prevention reads `KeepAliveController.canShowOptions`
@@ -241,7 +242,7 @@ When a condition becomes false, Settings sends the corresponding `close` action 
 
 Layout sorting uses a custom `DragGesture` on the handle. A floating copy follows the pointer, other rows move when it crosses half a row, and releasing calls `setSectionOrder(_:)` once to persist the final order.
 
-`SettingsWindowController` owns the only `UndoManager` for this window group. The Settings window exposes it through `AuxiliaryHostingWindow`, and each of the four settings child panels obtains the same instance from its parent when shown. `Command-Z` and `Command-Shift-Z` therefore operate on one layout history while focus is in either the Settings window or any child panel. Automatic Task Center changes caused by Hook state do not enter the user's undo history.
+`SettingsWindowController` owns the only `UndoManager` for this window group. The Settings window exposes it through `AuxiliaryHostingWindow`, and each settings child panel obtains the same instance from its parent when shown. `Command-Z` and `Command-Shift-Z` therefore operate on one layout history while focus is in either the Settings window or any child panel. Automatic Task Center changes caused by Hook state do not enter the user's undo history.
 
 ### Proxy Configuration Dialog
 
@@ -305,8 +306,8 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 ## Manual Validation Matrix
 
 - Left-click opens the main panel; right-click and Control-click open the context menu
-- Enabling Task Glow plays one preview; disabling retracts and fades it out. Dismissal blocks replay, and enabling again after dismissal can preview again. Task changes during preview resume with the actual state
-- During concurrent running or approval waiting, completion and termination trigger a 3-second glow indicator; consecutive endings and the end of all tasks use the correct color and expiration
+- Enabling Task Glow plays one preview using the current color, speed, and brightness; disabling retracts and fades it out. Dismissal blocks replay, and enabling again after dismissal can preview again. Task changes during preview resume with the actual state
+- During concurrent running or approval waiting, completion and termination trigger a 3-second glow indicator; colors follow the settings, and the selected end duration applies once all tasks end
 - History reloads and wake reconciliation do not replay old terminal hints; subsequent real task endings still produce hints, and motion and expiry stay aligned across displays and screen configuration changes
 - Menu bar symbols follow task state; terminal feedback expires 10 seconds after the task ends and is recalculated on wake
 - Transitions between the plain person and all four task badges complete correctly, rapid changes settle on the latest state, and toggling quota visibility stays smooth with badges; initial presentation and wake reconciliation do not animate
@@ -321,7 +322,8 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 - Focus is correct when opening Settings for the first time, closing it, and reopening it
 - During refresh or reconnection in About, closing, minimizing, fully occluding Settings, or switching away from About stops the reconnect icon's continuous drawing or wiggle; showing it again resumes animation only if still busy, and losing focus while visible preserves normal behavior
 - On the first Settings open after a cold launch, General immediately uses its full content height; switching among all three tabs adapts the window height, with no scrollbar when screen space is sufficient
-- Main Panel Layout, Notification, Automatic Reset, and sleep-prevention child panels remain mutually exclusive, align their top edges with their setting rows, and resize correctly when content changes
+- Main Panel Layout, Task Glow, Notification, Automatic Reset, and sleep-prevention child panels remain mutually exclusive, align their top edges with their setting rows, and resize correctly when content changes
+- Opening the task-glow panel does not focus a color field automatically; the six-character limit, paste filtering, and uppercase conversion work; invalid colors revert to the default on Return, focus loss, and panel dismissal, with displayed and applied colors matching
 - With a settings child panel open, opening the main panel from the menu bar keeps the main panel open, closes the settings child panel, and does not steal focus back to Settings
 - While reordering the main panel, the floating row follows the pointer, other rows make room after the drag crosses half a row, and release settles smoothly while persisting only the final order; reordering and visibility changes can be undone step by step with `Command-Z` and redone with `Command-Shift-Z` while either the Settings window or any settings child panel has focus; the result persists across relaunches; the last visible section cannot be hidden; disabling Hook turns Task Center off and disables its switch without blocking drag, enables Account if Task Center was the only visible section; re-enabling Hook shows Task Center automatically, while a manual hide survives relaunch; automatic Hook changes do not enter user undo history
 - Opening Settings or Logs from the context menu does not lose focus

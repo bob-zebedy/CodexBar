@@ -5,6 +5,7 @@ import SwiftUI
 /// 设置窗口右侧的子选项面板, 同一时刻只展开一个
 enum SettingsOptionsPanel: CaseIterable, Hashable {
     case mainPanel
+    case taskGlow
     case notification
     case autoReset
     case keepAlive
@@ -56,9 +57,9 @@ final class SettingsOptionsPanelController {
     private var panel: NSPanel?
     private var hostingController: NSViewController?
     private var cancellables = Set<AnyCancellable>()
+    /// 展开时保留主设置窗口的键盘焦点, 用户点击输入框后再由面板接管
     private lazy var presenter = SidePanelDrawerPresenter(
         animationKey: animationKey,
-        makesKey: true,
         usesUntranslatedInitialLayout: true,
         contentViewProvider: { [weak self] in
             self?.hostingController?.view
@@ -122,6 +123,8 @@ final class SettingsOptionsPanelController {
         panelResizeTask?.cancel()
         panelResizeTask = nil
         isEntryAnimationRunning = false
+        // 原生输入框的焦点环不跟随内容层平移, 收起前结束编辑也避免下次展开恢复旧焦点
+        panel?.makeFirstResponder(panel)
         presenter.hide(immediate: immediate)
     }
 

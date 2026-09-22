@@ -255,7 +255,8 @@ private extension AppSettingsView {
                 LiquidGlassDivider()
                 TaskGlowSettingsRow(
                     settings: taskGlowSettings,
-                    codexHookSettings: codexHookSettings
+                    codexHookSettings: codexHookSettings,
+                    onOptionsAction: onOptionsAction
                 )
                 LiquidGlassDivider()
                 launchAtLoginRow

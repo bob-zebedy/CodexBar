@@ -193,6 +193,14 @@ final class SettingsWindowController: HostingWindowController {
         switch panel {
         case .mainPanel:
             makeMainPanelOptionsPanelController()
+        case .taskGlow:
+            SettingsOptionsPanelController(
+                animationKey: "CodexBar.taskGlowOptionsDrawerTransform",
+                initialPanelSize: TaskGlowOptionsView.initialPanelSize,
+                contentProvider: { [taskGlowSettings] in
+                    TaskGlowOptionsView(settings: taskGlowSettings)
+                }
+            )
         case .notification:
             SettingsOptionsPanelController(
                 animationKey: "CodexBar.notificationOptionsDrawerTransform",
