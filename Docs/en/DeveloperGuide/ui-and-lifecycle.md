@@ -57,9 +57,13 @@ Shutdown reverses the order, except for helper-owned system state. AppDelegate f
 
 `TaskGlowSettings.appearance` supplies colors, speed, brightness, and end duration. The default colors are cyan for running, orange for approval waiting, green for completion, and red for termination. Termination takes priority on equal end times. Durations include entrance animations. The latest snapshot determines the state after expiration.
 
-Switching the setting from off to on while Hook is available sends a `TaskGlowSettings.previewRequests` event for one running preview using the current appearance settings. After one round trip, presentation returns to the actual state; the cycle lasts 2.7 seconds at Standard speed. Startup and settings refresh restore the switch value without requesting a preview. Real task updates continue during the preview, which produces no task events.
+Switching the setting from off to on while Hook is available sends a `TaskGlowSettings.previewRequests` event for one running preview using the current appearance settings. After one round trip, presentation returns to the actual state; the cycle lasts 2.7 seconds at Standard speed. Startup and settings refresh restore the switch value without requesting a preview.
 
-New preview requests are ignored during playback and dismissal. Turning the switch off uses the glow's existing dismissal path to retract quickly to the center and fade out. Preview occupancy clears once every display finishes dismissal. Hook unavailability, system sleep, display sleep, or an inactive session cancels the preview.
+Double-clicking a color swatch in the settings panel requests a preview of that state: running makes one round trip, approval waiting expands and pulses twice, and completion and termination appear for 3 seconds with a fade during the final 0.5 seconds. Color previews can replace a playing preview; closing the settings child panel ends only color previews. Requests for the preview triggered by enabling the feature are ignored while a preview or window dismissal is in progress.
+
+Real task updates continue during previews, which produce no task events. Real terminal indicator timers pause, and presentation resumes from the latest snapshot: existing indicators retain their remaining time, while indicators for tasks that ended during the pause receive their full duration. Preview transitions share a start time across displays; retraction of the previous glow does not consume the target effect's display duration.
+
+Turning the switch off cancels the preview, retracts the glow quickly to the center, and fades it out. Windows are removed once every display finishes dismissal. Hook unavailability, system sleep, display sleep, or an inactive session cancels the preview; real terminal indicators expire according to wall time during sleep.
 
 The glow uses nonactivating, mouse-transparent `NSPanel` windows across Spaces and full-screen apps. System sleep, display sleep, or an inactive user session removes the windows. On return, valid state resumes according to the current time. Screen configuration changes rebuild the windows; all displays share a motion clock. The clock calculates the cycle from segment durations and speed, preserving progress when speed changes.
 
@@ -306,7 +310,7 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 ## Manual Validation Matrix
 
 - Left-click opens the main panel; right-click and Control-click open the context menu
-- Enabling Task Glow plays one preview using the current color, speed, and brightness; disabling retracts and fades it out. Dismissal blocks replay, and enabling again after dismissal can preview again. Task changes during preview resume with the actual state
+- Enabling Task Glow plays one preview using the current color, speed, and brightness; disabling retracts and fades it out. Dismissal blocks the enabling preview, and enabling again after dismissal can preview again. Repeated color-swatch double-clicks replace previews, and closing the child panel ends color previews. On return, existing terminal indicators retain their remaining time, and indicators for tasks that ended during the preview follow the latest state and receive their full duration
 - During concurrent running or approval waiting, completion and termination trigger a 3-second glow indicator; colors follow the settings, and the selected end duration applies once all tasks end
 - History reloads and wake reconciliation do not replay old terminal hints; subsequent real task endings still produce hints, and motion and expiry stay aligned across displays and screen configuration changes
 - Menu bar symbols follow task state; terminal feedback expires 10 seconds after the task ends and is recalculated on wake

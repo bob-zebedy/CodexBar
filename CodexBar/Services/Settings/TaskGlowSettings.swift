@@ -89,12 +89,12 @@ final class TaskGlowSettings: ObservableObject {
     nonisolated static let terminalDurationOptions: [TimeInterval] = [3, 5, 10, 15, 30, 60]
     static let brightnessRange = 0.2 ... 1.0
 
-    var previewRequests: AnyPublisher<Void, Never> {
+    var previewRequests: AnyPublisher<TaskGlowPreviewRequest, Never> {
         previewSubject.eraseToAnyPublisher()
     }
 
     private let defaults: UserDefaults
-    private let previewSubject = PassthroughSubject<Void, Never>()
+    private let previewSubject = PassthroughSubject<TaskGlowPreviewRequest, Never>()
     private static let enabledKey = "TaskGlow.isEnabled"
     private static let speedKey = "TaskGlow.animationSpeed"
     private static let durationKey = "TaskGlow.terminalDuration"
@@ -126,8 +126,17 @@ final class TaskGlowSettings: ObservableObject {
         defaults.set(enabled, forKey: Self.enabledKey)
         isEnabled = enabled
         if enabled {
-            previewSubject.send()
+            previewSubject.send(.enabled)
         }
+    }
+
+    func previewColor(for role: TaskGlowColorRole) {
+        guard isEnabled else { return }
+        previewSubject.send(.color(role))
+    }
+
+    func endColorPreview() {
+        previewSubject.send(.endColorPreview)
     }
 
     func setColorHex(_ input: String, for role: TaskGlowColorRole) {
@@ -183,4 +192,10 @@ final class TaskGlowSettings: ObservableObject {
         }
         return appearance
     }
+}
+
+enum TaskGlowPreviewRequest: Equatable {
+    case enabled
+    case color(TaskGlowColorRole)
+    case endColorPreview
 }

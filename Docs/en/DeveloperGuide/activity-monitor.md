@@ -27,7 +27,7 @@ rollout JSONL -> CodexSessionLifecycleReader ----------------------------+      
 
 `WorkflowHookEventRecorder` extracts minimal fields from `stdin`, performs bounded rollout metadata lookup when needed, appends under a file lock, and exits. Historical aggregation and live monitoring independently read the same Hook JSONL. App-server quota and usage use a separate pipeline. See [Hook Collection and Aggregation](hook-and-aggregation.md) for collection details.
 
-Notifications and haptics consume live transitions from the monitor. Glow consumes snapshots and terminal presentation events: orange for user approval, cyan for running, green for completion, and red for termination. Waiting takes precedence among active tasks; a short terminal indication can temporarily override active state.
+Notifications and haptics consume live transitions from the monitor. Glow consumes snapshots and terminal presentation events, using the configured colors: by default, orange for user approval, cyan for running, green for completion, and red for termination. Waiting takes precedence among active tasks; a short terminal indication can temporarily override active state.
 
 ### Division Between Sources
 

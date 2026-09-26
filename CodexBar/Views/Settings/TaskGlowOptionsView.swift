@@ -188,6 +188,12 @@ private struct TaskGlowColorHexField: View {
                         .strokeBorder(.primary.opacity(0.15), lineWidth: 0.5)
                 }
                 .frame(width: 14, height: 14)
+                .frame(height: SettingsOptionsPanelMetrics.rowHeight)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    settings.previewColor(for: role)
+                }
+                .help("task-glow.color.preview-help")
 
             Text(verbatim: "#")
                 .font(.system(.caption, design: .monospaced))

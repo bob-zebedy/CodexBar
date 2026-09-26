@@ -4977,6 +4977,22 @@
         }
       }
     },
+    "task-glow.color.preview-help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Double-click to preview effect"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "双击预览效果"
+          }
+        }
+      }
+    },
     "task-glow.color.running" : {
       "localizations" : {
         "en" : {

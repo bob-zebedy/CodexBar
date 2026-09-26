@@ -197,6 +197,7 @@ final class SettingsWindowController: HostingWindowController {
             SettingsOptionsPanelController(
                 animationKey: "CodexBar.taskGlowOptionsDrawerTransform",
                 initialPanelSize: TaskGlowOptionsView.initialPanelSize,
+                willHide: { [taskGlowSettings] in taskGlowSettings.endColorPreview() },
                 contentProvider: { [taskGlowSettings] in
                     TaskGlowOptionsView(settings: taskGlowSettings)
                 }

@@ -51,6 +51,7 @@ final class SettingsOptionsPanelController {
     private let initialPanelSize: CGSize
     /// 展开前的准备动作, 例如刷新只在这个面板里露面的设置项
     private let willShow: (() -> Void)?
+    private let willHide: (() -> Void)?
     private let contentControllerProvider: (SidePanelEntryCue) -> NSViewController
     private let entryCue = SidePanelEntryCue()
 
@@ -72,12 +73,14 @@ final class SettingsOptionsPanelController {
         animationKey: String,
         initialPanelSize: CGSize,
         willShow: (() -> Void)? = nil,
+        willHide: (() -> Void)? = nil,
         contentProvider: @escaping () -> some View,
         contentChanges: AnyPublisher<Void, Never>? = nil
     ) {
         self.animationKey = animationKey
         self.initialPanelSize = initialPanelSize
         self.willShow = willShow
+        self.willHide = willHide
         // 内容闭包在首次构造面板时才执行, 保留 SwiftUI 状态的创建时机
         contentControllerProvider = { cue in
             let controller = NSHostingController(
@@ -120,6 +123,9 @@ final class SettingsOptionsPanelController {
     }
 
     func hide(immediate: Bool = false) {
+        if isVisible {
+            willHide?()
+        }
         panelResizeTask?.cancel()
         panelResizeTask = nil
         isEntryAnimationRunning = false
