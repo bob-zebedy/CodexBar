@@ -42,6 +42,80 @@ struct CodexVersionAndProxyTests {
         #expect(CodexCLIResolver.codexHomeDirectory(environment: ["CODEX_HOME": " ", "HOME": "/tmp/home"]).path == "/tmp/home/.codex")
     }
 
+    @Test func bundledCLIUsesManifestEntrypointBeforeLegacyPath() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        _ = try directory.write(#"{"entrypoint":"custom/cli","version":"0.158.0","layoutVersion":1}"#, to: "codex-cli/codex-package.json")
+        let entrypoint = try writeExecutable(in: directory, path: "codex-cli/custom/cli")
+        _ = try writeExecutable(in: directory, path: "codex")
+
+        let installations = CodexCLIResolver.resolveInstallations(environment: ["PATH": ""], bundledResourceURL: directory.url)
+        #expect(installations.bundledPath == entrypoint.path)
+        #expect(installations.globalPath == nil)
+        #expect(try CodexCLIResolver.command(from: installations).executablePath == entrypoint.path)
+    }
+
+    @Test(arguments: [nil, "invalid", "{}", #"{"entrypoint":42}"#, #"{"entrypoint":""}"#, #"{"entrypoint":"bin/missing"}"#, #"{"entrypoint":"bin/codex"}"#])
+    func unavailablePackageFallsBackToLegacyPath(_ manifest: String?) throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        if let manifest {
+            _ = try directory.write(manifest, to: "codex-cli/codex-package.json")
+        }
+        let nonExecutable = try directory.write("", to: "codex-cli/bin/codex")
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: nonExecutable.path)
+        let legacy = try writeExecutable(in: directory, path: "codex")
+
+        let installations = CodexCLIResolver.resolveInstallations(environment: ["PATH": ""], bundledResourceURL: directory.url)
+        #expect(installations.bundledPath == legacy.path)
+        #expect(installations.globalPath == nil)
+        try FileManager.default.removeItem(at: legacy)
+        let missing = CodexCLIResolver.resolveInstallations(environment: ["PATH": ""], bundledResourceURL: directory.url)
+        #expect(missing.bundledPath == nil)
+    }
+
+    @Test func globalCLIStillTakesPriorityOverManifestEntrypoint() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        _ = try directory.write(#"{"entrypoint":"bin/codex"}"#, to: "codex-cli/codex-package.json")
+        let bundled = try writeExecutable(in: directory, path: "codex-cli/bin/codex")
+        let global = try writeExecutable(in: directory, path: "global/codex")
+
+        let installations = CodexCLIResolver.resolveInstallations(
+            environment: ["PATH": global.deletingLastPathComponent().path],
+            bundledResourceURL: directory.url
+        )
+        #expect(installations.globalPath == global.path)
+        #expect(installations.bundledPath == bundled.path)
+        #expect(try CodexCLIResolver.command(from: installations).source == .global)
+        #expect(try CodexCLIResolver.command(from: installations, source: .bundled).executablePath == bundled.path)
+    }
+
+    @Test(arguments: ["codex-cli/bin/codex", "codex"])
+    func pathSymlinkToBundledCLIIsNotClassifiedAsGlobal(_ target: String) throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        _ = try directory.write(#"{"entrypoint":"bin/codex"}"#, to: "codex-cli/codex-package.json")
+        let bundled = try writeExecutable(in: directory, path: "codex-cli/bin/codex")
+        _ = try writeExecutable(in: directory, path: "codex")
+        let link = directory.url.appendingPathComponent("global/codex")
+        try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: directory.url.appendingPathComponent(target))
+
+        let installations = CodexCLIResolver.resolveInstallations(
+            environment: ["PATH": link.deletingLastPathComponent().path],
+            bundledResourceURL: directory.url
+        )
+        #expect(installations.globalPath == nil)
+        #expect(installations.bundledPath == bundled.path)
+    }
+
+    private func writeExecutable(in directory: TestDirectory, path: String) throws -> URL {
+        let url = try directory.write("#!/bin/sh\nexit 0\n", to: path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return url
+    }
+
     @Test(arguments: ["https://proxy.example", "host/path", "user@host", "host?query", "host#fragment", "host name", "[invalid]", "fe80::1%en0"])
     func proxyRejectsAmbiguousHostInput(_ host: String) {
         let configuration = CodexProxyConfiguration(host: host, port: "8080")

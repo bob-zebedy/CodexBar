@@ -33,12 +33,13 @@ Settings reuses this session for Hook and TUI configuration.
 
 ## Locating Codex CLI
 
-[`CodexCLIResolver.swift`](../../../CodexBar/Services/CodexCLI/CodexCLIResolver.swift) first searches the process `PATH` for global `codex`, then checks bundled paths:
+[`CodexCLIResolver.swift`](../../../CodexBar/Services/CodexCLI/CodexCLIResolver.swift) searches the process `PATH` for global `codex` and checks the app resource directory:
 
 ```text
-/Applications/ChatGPT.app/Contents/Resources/codex
-/Applications/Codex.app/Contents/Resources/codex
+/Applications/ChatGPT.app/Contents/Resources
 ```
+
+The resolver reads `codex-cli/codex-package.json` in the resource directory and resolves `entrypoint` relative to the `codex-cli` directory. If the manifest cannot be decoded or the entrypoint is not executable, it checks `codex` in the resource directory.
 
 A menu bar app launched from Finder may lack the complete `PATH` of an interactive shell, so the resolver also adds common installation directories:
 

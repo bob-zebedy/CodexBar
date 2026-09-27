@@ -89,11 +89,12 @@ nonisolated struct CodexCLIInstallations: Equatable {
 
 /// 解析真实用户环境下的 Codex 可执行文件, 避免使用 Xcode/container 的 HOME
 nonisolated enum CodexCLIResolver {
-    static let bundledExecutablePaths = [
-        "/Applications/ChatGPT.app/Contents/Resources/codex",
-        "/Applications/Codex.app/Contents/Resources/codex"
-    ]
+    static let bundledResourceURL = URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources", isDirectory: true)
     static let environment = appServerEnvironment()
+
+    private struct PackageManifest: Decodable {
+        let entrypoint: String
+    }
 
     /// 从已解析的安装信息派生命令, 避免重复扫描 PATH
     static func command(
@@ -131,7 +132,14 @@ nonisolated enum CodexCLIResolver {
         return value?.isEmpty == false ? value : nil
     }
 
-    static func resolveInstallations(environment: [String: String] = environment) -> CodexCLIInstallations {
+    static func resolveInstallations(
+        environment: [String: String] = environment,
+        bundledResourceURL: URL = bundledResourceURL
+    ) -> CodexCLIInstallations {
+        let bundledExecutablePaths = [
+            packageExecutablePath(in: bundledResourceURL),
+            bundledResourceURL.appendingPathComponent("codex").path
+        ].compactMap(\.self)
         let cliPath = findExecutable(named: "codex", environment: environment)
         let cliIsBundled = cliPath.map { path in
             bundledExecutablePaths.contains { pathsAreEquivalent(path, $0) }
@@ -145,6 +153,17 @@ nonisolated enum CodexCLIResolver {
             globalPath: cliIsBundled ? nil : cliPath,
             bundledPath: bundledPath
         )
+    }
+
+    private static func packageExecutablePath(in resources: URL) -> String? {
+        let packageDirectory = resources.appendingPathComponent("codex-cli", isDirectory: true)
+        let manifestURL = packageDirectory.appendingPathComponent("codex-package.json")
+        guard let data = try? Data(contentsOf: manifestURL),
+              let manifest = try? JSONDecoder().decode(PackageManifest.self, from: data),
+              !manifest.entrypoint.isEmpty else {
+            return nil
+        }
+        return packageDirectory.appendingPathComponent(manifest.entrypoint).path
     }
 
     private static func appServerEnvironment() -> [String: String] {

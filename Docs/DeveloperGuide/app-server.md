@@ -33,12 +33,13 @@ CodexCLIResolver
 
 ## Codex CLI 定位
 
-[`CodexCLIResolver.swift`](../../CodexBar/Services/CodexCLI/CodexCLIResolver.swift) 先从进程 `PATH` 查找全局 `codex`，再检查 App 内置路径：
+[`CodexCLIResolver.swift`](../../CodexBar/Services/CodexCLI/CodexCLIResolver.swift) 从进程 `PATH` 查找全局 `codex`，并检查 App 的资源目录：
 
 ```text
-/Applications/ChatGPT.app/Contents/Resources/codex
-/Applications/Codex.app/Contents/Resources/codex
+/Applications/ChatGPT.app/Contents/Resources
 ```
+
+先读取资源目录下的 `codex-cli/codex-package.json`，将 `entrypoint` 相对于 `codex-cli` 目录解析为可执行文件路径。清单无法解析或入口不可执行时，检查资源目录下的 `codex`。
 
 菜单栏 App 从 Finder 启动时可能没有交互式 shell 的完整 `PATH`，因此 resolver 还会补充常见安装目录：
 
