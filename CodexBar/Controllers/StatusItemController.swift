@@ -31,7 +31,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let resetCreditsPanelController = ResetCreditsPanelController()
     private lazy var activityCenterPanelController = ActivityCenterPanelController(
         activityMonitor: activityMonitor,
-        presentationState: activityCenterPresentationState
+        presentationState: activityCenterPresentationState,
+        mainPanelSettings: mainPanelSettings
     )
     private var activeMenuSurface = ActiveMenuSurface.none
     private lazy var globalHotKeyController = GlobalHotKeyController { [weak self] in

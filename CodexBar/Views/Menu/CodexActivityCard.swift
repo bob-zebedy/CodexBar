@@ -76,11 +76,11 @@ struct CodexActivityCard: View {
                     .truncationMode(.middle)
 
                 if let detail = content.detail {
-                    Text(detail)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    CodexActivityStatusText(
+                        text: detail,
+                        tint: content.tint,
+                        effect: statusTextEffect
+                    )
                 }
             }
 
@@ -126,6 +126,7 @@ struct CodexActivityCard: View {
         .animation(.codexStatus, value: content.otherTaskCount)
         .padding(.horizontal, MenuMetrics.panelPadding)
         .frame(maxWidth: .infinity, minHeight: Metrics.height, maxHeight: Metrics.height)
+        .activityStatusParticles(cornerRadius: MenuMetrics.panelCornerRadius)
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
         .overlay {
             RoundedRectangle(cornerRadius: MenuMetrics.panelCornerRadius, style: .continuous)
@@ -268,6 +269,15 @@ struct CodexActivityCard: View {
 
     private var otherTaskCount: Int {
         max(0, snapshot.activeCount - 1)
+    }
+
+    private var statusTextEffect: CodexActivityStatusText.Effect {
+        guard allowsAnimations else { return .none }
+        switch snapshot.primaryActivity {
+        case .running: return .shimmer
+        case let .waiting(task): return .ionizing(taskID: task.id)
+        case .completed, .terminated, .idle: return .none
+        }
     }
 
     private enum Metrics {

@@ -151,13 +151,15 @@ Settings and log windows temporarily reject `makeKey()` during closing and regai
 
 The popover and fallback panel each hold a separate `MenuSurfaceAnimationState`. `allowsAnimations` is set to `true` before presentation, remains enabled during fade-out, and becomes `false` after the surface closes.
 
-When host animation permission is disabled, `CodexStatusMenuView` sets the root transaction's `animation` to `nil` and `disablesAnimations` to `true`. Continuous animations use the `mainPanelAnimationsEnabled` environment value, which requires both host permission and the Animation Effects setting. Hiding the host or disabling Animation Effects must remove the continuously animated view; disabling transaction animations alone is insufficient. Background data refresh continues.
+When host animation permission is disabled, `CodexStatusMenuView` sets the root transaction's `animation` to `nil` and `disablesAnimations` to `true`. Continuous animations within the main panel use the `mainPanelAnimationsEnabled` environment value, which requires both host permission and the Animation Effects setting. Hiding the host or disabling Animation Effects removes the continuously animated view. Background data refresh continues.
 
 `MenuSurfaceVisibilityState` begins after the panel is shown and ends when closing starts. Each presentation increments `presentationGeneration`; the rate-limit and usage sections use that value as their view identity and run their entrance animations again.
 
 ### Activity Card
 
-`CodexActivityCard` uses `primaryActivity`, prioritizing waiting for approval, then running, then the latest completion or termination by end time, with termination taking precedence on ties. When `isActivelyPreventingSleep` is `true` and card data is available, it shows a teal `sun.max.fill`. While the host's `mainPanelAnimationsEnabled` is true, a separate rotating view uses linear animation for one clockwise revolution every 2 seconds, without the system symbol effect's acceleration phase. Disabling permission removes the rotating view and restores a static icon. Reopening restores rotation only when Animation Effects is enabled. Popover and fallback hosts control their animations independently. The tooltip identifies `sleepPreventionSource`.
+`CodexActivityCard` uses `primaryActivity`, prioritizing waiting for approval, then running, then the latest completion or termination by end time, with termination taking precedence on ties. When `isActivelyPreventingSleep` is `true` and card data is available, it shows a teal `sun.max.fill`; the tooltip identifies `sleepPreventionSource`. While the host's `mainPanelAnimationsEnabled` is true, the sun badge rotates clockwise at a constant speed of one revolution every 2 seconds. Disabling permission removes the rotating view and shows a static icon.
+
+The activity card and Task Center share `CodexActivityStatusText`, whose color follows task state. Running text shimmers, approval-waiting text emits orange particles, and completed or terminated text stays static. The card uses `mainPanelAnimationsEnabled`; Task Center requires both `presentationState.isPresented` and `MainPanelSettings.areEntranceAnimationsEnabled`. Each panel shares one particle timeline, emits only from visible waiting text, clips particles to the panel bounds, and removes the timeline when no emitters remain.
 
 ## Fallback Panel
 
@@ -196,7 +198,7 @@ Heatmap squares enter with staggered delays based on their column and row. With 
 
 The heatmap detail panel uses the complete heatmap area, including its heading, date range, and square grid, as its vertical anchor. Reordering main-panel sections therefore still keeps their top edges aligned whenever possible. If the detail panel would extend below the main panel from that position, placement shifts it upward until their bottom edges align.
 
-While the main panel is visible, digits roll as values change and Token values fade when switching to or from pending or unavailable placeholders. Animation Effects controls entrance animations and sun-badge rotation; it does not control numeric updates.
+While the main panel is visible, digits roll as values change and Token values fade when switching to or from pending or unavailable placeholders. Animation Effects controls entrance animations, sun-badge rotation, and task status-text animations; it does not control numeric updates.
 
 Related controllers include:
 
@@ -320,6 +322,7 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 - Password reveal transitions preserve text, selection, and focus
 - Clicking outside the main panel dismisses it; clicking a side panel does not
 - Heatmap, Reset Credits, and Task Center panels remain mutually exclusive
+- Activity-card and Task Center text colors and animations match running, approval-waiting, completed, and terminated states; disabling Animation Effects keeps text static, closing the panel stops continuous animations, and scrolling Task Center emits particles only from visible waiting text
 - With Token Usage at different positions in the main-panel order, heatmap details align to the complete heatmap area's top edge when possible and fall back to the main panel's bottom edge when the detail height does not fit
 - The global shortcut opens the panel with both valid and invalid status-bar anchors
 - Clicking a notification activates the app and opens the panel

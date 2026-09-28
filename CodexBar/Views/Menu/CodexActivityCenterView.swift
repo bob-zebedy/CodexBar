@@ -47,6 +47,7 @@ struct CodexActivityCenterPanelContext {
 struct CodexActivityCenterView: View {
     @ObservedObject var activityMonitor: CodexActivityMonitor
     @ObservedObject var presentationState: CodexActivityCenterPresentationState
+    @ObservedObject var mainPanelSettings: MainPanelSettings
 
     var body: some View {
         content(now: presentationState.timelineDate)
@@ -55,6 +56,7 @@ struct CodexActivityCenterView: View {
                 maxHeight: .infinity,
                 alignment: .topLeading
             )
+            .activityStatusParticles(cornerRadius: Metrics.cornerRadius)
             .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
     }
 
@@ -133,6 +135,7 @@ struct CodexActivityCenterView: View {
                 .padding(.vertical, Metrics.verticalPadding)
             }
             .scrollIndicators(.never)
+            .activityStatusParticleViewport()
         }
     }
 
@@ -256,7 +259,8 @@ struct CodexActivityCenterView: View {
             modelName: task.modelName,
             effort: task.effort,
             isAnonymous: task.isAnonymous,
-            detail: taskDetail(task, now: now, isWaiting: isWaiting)
+            detail: taskDetail(task, now: now, isWaiting: isWaiting),
+            effect: isWaiting ? .ionizing(taskID: task.id) : .shimmer
         )
     }
 
@@ -303,7 +307,8 @@ struct CodexActivityCenterView: View {
         modelName: String?,
         effort: String?,
         isAnonymous: Bool,
-        detail: String
+        detail: String,
+        effect: CodexActivityStatusText.Effect = .none
     ) -> some View {
         HStack(alignment: .top, spacing: 9) {
             if isAnonymous {
@@ -323,11 +328,13 @@ struct CodexActivityCenterView: View {
                     effort: effort
                 )
 
-                Text(detail)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                CodexActivityStatusText(
+                    text: detail,
+                    tint: tint,
+                    effect: presentationState.isPresented
+                        && mainPanelSettings.areEntranceAnimationsEnabled
+                        ? effect : .none
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

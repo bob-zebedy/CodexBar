@@ -9,7 +9,7 @@ Right-click or Control-click the menu bar icon and choose `Settings`, or press `
 | Setting | Purpose | Default or initial state |
 | --- | --- | --- |
 | Main Panel Layout | Reorder and show or hide Account, Tasks, Quota, Usage, and Status | All visible; Tasks is off when Hook is disabled |
-| Animation Effects | Animate quota bars and the heatmap when opening the panel | On |
+| Animation Effects | Control quota-bar and heatmap entrance animations, sun-badge rotation, and status-text animations in the activity card and Task Center | On |
 | Glow Effect | Show task status with colors along the top of each display; requires Hook to be enabled and verified | Off |
 | Launch at Login | Start CodexBar when you sign in to your Mac | Follows the system login-item state |
 | Automatically Check for Updates | Periodically check for CodexBar updates | Follows the current update setting |

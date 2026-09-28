@@ -107,7 +107,7 @@ Tasks whose session cannot be identified show an orange anonymous icon with the 
 
 The activity card’s `+N` shows the total number of other active tasks.
 
-Click a populated activity card to open Task Center.
+Click a populated activity card to open Task Center. In both views, status-text colors follow task state. With Animation Effects enabled, running status text shimmers and orange particles appear around approval-waiting text. Disabling the setting keeps the colored text static.
 
 ## Task Center
 

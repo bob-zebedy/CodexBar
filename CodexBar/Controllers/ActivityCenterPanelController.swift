@@ -7,6 +7,7 @@ import SwiftUI
 final class ActivityCenterPanelController {
     private let activityMonitor: CodexActivityMonitor
     private let presentationState: CodexActivityCenterPresentationState
+    private let mainPanelSettings: MainPanelSettings
     private let contentHost = SidePanelContentHost<CodexActivityCenterView>(
         initialSize: CodexActivityCenterView.initialPanelSize,
         ignoresMouseEvents: false,
@@ -29,10 +30,12 @@ final class ActivityCenterPanelController {
 
     init(
         activityMonitor: CodexActivityMonitor,
-        presentationState: CodexActivityCenterPresentationState
+        presentationState: CodexActivityCenterPresentationState,
+        mainPanelSettings: MainPanelSettings
     ) {
         self.activityMonitor = activityMonitor
         self.presentationState = presentationState
+        self.mainPanelSettings = mainPanelSettings
 
         activityMonitor.$snapshot
             .dropFirst()
@@ -254,7 +257,8 @@ final class ActivityCenterPanelController {
         contentHost.updateContent(
             CodexActivityCenterView(
                 activityMonitor: activityMonitor,
-                presentationState: presentationState
+                presentationState: presentationState,
+                mainPanelSettings: mainPanelSettings
             ),
             size: panelSize
         )

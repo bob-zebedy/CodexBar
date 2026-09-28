@@ -151,13 +151,15 @@ hidden -> opening -> shown -> closing -> hidden
 
 popover 和备用面板分别持有 `MenuSurfaceAnimationState`。展示前将 `allowsAnimations` 设为 `true`，淡出期间保持开启，实际关闭后设为 `false`
 
-`CodexStatusMenuView` 在宿主动画许可关闭时，将根视图事务的 `animation` 设为 `nil`、`disablesAnimations` 设为 `true`。持续动画使用 `mainPanelAnimationsEnabled` 环境值，同时要求宿主动画许可和设置中的“动画效果”开关开启。宿主隐藏或用户关闭动画效果时必须移除持续动画视图，不能只依赖事务禁用。后台数据刷新继续执行。
+`CodexStatusMenuView` 在宿主动画许可关闭时，将根视图事务的 `animation` 设为 `nil`、`disablesAnimations` 设为 `true`。主面板内的持续动画使用 `mainPanelAnimationsEnabled` 环境值，同时要求宿主动画许可和设置中的“动画效果”开关开启。宿主隐藏或用户关闭动画效果时移除持续动画视图，后台数据刷新继续执行。
 
 `MenuSurfaceVisibilityState` 在面板展示后开启，在关闭开始时结束。每次展示递增 `presentationGeneration`，额度和用量区域以该值作为视图身份，重新执行入场动画。
 
 ### 活动卡片
 
-`CodexActivityCard` 使用 `primaryActivity`，优先显示等待批准，其次是运行中；无活跃任务时按结束时间选择最新的完成或终止，时间相同优先终止。`isActivelyPreventingSleep` 为 `true` 且卡片数据可用时显示青绿色 `sun.max.fill`。所属宿主的 `mainPanelAnimationsEnabled` 开启时创建独立的旋转视图，以线性动画每 2 秒顺时针旋转一圈，不使用系统符号效果的启动加速阶段。关闭许可后移除旋转视图并切回静态图标；重新展示时仅在“动画效果”开启的情况下恢复旋转。popover 与 fallback 宿主各自控制，不互相激活动画。tooltip 按 `sleepPreventionSource` 显示来源。
+`CodexActivityCard` 使用 `primaryActivity`，优先显示等待批准，其次是运行中；无活跃任务时按结束时间选择最新的完成或终止，时间相同优先终止。`isActivelyPreventingSleep` 为 `true` 且卡片数据可用时显示青绿色 `sun.max.fill`，tooltip 按 `sleepPreventionSource` 显示来源。所属宿主的 `mainPanelAnimationsEnabled` 开启时，太阳徽标每 2 秒匀速顺时针旋转一圈；关闭时移除旋转视图并显示静态图标。
+
+活动卡片和任务中心共用 `CodexActivityStatusText`，文字颜色跟随任务状态。运行时显示扫光，等待批准时显示橙色粒子，完成和终止时静态显示。卡片动画由 `mainPanelAnimationsEnabled` 控制，任务中心动画要求 `presentationState.isPresented` 和 `MainPanelSettings.areEntranceAnimationsEnabled` 同时开启。每个面板共用一条粒子时间线，只从可见的等待文字发射粒子，按面板边界裁剪；没有发射源时移除时间线。
 
 ## Fallback panel
 
@@ -196,7 +198,7 @@ fallback panel 在展示前根据 SwiftUI fitting size 和目标屏幕可见区�
 
 热力图详情面板以包含标题、日期范围和方格矩阵的完整热力图区域作为垂直锚点，因此主面板区域重排后仍优先保持两者顶边对齐。如果详情面板从该位置向下会超过主面板底边，则定位逻辑将它整体上移到与主面板底边对齐。
 
-主面板可见时，数字随数据变化滚动，Token 数字与待查询或不可用占位之间淡入淡出。“动画效果”控制入场动画和太阳徽标旋转，数字更新不受此开关控制。
+主面板可见时，数字随数据变化滚动，Token 数字与待查询或不可用占位之间淡入淡出。“动画效果”控制入场动画、太阳徽标旋转和任务状态文字动画，数字更新不受此开关控制。
 
 相关控制器包括：
 
@@ -320,6 +322,7 @@ app-server 状态默认每 60 秒检查刷新。主面板的 0.24 秒淡入完�
 - 代理密码显隐切换时淡化正常，输入内容、选区和焦点保留
 - 点击主面板外部正确关闭，点击侧边面板不误关闭
 - 热力图、Reset Credits 和活动中心保持互斥
+- 活动卡片和任务中心在运行、等待批准、完成和终止之间切换时，文字颜色与动画匹配；关闭“动画效果”后保持静态，关闭面板后停止持续动画；滚动任务中心时，仅可见的等待文字发射粒子
 - Token 用量区域处于不同排序位置时，热力图详情优先与完整热力图区域顶边对齐；详情高度放不下时与主面板底边对齐
 - 全局快捷键在状态栏锚点有效和无效场景都能打开面板
 - 从通知点击激活 App 并打开面板
