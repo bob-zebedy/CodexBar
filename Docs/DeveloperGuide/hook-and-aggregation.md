@@ -285,7 +285,7 @@ source generation 让同一天的不同原始来源可被区分。同源结果�
 
 ### `pending` 和 `dirty` 的区别
 
-`maintenance.json` 对每个日期维护两类待办：
+`maintenance.json` 对每个日期维护以下待办：
 
 | 状态 | 何时使用 | 下一步 |
 | --- | --- | --- |
@@ -298,7 +298,7 @@ source generation 让同一天的不同原始来源可被区分。同源结果�
 
 ### 如何判断文件还是同一来源
 
-维护层综合 4 类证据：
+维护层综合以下证据：
 
 - inode 标识是否变化
 - 当前 size 是否小于已处理 offset
@@ -436,7 +436,7 @@ schema 变化通常把保留期内所有事件日期标脏。source generation �
 
 ### scheduler 如何合并请求
 
-`WorkflowSyncScheduler` 串行处理 3 类请求：
+`WorkflowSyncScheduler` 串行处理以下请求：
 
 1. 用户重建，优先级最高
 2. 带同步的维护

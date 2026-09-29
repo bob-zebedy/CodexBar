@@ -8,7 +8,7 @@ Explore the processes, data flows, and recovery paths in the [Runtime Architectu
 
 CodexBar is a menu bar app for macOS 15 and later, built with Swift 6, SwiftUI, AppKit, and MVVM.
 
-The project has one `CodexBar` scheme with three targets:
+The project has one `CodexBar` scheme with the following targets:
 
 | Target | Responsibility |
 | --- | --- |
@@ -39,7 +39,7 @@ CodexBar executable
               `-- fixed IOPM wake event
 ```
 
-Two points define these boundaries:
+These boundaries follow the principles below:
 
 - Using the same executable for Hook mode keeps the handler pointed at the current app version without deploying a separate capture tool
 - The root helper knows nothing about Codex tasks, accounts, or reset credits; it receives only signature-validated sleep leases and Automatic Reset wake times
@@ -119,7 +119,7 @@ Releasing asynchronously in `applicationWillTerminate` is too late because that 
 
 ## Three Independent Data Flows
 
-Three data flows manage distinct inputs, freshness requirements, and failure states:
+The data flows manage distinct inputs, freshness requirements, and failure states:
 
 | Flow | Input | Output | Main consumers |
 | --- | --- | --- | --- |

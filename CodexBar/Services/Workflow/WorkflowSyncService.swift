@@ -23,14 +23,14 @@ private nonisolated enum WorkflowSyncStage: String {
     case prune
 }
 
-/// 将本机 daily.jsonl 的脱敏聚合行同步到 CloudKit private database
+/// 将本机 daily.jsonl 中不含 sessionIds 和 turnIds 的聚合行同步到 CloudKit private database
 actor WorkflowSyncService {
     private let database: CKDatabase
     private let fileManager: FileManager
     private let directoryURL: URL
     private let tokenHistorySync: CodexTokenHistorySync
 
-    // zone 存在性和 account salt 首次确认后跨轮缓存, 省掉每轮同步的两次固定往返
+    // zone 存在性和 account salt 首次确认后跨轮缓存, 避免每轮同步都重复请求
     // 任一轮同步失败时作废: iCloud 账号切换必然伴随请求报错, 下一轮会重新确认
     private var isSyncZoneConfirmed = false
     private var cachedAccountSalt: Data?
@@ -1374,7 +1374,8 @@ private extension WorkflowSyncService {
     }
 }
 
-/// records 包含所有设备的脱敏聚合; currentDeviceId 用于展示时替换而不是叠加本机云端副本
+/// records 包含所有设备的日聚合, 不含 sessionIds 和 turnIds
+/// currentDeviceId 用于展示时替换本机云端副本, 避免重复计数
 nonisolated struct WorkflowSyncSnapshot: Equatable {
     let records: [WorkflowSyncedDailyRecord]
     let currentDeviceId: String?

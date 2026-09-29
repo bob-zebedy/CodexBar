@@ -26,7 +26,7 @@ final class KeepAliveController: ObservableObject {
     @Published private(set) var isLowBatteryProtectionEnabled = false
     /// 时长上限是不是真的会到点: 防睡眠本身可用, 且没选无限制
     /// 与 isLowBatteryProtectionEnabled 同一个用法, 视图只读结论, 不各自再判一次 unlimited
-    /// 只在跨越边界时发信号, 1 小时改 2 小时不必让通知面板白排一轮高度重算
+    /// 只在功能可用性变化时发信号, 单纯调整时长不需要通知面板重算高度
     @Published private(set) var isMaximumDurationEnabled = false
 
     /// 低电量是不是当下唯一拦住防睡眠的那一项
@@ -438,7 +438,7 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
-        // 百分比只在这里记一次; 放进 SleepConditions 会让每掉 1% 刷一条
+        // 百分比只在这里记录, 避免电量每次变化都触发 SleepConditions 日志
         // 本来就没在挡睡眠时这一跌不改变任何事, 但仍要记: 这是排查"为什么在这个电量断的"的唯一依据
         let wasPreventingSleep = isActivelyPreventingSleep
             && sleepPreventionSource == .codexBar
@@ -772,19 +772,16 @@ final class KeepAliveController: ObservableObject {
         pendingKeepAliveLimit = maximumDuration
     }
 
-    /// UI 关心的两个布尔都从 blockReason 派生, 且只在这里写
-    /// 这么做是因为 sleepBlockReason 里的输入 (任务, helper 刷新中) 变化远比结论频繁,
-    /// 让它们各自 @Published 会把整个设置页拖着一起重算
-    /// 新增阻断条件时 allowsOptions 那个 switch 必须表态, 于是不会出现"入口亮着却点不动"
+    /// 从阻断原因计算 UI 状态, 只在结论变化时发布
+    /// 避免任务或 helper 状态频繁变化时重复刷新设置页
     private func publishDerivedState(blockReason: SleepBlockReason?) {
         assign(blockReason == .lowBattery, to: \.isLowBatteryBlocking)
         assign(Self.allowsOptions(blockReason), to: \.canShowOptions)
         publishNotificationDependencies()
     }
 
-    /// 通知面板那两行的置灰依据
-    /// 输入分散在三条路径上 (用户开关与 Hook 走 reconcileSleepState, 电量与阈值走 updateBatteryState,
-    /// 上限走 setMaximumDuration), 所以规则只写这一份, 三处都调它
+    /// 通知选项是否可用取决于用户开关, Hook, 电量和时长上限
+    /// 各输入的更新路径统一调用此方法, 避免各自维护判定规则
     private func publishNotificationDependencies() {
         let isKeepAliveUsable = isEnabled && isHookEnabled
         assign(
@@ -797,7 +794,8 @@ final class KeepAliveController: ObservableObject {
         )
     }
 
-    /// 缺依赖时收起入口, 只是没在防睡眠 (没任务, 低电量, 已达上限) 时仍然要能改设置
+    /// 缺少必要依赖时隐藏设置入口
+    /// 因任务, 电量或时长暂停防睡眠时, 仍允许修改设置
     private static func allowsOptions(_ blockReason: SleepBlockReason?) -> Bool {
         switch blockReason {
         case .notStarted, .userOff, .hookDisabled, .helperUnavailable, .terminating:
@@ -807,8 +805,7 @@ final class KeepAliveController: ObservableObject {
         }
     }
 
-    /// 任何一项变了才记一条, 逐次求值不记
-    /// want 为 0 时这条是唯一能看出「是哪一项把它拉下来」的依据
+    /// 只在判定条件变化时记录日志, 用于定位防睡眠未生效的原因
     private func logSleepConditionsIfChanged(
         blockReason: SleepBlockReason?,
         trigger: LogTrigger
@@ -1383,7 +1380,7 @@ final class KeepAliveController: ObservableObject {
         }
 
         // 每次重试都会重建特权连接并以 root 拉起 pmset
-        // 固定 2 秒无上限重试会让持续失败的 helper 变成无限循环
+        // 限制重试次数, 避免 helper 持续失败时反复拉起特权进程
         guard retryAttempt < KeepAliveHelperConfiguration.sleepToggleRetryDelays.count else {
             AppLog.keepAlive.error(
                 "KeepAlive 切换重试已放弃: attempts=\(KeepAliveHelperConfiguration.sleepToggleRetryDelays.count)"

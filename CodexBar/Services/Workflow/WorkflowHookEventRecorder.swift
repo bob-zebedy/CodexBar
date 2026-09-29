@@ -92,7 +92,7 @@ nonisolated enum WorkflowHookEventRecorder {
         )
     }
 
-    /// 留出 2 秒在 Codex 杀掉子进程前主动收工, 避免写入中途留下半截坏行
+    /// 为事件写入预留时间, 避免等待锁耗尽超时预算后被 Codex 中途终止
     private static func lockWaitLimitSeconds(for event: CodexHookEvent?) -> TimeInterval {
         let timeout = event.map(hookTimeoutSeconds(for:)) ?? defaultHookTimeoutSeconds
         return max(0, Double(timeout) - 2)

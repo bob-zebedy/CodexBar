@@ -73,7 +73,7 @@ Account usage comes from app-server. The summary area shows:
 - Longest usage streak
 - Longest task duration
 
-The heatmap uses a 30-column by 7-row grid to show daily token usage over the last 30 weeks. Color intensity is relative to the highest value currently visible in the heatmap.
+The heatmap shows recent daily token usage by date. Color intensity is relative to the highest value currently visible in the heatmap.
 
 When `Animation Effects` is enabled, the day squares appear from the top left to the bottom right whenever the main panel opens.
 
@@ -89,7 +89,7 @@ When CodexBar Hook is enabled, the details also include:
 - Permission requests
 - Context compactions
 
-The date detail panel uses two columns beneath a full-width, ten-segment intensity row. Activity metrics appear on the left; the right column shows daily rollout totals in this order: total, input, output, cached input, cache write, cache hit rate, and reasoning output. Each metric in either column has a colored dot. Labels share the width of the longest label within their own column, leaving the remaining space for right-aligned model names and values. Token counts use K/M/B units. Missing and zero counts display `0`; missing or zero cache hit rate displays `0%`. Activity counts, token values, and the most-used model roll between values when the selected date changes.
+Date details group activity statistics and daily rollout token usage, with an intensity bar showing relative usage. Token metrics include totals, input and output, cache usage, and reasoning output. Token counts use K/M/B units. Missing and zero counts display `0`; missing or zero cache hit rate displays `0%`. Activity counts, token values, and the most-used model roll between values when the selected date changes.
 
 Each thread turn contributes once. Main and child-agent usage belongs to the root task's start date, including tasks that cross midnight. Daily cache hit rate divides total cached input by total input. With iCloud sync enabled, duplicate turns across Macs are merged before daily aggregation.
 
@@ -119,7 +119,7 @@ Click a populated activity card to open Task Center. In both views, status-text 
 
 ### Token Usage for the Current Turn
 
-Once rollout usage is available, the activity card shows seven equally sized, centered metrics beneath its status: Total, Input, Output, Cached, Cache-W, Cache-H, and Reasoning. Counts use K/M/B units. The usage row and its divider expand or collapse together, independently of `Animation Effects`. Both remain hidden when usage is unavailable.
+Once rollout usage is available, the activity card shows token metrics beneath its status, including totals, input and output, cache usage, and reasoning output. Counts use K/M/B units. The usage row and its divider expand or collapse together, independently of `Animation Effects`. Both remain hidden when usage is unavailable.
 
 While a task is running or waiting for approval, usage updates for main and child threads whose ownership is confirmed. Later thread records fill in the subtotal. Completed and terminated tasks briefly reread turn usage and display it once a complete total is available. Later temporary read failures preserve the usage already obtained for the ended task. These values cover the current turn and its subagents, rather than the entire conversation.
 

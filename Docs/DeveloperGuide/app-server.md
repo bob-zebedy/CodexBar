@@ -61,7 +61,7 @@ CodexCLIResolver
 
 从 Finder 或登录项启动的 `LSUIElement` App 通常没有用户交互式 shell 注入的完整 `PATH`。如果只调用 `/usr/bin/env codex`，Homebrew, Volta 或 npm 全局安装会在 Terminal 中可用，在 CodexBar 中却不可见。
 
-resolver 会做 3 层归一化：
+resolver 按以下步骤归一化进程环境：
 
 1. 使用 `getpwuid(getuid())` 解析真实登录用户主目录，避免继承 Xcode 或容器环境的错误 `HOME`
 2. 保留现有 `PATH`，再按顺序补充常见目录并去重
@@ -431,7 +431,7 @@ Hook 设置也复用 app-server 链路，但采用独立的可用性状态：
 
 日志用于观察进程启动、JSON-RPC 方法、重试和错误分类。不应写入 access token 或 Hook prompt 内容。
 
-`CodexProxyError` 的配置错误只写入系统日志 `settings` 分类，不创建 app-server 请求日志。RPC 响应及错误写入交互日志前，先解析 JSON 转义并遍历字符串值，对 HTTP/HTTPS URL 的认证信息脱敏；非 JSON 文本使用文本脱敏。
+`CodexProxyError` 的配置错误只写入系统日志 `settings` 分类，不创建 app-server 请求日志。RPC 响应及错误写入交互日志前，先解析 JSON 转义并遍历字符串值，将 HTTP/HTTPS URL 中的用户名和密码替换为 `<redacted>`；非 JSON 文本直接执行同样的替换。
 
 ### 请求日志与系统日志
 
@@ -473,7 +473,7 @@ Reset Credits 明细包含 opaque credit ID。系统日志不能记录 ID 或原
 - 消费成功后的完整额度刷新不会被并发普通刷新丢弃
 - 手动刷新后 60 秒倒计时重新对齐
 
-代理相关验证还包括：停用无效配置、清除损坏记录、测试取消后旧结果隔离、快速连续切换只提交一次、提交失败回滚，以及普通 URL 和 JSON 转义 URL 的日志脱敏。
+代理相关验证还包括：停用无效配置、清除损坏记录、测试取消后旧结果隔离、快速连续切换只提交一次、提交失败回滚，以及日志中普通 URL 和 JSON 转义 URL 的用户名、密码替换。
 
 ## 关键源码
 

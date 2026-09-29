@@ -20,7 +20,7 @@ App-server account data, rate limits, account token totals, Reset Credits, Autom
 
 ## Data Sources
 
-Hook daily aggregates combine three kinds of data. See [Rollout Token History](#rollout-token-history) for the turn ledger and its cloud cache.
+Hook daily aggregates combine the following data. See [Rollout Token History](#rollout-token-history) for the turn ledger and its cloud cache.
 
 | Data | Authoritative source | Offline behavior |
 | --- | --- | --- |
@@ -61,7 +61,7 @@ Sync runs only when all conditions hold:
 
 Each sync checks all dates within local retention and uses hashes to select data that needs uploading, so initial sync and subsequent backfill use the same flow. Scheduling has a minimum 8-second cooldown to coalesce several local changes.
 
-## Device Pseudonymization
+## Device Identifier Hashing
 
 Sync must distinguish device contributions without uploading a raw hardware identifier:
 
@@ -70,7 +70,7 @@ Sync must distinguish device contributions without uploading a raw hardware iden
 3. Compute HMAC-SHA256 of the UUID with the account salt
 4. Use the result as the cloud `deviceId`
 
-The raw `IOPlatformUUID` is never uploaded. One device receives a stable pseudonym within one iCloud account and a different value in another account.
+The raw `IOPlatformUUID` is never uploaded. One device receives a stable hashed device identifier within one iCloud account and a different value in another account.
 
 The salt lives in the same private custom zone. If several devices attempt initial creation, they converge on the existing record by reading it after a CloudKit conflict instead of keeping incompatible salts.
 
@@ -81,7 +81,7 @@ Local state records the most recently resolved `deviceId`. If it changes, sync c
 Each daily record contains:
 
 - Schema
-- Device ID pseudonym
+- Hashed device identifier `deviceId`
 - Date
 - Source generation
 - Hook event counts
@@ -118,7 +118,7 @@ Deploy the following record type and fields to the CloudKit production schema be
 | `startedAt` | Date | Optional turn start time |
 | `observedAt` | Date | Latest cumulative observation time |
 | `rebuiltAt` | Date | Optional explicit rebuild time that supersedes stale statistics |
-| `usage` | Bytes | Optional JSON with six token counters |
+| `usage` | Bytes | Optional JSON with token counters |
 
 Record names use the stable turn hash without a prefix; `schemaVersion` describes the data format. A record without `usage` contributes no tokens: root records can anchor child dates, and records carrying `rebuiltAt` can clear a turn’s previous counts. Uploads fetch the existing record, retain the more complete cumulative snapshot, and use `ifServerRecordUnchanged`. Conflicts are fetched and merged again on the next sync. Counters from separate snapshots are not combined field by field.
 
@@ -139,7 +139,7 @@ Automatic replay reports progress in the `workflow` system log after each commit
 ```text
 Read local sync state
   -> Create or confirm custom zone
-  -> Read account salt and resolve device pseudonym
+  -> Read account salt and compute the hashed device identifier
   -> Update local state for the device identity and schema
   -> Fetch remote changes into the cache and process replacement dates
   -> Upload changed dates for this device
@@ -256,7 +256,7 @@ Sync state lives at:
 
 The current CloudKit record schema is `6`. The local sync-state schema is `4` and can read the previous schema `3`.
 
-The three files have different recovery costs:
+Recovery costs differ by file:
 
 | File | Cost if lost | Recovery |
 | --- | --- | --- |

@@ -9,7 +9,7 @@
 | 分类 | 示例 | 默认处理 |
 | --- | --- | --- |
 | 内容 | prompt, response, tool 参数和输出 | 不采集 |
-| 身份和上下文 | session ID、完整路径、project 名 | 仅在必要链路最小化使用，上传前脱敏或删除 |
+| 身份和上下文 | session ID、完整路径、project 名 | 原始 session ID 和完整路径不上传；Token 轮次使用哈希标识，项目显示名随统计上传 |
 | 聚合指标 | 每日事件数、model 计数 | 可本地持久化，用户 opt-in 后上传规定字段 |
 
 ## 信任边界
@@ -51,9 +51,9 @@ CodexBar 的最小化顺序是：
 | app-server 账户、额度和 Reset Credits | 主面板、通知判断和用户启用的自动重置 | 仅短期状态 | 否 |
 | Hook 结构化事件 | 历史聚合和实时任务 | 是，最长 210 天 | 只上传日聚合 |
 | rollout 生命周期 | terminal 和进展对账 | 不单独持久化 | 否 |
-| rollout token 累计值 | 轮次去重和日汇总 | 哈希身份、时间和计数，210 天 | 用户启用同步后上传脱敏轮次累计值 |
+| rollout token 累计值 | 轮次去重和日汇总 | 轮次哈希标识、时间和计数，210 天 | 用户启用同步后上传轮次哈希标识及累计值 |
 | App 设置 | 功能开关和阈值 | UserDefaults | 否 |
-| Activity Protection | 异常会话恢复 | 哈希身份，最长 24 小时 | 否 |
+| Activity Protection | 异常会话恢复 | 任务哈希标识，最长 24 小时 | 否 |
 | CodexBarHelper ownership | 系统睡眠恢复 | root 状态文件 | 否 |
 | 自动重置唤醒计划 | 固定 owner、`wake` 类型和下一次时间 | 系统电源管理 | 否 |
 
@@ -65,7 +65,7 @@ App 通过本机 `codex app-server --listen stdio://` 获取账户、额度、to
 
 CodexBar 不自行实现账户登录。app-server 是否访问 OpenAI 服务由 Codex CLI 的正常认证和协议行为决定。
 
-CodexBar 只通过 stdio 与本机进程通信，不从 app-server 响应中复制认证材料。request log 保存规范化后的完整请求与响应 JSON，只存在当前 App 进程内存，不持久化。内容可能包含账户响应、opaque credit ID 和幂等键，不能把它当作脱敏摘要。
+CodexBar 只通过 stdio 与本机进程通信，不从 app-server 响应中复制认证材料。request log 保存规范化后的完整请求与响应 JSON，只存在当前 App 进程内存，不持久化。日志保留账户响应、opaque credit ID 和幂等键等协议字段。
 
 ### Hook 事件
 
@@ -87,7 +87,7 @@ Hook 子进程从 rollout 首条 `session_meta` 的完整记录或已完成字�
 
 Hook recorder 通过 `transcript_path` 读取当前 rollout，`SubagentStop` 的来源使用子线程自身的 `agent_transcript_path`。实时活动 reader 访问 `$CODEX_HOME/sessions` 和 `$CODEX_HOME/archived_sessions` 中相关主线程及子线程的文件。
 
-这些读取只解析来源分类、线程及轮次归属、生命周期、时间、turn context、progress、effort、reviewer 和 token 计数等结构字段。实时线程关联只在内存中使用；历史 token 账本仅保存哈希身份、必要时间和六项累计计数。对话正文不进入 CodexBar 存储或 UI。
+这些读取只解析来源分类、线程及轮次归属、生命周期、时间、turn context、progress、effort、reviewer 和 token 计数等结构字段。实时线程关联只在内存中使用；历史 token 账本仅保存轮次哈希标识、必要时间和 Token 累计计数。对话正文不进入 CodexBar 存储或 UI。
 
 Token 历史扫描从文件起点建立轮次账本，再按游标增量读取。云端身份使用账户 salt 做 HMAC-SHA256，不上传原始线程或轮次 ID。字段和保留规则见 [Rollout Token 历史](sync.md#rollout-token-历史)
 
@@ -210,13 +210,13 @@ App 内 [`RequestLog.swift`](../../CodexBar/Services/CodexStatus/RequestLog.swif
 - 完整项目路径或敏感项目名
 - 账户额度和 token 用量明细
 
-`CodexProxyError` 的固定错误文案写入系统日志的 `settings` 分类，不包含配置值。app-server 响应写入 App 交互日志前会解析 JSON 转义，对字符串值中的 HTTP/HTTPS URL 认证信息脱敏；其他账户和协议字段仍按请求日志规则保留。
+`CodexProxyError` 的固定错误文案写入系统日志的 `settings` 分类，不包含配置值。app-server 响应写入 App 交互日志前会解析 JSON 转义，将字符串值中 HTTP/HTTPS URL 的用户名和密码替换为 `<redacted>`；其他账户和协议字段仍按请求日志规则保留。
 
 ## 网络访问
 
 | 目标 | 用途 | 触发条件 |
 | --- | --- | --- |
-| CloudKit private database | 同步日级 Hook 聚合和脱敏轮次 token 累计值 | 用户主动开启同步 |
+| CloudKit private database | 同步日级 Hook 聚合、轮次哈希标识及 Token 累计值 | 用户主动开启同步 |
 | Codex 服务（app-server 子进程） | 认证、额度、用量和 Reset Credit 消费 | 正式刷新、代理测试或自动重置 |
 | Sparkle appcast 和更新资源 | 检查或安装更新 | 自动检查或用户手动检查 |
 
@@ -230,7 +230,7 @@ CodexBarHelper 不进行任何网络访问。
 
 CloudKit 上传以下 Hook 日聚合字段：
 
-- 设备 pseudonym
+- 设备哈希标识 `deviceId`
 - 日期和 source generation
 - Hook 事件计数
 - session 和 turn 计数
@@ -238,7 +238,7 @@ CloudKit 上传以下 Hook 日聚合字段：
 - model 计数
 - 更新时间
 
-此外，token 历史上传账户内稳定的哈希轮次标识、根轮次关联、必要时间和六项累计计数，用于跨设备去重和按日汇总。
+此外，token 历史上传账户内稳定的哈希轮次标识、根轮次关联、必要时间和 Token 累计计数，用于跨设备去重和按日汇总。
 
 CloudKit 不上传：
 
@@ -257,7 +257,7 @@ project 显示名可能由目录名派生，仍可能包含用户敏感信息。
 
 ## root helper 的数据隔离
 
-CodexBarHelper 只需要知道 4 类状态：
+CodexBarHelper 只接收以下状态：
 
 - 哪个已验证客户端持有哪一代 lease
 - `SleepDisabled` 当前实测值

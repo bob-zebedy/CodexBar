@@ -23,7 +23,7 @@ AutoResetController
 
 ## State Layers
 
-State is split into four layers:
+State is separated by responsibility:
 
 | Layer | Representative field | Question answered |
 | --- | --- | --- |
@@ -142,7 +142,7 @@ App assertions cover only the current process. CodexBarHelper manages system-lev
 
 CodexBarHelper registers as a LaunchDaemon through `SMAppService`. The app and helper use the XPC interface in [`CodexBarHelperXPC.swift`](../../../Shared/CodexBarHelperXPC.swift).
 
-The interface exposes only four capability classes:
+The interface exposes the following capabilities:
 
 - Set or revoke an app lease
 - Query helper runtime and ownership state

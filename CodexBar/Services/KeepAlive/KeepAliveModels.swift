@@ -53,7 +53,7 @@ extension KeepAliveController {
         }
 
         /// 日志用的小时数, 与 LowBatteryThreshold 的百分比同一种可读形式, 无限制同样记 -1
-        /// rawValue 是秒数, 直接记会得到 14400 这种不好读的值
+        /// rawValue 使用秒数, 日志转换为小时便于阅读
         var loggedHours: Int {
             self == .unlimited ? -1 : rawValue / 3600
         }
@@ -127,7 +127,7 @@ extension KeepAliveController {
 
     /// shouldDisableSleep 的求值结果与它依赖的各项, 只用于变化检测与日志
     /// blockReason 与 shouldDisableSleep 同源, 不会出现"字段都满足却报某项缺失"
-    /// battery 只放布尔: 放电量百分比会让每掉 1% 都记一条
+    /// battery 只保存布尔状态, 避免电量每次变化都触发日志
     struct SleepConditions: Equatable {
         let blockReason: SleepBlockReason?
         let enabled: Bool

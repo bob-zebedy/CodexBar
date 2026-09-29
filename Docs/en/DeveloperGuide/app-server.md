@@ -61,7 +61,7 @@ The data directory uses `CODEX_HOME` when set and otherwise uses `~/.codex` unde
 
 An `LSUIElement` app launched from Finder or Login Items usually lacks the complete `PATH` injected by an interactive shell. Calling only `/usr/bin/env codex` would make Homebrew, Volta, or global npm installations work in Terminal but disappear from CodexBar.
 
-The resolver normalizes in three layers:
+The resolver normalizes the process environment as follows:
 
 1. Resolve the real login user's home with `getpwuid(getuid())`, avoiding an incorrect `HOME` inherited from Xcode or a container
 2. Preserve the existing `PATH`, then append common directories in order and deduplicate
@@ -77,7 +77,7 @@ A connection may be reused for up to 1 hour. If the user upgrades the on-disk bi
 
 ## In-App Proxy
 
-The proxy is implemented by four types:
+The proxy is implemented by the following types:
 
 | Type | Responsibility |
 | --- | --- |
@@ -431,7 +431,7 @@ Enabling or validating Hook calls `readyConnectionInfo()`:
 
 It helps inspect process startup, JSON-RPC methods, retries, and error classifications. It must not contain access tokens or Hook prompt content.
 
-`CodexProxyError` configuration failures go to the `settings` category in system logs without creating app-server request-log entries. Before RPC responses and errors enter the interaction log, JSON escapes are decoded and string values are traversed to redact HTTP/HTTPS URL credentials. Non-JSON messages use text redaction.
+`CodexProxyError` configuration failures go to the `settings` category in system logs without creating app-server request-log entries. Before RPC responses and errors enter the interaction log, JSON escapes are decoded and string values are traversed to replace usernames and passwords in HTTP/HTTPS URLs with `<redacted>`. Non-JSON messages receive the same replacement directly.
 
 ### Request and System Logs
 
@@ -473,7 +473,7 @@ Reset Credits details include opaque credit IDs. Unified logs must not record ID
 - A full rate-limit refresh after redemption is not dropped behind a concurrent ordinary refresh
 - The 60-second countdown realigns after manual refresh
 
-Proxy checks also cover disabling invalid settings, clearing corrupt records, isolating canceled test results, submitting only once during rapid toggles, rolling back failed commits, and redacting credentials in plain and JSON-escaped URLs.
+Proxy checks also cover disabling invalid settings, clearing corrupt records, isolating canceled test results, submitting only once during rapid toggles, rolling back failed commits, and replacing usernames and passwords in plain and JSON-escaped URLs with `<redacted>`.
 
 ## Key Source Files
 

@@ -6,13 +6,13 @@
 
 | Document | Contents |
 | --- | --- |
-| [Architecture](architecture.md) | Processes, modules, lifecycle, actor boundaries, and the three data flows |
+| [Architecture](architecture.md) | Processes, modules, lifecycle, actor boundaries, and data flows |
 | [Design Principles and Key Decisions](design-decisions.md) | State ownership, concurrent commits, data recovery, and privilege boundaries |
 | [app-server Data Flow](app-server.md) | CLI discovery, proxy configuration and tests, JSON-RPC sessions, account data, rate limits, usage refresh, and Automatic Reset |
 | [Hook Capture and Historical Aggregation](hook-and-aggregation.md) | Hook installation, event persistence, aggregation, retention, and schema evolution |
 | [Live Task Monitoring](activity-monitor.md) | Incremental reading, rollout reconciliation, task state machine, and Stalled Task Protection |
 | [Sleep Prevention System](sleep-prevention.md) | IOKit assertions, CodexBarHelper, XPC leases, Automatic Reset wake schedules, and recovery |
-| [CloudKit Sync](sync.md) | Private database, device pseudonymization, upload, merge, and rebuild |
+| [CloudKit Sync](sync.md) | Private database, device identifier hashing, upload, merge, and rebuild |
 | [Notification System](notifications.md) | Notification triggers, deduplication, sounds, haptics, and click behavior |
 | [UI and App Lifecycle](ui-and-lifecycle.md) | Menu bar, panels, focus, global shortcuts, and service assembly |
 | [Data and Privacy Boundaries](data-and-privacy.md) | Local files, network access, cloud fields, and logging boundaries |

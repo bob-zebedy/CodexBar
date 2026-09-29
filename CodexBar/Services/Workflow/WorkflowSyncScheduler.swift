@@ -214,7 +214,7 @@ final class WorkflowSyncScheduler {
         }
     }
 
-    /// 空转的一轮什么都没改, 跟着 60 秒额度刷新记一条会把空闲机器的日志刷没
+    /// 空转轮次不记录日志, 避免周期刷新产生重复信息
     /// 同步自身的起止由 WorkflowSyncService 记, 这里只承载维护结果, 不给 sync 开后门
     private func logMaintenanceOutcome(
         synchronize: Bool,

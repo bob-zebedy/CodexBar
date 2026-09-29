@@ -285,7 +285,7 @@ Source generation distinguishes raw sources for the same day. Same-source result
 
 ### `pending` Versus `dirty`
 
-`maintenance.json` tracks two work states for a date:
+`maintenance.json` tracks the following work states for a date:
 
 | State | Used when | Next step |
 | --- | --- | --- |
@@ -298,7 +298,7 @@ Explicit states are safer than guessing from `offset == 0`. A new empty file, tr
 
 ### Determining Whether a File Is the Same Source
 
-Maintenance combines four kinds of evidence:
+Maintenance combines the following evidence:
 
 - Whether inode identity changed
 - Whether current size is below consumed offset
@@ -436,7 +436,7 @@ Maintenance normally follows the 60-second refresh. An idle machine would otherw
 
 ### How the Scheduler Coalesces Requests
 
-`WorkflowSyncScheduler` serializes three request classes:
+`WorkflowSyncScheduler` serializes the following requests:
 
 1. User rebuild, highest priority
 2. Maintenance with sync

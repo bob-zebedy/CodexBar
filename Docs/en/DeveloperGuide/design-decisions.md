@@ -58,4 +58,4 @@ Activity Protection and helper ownership records recover state changes that have
 
 Task identification, Automatic Reset policy, and networking run in the main app. The root helper accepts only fixed sleep-lease and wake operations, validates client signatures, and reads back system results.
 
-CloudKit syncs daily activity aggregates and pseudonymous thread-turn token records. Raw events, raw session identifiers, account data, and proxy passwords remain local. Project display names are uploaded only after the user enables sync. See [Data and Privacy Boundaries](data-and-privacy.md) for fields and storage scope.
+CloudKit syncs daily activity aggregates and thread-turn token records, using identifiers derived by hashing the combined thread and turn IDs. Raw events, raw session identifiers, account data, and proxy passwords remain local. Project display names are uploaded only after the user enables sync. See [Data and Privacy Boundaries](data-and-privacy.md) for fields and storage scope.

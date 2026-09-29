@@ -93,7 +93,7 @@ final nonisolated class AppServerSession {
             }
         }
 
-        // 先解码 JSON 转义, 避免 URL 中的斜杠或 Unicode 转义绕过脱敏
+        // 先解码 JSON 转义, 才能匹配 URL 中的用户名和密码并替换为 <redacted>
         if let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: .fragmentsAllowed),
            let data = try? JSONSerialization.data(withJSONObject: redact(object), options: [.fragmentsAllowed, .sortedKeys, .withoutEscapingSlashes]),
            let result = String(data: data, encoding: .utf8) {

@@ -41,18 +41,15 @@ final class FallbackPanelController {
         panel?.orderOut(nil)
     }
 
-    func resizeIfVisible(animated: Bool) {
-        guard let panel, panel.isVisible else { return }
-        let size = contentSize(for: panel)
-        guard panel.frame.size != size else { return }
+    func resizeIfVisible(contentHeight: CGFloat) {
+        guard let panel, panel.isVisible,
+              contentHeight.isFinite, contentHeight > 0,
+              panel.frame.height != contentHeight else { return }
         var frame = panel.frame
-        frame.origin.y = frame.maxY - size.height
-        frame.size = size
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = animated ? 0.20 : 0
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            panel.animator().setFrame(frame, display: true)
-        }
+        frame.origin.y = frame.maxY - contentHeight
+        frame.size.height = contentHeight
+        // 高度已由 SwiftUI 逐帧插值, 再启动窗口动画会让宿主滞后于内容
+        panel.setFrame(frame, display: true)
     }
 
     private func makePanelIfNeeded() -> KeyableBorderlessPanel {

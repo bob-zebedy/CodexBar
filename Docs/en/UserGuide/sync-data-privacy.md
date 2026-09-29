@@ -19,7 +19,7 @@ The main panel footer and Settings show sync status. Settings also shows the las
 
 ## Uploaded Data
 
-Synced data is stored in your private iCloud database. It includes dates, daily event and session statistics, project display names, model names, and identifiers used to distinguish devices and avoid duplicate counts. Token history separately syncs pseudonymous turn identities, necessary timestamps, and six cumulative counters for cross-device deduplication and daily totals.
+Synced data is stored in your private iCloud database. It includes dates, daily event and session statistics, project display names, model names, and identifiers used to distinguish devices and avoid duplicate counts. Token history separately syncs hashed identifiers derived from thread and turn IDs, necessary timestamps, and cumulative token counters for cross-device deduplication and daily totals.
 
 The following are not synced:
 

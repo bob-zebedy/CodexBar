@@ -4,7 +4,7 @@
 
 ## 环境与构建
 
-需要 macOS 15+、Xcode、Swift 6、`swiftformat` 和 `swiftlint`。唯一 scheme 为 `CodexBar`，包含 App、`CodexBarHelper` 和 `CodexBarTests` 三个 target。
+需要 macOS 15+、Xcode、Swift 6、`swiftformat` 和 `swiftlint`。唯一 scheme 为 `CodexBar`，包含 App、`CodexBarHelper` 和 `CodexBarTests` target。
 
 ```bash
 xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build

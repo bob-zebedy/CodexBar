@@ -43,7 +43,7 @@ Sessions and turns are deduplicated within each day; activity continuing into an
 
 ## Disable Hook
 
-Disabling Hook stops updates to live tasks, task notifications, haptics, sleep prevention, and Hook statistics, and stops cross-device sync for activity and token history. The heatmap hides its two-column history details. Account, quota, and the app-server token heatmap remain available.
+Disabling Hook stops updates to live tasks, task notifications, haptics, sleep prevention, and Hook statistics, and stops cross-device sync for activity and token history. The heatmap hides its history details. Account, quota, and the app-server token heatmap remain available.
 
 Hook records task information such as time, model, tool name, and project, without saving prompt, reply, or tool input/output content. See [Data, Sync, and Privacy](sync-data-privacy.md) for retention and sync details.
 

@@ -9,7 +9,7 @@ Classifying data during development helps determine its storage and propagation 
 | Class | Examples | Default handling |
 | --- | --- | --- |
 | Content | Prompts, responses, tool arguments, and output | Do not collect |
-| Identity and context | Session IDs, full paths, project names | Minimize use to necessary flows; redact or remove before upload |
+| Identity and context | Session IDs, full paths, project names | Do not upload raw session IDs or full paths; token turns use hashed identifiers, and project display names accompany statistics |
 | Aggregated metrics | Daily event counts, model counts | May persist locally; upload only specified fields after explicit opt-in |
 
 ## Trust Boundaries
@@ -51,9 +51,9 @@ CodexBar narrows data in this order:
 | app-server account, rate limits, and Reset Credits | Main panel, notification decisions, and user-enabled Automatic Reset | Short-lived state only | No |
 | Structured Hook events | Historical aggregation and live tasks | Yes, up to 210 days | Daily aggregations only |
 | Rollout lifecycle | Terminal and progress reconciliation | Not persisted separately | No |
-| Rollout token counters | Deduplicated turns and daily totals | Hashed identities, timestamps, and counts for 210 days | Pseudonymous cumulative turns when sync is enabled |
+| Rollout token counters | Deduplicated turns and daily totals | Hashed turn identifiers, timestamps, and counts for 210 days | Hashed turn identifiers and cumulative counts when sync is enabled |
 | App settings | Feature switches and thresholds | UserDefaults | No |
-| Activity Protection | Stalled-task recovery | Hashed identity, up to 24 hours | No |
+| Activity Protection | Stalled-task recovery | Hashed task identifier, up to 24 hours | No |
 | CodexBarHelper ownership | System-sleep recovery | Root-owned state file | No |
 | Automatic Reset wake schedule | Fixed owner, `wake` type, and next time | System power management | No |
 
@@ -65,7 +65,7 @@ The app launches local `codex app-server --listen stdio://` to obtain account da
 
 CodexBar does not implement account sign-in. Whether app-server accesses OpenAI services follows normal Codex CLI authentication and protocol behavior.
 
-CodexBar communicates with the local process only over stdio and does not copy authentication material from app-server responses. The request log stores normalized complete request and response JSON only in current-process memory. It may contain account responses, opaque credit IDs, and idempotency keys and must not be treated as a redacted summary.
+CodexBar communicates with the local process only over stdio and does not copy authentication material from app-server responses. The request log stores normalized complete request and response JSON only in current-process memory. The log retains protocol fields such as account responses, opaque credit IDs, and idempotency keys.
 
 ### Hook Events
 
@@ -87,7 +87,7 @@ The working directory is used only to derive a project display name and live-tas
 
 The Hook recorder reads the current rollout through `transcript_path`; origin for `SubagentStop` uses the child thread's own `agent_transcript_path`. The live-activity reader accesses relevant main-thread and child-thread files under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions`.
 
-These reads parse structural fields including origin classification, thread and turn relationships, lifecycle, time, turn context, progress, effort, reviewer, and token counters. Live thread associations remain in memory; historical token records store hashed identities, necessary timestamps, and six cumulative counters. Conversation text does not enter CodexBar storage or UI.
+These reads parse structural fields including origin classification, thread and turn relationships, lifecycle, time, turn context, progress, effort, reviewer, and token counters. Live thread associations remain in memory; historical token records store hashed turn identifiers, necessary timestamps, and cumulative token counters. Conversation text does not enter CodexBar storage or UI.
 
 Historical token scanning starts at the beginning of each source and then follows persisted cursors. Cloud identities use account-salted HMAC-SHA256; raw thread and turn IDs are not uploaded. See [Rollout Token History](sync.md#rollout-token-history) for fields and retention.
 
@@ -210,13 +210,13 @@ System logs must not contain:
 - Full project paths or sensitive project names
 - Account rate-limit or token-usage details
 
-Fixed `CodexProxyError` messages go to the `settings` system-log category without configuration values. Before app-server responses enter the app interaction log, JSON escapes are decoded and HTTP/HTTPS URL credentials in string values are redacted. Other account and protocol fields retain the existing request-log behavior.
+Fixed `CodexProxyError` messages go to the `settings` system-log category without configuration values. Before app-server responses enter the app interaction log, JSON escapes are decoded and usernames and passwords in HTTP/HTTPS URLs within string values are replaced with `<redacted>`. Other account and protocol fields retain the existing request-log behavior.
 
 ## Network Access
 
 | Destination | Purpose | Trigger |
 | --- | --- | --- |
-| CloudKit private database | Sync daily Hook aggregations and pseudonymous rollout token turns | User explicitly enables sync |
+| CloudKit private database | Sync daily Hook aggregations, hashed turn identifiers, and cumulative token counts | User explicitly enables sync |
 | Codex service, through the app-server subprocess | Authentication, rate limits, usage, and Reset Credit consumption | Regular refreshes, proxy tests, or Automatic Reset |
 | Sparkle appcast and update resources | Check for or install updates | Automatic check or manual user request |
 
@@ -230,7 +230,7 @@ When a proxy is enabled, its address and optional credentials are passed through
 
 CloudKit uploads these daily Hook aggregate fields:
 
-- Device pseudonym
+- Hashed device identifier `deviceId`
 - Date and source generation
 - Hook event counts
 - Session and turn counts
@@ -238,7 +238,7 @@ CloudKit uploads these daily Hook aggregate fields:
 - Model counts
 - Update time
 
-Token history also uploads account-scoped hashed turn identities, root-turn links, necessary timestamps, and six cumulative counters for cross-device deduplication and daily totals.
+Token history also uploads account-scoped hashed turn identities, root-turn links, necessary timestamps, and cumulative token counters for cross-device deduplication and daily totals.
 
 CloudKit does not upload:
 
@@ -257,7 +257,7 @@ A project display name may derive from a directory name and still contain sensit
 
 ## Root Helper Data Isolation
 
-CodexBarHelper needs only four kinds of state:
+CodexBarHelper receives only the following state:
 
 - Which verified client holds which lease generation
 - The currently measured `SleepDisabled` value

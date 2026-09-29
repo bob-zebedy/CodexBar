@@ -222,7 +222,7 @@ Terminal resolution requires a nonempty `payload.turn_id` and a `complete` curre
 | Cache hit rate | `cached_input_tokens / input_tokens`; undefined when input is zero |
 | Reasoning | `reasoning_output_tokens` |
 
-All six counters must be present and nonnegative. Total must equal input plus output, cache hits plus writes must not exceed input, and reasoning must not exceed output. Parsing also validates the identities and ownership in `thread_id`, `session_id`, `turn_id`, `root_turn_id`, and `response_id`. Missing fields or failed validation produce no usage. Zero cache-write or reasoning counts in valid records are displayed as zero.
+All required token counters must be present and nonnegative. Total must equal input plus output, cache hits plus writes must not exceed input, and reasoning must not exceed output. Parsing also validates the identities and ownership in `thread_id`, `session_id`, `turn_id`, `root_turn_id`, and `response_id`. Missing fields or failed validation produce no usage. Zero cache-write or reasoning counts in valid records are displayed as zero.
 
 `CodexActivityTokenUsage.swift` collects main and associated child-thread references for the root task, deduplicating by thread and turn. While running, it sums matching threads with complete current reads; threads without usage wait for later refreshes. The displayed value may therefore be a subtotal of known threads. The live card reads the in-memory task snapshot, not historical daily totals or iCloud caches.
 
@@ -488,7 +488,7 @@ Every valid progress event increments `progressGeneration`. A protection candida
 - Progress generation
 - Threshold at the time
 
-All four must still match when notification returns or grace expires. Any new progress or threshold change invalidates the old attempt.
+All of these must still match when notification returns or grace expires. Any new progress or threshold change invalidates the old attempt.
 
 Candidates using the partial-tail fallback also revalidate observation freshness and the inactivity deadline. Further tail growth or a read failure cancels a pending suppression attempt.
 

@@ -6,7 +6,7 @@
 
 [`CodexNotificationService.swift`](../../../CodexBar/Services/Notifications/CodexNotificationService.swift) is the single entry point for notification side effects.
 
-It consumes four kinds of state:
+It consumes the following state:
 
 - App-server account and quota snapshots
 - `CodexActivityMonitor` task transitions and Activity Protection candidates
@@ -35,7 +35,7 @@ Haptic feedback does not depend on `UNUserNotificationCenter` authorization but 
 
 ## Notification Switches
 
-The master switch is off by default. The eight configurable category switches default to on, and haptic feedback defaults to off.
+The master switch is off by default. The configurable category switches default to on, and haptic feedback defaults to off.
 
 While the master switch is off, CodexBar neither requests system notification permission nor sends category notifications. Once it is on, category settings select specific types:
 
@@ -210,7 +210,7 @@ System default and silent choices cannot be previewed. Preview is available for 
 
 ## Haptic Feedback
 
-Haptic feedback is off by default. When enabled, it uses 10 pulses roughly 100 ms apart.
+Haptic feedback is off by default. When enabled, it provides a sequence of short pulses.
 
 Haptics are a separate local feedback channel from system notifications. They respond to completion or waiting transitions for non-anonymous tasks and follow the notification master switch and haptics switch, but do not depend on system authorization, a category switch, or the completion-duration threshold.
 

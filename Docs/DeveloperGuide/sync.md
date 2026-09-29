@@ -20,7 +20,7 @@ app-server 账户、额度、账户 token 总量、Reset Credits、自动重置�
 
 ## 数据来源
 
-Hook 日聚合展示同时使用 3 类值。Token 轮次账本及其云端缓存见 [Rollout Token 历史](#rollout-token-历史)
+Hook 日聚合展示使用以下数据。Token 轮次账本及其云端缓存见 [Rollout Token 历史](#rollout-token-历史)
 
 | 数据 | 权威来源 | 断网时行为 |
 | --- | --- | --- |
@@ -61,7 +61,7 @@ zone 确认和账户 salt 在 actor 内跨轮次缓存；同步失败时使两�
 
 每轮同步都会检查本地保留期内的全部日期，通过 hash 筛选需要上传的数据，首次启用和后续补传使用同一流程。同步调度有最短 8 秒冷却，合并短时间内的多次本地变化。
 
-## 设备匿名化
+## 设备标识哈希
 
 同步需要区分设备贡献，但不能直接上传硬件标识：
 
@@ -70,7 +70,7 @@ zone 确认和账户 salt 在 actor 内跨轮次缓存；同步失败时使两�
 3. 使用账户 salt 对 UUID 执行 HMAC-SHA256
 4. 把结果作为云端 `deviceId`
 
-原始 `IOPlatformUUID` 不会上传。同一设备在同一 iCloud 账户中得到稳定 pseudonym，不同账户得到不同结果。
+原始 `IOPlatformUUID` 不会上传。同一设备在同一 iCloud 账户中得到稳定的设备哈希标识，不同账户得到不同结果。
 
 salt 存在同一个 private custom zone 中。多台设备先后创建时通过 CloudKit 冲突后回读现有记录收敛到同一份 salt，而不是让每台设备各自产生不兼容身份。
 
@@ -81,7 +81,7 @@ salt 存在同一个 private custom zone 中。多台设备先后创建时通过
 每条日记录包含：
 
 - schema
-- device ID pseudonym
+- 设备哈希标识 `deviceId`
 - 日期
 - source generation
 - Hook 事件计数
@@ -118,7 +118,7 @@ Token 历史使用同一 private zone 中独立的 `CodexBarTokenTurn` 记录，
 | `startedAt` | Date | 轮次开始时间，可缺失 |
 | `observedAt` | Date | 最近累计记录的时间 |
 | `rebuiltAt` | Date | 可选的显式重建时间，用于拒绝旧统计回流 |
-| `usage` | Bytes | 六项 token 整数的 JSON，可缺失 |
+| `usage` | Bytes | Token 整数计数的 JSON，可缺失 |
 
 记录名直接使用轮次哈希，保持稳定；数据格式版本由 `schemaVersion` 字段管理。缺少 `usage` 的记录不贡献用量：根记录可用于确定子轮次日期，带 `rebuiltAt` 的记录可用于清除该轮旧计数。上传前读取服务端记录，保留更完整的累计快照，使用 `ifServerRecordUnchanged` 条件写入；并发冲突留待下一轮重新获取、合并和重试。不会把多个累计快照相加，也不会对输入、缓存和输出字段分别拼接最大值。
 
@@ -128,7 +128,7 @@ Token 历史使用同一 private zone 中独立的 `CodexBarTokenTurn` 记录，
 
 日汇总累加去重后的线程轮次，缓存命中率使用日缓存命中总量除以日输入总量。热力图颜色和账户用量来自 app-server，与 rollout 用量独立。热力图日期详情将缺失用量显示为 `0`，缓存命中率显示为 `0%`；存储与同步仍保留缺失状态。
 
-本地账本位于 `HookEvents/Tokens/ledger.json`，保存哈希身份、累计值、开始时间和文件读取游标。独立文件锁协调 Debug 和 Release。同步缓存与游标位于 `HookEvents/Sync/Tokens/cache.json`，记录按账户校验，Debug 和 Release 共用。整轮同步由非阻塞 `sync.lock` 协调，独立文件锁保护缓存读写，界面读取不等待网络。Hook 日聚合使用独立的存储与同步记录。
+本地账本位于 `HookEvents/Tokens/ledger.json`，保存轮次哈希标识、累计值、开始时间和文件读取游标。独立文件锁协调 Debug 和 Release。同步缓存与游标位于 `HookEvents/Sync/Tokens/cache.json`，记录按账户校验，Debug 和 Release 共用。整轮同步由非阻塞 `sync.lock` 协调，独立文件锁保护缓存读写，界面读取不等待网络。Hook 日聚合使用独立的存储与同步记录。
 
 历史扫描覆盖 `$CODEX_HOME/sessions` 和 `$CODEX_HOME/archived_sessions` 中最近 210 天内修改的 `rollout-*.jsonl` 文件，单轮读取预算为 64 MiB，最多额外读完一条 1 MiB 内的记录。超出预算的历史在后续维护中继续补读。同批尚未读取的文件优先处理最近修改的会话，再逐步补齐更早历史。正文大行有界跳过，半行等待下一轮补齐；文件替换、截断或读取边界改变时重新扫描，已知累计用量不会再次叠加。轮次按 `updatedAt` 保留 210 天，仍被保留子轮次引用的根记录一同保留；日汇总只展示根轮次开始日位于保留期内的数据。原始 rollout 缺失或没有 `token_usage_record` 时无法补出用量。
 
@@ -139,7 +139,7 @@ Token 历史使用同一 private zone 中独立的 `CodexBarTokenTurn` 记录，
 ```text
 读取本地同步状态
   -> 创建或确认 custom zone
-  -> 读取账户 salt 并解析设备 pseudonym
+  -> 读取账户 salt 并计算设备哈希标识
   -> 按设备身份和 schema 更新本地状态
   -> 拉取远端变更到缓存，处理待替换日期
   -> 上传当前设备变化日期
@@ -256,7 +256,7 @@ replacement 删除前全量拉取当前设备同日记录，覆盖本地增量�
 
 Hook 日聚合的 CloudKit record schema 为 `6`。本地同步状态 schema 为 `4`，能读取上一版 schema `3`
 
-3 个文件有不同的可恢复等级：
+各文件的可恢复等级如下：
 
 | 文件 | 丢失后代价 | 恢复方式 |
 | --- | --- | --- |

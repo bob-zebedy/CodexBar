@@ -24,7 +24,7 @@ nonisolated struct UsageHeatmapSelection: Equatable {
 
 // MARK: - 摘要区
 
-/// token 摘要和近 30 周热力图的组合区
+/// Token 摘要和近期用量热力图的组合区
 struct UsageSummaryView: View {
     let usage: CodexUsageSnapshot?
     let isStale: Bool
@@ -237,7 +237,7 @@ struct UsageSummaryView: View {
 
 // MARK: - 热力图与 hover 吸附
 
-/// 近 30 周 token 热力图, hover 时把指针吸附到最近的有效日期格
+/// 近期 Token 用量热力图, hover 时把指针吸附到最近的有效日期格
 struct UsageHeatmap: View {
     let days: [UsageHeatmapDay?]
     let onScreenFrameChange: (CGRect?) -> Void

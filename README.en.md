@@ -40,7 +40,7 @@ It can notify you when a task finishes, needs approval, or when your rate limits
 
 - Track total tokens, your highest daily usage, and usage streaks
 - See your longest task duration
-- Review 30 weeks of daily token usage in a heatmap
+- Review recent daily token usage in a heatmap
 - Enable CodexBar Hook for daily session, turn, tool call, subagent, and other activity metrics
 
 ### Keep track of active tasks

@@ -616,7 +616,7 @@ private extension AppSettingsView {
         // 低电量拦下时开关开着却不防睡眠, 不留一句无从解释
         // 判定用 isLowBatteryBlocking 而不是 isLowBatteryActive: 后者在没有任务时也成立, 那时无话可说
         // 它成立即意味着 helper 已就绪, 所以排在下面那个 switch 之前不影响 helper 类问题的呈现
-        // 不写具体阈值: 滞回让保护一直持续到阈值加 5, 说死数字会与用户看到的电量对不上
+        // 提示不写具体电量, 因为滞回会让保护持续到电量超过恢复阈值
         if keepAliveController.isLowBatteryBlocking {
             return SettingsStatusCaption(message: String(localized: "keep-alive.status.low-battery"))
         }

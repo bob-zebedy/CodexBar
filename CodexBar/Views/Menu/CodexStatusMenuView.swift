@@ -37,7 +37,7 @@ struct CodexStatusMenuView: View {
     @ObservedObject var workflowViewModel: WorkflowViewModel
     @ObservedObject var codexHookSettings: CodexHookSettings
     @ObservedObject var mainPanelSettings: MainPanelSettings
-    // 活动状态与逐秒时间只被活动卡片消费, 由卡片自行观察, 避免 1Hz tick 让整个菜单树每秒重算
+    // 活动状态与时间变化由卡片自行观察, 避免刷新整个菜单树
     let activityMonitor: CodexActivityMonitor
     @ObservedObject var syncSettings: WorkflowSyncSettings
     // 同 activityMonitor, 交给活动卡片自行观察, 不让 helper 状态变化重算整个菜单树

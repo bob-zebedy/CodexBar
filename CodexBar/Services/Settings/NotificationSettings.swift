@@ -4,8 +4,8 @@ import Foundation
 import os
 import UserNotifications
 
-/// 通知偏好: 总开关; 八类通知子开关及声音; 任务触觉开关; 两个阈值和系统授权状态镜像
-/// 授权请求/查询集中在这里, 通知与触觉反馈判定在 CodexNotificationService
+/// 管理通知偏好和系统授权状态
+/// 具体的通知发送与触觉反馈由 CodexNotificationService 处理
 @MainActor
 final class NotificationSettings: ObservableObject {
     @Published private(set) var isEnabled: Bool
@@ -118,6 +118,8 @@ final class NotificationSettings: ObservableObject {
         authorizationTask?.cancel()
     }
 
+    // MARK: - 偏好设置
+
     func setEnabled(_ enabled: Bool) {
         guard enabled != isEnabled else {
             return
@@ -219,6 +221,8 @@ final class NotificationSettings: ObservableObject {
         setSound(sound, current: &keepAliveLimitSound, key: Self.keepAliveLimitSoundKey)
     }
 
+    // MARK: - 系统授权
+
     /// 用户可能在系统设置里改过权限, 回到 App 时需要重新读取
     func refreshAuthorizationStatus() {
         // 系统授权弹窗也会改变 App 与窗口焦点, 查询不能取消正在等待用户回应的请求
@@ -290,12 +294,14 @@ final class NotificationSettings: ObservableObject {
         }
     }
 
+    // MARK: - 偏好读写
+
     private func setBool(_ value: Bool, current: inout Bool, key: String) {
         guard value != current else {
             return
         }
 
-        // 八个通知细项都走这里, 用持久化 key 区分是哪一项, 不必逐个 setter 铺日志
+        // 分类通知统一在这里记录日志, 用持久化 key 区分设置项
         let details = LogFields.joined(
             "key=\(key)",
             "enabled=\(value ? 1 : 0)"

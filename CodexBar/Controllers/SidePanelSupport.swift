@@ -172,7 +172,7 @@ final class SidePanelDrawerAnimator {
 
 // MARK: - 展开与收起
 
-/// 重置次数 设置子选项和并发任务中心三类一次性展开抽屉面板共用的显隐状态机
+/// 抽屉面板共用的显隐状态机, 用于重置次数 设置子选项和任务中心
 /// 负责 generation 竞态防护 入退场动画和 child window 挂载与卸载
 /// 热力图详情面板带切边与延迟隐藏 状态机不同 因此不走这里
 @MainActor

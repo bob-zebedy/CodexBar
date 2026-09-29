@@ -840,7 +840,7 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
     }
 }
 
-/// 同步存储中保存的脱敏每日聚合行: 对应 daily.jsonl 但不包含 sessionIds / turnIds
+/// 同步用的每日聚合行, 保留 daily.jsonl 中的计数, 不包含 sessionIds 和 turnIds
 nonisolated struct WorkflowSyncedDailyAggregate: Codable, Equatable {
     let date: String
     var sourceGeneration: String?

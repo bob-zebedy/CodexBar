@@ -23,7 +23,7 @@ AutoResetController
 
 ## 状态分层
 
-系统把状态拆成 4 层：
+系统按职责区分状态：
 
 | 层级 | 代表字段 | 回答的问题 |
 | --- | --- | --- |
@@ -142,7 +142,7 @@ App 侧 assertion 只覆盖当前进程生命周期。系统级 `SleepDisabled` 
 
 CodexBarHelper 通过 `SMAppService` 注册为 LaunchDaemon。App 和 CodexBarHelper 使用 [`CodexBarHelperXPC.swift`](../../Shared/CodexBarHelperXPC.swift) 定义的 XPC 接口。
 
-接口只提供 4 类能力：
+接口只提供以下能力：
 
 - 设置或撤销 App 租约
 - 查询 CodexBarHelper 运行和拥有状态
@@ -424,7 +424,7 @@ App 更新可能改变内嵌 CodexBarHelper 的签名或内容。App 会记录 C
 - App 正常退出时恢复 owned 状态
 - App 强制退出或 XPC 断开后，watchdog 恢复 owned 状态
 - 自动重置和防睡眠每次开启都显示确认，取消后保持关闭
-- 未注册、等待批准和已批准三种 helper 状态的确认文案与功能说明正确
+- 未注册、等待批准和已批准等 helper 状态的确认文案与功能说明正确
 - 包完整且没有注册错误时，`.notRegistered` 和 `.notFound` 均显示“未安装”
 - 在测试包中分别移除 Helper、移除或篡改 plist、破坏签名，启动或再次激活后显示“不可用”，已授权状态也不能掩盖包异常
 - 安装前发现缺失后，旧校验结果不覆盖新异常；关闭两个功能并修复完整 App 包后，再次激活能清除异常，关于页面仍显示状态

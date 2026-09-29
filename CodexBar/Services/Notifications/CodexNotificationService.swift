@@ -590,10 +590,12 @@ final class CodexNotificationService: NSObject {
 
     // MARK: - 发送与文案
 
-    /// 通知的 title 与 body 含项目名和任务信息, 一律不进日志, 只记 kind
-    /// 返回提交任务, 需要等通知真的发出去再做下一步的调用方 await 它的 value
-    /// 只有这一个入口: 另开一条 async 通道会让它悄悄少掉去重 时效判定和失败回调三项能力
-    /// 去重判定留在同步段, 这样连续两次 send 的第二次一定被挡下, 不依赖 Task 的调度顺序
+    /// 统一提交通知, 处理去重, 时效判定和失败回调
+    /// 去重在创建异步任务前完成, 避免连续调用重复提交
+    ///
+    /// 日志只记录 kind, 不记录包含项目名和任务信息的 title 与 body
+    ///
+    /// - Returns: 提交任务, 调用方可 await 其 value 获取提交结果
     @discardableResult
     private func send(
         _ notification: CodexNotificationContent,

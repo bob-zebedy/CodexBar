@@ -1071,7 +1071,7 @@ final class CodexActivityMonitor: ObservableObject {
     }
 
     /// SessionEnd 没有 turn_id, 以 session 为边界把活跃任务移入终态确认窗口
-    /// 任务会立即退出活跃列表, rollout 仍有 5 秒补回准确的完成或终止分类
+    /// 任务立即退出活跃列表, 后续继续从 rollout 确认完成或终止分类
     private func terminateSession(from event: WorkflowHookEvent) {
         guard let sessionId = event.sessionId else {
             return

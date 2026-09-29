@@ -123,7 +123,7 @@ final class SystemSleepService {
         }
     }
 
-    /// 逐次声明不记日志, 只在成败翻转时记一条: 这是 30 秒一拍的高频路径, 持续失败会把日志刷满
+    /// 定期声明用户活动时只记录成败变化, 避免持续失败产生重复日志
     private func declareUserActivity() {
         let result = IOPMAssertionDeclareUserActivity(
             displayAssertion.name,

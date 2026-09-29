@@ -218,9 +218,8 @@ final class SettingsWindowController: HostingWindowController {
                         keepAliveController: keepAliveController
                     )
                 },
-                // 音效子行随各开关增删, 自动重置 低电量与上限三行还跟着各自的依赖置灰
-                // 置灰会连带收起音效子行, 所以三个依赖的派生值都要订上
-                // 防睡眠只订这两个派生值: 订整个控制器会让任务每起停一次都白重算一次高度
+                // 通知选项的可用性会影响音效子行显隐, 需要订阅各项依赖的派生状态
+                // 防睡眠只订阅相关派生值, 避免每次任务起停都触发面板高度重算
                 contentChanges: Publishers.MergeMany([
                     notificationSettings.objectWillChange.eraseToAnyPublisher(),
                     codexHookSettings.objectWillChange.eraseToAnyPublisher(),

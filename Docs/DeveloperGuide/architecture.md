@@ -8,7 +8,7 @@
 
 CodexBar 是 macOS 15+ 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。
 
-工程只有 `CodexBar` scheme，包含三个 target：
+工程只有 `CodexBar` scheme，包含以下 target：
 
 | Target | 职责 |
 | --- | --- |
@@ -39,7 +39,7 @@ CodexBar executable
               `-- fixed IOPM wake event
 ```
 
-边界设计有两个关键点：
+边界设计遵循以下原则：
 
 - 同一个可执行文件承载 Hook 模式可以让 handler 始终指向当前 App 版本，不需要额外部署采集工具
 - root helper 不知道 Codex 任务、账户或重置凭证，只接收经过签名校验的睡眠租约和自动重置唤醒时间
@@ -119,7 +119,7 @@ Hook handler 在 Codex 的关键路径上，它需要的是接近命令行工具
 
 ## 3 条独立数据链路
 
-三条数据链路分别管理不同的输入、时效和失败状态：
+各数据链路分别管理不同的输入、时效和失败状态：
 
 | 链路 | 输入 | 输出 | 主要消费者 |
 | --- | --- | --- | --- |

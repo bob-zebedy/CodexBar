@@ -57,7 +57,7 @@ final class PowerSourceMonitor {
     private var hasSeenBattery = false
 
     /// 回调里持有的是 unretained 指针, 停止监听必须显式做, 由持有者在 stop 时调用
-    /// 不放 deinit: Swift 6 的 nonisolated deinit 碰不了这两个非 Sendable 属性
+    /// 在此释放资源, 因为 Swift 6 的 nonisolated deinit 无法访问这些非 Sendable 属性
     func stop() {
         isMonitoring = false
         pollTask?.cancel()

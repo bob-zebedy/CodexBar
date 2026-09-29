@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Hook 开启时常驻的活动摘要, 使用菜单面板共享的逐秒时间
-/// 在卡片内部观察 activityMonitor 与逐秒时间, 让 1Hz 失效范围只覆盖本卡片而不是整个菜单树
-/// keepAliveController 同理, 它的 helperStatus 等字段与菜单树无关却会无条件发信号
+/// Hook 开启时显示的活动摘要, 使用主面板共享的时间
+/// 活动和防睡眠状态由卡片自行观察, 避免刷新整个菜单树
 struct CodexActivityCard: View {
     @ObservedObject var activityMonitor: CodexActivityMonitor
     @ObservedObject var presentationState: CodexActivityCenterPresentationState
@@ -25,8 +24,7 @@ struct CodexActivityCard: View {
         presentationState.isPresented
     }
 
-    /// 额度数据不可用时卡片整体退到"暂无数据", 徽标属于活动信息, 必须跟着一起收
-    /// 否则会出现"暂无数据"配上防睡眠徽标的自相矛盾画面
+    /// 卡片显示"暂无数据"时一并隐藏防睡眠徽标, 保持状态一致
     private var showsKeepAliveBadge: Bool {
         keepAliveController.isActivelyPreventingSleep && !showsUnavailableState
     }
@@ -39,6 +37,8 @@ struct CodexActivityCard: View {
             String(localized: "keep-alive.status.active")
         }
     }
+
+    // MARK: - 卡片布局
 
     var body: some View {
         // 保留同一张卡片的视图身份, 空闲时只禁用交互, 避免打断内容和高度过渡
@@ -58,8 +58,9 @@ struct CodexActivityCard: View {
 
     private func card(now: Date) -> some View {
         let content = content(at: now)
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 0) {
             statusRow(content)
+                .frame(height: Metrics.height)
                 .id(snapshot.hasTaskCenterContent)
                 .transition(.opacity)
             if let usage = content.tokenUsage {
@@ -67,17 +68,16 @@ struct CodexActivityCard: View {
                     LiquidGlassDivider()
                     tokenUsageMetrics(usage)
                 }
-                .transition(.opacity.combined(with: .offset(y: 6)))
+                .frame(height: Metrics.usageHeight - Metrics.height, alignment: .top)
+                .transition(.modifier(
+                    active: ActivityTokenReveal(progress: 0),
+                    identity: ActivityTokenReveal(progress: 1)
+                ))
             }
         }
-        .animation(.codexStatus, value: showsKeepAliveBadge)
-        .animation(.codexStatus, value: content.isAnonymous)
-        // 任务数变化会让 +N 增删, 防睡眠徽标跟着横移; 两者一起纳入动画上下文才不会跳
-        .animation(.codexStatus, value: content.otherTaskCount)
         .padding(.horizontal, MenuMetrics.panelPadding)
         .frame(maxWidth: .infinity)
-        .frame(height: content.tokenUsage == nil ? Metrics.height : Metrics.usageHeight)
-        .clipped()
+        .modifier(ActivityCardHeight(height: content.tokenUsage == nil ? Metrics.height : Metrics.usageHeight))
         .activityStatusParticles(cornerRadius: MenuMetrics.panelCornerRadius)
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
         .overlay {
@@ -91,8 +91,8 @@ struct CodexActivityCard: View {
                 .animation(.codexStatus, value: isHovered)
                 .animation(.codexStatus, value: isTaskCenterPresented)
         }
-        .animation(.codexStatus, value: snapshot.hasTaskCenterContent)
-        .animation(.codexStatus, value: content.tokenUsage != nil)
+        .animation(Metrics.expansionAnimation, value: snapshot.hasTaskCenterContent)
+        .animation(Metrics.expansionAnimation, value: content.tokenUsage != nil)
     }
 
     private func statusRow(_ content: ActivityCardContent) -> some View {
@@ -154,6 +154,10 @@ struct CodexActivityCard: View {
                     .help(String(localized: "activity.summary.other-task-count", defaultValue: "\(content.otherTaskCount, specifier: "%lld")"))
             }
         }
+        .animation(.codexStatus, value: showsKeepAliveBadge)
+        .animation(.codexStatus, value: content.isAnonymous)
+        // 任务数变化会让 +N 增删, 防睡眠徽标跟着横移; 动画只作用于状态行
+        .animation(.codexStatus, value: content.otherTaskCount)
     }
 
     private func tokenUsageMetrics(_ usage: CodexTokenUsage) -> some View {
@@ -189,6 +193,8 @@ struct CodexActivityCard: View {
         }
         .frame(minWidth: 0, maxWidth: .infinity)
     }
+
+    // MARK: - 展示内容
 
     private func content(at now: Date) -> ActivityCardContent {
         switch snapshot.primaryActivity {
@@ -335,6 +341,41 @@ struct CodexActivityCard: View {
     private enum Metrics {
         static let height: CGFloat = 58
         static let usageHeight: CGFloat = 108
+        static let expansionAnimation = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.32)
+    }
+}
+
+// MARK: - 动画
+
+/// 逐帧更新布局高度, 让相邻区块和窗口同步调整
+private struct ActivityCardHeight: AnimatableModifier {
+    var height: CGFloat
+
+    var animatableData: CGFloat {
+        get { height }
+        set { height = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .frame(height: height, alignment: .top)
+            .clipped()
+    }
+}
+
+/// 用展开进度控制显隐, 让动画中途反向时保持连贯
+private struct ActivityTokenReveal: AnimatableModifier {
+    var progress: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(Double(min(1, max(0, (progress - 0.6) / 0.4))))
+            .offset(y: (1 - progress) * 4)
     }
 }
 
@@ -349,7 +390,9 @@ private struct RotatingKeepAliveSun: View {
     }
 }
 
-/// 卡片自行处理 hover/选中描边, 按钮样式不再修改 label 的前景色或透明度
+// MARK: - 辅助视图与展示模型
+
+/// 悬停和选中效果由卡片绘制, 按钮样式保留原有颜色和透明度
 private struct ActivityCardButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -369,7 +412,7 @@ private struct ActivityCardContent {
 struct CodexActivityAnonymousIcon: View {
     var body: some View {
         Image(systemName: "person.crop.circle.dashed")
-            // 虚线圆形 symbol 留白较多, 13 pt 与 11 pt 咖啡图标的视觉面积更接近
+            // 虚线圆形 symbol 留白较多, 适当放大以接近相邻状态图标的视觉面积
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(Color.orange)
             .help("activity.anonymous.keep-awake-exclusion")

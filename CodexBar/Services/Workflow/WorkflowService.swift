@@ -12,7 +12,7 @@ private nonisolated enum MaintenanceStage: String {
 }
 
 /// 一轮汇总的计数, 成功路径压进 WorkflowSyncScheduler 的收尾那一条日志, 不为每天单独记一行
-/// dates 由三个分支相加得出, 不额外存一份
+/// dates 从各处理结果的计数求和得出, 不额外保存
 nonisolated struct WorkflowMaintenanceCounts {
     var events = 0
     var written = 0
@@ -304,7 +304,7 @@ actor WorkflowService {
     }
 
     /// 空转的一轮返回 nil
-    /// 它跟着每 60 秒的额度刷新跑, 无条件记会让空闲机器每天多出上千条没有信息的日志
+    /// 维护跟随额度刷新执行, 只记录有实际工作的轮次, 避免空闲时持续产生重复日志
     /// 收尾日志由 WorkflowSyncScheduler 统一记, 这里只负责判断有没有值得记的东西
     private func performMaintenanceIfNeeded() -> WorkflowMaintenanceCounts? {
         let duration = LogDuration()
@@ -497,11 +497,10 @@ actor WorkflowService {
         return changed
     }
 
-    /// boundaryHash 覆盖的是 [offset-4KB, offset), 而追加只写在 offset 之后,
-    /// 所以文件没被写过时那段字节不可能变化, 无需重算哈希.
-    /// 保留期内可能有上百个历史文件, 每轮全量重算会显著拉长持锁时间,
-    /// 而 Hook 子进程要等这把锁才能记录事件.
-    /// 返回边界是否变化, 以及重算确认无变化时应记下的 mtime (无需记录时为 nil)
+    /// boundaryHash 覆盖 offset 之前的边界片段, 追加只写在 offset 之后
+    /// 文件未修改时复用已有哈希, 减少持锁时间和 Hook 子进程的等待
+    ///
+    /// - Returns: 边界是否变化, 以及确认边界未变时的文件修改时间. 无需记录时, 时间为 nil
     private func boundaryStatus(
         dateKey: String,
         day: WorkflowDayMaintenanceState,
@@ -1110,8 +1109,7 @@ nonisolated enum WorkflowStorage {
         }
     }
 
-    /// 轮询间隔从 1ms 起翻倍: 维护流程每次持锁都只有几毫秒,
-    /// 固定长间隔会让 Hook 子进程为一次已经释放的锁白等一整个间隔
+    /// 锁轮询从短间隔开始逐步退避, 兼顾短期争用的响应速度和持续争用时的开销
     private static let lockMinimumRetryIntervalMicroseconds: UInt32 = 1000
     private static let lockMaximumRetryIntervalMicroseconds: UInt32 = 20000
 
@@ -1140,7 +1138,7 @@ nonisolated enum WorkflowStorage {
     }
 
     /// 单次 stat 同时返回大小与 inode 标识, 文件缺失或不可读时为 nil
-    /// 维护流程每轮要 stat 上百个事件文件, 用裸 stat(2) 而非 attributesOfItem 避免逐个构造属性字典
+    /// 维护流程需要批量读取文件状态, 直接使用 stat(2) 避免逐个构造属性字典
     /// mtime 记整数纳秒: 落盘状态用 JSON 编码, Date 会退化成浮点而无法精确比较
     /// 沿用 attributesOfItem 的语义跟随符号链接, 因此用 stat 而非 lstat
     static func fileStat(at url: URL) -> WorkflowFileStat? {
@@ -1214,7 +1212,7 @@ nonisolated enum WorkflowStorage {
 }
 
 /// 记录单日事件文件已处理到的 offset, 支持后续增量维护
-/// stat(2) 里维护流程需要的三个字段
+/// 维护流程使用的文件状态字段
 nonisolated struct WorkflowFileStat {
     let size: UInt64
     let identifier: UInt64
