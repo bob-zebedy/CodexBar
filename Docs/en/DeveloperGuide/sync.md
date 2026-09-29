@@ -4,9 +4,9 @@
 
 ## Sync Scope
 
-CloudKit sync merges daily Hook metrics across Macs signed in to the same iCloud account.
+CloudKit sync merges daily Hook metrics and rollout token usage across Macs signed in to the same iCloud account.
 
-It syncs aggregated results, not raw Hook events:
+Hook sync transfers daily aggregates:
 
 ```text
 Local raw Hook JSONL
@@ -16,11 +16,11 @@ Local raw Hook JSONL
   -> Merge by date for display
 ```
 
-Account data, rate limits, total tokens, Reset Credits, Automatic Reset settings and state, live tasks, and sleep-prevention state do not sync.
+App-server account data, rate limits, account token totals, Reset Credits, Automatic Reset settings and state, live tasks, and sleep-prevention state do not sync.
 
 ## Data Sources
 
-Synced presentation combines three kinds of values:
+Hook daily aggregates combine three kinds of data. See [Rollout Token History](#rollout-token-history) for the turn ledger and its cloud cache.
 
 | Data | Authoritative source | Offline behavior |
 | --- | --- | --- |
@@ -42,6 +42,7 @@ The remote cache is a rebuildable projection, and the cursor is only an optimiza
 | Custom zone | `CodexBarZone` |
 | Metadata record type | `CodexBarSyncMetadata` |
 | Daily aggregate record type | `CodexBarDailyAggregate` |
+| Token-turn record type | `CodexBarTokenTurn` |
 
 Private-database content belongs only to the current iCloud account and is never written to the public database.
 
@@ -96,11 +97,42 @@ It does not upload:
 - Full working directories
 - Prompt or response content
 - Codex account or rate-limit data
-- Tokens or files such as `auth.json`
+- Authentication tokens or credential files such as `auth.json`
 - App request logs
 - Stalled Task Protection state
 
 For complete boundaries, see [Data and Privacy Boundaries](data-and-privacy.md).
+
+## Rollout Token History
+
+Token history uses a separate `CodexBarTokenTurn` record type with schema `1` in the same private zone. Each record represents one thread and turn. Cumulative snapshots replace the previous contribution; they are never summed by device. Main and child threads contribute once each, attributed to the root turn's start date in the viewing device's local time zone.
+
+Local identities are SHA-256 hashes of thread and turn IDs. Cloud identities apply account-salted HMAC-SHA256 to those hashes, so copied rollouts on different Macs resolve to the same record. No raw session, turn, or agent ID is uploaded.
+
+Deploy the following record type and fields to the CloudKit production schema before distribution:
+
+| Field | CloudKit type | Meaning |
+| --- | --- | --- |
+| `schemaVersion` | Int64 | `1` |
+| `rootID` | String | Account-scoped root-turn hash |
+| `startedAt` | Date | Optional turn start time |
+| `observedAt` | Date | Latest cumulative observation time |
+| `rebuiltAt` | Date | Optional explicit rebuild time that supersedes stale statistics |
+| `usage` | Bytes | Optional JSON with six token counters |
+
+Record names use the stable turn hash without a prefix; `schemaVersion` describes the data format. A record without `usage` contributes no tokens: root records can anchor child dates, and records carrying `rebuiltAt` can clear a turn’s previous counts. Uploads fetch the existing record, retain the more complete cumulative snapshot, and use `ifServerRecordUnchanged`. Conflicts are fetched and merged again on the next sync. Counters from separate snapshots are not combined field by field.
+
+Explicit rebuilds scan retained local rollouts, select records by the root turn's start date, and replace only reread turns in the requested dates. A local `rebuild.lock` excludes concurrent rebuilds across processes. Scanning yields between batches without holding the ledger lock; a complete successful scan is committed atomically. Live progress observed after the scan began is preserved. Missing source files do not remove known turns. Read failures and cancellation preserve the previous ledger; restarting the app does not resume an unfinished manual rebuild.
+
+Rebuilt turns that need syncing carry `rebuiltAt`. Merging first selects the newer rebuild, then retains the more complete cumulative snapshot within that rebuild. This allows corrections to lower counts. Incremental reads inherit the local turn's rebuild time. When recovering the local ledger or observing a newer cloud rebuild, restore the cloud baseline only for locally discovered turns with matching account and root identities. Previously read files replay within the usual byte budget. Usage records at or before the restored rebuild boundary cannot replace the corrected baseline; later cumulative records continue updating it. Recovery boundaries and file cursors persist locally so replay resumes after restart without importing remote-only turns. A previously counted turn rebuilt without usage remains syncable to clear its old cloud usage. Other turns and sessions from other Macs remain untouched.
+
+Daily cache hit rate is total cached input divided by total input. Account usage and heatmap intensity come from app-server. Heatmap date details present missing usage as `0` and a missing cache hit rate as `0%`; storage and sync preserve missing values.
+
+The local ledger is `HookEvents/Tokens/ledger.json`; its separate process lock coordinates Debug and Release. Account-scoped sync state lives in `HookEvents/Sync/Tokens/cache.json`. Debug and Release share this cache. A nonblocking `sync.lock` serializes complete sync passes while the separate file lock allows reads between writes. Hook daily aggregates use separate storage and sync records.
+
+Scanning includes `rollout-*.jsonl` files modified within the last 210 days under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions`, with a 64 MiB pass budget plus at most one additional bounded line. Later maintenance passes continue historical backfill. Equally unread files are ordered by most recent modification first, so recent sessions are processed before older history. Partial lines are retried; large body lines are skipped without storing their contents. Replacement, truncation, and changed read boundaries trigger replay without counting known cumulative usage again. Turns are retained for 210 days by `updatedAt`, along with root records referenced by retained child turns. Daily totals include only root start dates within retention. Missing rollouts or missing `token_usage_record` entries cannot be reconstructed.
+
+Automatic replay reports progress in the `workflow` system log after each committed batch: caught-up file count, byte progress, bytes read this pass, remaining bytes, files waiting for a complete line, unreadable files, and elapsed time. Once all files are caught up, it logs “Rollout 回放完成” once. Routine incremental appends and unchanged waits do not repeat the message. Completion refers to local files checked in that pass, not iCloud synchronization. Logs contain no paths, session identities, conversation content, or token usage.
 
 ## One Sync Cycle
 
@@ -111,8 +143,9 @@ Read local sync state
   -> Update local state for the device identity and schema
   -> Fetch remote changes into the cache and process replacement dates
   -> Upload changed dates for this device
-  -> Fetch remote changes into the cache again
-  -> Prune records outside retention
+  -> Fetch remote Hook changes into the cache again
+  -> Fetch, upload, and prune token-turn records
+  -> Prune this device’s expired Hook records
   -> Save state and publish merged results
 ```
 
@@ -123,7 +156,7 @@ The fetches before and after upload serve different purposes:
 - It fetches again after upload to merge this cycle's writes and concurrent writes from other devices into the local cache
 - It prunes expired records last so a pruning failure cannot block valid uploads in the same cycle
 
-Every stage writes a `stage` field to logs, so an error identifies zone, device, fetch, upload, or prune instead of reporting only a generic CloudKit error:
+Every stage writes a `stage` field to logs, identifying failures in `zone`, `device`, `fetch`, `upload`, `tokens`, or `prune`:
 
 - Upload batches contain at most 25 records
 - Each upload cycle uses a 20-second budget to decide whether to start another batch
@@ -136,7 +169,7 @@ Each date’s stable JSON is encoded and hashed once, reusing the result for pen
 
 Uploads use `atomically: false`, allowing partial success remotely. If any error occurs in a batch, the caller removes local confirmation hashes for every date in that batch and rechecks it next cycle. Confirmations from earlier completed batches remain, and successful remote writes are not rolled back.
 
-## Merge Semantics
+## Hook Daily Aggregate Merge Semantics
 
 One day may have records from several devices plus a newer local result that the current device has not uploaded yet.
 
@@ -180,7 +213,7 @@ CloudKit decoding and persisted models preserve optional counts. Local and remot
 
 CloudKit stores interruption counts in the optional integer field `interruptCount`. If any contribution for a combined date lacks this field, the total interruption count remains unavailable.
 
-## Source Replacement and Rebuild
+## Hook Source Replacement and Rebuilding
 
 When the user requests a rescan:
 
@@ -299,12 +332,17 @@ Transient errors preserve the last usable remote cache. After account switching 
 - Disabling sync shows local metrics only
 - When iCloud is signed out, the app shows a clear state and local metrics keep working
 - After network loss, the app uses the last cache and completes incremental sync on recovery
-- A local rebuild replaces only current-device records
+- Local rebuilds replace this device’s Hook records and token turns reread locally
+- Token rebuilds can lower or clear counts; other devices converge without restoring stale counts
+- Missing rollouts preserve known turns; replay after ledger recovery respects cloud corrections
+- File copies and cross-device copies of a turn count once; main and child threads use the root turn’s start date
 - Local and remote cache older than 210 days is pruned
 - Switching iCloud accounts does not show cache from the previous account
 
 ## Key Source Files
 
+- [`CodexTokenHistoryStore.swift`](../../../CodexBar/Services/Workflow/CodexTokenHistoryStore.swift)
+- [`CodexTokenHistorySync.swift`](../../../CodexBar/Services/Workflow/CodexTokenHistorySync.swift)
 - [`WorkflowSyncService.swift`](../../../CodexBar/Services/Workflow/WorkflowSyncService.swift)
 - [`WorkflowSyncScheduler.swift`](../../../CodexBar/Services/Workflow/WorkflowSyncScheduler.swift)
 - [`WorkflowSyncSettings.swift`](../../../CodexBar/Services/Settings/WorkflowSyncSettings.swift)

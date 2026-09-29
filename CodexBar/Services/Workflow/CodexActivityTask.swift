@@ -137,6 +137,7 @@ struct CodexActivityTask {
     var executions: [CodexActivityExecutionKey: CodexActivityExecution] = [:]
     var subagentsByID: [String: CodexSubagentObservation]
     var isSubagentCountReliable: Bool
+    var tokenUsage: CodexTokenUsage?
 
     init(
         displayID: UUID,
@@ -190,7 +191,8 @@ struct CodexActivityTask {
             startedAt: startedAt,
             stateChangedAt: stateChangedAt,
             showsPreciseDuration: showsPreciseDuration,
-            activeSubagentCount: activeSubagentCount
+            activeSubagentCount: activeSubagentCount,
+            tokenUsage: tokenUsage
         )
     }
 

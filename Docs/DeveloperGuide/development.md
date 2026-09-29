@@ -30,6 +30,8 @@ swiftlint
 | Hook 与 JSONL | 名称归一化、坏行隔离、元数据读取预算、半行补齐、bootstrap 与 live 分流、文件替换 |
 | 实时任务 | 匿名身份、时长、乱序进展、子 Agent 计数、各执行归属独立的审批状态 |
 | rollout 生命周期 | 完成与进展、读取覆盖、损坏行、文件丢失或替换、归档定位 |
+| 本轮 Token | 计数校验、主子线程归属与去重、运行中更新、结束后补读、轮次隔离、溢出和零值 |
+| Token 历史 | 跨午夜归属、增量续读、回放日志、重建降低或清除计数、缺失文件保留、云端修正恢复、取消与跨实例锁 |
 | 聚合与同步模型 | ID 去重、事件对计数、缺失计数、增量与重放一致性、同设备 generation 去重 |
 | 持久化与设置 | 保护记录过期、跨实例合并、条件删除、旧记录默认值、配置损坏与回填 |
 | 额度、代理与展示 | 凭证筛选、稳定 UUID、实际运行版本、代理输入和环境变量、日期与热力图状态 |
@@ -48,7 +50,8 @@ swiftlint
 | 实时任务与异常保护 | `CodexActivityMonitor` 和 readers | [实时任务监控](activity-monitor.md) |
 | 防睡眠与系统唤醒 | `KeepAliveController`、`AutoResetWakeScheduler`、helper | [防睡眠系统](sleep-prevention.md) |
 | 通知与音效 | `CodexNotificationService`、通知 Settings | [通知系统](notifications.md) |
-| 同步 | `WorkflowSyncService` 与 scheduler | [CloudKit 同步](sync.md) |
+| Token 历史与同步 | `CodexTokenHistoryStore`、`CodexTokenHistorySync` 与 `CodexTokenTurn` | [Rollout Token 历史](sync.md#rollout-token-历史) |
+| Hook 同步 | `WorkflowSyncService` 与 scheduler | [CloudKit 同步](sync.md) |
 | 菜单、窗口、快捷键 | `Controllers` 与对应 View | [UI 与应用生命周期](ui-and-lifecycle.md) |
 
 长期对象由 `CodexBarAppDelegate` 装配。新增状态优先放入现有所有者，View 消费快照并发出操作意图。源码阅读入口见 [整体架构](architecture.md)
@@ -83,6 +86,7 @@ swiftlint
 | 通知 | 授权拒绝与恢复、阈值跨越、同周期去重、任务恢复撤回、声音缺失 |
 | 代理 | 首次配置、启停、无效配置停用、损坏记录删除、测试取消、快速操作与失败回滚 |
 | 同步 | 首次上传、多设备合并、断网续传、部分上传失败、重建替换、iCloud 账户切换 |
+| Token 回放与重建 | 大量历史断点续读、后台重建时使用主面板、关闭设置窗口、退出后自动回放与手动重建的区别、修正值跨设备收敛 |
 | 系统电源与 helper | 首次授权、任务运行/等待切换、低电量、时长上限、外部睡眠来源、异常退出与重启 |
 | 自动重置唤醒 | 计划替换、关闭与退出清理、连接中断、helper 重启、注销前清零、到点重新读取 |
 

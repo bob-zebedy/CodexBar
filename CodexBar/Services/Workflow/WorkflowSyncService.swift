@@ -19,6 +19,7 @@ private nonisolated enum WorkflowSyncStage: String {
     case device
     case fetch
     case upload
+    case tokens
     case prune
 }
 
@@ -27,6 +28,7 @@ actor WorkflowSyncService {
     private let database: CKDatabase
     private let fileManager: FileManager
     private let directoryURL: URL
+    private let tokenHistorySync: CodexTokenHistorySync
 
     // zone 存在性和 account salt 首次确认后跨轮缓存, 省掉每轮同步的两次固定往返
     // 任一轮同步失败时作废: iCloud 账号切换必然伴随请求报错, 下一轮会重新确认
@@ -41,17 +43,21 @@ actor WorkflowSyncService {
         database = container.privateCloudDatabase
         self.fileManager = fileManager
         self.directoryURL = directoryURL
+        tokenHistorySync = CodexTokenHistorySync(
+            database: container.privateCloudDatabase,
+            directoryURL: directoryURL.appendingPathComponent("Tokens")
+        )
     }
 
     // MARK: - 同步入口
 
-    func snapshotFromCacheIfEnabled() -> WorkflowSyncSnapshot {
+    func snapshotFromCacheIfEnabled(localTokenTurns: [CodexTokenTurn] = []) async -> WorkflowSyncSnapshot {
         guard WorkflowSyncSettings.isEnabled() else {
             return .disabled
         }
 
         let state = loadState()
-        return snapshot(from: state)
+        return await snapshot(from: state, localTokenTurns: localTokenTurns)
     }
 
     /// 显式重建后, 将所选日期标记为当前设备云端贡献的权威替换来源
@@ -75,8 +81,18 @@ actor WorkflowSyncService {
         !Set(loadState().replacementDates).isDisjoint(with: dates)
     }
 
+    func tokenRecoveryBaselineIfEnabled() async -> CodexTokenHistoryBaseline? {
+        guard WorkflowSyncSettings.isEnabled() else { return nil }
+        return await tokenHistorySync.recoveryBaseline(accountID: loadState().deviceId)
+    }
+
+    func hasPendingTokenUpdates(local: [CodexTokenTurn]) async -> Bool {
+        await tokenHistorySync.hasPendingUpdates(local: local, accountID: loadState().deviceId)
+    }
+
     func synchronizeIfEnabled(
         localAggregates: [WorkflowDailyAggregate],
+        localTokenTurns: [CodexTokenTurn] = [],
         trigger: LogTrigger
     ) async -> WorkflowSyncSnapshot {
         guard WorkflowSyncSettings.isEnabled() else {
@@ -127,6 +143,10 @@ actor WorkflowSyncService {
             )
 
             try await refreshCacheFromRemote()
+            stage = .tokens
+            try await tokenHistorySync.synchronize(
+                local: localTokenTurns, accountID: deviceId, salt: accountSalt(), zoneID: syncZoneID
+            )
             stage = .prune
             let deletedCount = try await pruneCurrentDeviceRecordsIfNeeded(
                 deviceId: deviceId,
@@ -160,7 +180,7 @@ actor WorkflowSyncService {
         }
 
         let latestState = loadState()
-        return snapshot(from: latestState)
+        return await snapshot(from: latestState, localTokenTurns: localTokenTurns)
     }
 
     private func logSyncSkipped(trigger: LogTrigger) {
@@ -265,7 +285,7 @@ actor WorkflowSyncService {
         }
     }
 
-    private func snapshot(from state: WorkflowSyncState) -> WorkflowSyncSnapshot {
+    private func snapshot(from state: WorkflowSyncState, localTokenTurns: [CodexTokenTurn]) async -> WorkflowSyncSnapshot {
         guard let deviceId = state.deviceId else {
             return .disabled
         }
@@ -275,9 +295,10 @@ actor WorkflowSyncService {
             record.deviceId != deviceId || !replacementDates.contains(record.date)
         }
 
-        return WorkflowSyncSnapshot(
+        return await WorkflowSyncSnapshot(
             records: records,
-            currentDeviceId: deviceId
+            currentDeviceId: deviceId,
+            tokenUsageByDate: tokenHistorySync.snapshot(local: localTokenTurns, accountID: deviceId)
         )
     }
 }
@@ -1357,6 +1378,7 @@ private extension WorkflowSyncService {
 nonisolated struct WorkflowSyncSnapshot: Equatable {
     let records: [WorkflowSyncedDailyRecord]
     let currentDeviceId: String?
+    var tokenUsageByDate: [String: CodexTokenUsage]?
 
     static let disabled = WorkflowSyncSnapshot(records: [], currentDeviceId: nil)
 }

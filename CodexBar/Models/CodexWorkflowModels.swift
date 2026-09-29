@@ -348,6 +348,7 @@ nonisolated struct WorkflowDailyMetrics: Equatable {
 /// WorkflowService 发布给 UI 的近端快照
 nonisolated struct WorkflowSnapshot: Equatable {
     let dailyMetrics: [WorkflowDailyMetrics]
+    var tokenUsageByDate: [String: CodexTokenUsage] = [:]
 
     static let empty = WorkflowSnapshot(dailyMetrics: [])
 

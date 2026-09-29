@@ -51,6 +51,7 @@ CodexBar narrows data in this order:
 | app-server account, rate limits, and Reset Credits | Main panel, notification decisions, and user-enabled Automatic Reset | Short-lived state only | No |
 | Structured Hook events | Historical aggregation and live tasks | Yes, up to 210 days | Daily aggregations only |
 | Rollout lifecycle | Terminal and progress reconciliation | Not persisted separately | No |
+| Rollout token counters | Deduplicated turns and daily totals | Hashed identities, timestamps, and counts for 210 days | Pseudonymous cumulative turns when sync is enabled |
 | App settings | Feature switches and thresholds | UserDefaults | No |
 | Activity Protection | Stalled-task recovery | Hashed identity, up to 24 hours | No |
 | CodexBarHelper ownership | System-sleep recovery | Root-owned state file | No |
@@ -86,9 +87,11 @@ The working directory is used only to derive a project display name and live-tas
 
 The Hook recorder reads the current rollout through `transcript_path`; origin for `SubagentStop` uses the child thread's own `agent_transcript_path`. The live-activity reader accesses relevant main-thread and child-thread files under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions`.
 
-These reads parse only structural fields such as origin classification, thread and turn relationships, lifecycle, time, turn context, progress, effort, and reviewer. Thread associations remain in memory, and conversation text does not enter CodexBar storage or UI.
+These reads parse structural fields including origin classification, thread and turn relationships, lifecycle, time, turn context, progress, effort, reviewer, and token counters. Live thread associations remain in memory; historical token records store hashed identities, necessary timestamps, and six cumulative counters. Conversation text does not enter CodexBar storage or UI.
 
-The rollout reader scans backward from file tails under a budget. This reduces I/O and limits how much unrelated historical content enters process memory. Parsing DTOs declare only required fields, and `JSONDecoder` ignores everything else.
+Historical token scanning starts at the beginning of each source and then follows persisted cursors. Cloud identities use account-salted HMAC-SHA256; raw thread and turn IDs are not uploaded. See [Rollout Token History](sync.md#rollout-token-history) for fields and retention.
+
+The live rollout reader scans backward from file tails under a budget. This reduces I/O and limits how much unrelated historical content enters process memory. Parsing DTOs declare only required fields, and `JSONDecoder` ignores everything else.
 
 ### Reset Credits Details
 
@@ -116,7 +119,18 @@ A rate-limit response from stale cache may remain visible but cannot trigger a n
     daily.jsonl
     maintenance.json
     stats.lock
+    Tokens/
+      ledger.json
+      store.lock
+      rebuild.lock
     Sync/
+      state.json
+      cache.jsonl
+      cursor.data
+      Tokens/
+        cache.json
+        store.lock
+        sync.lock
   ActivityProtection/
     state.json
 ```
@@ -126,12 +140,16 @@ A rate-limit response from stale cache may remain visible but cannot trigger a n
 | `HookEvents/events` | Raw structured Hook events | 210 days |
 | `HookEvents/daily.jsonl` | Daily aggregations | 210 days |
 | `HookEvents/maintenance.json` | File cursors, generation, and maintenance state | Continuously updated |
-| `HookEvents/Sync` | CloudKit cache and cursor | While sync state remains valid |
+| `HookEvents/Tokens/ledger.json` | Hashed turn identities, cumulative usage, rebuild and recovery boundaries, file cursors | Usage retained for 210 days from its latest record; roots referenced by retained child turns are also kept |
+| `HookEvents/Sync` | Cloud cache, cursor, and replacement state for Hook daily aggregates | While sync state remains valid |
+| `HookEvents/Sync/Tokens/cache.json` | Account-scoped turns, salt, and CloudKit cursor | Sync prunes expired turns while retaining referenced roots |
 | `ActivityProtection/state.json` | Hashed task identities and timestamps | Up to 24 hours after the last progress |
 
 Daily aggregations for the latest 3 days may retain session and turn ID details for exact deduplication. Older data retains counts only.
 
 Anonymous tasks do not create Stalled Task Protection identifiers and therefore never write to `ActivityProtection/state.json`.
+
+Debug and Release share the token ledger and sync cache. Each `store.lock` protects reads and writes in its directory; `rebuild.lock` excludes concurrent token rebuilds, and `sync.lock` excludes concurrent token sync passes. `stats.lock` protects Hook aggregation transactions. Lock files do not contain statistics or progress.
 
 ### UserDefaults
 
@@ -182,11 +200,13 @@ System logs may contain only:
 - Nonsensitive counts
 - Errors that identify a module
 
+Automatic rollout replay logs file counts, bytes read, remaining bytes, waiting or unreadable files, and elapsed time in the `workflow` category, without paths, identities, or usage counts. See [Rollout Token History](sync.md#rollout-token-history) for progress semantics.
+
 System logs must not contain:
 
 - OAuth tokens
 - Prompts, responses, or tool content
-- Session, turn, or agent IDs
+- Raw session, turn, or agent IDs
 - Full project paths or sensitive project names
 - Account rate-limit or token-usage details
 
@@ -196,7 +216,7 @@ Fixed `CodexProxyError` messages go to the `settings` system-log category withou
 
 | Destination | Purpose | Trigger |
 | --- | --- | --- |
-| CloudKit private database | Sync daily Hook aggregations | User explicitly enables sync |
+| CloudKit private database | Sync daily Hook aggregations and pseudonymous rollout token turns | User explicitly enables sync |
 | Codex service, through the app-server subprocess | Authentication, rate limits, usage, and Reset Credit consumption | Regular refreshes, proxy tests, or Automatic Reset |
 | Sparkle appcast and update resources | Check for or install updates | Automatic check or manual user request |
 
@@ -208,7 +228,7 @@ When a proxy is enabled, its address and optional credentials are passed through
 
 ## CloudKit Boundary
 
-CloudKit uploads only daily aggregate fields:
+CloudKit uploads these daily Hook aggregate fields:
 
 - Device pseudonym
 - Date and source generation
@@ -218,13 +238,15 @@ CloudKit uploads only daily aggregate fields:
 - Model counts
 - Update time
 
+Token history also uploads account-scoped hashed turn identities, root-turn links, necessary timestamps, and six cumulative counters for cross-device deduplication and daily totals.
+
 CloudKit does not upload:
 
 - Raw Hook JSONL
-- Session, turn, or agent IDs
+- Raw session, turn, or agent IDs
 - Full working directories
 - Prompts, responses, tool arguments, or output
-- Codex account, rate-limit, or token usage data
+- Codex account, rate-limit, or account token usage data from app-server
 - Reset Credits details, Automatic Reset settings, or redemption state
 - Access tokens
 - App request logs
@@ -275,12 +297,14 @@ The helper ownership file is a crash-recovery transaction record, not a user pre
 - Run a task with a conspicuous marker in the prompt and tool arguments; confirm the marker is absent from Hook JSONL, app logs, and CloudKit cache
 - Put a sensitive test term in a project directory name; confirm it appears only in allowed local presentation and opt-in aggregate fields
 - Simulate a failed Reset Credits request and confirm that access tokens do not enter the in-memory or unified logs
-- Confirm CloudKit records contain no session, turn, or agent IDs or full paths
+- Confirm CloudKit records contain no raw session, turn, or agent IDs or full paths
 - As a non-root user, verify that the helper-state directory is not writable
 - Corrupt each cache type and confirm the system degrades or rebuilds rather than broadening fallback data collection
 
 ## Key Source Files
 
+- [`CodexTokenHistoryStore.swift`](../../../CodexBar/Services/Workflow/CodexTokenHistoryStore.swift)
+- [`CodexTokenHistorySync.swift`](../../../CodexBar/Services/Workflow/CodexTokenHistorySync.swift)
 - [`WorkflowHookEventRecorder.swift`](../../../CodexBar/Services/Workflow/WorkflowHookEventRecorder.swift)
 - [`WorkflowService.swift`](../../../CodexBar/Services/Workflow/WorkflowService.swift)
 - [`CodexSessionLifecycleReader.swift`](../../../CodexBar/Services/Workflow/CodexSessionLifecycleReader.swift)

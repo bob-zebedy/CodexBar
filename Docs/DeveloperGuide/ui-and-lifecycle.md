@@ -200,6 +200,12 @@ fallback panel 在展示前根据 SwiftUI fitting size 和目标屏幕可见区�
 
 主面板可见时，数字随数据变化滚动，Token 数字与待查询或不可用占位之间淡入淡出。“动画效果”控制入场动画、太阳徽标旋转和任务状态文字动画，数字更新不受此开关控制。
 
+活动卡片的 Token 区域仅在 `primaryActivity.tokenUsage` 可用时出现，七项等宽居中，分割线随区域一起显示。可用性变化触发卡片高度和主面板尺寸动画，独立于“动画效果”设置。Popover 在内容尺寸更新前临时启用 `animates`；fallback 等待 `@Published` 完成赋值后测量，并保持顶边位置。
+
+Hook 开启时，热力图详情采用两栏：顶部 10 格强度条通栏，左侧活动统计，右侧会话 Token。每栏用 `Grid` 按最长标签确定统一名称宽度，数值使用剩余空间。日期切换时，Token 与活动数值使用相同的 `numericText` 过渡，最常用模型使用同一文本视图过渡并按可用宽度缩小字号。
+
+共享 `LiquidGlassDivider` 使用银灰和冷白渐变，按 8 秒周期缓慢移动。它通过所在 `NSView` 的窗口可见状态暂停或恢复时间线，不受“动画效果”设置控制。
+
 相关控制器包括：
 
 - [`HeatmapDetailPanelController.swift`](../../CodexBar/Controllers/HeatmapDetailPanelController.swift)
@@ -338,6 +344,10 @@ app-server 状态默认每 60 秒检查刷新。主面板的 0.24 秒淡入完�
 - 快捷键冲突后原快捷键仍可用
 - 面板打开刷新不会造成动画卡顿或重复请求
 - 数字首次递减、连续增减、Token 单位切换和日期跨月时方向正确，主面板关闭后停止数字动画
+
+- 中英文下快速切换热力图日期，名称列宽稳定，Token 数字和模型名原位过渡
+- Token 区域从无到有、由有到无时，popover 和 fallback 尺寸平滑变化；关闭动画设置后仍保留此效果
+- 所有共享分割线缓慢流动，关闭或隐藏所属窗口后停止持续绘制
 
 ## 关键源码
 

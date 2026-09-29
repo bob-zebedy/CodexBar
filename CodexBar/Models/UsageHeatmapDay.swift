@@ -19,6 +19,7 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     let startDate: String
     let tokenState: UsageHeatmapTokenState
     let workflow: WorkflowDailyMetrics
+    var tokenUsage: CodexTokenUsage?
 
     var id: String {
         startDate
@@ -72,7 +73,8 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
             return UsageHeatmapDay(
                 startDate: startDate,
                 tokenState: tokenState,
-                workflow: workflowByDate[startDate] ?? .empty(startDate: startDate)
+                workflow: workflowByDate[startDate] ?? .empty(startDate: startDate),
+                tokenUsage: workflow.tokenUsageByDate[startDate]
             )
         }
     }

@@ -35,6 +35,7 @@ final class CodexActivityMonitor: ObservableObject {
     var terminations: [CodexActivityTermination] = []
     var recentlyEndedTaskAt: [CodexActivityTaskKey: Date] = [:]
     var terminalTaskKeyByID: [UUID: CodexActivityTaskKey] = [:]
+    var terminalTokenUsageRequests: [UUID: CodexTaskTokenUsageRequest] = [:]
     var activityTaskOrigins: [CodexActivityTaskKey: (origin: WorkflowEventOrigin, observedAt: Date)] = [:]
     var tailReader: HookEventTailReader?
     private var tailReaderControlTask: Task<Void, Never>?
@@ -443,8 +444,9 @@ final class CodexActivityMonitor: ObservableObject {
     }
 
     private func lifecycleReferences(now: Date, includeAll: Bool) -> [CodexActivityTurnReference] {
-        var references = tasks.values.compactMap(\.turnReference)
+        var references = activeTokenUsageReferences()
         references.append(contentsOf: subagentLifecycleReferences())
+        references.append(contentsOf: terminalTokenUsageReferences(now: now))
         let due = pendingTerminalTasks.filter { includeAll || $0.value.nextPollAt <= now }
             .sorted { $0.value.nextPollAt < $1.value.nextPollAt }
         for (key, var pending) in due.prefix(16) {
@@ -487,6 +489,10 @@ final class CodexActivityMonitor: ObservableObject {
         if !terminalOnly {
             didChange = replayAssociatedSubagentEvents(into: &transitions) || didChange
         }
+        if !terminalOnly {
+            didChange = applyActiveTokenUsage(states) || didChange
+        }
+        didChange = applyTerminalTokenUsage(states) || didChange
         if didChange {
             refreshSnapshot(now: Date())
         }
@@ -1261,6 +1267,7 @@ final class CodexActivityMonitor: ObservableObject {
         terminalTaskKeyByID = terminalTaskKeyByID.filter {
             retainedTerminalIDs.contains($0.key)
         }
+        terminalTokenUsageRequests = terminalTokenUsageRequests.filter { retainedTerminalIDs.contains($0.key) }
 
         let endedTaskCutoff = now.addingTimeInterval(-Self.endedTaskRetention)
         recentlyEndedTaskAt = recentlyEndedTaskAt.filter {

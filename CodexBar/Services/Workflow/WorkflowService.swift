@@ -38,6 +38,7 @@ actor WorkflowService {
     private let eventsDirectoryURL: URL
     private let dailyLogURL: URL
     private let syncService: WorkflowSyncService
+    private let tokenHistory: CodexTokenHistoryStore
     /// 上次归一化时 daily.jsonl 的 stat 与当天日期键
     private var lastNormalizedDailyLog: WorkflowDailyLogStamp?
     /// 上一条维护日志之后连续空转的轮数, 记出去就清零
@@ -47,11 +48,13 @@ actor WorkflowService {
     init(
         eventsDirectoryURL: URL = WorkflowStorage.eventsDirectoryURL(),
         dailyLogURL: URL = WorkflowStorage.dailyURL(),
-        syncService: WorkflowSyncService = WorkflowSyncService()
+        syncService: WorkflowSyncService = WorkflowSyncService(),
+        tokenHistory: CodexTokenHistoryStore = CodexTokenHistoryStore()
     ) {
         self.eventsDirectoryURL = eventsDirectoryURL
         self.dailyLogURL = dailyLogURL
         self.syncService = syncService
+        self.tokenHistory = tokenHistory
     }
 
     // MARK: - 快照读取
@@ -81,23 +84,34 @@ actor WorkflowService {
     private func makeSnapshot(
         localAggregates: [WorkflowDailyAggregate],
         synchronize: Bool,
-        trigger: LogTrigger
+        trigger: LogTrigger,
+        localTokenTurns: [CodexTokenTurn]? = nil
     ) async -> WorkflowSnapshot {
-        let syncSnapshot: WorkflowSyncSnapshot = if synchronize {
-            await syncService.synchronizeIfEnabled(localAggregates: localAggregates, trigger: trigger)
+        let tokenTurns: [CodexTokenTurn]
+        if let localTokenTurns {
+            tokenTurns = localTokenTurns
         } else {
-            await syncService.snapshotFromCacheIfEnabled()
+            do {
+                let baseline = await syncService.tokenRecoveryBaselineIfEnabled()
+                tokenTurns = try await tokenHistory.refresh(baseline: baseline)
+            } catch {
+                let error = error as NSError
+                AppLog.workflow.error("Token 历史读取失败: domain=\(error.domain, privacy: .public) code=\(error.code)")
+                tokenTurns = []
+            }
         }
-
-        guard !localAggregates.isEmpty || !syncSnapshot.records.isEmpty else {
-            return .empty
+        let syncSnapshot: WorkflowSyncSnapshot = if synchronize {
+            await syncService.synchronizeIfEnabled(localAggregates: localAggregates, localTokenTurns: tokenTurns, trigger: trigger)
+        } else {
+            await syncService.snapshotFromCacheIfEnabled(localTokenTurns: tokenTurns)
         }
-
-        return WorkflowSnapshot(
+        var snapshot = WorkflowSnapshot(
             localAggregates: localAggregates,
             syncedRecords: syncSnapshot.records,
             currentDeviceId: syncSnapshot.currentDeviceId
         )
+        snapshot.tokenUsageByDate = syncSnapshot.tokenUsageByDate ?? CodexTokenTurn.dailyUsage(tokenTurns)
+        return snapshot
     }
 
     /// 以指定日期范围内的本机原始事件为权威来源重建, 并安排替换当前设备的同日云端贡献
@@ -116,7 +130,8 @@ actor WorkflowService {
         var rebuildResults = [WorkflowMaintenanceResult]()
         var failedDateKeys = [String]()
         var firstFailure: Error?
-        for dateKey in normalizedDateKeys {
+        let hookDateKeys = normalizedDateKeys.filter { WorkflowStorage.fileSize(at: eventLogURL(for: $0)) > 0 }
+        for dateKey in hookDateKeys {
             do {
                 try rebuildResults.append(rebuildLocalData(for: dateKey))
             } catch {
@@ -134,12 +149,23 @@ actor WorkflowService {
             }
         }
 
+        var tokenResult = CodexTokenRebuildResult.empty
+        var didFailTokenRebuild = false
+        do {
+            tokenResult = try await tokenHistory.rebuild(for: normalizedDateKeys)
+        } catch {
+            didFailTokenRebuild = true
+            firstFailure = firstFailure ?? error
+            let error = error as NSError
+            AppLog.workflow.error("Token 重建失败: domain=\(error.domain, privacy: .public) code=\(error.code)")
+        }
+
         // 成功与失败的日期都要登记: 失败的日期稍后会被自动重建并推进 sourceGeneration,
         // 届时会上传到新的 record ID, 不清理旧记录会在云端留下同日重复的贡献
         // 全部失败时同样要登记, 它们一样已被标脏
         var didFailReplacementMarking = false
         do {
-            try await syncService.markReplacementNeeded(for: normalizedDateKeys)
+            try await syncService.markReplacementNeeded(for: hookDateKeys)
         } catch {
             let details = LogFields.joined(
                 "stage=replacementMarking",
@@ -151,28 +177,34 @@ actor WorkflowService {
         }
 
         // 一天都没成功才算整体失败, 并保留首个真实原因而非笼统报「数据发生变化」
-        guard !rebuildResults.isEmpty else {
+        guard !rebuildResults.isEmpty || !tokenResult.dateKeys.isEmpty else {
             throw firstFailure ?? WorkflowDataRebuildError.sourceUnavailable
         }
 
         // 重建只由设置页的用户操作发起
+        let localTurns = await (try? tokenHistory.currentTurns()) ?? []
         let snapshot = await makeSnapshot(
             localAggregates: loadDailyAggregates() ?? [],
             synchronize: synchronize,
-            trigger: .manual
+            trigger: .manual,
+            localTokenTurns: localTurns
         )
+        let tokenSyncPending = await syncService.hasPendingTokenUpdates(local: localTurns)
         let summary = await WorkflowDataRebuildSummary(
-            rebuiltDateCount: rebuildResults.count,
+            rebuiltDateCount: Set(rebuildResults.map(\.dateKey)).union(tokenResult.dateKeys).count,
             eventCount: rebuildResults.reduce(0) { $0 + ($1.aggregate.eventCount ?? 0) },
             corruptLineCount: rebuildResults.reduce(0) { $0 + $1.corrupt },
-            isSyncReplacementPending: syncService.hasPendingReplacement(for: normalizedDateKeys),
+            isSyncReplacementPending: syncService.hasPendingReplacement(for: hookDateKeys) || tokenSyncPending,
             failedDateKeys: failedDateKeys,
-            didFailSyncReplacementMarking: didFailReplacementMarking
+            didFailSyncReplacementMarking: didFailReplacementMarking,
+            tokenTurnCount: tokenResult.turnCount,
+            didFailTokenRebuild: didFailTokenRebuild
         )
         let elapsed = duration.elapsed
         let details = LogFields.joined(
             "dates=\(summary.rebuiltDateCount)",
             "events=\(summary.eventCount)",
+            "tokenTurns=\(summary.tokenTurnCount)",
             "corruptLines=\(summary.corruptLineCount)",
             "failedDates=\(failedDateKeys.count)",
             "elapsed=\(elapsed)"
@@ -1445,6 +1477,8 @@ nonisolated struct WorkflowDataRebuildSummary: Equatable, Sendable {
     /// 未完成的日期, 已标脏并会由常规维护自动重建
     let failedDateKeys: [String]
     let didFailSyncReplacementMarking: Bool
+    let tokenTurnCount: Int
+    let didFailTokenRebuild: Bool
 }
 
 private nonisolated struct WorkflowDataRebuildOutcome {

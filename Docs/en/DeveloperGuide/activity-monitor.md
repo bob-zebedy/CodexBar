@@ -4,14 +4,15 @@
 
 ## Goals
 
-The live-task flow answers four questions:
+The live-task flow answers these questions:
 
 - Is a task currently running?
 - Is a task waiting for user approval?
 - Did a recent task complete or terminate?
 - Which running tasks have made no progress for too long?
+- How many tokens have the current turn and its subagents used?
 
-Hook events provide live progress and interruption signals, while rollout files supply lifecycle context. [`CodexActivityMonitor.swift`](../../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) merges both into the sole task snapshot:
+Hook events provide live progress and interruption signals, while rollout files supply lifecycle context and turn token usage. [`CodexActivityMonitor.swift`](../../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) merges both into the sole task snapshot:
 
 ```text
 Codex Hook -> WorkflowHookEventRecorder -> Hook JSONL
@@ -206,6 +207,28 @@ Execution progress eligible to infer approval recovery is recorded separately as
 The shared `CodexRolloutLineEnvelope` extracts only fields needed for turn context, lifecycle, and progress. Prompt, response, and tool content never enters the activity model.
 
 Terminal resolution requires a nonempty `payload.turn_id` and a `complete` current read. With outer `type = "event_msg"`, `payload.type` equal to `task_complete` or `turn_complete` confirms completion. Completion time prefers a valid `payload.completed_at` in Unix seconds, falling back to outer `timestamp` when absent or invalid; neither being usable leaves completion unconfirmed. `payload.type = "turn_aborted"` confirms interruption. A finite, nonnegative `payload.duration_ms` is converted to seconds for duration display. A missing interruption timestamp uses reconciliation time for an active task or removal time for a pending task, never earlier than its last activity.
+
+## Token Usage for the Current Turn
+
+`CodexSessionLifecycleReader` reads `payload.turn_token_usage` from records whose outer `type` is `token_usage_record`. These are cumulative thread-turn snapshots, so successive snapshots are not added together. `event_msg/token_count` supplies progress signals, not turn usage.
+
+| Display metric | `turn_token_usage` field or calculation |
+| --- | --- |
+| Total | `total_tokens`, equal to input plus output |
+| Input | `input_tokens`, including cache hits and writes |
+| Output | `output_tokens`, including reasoning |
+| Cached | `cached_input_tokens` |
+| Cache write | `cache_write_input_tokens` |
+| Cache hit rate | `cached_input_tokens / input_tokens`; undefined when input is zero |
+| Reasoning | `reasoning_output_tokens` |
+
+All six counters must be present and nonnegative. Total must equal input plus output, cache hits plus writes must not exceed input, and reasoning must not exceed output. Parsing also validates the identities and ownership in `thread_id`, `session_id`, `turn_id`, `root_turn_id`, and `response_id`. Missing fields or failed validation produce no usage. Zero cache-write or reasoning counts in valid records are displayed as zero.
+
+`CodexActivityTokenUsage.swift` collects main and associated child-thread references for the root task, deduplicating by thread and turn. While running, it sums matching threads with complete current reads; threads without usage wait for later refreshes. The displayed value may therefore be a subtotal of known threads. The live card reads the in-memory task snapshot, not historical daily totals or iCloud caches.
+
+Completed and terminated records start without usage and receive it through terminal rereads. Rereading lasts up to 30 seconds, scheduled every 2 seconds for at most 16 pending tasks per batch. Final aggregation requires all expected child identities and thread usage, with child threads ended. Once terminal usage has been obtained, later incomplete reads preserve that value. Late child associations join only their root turn, without affecting subsequent turns. Terminal state, notifications, and sleep-prevention release do not wait for token rereads.
+
+Historical replay uses its own ledger and read cursors. See [Rollout Token History](sync.md#rollout-token-history).
 
 ## Task Identity
 
@@ -566,6 +589,7 @@ Task progress invalidates its protection attempt. Reader, bootstrap, and recover
 
 ## Key Source Files
 
+- [`CodexActivityTokenUsage.swift`](../../../CodexBar/Services/Workflow/CodexActivityTokenUsage.swift)
 - [`CodexActivityMonitor.swift`](../../../CodexBar/Services/Workflow/CodexActivityMonitor.swift)
 - [`CodexActivityTask.swift`](../../../CodexBar/Services/Workflow/CodexActivityTask.swift)
 - [`CodexActivitySubagentTracking.swift`](../../../CodexBar/Services/Workflow/CodexActivitySubagentTracking.swift)

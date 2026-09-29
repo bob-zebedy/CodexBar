@@ -242,6 +242,160 @@ struct CodexSessionLifecycleReaderTests {
         CodexActivityTurnReference(sessionId: "session-a", turnId: "turn-a", startedAt: TestFixtures.now)
     }
 
+    @Test func tokenUsageUpdatesIncrementallyBeforeTaskCompletion() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let url = try writeRollout(in: directory, lines: [context, start])
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        #expect(await reader.lifecycleStates(for: [reference]).first?.tokenUsage == nil)
+        for input in [100, 200, 300] {
+            try append(tokenUsage(input: input) + "\n", to: url)
+            let state = try #require(await reader.lifecycleStates(for: [reference]).first)
+            #expect(state.readStatus == .complete)
+            #expect(state.terminal == nil)
+            #expect(state.tokenUsage?.totalTokens == Int64(input + 10))
+        }
+        try append(completion + "\n", to: url)
+        let completed = try #require(await reader.lifecycleStates(for: [reference]).first)
+        #expect(completed.terminal != nil)
+        #expect(completed.tokenUsage?.totalTokens == 310)
+    }
+
+    @Test func tokenUsageUsesLatestTurnSnapshotWithoutDoubleCounting() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let latest = tokenUsage(input: 200)
+        _ = try writeRollout(in: directory, lines: [context, start, tokenUsage(input: 100), latest, latest, completion])
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        let state = try #require(await reader.lifecycleStates(for: [reference]).first)
+        #expect(state.tokenUsage?.inputTokens == 200)
+        #expect(state.tokenUsage?.totalTokens == 210)
+        #expect(state.rootTurnId == "turn-a")
+    }
+
+    @Test func lateUsageAfterAbortIsReadWithoutIncludingNextTurn() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let abort = #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"turn-a"}}"#
+        let url = try writeRollout(in: directory, lines: [context, start, tokenUsage(input: 100), abort])
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        #expect(await reader.lifecycleStates(for: [reference]).first?.tokenUsage?.totalTokens == 110)
+        try append(tokenUsage(input: 200) + "\n" + tokenUsage(input: 999, turn: "turn-b") + "\n", to: url)
+        let state = try #require(await reader.lifecycleStates(for: [reference]).first)
+        #expect(state.tokenUsage?.totalTokens == 210)
+        guard case .aborted = state.terminal else {
+            Issue.record("Expected the aborted turn to retain its terminal state")
+            return
+        }
+    }
+
+    @Test(arguments: ["wrong-thread", "wrong-session", "missing", "negative", "overflow", "wrong-type"])
+    func invalidUsageDoesNotBreakTerminalOrReusePreviousCount(scenario: String) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let valid = tokenUsage(input: 100)
+        let invalid = switch scenario {
+        case "wrong-thread": valid.replacingOccurrences(of: #""thread_id":"session-a""#, with: #""thread_id":"other""#)
+        case "wrong-session": valid.replacingOccurrences(of: #""session_id":"session-a""#, with: #""session_id":"other""#)
+        case "missing": valid.replacingOccurrences(of: #""input_tokens":100,"#, with: "")
+        case "negative": valid.replacingOccurrences(of: #""cached_input_tokens":20"#, with: #""cached_input_tokens":-1"#)
+        case "overflow": valid.replacingOccurrences(of: #""input_tokens":100"#, with: #""input_tokens":9223372036854775807"#)
+        default: valid.replacingOccurrences(of: #""input_tokens":100"#, with: #""input_tokens":"100""#)
+        }
+        _ = try writeRollout(in: directory, lines: [context, start, valid, invalid, completion])
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        let state = try #require(await reader.lifecycleStates(for: [reference]).first)
+        #expect(state.readStatus == .complete)
+        #expect(state.terminal != nil)
+        #expect(state.tokenUsage == nil)
+    }
+
+    @Test func oldTokenCountDoesNotBecomeZeroOrAUsageRecord() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        _ = try writeRollout(in: directory, lines: [
+            context,
+            start,
+            #"{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"total_tokens":999}}}}"#,
+            completion
+        ])
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        #expect(await reader.lifecycleStates(for: [reference]).first?.tokenUsage == nil)
+    }
+
+    @Test func corruptGapDropsUsageUntilAFreshCumulativeRecordArrives() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let url = try writeRollout(in: directory, lines: [context, start, tokenUsage(input: 100), completion, "broken"])
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        let state = try #require(await reader.lifecycleStates(for: [reference]).first)
+        #expect(state.terminal != nil)
+        #expect(state.tokenUsage == nil)
+        try append(tokenUsage(input: 200) + "\n", to: url)
+        #expect(await reader.lifecycleStates(for: [reference]).first?.tokenUsage?.totalTokens == 210)
+    }
+
+    @Test func tailBootstrapUsesCumulativeUsageEvenWhenEarlierResponsesAreOutsideWindow() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        _ = try writeRollout(in: directory, lines: [
+            context,
+            start,
+            tokenUsage(input: 100),
+            oversizedLine(type: "response_item", payloadByteCount: 600 * 1024),
+            tokenUsage(input: 200),
+            completion
+        ])
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        #expect(await reader.lifecycleStates(for: [reference]).first?.tokenUsage?.totalTokens == 210)
+    }
+
+    @Test func partialUsageAndFileReplacementDoNotExposeStaleCounts() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let url = try writeRollout(in: directory, lines: [context, start, tokenUsage(input: 100), completion])
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        #expect(await reader.lifecycleStates(for: [reference]).first?.tokenUsage?.totalTokens == 110)
+        try append(tokenUsage(input: 200), to: url)
+        #expect(await reader.lifecycleStates(for: [reference]).first?.tokenUsage == nil)
+        try append("\n", to: url)
+        #expect(await reader.lifecycleStates(for: [reference]).first?.tokenUsage?.totalTokens == 210)
+        try Data((metadata(session: "session-a") + "\n" + context + "\n" + completion + "\n").utf8).write(to: url, options: .atomic)
+        #expect(await reader.lifecycleStates(for: [reference]).first?.tokenUsage == nil)
+    }
+
+    private func tokenUsage(input: Int, turn: String = "turn-a") -> String {
+        """
+        {"type":"token_usage_record","payload":{"thread_id":"session-a","session_id":"session-a","turn_id":"\(turn)",\
+        "root_turn_id":"\(turn)","response_id":"response-\(input)","turn_token_usage":{\
+        "input_tokens":\(input),"cached_input_tokens":20,"cache_write_input_tokens":0,\
+        "output_tokens":10,"reasoning_output_tokens":2,"total_tokens":\(input + 10)}}}
+        """
+    }
+
+    @Test func forkedMetadataDoesNotReplaceChildUsageIdentity() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let childMetadata = #"{"type":"session_meta","payload":{"id":"child-a","session_id":"session-a","parent_thread_id":"session-a","#
+            + #""source":{"subagent":{"thread_spawn":{"parent_thread_id":"session-a"}}}}}"#
+        let usage = tokenUsage(input: 100, turn: "child-turn")
+            .replacingOccurrences(of: #""thread_id":"session-a""#, with: #""thread_id":"child-a""#)
+            .replacingOccurrences(of: #""root_turn_id":"child-turn""#, with: #""root_turn_id":"turn-a""#)
+        let datePath = CodexDateFormat.dayString(from: TestFixtures.now).replacingOccurrences(of: "-", with: "/")
+        _ = try directory.write(
+            [childMetadata, metadata(session: "session-a"), usage, completion.replacingOccurrences(of: "turn-a", with: "child-turn")]
+                .joined(separator: "\n") + "\n",
+            to: "sessions/\(datePath)/rollout-test-child-a.jsonl"
+        )
+        let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
+        let child = CodexActivityTurnReference(sessionId: "child-a", turnId: "child-turn", startedAt: TestFixtures.now)
+        let state = try #require(await reader.lifecycleStates(for: [child]).first)
+        #expect(state.threadId == "child-a")
+        #expect(state.rootSessionId == "session-a")
+        #expect(state.rootTurnId == "turn-a")
+        #expect(state.tokenUsage?.totalTokens == 110)
+    }
+
     private var context: String {
         #"{"timestamp":"2026-09-15T08:00:00Z","type":"turn_context","payload":{"turn_id":"turn-a","approvals_reviewer":"user","effort":" high "}}"#
     }

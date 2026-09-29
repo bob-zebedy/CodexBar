@@ -53,6 +53,8 @@ Each rate-limit window includes:
 
 When `Animation Effects` is enabled, each segmented progress bar fills from zero to its current remaining percentage whenever the main panel opens.
 
+Glass dividers use a slowly flowing gradient independently of `Animation Effects`; the animation pauses while their window is hidden.
+
 The primary rate-limit group may also show:
 
 - Available credits or unlimited-credit status
@@ -63,7 +65,7 @@ Click `Banked Resets` to view expiration times by batch. The entry appears when 
 
 ## Token Usage and Heatmap
 
-The summary area shows:
+Account usage comes from app-server. The summary area shows:
 
 - All-time token usage
 - Highest daily token usage
@@ -77,7 +79,7 @@ When `Animation Effects` is enabled, the day squares appear from the top left to
 
 Hover over a day to see its date, token count, and usage intensity.
 
-When CodexBar Hook is enabled and data exists for that day, the details also include:
+When CodexBar Hook is enabled, the details also include:
 
 - Most-used model
 - Sessions
@@ -86,6 +88,12 @@ When CodexBar Hook is enabled and data exists for that day, the details also inc
 - Tool calls
 - Permission requests
 - Context compactions
+
+The date detail panel uses two columns beneath a full-width, ten-segment intensity row. Activity metrics appear on the left; the right column shows daily rollout totals in this order: total, input, output, cached input, cache write, cache hit rate, and reasoning output. Each metric in either column has a colored dot. Labels share the width of the longest label within their own column, leaving the remaining space for right-aligned model names and values. Token counts use K/M/B units. Missing and zero counts display `0`; missing or zero cache hit rate displays `0%`. Activity counts, token values, and the most-used model roll between values when the selected date changes.
+
+Each thread turn contributes once. Main and child-agent usage belongs to the root task's start date, including tasks that cross midnight. Daily cache hit rate divides total cached input by total input. With iCloud sync enabled, duplicate turns across Macs are merged before daily aggregation.
+
+Heatmap colors, the token count beside the date, and intensity come from app-server. Session tokens in the right column come from local rollouts and iCloud history, with a different scope. See [Data, Sync, and Privacy](sync-data-privacy.md#historical-token-replay) for backfill, incremental reads, and rebuilding.
 
 ## Activity Card
 
@@ -109,6 +117,14 @@ The activity card’s `+N` shows the total number of other active tasks.
 
 Click a populated activity card to open Task Center. In both views, status-text colors follow task state. With Animation Effects enabled, running status text shimmers and orange particles appear around approval-waiting text. Disabling the setting keeps the colored text static.
 
+### Token Usage for the Current Turn
+
+Once rollout usage is available, the activity card shows seven equally sized, centered metrics beneath its status: Total, Input, Output, Cached, Cache-W, Cache-H, and Reasoning. Counts use K/M/B units. The usage row and its divider expand or collapse together, independently of `Animation Effects`. Both remain hidden when usage is unavailable.
+
+While a task is running or waiting for approval, usage updates for main and child threads whose ownership is confirmed. Later thread records fill in the subtotal. Completed and terminated tasks briefly reread turn usage and display it once a complete total is available. Later temporary read failures preserve the usage already obtained for the ended task. These values cover the current turn and its subagents, rather than the entire conversation.
+
+Total equals input plus output. Cached input and cache write are included in input; reasoning is included in output. These subsets must not be added to the total again. Cache-H is cached input divided by input; the card shows `—` when input is zero. Cached shows the number of input tokens served from cache; Cache-W shows cache writes.
+
 ## Task Center
 
 Task Center groups tasks into:
@@ -119,6 +135,8 @@ Task Center groups tasks into:
 - Recently Terminated
 
 Recently completed and terminated records remain for 10 minutes. Completion means a turn ended, without implying success. Termination records include interruptions and other task terminations, and do not trigger completion notifications.
+
+Recently completed and terminated entries show total tokens for the turn when available, using K/M/B units. Running and waiting entries show task status; the main-panel activity card displays usage for the task it summarizes.
 
 ## Footer Status
 

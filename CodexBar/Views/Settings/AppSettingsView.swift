@@ -755,6 +755,9 @@ private extension AppSettingsView {
     }
 
     var rebuildCaption: RebuildStatus {
+        if isRebuildingWorkflowData {
+            return RebuildStatus(message: String(localized: "workflow.rebuild.status.running"), isError: false)
+        }
         if let rebuildStatus {
             return rebuildStatus
         }
@@ -780,11 +783,18 @@ private extension AppSettingsView {
         guard let selectedRebuildRange, selectedRebuildRange.isComplete else {
             return []
         }
-        return rebuildableDates.filter(selectedRebuildRange.contains)
+        return selectedRebuildRange.dateKeys
     }
 
     func refreshRebuildableDates() {
-        rebuildableDates = WorkflowStorage.rebuildableEventDateKeys()
+        Task {
+            let dates = await Task.detached(priority: .utility) {
+                let hookDates = WorkflowStorage.rebuildableEventDateKeys()
+                let tokenDates = await (try? CodexTokenHistoryStore().rebuildableDateKeys()) ?? []
+                return Set(hookDates + tokenDates).sorted()
+            }.value
+            rebuildableDates = dates
+        }
     }
 
     /// 防睡眠不在这里刷: 控制器自己订阅了 didBecomeActive, 窗口打开也走 refreshSettingsState
@@ -842,6 +852,10 @@ private extension AppSettingsView {
             localized: "workflow.rebuild.summary.completed",
             defaultValue: "\(summary.rebuiltDateCount, specifier: "%lld")\(summary.eventCount, specifier: "%lld")"
         )
+        message += String(localized: "workflow.rebuild.summary.tokens", defaultValue: "\(summary.tokenTurnCount, specifier: "%lld")")
+        if summary.didFailTokenRebuild {
+            message += String(localized: "workflow.rebuild.summary.tokens-failed")
+        }
         if summary.corruptLineCount > 0 {
             message += String(localized: "workflow.rebuild.summary.skipped-invalid-events", defaultValue: "\(summary.corruptLineCount, specifier: "%lld")")
         }
@@ -1343,66 +1357,6 @@ private struct RebuildDatePicker: View {
             return .codexSecondaryLabel.opacity(isSelectable ? 0.58 : 0.24)
         }
         return isSelectable ? .codexLabel : .codexSecondaryLabel.opacity(0.36)
-    }
-}
-
-private struct RebuildDateRange: Equatable {
-    let startDateKey: String
-    let endDateKey: String?
-
-    static func starting(at dateKey: String) -> RebuildDateRange {
-        RebuildDateRange(startDateKey: dateKey, endDateKey: nil)
-    }
-
-    var isComplete: Bool {
-        endDateKey != nil
-    }
-
-    var dayCount: Int {
-        guard let endDateKey,
-              let startDate = CodexDateFormat.dayDate(from: startDateKey),
-              let endDate = CodexDateFormat.dayDate(from: endDateKey) else {
-            return 0
-        }
-
-        guard let dayDifference = CodexDateFormat.localGregorianCalendar.dateComponents(
-            [.day],
-            from: startDate,
-            to: endDate
-        ).day else {
-            return 0
-        }
-        return dayDifference + 1
-    }
-
-    var displayText: String {
-        guard let startDate = CodexDateFormat.dayDate(from: startDateKey) else {
-            return startDateKey
-        }
-        let startText = CodexDateFormat.localDayDisplayString(from: startDate)
-        guard let endDateKey else {
-            return String(localized: "date-range.open-ended", defaultValue: "\(startText)")
-        }
-        guard startDateKey != endDateKey,
-              let endDate = CodexDateFormat.dayDate(from: endDateKey) else {
-            return startText
-        }
-        let endText = CodexDateFormat.localDayDisplayString(from: endDate)
-        return String(localized: "date-range.closed", defaultValue: "\(startText)\(endText)")
-    }
-
-    func completing(with dateKey: String) -> RebuildDateRange {
-        RebuildDateRange(
-            startDateKey: min(startDateKey, dateKey),
-            endDateKey: max(startDateKey, dateKey)
-        )
-    }
-
-    func contains(_ dateKey: String) -> Bool {
-        guard let endDateKey else {
-            return false
-        }
-        return dateKey >= startDateKey && dateKey <= endDateKey
     }
 }
 

@@ -35,8 +35,22 @@ struct TokenCountText: View {
     }
 }
 
+struct CodexTokenUsageText: View {
+    let usage: CodexTokenUsage
+
+    var body: some View {
+        HStack(spacing: 3) {
+            TokenCountText(tokens: Int(usage.totalTokens), font: .caption2.monospacedDigit())
+            Text(verbatim: "tokens")
+                .font(.caption2)
+        }
+        .foregroundStyle(.secondary)
+        .fixedSize()
+    }
+}
+
 /// 1K 以下显示完整整数, 1K 起使用 K/M/B
-private enum TokenCountFormatter {
+enum TokenCountFormatter {
     static func parts(from tokens: Int) -> TokenCountParts {
         switch tokens {
         case 1000000000...:

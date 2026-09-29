@@ -60,8 +60,8 @@ A shortcut needs at least two modifier keys and cannot use `Command-Space` or `C
 | [System Notifications](notifications.md) | Configure notification types, thresholds, sounds, and haptics | Main switch off |
 | Automatic Reset | Use banked resets shortly before expiration | Off, 30-minute lead time |
 | [Prevent System Sleep](sleep-prevention.md) | Keep your Mac awake while eligible tasks run | Off |
-| [Cross-Device Sync](sync-data-privacy.md) | Combine daily Hook statistics through iCloud | Off |
-| [Rebuild Data](sync-data-privacy.md#rebuild-data) | Recalculate Hook statistics for selected dates | Manual |
+| [Cross-Device Sync](sync-data-privacy.md) | Combine daily activity statistics and session token usage through iCloud | Off |
+| [Rebuild Data](sync-data-privacy.md#rebuild-data) | Recalculate activity statistics and session token usage for selected dates in the background | Manual |
 
 ### Proxy
 

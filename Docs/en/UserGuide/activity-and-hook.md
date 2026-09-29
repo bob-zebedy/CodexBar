@@ -2,7 +2,7 @@
 
 [简体中文](../../UserGuide/activity-and-hook.md) | English
 
-CodexBar Hook provides live task status, task notifications, haptics, task-based sleep prevention, and daily session, turn, and tool-call statistics. It also enables syncing and rebuilding those daily statistics.
+CodexBar Hook provides live task status, task notifications, haptics, task-based sleep prevention, and daily session, turn, and tool-call statistics. It also enables syncing daily activity statistics and rollout token history. Rebuild Data recalculates both types of retained local history.
 
 ## Enable Hook
 
@@ -37,13 +37,13 @@ Tasks with a known origin whose session cannot be identified show an orange anon
 
 ## Daily Statistics
 
-Hover over a day in the main panel heatmap to view sessions, turns, tool calls, permission requests, context compactions, subagents, and the most-used model.
+Hover over a day in the main-panel heatmap to see sessions, turns, tool calls, permission requests, context compactions, subagents, and the most-used model in the left column, with session token totals on the right. Token usage belongs to the root turn’s start date, unlike daily activity counts. See [Token Usage and Heatmap](main-panel.md#token-usage-and-heatmap).
 
 Sessions and turns are deduplicated within each day; activity continuing into another day counts toward that day. Sessions with only a session-end event and turns with only completion-candidate or interruption events do not count as active that day. Tool calls use the larger of the start and end event counts.
 
 ## Disable Hook
 
-Disabling Hook stops updates to live tasks, task notifications, haptics, sleep prevention, Hook statistics, and their cross-device sync. Account, quota, and token heatmap features remain available.
+Disabling Hook stops updates to live tasks, task notifications, haptics, sleep prevention, and Hook statistics, and stops cross-device sync for activity and token history. The heatmap hides its two-column history details. Account, quota, and the app-server token heatmap remain available.
 
 Hook records task information such as time, model, tool name, and project, without saving prompt, reply, or tool input/output content. See [Data, Sync, and Privacy](sync-data-privacy.md) for retention and sync details.
 

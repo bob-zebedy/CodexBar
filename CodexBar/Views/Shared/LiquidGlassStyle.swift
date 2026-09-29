@@ -1,3 +1,5 @@
+import AppKit
+import Combine
 import SwiftUI
 
 /// CodexBar 统一的短状态动画
@@ -103,23 +105,105 @@ private struct SidePanelChrome: ViewModifier {
     }
 }
 
-/// 分区之间的细分隔线, 与玻璃背景保持低对比
+/// 分区之间的细分隔线, 以银灰和冷白高光衬托玻璃背景
 struct LiquidGlassDivider: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isVisible = false
+
     var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isVisible)) { timeline in
+            let phase = timeline.date.timeIntervalSinceReferenceDate * .pi / 4
+            line(offset: sin(phase) * 0.28)
+        }
+        .mask {
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .white, location: 0.12),
+                    .init(color: .white, location: 0.88),
+                    .init(color: .clear, location: 1)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        }
+        .frame(height: 1)
+        .background {
+            LiquidGlassDividerVisibility { isVisible = $0 }
+        }
+    }
+
+    private func line(offset: Double) -> some View {
         Rectangle()
             .fill(
                 LinearGradient(
                     colors: [
                         .clear,
-                        .white.opacity(0.36),
-                        .primary.opacity(0.08),
+                        Color(hex: 0x8799AE),
+                        Color(hex: 0xE3EBF4),
+                        Color(hex: 0xA9B9CB),
                         .clear
                     ],
-                    startPoint: .leading,
-                    endPoint: .trailing
+                    startPoint: UnitPoint(x: offset, y: 0.5),
+                    endPoint: UnitPoint(x: 1 + offset, y: 0.5)
                 )
             )
-            .frame(height: 1)
+            .opacity(colorScheme == .dark ? 0.36 : 0.30)
+    }
+}
+
+/// 面板可能保留隐藏的 hosting view, 按窗口可见性暂停时间线, 不依赖动画偏好开关
+private struct LiquidGlassDividerVisibility: NSViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeNSView(context _: Context) -> VisibilityView {
+        let view = VisibilityView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ view: VisibilityView, context _: Context) {
+        view.onChange = onChange
+        view.updateVisibility()
+    }
+
+    final class VisibilityView: NSView {
+        var onChange: ((Bool) -> Void)?
+        private var reportedVisibility = false
+        private var visibilityObservation: AnyCancellable?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            visibilityObservation = nil
+            if let window {
+                visibilityObservation = NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification, object: window)
+                    .sink { [weak self] _ in
+                        MainActor.assumeIsolated { self?.updateVisibility() }
+                    }
+            }
+            updateVisibility()
+        }
+
+        override func viewDidHide() {
+            super.viewDidHide()
+            updateVisibility()
+        }
+
+        override func viewDidUnhide() {
+            super.viewDidUnhide()
+            updateVisibility()
+        }
+
+        override func hitTest(_: NSPoint) -> NSView? {
+            nil
+        }
+
+        func updateVisibility() {
+            let visible = window?.occlusionState.contains(.visible) == true && !isHiddenOrHasHiddenAncestor
+            guard visible != reportedVisibility else { return }
+            reportedVisibility = visible
+            Task { @MainActor [weak self] in self?.onChange?(visible) }
+        }
     }
 }
 

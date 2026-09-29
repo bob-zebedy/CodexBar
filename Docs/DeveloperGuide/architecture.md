@@ -124,8 +124,8 @@ Hook handler 在 Codex 的关键路径上，它需要的是接近命令行工具
 | 链路 | 输入 | 输出 | 主要消费者 |
 | --- | --- | --- | --- |
 | app-server | `codex app-server` JSON-RPC | 账户、额度、token 用量、Reset Credit 使用、Hook 配置能力 | 主面板、菜单栏额度、设置、自动重置状态机 |
-| Hook 历史 | Hook JSONL | 日级事件、session, turn, tool, model 聚合 | 活跃度热力图、历史统计、CloudKit |
-| 实时任务 | Hook 增量事件加 rollout 生命周期 | 运行、等待批准、完成、终止 | 菜单栏状态、任务中心、任务流光、通知、防睡眠 |
+| 历史统计 | Hook JSONL 与 rollout JSONL，分别读取和聚合 | 日级活动统计、线程轮次 Token 累计值及日汇总 | 热力图日期详情、历史统计、CloudKit |
+| 实时任务 | Hook 增量事件加 rollout 生命周期与轮次用量 | 运行、等待批准、完成、终止、本轮 Token | 菜单栏状态、任务中心、任务流光、通知、防睡眠 |
 
 ### 依赖方向
 
@@ -176,7 +176,9 @@ Hook + rollout --------> CodexActivityMonitor --------> UI
 ### Actor 服务
 
 - `CodexStatusService` 管理 app-server 连接和刷新
-- `WorkflowService` 管理历史聚合
+- `WorkflowService` 协调 Hook 日聚合与 Token 历史快照
+- `CodexTokenHistoryStore` 管理 rollout 历史账本、读取游标和显式重建
+- `CodexTokenHistorySync` 管理轮次用量的 CloudKit 记录和缓存
 - `HookEventTailReader` 管理 Hook 文件游标
 - `CodexSessionLifecycleReader` 管理 rollout 文件游标
 - `WorkflowSyncService` 管理 CloudKit 状态
@@ -223,6 +225,7 @@ Hook + rollout --------> CodexActivityMonitor --------> UI
 | 任务中心 terminal 历史 | 10 分钟 | 提供近期上下文但不长期占用 UI |
 | terminal 去重记忆 | 24 小时 | 防止迟到 Hook 或 rollout 复活旧任务 |
 | Hook 原始和日聚合 | 210 天 | 支持长期统计和重建 |
+| Token 轮次账本 | 按最近记录时间保留 210 天，保留仍被子轮次引用的根记录 | 支持日汇总、增量续读和重建 |
 | 日聚合身份明细 | 3 天 | 近期精确去重与隐私、文件体积折中 |
 | Activity Protection 记录 | 最后进展后 24 小时 | 跨重启保持抑制，同时限制身份留存 |
 

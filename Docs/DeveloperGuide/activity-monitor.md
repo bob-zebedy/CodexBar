@@ -4,14 +4,15 @@
 
 ## 目标
 
-实时任务链路需要回答 4 个问题：
+实时任务链路需要回答以下问题：
 
 - 当前是否有任务正在运行
 - 当前是否在等待用户批准
 - 最近任务是完成还是终止
 - 哪些运行任务已经长时间没有进展
+- 当前轮次及其子 Agent 已产生多少 Token 用量
 
-Hook 事件提供实时进展和中断信号，rollout 文件补充生命周期信息。[`CodexActivityMonitor.swift`](../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) 合并两者并发布唯一任务快照：
+Hook 事件提供实时进展和中断信号，rollout 文件补充生命周期和轮次 Token 用量。[`CodexActivityMonitor.swift`](../../CodexBar/Services/Workflow/CodexActivityMonitor.swift) 合并两者并发布唯一任务快照：
 
 ```text
 Codex Hook -> WorkflowHookEventRecorder -> Hook JSONL
@@ -206,6 +207,28 @@ rollout 坏行将当时尚未结束的 turn 标记为有覆盖缺口，后续重
 共享的 `CodexRolloutLineEnvelope` 只提取 turn context, lifecycle 和 progress 所需字段。prompt, response 和 tool 内容不会进入活动模型。
 
 终态要求 `payload.turn_id` 非空，并且本轮读取状态为 `complete`。外层 `type = "event_msg"` 时，`payload.type` 为 `task_complete` 或 `turn_complete` 确认完成，完成时间优先使用有效的 `payload.completed_at`（Unix 秒），缺失或无效时使用外层 `timestamp`；两者均不可用时不确认完成。`payload.type = "turn_aborted"` 确认中断。非负且有限的 `payload.duration_ms` 换算为秒后用于耗时展示；中断时间缺失时，活动任务使用对账时间，待确认任务使用移出活动列表的时间，结果均不早于任务最后活动时间。
+
+## 本轮 Token 用量
+
+`CodexSessionLifecycleReader` 从外层 `type == token_usage_record` 的记录读取 `payload.turn_token_usage`。使用线程轮次累计值，不累加每条累计快照；`event_msg/token_count` 只提供进展信号，不作为本轮用量来源。
+
+| 展示指标 | `turn_token_usage` 字段或计算方式 |
+| --- | --- |
+| 总量 | `total_tokens`，等于输入加输出 |
+| 输入 | `input_tokens`，包含缓存命中和写入 |
+| 输出 | `output_tokens`，包含推理输出 |
+| 缓存命中 | `cached_input_tokens` |
+| 缓存写入 | `cache_write_input_tokens` |
+| 缓存命中率 | `cached_input_tokens / input_tokens`，输入为零时不可计算 |
+| 推理输出 | `reasoning_output_tokens` |
+
+六项计数均需存在且非负，总量必须等于输入加输出，缓存命中加写入不能超过输入，推理不能超过输出。解析同时校验 `thread_id`、`session_id`、`turn_id`、`root_turn_id` 和 `response_id` 的归属与有效性；字段缺失或校验失败时不生成用量。有效记录中的缓存写入或推理输出为零时直接展示零值。
+
+`CodexActivityTokenUsage.swift` 按根任务收集主线程及已关联子线程的轮次引用，并按线程、轮次去重。运行中汇总本次读取完整且归属匹配的线程，尚未有用量的线程等待后续刷新；显示值因此可以是已知线程的小计。实时卡片使用内存任务快照，不读取历史日汇总或 iCloud 缓存。
+
+完成和终止记录创建时用量为空，由结束后补读填入。补读最多持续 30 秒，每 2 秒安排一次，每批最多处理 16 个待补读任务。最终汇总要求已知子 Agent 身份齐全、各线程用量可用，且子线程已结束。补读取得用量后，后续读取不完整时保留该值，迟到的子线程关联只加入所属根轮次，不影响后续轮次。结束状态、通知和防睡眠释放不等待 Token 补读。
+
+历史回放使用独立的账本与读取游标，见 [Rollout Token 历史](sync.md#rollout-token-历史)
 
 ## 任务身份
 
@@ -566,6 +589,7 @@ Monitor 为 reader 和异步恢复任务维护 generation：
 
 ## 关键源码
 
+- [`CodexActivityTokenUsage.swift`](../../CodexBar/Services/Workflow/CodexActivityTokenUsage.swift)
 - [`CodexActivityMonitor.swift`](../../CodexBar/Services/Workflow/CodexActivityMonitor.swift)
 - [`CodexActivityTask.swift`](../../CodexBar/Services/Workflow/CodexActivityTask.swift)
 - [`CodexActivitySubagentTracking.swift`](../../CodexBar/Services/Workflow/CodexActivitySubagentTracking.swift)

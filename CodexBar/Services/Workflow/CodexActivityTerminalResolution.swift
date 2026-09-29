@@ -45,7 +45,8 @@ extension CodexActivityMonitor {
             modelName: event.modelName ?? task?.modelName,
             effort: event.effort ?? task?.effort,
             terminatedAt: event.timestamp,
-            duration: task?.preciseDuration(until: event.timestamp)
+            duration: task?.preciseDuration(until: event.timestamp),
+            task: task
         )
         recordEndedTask(key, at: event.timestamp)
         if let resolved = task?.resolvedTurnKey {
@@ -162,6 +163,7 @@ extension CodexActivityMonitor {
         )
         completions.append(completion)
         terminalTaskKeyByID[completion.id] = key
+        registerTerminalTokenUsage(id: completion.id, key: key, task: task, endedAt: recordedCompletedAt)
         recordTerminalPresentationEvent(.completed(completion))
         recordEndedTask(key, at: recordedCompletedAt)
         if let resolved = task.resolvedTurnKey {
@@ -181,7 +183,8 @@ extension CodexActivityMonitor {
             modelName: task.modelName,
             effort: task.effort,
             terminatedAt: terminatedAt,
-            duration: includesDuration ? task.preciseDuration(until: terminatedAt) : nil
+            duration: includesDuration ? task.preciseDuration(until: terminatedAt) : nil,
+            task: task
         )
     }
 
@@ -191,7 +194,8 @@ extension CodexActivityMonitor {
         modelName: String?,
         effort: String?,
         terminatedAt: Date,
-        duration: TimeInterval?
+        duration: TimeInterval?,
+        task: CodexActivityTask? = nil
     ) {
         let termination = CodexActivityTermination(
             id: UUID(),
@@ -204,6 +208,7 @@ extension CodexActivityMonitor {
         )
         terminations.append(termination)
         terminalTaskKeyByID[termination.id] = key
+        registerTerminalTokenUsage(id: termination.id, key: key, task: task, endedAt: terminatedAt)
         recordTerminalPresentationEvent(.terminated(termination))
     }
 
@@ -260,6 +265,7 @@ extension CodexActivityMonitor {
         terminations.removeAll()
         recentlyEndedTaskAt.removeAll()
         terminalTaskKeyByID.removeAll()
+        terminalTokenUsageRequests.removeAll()
         activityTaskOrigins.removeAll()
         pendingSubagentEvents.removeAll()
         subagentTurnLinks.removeAll()

@@ -4,9 +4,9 @@
 
 ## 同步范围
 
-CloudKit 同步用于在同一 iCloud 账户的 Mac 之间合并 Hook 日级统计。
+CloudKit 同步用于在同一 iCloud 账户的 Mac 之间合并 Hook 日级统计和 rollout Token 用量。
 
-同步对象是聚合结果，不是原始 Hook 事件：
+Hook 同步以日聚合为单位：
 
 ```text
 本机原始 Hook JSONL
@@ -16,11 +16,11 @@ CloudKit 同步用于在同一 iCloud 账户的 Mac 之间合并 Hook 日级统�
   -> 按日期合并展示
 ```
 
-账户、额度、token 总量、Reset Credits、自动重置设置与状态、实时任务和防睡眠状态不参与同步。
+app-server 账户、额度、账户 token 总量、Reset Credits、自动重置设置与状态、实时任务和防睡眠状态不参与同步。
 
 ## 数据来源
 
-同步展示同时使用 3 类值：
+Hook 日聚合展示同时使用 3 类值。Token 轮次账本及其云端缓存见 [Rollout Token 历史](#rollout-token-历史)
 
 | 数据 | 权威来源 | 断网时行为 |
 | --- | --- | --- |
@@ -42,6 +42,7 @@ CloudKit 同步用于在同一 iCloud 账户的 Mac 之间合并 Hook 日级统�
 | Custom zone | `CodexBarZone` |
 | 元数据 record type | `CodexBarSyncMetadata` |
 | 日聚合 record type | `CodexBarDailyAggregate` |
+| Token 轮次 record type | `CodexBarTokenTurn` |
 
 private database 中的数据只属于当前 iCloud 账户，不写入 public database。
 
@@ -96,11 +97,42 @@ salt 存在同一个 private custom zone 中。多台设备先后创建时通过
 - 完整工作目录
 - prompt 或 response 内容
 - Codex 账户和额度
-- token 或 `auth.json` 等
+- 认证 token 或 `auth.json` 等凭证
 - App 请求日志
 - 异常会话保护状态
 
 更完整的数据边界见 [数据与隐私边界](data-and-privacy.md)
+
+## Rollout Token 历史
+
+Token 历史使用同一 private zone 中独立的 `CodexBarTokenTurn` 记录，schema 为 `1`。一条记录对应一个线程轮次，同一轮的累计快照更新原记录，不按设备相加。主线程和子线程分别计数，子线程归入根轮次开始日。日期按查看设备的本地时区计算。
+
+本地轮次标识先对线程和轮次 ID 做 SHA-256，再使用账户 salt 做 HMAC-SHA256，生成云端标识。不同设备读取同一份 rollout 时生成相同记录名，缓存和本地数据也按该标识去重。记录不包含原始 session、turn 或 agent ID。
+
+云端字段如下，发布环境需要在 CloudKit Console 部署该记录类型及字段：
+
+| 字段 | 类型 | 内容 |
+| --- | --- | --- |
+| `schemaVersion` | Int64 | `1` |
+| `rootID` | String | 根轮次的账户域哈希 |
+| `startedAt` | Date | 轮次开始时间，可缺失 |
+| `observedAt` | Date | 最近累计记录的时间 |
+| `rebuiltAt` | Date | 可选的显式重建时间，用于拒绝旧统计回流 |
+| `usage` | Bytes | 六项 token 整数的 JSON，可缺失 |
+
+记录名直接使用轮次哈希，保持稳定；数据格式版本由 `schemaVersion` 字段管理。缺少 `usage` 的记录不贡献用量：根记录可用于确定子轮次日期，带 `rebuiltAt` 的记录可用于清除该轮旧计数。上传前读取服务端记录，保留更完整的累计快照，使用 `ifServerRecordUnchanged` 条件写入；并发冲突留待下一轮重新获取、合并和重试。不会把多个累计快照相加，也不会对输入、缓存和输出字段分别拼接最大值。
+
+显式重建扫描本机保留期内的 rollout，按根轮次开始日筛选结果，只更新所选日期重新读到的轮次。本地 `rebuild.lock` 防止多个进程同时重建；扫描时不持有账本锁，每批读取后让出执行机会，完整成功后加锁提交。读取开始后的活跃轮次进展保留，原始文件缺失的旧轮次不删除。失败或取消保留提交前账本，App 退出后不自动续跑这次手动重建。
+
+需要同步的重建记录携带 `rebuiltAt`。合并优先选择较新的重建结果，再在同一次重建内保留完整累计值，允许显式修正为更小的计数。正常增量读取继承本地轮次的重建时间。本地账本恢复或云端存在更新的重建结果时，只对账户与根轮次身份匹配的本地轮次恢复云端基线。已读取的文件按每轮读取预算重新扫描，恢复边界之前的用量保留云端修正值，之后的累计记录继续更新。恢复边界与读取游标保存在本地账本，重启后继续补读，不导入其他机器独有的轮次。重建后没有用量的旧轮次仍可同步，以清除云端旧计数；其他轮次和其他机器独有的记录不受影响。
+
+日汇总累加去重后的线程轮次，缓存命中率使用日缓存命中总量除以日输入总量。热力图颜色和账户用量来自 app-server，与 rollout 用量独立。热力图日期详情将缺失用量显示为 `0`，缓存命中率显示为 `0%`；存储与同步仍保留缺失状态。
+
+本地账本位于 `HookEvents/Tokens/ledger.json`，保存哈希身份、累计值、开始时间和文件读取游标。独立文件锁协调 Debug 和 Release。同步缓存与游标位于 `HookEvents/Sync/Tokens/cache.json`，记录按账户校验，Debug 和 Release 共用。整轮同步由非阻塞 `sync.lock` 协调，独立文件锁保护缓存读写，界面读取不等待网络。Hook 日聚合使用独立的存储与同步记录。
+
+历史扫描覆盖 `$CODEX_HOME/sessions` 和 `$CODEX_HOME/archived_sessions` 中最近 210 天内修改的 `rollout-*.jsonl` 文件，单轮读取预算为 64 MiB，最多额外读完一条 1 MiB 内的记录。超出预算的历史在后续维护中继续补读。同批尚未读取的文件优先处理最近修改的会话，再逐步补齐更早历史。正文大行有界跳过，半行等待下一轮补齐；文件替换、截断或读取边界改变时重新扫描，已知累计用量不会再次叠加。轮次按 `updatedAt` 保留 210 天，仍被保留子轮次引用的根记录一同保留；日汇总只展示根轮次开始日位于保留期内的数据。原始 rollout 缺失或没有 `token_usage_record` 时无法补出用量。
+
+自动回放每批提交后在 `workflow` 系统日志输出进度，包括已追平文件数、字节进度、本轮读取量、剩余量、等待完整行的文件数、不可读文件数和耗时。全部文件追平后输出一次“Rollout 回放完成”；正常增量追加和位置不变的等待不重复输出。完成状态只表示本轮检查范围内的本地文件已读完，不表示 iCloud 已同步。日志不包含文件路径、会话身份、正文或 token 用量。
 
 ## 一次同步的阶段
 
@@ -111,8 +143,9 @@ salt 存在同一个 private custom zone 中。多台设备先后创建时通过
   -> 按设备身份和 schema 更新本地状态
   -> 拉取远端变更到缓存，处理待替换日期
   -> 上传当前设备变化日期
-  -> 再次拉取远端变更到缓存
-  -> 清理超过保留期的记录
+  -> 再次拉取 Hook 远端变更到缓存
+  -> 拉取、上传并清理 Token 轮次记录
+  -> 清理当前设备超过保留期的 Hook 记录
   -> 保存状态并发布合并结果
 ```
 
@@ -123,7 +156,7 @@ salt 存在同一个 private custom zone 中。多台设备先后创建时通过
 - 上传后再次拉取，才能把本轮写入和其他设备并发写入统一进本地缓存
 - 最后清理过期记录，避免清理失败阻断本轮有效数据上传
 
-每个阶段都写入日志中的 `stage`，失败信息因此能回答问题发生在 zone, device, fetch, upload 还是 prune，而不只得到一个笼统的 CloudKit error：
+每个阶段都写入日志中的 `stage`，失败信息会标明 `zone`、`device`、`fetch`、`upload`、`tokens` 或 `prune` 阶段：
 
 - 上传每批最多 25 条记录
 - 每轮上传按 20 秒预算决定是否启动下一批
@@ -136,7 +169,7 @@ salt 存在同一个 private custom zone 中。多台设备先后创建时通过
 
 上传使用 `atomically: false`，远端允许单批部分成功。但只要该批出现错误，调用方就移除整批日期的本地确认 hash，下轮重新检查这一批。此前已完成批次的确认保留，远端已成功写入的记录不回滚。
 
-## 合并语义
+## Hook 日聚合的合并语义
 
 同一天可能有多个设备记录，也可能有当前设备尚未上传的最新本地结果。
 
@@ -180,7 +213,7 @@ CloudKit 解码及持久化模型保留可选计数字段。本地与远端聚�
 
 CloudKit 使用可选整数字段 `interruptCount` 保存中断次数。同日合并的任一贡献缺少该字段时，中断次数合计保持不可用。
 
-## 来源替换与重建
+## Hook 来源替换与重建
 
 用户执行重新扫描时：
 
@@ -221,7 +254,7 @@ replacement 删除前全量拉取当前设备同日记录，覆盖本地增量�
 | `cache.jsonl` | 远端设备日聚合缓存 |
 | `cursor.data` | CloudKit zone change token |
 
-当前 CloudKit record schema 为 `6`。本地同步状态 schema 为 `4`，能读取上一版 schema `3`
+Hook 日聚合的 CloudKit record schema 为 `6`。本地同步状态 schema 为 `4`，能读取上一版 schema `3`
 
 3 个文件有不同的可恢复等级：
 
@@ -299,12 +332,17 @@ CloudKit 记录保留期与本地 Hook 历史一致，最长 210 天：
 - 关闭同步后只显示本地统计
 - iCloud 未登录时显示明确状态，本地统计继续工作
 - 网络断开后使用最后缓存，恢复后完成增量同步
-- 本机重建后只替换当前设备记录
+- 本机重建后只替换当前设备的 Hook 记录与本机重新读到的 Token 轮次
+- Token 重建可降低或清除计数；其他设备刷新后收敛，旧缓存不会恢复旧计数
+- 缺失 rollout 时保留已知轮次；本地账本恢复后，旧文件回放不覆盖云端修正值
+- 同一轮次的文件副本及跨设备副本只计一次，主线程与子线程按根轮次开始日归属
 - 超过 210 天的本地和远端缓存被清理
 - iCloud 账户切换后不显示前一账户缓存
 
 ## 关键源码
 
+- [`CodexTokenHistoryStore.swift`](../../CodexBar/Services/Workflow/CodexTokenHistoryStore.swift)
+- [`CodexTokenHistorySync.swift`](../../CodexBar/Services/Workflow/CodexTokenHistorySync.swift)
 - [`WorkflowSyncService.swift`](../../CodexBar/Services/Workflow/WorkflowSyncService.swift)
 - [`WorkflowSyncScheduler.swift`](../../CodexBar/Services/Workflow/WorkflowSyncScheduler.swift)
 - [`WorkflowSyncSettings.swift`](../../CodexBar/Services/Settings/WorkflowSyncSettings.swift)

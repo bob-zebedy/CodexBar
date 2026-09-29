@@ -111,6 +111,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var statusIconHostingView: StatusItemIconHostingView?
     private var statusIconExpirationTask: Task<Void, Never>?
     private var statusToolTipTask: Task<Void, Never>?
+    private var popoverResizeAnimationTask: Task<Void, Never>?
     private var registeredHotKeyShortcut: GlobalHotKeyShortcut?
     private var auxiliaryWindowFocusRestoreTask: Task<Void, Never>?
     private var activeStatusItemMenu: NSMenu?
@@ -392,6 +393,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .map(\.hasTaskCenterContent)
             .removeDuplicates()
 
+        observeActivityCardSize()
+
         let isTaskCenterVisible = Publishers.CombineLatest(
             codexHookSettings.$isEnabled,
             mainPanelSettings.$layout
@@ -470,6 +473,37 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func observeActivityCardSize() {
+        Publishers.CombineLatest(viewModel.$snapshot.map { $0 != nil }, activityMonitor.$snapshot)
+            .map { hasQuota, activity in hasQuota && activity.primaryActivity.tokenUsage != nil }
+            .removeDuplicates()
+            .handleEvents(receiveOutput: { [weak self] _ in
+                self?.animatePopoverContentResize()
+            })
+            // 用量补齐会改变卡片高度, 等 @Published 完成赋值后再测量备用面板
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                fallbackPanelController.resizeIfVisible(
+                    animated: fallbackPanelAnimationState.allowsAnimations
+                )
+            }
+            .store(in: &cancellables)
+    }
+
+    private func animatePopoverContentResize() {
+        guard menuSurfaceState == .shown, popover.isShown, popoverAnimationState.allowsAnimations else { return }
+        popoverResizeAnimationTask?.cancel()
+        // preferredContentSize 更新前启用 AppKit 尺寸动画, 显隐仍由统一淡入淡出管理
+        popover.animates = true
+        popoverResizeAnimationTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            self?.popover.animates = false
+            self?.popoverResizeAnimationTask = nil
+        }
     }
 
     private func observeWorkflowSyncState() {
@@ -896,6 +930,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             return
         }
 
+        popoverResizeAnimationTask?.cancel()
+        popoverResizeAnimationTask = nil
+        popover.animates = false
         menuSurfaceFadeCoordinator.cancel()
         hideSideDetailPanels()
         menuSurfaceDismissMonitor.remove()
@@ -1115,6 +1152,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func closeActiveMenuSurface() {
         // 主动关闭先清除宿主身份, 避免同步的关闭回调重入清理流程
         activeMenuSurface = .none
+        popover.animates = false
         if popover.isShown {
             popover.performClose(nil)
         }

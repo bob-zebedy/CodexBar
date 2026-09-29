@@ -705,6 +705,118 @@
         }
       }
     },
+    "activity.tokens.cache-hit-rate" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cache-H"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缓存命中率"
+          }
+        }
+      }
+    },
+    "activity.tokens.cache-write" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cache-W"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缓存写入"
+          }
+        }
+      }
+    },
+    "activity.tokens.cached-read" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cached"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "缓存命中"
+          }
+        }
+      }
+    },
+    "activity.tokens.reasoning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reasoning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "推理输出"
+          }
+        }
+      }
+    },
+    "activity.tokens.input" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Input"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入总计"
+          }
+        }
+      }
+    },
+    "activity.tokens.output" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Output"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输出总计"
+          }
+        }
+      }
+    },
+    "activity.tokens.total" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Total"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "总计"
+          }
+        }
+      }
+    },
     "app.action.quit" : {
       "localizations" : {
         "en" : {
@@ -5233,18 +5345,34 @@
         }
       }
     },
-    "usage.heatmap.intensity" : {
+    "usage.heatmap.activity-metrics" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Intensity"
+            "value" : "Activity data"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "用量强度"
+            "value" : "活动数据"
+          }
+        }
+      }
+    },
+    "usage.heatmap.token-metrics" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Session token data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话 Token 数据"
           }
         }
       }
@@ -5510,13 +5638,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Recalculate %@ from local Hook events.\nReplace this device's cloud data for those dates during the next sync."
+            "value" : "Recalculate activity data and session token data for %@ from local Hook events and rollouts.\nAfter syncing, local data will be replaced and cloud data updated."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将从本机原始 Hook 事件重新统计 %@\n并在下次同步时替换当前设备对应日期的云端数据"
+            "value" : "将从本机 Hook 事件和 rollout 重新统计 %@ 的活动数据和会话 Token 数据\n同步后将替换本机数据并更新云端数据"
           }
         }
       }
@@ -5741,6 +5869,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "; 云端替换未能完成, 请稍后重新重建这些数据"
+          }
+        }
+      }
+    },
+    "workflow.rebuild.status.running" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rebuilding activity data and session token data in the background"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在后台重建活动数据和会话 Token 数据"
+          }
+        }
+      }
+    },
+    "workflow.rebuild.summary.tokens" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "; %lld session token records"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "; 会话 Token 数据 %lld 条"
+          }
+        }
+      }
+    },
+    "workflow.rebuild.summary.tokens-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "; session token data rebuild incomplete, please retry"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "; 会话 Token 数据重建未完成, 请重试"
+          }
+        }
+      }
+    },
+    "workflow.rebuild.error.already-running" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Session token data is already being rebuilt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话 Token 数据正在重建中"
           }
         }
       }

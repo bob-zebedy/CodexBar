@@ -60,8 +60,8 @@ Hook 不可用时隐藏光带并保留开关选择。系统睡眠、屏幕休眠
 | [系统通知](notifications.md) | 配置通知类型、阈值、音效和触觉反馈 | 总开关关闭 |
 | 自动重置 | 提前使用即将过期的留存重置 | 关闭，提前 30 分钟 |
 | [防止系统睡眠](sleep-prevention.md) | 在符合条件的任务运行时保持 Mac 唤醒 | 关闭 |
-| [跨设备同步](sync-data-privacy.md) | 通过 iCloud 合并每日 Hook 统计 | 关闭 |
-| [重建数据](sync-data-privacy.md#重建数据) | 重新计算所选日期的 Hook 统计 | 手动操作 |
+| [跨设备同步](sync-data-privacy.md) | 通过 iCloud 合并每日活动统计和会话 Token 用量 | 关闭 |
+| [重建数据](sync-data-privacy.md#重建数据) | 在后台重新计算所选日期的活动统计和会话 Token 用量 | 手动操作 |
 
 ### 代理
 

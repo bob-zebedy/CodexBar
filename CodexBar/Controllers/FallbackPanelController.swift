@@ -41,6 +41,20 @@ final class FallbackPanelController {
         panel?.orderOut(nil)
     }
 
+    func resizeIfVisible(animated: Bool) {
+        guard let panel, panel.isVisible else { return }
+        let size = contentSize(for: panel)
+        guard panel.frame.size != size else { return }
+        var frame = panel.frame
+        frame.origin.y = frame.maxY - size.height
+        frame.size = size
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = animated ? 0.20 : 0
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(frame, display: true)
+        }
+    }
+
     private func makePanelIfNeeded() -> KeyableBorderlessPanel {
         if let panel {
             return panel

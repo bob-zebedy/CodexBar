@@ -89,7 +89,8 @@ actor CodexSessionLifecycleReader {
                     parentThreadId: cursor?.metadata?.parentThreadId,
                     lastExecutionProgressAt: known?.lastExecutionProgressAt,
                     incompleteTailUnchangedSince: status == .incomplete && !hasReadGap && known?.hasContext == true && known?.terminal == nil
-                        ? cursor?.incompleteTailUnchangedSince : nil
+                        ? cursor?.incompleteTailUnchangedSince : nil,
+                    tokenUsage: turnStatus == .complete ? known?.tokenUsage : nil
                 ))
             }
         }
@@ -295,6 +296,20 @@ private nonisolated struct SessionFileCursor {
         }
         for envelope in decoded.values {
             apply(envelope)
+            if envelope.type == "token_usage_record", let turnId = envelope.payload?.turnId {
+                // 用量字段损坏不能影响生命周期解码, 也不能沿用上一条累计值
+                var state = lifecycleByTurnId[turnId] ?? SessionTurnLifecycle()
+                state.tokenUsage = nil
+                if let record = try? JSONDecoder().decode(CodexRolloutTokenUsageRecord.self, from: partialLineData).payload,
+                   record.threadId == metadata?.id,
+                   record.sessionId == (metadata?.sessionId ?? metadata?.id),
+                   !record.responseId.isEmpty, !record.rootTurnId.isEmpty,
+                   !turnId.isEmpty, record.turnTokenUsage.isValid {
+                    state.tokenUsage = record.turnTokenUsage
+                    state.rootTurnId = record.rootTurnId
+                }
+                lifecycleByTurnId[turnId] = state
+            }
         }
     }
 
@@ -304,8 +319,11 @@ private nonisolated struct SessionFileCursor {
     mutating func markReadGap() {
         hasDecodeFailures = true
         currentTurnId = nil
-        for turnId in lifecycleByTurnId.keys where lifecycleByTurnId[turnId]?.terminal == nil {
-            lifecycleByTurnId[turnId]?.hasReadGap = true
+        for turnId in lifecycleByTurnId.keys {
+            lifecycleByTurnId[turnId]?.tokenUsage = nil
+            if lifecycleByTurnId[turnId]?.terminal == nil {
+                lifecycleByTurnId[turnId]?.hasReadGap = true
+            }
         }
     }
 
@@ -501,6 +519,7 @@ private nonisolated enum SessionLifecycleChange {
 }
 
 private nonisolated struct SessionTurnLifecycle {
+    var tokenUsage: CodexTokenUsage?
     var rootTurnId: String?
     var hasReadGap = false
     var contextObservedAt: Date?
@@ -555,6 +574,7 @@ nonisolated struct CodexSessionTaskLifecycleState {
     var parentThreadId: String?
     var lastExecutionProgressAt: Date?
     var incompleteTailUnchangedSince: Date?
+    var tokenUsage: CodexTokenUsage?
 }
 
 nonisolated enum CodexSessionReadStatus {

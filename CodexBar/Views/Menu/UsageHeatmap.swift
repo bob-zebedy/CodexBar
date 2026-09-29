@@ -593,7 +593,7 @@ struct UsageHeatmapDayDetailView: View {
 
     static func panelSize(showsWorkflow: Bool) -> CGSize {
         CGSize(
-            width: Metrics.panelWidth,
+            width: showsWorkflow ? Metrics.workflowPanelWidth : Metrics.panelWidth,
             height: showsWorkflow ? Metrics.workflowPanelHeight : Metrics.tokenPanelHeight
         )
     }
@@ -627,14 +627,75 @@ struct UsageHeatmapDayDetailView: View {
             LiquidGlassDivider()
                 .opacity(0.72)
 
-            VStack(alignment: .leading, spacing: Metrics.metricSpacing) {
-                tokenIntensityMetricRow
-                mostUsedModelMetricRow
+            tokenIntensityMetricRow
 
-                ForEach(workflowMetricRows) { row in
-                    metricRow(row)
+            HStack(alignment: .top, spacing: Metrics.columnSpacing) {
+                VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+                    columnTitle("usage.heatmap.activity-metrics")
+                    Grid(alignment: .leading, horizontalSpacing: Metrics.metricRowSpacing, verticalSpacing: Metrics.metricSpacing) {
+                        mostUsedModelMetricRow
+                        ForEach(workflowMetricRows) { row in
+                            metricRow(row)
+                        }
+                    }
                 }
+                .frame(minWidth: 0, maxWidth: .infinity)
+
+                Rectangle()
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(width: 1)
+
+                VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+                    columnTitle("usage.heatmap.token-metrics")
+                    dailyTokenMetrics
+                }
+                .frame(minWidth: 0, maxWidth: .infinity)
             }
+            .frame(height: Metrics.columnHeight)
+        }
+    }
+
+    private func columnTitle(_ title: LocalizedStringKey) -> some View {
+        Text(title)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Color.codexSecondaryLabel)
+            .frame(height: Metrics.metricRowHeight)
+    }
+
+    private var dailyTokenMetrics: some View {
+        let usage = context.day.tokenUsage
+        let cacheHitRate = usage?.cacheHitRate ?? 0
+        return Grid(alignment: .leading, horizontalSpacing: Metrics.metricRowSpacing, verticalSpacing: Metrics.metricSpacing) {
+            dailyTokenRow("activity.tokens.total", tokens: usage?.totalTokens, tint: .blue)
+            dailyTokenRow("activity.tokens.input", tokens: usage?.inputTokens, tint: .indigo)
+            dailyTokenRow("activity.tokens.output", tokens: usage?.outputTokens, tint: .orange)
+            dailyTokenRow("activity.tokens.cached-read", tokens: usage?.cachedInputTokens, tint: .green)
+            dailyTokenRow("activity.tokens.cache-write", tokens: usage?.cacheWriteInputTokens, tint: .purple)
+            metricRowLayout {
+                metricDot(tint: .teal)
+                Text("activity.tokens.cache-hit-rate")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(height: Metrics.metricRowHeight)
+                fittingMetricValue(
+                    cacheHitRate.formatted(.percent.precision(.fractionLength(0 ... 1))),
+                    comparison: cacheHitRate
+                )
+            }
+            dailyTokenRow("activity.tokens.reasoning", tokens: usage?.reasoningOutputTokens, tint: .cyan)
+        }
+    }
+
+    private func dailyTokenRow(_ title: LocalizedStringKey, tokens: Int64?, tint: Color) -> some View {
+        let count = tokens ?? 0
+        return metricRowLayout {
+            metricDot(tint: tint)
+            Text(title)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(height: Metrics.metricRowHeight)
+            fittingMetricValue(TokenCountFormatter.parts(from: Int(count)).text, comparison: Double(count))
         }
     }
 
@@ -645,34 +706,14 @@ struct UsageHeatmapDayDetailView: View {
             LiquidGlassDivider()
                 .opacity(0.62)
 
-            tokenOnlyFooter
-        }
-    }
-
-    private var tokenOnlyFooter: some View {
-        metricRowLayout {
-            tokenIntensityDot
-            Text("usage.heatmap.intensity")
-                .foregroundStyle(.secondary)
-
-            Spacer(minLength: 8)
-
-            tokenIntensityStrip
-                .frame(width: Metrics.tokenIntensityStripWidth)
+            tokenIntensityMetricRow
         }
     }
 
     private var tokenIntensityMetricRow: some View {
-        metricRowLayout {
-            tokenIntensityDot
-            Text("usage.heatmap.intensity")
-                .foregroundStyle(.secondary)
-                .frame(width: Metrics.metricLabelWidth, alignment: .leading)
-
-            tokenIntensityStrip
-                .frame(width: Metrics.tokenIntensityStripWidth)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-        }
+        tokenIntensityStrip
+            .frame(maxWidth: .infinity)
+            .frame(height: Metrics.metricRowHeight)
     }
 
     private var mostUsedModelMetricRow: some View {
@@ -680,20 +721,16 @@ struct UsageHeatmapDayDetailView: View {
             metricDot(tint: .cyan)
             Text("usage.heatmap.top-model")
                 .foregroundStyle(.secondary)
-                .frame(width: Metrics.metricLabelWidth, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(height: Metrics.metricRowHeight)
 
             fittingModelValue(context.day.workflow.mostUsedModel ?? "--")
         }
     }
 
-    private var tokenIntensityDot: some View {
-        metricDot(tint: .blue, darkOpacity: 0.88, lightOpacity: 0.76)
-    }
-
     private func metricRowLayout(@ViewBuilder content: () -> some View) -> some View {
-        HStack(spacing: Metrics.metricRowSpacing, content: content)
+        GridRow(content: content)
             .font(.system(size: Metrics.workflowFontSize))
-            .frame(height: Metrics.metricRowHeight)
     }
 
     private func metricDot(tint: Color, darkOpacity: Double = 0.86, lightOpacity: Double = 0.72) -> some View {
@@ -802,7 +839,8 @@ struct UsageHeatmapDayDetailView: View {
             return Color.blue.opacity(colorScheme == .dark ? 0.14 : 0.10)
         }
 
-        let opacity = colorScheme == .dark ? 0.42 + Double(index) * 0.10 : 0.34 + Double(index) * 0.09
+        let position = Double(index) / Double(Metrics.tokenIntensitySegmentCount - 1)
+        let opacity = colorScheme == .dark ? 0.42 + position * 0.40 : 0.34 + position * 0.36
         return Color.blue.opacity(min(opacity, 0.88))
     }
 
@@ -811,7 +849,8 @@ struct UsageHeatmapDayDetailView: View {
             metricDot(tint: row.tint)
             Text(row.label)
                 .foregroundStyle(.secondary)
-                .frame(width: Metrics.metricLabelWidth, alignment: .leading)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(height: Metrics.metricRowHeight)
 
             fittingMetricValue("\(row.value)", comparison: Double(row.value))
         }
@@ -825,7 +864,10 @@ struct UsageHeatmapDayDetailView: View {
     }
 
     private func fittingModelValue(_ value: String) -> some View {
-        fittingValueContent(value)
+        metricValueText(value)
+            .minimumScaleFactor(Metrics.metricValueMinimumScale)
+            .allowsTightening(true)
+            .contentTransition(.numericText())
             .layoutPriority(1)
             .frame(maxWidth: .infinity, alignment: .trailing)
     }
@@ -861,7 +903,10 @@ struct UsageHeatmapDayDetailView: View {
 
     private enum Metrics {
         static let panelWidth: CGFloat = 212
-        static let workflowPanelHeight: CGFloat = 208
+        static let workflowPanelWidth: CGFloat = 360
+        static let workflowPanelHeight: CGFloat = 232
+        static let columnSpacing: CGFloat = 12
+        static let columnHeight: CGFloat = 150
         static let tokenPanelHeight: CGFloat = 84
         static let sectionSpacing: CGFloat = 8
         static let horizontalPadding: CGFloat = 12
@@ -873,12 +918,10 @@ struct UsageHeatmapDayDetailView: View {
         static let metricRowSpacing: CGFloat = 6
         static let metricDotSize: CGFloat = 5
         static let metricRowHeight: CGFloat = 14
-        static let metricLabelWidth: CGFloat = 72
         static let metricValueMinimumScale: CGFloat = 0.60
         static let workflowFontSize: CGFloat = 11
-        static let tokenIntensitySegmentCount = 5
+        static let tokenIntensitySegmentCount = 10
         static let tokenIntensitySegmentSpacing: CGFloat = 3
-        static let tokenIntensityStripWidth: CGFloat = 74
         static let tokenIntensityStripHeight: CGFloat = 5
         static let statusAnimation = Animation.codexStatus
     }

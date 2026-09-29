@@ -278,7 +278,8 @@ struct CodexActivityCenterView: View {
                     completion.completedAt,
                     now: now
                 )
-            )
+            ),
+            tokenUsage: completion.tokenUsage
         )
     }
 
@@ -296,7 +297,8 @@ struct CodexActivityCenterView: View {
                     termination.terminatedAt,
                     now: now
                 )
-            )
+            ),
+            tokenUsage: termination.tokenUsage
         )
     }
 
@@ -308,6 +310,7 @@ struct CodexActivityCenterView: View {
         effort: String?,
         isAnonymous: Bool,
         detail: String,
+        tokenUsage: CodexTokenUsage? = nil,
         effect: CodexActivityStatusText.Effect = .none
     ) -> some View {
         HStack(alignment: .top, spacing: 9) {
@@ -328,13 +331,19 @@ struct CodexActivityCenterView: View {
                     effort: effort
                 )
 
-                CodexActivityStatusText(
-                    text: detail,
-                    tint: tint,
-                    effect: presentationState.isPresented
-                        && mainPanelSettings.areEntranceAnimationsEnabled
-                        ? effect : .none
-                )
+                HStack(spacing: 6) {
+                    CodexActivityStatusText(
+                        text: detail,
+                        tint: tint,
+                        effect: presentationState.isPresented
+                            && mainPanelSettings.areEntranceAnimationsEnabled
+                            ? effect : .none
+                    )
+                    if let tokenUsage {
+                        Spacer(minLength: 0)
+                        CodexTokenUsageText(usage: tokenUsage)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -9,8 +9,8 @@ Each data flow has one service owning its facts; consumers read snapshots or tra
 | Flow | Source of state | Output use |
 | --- | --- | --- |
 | app-server | Account, quota, and usage responses | Periodic display with same-account stale-cache fallback |
-| Hook history | Raw JSONL | Rebuildable daily statistics and cross-device sync |
-| Live tasks | Incremental Hook events and rollout lifecycle | Activity snapshots, task alerts, and sleep prevention |
+| Historical statistics | Independently maintained Hook events and rollout usage | Rebuildable daily activity metrics, thread-turn token ledger, and cross-device sync |
+| Live tasks | Incremental Hook events, rollout lifecycle, and turn usage | Activity snapshots with current-turn tokens, task alerts, and sleep prevention |
 
 Snapshots can be read repeatedly. Notifications use live transitions; bootstrap establishes a baseline without replaying historical alerts. Historical aggregation shares some refresh triggers with quota, but reads and failure handling remain independent. See [Architecture](architecture.md) for component relationships.
 
@@ -50,10 +50,12 @@ Combine’s `@Published` emits during `willSet`. Combined-setting decisions use 
 
 Raw Hook JSONL is the source for rebuilding history; daily aggregates are derived output. Aggregation-semantic changes increment the schema and rebuild retained history. `sourceGeneration` distinguishes file replacements: same-day, same-source data replaces a contribution, while independent sources add together.
 
+Token history uses stable thread-and-turn identities, deduplicates cumulative snapshots, and aggregates by the root turn’s start date. Explicit rebuilds finish the local scan before committing reread turns for selected dates. `rebuiltAt` gives corrected lower counts precedence over stale copies. Turns with missing source files retain known statistics, while remote-only turns remain in the sync cache. See [Rollout Token History](sync.md#rollout-token-history) for fields and merge rules.
+
 Activity Protection and helper ownership records recover state changes that have already occurred. Protection saves asynchronously and does not wait for disk before hiding a task. The helper persists recovery responsibility before changing system sleep state. See [Live Task Monitoring](activity-monitor.md) and [Sleep Prevention](sleep-prevention.md) for ordering.
 
 ## Privileged Operations and Upload Scope
 
 Task identification, Automatic Reset policy, and networking run in the main app. The root helper accepts only fixed sleep-lease and wake operations, validates client signatures, and reads back system results.
 
-CloudKit syncs only daily aggregates. Raw events, session identifiers, account data, and proxy passwords remain local. Project display names are uploaded only after the user enables sync. See [Data and Privacy Boundaries](data-and-privacy.md) for fields and storage scope.
+CloudKit syncs daily activity aggregates and pseudonymous thread-turn token records. Raw events, raw session identifiers, account data, and proxy passwords remain local. Project display names are uploaded only after the user enables sync. See [Data and Privacy Boundaries](data-and-privacy.md) for fields and storage scope.

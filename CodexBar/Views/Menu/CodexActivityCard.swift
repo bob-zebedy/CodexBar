@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Hook 开启时常驻的固定高度活动摘要, 使用菜单面板共享的逐秒时间
+/// Hook 开启时常驻的活动摘要, 使用菜单面板共享的逐秒时间
 /// 在卡片内部观察 activityMonitor 与逐秒时间, 让 1Hz 失效范围只覆盖本卡片而不是整个菜单树
 /// keepAliveController 同理, 它的 helperStatus 等字段与菜单树无关却会无条件发信号
 struct CodexActivityCard: View {
@@ -62,7 +62,42 @@ struct CodexActivityCard: View {
 
     private func card(now: Date) -> some View {
         let content = content(at: now)
-        return HStack(spacing: 10) {
+        return VStack(alignment: .leading, spacing: 8) {
+            statusRow(content)
+            if let usage = content.tokenUsage {
+                VStack(spacing: 8) {
+                    LiquidGlassDivider()
+                    tokenUsageMetrics(usage)
+                }
+                .transition(.opacity.combined(with: .offset(y: 6)))
+            }
+        }
+        .animation(.codexStatus, value: showsKeepAliveBadge)
+        .animation(.codexStatus, value: content.isAnonymous)
+        // 任务数变化会让 +N 增删, 防睡眠徽标跟着横移; 两者一起纳入动画上下文才不会跳
+        .animation(.codexStatus, value: content.otherTaskCount)
+        .padding(.horizontal, MenuMetrics.panelPadding)
+        .frame(maxWidth: .infinity)
+        .frame(height: content.tokenUsage == nil ? Metrics.height : Metrics.usageHeight)
+        .clipped()
+        .activityStatusParticles(cornerRadius: MenuMetrics.panelCornerRadius)
+        .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
+        .overlay {
+            RoundedRectangle(cornerRadius: MenuMetrics.panelCornerRadius, style: .continuous)
+                .strokeBorder(
+                    isTaskCenterPresented
+                        ? Color.accentColor.opacity(0.55)
+                        : Color.primary.opacity(isHovered && snapshot.hasTaskCenterContent ? 0.14 : 0),
+                    lineWidth: 1
+                )
+                .animation(.codexStatus, value: isHovered)
+                .animation(.codexStatus, value: isTaskCenterPresented)
+        }
+        .animation(.codexStatus, value: content.tokenUsage != nil)
+    }
+
+    private func statusRow(_ content: ActivityCardContent) -> some View {
+        HStack(spacing: 10) {
             Image(systemName: content.symbolName)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(content.tint)
@@ -120,25 +155,40 @@ struct CodexActivityCard: View {
                     .help(String(localized: "activity.summary.other-task-count", defaultValue: "\(content.otherTaskCount, specifier: "%lld")"))
             }
         }
-        .animation(.codexStatus, value: showsKeepAliveBadge)
-        .animation(.codexStatus, value: content.isAnonymous)
-        // 任务数变化会让 +N 增删, 防睡眠徽标跟着横移; 两者一起纳入动画上下文才不会跳
-        .animation(.codexStatus, value: content.otherTaskCount)
-        .padding(.horizontal, MenuMetrics.panelPadding)
-        .frame(maxWidth: .infinity, minHeight: Metrics.height, maxHeight: Metrics.height)
-        .activityStatusParticles(cornerRadius: MenuMetrics.panelCornerRadius)
-        .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
-        .overlay {
-            RoundedRectangle(cornerRadius: MenuMetrics.panelCornerRadius, style: .continuous)
-                .strokeBorder(
-                    isTaskCenterPresented
-                        ? Color.accentColor.opacity(0.55)
-                        : Color.primary.opacity(isHovered && snapshot.hasTaskCenterContent ? 0.14 : 0),
-                    lineWidth: 1
-                )
-                .animation(.codexStatus, value: isHovered)
-                .animation(.codexStatus, value: isTaskCenterPresented)
+    }
+
+    private func tokenUsageMetrics(_ usage: CodexTokenUsage) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            tokenMetric("activity.tokens.total", tokens: usage.totalTokens)
+            tokenMetric("activity.tokens.input", tokens: usage.inputTokens)
+            tokenMetric("activity.tokens.output", tokens: usage.outputTokens)
+            tokenMetric("activity.tokens.cached-read", tokens: usage.cachedInputTokens)
+            tokenMetric("activity.tokens.cache-write", tokens: usage.cacheWriteInputTokens)
+            VStack(spacing: 3) {
+                Text("activity.tokens.cache-hit-rate")
+                    .font(.caption2)
+                    .foregroundStyle(Color.codexSecondaryLabel)
+                    .minimumScaleFactor(0.65)
+                Text(usage.cacheHitRate.map { $0.formatted(.percent.precision(.fractionLength(0 ... 1))) } ?? "—")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(Color.codexLabel)
+            }
+            .frame(minWidth: 0, maxWidth: .infinity)
+            tokenMetric("activity.tokens.reasoning", tokens: usage.reasoningOutputTokens)
         }
+        .lineLimit(1)
+    }
+
+    private func tokenMetric(_ title: LocalizedStringKey, tokens: Int64) -> some View {
+        VStack(spacing: 3) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(Color.codexSecondaryLabel)
+                .minimumScaleFactor(0.65)
+            TokenCountText(tokens: Int(tokens), font: .caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(Color.codexLabel)
+        }
+        .frame(minWidth: 0, maxWidth: .infinity)
     }
 
     private func content(at now: Date) -> ActivityCardContent {
@@ -181,7 +231,8 @@ struct CodexActivityCard: View {
                 ),
                 detail: details.joined(separator: " • "),
                 otherTaskCount: 0,
-                isAnonymous: completion.isAnonymous
+                isAnonymous: completion.isAnonymous,
+                tokenUsage: completion.tokenUsage
             )
         case let .terminated(termination):
             let details = CodexActivityDisplayFormat.historyDetailComponents(
@@ -199,7 +250,8 @@ struct CodexActivityCard: View {
                 ),
                 detail: details.joined(separator: " • "),
                 otherTaskCount: 0,
-                isAnonymous: termination.isAnonymous
+                isAnonymous: termination.isAnonymous,
+                tokenUsage: termination.tokenUsage
             )
         case .idle:
             return ActivityCardContent(
@@ -234,7 +286,8 @@ struct CodexActivityCard: View {
             ),
             detail: details.joined(separator: " • "),
             otherTaskCount: otherTaskCount,
-            isAnonymous: task.isAnonymous
+            isAnonymous: task.isAnonymous,
+            tokenUsage: task.tokenUsage
         )
     }
 
@@ -282,6 +335,7 @@ struct CodexActivityCard: View {
 
     private enum Metrics {
         static let height: CGFloat = 58
+        static let usageHeight: CGFloat = 108
     }
 }
 
@@ -310,6 +364,7 @@ private struct ActivityCardContent {
     let detail: String?
     let otherTaskCount: Int
     let isAnonymous: Bool
+    var tokenUsage: CodexTokenUsage?
 }
 
 struct CodexActivityAnonymousIcon: View {

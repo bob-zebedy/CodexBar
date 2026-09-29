@@ -200,6 +200,12 @@ The heatmap detail panel uses the complete heatmap area, including its heading, 
 
 While the main panel is visible, digits roll as values change and Token values fade when switching to or from pending or unavailable placeholders. Animation Effects controls entrance animations, sun-badge rotation, and task status-text animations; it does not control numeric updates.
 
+The activity card shows its token area only when `primaryActivity.tokenUsage` is available, with seven equally sized, centered metrics and a divider. Availability changes animate the card height and main-panel size independently of Animation Effects. The popover temporarily enables `animates` before the content-size update; the fallback waits for the `@Published` assignment before measuring and keeps its top edge fixed.
+
+With Hook enabled, heatmap details use two columns beneath a full-width ten-segment intensity row: activity statistics on the left and session tokens on the right. Each column uses a `Grid` to size labels to its longest label, leaving the remaining width for values. Date changes use the same `numericText` transition for token and activity values. The most-used model transitions within one text view and scales its font to fit.
+
+The shared `LiquidGlassDivider` slowly moves a silver-gray and cool-white gradient over an 8-second cycle. It pauses or resumes its timeline using its `NSView` window visibility, independently of Animation Effects.
+
 Related controllers include:
 
 - [`HeatmapDetailPanelController.swift`](../../../CodexBar/Controllers/HeatmapDetailPanelController.swift)
@@ -338,6 +344,10 @@ Release scripts require Developer ID, signing, and notarization credentials and 
 - The old shortcut still works after a new shortcut conflicts
 - Panel-open refresh does not stall animation or issue duplicate requests
 - Initial numeric decreases, consecutive changes, Token unit changes, and month boundaries roll in the correct direction; numeric animations stop when the main panel closes
+
+- Switch heatmap dates rapidly in Chinese and English; label widths remain stable while token values and model names transition in place
+- Toggle token availability; popover and fallback sizes animate smoothly even with Animation Effects disabled
+- Shared dividers flow slowly and stop continuous rendering when their window closes or becomes hidden
 
 ## Key Source Files
 

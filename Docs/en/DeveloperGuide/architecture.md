@@ -124,8 +124,8 @@ Three data flows manage distinct inputs, freshness requirements, and failure sta
 | Flow | Input | Output | Main consumers |
 | --- | --- | --- | --- |
 | app-server | `codex app-server` JSON-RPC | Account, rate limits, token usage, Reset Credit use, Hook configuration capabilities | Main panel, menu bar rate limit, Settings, Automatic Reset state machine |
-| Hook history | Hook JSONL | Daily event, session, turn, tool, and model aggregations | Activity heatmap, historical metrics, CloudKit |
-| Live tasks | Incremental Hook events plus rollout lifecycle | Running, waiting for approval, completed, terminated | Menu bar status, Task Center, task glow, notifications, sleep prevention |
+| Historical statistics | Hook JSONL and rollout JSONL, read and aggregated separately | Daily activity metrics, cumulative thread-turn tokens, and daily token totals | Heatmap date details, historical metrics, CloudKit |
+| Live tasks | Incremental Hook events plus rollout lifecycle and turn usage | Running, waiting for approval, completed, terminated, current-turn tokens | Menu bar status, Task Center, task glow, notifications, sleep prevention |
 
 ### Dependency Direction
 
@@ -176,7 +176,9 @@ These objects own observable state and UI coordination. They must not perform bl
 ### Actor Services
 
 - `CodexStatusService` manages app-server connections and refreshes
-- `WorkflowService` manages historical aggregation
+- `WorkflowService` coordinates Hook daily aggregates and token-history snapshots
+- `CodexTokenHistoryStore` manages the rollout ledger, read cursors, and explicit rebuilds
+- `CodexTokenHistorySync` manages CloudKit turn-usage records and their cache
 - `HookEventTailReader` manages Hook-file cursors
 - `CodexSessionLifecycleReader` manages rollout-file cursors
 - `WorkflowSyncService` manages CloudKit state
@@ -223,6 +225,7 @@ State lifetimes are:
 | Task Center terminal history | 10 minutes | Provides recent context without occupying the UI indefinitely |
 | Terminal deduplication memory | 24 hours | Prevents late Hook or rollout data from reviving old tasks |
 | Raw Hook data and daily aggregations | 210 days | Supports long-term metrics and rebuilding |
+| Token-turn ledger | 210 days from the latest record, retaining roots referenced by child turns | Supports daily totals, incremental reads, and rebuilding |
 | Daily-aggregation identity details | 3 days | Balances recent exact deduplication with privacy and file size |
 | Activity Protection records | 24 hours after the last progress | Preserves suppression across restarts while limiting identity retention |
 

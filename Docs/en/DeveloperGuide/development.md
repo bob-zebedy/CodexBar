@@ -30,6 +30,8 @@ The test target has no app host. It compiles the production sources in `CodexBar
 | Hook and JSONL | Name normalization, corrupt-line isolation, metadata read budget, partial lines, bootstrap/live separation, file replacement |
 | Live tasks | Anonymous identity, duration, out-of-order progress, subagent counts, approvals scoped to each execution |
 | Rollout lifecycle | Completion and progress, read coverage, corrupt lines, missing/replaced files, archived sessions |
+| Current-turn tokens | Counter validation, main/child ownership and deduplication, live updates, terminal rereads, turn isolation, overflow and zero values |
+| Token history | Cross-midnight attribution, persisted cursors, replay logs, rebuilds lowering or clearing counts, missing-file preservation, cloud-baseline recovery, cancellation and cross-instance locks |
 | Aggregation and sync models | Identifier deduplication, paired events, missing counts, incremental/replay equivalence, same-device generation deduplication |
 | Persistence and settings | Protection expiry, merging across store instances, conditional removal, legacy defaults, corrupt configuration and draft restoration |
 | Quota, proxy, and presentation | Credit filtering, stable UUIDs, actual running versions, proxy validation and environment, dates and heatmap states |
@@ -48,7 +50,8 @@ Unit tests do not cover live CloudKit, app-server, system notifications, window 
 | Live tasks and protection | `CodexActivityMonitor` and readers | [Live Task Monitoring](activity-monitor.md) |
 | Sleep prevention and system wakes | `KeepAliveController`, `AutoResetWakeScheduler`, helper | [Sleep Prevention](sleep-prevention.md) |
 | Notifications and sound | `CodexNotificationService`, notification Settings | [Notifications](notifications.md) |
-| Sync | `WorkflowSyncService` and scheduler | [CloudKit Sync](sync.md) |
+| Token history and sync | `CodexTokenHistoryStore`, `CodexTokenHistorySync`, and `CodexTokenTurn` | [Rollout Token History](sync.md#rollout-token-history) |
+| Hook sync | `WorkflowSyncService` and scheduler | [CloudKit Sync](sync.md) |
 | Menus, windows, hot keys | `Controllers` and corresponding views | [UI and Lifecycle](ui-and-lifecycle.md) |
 
 `CodexBarAppDelegate` assembles long-lived objects. Add state to its existing owner where possible; views consume snapshots and emit action intents. See [Architecture](architecture.md) for source entry points.
@@ -83,6 +86,7 @@ Documentation-only changes run format checks, lint, and build, plus relative-lin
 | Notifications | Authorization denial/recovery, threshold crossing, cycle deduplication, withdrawal after progress, missing sounds |
 | Proxy | First configuration, enable/disable, disable invalid data, delete corrupt records, cancel tests, rapid actions and failure rollback |
 | Sync | First upload, multiple devices, offline recovery, partial upload failure, rebuild replacement, iCloud account changes |
+| Token replay and rebuild | Large-history resume, main-panel use during rebuild, closing Settings, automatic replay versus manual rebuild after restart, cross-device convergence of corrected counts |
 | Power and helper | First approval, running/waiting transitions, low battery, duration limit, external sleep sources, abnormal exit and restart |
 | Automatic Reset wakes | Replace schedules, disable/exit cleanup, connection loss, helper restart, clear before unregistering, fresh reads when due |
 

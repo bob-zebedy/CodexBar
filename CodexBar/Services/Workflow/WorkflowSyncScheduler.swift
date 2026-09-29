@@ -182,7 +182,7 @@ final class WorkflowSyncScheduler {
         pendingRebuild = nil
         let synchronize = syncActivation().isActive
 
-        Task { @MainActor [weak self] in
+        Task(priority: .utility) { @MainActor [weak self] in
             guard let self else {
                 return
             }

@@ -51,6 +51,7 @@ CodexBar 的最小化顺序是：
 | app-server 账户、额度和 Reset Credits | 主面板、通知判断和用户启用的自动重置 | 仅短期状态 | 否 |
 | Hook 结构化事件 | 历史聚合和实时任务 | 是，最长 210 天 | 只上传日聚合 |
 | rollout 生命周期 | terminal 和进展对账 | 不单独持久化 | 否 |
+| rollout token 累计值 | 轮次去重和日汇总 | 哈希身份、时间和计数，210 天 | 用户启用同步后上传脱敏轮次累计值 |
 | App 设置 | 功能开关和阈值 | UserDefaults | 否 |
 | Activity Protection | 异常会话恢复 | 哈希身份，最长 24 小时 | 否 |
 | CodexBarHelper ownership | 系统睡眠恢复 | root 状态文件 | 否 |
@@ -86,9 +87,11 @@ Hook 子进程从 rollout 首条 `session_meta` 的完整记录或已完成字�
 
 Hook recorder 通过 `transcript_path` 读取当前 rollout，`SubagentStop` 的来源使用子线程自身的 `agent_transcript_path`。实时活动 reader 访问 `$CODEX_HOME/sessions` 和 `$CODEX_HOME/archived_sessions` 中相关主线程及子线程的文件。
 
-这些读取只解析来源分类、线程及轮次归属、生命周期、时间、turn context、progress、effort 和 reviewer 等结构字段。线程关联只在内存中使用，对话正文不进入 CodexBar 存储或 UI。
+这些读取只解析来源分类、线程及轮次归属、生命周期、时间、turn context、progress、effort、reviewer 和 token 计数等结构字段。实时线程关联只在内存中使用；历史 token 账本仅保存哈希身份、必要时间和六项累计计数。对话正文不进入 CodexBar 存储或 UI。
 
-rollout reader 从文件尾部按预算扫描，一方面减少 I/O，另一方面降低无关历史内容进入进程内存的范围。解析 DTO 只声明所需字段，JSONDecoder 自动忽略其余内容。
+Token 历史扫描从文件起点建立轮次账本，再按游标增量读取。云端身份使用账户 salt 做 HMAC-SHA256，不上传原始线程或轮次 ID。字段和保留规则见 [Rollout Token 历史](sync.md#rollout-token-历史)
+
+实时 rollout reader 从文件尾部按预算扫描，一方面减少 I/O，另一方面降低无关历史内容进入进程内存的范围。解析 DTO 只声明所需字段，JSONDecoder 自动忽略其余内容。
 
 ### Reset Credits 明细
 
@@ -116,7 +119,18 @@ rollout reader 从文件尾部按预算扫描，一方面减少 I/O，另一方�
     daily.jsonl
     maintenance.json
     stats.lock
+    Tokens/
+      ledger.json
+      store.lock
+      rebuild.lock
     Sync/
+      state.json
+      cache.jsonl
+      cursor.data
+      Tokens/
+        cache.json
+        store.lock
+        sync.lock
   ActivityProtection/
     state.json
 ```
@@ -126,12 +140,16 @@ rollout reader 从文件尾部按预算扫描，一方面减少 I/O，另一方�
 | `HookEvents/events` | 原始结构化 Hook 事件 | 210 天 |
 | `HookEvents/daily.jsonl` | 日级聚合 | 210 天 |
 | `HookEvents/maintenance.json` | 文件游标、generation 和维护状态 | 持续更新 |
-| `HookEvents/Sync` | CloudKit 缓存和游标 | 同步状态有效期间 |
+| `HookEvents/Tokens/ledger.json` | 哈希轮次身份、累计值、重建与恢复边界、文件读取游标 | 用量按最近记录时间保留 210 天；仍被保留子轮次引用的根记录一同保留 |
+| `HookEvents/Sync` | Hook 日聚合的云端缓存、游标和替换状态 | 同步状态有效期间 |
+| `HookEvents/Sync/Tokens/cache.json` | 账户域轮次记录、salt 和 CloudKit 游标 | 同步时清理过期轮次，保留仍被引用的根记录 |
 | `ActivityProtection/state.json` | 哈希任务身份和时间戳 | 最后进展后最长 24 小时 |
 
 最近 3 天的日聚合可以保留 session 和 turn ID 明细用于准确去重。更早数据只保留计数。
 
 匿名任务不生成异常会话保护标识，因此不会写入 `ActivityProtection/state.json`
+
+Token 账本和同步缓存由 Debug 与 Release 共用。`store.lock` 保护对应目录中的文件读写；`rebuild.lock` 排斥并发 Token 重建，`sync.lock` 排斥并发 Token 同步。`stats.lock` 用于 Hook 聚合事务。锁文件本身不保存统计或进度。
 
 ### UserDefaults
 
@@ -182,6 +200,8 @@ App 内 [`RequestLog.swift`](../../CodexBar/Services/CodexStatus/RequestLog.swif
 - 不敏感计数
 - 可定位模块的错误信息
 
+自动 rollout 回放在 `workflow` 分类记录文件数、读取字节数、剩余量、等待或不可读文件数及耗时，不记录文件路径、身份和用量。进度含义见 [Rollout Token 历史](sync.md#rollout-token-历史)
+
 系统日志不应记录：
 
 - OAuth token
@@ -196,7 +216,7 @@ App 内 [`RequestLog.swift`](../../CodexBar/Services/CodexStatus/RequestLog.swif
 
 | 目标 | 用途 | 触发条件 |
 | --- | --- | --- |
-| CloudKit private database | 同步日级 Hook 聚合 | 用户主动开启同步 |
+| CloudKit private database | 同步日级 Hook 聚合和脱敏轮次 token 累计值 | 用户主动开启同步 |
 | Codex 服务（app-server 子进程） | 认证、额度、用量和 Reset Credit 消费 | 正式刷新、代理测试或自动重置 |
 | Sparkle appcast 和更新资源 | 检查或安装更新 | 自动检查或用户手动检查 |
 
@@ -208,7 +228,7 @@ CodexBarHelper 不进行任何网络访问。
 
 ## CloudKit 边界
 
-CloudKit 只上传日级聚合字段：
+CloudKit 上传以下 Hook 日聚合字段：
 
 - 设备 pseudonym
 - 日期和 source generation
@@ -218,13 +238,15 @@ CloudKit 只上传日级聚合字段：
 - model 计数
 - 更新时间
 
+此外，token 历史上传账户内稳定的哈希轮次标识、根轮次关联、必要时间和六项累计计数，用于跨设备去重和按日汇总。
+
 CloudKit 不上传：
 
 - 原始 Hook JSONL
-- session, turn 或 agent ID
+- 原始 session, turn 或 agent ID
 - 完整工作目录
 - prompt, response, tool 参数或输出
-- Codex 账户、额度和 token 用量
+- app-server 的 Codex 账户、额度和账户 token 用量
 - Reset Credits 明细、自动重置设置和消费状态
 - access token
 - App 请求日志
@@ -275,12 +297,14 @@ helper 的 ownership 文件不是用户偏好，而是 crash recovery 事务记�
 - 用包含明显标记字符串的 prompt 和 tool 参数运行任务，确认 Hook JSONL、App 日志和 CloudKit cache 均没有该字符串
 - 让项目目录名包含敏感测试词，确认它只出现在允许的本地展示和 opt-in 聚合字段
 - 模拟 Reset Credits 请求失败，确认 access token 不出现在内存日志和 unified log
-- 检查 CloudKit record 不包含 session, turn, agent ID 或完整路径
+- 检查 CloudKit record 不包含原始 session, turn, agent ID 或完整路径
 - 以非 root 用户验证 helper 状态目录不可写
 - 损坏各类缓存文件，确认系统降级或重建，而不是扩大到备用数据采集
 
 ## 关键源码
 
+- [`CodexTokenHistoryStore.swift`](../../CodexBar/Services/Workflow/CodexTokenHistoryStore.swift)
+- [`CodexTokenHistorySync.swift`](../../CodexBar/Services/Workflow/CodexTokenHistorySync.swift)
 - [`WorkflowHookEventRecorder.swift`](../../CodexBar/Services/Workflow/WorkflowHookEventRecorder.swift)
 - [`WorkflowService.swift`](../../CodexBar/Services/Workflow/WorkflowService.swift)
 - [`CodexSessionLifecycleReader.swift`](../../CodexBar/Services/Workflow/CodexSessionLifecycleReader.swift)

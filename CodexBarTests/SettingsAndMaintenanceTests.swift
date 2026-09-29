@@ -2,6 +2,13 @@ import Foundation
 import Testing
 
 struct SettingsAndMaintenanceTests {
+    @Test func rebuildRangeIncludesDatesWithoutHookEvents() {
+        let range = RebuildDateRange.starting(at: "2026-09-15").completing(with: "2026-09-17")
+        #expect(range.dateKeys == ["2026-09-15", "2026-09-16", "2026-09-17"])
+        #expect(RebuildDateRange.starting(at: "2026-09-15").dateKeys.isEmpty)
+        #expect(RebuildDateRange.starting(at: "2026-09-15").completing(with: "2026-09-15").dateKeys == ["2026-09-15"])
+    }
+
     @Test func autoResetDefaultsOffAndRepairsInvalidLeadTime() throws {
         let preferences = try TestPreferences()
         defer { preferences.remove() }
