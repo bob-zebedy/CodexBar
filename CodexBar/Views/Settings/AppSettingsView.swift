@@ -31,7 +31,7 @@ struct AppSettingsView: View {
     @State private var selectedRebuildRange: RebuildDateRange?
     @State private var isShowingRebuildConfirmation = false
     @State private var isRebuildingWorkflowData = false
-    @State private var rebuildStatus: RebuildStatus?
+    @State private var rebuildResult: RebuildResult?
     @State private var helperFeatureConfirmation: HelperFeatureConfirmation?
 
     var body: some View {
@@ -102,7 +102,7 @@ struct AppSettingsView: View {
             selectedRebuildRange = nil
             isShowingRebuildConfirmation = false
             helperFeatureConfirmation = nil
-            clearRebuildStatus()
+            rebuildResult = nil
         }
         .onChange(of: selectedTab) { _, _ in
             onOptionsAction(.closeAll)
@@ -138,6 +138,22 @@ struct AppSettingsView: View {
             }
         } message: {
             Text(LocalizedStringResource("workflow.rebuild.confirmation.message", defaultValue: "\(selectedRebuildRange?.displayText ?? "")"))
+        }
+        .alert(
+            rebuildResult?.title ?? LocalizedStringResource("workflow.rebuild.result.completed"),
+            isPresented: Binding(
+                get: { rebuildResult != nil },
+                set: {
+                    if !$0 {
+                        rebuildResult = nil
+                    }
+                }
+            ),
+            presenting: rebuildResult
+        ) { _ in
+            Button("common.action.close", role: .cancel) {}
+        } message: { result in
+            Text(verbatim: result.message)
         }
         .alert(item: $helperFeatureConfirmation) { feature in
             feature.alert(helperStatus: keepAliveController.helperStatus) {
@@ -708,75 +724,42 @@ private extension AppSettingsView {
     // MARK: - 数据重建
 
     var rebuildWorkflowDataRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: SettingsRowMetrics.spacing) {
-                Image(systemName: "arrow.clockwise.circle")
-                    .frame(width: SettingsRowMetrics.iconWidth)
-                    .foregroundStyle(.tint)
+        HStack(spacing: SettingsRowMetrics.spacing) {
+            Image(systemName: "arrow.clockwise.circle")
+                .frame(width: SettingsRowMetrics.iconWidth)
+                .foregroundStyle(.tint)
 
-                Text("workflow.rebuild.title")
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+            Text("workflow.rebuild.title")
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
 
-                Spacer(minLength: 4)
+            Spacer(minLength: 4)
 
-                RebuildDatePicker(
-                    selection: $selectedRebuildRange,
-                    dataDateKeys: Set(rebuildableDates),
-                    isEnabled: !isRebuildingWorkflowData
-                )
-                .frame(
-                    width: RebuildLayoutMetrics.pickerWidth,
-                    height: RebuildLayoutMetrics.controlHeight,
-                    alignment: .leading
-                )
+            RebuildDatePicker(
+                selection: $selectedRebuildRange,
+                dataDateKeys: Set(rebuildableDates),
+                isEnabled: !isRebuildingWorkflowData
+            )
+            .frame(
+                width: RebuildLayoutMetrics.pickerWidth,
+                height: RebuildLayoutMetrics.controlHeight,
+                alignment: .leading
+            )
 
-                if isRebuildingWorkflowData {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(minWidth: RebuildLayoutMetrics.actionMinimumWidth)
-                } else {
-                    Button("workflow.rebuild.action") {
-                        isShowingRebuildConfirmation = true
-                    }
+            if isRebuildingWorkflowData {
+                ProgressView()
                     .controlSize(.small)
                     .frame(minWidth: RebuildLayoutMetrics.actionMinimumWidth)
-                    .disabled(selectedRebuildDateKeys.isEmpty)
+            } else {
+                Button("workflow.rebuild.action") {
+                    isShowingRebuildConfirmation = true
                 }
+                .controlSize(.small)
+                .frame(minWidth: RebuildLayoutMetrics.actionMinimumWidth)
+                .disabled(selectedRebuildDateKeys.isEmpty)
             }
-            .frame(height: RebuildLayoutMetrics.controlHeight)
-
-            let caption = rebuildCaption
-            SettingsCaptionMessageRow(
-                message: caption.message,
-                color: caption.isError ? .red : .secondary
-            )
         }
-    }
-
-    var rebuildCaption: RebuildStatus {
-        if isRebuildingWorkflowData {
-            return RebuildStatus(message: String(localized: "workflow.rebuild.status.running"), isError: false)
-        }
-        if let rebuildStatus {
-            return rebuildStatus
-        }
-        guard let selectedRebuildRange else {
-            return RebuildStatus(message: String(localized: "workflow.rebuild.selection.none"), isError: false)
-        }
-        guard selectedRebuildRange.isComplete else {
-            return RebuildStatus(message: String(localized: "date-picker.select-end"), isError: false)
-        }
-        if selectedRebuildDateKeys.isEmpty {
-            return RebuildStatus(
-                message: String(localized: "workflow.rebuild.error.source-unavailable"),
-                isError: true
-            )
-        }
-        return RebuildStatus(
-            message: String(localized: "workflow.rebuild.selection.day-count", defaultValue: "\(selectedRebuildRange.dayCount, specifier: "%lld")"),
-            isError: false
-        )
+        .frame(height: RebuildLayoutMetrics.controlHeight)
     }
 
     var selectedRebuildDateKeys: [String] {
@@ -811,14 +794,14 @@ private extension AppSettingsView {
         }
 
         isRebuildingWorkflowData = true
-        clearRebuildStatus()
+        rebuildResult = nil
         onRebuildWorkflowData(dateKeys) { result in
             isRebuildingWorkflowData = false
             refreshRebuildableDates()
 
             switch result {
             case let .success(summary):
-                rebuildStatus = RebuildStatus(
+                rebuildResult = RebuildResult(
                     message: Self.rebuildSuccessMessage(
                         for: summary,
                         autoRetryAvailable: codexHookSettings.isEnabled
@@ -828,12 +811,12 @@ private extension AppSettingsView {
             case let .failure(error):
                 // 请求被后续请求顶替时工作本身并没有失败, 不该报错
                 guard !(error is CancellationError) else {
-                    clearRebuildStatus()
+                    rebuildResult = nil
                     return
                 }
 
-                rebuildStatus = RebuildStatus(
-                    message: String(localized: "workflow.rebuild.status.failed", defaultValue: "\(error.localizedDescription)"),
+                rebuildResult = RebuildResult(
+                    message: error.localizedDescription,
                     isError: true
                 )
             }
@@ -842,7 +825,7 @@ private extension AppSettingsView {
 
     static let rebuildFailedDateListLimit = 3
 
-    /// 未完成的日期只列前几个, 避免长范围重建时提示挤满整行
+    /// 未完成的日期只列前几个, 避免长范围重建时结果过长
     /// autoRetryAvailable: 常规维护只在 Hook 开启时运行, 关闭时不能承诺自动重试
     static func rebuildSuccessMessage(
         for summary: WorkflowDataRebuildSummary,
@@ -879,10 +862,6 @@ private extension AppSettingsView {
         }
 
         return message
-    }
-
-    func clearRebuildStatus() {
-        rebuildStatus = nil
     }
 
     // MARK: - 通知
@@ -1360,9 +1339,13 @@ private struct RebuildDatePicker: View {
     }
 }
 
-private struct RebuildStatus {
+private struct RebuildResult {
     let message: String
     let isError: Bool
+
+    var title: LocalizedStringResource {
+        isError ? "workflow.rebuild.result.failed" : "workflow.rebuild.result.completed"
+    }
 }
 
 private struct SettingsStatusCaption: Equatable {

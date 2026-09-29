@@ -11,10 +11,10 @@
 		<key>KeepAlive</key>
 		<true/>
 		<key>Label</key>
-		<string>app.zabrian.codexbar.debug.helper</string>
+		<string>app.zabrian.codexbar.helper.debug</string>
 		<key>MachServices</key>
 		<dict>
-			<key>app.zabrian.codexbar.debug.helper</key>
+			<key>app.zabrian.codexbar.helper.debug</key>
 			<true/>
 		</dict>
 		<key>ProcessType</key>

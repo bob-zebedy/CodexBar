@@ -62,7 +62,12 @@ private struct CleanupTarget {
     }
 
     var serviceLabel: String {
-        bundleIdentifier + ".helper"
+        switch buildConfiguration {
+        case .release:
+            "app.zabrian.codexbar.helper"
+        case .debug:
+            "app.zabrian.codexbar.helper.debug"
+        }
     }
 }
 

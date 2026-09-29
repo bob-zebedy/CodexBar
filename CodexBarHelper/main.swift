@@ -1377,18 +1377,17 @@ private final class CodexBarHelperRuntime: NSObject, NSXPCListenerDelegate, @unc
             throw CodexBarHelperError.codeSigningValidationFailed("Helper 标识符缺失")
         }
 
-        let helperSuffix = CodexBarHelperIPC.helperBundleIdentifierSuffix
-        guard helperIdentifier.hasSuffix(helperSuffix) else {
+        guard helperIdentifier == CodexBarHelperIPC.machServiceName else {
             let details = LogFields.joined(
                 "actual=\(helperIdentifier)",
-                "expected=*\(helperSuffix)"
+                "expected=\(CodexBarHelperIPC.machServiceName)"
             )
             throw CodexBarHelperError.codeSigningValidationFailed(
                 "Helper 标识符错误: \(details)"
             )
         }
 
-        let clientIdentifier = String(helperIdentifier.dropLast(helperSuffix.count))
+        let clientIdentifier = CodexBarHelperIPC.appBundleIdentifier
         let identifierCharacters = CharacterSet.alphanumerics.union(
             CharacterSet(charactersIn: ".-")
         )

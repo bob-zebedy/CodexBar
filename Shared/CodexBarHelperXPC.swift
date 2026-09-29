@@ -1,10 +1,13 @@
 import Foundation
 
 nonisolated enum CodexBarHelperIPC {
-    static let helperBundleIdentifierSuffix = ".helper"
-    static let machServiceName = bundleIdentifier.hasSuffix(helperBundleIdentifierSuffix)
-        ? bundleIdentifier
-        : bundleIdentifier + helperBundleIdentifierSuffix
+    #if DEBUG
+        static let appBundleIdentifier = "app.zabrian.codexbar.debug"
+        static let machServiceName = "app.zabrian.codexbar.helper.debug"
+    #else
+        static let appBundleIdentifier = "app.zabrian.codexbar"
+        static let machServiceName = "app.zabrian.codexbar.helper"
+    #endif
     static let daemonPlistName = machServiceName + ".plist"
     static let watchdogGraceSeconds: TimeInterval = 15
     static let externalCheckIntervalSeconds: TimeInterval = 5
@@ -14,13 +17,6 @@ nonisolated enum CodexBarHelperIPC {
     /// App 侧等回复的上限, 与 watchdog 宽限是一对: 必须更小, 这样 App 先放手 helper 再自行兜底
     /// helper 冷启动加一次 pmset 通常一秒内完成, 留这么宽只为排除偶发的调度抖动
     static let requestTimeoutSeconds: TimeInterval = 10
-
-    private static let bundleIdentifier: String = {
-        guard let identifier = Bundle.main.bundleIdentifier, !identifier.isEmpty else {
-            preconditionFailure("CodexBar bundle identifier 缺失")
-        }
-        return identifier
-    }()
 }
 
 nonisolated enum CodexBarSleepPreventionSource: Int, Sendable {

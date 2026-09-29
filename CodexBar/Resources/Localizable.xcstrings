@@ -5697,50 +5697,34 @@
         }
       }
     },
-    "workflow.rebuild.selection.day-count" : {
+    "workflow.rebuild.result.completed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Selected days: %lld"
+            "value" : "Rebuild Complete"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已选择 %lld 天"
+            "value" : "重建完成"
           }
         }
       }
     },
-    "workflow.rebuild.selection.none" : {
+    "workflow.rebuild.result.failed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No date range selected"
+            "value" : "Rebuild Failed"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "未选择重建日期范围"
-          }
-        }
-      }
-    },
-    "workflow.rebuild.status.failed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rebuild failed: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重建失败: %@"
+            "value" : "重建失败"
           }
         }
       }
@@ -5788,7 +5772,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已重建 %1$lld 天, 包含 %2$lld 条数据"
+            "value" : "已重建 %1$lld 天, 包含 Hook 数据 %2$lld 条"
           }
         }
       }
@@ -5862,29 +5846,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; could not replace cloud data; try rebuilding this data later"
+            "value" : "; could not replace cloud data, please try again later"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; 云端替换未能完成, 请稍后重新重建这些数据"
-          }
-        }
-      }
-    },
-    "workflow.rebuild.status.running" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rebuilding activity data and session token data in the background"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在后台重建活动数据和会话 Token 数据"
+            "value" : "; 云端替换未能完成, 请稍后重新尝试"
           }
         }
       }

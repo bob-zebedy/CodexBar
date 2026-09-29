@@ -104,7 +104,7 @@ For collection, report generation, and baseline comparisons, see the [performanc
 
 | Configuration | App bundle ID | Helper bundle ID |
 | --- | --- | --- |
-| Debug | `app.zabrian.codexbar.debug` | `app.zabrian.codexbar.debug.helper` |
+| Debug | `app.zabrian.codexbar.debug` | `app.zabrian.codexbar.helper.debug` |
 | Release | `app.zabrian.codexbar` | `app.zabrian.codexbar.helper` |
 
 Preferences and system approval are isolated by identity; Hook data and Activity Protection files are shared. Identify the running app, helper, and installed Hook executable path when debugging.

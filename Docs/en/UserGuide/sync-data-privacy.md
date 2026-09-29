@@ -60,7 +60,7 @@ If statistics look incorrect, choose a date range in `Settings > Advanced > Rebu
 
 Rebuilding recalculates activity statistics and token usage for the selected dates from local Hook events and rollouts. Tokens belong to the root turn's start date; each thread and turn contributes once. Dates without Hook events can still rebuild token usage from local rollouts.
 
-The work runs in the background. You can keep using the main panel or close Settings. Token files are read in batches and committed only after the complete scan succeeds; cancellation and read errors do not publish partial results. Quitting the app stops the operation, and an unfinished token rebuild must be started again. The result reports days, activity events, and token turns processed.
+The work runs in the background. You can keep using the main panel or close Settings. Token files are read in batches and committed only after the complete scan succeeds; cancellation and read errors do not publish partial results. Quitting the app stops the operation, and an unfinished token rebuild must be started again. The result dialog reports the number of days, Hook events, and token turns processed.
 
 With sync enabled, rebuilding replaces this device's activity statistics and the token turns reread locally, preserving other turns. Rebuilding can lower token counts. If a turn is reread without usage records, its previous counts are cleared and that correction syncs to iCloud. Turns whose local rollouts are missing retain known statistics; missing files do not delete cloud records. Account details, quota, and app-server account usage are unaffected.
 

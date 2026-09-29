@@ -199,7 +199,7 @@ CodexBarHelper 通过 `SMAppService` 注册为 LaunchDaemon。App 和 CodexBarHe
 - 不进行网络访问
 - 不负责判断 Codex 任务状态
 
-CodexBarHelper 从自身签名派生客户端 code-signing requirement，并应用到 XPC listener。未通过签名要求的客户端不能建立控制连接。
+CodexBarHelper 使用自身签名中的 Team ID 和当前构建配置对应的 App 标识生成客户端 code-signing requirement，并应用到 XPC listener。
 
 ## 系统状态所有权
 

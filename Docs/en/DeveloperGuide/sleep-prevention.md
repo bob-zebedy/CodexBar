@@ -199,7 +199,7 @@ Each app process creates a stable `clientSessionID` that survives XPC reconnecti
 - It performs no network access
 - It does not determine Codex task state
 
-CodexBarHelper derives the client code-signing requirement from its own signature and applies it to the XPC listener. A client that fails the signing requirement cannot establish a control connection.
+CodexBarHelper builds the client code-signing requirement from the Team ID in its own signature and the app identifier for the current build configuration, then applies it to the XPC listener.
 
 ## System-State Ownership
 

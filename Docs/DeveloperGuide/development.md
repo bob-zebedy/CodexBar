@@ -104,7 +104,7 @@ CPU、内存、唤醒、磁盘活动与采集环境见[性能报告](https://cod
 
 | 配置 | App bundle ID | Helper bundle ID |
 | --- | --- | --- |
-| Debug | `app.zabrian.codexbar.debug` | `app.zabrian.codexbar.debug.helper` |
+| Debug | `app.zabrian.codexbar.debug` | `app.zabrian.codexbar.helper.debug` |
 | Release | `app.zabrian.codexbar` | `app.zabrian.codexbar.helper` |
 
 App 偏好和系统授权按身份隔离，Hook 数据与异常会话保护文件共享。排查时确认正在运行的 App、helper 和已安装 Hook 的可执行路径。

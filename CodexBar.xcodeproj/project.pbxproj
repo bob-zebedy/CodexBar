@@ -72,7 +72,7 @@
 			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
 			buildPhase = B10000000000000000000024 /* Copy LaunchDaemons */;
 			membershipExceptions = (
-				app.zabrian.codexbar.debug.helper.plist,
+				app.zabrian.codexbar.helper.debug.plist,
 				app.zabrian.codexbar.helper.plist,
 			);
 		};
@@ -322,7 +322,7 @@
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.debug.helper;
+				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.helper.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -523,7 +523,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = NO;
-				EXCLUDED_SOURCE_FILE_NAMES = app.zabrian.codexbar.debug.helper.plist;
+				EXCLUDED_SOURCE_FILE_NAMES = app.zabrian.codexbar.helper.debug.plist;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = CodexBar/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = CodexBar;
