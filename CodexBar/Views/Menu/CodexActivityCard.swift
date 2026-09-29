@@ -41,19 +41,15 @@ struct CodexActivityCard: View {
     }
 
     var body: some View {
-        Group {
-            if snapshot.hasTaskCenterContent {
-                Button {
-                    onTaskCenterTap(frameProvider)
-                } label: {
-                    card(now: timelineDate)
-                }
-                .buttonStyle(ActivityCardButtonStyle())
-                .contentShape(Rectangle())
-            } else {
-                card(now: timelineDate)
-            }
+        // 保留同一张卡片的视图身份, 空闲时只禁用交互, 避免打断内容和高度过渡
+        Button {
+            onTaskCenterTap(frameProvider)
+        } label: {
+            card(now: timelineDate)
         }
+        .buttonStyle(ActivityCardButtonStyle())
+        .disabled(!snapshot.hasTaskCenterContent)
+        .contentShape(Rectangle())
         .background {
             ScreenFrameReader(provider: frameProvider)
         }
@@ -64,6 +60,8 @@ struct CodexActivityCard: View {
         let content = content(at: now)
         return VStack(alignment: .leading, spacing: 8) {
             statusRow(content)
+                .id(snapshot.hasTaskCenterContent)
+                .transition(.opacity)
             if let usage = content.tokenUsage {
                 VStack(spacing: 8) {
                     LiquidGlassDivider()
@@ -93,6 +91,7 @@ struct CodexActivityCard: View {
                 .animation(.codexStatus, value: isHovered)
                 .animation(.codexStatus, value: isTaskCenterPresented)
         }
+        .animation(.codexStatus, value: snapshot.hasTaskCenterContent)
         .animation(.codexStatus, value: content.tokenUsage != nil)
     }
 
