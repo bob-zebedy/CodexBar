@@ -7,7 +7,7 @@
 - macOS 15.0 或更高版本
 - 已安装并登录 [Codex CLI](https://github.com/openai/codex)，或安装了内置 Codex 的 ChatGPT App 或 Codex App
 - 当前使用的 Codex 版本需要为 `0.145.0` 或更高版本
-- 使用 Hook 相关功能时，当前使用的 Codex 版本需要为 `0.150.0` 或更高版本
+- 启用进阶模式时，当前使用的 Codex 版本需要为 `0.153.0` 或更高版本
 - 使用跨设备同步时，Mac 需要登录可用的 iCloud 账户
 
 CodexBar 默认自动选择来源，优先使用全局安装的 Codex CLI，找不到时再尝试 ChatGPT App 和 Codex App 内置的 Codex。可在“设置 > 关于 > Codex 版本 > 来源”中手动选择。
@@ -34,9 +34,9 @@ CodexBar 是菜单栏 App，启动后不会在 Dock 中显示图标：
 2. 左键点击图标打开主面板
 3. 等待首次账户和用量刷新完成
 4. 如果显示未登录，先在当前 Codex 中完成登录
-5. 如果需要实时任务、任务类通知、防睡眠或 Hook 统计，在 `设置 > 高级` 中开启 CodexBar Hook
+5. 如果需要实时任务、任务类通知、防睡眠或 Hook 统计，在 `设置 > 高级` 中开启进阶模式
 
-CodexBar 每 60 秒自动刷新一次账户、额度和 Token 用量，双击主面板中的账户图标可以立即刷新。
+CodexBar 默认每 1 分钟自动刷新账户、额度和 Token 用量，可在 `设置 > 高级 > 数据更新间隔` 选择 1、2、3、5 或 10 分钟。双击主面板中的账户图标可以立即刷新。
 
 ## 基本操作
 
@@ -58,7 +58,7 @@ CodexBar 每 60 秒自动刷新一次账户、额度和 Token 用量，双击主
 
 ## 开启更多功能
 
-- [CodexBar Hook](activity-and-hook.md)：实时任务、每日活动统计和按任务防睡眠
+- [进阶模式](advanced-mode.md)：实时任务、每日活动统计和按任务防睡眠
 - [系统通知](notifications.md)：任务和额度提醒，需允许 macOS 通知权限
 - [自动重置](settings.md#自动重置)：提前使用即将过期的留存重置，可能短暂唤醒 Mac
 - [防止系统睡眠](sleep-prevention.md)：长任务期间保持 Mac 唤醒，需批准后台服务

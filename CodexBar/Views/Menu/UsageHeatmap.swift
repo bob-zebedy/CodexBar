@@ -119,7 +119,7 @@ struct UsageSummaryView: View {
                 value: Self.dayText(usage?.summary.longestStreakDays)
             )
             textMetric(
-                label: "usage.summary.longest-turn-duration",
+                label: "usage.summary.longest-chat",
                 value: Self.durationText(seconds: usage?.summary.longestRunningTurnSec)
             )
         }
@@ -666,14 +666,14 @@ struct UsageHeatmapDayDetailView: View {
         let usage = context.day.tokenUsage
         let cacheHitRate = usage?.cacheHitRate ?? 0
         return Grid(alignment: .leading, horizontalSpacing: Metrics.metricRowSpacing, verticalSpacing: Metrics.metricSpacing) {
-            dailyTokenRow("activity.tokens.total", tokens: usage?.totalTokens, tint: .blue)
-            dailyTokenRow("activity.tokens.input", tokens: usage?.inputTokens, tint: .indigo)
-            dailyTokenRow("activity.tokens.output", tokens: usage?.outputTokens, tint: .orange)
-            dailyTokenRow("activity.tokens.cached-input", tokens: usage?.cachedInputTokens, tint: .green)
-            dailyTokenRow("activity.tokens.cache-write-input", tokens: usage?.cacheWriteInputTokens, tint: .purple)
+            dailyTokenRow("usage.tokens.total", tokens: usage?.totalTokens, tint: .blue)
+            dailyTokenRow("usage.tokens.input", tokens: usage?.inputTokens, tint: .indigo)
+            dailyTokenRow("usage.tokens.output", tokens: usage?.outputTokens, tint: .orange)
+            dailyTokenRow("usage.tokens.cached-input", tokens: usage?.cachedInputTokens, tint: .green)
+            dailyTokenRow("usage.tokens.cache-write-input", tokens: usage?.cacheWriteInputTokens, tint: .purple)
             metricRowLayout {
                 metricDot(tint: .teal)
-                Text("activity.tokens.cache-hit-rate")
+                Text("usage.tokens.cache-hit-rate")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: true, vertical: false)
                     .frame(height: Metrics.metricRowHeight)
@@ -682,7 +682,7 @@ struct UsageHeatmapDayDetailView: View {
                     comparison: cacheHitRate
                 )
             }
-            dailyTokenRow("activity.tokens.reasoning-output", tokens: usage?.reasoningOutputTokens, tint: .cyan)
+            dailyTokenRow("usage.tokens.reasoning-output", tokens: usage?.reasoningOutputTokens, tint: .cyan)
         }
     }
 

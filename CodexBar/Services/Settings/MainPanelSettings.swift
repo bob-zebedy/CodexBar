@@ -68,7 +68,7 @@ final class MainPanelSettings: ObservableObject {
     @Published private(set) var areAnimationsEnabled: Bool
 
     private let defaults: UserDefaults
-    private var isHookEnabled: Bool?
+    private var isAdvancedModeEnabled: Bool?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -83,7 +83,7 @@ final class MainPanelSettings: ObservableObject {
         }
 
         let loadedLayout = Self.loadLayout(from: defaults)
-        guard isHookEnabled == false else {
+        guard isAdvancedModeEnabled == false else {
             publish(loadedLayout)
             return
         }
@@ -96,12 +96,12 @@ final class MainPanelSettings: ObservableObject {
         }
     }
 
-    func updateHookEnabled(_ isEnabled: Bool) {
-        let wasEnabled = isHookEnabled
-        isHookEnabled = isEnabled
+    func updateAdvancedModeEnabled(_ isEnabled: Bool) {
+        let wasEnabled = isAdvancedModeEnabled
+        isAdvancedModeEnabled = isEnabled
         let updatedLayout: MainPanelLayout
         if isEnabled {
-            // 首次恢复 Hook 状态时保留布局, 只有关闭到开启的转换才自动显示任务
+            // 首次恢复进阶模式状态时保留布局, 只有关闭到开启的转换才自动显示任务
             guard wasEnabled == false else { return }
             updatedLayout = MainPanelLayout(
                 orderedSections: layout.orderedSections,
@@ -114,7 +114,7 @@ final class MainPanelSettings: ObservableObject {
             return
         }
 
-        AppLog.settings.notice("Hook 开关已同步主面板任务中心")
+        AppLog.settings.notice("进阶模式开关已同步主面板任务中心")
         saveAndPublish(updatedLayout)
     }
 
@@ -133,7 +133,7 @@ final class MainPanelSettings: ObservableObject {
         isVisible: Bool,
         undoManager: UndoManager
     ) {
-        guard section != .activity || !isVisible || isHookEnabled == true else {
+        guard section != .activity || !isVisible || isAdvancedModeEnabled == true else {
             return
         }
         guard layout.isVisible(section) != isVisible else {
@@ -184,7 +184,7 @@ final class MainPanelSettings: ObservableObject {
         _ requestedLayout: MainPanelLayout,
         undoManager: UndoManager
     ) {
-        let updatedLayout = isHookEnabled == false
+        let updatedLayout = isAdvancedModeEnabled == false
             ? requestedLayout.disablingActivitySection()
             : requestedLayout
         guard updatedLayout != layout else {

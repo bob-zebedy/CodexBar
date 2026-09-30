@@ -41,7 +41,7 @@ It can notify you when a task finishes, needs approval, or when your rate limits
 - Track total tokens, your highest daily usage, and usage streaks
 - See your longest task duration
 - Review recent daily token usage in a heatmap
-- Enable CodexBar Hook for daily session, turn, tool call, subagent, and other activity metrics
+- Enable Advanced Mode for daily session, turn, tool call, subagent, and other activity metrics
 
 ### Keep track of active tasks
 
@@ -83,7 +83,7 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 - macOS 15.0 or later
 - [Codex CLI](https://github.com/openai/codex) installed and signed in, or ChatGPT App or Codex App with bundled Codex installed
 - The running Codex version must be `0.145.0` or later
-- Live tasks and other Hook features require the running Codex version to be `0.150.0` or later
+- Advanced Mode requires the running Codex version to be `0.153.0` or later
 - Cross-device sync requires an available iCloud account on the Mac
 
 ## Quick Start
@@ -91,7 +91,7 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 1. Launch CodexBar and find its icon in the menu bar
 2. Left-click the icon to view your account, rate limits, and token usage
 3. Right-click or Control-click the icon to open Settings, Logs, or the Quit menu
-4. Enable CodexBar Hook under `Settings > Advanced` to unlock live tasks, task notifications, sleep prevention, and Hook metrics
+4. Enable Advanced Mode under `Settings > Advanced` to unlock live tasks, task notifications, sleep prevention, and Hook metrics
 
 The default global shortcut is `⌘⇧E`. You can record a different shortcut or disable it in Settings.
 

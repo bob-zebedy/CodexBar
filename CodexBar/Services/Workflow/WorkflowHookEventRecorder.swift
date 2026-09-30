@@ -6,7 +6,7 @@ nonisolated enum WorkflowHookEventRecorder {
     static let hookArgument = "--hook-event"
 
     /// SessionEnd 和 Interrupt 在 Codex 中最多允许 3 秒, 其他事件沿用 5 秒
-    /// 超时定义在这里而不是 CodexHookSettings: 写配置与下面的等锁预算必须同源
+    /// 超时定义在这里而不是 AdvancedModeSettings: 写配置与下面的等锁预算必须同源
     private static let defaultHookTimeoutSeconds = 5
     private static let terminalHookTimeoutSeconds = 3
 

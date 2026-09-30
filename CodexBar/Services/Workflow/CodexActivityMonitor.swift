@@ -19,7 +19,7 @@ final class CodexActivityMonitor: ObservableObject {
     var onInactivityProtectionTriggered: ((CodexActivityProtectionNotice) async -> Bool)?
     var onInactivityProtectionInvalidated: ((UUID, UUID) -> Void)?
 
-    private let codexHookSettings: CodexHookSettings
+    private let advancedModeSettings: AdvancedModeSettings
     let activityProtectionSettings: ActivityProtectionSettings
     let activityProtectionStateStore: ActivityProtectionStateStore
     private let sessionLifecycleReader = CodexSessionLifecycleReader()
@@ -71,11 +71,11 @@ final class CodexActivityMonitor: ObservableObject {
     var sessionTransitionNotBefore: Date?
 
     init(
-        codexHookSettings: CodexHookSettings,
+        advancedModeSettings: AdvancedModeSettings,
         activityProtectionSettings: ActivityProtectionSettings,
         activityProtectionStateStore: ActivityProtectionStateStore = ActivityProtectionStateStore()
     ) {
-        self.codexHookSettings = codexHookSettings
+        self.advancedModeSettings = advancedModeSettings
         self.activityProtectionSettings = activityProtectionSettings
         self.activityProtectionStateStore = activityProtectionStateStore
     }
@@ -88,7 +88,7 @@ final class CodexActivityMonitor: ObservableObject {
 
         loadActivityProtectionState()
 
-        Publishers.CombineLatest(codexHookSettings.$isEnabled, codexHookSettings.$isVerified)
+        Publishers.CombineLatest(advancedModeSettings.$isEnabled, advancedModeSettings.$isVerified)
             .map { $0 && $1 }
             .removeDuplicates()
             .sink { [weak self] isOperable in

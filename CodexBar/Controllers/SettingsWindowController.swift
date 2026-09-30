@@ -8,7 +8,7 @@ final class SettingsWindowController: HostingWindowController {
     private let viewModel: CodexStatusViewModel
     private let proxySettings: CodexProxySettings
     private let appUpdater: AppUpdater
-    private let codexHookSettings: CodexHookSettings
+    private let advancedModeSettings: AdvancedModeSettings
     private let codexCLINotificationSettings: CodexCLINotificationSettings
     private let syncSettings: WorkflowSyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
@@ -37,7 +37,7 @@ final class SettingsWindowController: HostingWindowController {
         viewModel: CodexStatusViewModel,
         appUpdater: AppUpdater,
         proxySettings: CodexProxySettings,
-        codexHookSettings: CodexHookSettings,
+        advancedModeSettings: AdvancedModeSettings,
         codexCLINotificationSettings: CodexCLINotificationSettings,
         syncSettings: WorkflowSyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
@@ -55,7 +55,7 @@ final class SettingsWindowController: HostingWindowController {
         self.viewModel = viewModel
         self.appUpdater = appUpdater
         self.proxySettings = proxySettings
-        self.codexHookSettings = codexHookSettings
+        self.advancedModeSettings = advancedModeSettings
         self.codexCLINotificationSettings = codexCLINotificationSettings
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
@@ -85,7 +85,7 @@ final class SettingsWindowController: HostingWindowController {
         let hostingController = NSHostingController(
             rootView: AppSettingsView(
                 proxySettings: proxySettings,
-                codexHookSettings: codexHookSettings,
+                advancedModeSettings: advancedModeSettings,
                 syncSettings: syncSettings,
                 globalHotKeySettings: globalHotKeySettings,
                 menuBarQuotaSettings: menuBarQuotaSettings,
@@ -157,7 +157,7 @@ final class SettingsWindowController: HostingWindowController {
 
     private func refreshSettingsState() {
         notificationSettings.refreshAuthorizationStatus()
-        codexHookSettings.reconcileInstalledHooks()
+        advancedModeSettings.reconcileConfiguration()
         codexCLINotificationSettings.refresh()
         syncSettings.refresh()
         menuBarQuotaSettings.refresh()
@@ -209,10 +209,10 @@ final class SettingsWindowController: HostingWindowController {
                 willShow: { [codexCLINotificationSettings] in
                     codexCLINotificationSettings.refresh()
                 },
-                contentProvider: { [notificationSettings, codexHookSettings, codexCLINotificationSettings, autoResetSettings, keepAliveController] in
+                contentProvider: { [notificationSettings, advancedModeSettings, codexCLINotificationSettings, autoResetSettings, keepAliveController] in
                     NotificationOptionsView(
                         notificationSettings: notificationSettings,
-                        codexHookSettings: codexHookSettings,
+                        advancedModeSettings: advancedModeSettings,
                         codexCLINotificationSettings: codexCLINotificationSettings,
                         autoResetSettings: autoResetSettings,
                         keepAliveController: keepAliveController
@@ -222,7 +222,7 @@ final class SettingsWindowController: HostingWindowController {
                 // 防睡眠只订阅相关派生值, 避免每次任务起停都触发面板高度重算
                 contentChanges: Publishers.MergeMany([
                     notificationSettings.objectWillChange.eraseToAnyPublisher(),
-                    codexHookSettings.objectWillChange.eraseToAnyPublisher(),
+                    advancedModeSettings.objectWillChange.eraseToAnyPublisher(),
                     autoResetSettings.$isEnabled
                         .map { _ in () }
                         .eraseToAnyPublisher(),
@@ -267,10 +267,10 @@ final class SettingsWindowController: HostingWindowController {
             willShow: { [mainPanelSettings] in
                 mainPanelSettings.refresh()
             },
-            contentProvider: { [mainPanelSettings, codexHookSettings, mainPanelUndoManager] in
+            contentProvider: { [mainPanelSettings, advancedModeSettings, mainPanelUndoManager] in
                 MainPanelOptionsView(
                     settings: mainPanelSettings,
-                    codexHookSettings: codexHookSettings,
+                    advancedModeSettings: advancedModeSettings,
                     undoManager: mainPanelUndoManager
                 )
             }

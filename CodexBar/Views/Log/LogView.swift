@@ -26,7 +26,7 @@ struct LogView: View {
             Image(systemName: "doc.text.magnifyingglass")
                 .foregroundStyle(.tint)
 
-            Text("log.window.app-server-title")
+            Text("log.app-server.window.title")
                 .font(.headline)
 
             Text(verbatim: "\(entries.count)")

@@ -41,7 +41,7 @@ CodexBar 是面向 macOS 15 及更高版本的菜单栏 App，用于集中展示
 - 展示累计 Token、单日峰值和连续使用天数
 - 展示最长任务时长
 - 通过热力图回顾近期每日 Token 用量
-- 开启 CodexBar Hook 后可查看会话、对话轮次、工具调用和子 Agent 等每日统计
+- 开启进阶模式后可查看会话、对话轮次、工具调用和子 Agent 等每日统计
 
 ### 不错过正在发生的任务
 
@@ -83,7 +83,7 @@ brew install --cask bob-zebedy/tap/codexbar
 - macOS 15.0 或更高版本
 - 已安装并登录 [Codex CLI](https://github.com/openai/codex) 或安装了内置 Codex 的 ChatGPT App 或 Codex App
 - 当前运行的 Codex 版本需要为 `0.145.0` 或更高版本
-- 使用实时任务等 Hook 功能时，当前运行的 Codex 版本需要为 `0.150.0` 或更高版本
+- 启用进阶模式时，当前运行的 Codex 版本需要为 `0.153.0` 或更高版本
 - 使用跨设备同步时，Mac 需要登录可用的 iCloud 账户
 
 ## 快速开始
@@ -91,7 +91,7 @@ brew install --cask bob-zebedy/tap/codexbar
 1. 启动 CodexBar，在菜单栏找到 CodexBar 图标
 2. 左键点击图标查看账户、额度和 Token 用量
 3. 右键或按住 Control 点击图标打开设置、日志或退出菜单
-4. 在 `设置 > 高级` 中启用 CodexBar Hook，解锁实时任务、任务类通知、防睡眠和 Hook 统计
+4. 在 `设置 > 高级` 中启用进阶模式，解锁实时任务、任务类通知、防睡眠和 Hook 统计
 
 默认全局快捷键为 `⌘⇧E`，可在设置中重新录制或关闭。
 
@@ -99,7 +99,7 @@ brew install --cask bob-zebedy/tap/codexbar
 
 | 文档 | 内容 |
 | --- | --- |
-| [用户指南](Docs/UserGuide/README.md) | 安装、主面板、Hook、通知、防睡眠、同步、全部设置和问题排查 |
+| [用户指南](Docs/README.md#用户指南) | 安装、主面板、Hook、通知、防睡眠、同步、全部设置和问题排查 |
 | [开发者指南](Docs/DeveloperGuide/README.md) | 架构、数据链路、核心状态机、存储、隐私边界和开发验证 |
 | [文档导航](Docs/README.md) | 全部文档入口 |
 

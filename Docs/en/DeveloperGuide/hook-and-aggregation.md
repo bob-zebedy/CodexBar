@@ -19,12 +19,12 @@ Raw events are the fact source; daily aggregation is a rebuildable cache. A chan
 
 ## Installation and Validation
 
-[`CodexHookSettings.swift`](../../../CodexBar/Services/Settings/CodexHookSettings.swift) reads and writes local `hooks.json` directly, reads or updates related configuration through app-server, and calls `hooks/list` after writing to validate installation.
+[`AdvancedModeSettings.swift`](../../../CodexBar/Services/Settings/AdvancedModeSettings.swift) reads and writes local `hooks.json` directly, reads or updates related configuration through app-server, and calls `hooks/list` after writing to validate installation.
 
 The enable flow checks the following conditions, validating source, trust, and event completeness after writing:
 
 - A resolvable current executable path
-- Actual app-server version `0.150.0` or later
+- Actual app-server version `0.153.0` or later
 - Available `features.hooks`
 - A trusted source returned by `hooks/list`
 - A complete required event set
@@ -47,7 +47,7 @@ A handler in `hooks.json` does not prove Codex will execute it. `isOperable` com
 
 ### Reconciliation of an Enabled Hook
 
-An enabled Hook is reconciled at app launch, when Settings refreshes, when the main panel opens, and after each quota refresh. Automatic refresh waits 60 seconds after the previous round completes:
+An enabled Hook is reconciled at app launch, when Settings refreshes, when the main panel opens, and after each quota refresh. Automatic refresh waits for the selected data update interval after the previous round completes, defaulting to 1 minute:
 
 - Only a confirmed running app-server version below the current Hook minimum triggers removal of CodexBar handlers and best-effort cleanup of matching trust entries; versions below the global minimum also trigger local removal
 - An unknown version or transient RPC failure preserves the user's configuration
@@ -61,7 +61,7 @@ Reconciliation compares the required event set with the configuration and restor
 ### Enable Transaction Order
 
 ```text
-Confirm running app-server >= 0.150.0
+Confirm running app-server >= 0.153.0
   -> Confirm features.hooks is not globally disabled
   -> Read existing hooks.json
   -> Remove only old CodexBar handlers for this executable
@@ -90,7 +90,7 @@ Removal skips malformed sibling entries and processes only precisely identified 
 
 ### Generations for Asynchronous Settings Operations
 
-When the user toggles Hook or validation is triggered, `CodexHookSettings` starts the operation through `updateCoordinator`. Its `RefreshTaskCoordinator` advances the generation and cancels the previous task.
+When the user toggles Advanced Mode or validation is triggered, `AdvancedModeSettings` starts the operation through `updateCoordinator`. Its `RefreshTaskCoordinator` advances the generation and cancels the previous task.
 
 After every file write or RPC `await`, it checks the generation again. Even if an old operation cannot truly be canceled, it cannot overwrite the latest switch state or error.
 
@@ -117,7 +117,7 @@ CodexBar subscribes to:
 
 Historical counts need event name, date, project, model, and identity sets. Live state additionally needs turn, reviewer, effort, tool, agent relationships, and normalized origin.
 
-One minimal raw record lets the recorder write once while both consumers select their fields. A new field still requires a demonstrated consumer; its presence in the Hook payload does not justify persisting everything.
+The recorder writes the fields needed by both data flows into one raw record. Historical aggregation and live monitoring each read the fields they use.
 
 The recorder performs a bounded read of the rollout's first line to classify origin. Ordinary events use `transcript_path`; `SubagentStop` uses `agent_transcript_path`, which points to the child thread itself. If the rollout origin cannot be determined, only an exact `codex-auto-review` model match serves as the Auto-review fallback. Reviewer or effort for `PermissionRequest` and `UserPromptSubmit` may be absent from the Hook payload, so only those two events also read the rollout tail for that turn.
 
@@ -430,8 +430,6 @@ Maintenance coordinates with the rate-limit refresh cycle but has no data depend
 
 ### Maintenance Logs
 
-Maintenance normally follows the 60-second refresh. An idle machine would otherwise emit more than a thousand no-change checks per day.
-
 `WorkflowService` accumulates consecutive idle cycles and emits a summary on a write, skip, failure, or cleanup, including the accumulated idle count.
 
 ### How the Scheduler Coalesces Requests
@@ -457,7 +455,7 @@ Opening the UI reads the current local snapshot and does not bypass the schedule
 - Appends during build commit only to the fixed upper bound and leave the tail pending
 - A schema change rebuilds every in-retention date with the current algorithm
 - Missing historical fields remain optional in decoding and persistence; display counts follow the current fallback rules
-- Disabling CodexBar Hook preserves user handlers and trust entries
+- Disabling Advanced Mode preserves user handlers and trust entries
 - During rapid Hook toggling, old RPC results cannot overwrite the final operation
 
 ## Failure Boundaries
@@ -471,7 +469,7 @@ Opening the UI reads the current local snapshot and does not bypass the schedule
 
 ## Key Source Files
 
-- [`CodexHookSettings.swift`](../../../CodexBar/Services/Settings/CodexHookSettings.swift)
+- [`AdvancedModeSettings.swift`](../../../CodexBar/Services/Settings/AdvancedModeSettings.swift)
 - [`WorkflowHookEventRecorder.swift`](../../../CodexBar/Services/Workflow/WorkflowHookEventRecorder.swift)
 - [`CodexHookEvent.swift`](../../../CodexBar/Models/CodexHookEvent.swift)
 - [`JSONLines.swift`](../../../CodexBar/Services/Workflow/JSONLines.swift)

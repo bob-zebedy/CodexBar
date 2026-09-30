@@ -105,7 +105,7 @@ App 和 helper 都使用单调递增 generation：
 [`KeepAliveController.swift`](../../CodexBar/Services/KeepAlive/KeepAliveController.swift) 只有在以下条件全部成立时才建立防睡眠：
 
 - 防睡眠主开关已开启
-- Hook 的 `isOperable` 为 `true`
+- `AdvancedModeSettings.isOperable` 为 `true`
 - 至少存在一个符合设置的实时任务
 - CodexBarHelper 已安装并可连接
 - 未触发低电量阈值
@@ -122,7 +122,7 @@ App 和 helper 都使用单调递增 generation：
 | --- | --- |
 | `notStarted` | 服务尚未启动 |
 | `userOff` | 用户关闭主开关 |
-| `hookDisabled` | Hook 不可工作 |
+| `advancedModeDisabled` | Hook 不可工作 |
 | `noTasks` | 没有符合条件的任务 |
 | `helperUnavailable` | CodexBarHelper 未安装或不可连接 |
 | `helperRefreshing` | CodexBarHelper 状态正在恢复或确认 |

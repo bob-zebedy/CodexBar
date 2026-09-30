@@ -24,7 +24,7 @@ Check the connection error in `Settings > About`, confirm Codex is installed at 
 
 ## Proxy Configuration or Connection Failures
 
-Open `Settings > Advanced > Proxy` and use `Test Connection` to check the draft. Server and port are required; authentication also requires a username. Invalid fields are outlined in red with a short reason beside the test button.
+Open `Settings > Advanced > Network Proxy` and use `Test Connection` to check the draft. Server and port are required; authentication also requires a username. Invalid fields are outlined in red with a short reason beside the test button.
 
 - If About reports an invalid server or username, correct and save the settings, or turn the proxy off
 - If the configuration cannot be read, use `⋯ > Delete Configuration` at the top right of the dialog
@@ -37,15 +37,18 @@ A dimmed value means that the current read failed and CodexBar fell back to cach
 
 Double-click the account icon to retry. If data remains faded, check the connection error in About or open Logs.
 
-## CodexBar Hook Cannot Be Enabled or Validated
+<a id="codexbar-hook-cannot-be-enabled-or-validated"></a>
+
+## Advanced Mode Cannot Be Enabled or Validated
 
 | Message | Action |
 | --- | --- |
 | A newer Codex version is required | Update Codex, then click `Reconnect` in About |
+| Could not determine the Codex version | Check that the selected source is available in About, then click `Reconnect` and retry |
 | Codex Hook is globally disabled | Re-enable `features.hooks` in Codex configuration |
-| CodexBar Hook is incomplete | Reopen Settings for automatic repair; if needed, turn Hook off and back on |
-| CodexBar Hook is untrusted | Re-enable Hook and review Codex’s trust prompts |
-| Unexpected CodexBar Hook source | Verify the selected Codex source and the location of `CODEX_HOME` |
+| Advanced Mode Hook configuration is incomplete | Reopen Settings for automatic repair; if needed, turn Advanced Mode off and back on |
+| Advanced Mode Hook is not trusted | Re-enable Advanced Mode and review Codex’s trust prompts |
+| Unexpected Hook source for Advanced Mode | Verify the selected Codex source and the location of `CODEX_HOME` |
 | Invalid `hooks.json` format | Repair the file’s JSON format and retry |
 | Cannot validate Codex Hook | Reopen Settings after the Codex connection recovers |
 
@@ -53,7 +56,7 @@ The default configuration file is `~/.codex/hooks.json`. If `CODEX_HOME` is set,
 
 ## Live Tasks Do Not Appear
 
-1. Confirm that CodexBar Hook is enabled with no error
+1. Confirm that Advanced Mode is enabled with no error
 2. Confirm that `Tasks` is enabled under `General > Main Panel Layout`
 3. Start a new Codex task to generate live events
 4. Open Settings to trigger Hook validation again
@@ -67,7 +70,7 @@ Check in this order:
 1. `System Notifications` is enabled
 2. macOS allows notifications from CodexBar
 3. The relevant notification option is enabled
-4. CodexBar Hook is valid for task notifications
+4. Advanced Mode is valid for task notifications
 5. The completed task reached the selected duration threshold
 6. The notification sound is not set to silent
 
@@ -77,7 +80,7 @@ Haptic feedback does not require macOS notification permission, but it does requ
 
 Check in this order:
 
-1. CodexBar Hook is valid
+1. Advanced Mode is valid
 2. `Prevent System Sleep` is enabled
 3. A task is currently running
 4. If only waiting tasks exist, `Keep Awake While Waiting` is enabled
@@ -115,7 +118,7 @@ Temporary failures retry for up to 5 minutes per round; later refreshes may try 
 
 - Confirm that the Mac is signed in to iCloud
 - Confirm that iCloud Drive and CloudKit are available
-- Confirm that CodexBar Hook is enabled
+- Confirm that Advanced Mode is enabled
 - Confirm that `Sync Across Devices` is enabled
 - Hover over the iCloud icon at the bottom of the main panel for the detailed status
 

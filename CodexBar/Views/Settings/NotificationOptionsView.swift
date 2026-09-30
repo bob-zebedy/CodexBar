@@ -5,7 +5,7 @@ import SwiftUI
 /// 通知开启时展开音效子行, 关闭时连同占位一起收起
 struct NotificationOptionsView: View {
     @ObservedObject var notificationSettings: NotificationSettings
-    @ObservedObject var codexHookSettings: CodexHookSettings
+    @ObservedObject var advancedModeSettings: AdvancedModeSettings
     @ObservedObject var codexCLINotificationSettings: CodexCLINotificationSettings
     @ObservedObject var autoResetSettings: AutoResetSettings
     @ObservedObject var keepAliveController: KeepAliveController
@@ -81,9 +81,9 @@ struct NotificationOptionsView: View {
         )
     }
 
-    /// Hook 未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isTaskCompletionEnabled
+    /// 进阶模式未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isTaskCompletionEnabled
     private var taskCompletionRow: some View {
-        let isDisplayedOn = codexHookSettings.isOperable && notificationSettings.isTaskCompletionEnabled
+        let isDisplayedOn = advancedModeSettings.isOperable && notificationSettings.isTaskCompletionEnabled
 
         return notificationOptionRow(
             title: "settings.notifications.task-completion.title",
@@ -91,7 +91,7 @@ struct NotificationOptionsView: View {
                 get: { isDisplayedOn },
                 set: { notificationSettings.setTaskCompletionEnabled($0) }
             ),
-            isEnabled: codexHookSettings.isOperable,
+            isEnabled: advancedModeSettings.isOperable,
             sound: Binding(
                 get: { notificationSettings.taskCompletionSound },
                 set: { notificationSettings.setTaskCompletionSound($0) }
@@ -109,9 +109,9 @@ struct NotificationOptionsView: View {
         }
     }
 
-    /// Hook 未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isTaskWaitingEnabled
+    /// 进阶模式未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isTaskWaitingEnabled
     private var taskWaitingRow: some View {
-        let isDisplayedOn = codexHookSettings.isOperable && notificationSettings.isTaskWaitingEnabled
+        let isDisplayedOn = advancedModeSettings.isOperable && notificationSettings.isTaskWaitingEnabled
 
         return notificationOptionRow(
             title: "settings.notifications.task-waiting.title",
@@ -119,7 +119,7 @@ struct NotificationOptionsView: View {
                 get: { isDisplayedOn },
                 set: { notificationSettings.setTaskWaitingEnabled($0) }
             ),
-            isEnabled: codexHookSettings.isOperable,
+            isEnabled: advancedModeSettings.isOperable,
             sound: Binding(
                 get: { notificationSettings.taskWaitingSound },
                 set: { notificationSettings.setTaskWaitingSound($0) }
@@ -127,9 +127,9 @@ struct NotificationOptionsView: View {
         )
     }
 
-    /// Hook 未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isTaskHapticEnabled
+    /// 进阶模式未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isTaskHapticEnabled
     private var taskHapticRow: some View {
-        let isDisplayedOn = codexHookSettings.isOperable && notificationSettings.isTaskHapticEnabled
+        let isDisplayedOn = advancedModeSettings.isOperable && notificationSettings.isTaskHapticEnabled
 
         return VStack(spacing: 0) {
             optionRow(
@@ -138,7 +138,7 @@ struct NotificationOptionsView: View {
                     get: { isDisplayedOn },
                     set: { notificationSettings.setTaskHapticEnabled($0) }
                 ),
-                isEnabled: codexHookSettings.isOperable
+                isEnabled: advancedModeSettings.isOperable
             )
 
             captionRow("settings.notifications.task-haptics.caption")
@@ -147,7 +147,7 @@ struct NotificationOptionsView: View {
 
     private var creditExpiryRow: some View {
         notificationOptionRow(
-            title: "settings.notifications.credit-expiry.title",
+            title: "settings.notifications.banked-reset-expiry.title",
             isOn: Binding(
                 get: { notificationSettings.isCreditExpiryEnabled },
                 set: { notificationSettings.setCreditExpiryEnabled($0) }

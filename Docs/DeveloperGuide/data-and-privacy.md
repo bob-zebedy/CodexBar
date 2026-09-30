@@ -79,7 +79,7 @@ Hook 子进程从 stdin 提取：
 
 Hook 子进程从 rollout 首条 `session_meta` 的完整记录或已完成字段前缀中提取来源，按 32 KiB 分块且总计不超过 256 KiB。JSONL 只持久化归一化后的 `main`、`autoReview`、`auxiliary` 或 `unknown`，具体分类与 model 后备规则见 [来源归一化](hook-and-aggregation.md#来源归一化)
 
-不把 prompt, response, tool 参数或 tool 输出写入 CodexBar Hook 文件。
+不把 prompt, response, tool 参数或 tool 输出写入 CodexBar 的 Hook 事件文件。
 
 工作目录只用于派生 project display name 和实时归属。原始 Hook JSONL 仍可能包含 `cwd`，因此它属于本地敏感上下文，受保留期和文件权限约束。rollout 路径、原始 source 和任意 subagent `other` 值不会持久化。CloudKit 只上传派生后的 project 名计数，并明确依赖用户 opt-in。
 
@@ -156,6 +156,7 @@ Token 账本和同步缓存由 Debug 与 Release 共用。`store.lock` 保护对
 UserDefaults 保存：
 
 - 功能开关和设置选项
+- 数据更新间隔（`DataUpdate.intervalSeconds`，单位为秒）
 - 通知阈值和声音名称
 - 全局快捷键
 - 代理启用状态、协议、服务器、端口、认证用户名和密码

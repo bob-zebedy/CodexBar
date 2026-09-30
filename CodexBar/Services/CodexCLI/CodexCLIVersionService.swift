@@ -42,7 +42,7 @@ nonisolated struct CodexCLIVersionItem: Equatable, Identifiable {
     var displayVersion: String {
         if path == nil {
             return String(
-                localized: "codex-cli.version.not-found",
+                localized: "codex-cli.source.error.not-found",
                 defaultValue: "\(source.displayName)"
             )
         }
@@ -362,7 +362,7 @@ private final nonisolated class ProcessExitWaiter: Sendable {
 /// CodexBar 各能力依赖的 app-server 最低版本
 nonisolated enum CodexCLIMinimumVersion {
     static let global = "0.145.0"
-    static let hook = "0.150.0"
+    static let advancedMode = "0.153.0"
 }
 
 /// 从 ` codex --version` 的输出中提取用户可读版本号

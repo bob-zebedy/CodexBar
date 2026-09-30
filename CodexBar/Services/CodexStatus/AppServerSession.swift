@@ -9,9 +9,9 @@ final nonisolated class AppServerSession {
     private typealias EncodedMessage = (data: Data, text: String)
     private typealias ResponseLine = (text: String, data: Data)
 
-    private static let writeFailureMessage = String(localized: "request-log.error.write-connection-closed")
-    private static let responseConnectionClosedMessage = String(localized: "request-log.error.response-connection-closed")
-    private static let responseTimeoutMessage = String(localized: "request-log.error.response-timeout")
+    private static let writeFailureMessage = String(localized: "log.app-server.error.write-connection-closed")
+    private static let responseConnectionClosedMessage = String(localized: "log.app-server.error.response-connection-closed")
+    private static let responseTimeoutMessage = String(localized: "log.app-server.error.response-timeout")
     private static let closeGracefulTimeout: TimeInterval = 1.0
     private static let closeKillTimeout: TimeInterval = 0.5
 
@@ -161,11 +161,11 @@ final nonisolated class AppServerSession {
                 break
             case .killed:
                 logStorage?.recordFailure(
-                    message: String(localized: "request-log.error.exit-timeout-killed")
+                    message: String(localized: "log.app-server.error.exit-timeout-killed")
                 )
             case .stillRunning:
                 logStorage?.recordFailure(
-                    message: String(localized: "request-log.error.exit-timeout-running")
+                    message: String(localized: "log.app-server.error.exit-timeout-running")
                 )
             }
         }

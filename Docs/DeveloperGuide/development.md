@@ -46,7 +46,7 @@ swiftlint
 | 功能 | 主要位置 | 实现说明 |
 | --- | --- | --- |
 | app-server、代理、自动重置 | `Services/CodexStatus` 与对应 Settings | [app-server 数据链路](app-server.md) |
-| Hook 安装与统计 | `CodexHookSettings`、`WorkflowService`、聚合模型 | [Hook 采集与历史聚合](hook-and-aggregation.md) |
+| Hook 安装与统计 | `AdvancedModeSettings`、`WorkflowService`、聚合模型 | [Hook 采集与历史聚合](hook-and-aggregation.md) |
 | 实时任务与异常保护 | `CodexActivityMonitor` 和 readers | [实时任务监控](activity-monitor.md) |
 | 防睡眠与系统唤醒 | `KeepAliveController`、`AutoResetWakeScheduler`、helper | [防睡眠系统](sleep-prevention.md) |
 | 通知与音效 | `CodexNotificationService`、通知 Settings | [通知系统](notifications.md) |

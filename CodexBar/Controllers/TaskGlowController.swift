@@ -7,7 +7,7 @@ import QuartzCore
 final class TaskGlowController {
     private let settings: TaskGlowSettings
     private let activityMonitor: CodexActivityMonitor
-    private let hookSettings: CodexHookSettings
+    private let advancedModeSettings: AdvancedModeSettings
     private var appearance: TaskGlowAppearance
     private var cancellables = Set<AnyCancellable>()
     private var panels: [TaskGlowPanel] = []
@@ -26,11 +26,11 @@ final class TaskGlowController {
     init(
         settings: TaskGlowSettings,
         activityMonitor: CodexActivityMonitor,
-        hookSettings: CodexHookSettings
+        advancedModeSettings: AdvancedModeSettings
     ) {
         self.settings = settings
         self.activityMonitor = activityMonitor
-        self.hookSettings = hookSettings
+        self.advancedModeSettings = advancedModeSettings
         appearance = settings.appearance
         motionClock.setAnimationSpeed(appearance.animationSpeed)
     }
@@ -44,15 +44,15 @@ final class TaskGlowController {
         guard cancellables.isEmpty else { return }
         Publishers.CombineLatest3(
             settings.$isEnabled,
-            hookSettings.$isEnabled,
-            hookSettings.$isVerified
+            advancedModeSettings.$isEnabled,
+            advancedModeSettings.$isVerified
         )
-        .sink { [weak self] enabled, hookEnabled, hookVerified in
+        .sink { [weak self] enabled, advancedModeEnabled, advancedModeVerified in
             guard let self else { return }
-            if !enabled || !hookEnabled || !hookVerified {
+            if !enabled || !advancedModeEnabled || !advancedModeVerified {
                 cancelPreview()
             }
-            isEnabled = enabled && hookEnabled && hookVerified
+            isEnabled = enabled && advancedModeEnabled && advancedModeVerified
             consume(CodexActivityPresentationUpdate(snapshot: activityMonitor.snapshot, terminalEvents: []))
         }
         .store(in: &cancellables)
@@ -123,7 +123,7 @@ final class TaskGlowController {
             }
             return
         }
-        guard isEnabled, hookSettings.isOperable,
+        guard isEnabled, advancedModeSettings.isOperable,
               !isSystemSleeping, !isDisplaySleeping, isSessionActive else { return }
         let role: TaskGlowColorRole
         switch request {

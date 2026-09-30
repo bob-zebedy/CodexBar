@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Hook 开启时显示的活动摘要, 使用主面板共享的时间
+/// 实时任务摘要, 使用主面板共享的时间
 /// 活动和防睡眠状态由卡片自行观察, 避免刷新整个菜单树
 struct CodexActivityCard: View {
     @ObservedObject var activityMonitor: CodexActivityMonitor
@@ -162,13 +162,13 @@ struct CodexActivityCard: View {
 
     private func tokenUsageMetrics(_ usage: CodexTokenUsage) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            tokenMetric("activity.tokens.total", tokens: usage.totalTokens)
-            tokenMetric("activity.tokens.input", tokens: usage.inputTokens)
-            tokenMetric("activity.tokens.output", tokens: usage.outputTokens)
-            tokenMetric("activity.tokens.cached-input", tokens: usage.cachedInputTokens)
-            tokenMetric("activity.tokens.cache-write-input", tokens: usage.cacheWriteInputTokens)
+            tokenMetric("usage.tokens.total", tokens: usage.totalTokens)
+            tokenMetric("usage.tokens.input", tokens: usage.inputTokens)
+            tokenMetric("usage.tokens.output", tokens: usage.outputTokens)
+            tokenMetric("usage.tokens.cached-input", tokens: usage.cachedInputTokens)
+            tokenMetric("usage.tokens.cache-write-input", tokens: usage.cacheWriteInputTokens)
             VStack(spacing: 3) {
-                Text("activity.tokens.cache-hit-rate")
+                Text("usage.tokens.cache-hit-rate")
                     .font(.caption2)
                     .foregroundStyle(Color.codexSecondaryLabel)
                     .minimumScaleFactor(0.65)
@@ -178,7 +178,7 @@ struct CodexActivityCard: View {
                     .contentTransition(.numericText(value: usage.cacheHitRate ?? 0))
             }
             .frame(minWidth: 0, maxWidth: .infinity)
-            tokenMetric("activity.tokens.reasoning-output", tokens: usage.reasoningOutputTokens)
+            tokenMetric("usage.tokens.reasoning-output", tokens: usage.reasoningOutputTokens)
         }
         .lineLimit(1)
         .animation(.codexStatus, value: usage)

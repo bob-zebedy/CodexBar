@@ -180,13 +180,9 @@ session 关闭时按以下顺序收口：
 | `hooks/list` | 校验 Hook 来源和事件能力 |
 | `config/batchWrite` | 修改 Hook 或 TUI 通知相关配置 |
 
-每个 session 会缓存不支持的方法。一旦 app-server 明确返回 method unsupported，当前连接后续不会重复请求该方法。
-
 ### Session 能力缓存
 
-method unsupported 通常代表当前 app-server 版本缺少能力。每分钟重复调用只会制造日志和延迟。
-
-但这个结论不能永久保存到 UserDefaults。新连接可能来自升级后的 binary，因此 unsupported 集合只属于 `AppServerSession`，连接重建后重新探测。
+`AppServerSession` 缓存 app-server 明确返回 method unsupported 的方法，当前连接后续跳过这些方法。缓存仅存在于内存，连接重建后重新探测能力。
 
 ## 会话生命周期
 
@@ -241,7 +237,7 @@ ready
 
 ## 刷新模型
 
-状态 ViewModel 默认每 60 秒刷新。用户也可以在主面板双击账户图标立即触发。
+状态 ViewModel 按用户选择的数据更新间隔刷新，支持 1、2、3、5 或 10 分钟，默认 1 分钟。用户也可以在主面板双击账户图标立即触发。
 
 一次刷新先解析账户，再读取额度和用量。补充数据缓存严格绑定到账户身份：
 
@@ -412,7 +408,7 @@ Hook 设置也复用 app-server 链路，但采用独立的可用性状态：
 - `isOperable` 只有在两者都为 `true` 时成立
 - 短暂 RPC 失败保留上一次明确校验结果
 
-启用或校验 Hook 时必须确认实际 app-server 版本不低于 `0.150.0`
+启用或校验 Hook 时必须确认实际 app-server 版本不低于 `0.153.0`
 
 详细配置流程见 [Hook 采集与历史聚合](hook-and-aggregation.md)
 
@@ -450,11 +446,11 @@ Reset Credits 明细包含 opaque credit ID。系统日志不能记录 ID 或原
 - 复用连接的 transport failure 只重建一次
 - 磁盘 CLI 升级后，当前连接版本与磁盘版本能被区分
 - app-server 低于 `0.145.0` 时阻断账户主链路并提示升级
-- app-server 不低于 `0.145.0` 且低于 `0.150.0` 时账户主链路可用，但 Hook 仍提示需要 `0.150.0`
-- app-server 不低于 `0.150.0` 时账户主链路和 Hook 校验均可用
+- app-server 不低于 `0.145.0` 且低于 `0.153.0` 时账户主链路可用，但 Hook 仍提示需要 `0.153.0`
+- app-server 不低于 `0.153.0` 时账户主链路和 Hook 校验均可用
 - rate limits 失败但同账户有缓存时展示 stale，通知不误触发
 - 账户切换后旧额度和用量立即清空
-- unsupported method 不会每分钟重复请求
+- unsupported method 在同一连接中不会重复请求
 - Reset Credits `credits == nil` 时保留权威数量并显示未知过期时间
 - Reset Credits 明细为空或被截断时不从明细长度反推可用数量
 - 过期、非 available 的 Reset Credits 不进入详情或通知
@@ -471,7 +467,8 @@ Reset Credits 明细包含 opaque credit ID。系统日志不能记录 ID 或原
 - 只有数量或读取失败、没有具体目标时不注册查询重试唤醒事件
 - 已知目标的单轮连续重试在临期触发 5 分钟后停止，后续普通额度刷新仍可重新开启一轮
 - 消费成功后的完整额度刷新不会被并发普通刷新丢弃
-- 手动刷新后 60 秒倒计时重新对齐
+- 手动刷新后按所选数据更新间隔重新对齐倒计时
+- 在自动刷新等待期间切换间隔，按上次结果提交时间重新安排等待；正在进行的请求继续完成，重启后恢复所选间隔
 
 代理相关验证还包括：停用无效配置、清除损坏记录、测试取消后旧结果隔离、快速连续切换只提交一次、提交失败回滚，以及日志中普通 URL 和 JSON 转义 URL 的用户名、密码替换。
 

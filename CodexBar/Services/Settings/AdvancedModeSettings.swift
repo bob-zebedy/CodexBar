@@ -2,21 +2,21 @@ import Combine
 import Foundation
 import os
 
-/// 设置页的 Codex Hook 开关状态机, 同时管理 hooks.json 和 Codex 信任状态
+/// 进阶模式开关状态机, 同时管理 hooks.json 和 Codex 信任状态
 @MainActor
-final class CodexHookSettings: ObservableObject {
-    /// 当前进程中的 Hook 开启状态, 首次从现有配置恢复
+final class AdvancedModeSettings: ObservableObject {
+    /// 当前进程中的进阶模式开启状态, 首次从现有配置恢复
     /// 开启后配置缺失视为需要自愈, 只有显式关闭或明确的低版本会置为 false
     @Published private(set) var isEnabled = false
     @Published private(set) var isUpdating = false
     /// 最近一次校验的明确结论: Codex 会不会真的执行 CodexBar 的 Hook
-    /// 乐观默认: 启动对账开始前没有反证, 不能提前把依赖 Hook 的功能关掉
+    /// 乐观默认: 启动对账开始前没有反证, 不能提前把依赖进阶模式的功能关掉
     /// 只由明确结论写入两个方向, RPC 失败或被取消时保留上次的值:
     /// 连不上 app-server 不说明 Hook 坏了, 那时置灰会把好用的功能关掉
     @Published private(set) var isVerified = true
 
     /// Hook 链路真的通不通: 当前进程中开启, 且最近一次校验没有明确失败
-    /// 依赖 Hook 的下游 (防睡眠, 任务类通知) 一律看这个
+    /// 依赖进阶模式的下游 (防睡眠, 任务类通知) 一律看这个
     /// Codex 那边全局关掉 hooks 或者不信任我们的 handler 时 isEnabled 照样是 true
     var isOperable: Bool {
         isEnabled && isVerified
@@ -41,7 +41,7 @@ final class CodexHookSettings: ObservableObject {
     private var lastKnownInstalled: Bool?
 
     init(
-        hooksURL: URL = CodexHookSettings.defaultHooksURL(),
+        hooksURL: URL = AdvancedModeSettings.defaultHooksURL(),
         fileManager: FileManager = .default,
         codexStatusService: CodexStatusService
     ) {
@@ -55,14 +55,14 @@ final class CodexHookSettings: ObservableObject {
     private func refreshInstallationState() {
         do {
             let config = try readConfigIfPresent()
-            let installed = Self.containsAnyCodexBarHook(
+            let installed = Self.containsAnyManagedHook(
                 in: config,
                 executablePath: currentExecutablePath
             )
             if installed, !isEnabled {
                 isEnabled = true
             }
-            let isComplete = Self.containsAllCodexBarHooks(
+            let isComplete = Self.containsAllManagedHooks(
                 in: config,
                 executablePath: currentExecutablePath
             )
@@ -82,31 +82,31 @@ final class CodexHookSettings: ObservableObject {
         } catch {
             // 只有 I/O 失败和 JSON 格式错误会走到这里, 它们对「Hook 装没装」不提供信息
             // 文件不存在或配置里没有 CodexBar 都由 readConfigIfPresent 正常返回
-            // 因此保留上次已知值, 不能把读取失败当成用户关闭了 Hook
+            // 因此保留上次已知值, 不能把读取失败当成用户关闭了进阶模式
             let details = LogFields.joined(
                 "detail=\(error.localizedDescription)",
                 "action=keepLastKnown"
             )
             AppLog.hooks.error("Hook 读取失败: \(details, privacy: .public)")
-            readErrorMessage = String(localized: "hook.error.config-read-failed")
+            readErrorMessage = String(localized: "advanced-mode.hook.error.config-read-failed")
         }
     }
 
     func setEnabled(_ enabled: Bool) {
-        AppLog.hooks.notice("Hook 开关变更: enabled=\(enabled ? 1 : 0)")
+        AppLog.hooks.notice("进阶模式开关变更: enabled=\(enabled ? 1 : 0)")
         runLatestUpdate(showProgress: true) { settings, generation in
             await settings.applyEnabled(enabled, generation: generation)
         }
     }
 
-    func reconcileInstalledHooks() {
+    func reconcileConfiguration() {
         refreshInstallationState()
         guard isEnabled, !isUpdating else {
             return
         }
 
         runLatestUpdate(showProgress: false) { settings, generation in
-            await settings.reconcileInstalledHooks(generation: generation)
+            await settings.reconcileConfiguration(generation: generation)
         }
     }
 
@@ -115,16 +115,16 @@ final class CodexHookSettings: ObservableObject {
     private func applyEnabled(_ enabled: Bool, generation: Int) async {
         do {
             if enabled {
-                try await ensureCodexHookVersionSupported()
+                try await ensureAdvancedModeVersionSupported()
                 try ensureCurrentUpdate(generation)
                 try await ensureCodexHooksGloballyEnabled()
                 try ensureCurrentUpdate(generation)
-                try writeCodexBarHookConfig(enabled: true)
+                try writeManagedHookConfig(enabled: true)
                 try ensureCurrentUpdate(generation)
                 isEnabled = true
                 await verifyInstalledHooksWithAppServer(generation: generation)
             } else {
-                try await disableCodexBarHooks(generation: generation)
+                try await disableAdvancedMode(generation: generation)
             }
         } catch is CancellationError {
             return
@@ -134,16 +134,16 @@ final class CodexHookSettings: ObservableObject {
     }
 
     /// 与手动关闭共用同一事务, 自动关闭也不会遗留另一套清理语义
-    private func disableCodexBarHooks(generation: Int, cleanupTrust: Bool = true) async throws {
+    private func disableAdvancedMode(generation: Int, cleanupTrust: Bool = true) async throws {
         // 关闭前先通过 hooks/list 拿到 key
         // hooks.json 删除后 app-server 就无法再反查这些 key
-        let cleanupPlan: CodexHookTrustCleanupPlan? = if cleanupTrust {
+        let cleanupPlan: ManagedHookTrustCleanupPlan? = if cleanupTrust {
             try await hookTrustCleanupPlan(generation: generation)
         } else {
             nil
         }
         try ensureCurrentUpdate(generation)
-        try writeCodexBarHookConfig(enabled: false)
+        try writeManagedHookConfig(enabled: false)
         try ensureCurrentUpdate(generation)
         isEnabled = false
         operationErrorMessage = nil
@@ -157,27 +157,27 @@ final class CodexHookSettings: ObservableObject {
         )
     }
 
-    private func reconcileInstalledHooks(generation: Int) async {
+    private func reconcileConfiguration(generation: Int) async {
         do {
-            try await ensureCodexHookVersionSupported()
+            try await ensureAdvancedModeVersionSupported()
             try ensureCurrentUpdate(generation)
         } catch is CancellationError {
             return
         } catch CodexStatusError.unsupportedVersion(minimum: _) {
             // 低于全局门槛的连接已关闭, 无法通过 app-server 查询或删除信任项
-            await disableUnsupportedCodexBarHooks(
-                error: .unsupportedCodexVersion(minimum: CodexCLIMinimumVersion.hook),
+            await disableUnsupportedAdvancedMode(
+                error: .unsupportedCodexVersion(minimum: CodexCLIMinimumVersion.advancedMode),
                 generation: generation,
                 cleanupTrust: false
             )
             return
-        } catch let error as HookConfigError {
+        } catch let error as AdvancedModeError {
             guard case .unsupportedCodexVersion = error else {
                 handleVerificationError(error, generation: generation)
                 return
             }
 
-            await disableUnsupportedCodexBarHooks(error: error, generation: generation)
+            await disableUnsupportedAdvancedMode(error: error, generation: generation)
             return
         } catch {
             handleVerificationError(error, generation: generation)
@@ -190,11 +190,11 @@ final class CodexHookSettings: ObservableObject {
             try ensureCurrentUpdate(generation)
             guard !globallyDisabled else {
                 assignVerified(false, reason: .globallyDisabled)
-                operationErrorMessage = HookConfigError.hooksGloballyDisabled.localizedDescription
+                operationErrorMessage = AdvancedModeError.hooksGloballyDisabled.localizedDescription
                 return
             }
 
-            try reconcileCodexBarHookConfig()
+            try reconcileManagedHookConfig()
             try ensureCurrentUpdate(generation)
 
             try await validateInstalledHooksWithAppServer()
@@ -210,20 +210,20 @@ final class CodexHookSettings: ObservableObject {
         }
     }
 
-    private func disableUnsupportedCodexBarHooks(
-        error: HookConfigError,
+    private func disableUnsupportedAdvancedMode(
+        error: AdvancedModeError,
         generation: Int,
         cleanupTrust: Bool = true
     ) async {
         do {
             try ensureCurrentUpdate(generation)
             assignVerified(false, reason: .unsupportedVersion)
-            try await disableCodexBarHooks(generation: generation, cleanupTrust: cleanupTrust)
+            try await disableAdvancedMode(generation: generation, cleanupTrust: cleanupTrust)
             try ensureCurrentUpdate(generation)
             if operationErrorMessage == nil {
                 operationErrorMessage = error.localizedDescription
             }
-            AppLog.hooks.notice("Hook 已自动关闭: reason=unsupportedVersion")
+            AppLog.hooks.notice("进阶模式已自动关闭: reason=unsupportedVersion")
         } catch is CancellationError {
             return
         } catch {
@@ -233,7 +233,7 @@ final class CodexHookSettings: ObservableObject {
 
     private func verifyInstalledHooksWithAppServer(generation: Int) async {
         do {
-            try await ensureCodexHookVersionSupported()
+            try await ensureAdvancedModeVersionSupported()
             try ensureCurrentUpdate(generation)
 
             // 全局开关排在 hooks/list 之前: 它一关, 列表里必然找不到我们的 handler,
@@ -242,7 +242,7 @@ final class CodexHookSettings: ObservableObject {
             try ensureCurrentUpdate(generation)
             guard !globallyDisabled else {
                 assignVerified(false, reason: .globallyDisabled)
-                operationErrorMessage = HookConfigError.hooksGloballyDisabled.localizedDescription
+                operationErrorMessage = AdvancedModeError.hooksGloballyDisabled.localizedDescription
                 return
             }
 
@@ -262,14 +262,14 @@ final class CodexHookSettings: ObservableObject {
             return
         }
 
-        if let error = error as? HookConfigError {
-            // HookConfigError 是明确结论: Codex 答复了, 只是答复说这条链路不通
+        if let error = error as? AdvancedModeError {
+            // AdvancedModeError 是明确结论: Codex 答复了, 只是答复说这条链路不通
             assignVerified(false, reason: .validationFailed)
             operationErrorMessage = error.localizedDescription
         } else {
             // 这一支是"验不了"而不是"确认不通", isVerified 保留上次的值
             operationErrorMessage = String(
-                localized: "hook.error.verification-failed",
+                localized: "advanced-mode.hook.error.verification-failed",
                 defaultValue: "\(error.localizedDescription)"
             )
         }
@@ -279,7 +279,7 @@ final class CodexHookSettings: ObservableObject {
     /// 同值赋值会让设置页与两个子面板反复空转, 所以走这里
     /// reason 是排查依据: 用户只会说"防睡眠灰了", 那时得能从日志看出是全局禁用还是校验没过
     /// "验不了"那一支不调这里, 结论保持不变也就不该记一条变化
-    private func assignVerified(_ verified: Bool, reason: HookVerificationReason) {
+    private func assignVerified(_ verified: Bool, reason: AdvancedModeVerificationReason) {
         guard isVerified != verified else {
             return
         }
@@ -294,7 +294,7 @@ final class CodexHookSettings: ObservableObject {
 
     private func runLatestUpdate(
         showProgress: Bool,
-        _ operation: @escaping @MainActor @Sendable (CodexHookSettings, Int) async -> Void
+        _ operation: @escaping @MainActor @Sendable (AdvancedModeSettings, Int) async -> Void
     ) {
         if showProgress {
             isUpdating = true
@@ -328,25 +328,25 @@ final class CodexHookSettings: ObservableObject {
             return
         }
 
-        if let hookError = error as? HookConfigError,
-           hookError.isPreflightFailure {
+        if let advancedModeError = error as? AdvancedModeError,
+           advancedModeError.isPreflightFailure {
             // 前置检查拦下是预期内的拒绝, 配置一个字没动, 不是故障
             AppLog.hooks.notice(
-                "Hook 前置检查未通过: detail=\(hookError.localizedDescription, privacy: .public)"
+                "进阶模式前置检查未通过: detail=\(advancedModeError.localizedDescription, privacy: .public)"
             )
             isEnabled = false
-            operationErrorMessage = hookError.localizedDescription
+            operationErrorMessage = advancedModeError.localizedDescription
         } else {
             AppLog.hooks.error(
                 "Hook 写入失败: detail=\(error.localizedDescription, privacy: .public)"
             )
             refreshInstallationState()
-            operationErrorMessage = String(localized: "hook.error.configuration-failed")
+            operationErrorMessage = String(localized: "advanced-mode.hook.error.configuration-failed")
         }
     }
 }
 
-private extension CodexHookSettings {
+private extension AdvancedModeSettings {
     typealias JSONObject = [String: Any]
     typealias JSONArray = [Any]
 
@@ -360,19 +360,19 @@ private extension CodexHookSettings {
     static let hookTrustStateKeyPath = "hooks.state"
     static let trustedHashKey = "trusted_hash"
 
-    struct CodexHookTrustEntry {
+    struct ManagedHookTrustEntry {
         let key: String
         let trustedHash: String
     }
 
     /// discoveryError 会在 Hook 已关闭后展示, 说明仅信任状态清理未完成
-    struct CodexHookTrustCleanupPlan {
+    struct ManagedHookTrustCleanupPlan {
         let keys: Set<String>
         let discoveryError: Error?
     }
 
     /// Hook 链路校验结论的变化理由, 只用于日志的 reason= 取值
-    enum HookVerificationReason: String {
+    enum AdvancedModeVerificationReason: String {
         case configurationDamaged
         case globallyDisabled
         case unsupportedVersion
@@ -380,7 +380,7 @@ private extension CodexHookSettings {
         case verified
     }
 
-    enum HookConfigError: LocalizedError {
+    enum AdvancedModeError: LocalizedError {
         case invalidFormat
         case configurationFailed
         case hooksGloballyDisabled
@@ -391,19 +391,19 @@ private extension CodexHookSettings {
         var errorDescription: String? {
             switch self {
             case .invalidFormat:
-                String(localized: "hook.error.invalid-config-format")
+                String(localized: "advanced-mode.hook.error.invalid-config-format")
             case .configurationFailed:
-                String(localized: "hook.error.configuration-failed")
+                String(localized: "advanced-mode.hook.error.configuration-failed")
             case .hooksGloballyDisabled:
-                String(localized: "hook.status.disabled-by-codex")
+                String(localized: "advanced-mode.hook.status.disabled-by-codex")
             case let .codexVersionUnavailable(minimum):
                 String(
-                    localized: "hook.version.unavailable",
+                    localized: "advanced-mode.codex.version.unavailable",
                     defaultValue: "\(minimum)"
                 )
             case let .unsupportedCodexVersion(minimum):
                 String(
-                    localized: "hook.version.unsupported",
+                    localized: "advanced-mode.codex.version.unsupported",
                     defaultValue: "\(minimum)"
                 )
             case let .hookValidationFailed(message):
@@ -444,21 +444,21 @@ private extension CodexHookSettings {
 
     func ensureCodexHooksGloballyEnabled() async throws {
         if try await readGlobalHookDisabled() {
-            throw HookConfigError.hooksGloballyDisabled
+            throw AdvancedModeError.hooksGloballyDisabled
         }
     }
 
     /// 检查实际用于 hooks/list 的 app-server 握手版本
     /// 不能只看磁盘版本, 否则升级后尚未重连的旧进程会被误判为可用
-    func ensureCodexHookVersionSupported() async throws {
-        let minimumVersion = CodexCLIMinimumVersion.hook
+    func ensureAdvancedModeVersionSupported() async throws {
+        let minimumVersion = CodexCLIMinimumVersion.advancedMode
         let connectionInfo = try await codexStatusService.readyConnectionInfo()
         guard let currentVersion = connectionInfo.version,
               let isSupported = CodexCLIVersionReader.isVersion(
                   currentVersion,
                   atLeast: minimumVersion
               ) else {
-            throw HookConfigError.codexVersionUnavailable(minimum: minimumVersion)
+            throw AdvancedModeError.codexVersionUnavailable(minimum: minimumVersion)
         }
 
         guard isSupported else {
@@ -467,7 +467,7 @@ private extension CodexHookSettings {
                 "minimum=\(minimumVersion)"
             )
             AppLog.hooks.notice("Hook 版本不支持: \(details, privacy: .public)")
-            throw HookConfigError.unsupportedCodexVersion(minimum: minimumVersion)
+            throw AdvancedModeError.unsupportedCodexVersion(minimum: minimumVersion)
         }
     }
 
@@ -481,13 +481,13 @@ private extension CodexHookSettings {
         )
         if !entries.isEmpty {
             do {
-                try await trustCodexBarHooks(entries)
+                try await trustManagedHooks(entries)
             } catch {
                 AppLog.hooks.error(
                     "Hook 信任自愈失败: detail=\(error.localizedDescription, privacy: .public)"
                 )
-                throw HookConfigError.hookValidationFailed(
-                    String(localized: "hook.status.untrusted")
+                throw AdvancedModeError.hookValidationFailed(
+                    String(localized: "advanced-mode.hook.status.untrusted")
                 )
             }
             AppLog.hooks.notice("Hook 信任状态已自愈: keys=\(entries.count)")
@@ -499,13 +499,13 @@ private extension CodexHookSettings {
             executablePath: currentExecutablePath,
             hooksURL: hooksURL
         ) {
-            throw HookConfigError.hookValidationFailed(message)
+            throw AdvancedModeError.hookValidationFailed(message)
         }
     }
 
-    func hookTrustCleanupPlan(generation: Int) async throws -> CodexHookTrustCleanupPlan {
+    func hookTrustCleanupPlan(generation: Int) async throws -> ManagedHookTrustCleanupPlan {
         do {
-            let keys = try await codexBarHookTrustKeysFromAppServer()
+            let keys = try await managedHookTrustKeysFromAppServer()
             try ensureCurrentUpdate(generation)
             return .init(keys: keys, discoveryError: nil)
         } catch is CancellationError {
@@ -517,15 +517,15 @@ private extension CodexHookSettings {
 
     // MARK: - hooks.json 读写
 
-    func writeCodexBarHookConfig(enabled: Bool) throws {
+    func writeManagedHookConfig(enabled: Bool) throws {
         var config = try readConfigIfPresent()
-        try Self.removeCodexBarHooks(
+        try Self.removeManagedHooks(
             from: &config,
             executablePath: currentExecutablePath
         )
 
         if enabled {
-            _ = try Self.reconcileCodexBarHooks(
+            _ = try Self.reconcileManagedHooks(
                 in: &config,
                 executablePath: currentExecutablePath
             )
@@ -536,9 +536,9 @@ private extension CodexHookSettings {
         AppLog.hooks.notice("Hook 配置已写入: enabled=\(enabled ? 1 : 0)")
     }
 
-    func reconcileCodexBarHookConfig() throws {
+    func reconcileManagedHookConfig() throws {
         var config = try readConfigIfPresent()
-        let repairedEvents = try Self.reconcileCodexBarHooks(
+        let repairedEvents = try Self.reconcileManagedHooks(
             in: &config,
             executablePath: currentExecutablePath
         )
@@ -552,7 +552,7 @@ private extension CodexHookSettings {
             AppLog.hooks.error(
                 "Hook 补齐写入失败: detail=\(error.localizedDescription, privacy: .public)"
             )
-            throw HookConfigError.configurationFailed
+            throw AdvancedModeError.configurationFailed
         }
         let events = repairedEvents.map(\.rawValue).joined(separator: ",")
         let details = LogFields.joined(
@@ -562,9 +562,9 @@ private extension CodexHookSettings {
         AppLog.hooks.notice("Hook 配置已自愈: \(details, privacy: .public)")
     }
 
-    func codexBarHookTrustKeysFromAppServer() async throws -> Set<String> {
+    func managedHookTrustKeysFromAppServer() async throws -> Set<String> {
         let response = try await codexStatusService.listCodexHooks(cwds: [hooksListWorkingDirectory])
-        return Self.codexBarHookTrustKeys(
+        return Self.managedHookTrustKeys(
             from: response,
             executablePath: currentExecutablePath,
             hooksURL: hooksURL
@@ -581,7 +581,7 @@ private extension CodexHookSettings {
         do {
             try ensureCurrentUpdate(generation)
             if !keys.isEmpty {
-                try await removeCodexBarHookTrust(keys)
+                try await removeManagedHookTrust(keys)
                 try ensureCurrentUpdate(generation)
                 AppLog.hooks.notice("Hook 信任状态已清理: keys=\(keys.count)")
             }
@@ -592,7 +592,7 @@ private extension CodexHookSettings {
                     "detail=\(discoveryError.localizedDescription)"
                 )
                 AppLog.hooks.error("无法清理 Hook 信任状态: \(details, privacy: .public)")
-                operationErrorMessage = String(localized: "hook.error.trust-cleanup-unavailable")
+                operationErrorMessage = String(localized: "advanced-mode.hook.error.trust-cleanup-unavailable")
             } else {
                 operationErrorMessage = nil
             }
@@ -608,11 +608,11 @@ private extension CodexHookSettings {
                 "detail=\(error.localizedDescription)"
             )
             AppLog.hooks.error("无法清理 Hook 信任状态: \(details, privacy: .public)")
-            operationErrorMessage = String(localized: "hook.error.trust-cleanup-unavailable")
+            operationErrorMessage = String(localized: "advanced-mode.hook.error.trust-cleanup-unavailable")
         }
     }
 
-    func trustCodexBarHooks(_ entries: [CodexHookTrustEntry]) async throws {
+    func trustManagedHooks(_ entries: [ManagedHookTrustEntry]) async throws {
         guard !entries.isEmpty else {
             return
         }
@@ -623,7 +623,7 @@ private extension CodexHookSettings {
         )
     }
 
-    func removeCodexBarHookTrust(_ keys: Set<String>) async throws {
+    func removeManagedHookTrust(_ keys: Set<String>) async throws {
         guard !keys.isEmpty else {
             return
         }
@@ -674,11 +674,11 @@ private extension CodexHookSettings {
         do {
             object = try JSONSerialization.jsonObject(with: data)
         } catch {
-            throw HookConfigError.invalidFormat
+            throw AdvancedModeError.invalidFormat
         }
 
         guard let config = object as? JSONObject else {
-            throw HookConfigError.invalidFormat
+            throw AdvancedModeError.invalidFormat
         }
 
         return config
@@ -697,7 +697,7 @@ private extension CodexHookSettings {
         try data.write(to: hooksURL, options: .atomic)
     }
 
-    static func containsAnyCodexBarHook(in config: JSONObject, executablePath: String) -> Bool {
+    static func containsAnyManagedHook(in config: JSONObject, executablePath: String) -> Bool {
         guard let hooks = config[hooksKey] as? JSONObject else {
             return false
         }
@@ -713,7 +713,7 @@ private extension CodexHookSettings {
         }
     }
 
-    static func containsAllCodexBarHooks(in config: JSONObject, executablePath: String) -> Bool {
+    static func containsAllManagedHooks(in config: JSONObject, executablePath: String) -> Bool {
         guard let hooks = config[hooksKey] as? JSONObject else {
             return false
         }
@@ -731,7 +731,7 @@ private extension CodexHookSettings {
         }
     }
 
-    static func reconcileCodexBarHooks(
+    static func reconcileManagedHooks(
         in config: inout JSONObject,
         executablePath: String
     ) throws -> [CodexHookEvent] {
@@ -756,7 +756,7 @@ private extension CodexHookSettings {
                 )
             }
             groups.append([
-                hooksKey: [codexBarHookHandler(for: event, executablePath: executablePath)]
+                hooksKey: [managedHookHandler(for: event, executablePath: executablePath)]
             ])
             hooks[event.configName] = groups
             repairedEvents.append(event)
@@ -766,7 +766,7 @@ private extension CodexHookSettings {
         return repairedEvents
     }
 
-    static func removeCodexBarHooks(
+    static func removeManagedHooks(
         from config: inout JSONObject,
         executablePath: String
     ) throws {
@@ -807,7 +807,7 @@ private extension CodexHookSettings {
         hooksURL: URL
     ) -> String? {
         guard !response.data.isEmpty else {
-            return String(localized: "codex-status.result.empty")
+            return String(localized: "advanced-mode.hook.result.empty")
         }
 
         let entries = response.data
@@ -837,22 +837,22 @@ private extension CodexHookSettings {
         }
 
         if !errors.isEmpty {
-            return String(localized: "codex-status.result.error")
+            return String(localized: "advanced-mode.hook.result.error")
         }
         if hasDisabledHook {
-            return String(localized: "hook.status.disabled")
+            return String(localized: "advanced-mode.hook.status.disabled")
         }
         if hasUntrustedHook {
-            return String(localized: "hook.status.untrusted")
+            return String(localized: "advanced-mode.hook.status.untrusted")
         }
         if hasMissingEvent {
-            return String(localized: "hook.status.incomplete")
+            return String(localized: "advanced-mode.hook.status.incomplete")
         }
         if hasUnexpectedSource {
-            return String(localized: "hook.status.unexpected-source")
+            return String(localized: "advanced-mode.hook.status.unexpected-source")
         }
         if !warnings.isEmpty {
-            return String(localized: "codex-status.result.warning")
+            return String(localized: "advanced-mode.hook.result.warning")
         }
 
         return nil
@@ -862,10 +862,10 @@ private extension CodexHookSettings {
         from response: CodexHooksListResponse,
         executablePath: String,
         hooksURL: URL
-    ) -> [CodexHookTrustEntry] {
+    ) -> [ManagedHookTrustEntry] {
         let hooks = response.data.flatMap(\.hooks)
         let expectedSourcePath = normalizedPath(hooksURL.path)
-        var entries: [CodexHookTrustEntry] = []
+        var entries: [ManagedHookTrustEntry] = []
         var seenKeys = Set<String>()
 
         for event in CodexHookEvent.allCases {
@@ -875,7 +875,7 @@ private extension CodexHookSettings {
                 executablePath: executablePath,
                 expectedSourcePath: expectedSourcePath
             ),
-                isManagedCodexBarHook(
+                isManagedHook(
                     hook,
                     executablePath: executablePath,
                     expectedSourcePath: expectedSourcePath
@@ -895,7 +895,7 @@ private extension CodexHookSettings {
         return entries
     }
 
-    static func codexBarHookTrustKeys(
+    static func managedHookTrustKeys(
         from response: CodexHooksListResponse,
         executablePath: String,
         hooksURL: URL
@@ -905,7 +905,7 @@ private extension CodexHookSettings {
             response.data
                 .flatMap(\.hooks)
                 .compactMap { hook in
-                    guard isManagedCodexBarHook(
+                    guard isManagedHook(
                         hook,
                         executablePath: executablePath,
                         expectedSourcePath: expectedSourcePath
@@ -934,7 +934,7 @@ private extension CodexHookSettings {
             ?? matchingHooks.first
     }
 
-    static func isManagedCodexBarHook(
+    static func isManagedHook(
         _ hook: CodexHookMetadata,
         executablePath: String,
         expectedSourcePath: String
@@ -961,7 +961,7 @@ private extension CodexHookSettings {
         state.mapValues { [trustedHashKey: $0] }
     }
 
-    static func hookTrustStateValue(from entries: [CodexHookTrustEntry]) -> [String: [String: String]] {
+    static func hookTrustStateValue(from entries: [ManagedHookTrustEntry]) -> [String: [String: String]] {
         entries.reduce(into: [:]) { value, entry in
             value[entry.key] = [trustedHashKey: entry.trustedHash]
         }
@@ -973,7 +973,7 @@ private extension CodexHookSettings {
         }
 
         guard let hooks = value as? JSONObject else {
-            throw HookConfigError.invalidFormat
+            throw AdvancedModeError.invalidFormat
         }
 
         return hooks
@@ -985,7 +985,7 @@ private extension CodexHookSettings {
         }
 
         guard let groups = value as? JSONArray else {
-            throw HookConfigError.invalidFormat
+            throw AdvancedModeError.invalidFormat
         }
 
         return groups
@@ -1087,7 +1087,7 @@ private extension CodexHookSettings {
         return isCodexBarCommand(command, executablePath: executablePath)
     }
 
-    static func codexBarHookHandler(
+    static func managedHookHandler(
         for event: CodexHookEvent,
         executablePath: String
     ) -> JSONObject {

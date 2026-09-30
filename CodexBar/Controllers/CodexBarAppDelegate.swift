@@ -8,18 +8,18 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     lazy var proxySettings = CodexProxySettings(service: codexStatusService)
     lazy var viewModel = CodexStatusViewModel(service: codexStatusService)
     let workflowViewModel = WorkflowViewModel()
-    lazy var codexHookSettings = CodexHookSettings(codexStatusService: codexStatusService)
+    lazy var advancedModeSettings = AdvancedModeSettings(codexStatusService: codexStatusService)
     lazy var codexCLINotificationSettings = CodexCLINotificationSettings(
         codexStatusService: codexStatusService
     )
     let activityProtectionSettings = ActivityProtectionSettings()
     lazy var activityMonitor = CodexActivityMonitor(
-        codexHookSettings: codexHookSettings,
+        advancedModeSettings: advancedModeSettings,
         activityProtectionSettings: activityProtectionSettings
     )
     lazy var keepAliveController = KeepAliveController(
         activityMonitor: activityMonitor,
-        codexHookSettings: codexHookSettings
+        advancedModeSettings: advancedModeSettings
     )
     let syncSettings = WorkflowSyncSettings()
     let globalHotKeySettings = GlobalHotKeySettings()
@@ -45,7 +45,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         let controller = StatusItemController(
             viewModel: viewModel,
             workflowViewModel: workflowViewModel,
-            codexHookSettings: codexHookSettings,
+            advancedModeSettings: advancedModeSettings,
             codexCLINotificationSettings: codexCLINotificationSettings,
             activityMonitor: activityMonitor,
             syncSettings: syncSettings,
@@ -97,7 +97,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         let taskGlowController = TaskGlowController(
             settings: taskGlowSettings,
             activityMonitor: activityMonitor,
-            hookSettings: codexHookSettings
+            advancedModeSettings: advancedModeSettings
         )
         taskGlowController.start()
         self.taskGlowController = taskGlowController
@@ -149,7 +149,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         let state = LogFields.joined(
             "version=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-")",
             "build=\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-")",
-            "hook=\(codexHookSettings.isEnabled ? 1 : 0)",
+            "advancedMode=\(advancedModeSettings.isEnabled ? 1 : 0)",
             "keepAlive=\(keepAliveController.isEnabled ? 1 : 0)",
             "keepAliveLimit=\(keepAliveController.maximumDuration.loggedHours)",
             "keepAliveBattery=\(keepAliveController.lowBatteryThreshold.rawValue)",

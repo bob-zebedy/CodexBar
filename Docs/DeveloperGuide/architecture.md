@@ -91,7 +91,7 @@ Scripts/            构建, DMG, appcast 和 CodexBarHelper 清理脚本
 - `CodexStatusService` 和 `CodexStatusViewModel`
 - `CodexProxySettings`
 - `WorkflowService` 和对应 ViewModel
-- `CodexHookSettings`
+- `AdvancedModeSettings`
 - `CodexActivityMonitor`
 - `KeepAliveController`
 - `AutoResetController`
@@ -149,7 +149,7 @@ Hook + rollout --------> CodexActivityMonitor --------> UI
 
 ### 共享刷新触发
 
-历史维护默认挂在 60 秒额度刷新完成事件上，这是为了减少常驻 timer 和日志噪音。两条链路共享调度时机，但没有共享事实。
+历史维护挂在额度刷新完成事件上，间隔由数据更新设置决定，默认 1 分钟，这是为了减少常驻 timer 和日志噪音。两条链路共享调度时机，但没有共享事实。
 
 因此修改刷新节奏时需要区分：
 
@@ -240,7 +240,7 @@ Hook + rollout --------> CodexActivityMonitor --------> UI
 | 主面板账户加载状态 | `CodexStatusViewModel` | 观察发布值 |
 | 自动重置的目标、deadline 和重试 | `AutoResetController` | 设置页只修改开关和提前量 |
 | 自动重置唤醒时间同步 | `AutoResetWakeScheduler` | `AutoResetController` 只提交下一次时间，`KeepAliveController` 只提交 helper 就绪状态 |
-| Hook 安装与验证 | `CodexHookSettings` | 读取 `isOperable` |
+| Hook 安装与验证 | `AdvancedModeSettings` | 读取 `isOperable` |
 | 历史聚合和维护游标 | `WorkflowService` | 请求快照或重建 |
 | 实时任务 | `CodexActivityMonitor` | 读取快照、通知转场或包含新增终态的展示更新 |
 | 同步游标与远端缓存 | `WorkflowSyncService` | 请求合并快照 |
@@ -264,7 +264,7 @@ Hook + rollout --------> CodexActivityMonitor --------> UI
 
 | 错误类别 | 典型处理 | 不应采取的处理 |
 | --- | --- | --- |
-| 明确业务不支持 | 缓存 method unsupported，显示来源缺失 | 每分钟重复请求或展示 `0` |
+| 明确业务不支持 | 缓存 method unsupported，显示来源缺失 | 同一连接中重复请求或展示 `0` |
 | 短暂业务失败 | 同账户范围内使用 stale 缓存 | 清空整个账户快照 |
 | transport 失败 | 丢弃连接，最多重建一次 | 在不可信 pipe 上继续请求 |
 | 数据源身份变化 | 新 generation，从原始来源重建 | 沿用旧 offset 继续追加 |

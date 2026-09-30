@@ -79,7 +79,7 @@ The Hook subprocess extracts from stdin:
 
 The Hook subprocess extracts origin from the first rollout `session_meta`, using either the complete record or a prefix of completed fields. Reads use 32 KiB chunks with a total limit of 256 KiB. JSONL persists only the normalized `main`, `autoReview`, `auxiliary`, or `unknown` value. See [Origin Normalization](hook-and-aggregation.md#origin-normalization) for classification and model fallback rules.
 
-It does not write prompt text, responses, tool arguments, or tool output to CodexBar Hook files.
+It does not write prompt text, responses, tool arguments, or tool output to the Hook event files maintained by CodexBar.
 
 The working directory is used only to derive a project display name and live-task ownership. Raw Hook JSONL may still include `cwd`, making it sensitive local context subject to retention and file-permission limits. Rollout paths, raw source values, and arbitrary subagent `other` values are not persisted. CloudKit uploads only derived project-name counts and only after explicit opt-in.
 
@@ -156,6 +156,7 @@ Debug and Release share the token ledger and sync cache. Each `store.lock` prote
 UserDefaults stores:
 
 - Feature switches and options
+- Data update interval (`DataUpdate.intervalSeconds`, in seconds)
 - Notification thresholds and sound names
 - Global shortcut
 - Proxy enabled state, protocol, server, port, authentication username, and password

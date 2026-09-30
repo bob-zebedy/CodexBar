@@ -47,7 +47,7 @@ Shutdown reverses the order, except for helper-owned system state. AppDelegate f
 
 ## Task Glow
 
-`TaskGlowController` presents activity while both `TaskGlowSettings.isEnabled` and Hook's `isOperable` are `true`, independently of the main panel's animation setting. It consumes snapshots and terminal events from `CodexActivityMonitor.presentationPublisher`; see [Presentation Updates](activity-monitor.md#presentation-updates).
+`TaskGlowController` presents activity while both `TaskGlowSettings.isEnabled` and `AdvancedModeSettings.isOperable` are `true`, independently of the main panel's animation setting. It consumes snapshots and terminal events from `CodexActivityMonitor.presentationPublisher`; see [Presentation Updates](activity-monitor.md#presentation-updates).
 
 | Scenario | Presentation rule |
 | --- | --- |
@@ -57,7 +57,7 @@ Shutdown reverses the order, except for helper-owned system state. AppDelegate f
 
 `TaskGlowSettings.appearance` supplies colors, speed, brightness, and end duration. The default colors are cyan for running, orange for approval waiting, green for completion, and red for termination. Termination takes priority on equal end times. Durations include entrance animations. The latest snapshot determines the state after expiration.
 
-Switching the setting from off to on while Hook is available sends a `TaskGlowSettings.previewRequests` event for one running preview using the current appearance settings. After one round trip, presentation returns to the actual state. Startup and settings refresh restore the switch value without requesting a preview.
+Switching the setting from off to on while Advanced Mode is available sends a `TaskGlowSettings.previewRequests` event for one running preview using the current appearance settings. After one round trip, presentation returns to the actual state. Startup and settings refresh restore the switch value without requesting a preview.
 
 Double-clicking a color swatch in the settings panel requests a preview of that state: running shows a moving glow, approval waiting pulses, and completion and termination appear briefly before fading. Color previews can replace a playing preview; closing the settings child panel ends only color previews. Requests for the preview triggered by enabling the feature are ignored while a preview or window dismissal is in progress.
 
@@ -209,7 +209,7 @@ The heatmap detail panel uses the complete heatmap area, including its heading, 
 
 While the main panel is visible, digits roll as values change and Token values fade when switching to or from pending or unavailable placeholders. Animation Effects controls entrance animations, sun-badge rotation, and task status-text animations; it does not control numeric updates.
 
-With Hook enabled, heatmap details group activity statistics and session tokens alongside a usage intensity bar. Each group uses a `Grid` to align labels and values. Date changes use the same `numericText` transition for token and activity values. The most-used model transitions within one text view and scales its font to fit.
+With Advanced Mode enabled, heatmap details group activity statistics and session tokens alongside a usage intensity bar. Each group uses a `Grid` to align labels and values. Date changes use the same `numericText` transition for token and activity values. The most-used model transitions within one text view and scales its font to fit.
 
 The shared `LiquidGlassDivider` slowly moves a silver-gray and cool-white gradient in a repeating cycle. It pauses or resumes its timeline using its `NSView` window visibility, independently of Animation Effects.
 
@@ -250,14 +250,14 @@ When Automatic Reset or Prevent System Sleep changes from off to on, `AppSetting
 Each secondary-settings entry uses its own availability decision:
 
 - Main Panel Layout is always available
-- Task Glow requires `TaskGlowSettings.isEnabled` and Hook's `isOperable` to be `true`, with no Hook update in progress
+- Task Glow requires `TaskGlowSettings.isEnabled` and `AdvancedModeSettings.isOperable` to be `true`, with no Advanced Mode update in progress
 - Notifications reads `NotificationSettings.canShowOptions`
 - Automatic Reset requires `AutoResetSettings.isEnabled` and `KeepAliveController.helperStatus == .enabled`
 - Sleep prevention reads `KeepAliveController.canShowOptions`
 
 When a condition becomes false, Settings sends the corresponding `close` action so an unavailable child panel does not remain visible. Automatic Reset and sleep-prevention rows show no status explanation while their main switches are off.
 
-`MainPanelSettings` stores the order and visibility of Account, Task Center, Quota, Token Usage, and Footer Status with stable section identifiers. Layout normalization removes duplicates, ignores invalid values, appends missing sections, and keeps at least one section visible. After reading a disabled Hook state, `StatusItemController` calls `updateHookEnabled(_:)` to persist Task Center as hidden. If Task Center was the only visible section, Account is enabled at the same time. Switching Hook from off to on automatically shows Task Center; initial restoration of an enabled Hook and repeated enabled notifications preserve the saved layout. The settings panel disables only the Task Center switch, so its drag handle remains available. Temporary availability of other data sources affects only the current rendering.
+`MainPanelSettings` stores the order and visibility of Account, Task Center, Quota, Token Usage, and Footer Status with stable section identifiers. Layout normalization removes duplicates, ignores invalid values, appends missing sections, and keeps at least one section visible. After reading a disabled Hook state, `StatusItemController` calls `updateAdvancedModeEnabled(_:)` to persist Task Center as hidden. If Task Center was the only visible section, Account is enabled at the same time. Switching Hook from off to on automatically shows Task Center; initial restoration of an enabled Hook and repeated enabled notifications preserve the saved layout. The settings panel disables only the Task Center switch, so its drag handle remains available. Temporary availability of other data sources affects only the current rendering.
 
 Layout sorting uses a custom `DragGesture` on the handle. A floating copy follows the pointer, other rows move as the drag position changes, and releasing calls `setSectionOrder(_:)` once to persist the final order.
 
@@ -297,13 +297,13 @@ Registration uses try-before-swap:
 
 ## Automatic Refresh and Panel Opening
 
-App-server state is checked for refresh every 60 seconds by default. Once the main panel's fade-in finishes and the panel is still visible, `refreshIfNeeded` requests data if no countdown origin exists or more than 60 seconds have passed since the last refresh result was committed. Both successful and failed results reset the countdown.
+App-server state refreshes at the selected data update interval: 1, 2, 3, 5, or 10 minutes, defaulting to 1 minute. Once the main panel's fade-in finishes and the panel is still visible, `refreshIfNeeded` requests data if no countdown origin exists or the selected interval has elapsed. Both successful and failed results reset the countdown. Changing the interval reschedules the wait without canceling an in-flight request.
 
 The main panel shows a refresh countdown. Double-clicking the account icon requests an immediate manual refresh.
 
 Ordinary refreshes are ignored while a refresh or reconnect is in progress. Operations requiring a follow-up use `refreshAfterCurrent` to retain one pending trigger and run it after the current request finishes.
 
-The fade-in completion callback triggers Hook configuration reconciliation, a local-statistics refresh check when Hook is enabled, and an account, rate-limit, and usage refresh check in that order. Closing the panel before fade-in finishes cancels the completion task and its pending refresh work.
+The fade-in completion callback triggers Hook configuration reconciliation, a local-statistics refresh check when Advanced Mode is enabled, and an account, rate-limit, and usage refresh check in that order. Closing the panel before fade-in finishes cancels the completion task and its pending refresh work.
 
 ## Localization and Formatting
 

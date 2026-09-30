@@ -91,7 +91,7 @@ In normal mode, `CodexBarAppDelegate` creates and owns long-lived objects, inclu
 - `CodexStatusService` and `CodexStatusViewModel`
 - `CodexProxySettings`
 - `WorkflowService` and its view model
-- `CodexHookSettings`
+- `AdvancedModeSettings`
 - `CodexActivityMonitor`
 - `KeepAliveController`
 - `AutoResetController`
@@ -149,7 +149,7 @@ Arrows show the direction in which data or read-only state is consumed. A downst
 
 ### Shared Refresh Triggers
 
-Historical maintenance normally runs after the 60-second rate-limit refresh to reduce resident timers and log noise. The flows share scheduling, not facts.
+Historical maintenance runs after rate-limit refreshes at the selected data update interval, defaulting to 1 minute, to reduce resident timers and log noise. The flows share scheduling, not facts.
 
 When changing refresh timing, distinguish among these constraints:
 
@@ -240,7 +240,7 @@ Before changing one time window, check for paired invariants. For example, the t
 | Main-panel account loading state | `CodexStatusViewModel` | Observe published values |
 | Automatic Reset target, deadline, and retries | `AutoResetController` | Settings changes only the switch and lead time |
 | Automatic Reset wake-time synchronization | `AutoResetWakeScheduler` | `AutoResetController` submits only the next time; `KeepAliveController` submits only helper readiness |
-| Hook installation and validation | `CodexHookSettings` | Read `isOperable` |
+| Hook installation and validation | `AdvancedModeSettings` | Read `isOperable` |
 | Historical aggregation and maintenance cursor | `WorkflowService` | Request snapshots or rebuilds |
 | Live tasks | `CodexActivityMonitor` | Read snapshots, notification transitions, or presentation updates containing new terminal events |
 | Sync cursors and remote cache | `WorkflowSyncService` | Request merged snapshots |
@@ -264,7 +264,7 @@ When adding a consumer, subscribe to an existing snapshot first. If it lacks a f
 
 | Error class | Typical handling | Incorrect handling |
 | --- | --- | --- |
-| Explicitly unsupported capability | Cache method unsupported and show the source as unavailable | Retry every minute or display `0` |
+| Explicitly unsupported capability | Cache method unsupported and show the source as unavailable | Retry within the same connection or display `0` |
 | Transient business failure | Use stale cache scoped to the same account | Clear the entire account snapshot |
 | Transport failure | Discard the connection and rebuild it at most once | Continue sending requests over an untrusted pipe |
 | Data-source identity change | Start a new generation and rebuild from the raw source | Continue appending from the old offset |

@@ -9,7 +9,7 @@ struct AppSettingsView: View {
     @StateObject private var codexVersions = CodexCLIVersionViewModel()
     @ObservedObject var proxySettings: CodexProxySettings
     @State private var isShowingProxySettings = false
-    @ObservedObject var codexHookSettings: CodexHookSettings
+    @ObservedObject var advancedModeSettings: AdvancedModeSettings
     @ObservedObject var syncSettings: WorkflowSyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
     @ObservedObject var menuBarQuotaSettings: MenuBarQuotaSettings
@@ -90,7 +90,7 @@ struct AppSettingsView: View {
             refreshStatusRows()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            codexHookSettings.reconcileInstalledHooks()
+            advancedModeSettings.reconcileConfiguration()
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
             mainPanelSettings.refresh()
@@ -184,6 +184,7 @@ private extension AppSettingsView {
         static let tabContentSpacing = padding
         static let windowChromeHeight = padding * 2 + tabBarHeight + tabContentSpacing
         static let menuBarQuotaPickerWidth: CGFloat = 72
+        static let dataUpdateIntervalPickerWidth: CGFloat = 90
         static let syncStatusRowHeight: CGFloat = 16
         static let syncStatusValueWidth: CGFloat = 160
         static let tabContentInitialScale = 0.975
@@ -271,7 +272,7 @@ private extension AppSettingsView {
                 LiquidGlassDivider()
                 TaskGlowSettingsRow(
                     settings: taskGlowSettings,
-                    codexHookSettings: codexHookSettings,
+                    advancedModeSettings: advancedModeSettings,
                     onOptionsAction: onOptionsAction
                 )
                 LiquidGlassDivider()
@@ -292,12 +293,7 @@ private extension AppSettingsView {
 
     var advancedSettingsPage: some View {
         VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
-            ProxySettingsRow(settings: proxySettings) {
-                onOptionsAction(.closeAll)
-                isShowingProxySettings = true
-            }
-            LiquidGlassDivider()
-            codexHookRow
+            advancedModeRow
             LiquidGlassDivider()
             notificationRow
             LiquidGlassDivider()
@@ -306,6 +302,13 @@ private extension AppSettingsView {
             keepAliveRow
             LiquidGlassDivider()
             syncRow
+            LiquidGlassDivider()
+            ProxySettingsRow(settings: proxySettings) {
+                onOptionsAction(.closeAll)
+                isShowingProxySettings = true
+            }
+            LiquidGlassDivider()
+            dataUpdateIntervalRow
             LiquidGlassDivider()
             rebuildWorkflowDataRow
         }
@@ -435,19 +438,40 @@ private extension AppSettingsView {
 
     // MARK: - 高级页各行
 
-    var codexHookRow: some View {
+    var dataUpdateIntervalRow: some View {
+        HStack(spacing: SettingsRowMetrics.spacing) {
+            Image(systemName: "timer")
+                .frame(width: SettingsRowMetrics.iconWidth)
+                .foregroundStyle(.tint)
+            Text("settings.data-update.interval.title")
+            Spacer()
+            SettingsOptionsPicker(
+                title: "settings.data-update.interval.title",
+                selection: Binding(
+                    get: { statusViewModel.dataUpdateInterval },
+                    set: { statusViewModel.setDataUpdateInterval($0) }
+                ),
+                options: DataUpdateInterval.allCases,
+                label: { $0.title },
+                width: Metrics.dataUpdateIntervalPickerWidth
+            )
+        }
+        .frame(minHeight: SettingsRowMetrics.optionsButtonSize)
+    }
+
+    var advancedModeRow: some View {
         VStack(alignment: .leading, spacing: 4) {
             SettingsToggleRow(
-                icon: "link",
-                title: "hook.name",
+                icon: "wrench.and.screwdriver",
+                title: "advanced-mode.name",
                 isOn: Binding(
-                    get: { codexHookSettings.isEnabled },
-                    set: { codexHookSettings.setEnabled($0) }
+                    get: { advancedModeSettings.isEnabled },
+                    set: { advancedModeSettings.setEnabled($0) }
                 ),
-                isEnabled: !codexHookSettings.isUpdating
+                isEnabled: !advancedModeSettings.isUpdating
             )
 
-            if let message = codexHookSettings.errorMessage {
+            if let message = advancedModeSettings.errorMessage {
                 SettingsCaptionMessageRow(message: message)
             }
         }
@@ -550,7 +574,7 @@ private extension AppSettingsView {
                         }
                     }
                 ),
-                isEnabled: codexHookSettings.isOperable && !codexHookSettings.isUpdating
+                isEnabled: advancedModeSettings.isOperable && !advancedModeSettings.isUpdating
             ) {
                 SettingsOptionsButton(isAvailable: canShowKeepAliveOptions) {
                     onOptionsAction(
@@ -618,8 +642,8 @@ private extension AppSettingsView {
         if let errorMessage = keepAliveController.errorMessage {
             return SettingsStatusCaption(message: errorMessage, isError: true)
         }
-        guard codexHookSettings.isVerified else {
-            return SettingsStatusCaption(message: String(localized: "hook.status.inactive"))
+        guard advancedModeSettings.isVerified else {
+            return SettingsStatusCaption(message: String(localized: "advanced-mode.hook.status.inactive"))
         }
 
         if keepAliveController.isActivelyPreventingSleep,
@@ -713,9 +737,9 @@ private extension AppSettingsView {
 
     var syncRowState: SyncRowState {
         SyncRowState(
-            isActive: syncSettings.isEffectivelyActive(isHookEnabled: codexHookSettings.isEnabled),
-            isHookEnabled: codexHookSettings.isEnabled,
-            isHookUpdating: codexHookSettings.isUpdating,
+            isActive: syncSettings.isEffectivelyActive(isAdvancedModeEnabled: advancedModeSettings.isEnabled),
+            isAdvancedModeEnabled: advancedModeSettings.isEnabled,
+            isAdvancedModeUpdating: advancedModeSettings.isUpdating,
             isSyncAvailable: syncSettings.isSyncAvailable,
             isSyncing: syncSettings.isSyncing
         )
@@ -804,7 +828,7 @@ private extension AppSettingsView {
                 rebuildResult = RebuildResult(
                     message: Self.rebuildSuccessMessage(
                         for: summary,
-                        autoRetryAvailable: codexHookSettings.isEnabled
+                        autoRetryAvailable: advancedModeSettings.isEnabled
                     ),
                     isError: false
                 )
@@ -826,7 +850,7 @@ private extension AppSettingsView {
     static let rebuildFailedDateListLimit = 3
 
     /// 未完成的日期只列前几个, 避免长范围重建时结果过长
-    /// autoRetryAvailable: 常规维护只在 Hook 开启时运行, 关闭时不能承诺自动重试
+    /// autoRetryAvailable: 常规维护只在进阶模式开启时运行, 关闭时不能承诺自动重试
     static func rebuildSuccessMessage(
         for summary: WorkflowDataRebuildSummary,
         autoRetryAvailable: Bool
@@ -852,7 +876,7 @@ private extension AppSettingsView {
             message += String(localized: "workflow.rebuild.summary.incomplete-dates", defaultValue: "\(summary.failedDateKeys.count, specifier: "%lld")\(dates)")
             message += autoRetryAvailable
                 ? String(localized: "workflow.rebuild.summary.retry-later")
-                : String(localized: "workflow.rebuild.summary.retry-after-hook-enabled")
+                : String(localized: "workflow.rebuild.summary.retry-after-advanced-mode-enabled")
         }
 
         if summary.didFailSyncReplacementMarking {
@@ -962,8 +986,8 @@ private extension AppSettingsView {
             unavailableSource: statusViewModel.unavailableConnectionSource,
             onReconnect: { selection in
                 Task { @MainActor in
-                    if await statusViewModel.reconnectCodex(selection: selection, requiresHooks: codexHookSettings.isEnabled) {
-                        codexHookSettings.reconcileInstalledHooks()
+                    if await statusViewModel.reconnectCodex(selection: selection, requiresAdvancedMode: advancedModeSettings.isEnabled) {
+                        advancedModeSettings.reconcileConfiguration()
                     }
                     codexVersions.refresh(force: true)
                 }
@@ -1397,13 +1421,13 @@ private struct SettingsPageHeightPreferenceKey: PreferenceKey {
 private struct SyncRowState {
     /// 由 WorkflowSyncSettings.isEffectivelyActive 统一判定, 视图层不再拼接业务谓词
     let isActive: Bool
-    let isHookEnabled: Bool
-    let isHookUpdating: Bool
+    let isAdvancedModeEnabled: Bool
+    let isAdvancedModeUpdating: Bool
     let isSyncAvailable: Bool
     let isSyncing: Bool
 
     var canToggle: Bool {
-        isHookEnabled && !isHookUpdating && isSyncAvailable
+        isAdvancedModeEnabled && !isAdvancedModeUpdating && isSyncAvailable
     }
 
     func shouldShowSyncStatus(lastSyncText: String?) -> Bool {

@@ -33,7 +33,7 @@ nonisolated enum CodexCLISourceSelection: String, CaseIterable, Identifiable {
     }
 
     var title: String {
-        source?.displayName ?? String(localized: "settings.codex-version.source.automatic")
+        source?.displayName ?? String(localized: "codex-cli.source.automatic")
     }
 
     static func load(from defaults: UserDefaults) -> Self {

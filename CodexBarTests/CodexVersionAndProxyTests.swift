@@ -3,6 +3,18 @@ import Testing
 
 struct CodexVersionAndProxyTests {
     @Test(arguments: [
+        ("0.150.0", false),
+        ("0.152.1", false),
+        ("0.153.0-alpha.2", false),
+        ("0.153.0", true),
+        ("0.153.1", true)
+    ])
+    func advancedModeRequiresTokenUsageRecordSupport(_ version: String, _ expected: Bool) {
+        #expect(CodexCLIVersionReader.isVersion(version, atLeast: CodexCLIMinimumVersion.advancedMode) == expected)
+        #expect(CodexCLIVersionReader.isVersion(version, atLeast: CodexCLIMinimumVersion.global) == true)
+    }
+
+    @Test(arguments: [
         ("0.149.9", "0.150.0", false),
         ("0.150.0", "0.150.0", true),
         ("0.150.0-alpha.2", "0.150.0", false),

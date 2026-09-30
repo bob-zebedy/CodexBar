@@ -55,7 +55,7 @@ Zone confirmation and account salt are cached in the actor across cycles. Sync f
 Sync runs only when all conditions hold:
 
 - The user enabled CloudKit sync
-- `CodexHookSettings.isEnabled` is `true`; historical sync can consume aggregates already stored locally
+- `AdvancedModeSettings.isEnabled` is `true`; historical sync can consume aggregates already stored locally
 - The current iCloud account is available
 - The local aggregation service is available
 

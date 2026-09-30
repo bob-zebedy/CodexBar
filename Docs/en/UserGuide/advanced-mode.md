@@ -1,18 +1,18 @@
-# Live Tasks and CodexBar Hook
+# Live Tasks and Advanced Mode
 
-[简体中文](../../UserGuide/activity-and-hook.md) | English
+[简体中文](../../UserGuide/advanced-mode.md) | English
 
-CodexBar Hook provides live task status, task notifications, haptics, task-based sleep prevention, and daily session, turn, and tool-call statistics. It also enables syncing daily activity statistics and rollout token history. Rebuild Data recalculates both types of retained local history.
+Advanced Mode provides live task status, task notifications, haptics, task-based sleep prevention, and daily session, turn, and tool-call statistics. It also enables syncing daily activity statistics and rollout token history. Rebuild Data recalculates both types of retained local history.
 
-## Enable Hook
+## Enable Advanced Mode
 
 1. Open `Settings > Advanced`
-2. Enable `CodexBar Hook` and wait for validation
+2. Enable `Advanced Mode` and wait for validation
 3. Start a Codex task and check its status in the main panel
 
-Hook requires the Codex currently in use to be `0.150.0` or later. If the version warning remains after upgrading, click `Reconnect` in `Settings > About`. For other errors, see [Troubleshooting](troubleshooting.md#codexbar-hook-cannot-be-enabled-or-validated).
+Advanced Mode requires the Codex currently in use to be `0.153.0` or later. If the version warning remains after upgrading, click `Reconnect` in `Settings > About`. For other errors, see [Troubleshooting](troubleshooting.md#advanced-mode-cannot-be-enabled-or-validated).
 
-CodexBar automatically checks and repairs enabled Hook configuration, preserving handlers belonging to users and other apps. If Codex is confirmed to be below the minimum version, Hook is disabled and CodexBar removes its handlers; enable Hook again after upgrading Codex. Configuration is retained for the next check if the connection or version is temporarily unavailable.
+CodexBar automatically checks and repairs enabled Hook configuration, preserving handlers belonging to users and other apps. If Codex is confirmed to be below the minimum version, Advanced Mode is disabled and CodexBar removes its handlers; enable Advanced Mode again after upgrading Codex. Configuration is retained for the next check if the connection or version is temporarily unavailable.
 
 ## Task States
 
@@ -41,9 +41,9 @@ Hover over a day in the main-panel heatmap to see sessions, turns, tool calls, p
 
 Sessions and turns are deduplicated within each day; activity continuing into another day counts toward that day. Sessions with only a session-end event and turns with only completion-candidate or interruption events do not count as active that day. Tool calls use the larger of the start and end event counts.
 
-## Disable Hook
+## Disable Advanced Mode
 
-Disabling Hook stops updates to live tasks, task notifications, haptics, sleep prevention, and Hook statistics, and stops cross-device sync for activity and token history. The heatmap hides its history details. Account, quota, and the app-server token heatmap remain available.
+Disabling Advanced Mode stops updates to live tasks, task notifications, haptics, sleep prevention, and Hook statistics, and stops cross-device sync for activity and token history. The heatmap hides its history details. Account, quota, and the app-server token heatmap remain available.
 
 Hook records task information such as time, model, tool name, and project, without saving prompt, reply, or tool input/output content. See [Data, Sync, and Privacy](sync-data-privacy.md) for retention and sync details.
 

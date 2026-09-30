@@ -35,7 +35,7 @@ struct CodexStatusMenuView: View {
 
     @ObservedObject var viewModel: CodexStatusViewModel
     @ObservedObject var workflowViewModel: WorkflowViewModel
-    @ObservedObject var codexHookSettings: CodexHookSettings
+    @ObservedObject var advancedModeSettings: AdvancedModeSettings
     @ObservedObject var mainPanelSettings: MainPanelSettings
     // 活动状态与时间变化由卡片自行观察, 避免刷新整个菜单树
     let activityMonitor: CodexActivityMonitor
@@ -65,7 +65,7 @@ struct CodexStatusMenuView: View {
         .padding(Metrics.padding)
         .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, isOuterSurface: true)
         .animation(Metrics.statusAnimation, value: viewModel.loadState)
-        .animation(Metrics.statusAnimation, value: codexHookSettings.isEnabled)
+        .animation(Metrics.statusAnimation, value: advancedModeSettings.isEnabled)
         .animation(Metrics.statusAnimation, value: mainPanelSettings.layout)
         .animation(Metrics.statusAnimation, value: syncSettings.isEnabled)
         .animation(Metrics.statusAnimation, value: syncSettings.isSyncing)
@@ -147,7 +147,7 @@ private extension CodexStatusMenuView {
 
     @ViewBuilder
     var activitySection: some View {
-        if codexHookSettings.isEnabled {
+        if advancedModeSettings.isEnabled {
             CodexActivityCard(
                 activityMonitor: activityMonitor,
                 presentationState: activityCenterPresentationState,
@@ -185,11 +185,11 @@ private extension CodexStatusMenuView {
     @ViewBuilder
     func usageSection(dataPlaceholderSection: MainPanelSection?) -> some View {
         if let snapshot = viewModel.snapshot,
-           snapshot.usage != nil || codexHookSettings.isEnabled {
+           snapshot.usage != nil || advancedModeSettings.isEnabled {
             UsageSummaryView(
                 usage: snapshot.usage,
                 workflow: workflowViewModel.snapshot,
-                showsWorkflow: codexHookSettings.isEnabled,
+                showsWorkflow: advancedModeSettings.isEnabled,
                 isStale: snapshot.isUsageStale,
                 onHoverContextChange: onUsageHeatmapHoverChange
             )
@@ -227,7 +227,7 @@ private extension CodexStatusMenuView {
             viewModel.snapshot?.limits.isEmpty == false
         case .usage:
             viewModel.snapshot?.usage != nil
-                || (viewModel.snapshot != nil && codexHookSettings.isEnabled)
+                || (viewModel.snapshot != nil && advancedModeSettings.isEnabled)
         case .account, .activity, .status:
             false
         }
@@ -242,7 +242,7 @@ private extension CodexStatusMenuView {
             case .account:
                 true
             case .activity:
-                codexHookSettings.isEnabled
+                advancedModeSettings.isEnabled
             case .quota, .usage:
                 hasData(for: section) || dataPlaceholderSection == section
             case .status:
@@ -258,7 +258,7 @@ private extension CodexStatusMenuView {
             countdownInterval: viewModel.autoRefreshInterval,
             isCountdownActive: menuSurfaceVisibility.isVisible,
             syncDisplayState: WorkflowSyncDisplayState(
-                isHookEnabled: codexHookSettings.isEnabled,
+                isAdvancedModeEnabled: advancedModeSettings.isEnabled,
                 settings: syncSettings
             ),
             updateMessage: appUpdater.panelUpdateMessage,

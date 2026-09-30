@@ -19,12 +19,12 @@ Codex Hook
 
 ## 安装与校验
 
-[`CodexHookSettings.swift`](../../CodexBar/Services/Settings/CodexHookSettings.swift) 直接读写本地 `hooks.json`，通过 app-server 读取或修改相关配置，并在写入后调用 `hooks/list` 校验安装结果。
+[`AdvancedModeSettings.swift`](../../CodexBar/Services/Settings/AdvancedModeSettings.swift) 直接读写本地 `hooks.json`，通过 app-server 读取或修改相关配置，并在写入后调用 `hooks/list` 校验安装结果。
 
 启用流程检查以下条件，其中来源、信任和事件完整性在写入后校验：
 
 - 当前可执行文件路径可解析
-- 实际 app-server 版本不低于 `0.150.0`
+- 实际 app-server 版本不低于 `0.153.0`
 - `features.hooks` 可用
 - `hooks/list` 返回可信来源
 - 所需事件集合完整
@@ -47,7 +47,7 @@ Codex Hook
 
 ### 已开启 Hook 的对账
 
-App 启动、设置状态刷新、主面板打开和每轮额度刷新完成时，都会对账已开启的 Hook。自动刷新间隔为上一轮完成后 60 秒：
+App 启动、设置状态刷新、主面板打开和每轮额度刷新完成时，都会对账已开启的 Hook。自动刷新按所选数据更新间隔从上一轮完成后计时，默认 1 分钟：
 
 - 只有已确认的实际 app-server 版本低于当前 Hook 最低版本时，才移除 CodexBar handler 并尽力清理对应信任项；低于全局最低版本时也执行本地移除
 - 版本无法确认或 RPC 临时失败时保留用户配置
@@ -61,7 +61,7 @@ App 启动、设置状态刷新、主面板打开和每轮额度刷新完成时�
 ### 启用事务的顺序
 
 ```text
-确认运行中 app-server >= 0.150.0
+确认运行中 app-server >= 0.153.0
   -> 确认 features.hooks 没有全局关闭
   -> 读取现有 hooks.json
   -> 只移除当前 executable 的旧 CodexBar handler
@@ -90,7 +90,7 @@ CodexBar 不把命令塞进用户已有 group。独立 group 让卸载时可以�
 
 ### 异步设置操作的代际
 
-用户开关 Hook 或触发校验时，`CodexHookSettings` 通过 `updateCoordinator` 启动操作，由 `RefreshTaskCoordinator` 推进代际并取消旧 Task。
+用户开关进阶模式或触发校验时，`AdvancedModeSettings` 通过 `updateCoordinator` 启动操作，由 `RefreshTaskCoordinator` 推进代际并取消旧 Task。
 
 每个文件写入或 RPC await 之后都会再次检查 generation。旧操作即使无法真正取消，也不能把新的开关状态或错误信息覆盖回去。
 
@@ -117,7 +117,7 @@ CodexBar 订阅以下 Hook 事件：
 
 历史计数需要事件名、日期、project、model 和身份集合。实时状态还需要 turn, reviewer, effort, tool, agent 关联和归一化来源。
 
-把两类需求统一在一条最小原始记录中，可以让 recorder 只写一次，两个下游各自选择所需字段。但新增字段前仍要证明至少有一个消费者需要它，不能因为 Hook payload 中存在就全部持久化。
+recorder 将两类链路所需字段写入同一条原始记录，历史聚合与实时监控分别读取各自需要的字段。
 
 recorder 为来源分类有界读取 rollout 首行。普通事件使用 `transcript_path`，`SubagentStop` 使用指向子线程自身的 `agent_transcript_path`。rollout 来源无法确定时，只有精确匹配 `codex-auto-review` 的 model 才作为 Auto-review 来源的后备判定。`PermissionRequest` 和 `UserPromptSubmit` 的 reviewer 或 effort 可能不在 Hook payload 中，只有这两个事件还会按 turn 定向读取 rollout 尾部。
 
@@ -430,8 +430,6 @@ schema 变化通常把保留期内所有事件日期标脏。source generation �
 
 ### 维护日志
 
-维护默认跟随 60 秒刷新。空闲机器一天会执行上千次没有变化的检查。
-
 `WorkflowService` 累计连续 idle 轮数，在写入、跳过、失败或清理时输出摘要，并附带累计空转次数。
 
 ### scheduler 如何合并请求
@@ -457,7 +455,7 @@ UI 打开只读取当前本地快照，不自动越过 scheduler 发起无条件
 - build 期间继续 append 时只提交固定上界，尾部保留 pending
 - schema 变化后保留期内日期全部用当前算法重建
 - 旧日期缺失字段在解码及持久化中保留可选值，展示投影按当前回退规则生成计数
-- 禁用 CodexBar Hook 不删除用户 handler 和信任项
+- 关闭进阶模式不删除用户 handler 和信任项
 - 快速开关 Hook 时旧 RPC 结果不能覆盖最后一次操作
 
 ## 故障边界
@@ -471,7 +469,7 @@ UI 打开只读取当前本地快照，不自动越过 scheduler 发起无条件
 
 ## 关键源码
 
-- [`CodexHookSettings.swift`](../../CodexBar/Services/Settings/CodexHookSettings.swift)
+- [`AdvancedModeSettings.swift`](../../CodexBar/Services/Settings/AdvancedModeSettings.swift)
 - [`WorkflowHookEventRecorder.swift`](../../CodexBar/Services/Workflow/WorkflowHookEventRecorder.swift)
 - [`CodexHookEvent.swift`](../../CodexBar/Models/CodexHookEvent.swift)
 - [`JSONLines.swift`](../../CodexBar/Services/Workflow/JSONLines.swift)

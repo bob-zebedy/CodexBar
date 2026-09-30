@@ -60,20 +60,20 @@ final class WorkflowSyncSettings: ObservableObject {
         syncFailureMessage != nil
     }
 
-    /// "同步是否实际生效"的唯一判定: Hook 已启用且同步开关打开且 iCloud 可用
+    /// "同步是否实际生效"的唯一判定: 进阶模式已启用且同步开关打开且 iCloud 可用
     /// 按顺序返回第一个不满足的项, 日志的 reason= 直接取它的 rawValue
-    func activation(isHookEnabled: Bool) -> WorkflowSyncActivation {
-        activation(isHookEnabled: isHookEnabled, isSyncAvailable: isSyncAvailable)
+    func activation(isAdvancedModeEnabled: Bool) -> WorkflowSyncActivation {
+        activation(isAdvancedModeEnabled: isAdvancedModeEnabled, isSyncAvailable: isSyncAvailable)
     }
 
     /// 两项依赖都可以由调用方指定
     /// @Published 的订阅回调跑在 willSet, 那时属性还是旧值, 只有回调参数是新值
     func activation(
-        isHookEnabled: Bool,
+        isAdvancedModeEnabled: Bool,
         isSyncAvailable: Bool
     ) -> WorkflowSyncActivation {
-        if !isHookEnabled {
-            return .hookOff
+        if !isAdvancedModeEnabled {
+            return .advancedModeOff
         }
         if !isEnabled {
             return .syncOff
@@ -84,8 +84,8 @@ final class WorkflowSyncSettings: ObservableObject {
         return .active
     }
 
-    func isEffectivelyActive(isHookEnabled: Bool) -> Bool {
-        activation(isHookEnabled: isHookEnabled).isActive
+    func isEffectivelyActive(isAdvancedModeEnabled: Bool) -> Bool {
+        activation(isAdvancedModeEnabled: isAdvancedModeEnabled).isActive
     }
 
     var unavailableMessage: String? {
@@ -204,7 +204,7 @@ final class WorkflowSyncSettings: ObservableObject {
 /// 同步没生效时缺的是哪一项, 同时充当日志里的 reason= 取值
 nonisolated enum WorkflowSyncActivation: String {
     case active
-    case hookOff
+    case advancedModeOff
     case syncOff
     case unavailable
 
@@ -265,11 +265,11 @@ nonisolated enum WorkflowSyncFailureReason: String {
     var message: String {
         switch self {
         case .networkUnavailable:
-            String(localized: "sync.error.network-unavailable")
+            String(localized: "sync.icloud.error.network-unavailable")
         case .accountUnavailable:
-            String(localized: "sync.error.account-unavailable")
+            String(localized: "sync.icloud.error.account-unavailable")
         case .serviceUnavailable:
-            String(localized: "sync.error.service-unavailable")
+            String(localized: "sync.icloud.error.service-unavailable")
         case .retryLater:
             String(localized: "sync.error.retry-later")
         }

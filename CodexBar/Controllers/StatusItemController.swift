@@ -8,7 +8,7 @@ import SwiftUI
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let viewModel: CodexStatusViewModel
     private let workflowViewModel: WorkflowViewModel
-    private let codexHookSettings: CodexHookSettings
+    private let advancedModeSettings: AdvancedModeSettings
     private let codexCLINotificationSettings: CodexCLINotificationSettings
     private let activityMonitor: CodexActivityMonitor
     private let syncSettings: WorkflowSyncSettings
@@ -47,7 +47,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         viewModel: viewModel,
         appUpdater: appUpdater,
         proxySettings: proxySettings,
-        codexHookSettings: codexHookSettings,
+        advancedModeSettings: advancedModeSettings,
         codexCLINotificationSettings: codexCLINotificationSettings,
         syncSettings: syncSettings,
         globalHotKeySettings: globalHotKeySettings,
@@ -119,7 +119,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     init(
         viewModel: CodexStatusViewModel,
         workflowViewModel: WorkflowViewModel,
-        codexHookSettings: CodexHookSettings,
+        advancedModeSettings: AdvancedModeSettings,
         codexCLINotificationSettings: CodexCLINotificationSettings,
         activityMonitor: CodexActivityMonitor,
         syncSettings: WorkflowSyncSettings,
@@ -135,7 +135,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     ) {
         self.viewModel = viewModel
         self.workflowViewModel = workflowViewModel
-        self.codexHookSettings = codexHookSettings
+        self.advancedModeSettings = advancedModeSettings
         self.codexCLINotificationSettings = codexCLINotificationSettings
         self.activityMonitor = activityMonitor
         self.syncSettings = syncSettings
@@ -271,8 +271,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // 订阅时 CombineLatest 会同步发出当前值, 初始图标由订阅路径统一渲染
         observeViewModel()
         observeWorkflowSyncState()
-        codexHookSettings.reconcileInstalledHooks()
-        observeMainPanelHookState()
+        advancedModeSettings.reconcileConfiguration()
+        observeMainPanelAdvancedModeState()
         viewModel.startAutoRefresh()
     }
 
@@ -353,7 +353,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let rootView = CodexStatusMenuView(
             viewModel: viewModel,
             workflowViewModel: workflowViewModel,
-            codexHookSettings: codexHookSettings,
+            advancedModeSettings: advancedModeSettings,
             mainPanelSettings: mainPanelSettings,
             activityMonitor: activityMonitor,
             syncSettings: syncSettings,
@@ -400,11 +400,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .removeDuplicates()
 
         let isTaskCenterVisible = Publishers.CombineLatest(
-            codexHookSettings.$isEnabled,
+            advancedModeSettings.$isEnabled,
             mainPanelSettings.$layout
         )
-        .map { isHookEnabled, layout in
-            isHookEnabled && layout.isVisible(.activity)
+        .map { isAdvancedModeEnabled, layout in
+            isAdvancedModeEnabled && layout.isVisible(.activity)
         }
         .removeDuplicates()
 
@@ -448,7 +448,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 guard let self else {
                     return
                 }
-                refreshWorkflowIfHookEnabled(performMaintenance: true)
+                refreshWorkflowIfAdvancedModeEnabled(performMaintenance: true)
             }
             .store(in: &cancellables)
 
@@ -480,7 +480,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func observeWorkflowSyncState() {
-        codexHookSettings.$isEnabled
+        advancedModeSettings.$isEnabled
             .removeDuplicates()
             .sink { [weak self] isEnabled in
                 guard let self else {
@@ -488,10 +488,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 }
 
                 if isEnabled {
-                    // 回调跑在 willSet, codexHookSettings.isEnabled 此刻还是旧值, 只能用参数
+                    // 回调跑在 willSet, advancedModeSettings.isEnabled 此刻还是旧值, 只能用参数
                     workflowSyncScheduler.requestSync(
-                        trigger: .hookEnabled,
-                        activation: syncSettings.activation(isHookEnabled: true)
+                        trigger: .advancedModeEnabled,
+                        activation: syncSettings.activation(isAdvancedModeEnabled: true)
                     )
                 } else {
                     workflowSyncScheduler.clearPendingMaintenance()
@@ -508,11 +508,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .store(in: &cancellables)
     }
 
-    private func observeMainPanelHookState() {
-        codexHookSettings.$isEnabled
+    private func observeMainPanelAdvancedModeState() {
+        advancedModeSettings.$isEnabled
             .removeDuplicates()
             .sink { [weak self] isEnabled in
-                self?.mainPanelSettings.updateHookEnabled(isEnabled)
+                self?.mainPanelSettings.updateAdvancedModeEnabled(isEnabled)
             }
             .store(in: &cancellables)
     }
@@ -760,7 +760,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             guard let self, isActiveMenuSurfaceVisible else { return }
             menuSurfaceState = .shown
             // 展开完成后再刷新共享状态, 避免主面板与设置窗口在淡入期间一起重算
-            refreshWorkflowIfHookEnabled(performMaintenance: false)
+            refreshWorkflowIfAdvancedModeEnabled(performMaintenance: false)
             viewModel.refreshIfNeeded(trigger: .panelOpen)
         }
     }
@@ -997,10 +997,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: - 刷新与同步
 
-    private func refreshWorkflowIfHookEnabled(performMaintenance: Bool) {
-        // Hook 与额度使用同一刷新节奏, 配置和信任状态损坏后都能自动收敛
-        codexHookSettings.reconcileInstalledHooks()
-        guard codexHookSettings.isEnabled else {
+    private func refreshWorkflowIfAdvancedModeEnabled(performMaintenance: Bool) {
+        // 进阶模式与额度使用同一刷新节奏, 配置和信任状态损坏后都能自动收敛
+        advancedModeSettings.reconcileConfiguration()
+        guard advancedModeSettings.isEnabled else {
             workflowSyncScheduler.clearPendingMaintenance()
             return
         }
@@ -1023,14 +1023,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         workflowSyncScheduler.requestSync(
             trigger: .settings,
             activation: syncSettings.activation(
-                isHookEnabled: codexHookSettings.isEnabled,
+                isAdvancedModeEnabled: advancedModeSettings.isEnabled,
                 isSyncAvailable: isSyncAvailable
             )
         )
     }
 
     private var workflowSyncActivation: WorkflowSyncActivation {
-        syncSettings.activation(isHookEnabled: codexHookSettings.isEnabled)
+        syncSettings.activation(isAdvancedModeEnabled: advancedModeSettings.isEnabled)
     }
 
     // MARK: - 侧边面板

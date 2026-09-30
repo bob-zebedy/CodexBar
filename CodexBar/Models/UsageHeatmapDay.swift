@@ -42,8 +42,8 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     ) -> [UsageHeatmapDay?] {
         let todayTokenCount = usage?.tokenCount(on: today)
         let hasDailyUsageBuckets = usage?.hasDailyUsageBuckets == true
-        // Hook 开启时当天工作流统计可见
-        // Hook 关闭时只在 token bucket 已返回时展示今天
+        // 进阶模式开启时当天工作流统计可见
+        // 进阶模式关闭时只在 token bucket 已返回时展示今天
         let endingDaysAgo = showsWorkflow || todayTokenCount != nil ? 0 : 1
         let workflowByDate = workflow.dailyMetrics.reduce(into: [String: WorkflowDailyMetrics]()) { result, metrics in
             result[metrics.startDate] = metrics

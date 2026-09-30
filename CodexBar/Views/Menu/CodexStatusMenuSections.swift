@@ -335,8 +335,8 @@ struct WorkflowSyncDisplayState: Equatable {
         lhs.symbolName == rhs.symbolName && lhs.helpText == rhs.helpText
     }
 
-    init(isHookEnabled: Bool, settings: WorkflowSyncSettings) {
-        guard settings.isEffectivelyActive(isHookEnabled: isHookEnabled) else {
+    init(isAdvancedModeEnabled: Bool, settings: WorkflowSyncSettings) {
+        guard settings.isEffectivelyActive(isAdvancedModeEnabled: isAdvancedModeEnabled) else {
             self = .disabled
             return
         }

@@ -79,7 +79,7 @@ When `Animation Effects` is enabled, the day squares appear from the top left to
 
 Hover over a day to see its date, token count, and usage intensity.
 
-When CodexBar Hook is enabled, the details also include:
+When Advanced Mode is enabled, the details also include:
 
 - Most-used model
 - Sessions

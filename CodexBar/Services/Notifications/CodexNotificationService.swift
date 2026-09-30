@@ -920,9 +920,9 @@ nonisolated struct CodexNotificationContent: Equatable {
         let expirationText = CodexDateFormat.localDisplayString(from: expirationDate)
         return CodexNotificationContent(
             kind: "creditExpiry",
-            title: String(localized: "notification.credit-expiry.title"),
+            title: String(localized: "notification.banked-reset-expiry.title"),
             body: String(
-                localized: "notification.credit-expiry.body",
+                localized: "notification.banked-reset-expiry.body",
                 defaultValue: "\(count)\(expirationText)"
             )
         )

@@ -18,7 +18,7 @@ Snapshots can be read repeatedly. Notifications use live transitions; bootstrap 
 
 A saved switch expresses intent, dependencies determine whether execution is possible, and result state expresses a confirmed effect. Temporary dependency failures preserve the user’s switch and reconcile again on recovery.
 
-Sleep prevention represents these layers with `isEnabled`, `sleepBlockReason`, and `isPreventingSleep`. Hook combines `isEnabled` and `isVerified` into `isOperable`; live tasks require operability, while historical aggregation can still process recorded data.
+Sleep prevention represents these layers with `isEnabled`, `sleepBlockReason`, and `isPreventingSleep`. `AdvancedModeSettings` combines `isEnabled` and `isVerified` into `isOperable`; live tasks require operability, while historical aggregation can still process recorded data.
 
 ## Missing, Stale, and Untrusted Data
 

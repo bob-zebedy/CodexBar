@@ -6,7 +6,7 @@
 
 - [安装与快速开始](UserGuide/getting-started.md)
 - [主面板与菜单栏](UserGuide/main-panel.md)
-- [实时任务与 CodexBar Hook](UserGuide/activity-and-hook.md)
+- [实时任务与进阶模式](UserGuide/advanced-mode.md)
 - [通知与提醒](UserGuide/notifications.md)
 - [防止系统睡眠](UserGuide/sleep-prevention.md)
 - [数据、同步与隐私](UserGuide/sync-data-privacy.md)

@@ -18,7 +18,7 @@
 
 保存的开关表示用户意图，依赖状态决定是否能执行，结果状态表示已经确认的效果。依赖临时不可用时保留用户开关，恢复后重新协调。
 
-防睡眠的 `isEnabled`、`sleepBlockReason` 和 `isPreventingSleep` 分别对应这三层。Hook 的 `isEnabled` 与 `isVerified` 共同决定 `isOperable`；实时任务依赖可操作状态，历史聚合仍可处理已落盘数据。
+防睡眠的 `isEnabled`、`sleepBlockReason` 和 `isPreventingSleep` 分别对应这三层。`AdvancedModeSettings` 的 `isEnabled` 与 `isVerified` 共同决定 `isOperable`；实时任务依赖可操作状态，历史聚合仍可处理已落盘数据。
 
 ## 缺失、陈旧与不可信数据
 

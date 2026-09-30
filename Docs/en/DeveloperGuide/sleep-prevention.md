@@ -105,7 +105,7 @@ Both app and helper use monotonically increasing generations:
 [`KeepAliveController.swift`](../../../CodexBar/Services/KeepAlive/KeepAliveController.swift) establishes sleep prevention only when all conditions hold:
 
 - Prevent System Sleep is enabled
-- Hook’s `isOperable` is `true`
+- `AdvancedModeSettings.isOperable` is `true`
 - At least one live task qualifies under settings
 - CodexBarHelper is installed and connectable
 - The low-battery threshold is not active
@@ -122,7 +122,7 @@ The controller publishes an explicit blocking reason:
 | --- | --- |
 | `notStarted` | Service has not started |
 | `userOff` | User turned off the master switch |
-| `hookDisabled` | Hook is not operational |
+| `advancedModeDisabled` | Hook is not operational |
 | `noTasks` | No task qualifies |
 | `helperUnavailable` | CodexBarHelper is not installed or connectable |
 | `helperRefreshing` | CodexBarHelper state is recovering or being confirmed |

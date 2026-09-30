@@ -2,6 +2,30 @@ import Combine
 import Foundation
 import os
 
+nonisolated enum DataUpdateInterval: Int, CaseIterable, Sendable {
+    case oneMinute = 60
+    case twoMinutes = 120
+    case threeMinutes = 180
+    case fiveMinutes = 300
+    case tenMinutes = 600
+
+    var duration: TimeInterval {
+        TimeInterval(rawValue)
+    }
+
+    var title: String {
+        String(localized: "duration.minutes", defaultValue: "\(rawValue / 60, specifier: "%lld")")
+    }
+
+    func remainingTime(since startedAt: Date?, now: Date) -> TimeInterval {
+        guard let startedAt else {
+            return 0
+        }
+
+        return max(0, duration - now.timeIntervalSince(startedAt))
+    }
+}
+
 /// UI 级状态; 更细的连接和接口错误由服务层归并到日志
 nonisolated enum CodexLoadState: Equatable {
     case loading
@@ -30,6 +54,7 @@ final class CodexStatusViewModel: ObservableObject {
     @Published private(set) var codexSourceSelection = CodexCLISourceSelection.automatic
     @Published private(set) var pendingCodexSourceSelection: CodexCLISourceSelection?
     @Published private(set) var autoRefreshCountdownStartedAt: Date?
+    @Published private(set) var dataUpdateInterval: DataUpdateInterval
 
     /// 统计维护挂在额度刷新完成事件上, 由它继承本次刷新的触发来源
     private(set) var lastRefreshTrigger: LogTrigger = .launch
@@ -39,20 +64,24 @@ final class CodexStatusViewModel: ObservableObject {
     }
 
     var autoRefreshInterval: TimeInterval {
-        Self.refreshInterval
+        dataUpdateInterval.duration
     }
 
-    private static let refreshInterval: TimeInterval = 60
+    private static let dataUpdateIntervalKey = "DataUpdate.intervalSeconds"
 
     private let service: CodexStatusService
+    private let defaults: UserDefaults
     private var autoRefreshTask: Task<Void, Never>?
     private var pendingRefreshTask: Task<Void, Never>?
     private var pendingForcedRefreshTrigger: LogTrigger?
     private let refreshCoordinator = RefreshTaskCoordinator()
     private var connectionInfoGeneration: UInt64 = 0
 
-    init(service: CodexStatusService = CodexStatusService()) {
+    init(service: CodexStatusService = CodexStatusService(), defaults: UserDefaults = .standard) {
         self.service = service
+        self.defaults = defaults
+        dataUpdateInterval = (defaults.object(forKey: Self.dataUpdateIntervalKey) as? Int)
+            .flatMap(DataUpdateInterval.init(rawValue:)) ?? .oneMinute
     }
 
     deinit {
@@ -62,7 +91,7 @@ final class CodexStatusViewModel: ObservableObject {
     }
 
     func refreshIfNeeded(trigger: LogTrigger) {
-        guard Date().timeIntervalSince(autoRefreshCountdownStartedAt ?? .distantPast) > Self.refreshInterval else {
+        guard dataUpdateInterval.remainingTime(since: autoRefreshCountdownStartedAt, now: Date()) == 0 else {
             return
         }
 
@@ -74,12 +103,31 @@ final class CodexStatusViewModel: ObservableObject {
             return
         }
 
-        autoRefreshTask = Task { [weak self] in
-            self?.refreshIfNeeded(trigger: .launch)
+        refreshIfNeeded(trigger: .launch)
+        scheduleAutoRefresh()
+    }
 
+    func setDataUpdateInterval(_ interval: DataUpdateInterval) {
+        guard dataUpdateInterval != interval else {
+            return
+        }
+
+        defaults.set(interval.rawValue, forKey: Self.dataUpdateIntervalKey)
+        dataUpdateInterval = interval
+        AppLog.settings.notice("数据更新间隔变更: seconds=\(interval.rawValue)")
+        if autoRefreshTask != nil {
+            scheduleAutoRefresh()
+        }
+    }
+
+    private func scheduleAutoRefresh() {
+        autoRefreshTask?.cancel()
+        autoRefreshTask = Task { [weak self] in
             // 每轮按剩余时间等待, 手动刷新后倒计时会自然重新对齐
             while !Task.isCancelled {
-                let delay = self?.autoRefreshDelay ?? Self.refreshInterval
+                guard let delay = self?.autoRefreshDelay else {
+                    break
+                }
                 if await (try? Task.sleep(for: .seconds(delay))) == nil {
                     break
                 }
@@ -199,7 +247,7 @@ final class CodexStatusViewModel: ObservableObject {
             )
             AppLog.app.notice("额度刷新完成: \(details, privacy: .public)")
         case .notLoggedIn:
-            // 未登录是正常状态, 混进失败词根会让每分钟一条噪声盖掉真故障
+            // 未登录是正常状态, 使用 notice 级别记录刷新跳过原因
             let details = LogFields.joined(
                 "trigger=\(triggerName)",
                 "reason=notLoggedIn",
@@ -244,7 +292,7 @@ final class CodexStatusViewModel: ObservableObject {
 
     func reconnectCodex(
         selection: CodexCLISourceSelection? = nil,
-        requiresHooks: Bool
+        requiresAdvancedMode: Bool
     ) async -> Bool {
         guard !isRefreshing, !isReconnecting else {
             return false
@@ -270,7 +318,7 @@ final class CodexStatusViewModel: ObservableObject {
         do {
             codexConnectionInfo = try await service.reconnect(
                 selection: selection,
-                minimumVersion: requiresHooks ? CodexCLIMinimumVersion.hook : CodexCLIMinimumVersion.global
+                minimumVersion: requiresAdvancedMode ? CodexCLIMinimumVersion.advancedMode : CodexCLIMinimumVersion.global
             )
             codexSourceSelection = await service.currentSourceSelection()
             didReconnect = true
@@ -295,10 +343,10 @@ final class CodexStatusViewModel: ObservableObject {
 
     private var autoRefreshDelay: TimeInterval {
         guard let autoRefreshCountdownStartedAt else {
-            return Self.refreshInterval
+            return autoRefreshInterval
         }
 
-        let remaining = Self.refreshInterval - Date().timeIntervalSince(autoRefreshCountdownStartedAt)
+        let remaining = dataUpdateInterval.remainingTime(since: autoRefreshCountdownStartedAt, now: Date())
         return max(1, remaining)
     }
 }

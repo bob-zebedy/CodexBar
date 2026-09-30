@@ -6,7 +6,7 @@
 
 - [Installation and Quick Start](UserGuide/getting-started.md)
 - [Main Panel and Menu Bar](UserGuide/main-panel.md)
-- [Live Tasks and CodexBar Hook](UserGuide/activity-and-hook.md)
+- [Live Tasks and Advanced Mode](UserGuide/advanced-mode.md)
 - [Notifications and Alerts](UserGuide/notifications.md)
 - [Prevent System Sleep](UserGuide/sleep-prevention.md)
 - [Data, Sync, and Privacy](UserGuide/sync-data-privacy.md)

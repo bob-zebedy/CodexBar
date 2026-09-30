@@ -29,7 +29,7 @@ struct MainPanelLayoutSettingsRow: View {
 /// 主面板布局子选项, 拖放调整区域顺序并控制显隐
 struct MainPanelOptionsView: View {
     @ObservedObject var settings: MainPanelSettings
-    @ObservedObject var codexHookSettings: CodexHookSettings
+    @ObservedObject var advancedModeSettings: AdvancedModeSettings
     let undoManager: UndoManager
     @State private var dragState: SectionDragState?
     @State private var dragTranslation: CGFloat = 0
@@ -85,10 +85,10 @@ struct MainPanelOptionsView: View {
     }
 
     private func sectionRow(_ section: MainPanelSection) -> some View {
-        let isAvailable = section != .activity || codexHookSettings.isEnabled
+        let isAvailable = section != .activity || advancedModeSettings.isEnabled
         let isVisible = isAvailable && settings.layout.isVisible(section)
         let visibleSectionCount = settings.layout.visibleSections.filter { visibleSection in
-            visibleSection != .activity || codexHookSettings.isEnabled
+            visibleSection != .activity || advancedModeSettings.isEnabled
         }.count
         let canToggle = isAvailable && (!isVisible || visibleSectionCount > 1)
 
@@ -114,7 +114,7 @@ struct MainPanelOptionsView: View {
                 section.title,
                 isOn: Binding(
                     get: {
-                        (section != .activity || codexHookSettings.isEnabled)
+                        (section != .activity || advancedModeSettings.isEnabled)
                             && settings.layout.isVisible(section)
                     },
                     set: {

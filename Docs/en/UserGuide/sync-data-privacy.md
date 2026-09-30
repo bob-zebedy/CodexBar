@@ -4,13 +4,13 @@
 
 ## Cross-Device Sync
 
-Enable `Cross-Device Sync` in `Settings > Advanced` to combine daily Hook statistics and rollout token usage from Macs using the same iCloud account. CodexBar Hook must be enabled and an available iCloud account signed in.
+Enable `Cross-Device Sync` in `Settings > Advanced` to combine daily Hook statistics and rollout token usage from Macs using the same iCloud account. Advanced Mode must be enabled and an available iCloud account signed in.
 
 The first sync uploads statistics within local retention; later changes sync automatically. Turning sync off keeps local data.
 
 | State | Meaning |
 | --- | --- |
-| Sync Off | Sync or CodexBar Hook is disabled |
+| Sync Off | Sync or Advanced Mode is disabled |
 | Syncing | Data is being transferred |
 | Synced | The latest sync cycle succeeded |
 | Sync Failed | The network, iCloud account, or service is temporarily unavailable; CodexBar will retry |

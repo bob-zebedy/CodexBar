@@ -116,7 +116,7 @@ extension KeepAliveController {
     enum SleepBlockReason: String {
         case notStarted
         case userOff
-        case hookDisabled
+        case advancedModeDisabled
         case noTasks
         case helperUnavailable
         case helperRefreshing
@@ -131,7 +131,7 @@ extension KeepAliveController {
     struct SleepConditions: Equatable {
         let blockReason: SleepBlockReason?
         let enabled: Bool
-        let hook: Bool
+        let advancedMode: Bool
         let tasks: Bool
         let helper: HelperStatus
         let refreshing: Bool
@@ -155,18 +155,18 @@ nonisolated enum HelperPackageIssue: Equatable, Sendable {
 }
 
 nonisolated enum KeepAliveLocalizedMessage {
-    static let helperAssetsMissing = String(localized: "keep-alive.error.helper-assets-missing")
-    static let helperAssetsInvalid = String(localized: "keep-alive.error.helper-assets-invalid")
-    static let registrationFailed = String(localized: "keep-alive.error.registration-failed")
-    static let updateFailed = String(localized: "keep-alive.error.update-failed")
+    static let helperAssetsMissing = String(localized: "helper.error.assets-missing")
+    static let helperAssetsInvalid = String(localized: "helper.error.assets-invalid")
+    static let registrationFailed = String(localized: "helper.error.registration-failed")
+    static let updateFailed = String(localized: "helper.error.update-failed")
     static let preventIdleSleepFailed = String(localized: "keep-alive.error.prevent-idle-sleep-failed")
     static let toggleSleepFailed = String(localized: "keep-alive.error.toggle-sleep-failed")
     static let restoreIdleSleepFailed = String(localized: "keep-alive.error.restore-idle-sleep-failed")
-    static let connectionFailed = String(localized: "keep-alive.error.connection-failed")
-    static let noResponse = String(localized: "keep-alive.error.no-response")
+    static let connectionFailed = String(localized: "helper.error.connection-failed")
+    static let noResponse = String(localized: "helper.error.no-response")
     static let retryLimitReached = String(localized: "keep-alive.error.retry-limit-reached")
-    static let invalidHelperInterface = String(localized: "keep-alive.error.invalid-helper-interface")
-    static let connectionInterrupted = String(localized: "keep-alive.error.connection-interrupted")
+    static let invalidHelperInterface = String(localized: "helper.error.invalid-interface")
+    static let connectionInterrupted = String(localized: "helper.error.connection-interrupted")
     static let autoResetWakeScheduleFailed = String(localized: "auto-reset.error.wake-schedule-failed")
 }
 

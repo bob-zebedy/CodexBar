@@ -748,7 +748,7 @@ actor CodexStatusService {
         } catch {
             RequestLogStorage.shared.recordFailure(
                 message: String(
-                    localized: "request-log.error.launch-failed",
+                    localized: "log.app-server.error.launch-failed",
                     defaultValue: "\(error.localizedDescription)"
                 )
             )
@@ -795,7 +795,7 @@ actor CodexStatusService {
             // app-server 链路的细节按既有分工进日志窗口, 不重复写系统日志
             RequestLogStorage.shared.recordFailure(
                 message: String(
-                    localized: "request-log.error.initialization-failed",
+                    localized: "log.app-server.error.initialization-failed",
                     defaultValue: "\(error.localizedDescription)"
                 )
             )

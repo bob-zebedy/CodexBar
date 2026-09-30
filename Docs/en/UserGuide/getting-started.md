@@ -7,7 +7,7 @@
 - macOS 15.0 or later
 - [Codex CLI](https://github.com/openai/codex) installed and signed in, or ChatGPT App or Codex App with bundled Codex installed
 - The Codex currently in use must be `0.145.0` or later
-- Hook features require the Codex currently in use to be `0.150.0` or later
+- Advanced Mode requires the Codex currently in use to be `0.153.0` or later
 - Cross-device sync requires an available iCloud account on the Mac
 
 By default, CodexBar automatically prefers a globally installed Codex CLI. If it cannot find one, it tries the Codex bundled with ChatGPT App and Codex App. You can select a source under Settings > About > Codex Versions > Source.
@@ -34,9 +34,9 @@ CodexBar is a menu bar app, so it does not show an icon in the Dock after launch
 2. Left-click the icon to open the main panel
 3. Wait for the initial account and usage refresh to finish
 4. If the panel says you are not signed in, sign in through the active Codex installation first
-5. For live tasks, task notifications, sleep prevention, or Hook metrics, enable CodexBar Hook under `Settings > Advanced`
+5. For live tasks, task notifications, sleep prevention, or Hook metrics, enable Advanced Mode under `Settings > Advanced`
 
-CodexBar refreshes account, rate-limit, and token usage data every 60 seconds. Double-click the account icon in the main panel to refresh immediately.
+CodexBar refreshes account, rate-limit, and token usage data every minute by default. Choose 1, 2, 3, 5, or 10 minutes under `Settings > Advanced > Data Update Interval`. Double-click the account icon in the main panel to refresh immediately.
 
 ## Basic Controls
 
@@ -58,7 +58,7 @@ The global shortcut opens the main panel on the screen under the pointer when po
 
 ## Enable More Features
 
-- [CodexBar Hook](activity-and-hook.md): live tasks, daily activity statistics, and task-based sleep prevention
+- [Advanced Mode](advanced-mode.md): live tasks, daily activity statistics, and task-based sleep prevention
 - [System Notifications](notifications.md): task and quota alerts, requiring macOS notification permission
 - [Automatic Reset](settings.md#automatic-reset): use banked resets shortly before expiration; may briefly wake your Mac
 - [Prevent System Sleep](sleep-prevention.md): keep your Mac awake during long tasks, requiring background-service approval

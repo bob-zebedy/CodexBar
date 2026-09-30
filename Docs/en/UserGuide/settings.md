@@ -8,9 +8,9 @@ Right-click or Control-click the menu bar icon and choose `Settings`, or press `
 
 | Setting | Purpose | Default or initial state |
 | --- | --- | --- |
-| Main Panel Layout | Reorder and show or hide Account, Tasks, Quota, Usage, and Status | All visible; Tasks is off when Hook is disabled |
+| Main Panel Layout | Reorder and show or hide Account, Tasks, Quota, Usage, and Status | All visible; Tasks is off when Advanced Mode is disabled |
 | Animation Effects | Control quota-bar and heatmap entrance animations, sun-badge rotation, and status-text animations in the activity card and Task Center | On |
-| Glow Effect | Show task status with colors along the top of each display; requires Hook to be enabled and verified | Off |
+| Glow Effect | Show task status with colors along the top of each display; requires Advanced Mode to be enabled and verified | Off |
 | Launch at Login | Start CodexBar when you sign in to your Mac | Follows the system login-item state |
 | Automatically Check for Updates | Periodically check for CodexBar updates | Follows the current update setting |
 | Menu Bar Quota Indicator | Show the remaining allowance in a selected window | Primary quota |
@@ -20,11 +20,11 @@ Right-click or Control-click the menu bar icon and choose `Settings`, or press `
 
 Click the options button to drag sections into order or toggle visibility, keeping at least one section visible. Use `⌘Z` to undo and `⌘⇧Z` to redo. Hiding a section does not stop its features.
 
-Disabling Hook hides Tasks; switching Hook from off to on shows Tasks automatically. You can still hide Tasks manually while Hook is enabled, and restarting the app preserves that choice. If Tasks was the only visible section, disabling Hook enables Account automatically.
+Disabling Advanced Mode hides Tasks; switching Advanced Mode from off to on shows Tasks automatically. You can still hide Tasks manually while Advanced Mode is enabled, and restarting the app preserves that choice. If Tasks was the only visible section, disabling Advanced Mode enables Account automatically.
 
 ### Glow Effect
 
-Shows task status along the top of each display. CodexBar Hook must be enabled and verified. The switch is off by default and independent of the main panel's Animation Effects setting. Once enabled, click the options button to adjust status colors, animation speed, brightness, and end duration.
+Shows task status along the top of each display. Advanced Mode must be enabled and verified. The switch is off by default and independent of the main panel's Animation Effects setting. Once enabled, click the options button to adjust status colors, animation speed, brightness, and end duration.
 
 Turning it on plays one round-trip preview using the current running color, speed, and brightness, then shows actual task status. Turning it off quickly retracts the glow to the screen center and fades it out. Turning it back on before dismissal finishes does not trigger another preview.
 
@@ -41,7 +41,7 @@ Colors use six-digit Display P3 hexadecimal values. Letters are converted to upp
 
 When a task ends while others remain active, its completion or termination appears briefly before returning to the current task state. Once all tasks end, the latest ending is shown for the selected End Duration, measured from its end time. Choices are 3, 5, 10, 15, 30, or 60 seconds; the default is 10 seconds. Task updates continue during previews while terminal indicator timers pause. Presentation resumes according to the latest task state: existing terminal indicators retain their remaining time, and indicators for tasks that ended during the preview receive their full duration.
 
-The glow is hidden while Hook is unavailable, preserving your switch preference. System sleep, display sleep, or an inactive user session also hides it. On return, it shows the current state without replaying expired terminal indicators.
+The glow is hidden while Advanced Mode is unavailable, preserving your switch preference. System sleep, display sleep, or an inactive user session also hides it. On return, it shows the current state without replaying expired terminal indicators.
 
 ### Menu Bar Quota Indicator
 
@@ -55,15 +55,20 @@ A shortcut needs at least two modifier keys and cannot use `Command-Space` or `C
 
 | Setting | Purpose | Default |
 | --- | --- | --- |
-| Proxy | Configure the proxy for CodexBar’s Codex service connection | Off |
-| [CodexBar Hook](activity-and-hook.md) | Enable live tasks and daily activity statistics | Off if not installed |
+| [Advanced Mode](advanced-mode.md) | Enable live tasks and daily activity statistics | Off if not installed |
 | [System Notifications](notifications.md) | Configure notification types, thresholds, sounds, and haptics | Main switch off |
 | Automatic Reset | Use banked resets shortly before expiration | Off, 30-minute lead time |
 | [Prevent System Sleep](sleep-prevention.md) | Keep your Mac awake while eligible tasks run | Off |
 | [Cross-Device Sync](sync-data-privacy.md) | Combine daily activity statistics and session token usage through iCloud | Off |
+| Network Proxy | Configure the proxy for CodexBar’s Codex service connection | Off |
+| Data Update Interval | Set the automatic update interval for account data, quota, and accompanying historical maintenance and sync | 1 minute |
 | [Rebuild Data](sync-data-privacy.md#rebuild-data) | Recalculate activity statistics and session token usage for selected dates in the background | Manual |
 
-### Proxy
+### Data Update Interval
+
+Choose 1, 2, 3, 5, or 10 minutes. The default is 1 minute, saved locally. The interval starts when the previous refresh result is committed. Changing it immediately recalculates the remaining wait; an overdue refresh runs shortly afterward. Manual refresh resets the countdown. Live task monitoring is unaffected.
+
+### Network Proxy
 
 Click the setting row and enter a server address and port. HTTP, HTTPS, hostnames, IPv4, and IPv6 are supported; ports must be within `1–65535`. Authentication requires a username; the password may be empty.
 

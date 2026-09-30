@@ -21,7 +21,7 @@ struct CodexVersionSection: View {
                     .frame(width: Metrics.iconWidth)
                     .foregroundStyle(.tint)
 
-                Text("settings.codex-version.title")
+                Text("settings.codex.version.title")
 
                 reconnectButton
 
@@ -70,8 +70,8 @@ struct CodexVersionSection: View {
         let isWorking = isBusy || isReconnecting
         let isEnabled = !isWorking && isSourceInstalled(sourceSelection)
         let label: LocalizedStringKey = isReconnecting
-            ? "settings.codex-version.reconnecting"
-            : "settings.codex-version.reconnect"
+            ? "settings.codex.connection.status.reconnecting"
+            : "settings.codex.connection.action.reconnect"
 
         return Button {
             onReconnect(nil)
@@ -142,7 +142,7 @@ struct CodexVersionSection: View {
             VStack(alignment: .trailing, spacing: 3) {
                 HStack(spacing: 12) {
                     if row.isCurrent || isUnavailable {
-                        Text(isUnavailable ? "settings.codex-version.unavailable" : "settings.codex-version.in-use")
+                        Text(isUnavailable ? "codex-cli.source.status.unavailable" : "codex-cli.source.status.in-use")
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(statusColor)
                             .padding(.horizontal, 6)
@@ -164,7 +164,7 @@ struct CodexVersionSection: View {
                 .animation(Metrics.statusAnimation, value: isUnavailable)
 
                 if let newerInstalledVersion = row.newerInstalledVersion {
-                    Text(LocalizedStringResource("settings.codex-version.updated-to", defaultValue: "\(newerInstalledVersion)"))
+                    Text(LocalizedStringResource("codex-cli.version.newer-installed", defaultValue: "\(newerInstalledVersion)"))
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.orange)
                         .lineLimit(1)

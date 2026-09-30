@@ -6,7 +6,7 @@ CodexBar can keep your Mac awake while tasks run and restore sleep when tasks fi
 
 ## Enable and Activate
 
-1. Enable CodexBar Hook in `Settings > Advanced`
+1. Enable Advanced Mode in `Settings > Advanced`
 2. Enable `Prevent System Sleep` and confirm
 3. If background approval is required, click `Open System Settings` and allow CodexBar to run in the background
 

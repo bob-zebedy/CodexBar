@@ -17,12 +17,12 @@ struct MainPanelAnimationsSettingsRow: View {
 
 struct TaskGlowSettingsRow: View {
     @ObservedObject var settings: TaskGlowSettings
-    @ObservedObject var codexHookSettings: CodexHookSettings
+    @ObservedObject var advancedModeSettings: AdvancedModeSettings
     let onOptionsAction: (SettingsOptionsPanelAction) -> Void
     @State private var anchorProvider = ScreenFrameProvider()
 
     private var canShowOptions: Bool {
-        settings.isEnabled && codexHookSettings.isOperable && !codexHookSettings.isUpdating
+        settings.isEnabled && advancedModeSettings.isOperable && !advancedModeSettings.isUpdating
     }
 
     var body: some View {
@@ -30,10 +30,10 @@ struct TaskGlowSettingsRow: View {
             icon: "light.max",
             title: "settings.task-glow.title",
             isOn: Binding(
-                get: { codexHookSettings.isOperable && settings.isEnabled },
+                get: { advancedModeSettings.isOperable && settings.isEnabled },
                 set: { settings.setEnabled($0) }
             ),
-            isEnabled: codexHookSettings.isOperable && !codexHookSettings.isUpdating
+            isEnabled: advancedModeSettings.isOperable && !advancedModeSettings.isUpdating
         ) {
             SettingsOptionsButton(isAvailable: canShowOptions) {
                 onOptionsAction(.toggle(panel: .taskGlow, anchorProvider: anchorProvider))

@@ -192,7 +192,7 @@ struct CodexActivityTaskTests {
 
     private func makeProtectionMonitor(in directory: TestDirectory, preferences: TestPreferences) throws -> CodexActivityMonitor {
         let monitor = try CodexActivityMonitor(
-            codexHookSettings: CodexHookSettings(
+            advancedModeSettings: AdvancedModeSettings(
                 hooksURL: directory.url.appendingPathComponent("hooks.json"),
                 codexStatusService: makeStatusService(suiteName: preferences.suite)
             ),

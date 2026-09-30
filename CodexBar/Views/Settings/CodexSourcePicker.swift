@@ -13,7 +13,7 @@ struct CodexSourcePicker: View {
             selection: selection,
             options: options,
             isEnabled: isEnabled,
-            title: options.contains(selection) ? selection.title : String(localized: "settings.codex-version.source.select"),
+            title: options.contains(selection) ? selection.title : String(localized: "codex-cli.source.action.select"),
             optionTitle: { $0.title },
             onSelect: onSelect
         )

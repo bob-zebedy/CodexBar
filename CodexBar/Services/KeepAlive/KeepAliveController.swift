@@ -88,7 +88,7 @@ final class KeepAliveController: ObservableObject {
     }
 
     private let activityMonitor: CodexActivityMonitor
-    private let codexHookSettings: CodexHookSettings
+    private let advancedModeSettings: AdvancedModeSettings
     private let defaults: UserDefaults
     private let systemSleepService = SystemSleepService()
     private let powerSourceMonitor = PowerSourceMonitor()
@@ -133,22 +133,22 @@ final class KeepAliveController: ObservableObject {
     private var isStarted = false
     private var isPreparingForTermination = false
     private var lastLoggedSleepConditions: SleepConditions?
-    /// codexHookSettings.isOperable 的最新值, 由订阅维护
+    /// advancedModeSettings.isOperable 的最新值, 由订阅维护
     /// 不直接读那个属性: 订阅回调跑在 willSet, 那时它还是改动前的值
-    private var isHookEnabled: Bool
+    private var isAdvancedModeEnabled: Bool
 
     // MARK: - 生命周期
 
     init(
         activityMonitor: CodexActivityMonitor,
-        codexHookSettings: CodexHookSettings,
+        advancedModeSettings: AdvancedModeSettings,
         defaults: UserDefaults = .standard
     ) {
         self.activityMonitor = activityMonitor
-        self.codexHookSettings = codexHookSettings
+        self.advancedModeSettings = advancedModeSettings
         self.defaults = defaults
         durationLimiter = KeepAliveDurationLimiter(defaults: defaults)
-        isHookEnabled = codexHookSettings.isOperable
+        isAdvancedModeEnabled = advancedModeSettings.isOperable
         isEnabled = defaults.bool(forKey: Self.enabledKey)
         // 默认关闭: 老版本升上来的用户不该多出一条中断任务的路径
         lowBatteryThreshold = (defaults.object(forKey: Self.lowBatteryThresholdKey) as? Int)
@@ -172,18 +172,18 @@ final class KeepAliveController: ObservableObject {
             .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        // Hook 是本功能的依赖, 不是用户意图
+        // 进阶模式是本功能的依赖, 不是用户意图
         // 只重新求值当前该不该防止系统睡眠, 绝不改写用户保存的开关
         // 看 isOperable 那两个输入而不是只看 isEnabled: Codex 那边全局关掉 hooks
         // 或者不信任我们的 handler 时事件送不过来, 任务恒为空, 防睡眠也就不该显示成可用
-        // @Published 在 willSet 就发信号, 此刻回读 codexHookSettings.isOperable 会拿到
+        // @Published 在 willSet 就发信号, 此刻回读 advancedModeSettings.isOperable 会拿到
         // 正在变的那一项的旧值; CombineLatest 的两个参数都是各自的新值, 所以只认闭包参数
-        Publishers.CombineLatest(codexHookSettings.$isEnabled, codexHookSettings.$isVerified)
+        Publishers.CombineLatest(advancedModeSettings.$isEnabled, advancedModeSettings.$isVerified)
             .map { $0 && $1 }
             .removeDuplicates()
             .sink { [weak self] isOperable in
-                self?.isHookEnabled = isOperable
-                self?.reconcileSleepState(trigger: .hookChanged)
+                self?.isAdvancedModeEnabled = isOperable
+                self?.reconcileSleepState(trigger: .advancedModeChanged)
             }
             .store(in: &cancellables)
 
@@ -298,8 +298,8 @@ final class KeepAliveController: ObservableObject {
     // MARK: - 设置入口
 
     func setEnabled(_ enabled: Bool) {
-        // 与 sleepBlockReason 读同一份镜像, 类内只保留一个 Hook 状态的真相来源
-        guard !enabled || isHookEnabled else {
+        // 与 sleepBlockReason 读同一份镜像, 类内只保留一个进阶模式状态的真相来源
+        guard !enabled || isAdvancedModeEnabled else {
             return
         }
         guard enabled != isEnabled else {
@@ -780,10 +780,10 @@ final class KeepAliveController: ObservableObject {
         publishNotificationDependencies()
     }
 
-    /// 通知选项是否可用取决于用户开关, Hook, 电量和时长上限
+    /// 通知选项是否可用取决于用户开关, 进阶模式, 电量和时长上限
     /// 各输入的更新路径统一调用此方法, 避免各自维护判定规则
     private func publishNotificationDependencies() {
-        let isKeepAliveUsable = isEnabled && isHookEnabled
+        let isKeepAliveUsable = isEnabled && isAdvancedModeEnabled
         assign(
             isKeepAliveUsable && hasBattery && lowBatteryThreshold != .off,
             to: \.isLowBatteryProtectionEnabled
@@ -798,7 +798,7 @@ final class KeepAliveController: ObservableObject {
     /// 因任务, 电量或时长暂停防睡眠时, 仍允许修改设置
     private static func allowsOptions(_ blockReason: SleepBlockReason?) -> Bool {
         switch blockReason {
-        case .notStarted, .userOff, .hookDisabled, .helperUnavailable, .terminating:
+        case .notStarted, .userOff, .advancedModeDisabled, .helperUnavailable, .terminating:
             false
         case nil, .noTasks, .helperRefreshing, .lowBattery, .limitReached:
             true
@@ -813,7 +813,7 @@ final class KeepAliveController: ObservableObject {
         let conditions = SleepConditions(
             blockReason: blockReason,
             enabled: isEnabled,
-            hook: isHookEnabled,
+            advancedMode: isAdvancedModeEnabled,
             tasks: hasKeepAliveTasks,
             helper: helperStatus,
             refreshing: isRefreshingHelper,
@@ -833,7 +833,7 @@ final class KeepAliveController: ObservableObject {
             "trigger=\(triggerName)",
             "want=\(blockReason == nil ? 1 : 0)",
             "enabled=\(conditions.enabled ? 1 : 0)",
-            "hook=\(conditions.hook ? 1 : 0)",
+            "advancedMode=\(conditions.advancedMode ? 1 : 0)",
             "tasks=\(conditions.tasks ? 1 : 0)",
             "helper=\(helperName)",
             "refreshing=\(conditions.refreshing ? 1 : 0)",
@@ -1444,10 +1444,10 @@ final class KeepAliveController: ObservableObject {
         if !isEnabled {
             return .userOff
         }
-        if !isHookEnabled {
-            return .hookDisabled
+        if !isAdvancedModeEnabled {
+            return .advancedModeDisabled
         }
-        // 先检查依赖, 避免 Hook 恢复任务前以 noTasks 提前放出未授权 Helper 的设置入口
+        // 先检查依赖, 避免进阶模式恢复任务前以 noTasks 提前放出未授权 Helper 的设置入口
         if helperStatus != .enabled {
             return .helperUnavailable
         }

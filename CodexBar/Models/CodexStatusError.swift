@@ -16,23 +16,23 @@ nonisolated enum CodexStatusError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .executableNotFound:
-            String(localized: "codex-status.error.executable-not-found")
+            String(localized: "codex-status.cli.error.executable-not-found")
         case let .sourceUnavailable(source):
-            "\(source.displayName): \(String(localized: "settings.codex-version.unavailable"))"
+            "\(source.displayName): \(String(localized: "codex-cli.source.status.unavailable"))"
         case .serverTimeout:
-            String(localized: "codex-status.error.server-timeout")
+            String(localized: "codex-status.app-server.error.server-timeout")
         case .serverConnectionClosed:
-            String(localized: "codex-status.error.connection-closed")
+            String(localized: "codex-status.app-server.error.connection-closed")
         case .invalidServerResponse, .invalidResponsePayload:
-            String(localized: "codex-status.error.invalid-response")
+            String(localized: "codex-status.app-server.error.invalid-response")
         case let .serverError(message):
             message
         case .unsupportedMethod:
-            String(localized: "codex-status.error.unsupported-method")
+            String(localized: "codex-status.app-server.error.unsupported-method")
         case let .unsupportedVersion(minimum):
             String(localized: "codex-version.requirement", defaultValue: "\(minimum)")
         case .notLoggedIn:
-            String(localized: "codex-status.error.not-logged-in")
+            String(localized: "codex-status.account.error.not-logged-in")
         }
     }
 

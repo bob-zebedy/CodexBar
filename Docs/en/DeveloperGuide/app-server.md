@@ -180,13 +180,9 @@ Writing after an early process exit may raise `SIGPIPE`. The service ignores tha
 | `hooks/list` | Validate Hook source and event capabilities |
 | `config/batchWrite` | Change Hook or TUI notification configuration |
 
-Each session caches unsupported methods. After app-server explicitly returns method unsupported, that connection does not request the method again.
-
 ### Session Capability Cache
 
-Method unsupported usually means the running app-server lacks a capability. Calling it again every minute only adds logs and latency.
-
-The conclusion must not persist to UserDefaults, however, because a new connection may come from an upgraded binary. The unsupported set belongs only to `AppServerSession` and is probed again after reconstruction.
+`AppServerSession` caches methods for which app-server explicitly returns method unsupported and skips them for the rest of that connection. The cache exists only in memory; capabilities are probed again after the connection is rebuilt.
 
 ## Session Lifecycle
 
@@ -241,7 +237,7 @@ One refresh reads account, rate limits, and usage; Reset Credits details are inc
 
 ## Refresh Model
 
-The status view model refreshes every 60 seconds by default. Users can double-click the account icon in the main panel to request an immediate refresh.
+The status view model refreshes at the selected data update interval of 1, 2, 3, 5, or 10 minutes, defaulting to 1 minute. Users can double-click the account icon in the main panel to request an immediate refresh.
 
 Each refresh resolves the account first, then reads rate limits and usage. Supplemental caches are strictly bound to account identity:
 
@@ -412,7 +408,7 @@ Hook settings reuse the app-server flow but maintain independent availability st
 - `isOperable` is true only when both are `true`
 - A transient RPC failure preserves the last explicit validation result
 
-Enabling or validating Hook requires the actual app-server version to be at least `0.150.0`.
+Enabling or validating Hook requires the actual app-server version to be at least `0.153.0`.
 
 See [Hook Capture and Historical Aggregation](hook-and-aggregation.md) for the full configuration flow.
 
@@ -450,11 +446,11 @@ Reset Credits details include opaque credit IDs. Unified logs must not record ID
 - A transport failure on a reused connection rebuilds only once
 - After an on-disk CLI upgrade, the current connection version remains distinct from the disk version
 - app-server below `0.145.0` blocks the primary account flow and asks for an upgrade
-- app-server from `0.145.0` up to but excluding `0.150.0` supports the primary account flow while Hook still requires `0.150.0`
-- app-server `0.150.0` or later supports both the account flow and Hook validation
+- app-server from `0.145.0` up to but excluding `0.153.0` supports the primary account flow while Hook still requires `0.153.0`
+- app-server `0.153.0` or later supports both the account flow and Hook validation
 - A failed rate-limit read with same-account cache displays stale data without triggering notifications
 - An account switch clears old rate-limit and usage data immediately
-- An unsupported method is not retried every minute
+- An unsupported method is not retried within the same connection
 - Reset Credits with `credits == nil` preserve the authoritative count and show unknown expiration
 - Empty or truncated Reset Credits details do not redefine the available count from array length
 - Expired or non-available Reset Credits do not enter details or notifications
@@ -471,7 +467,8 @@ Reset Credits details include opaque credit IDs. Unified logs must not record ID
 - Count-only or failed reads with no specific target do not schedule a query-retry wake event
 - A known target stops continuous retries 5 minutes after the near-expiration trigger; a later normal refresh may start a new round
 - A full rate-limit refresh after redemption is not dropped behind a concurrent ordinary refresh
-- The 60-second countdown realigns after manual refresh
+- The countdown realigns to the selected data update interval after manual refresh
+- Changing the interval during an automatic-refresh wait reschedules it from the last committed result; in-flight requests continue, and the selected interval is restored after restarting
 
 Proxy checks also cover disabling invalid settings, clearing corrupt records, isolating canceled test results, submitting only once during rapid toggles, rolling back failed commits, and replacing usernames and passwords in plain and JSON-escaped URLs with `<redacted>`.
 

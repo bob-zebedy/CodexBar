@@ -46,7 +46,7 @@ Unit tests do not cover live CloudKit, app-server, system notifications, window 
 | Feature | Main location | Implementation guide |
 | --- | --- | --- |
 | app-server, proxy, Automatic Reset | `Services/CodexStatus` and corresponding Settings | [app-server Data Flow](app-server.md) |
-| Hook installation and statistics | `CodexHookSettings`, `WorkflowService`, aggregate models | [Hook Collection and Aggregation](hook-and-aggregation.md) |
+| Hook installation and statistics | `AdvancedModeSettings`, `WorkflowService`, aggregate models | [Hook Collection and Aggregation](hook-and-aggregation.md) |
 | Live tasks and protection | `CodexActivityMonitor` and readers | [Live Task Monitoring](activity-monitor.md) |
 | Sleep prevention and system wakes | `KeepAliveController`, `AutoResetWakeScheduler`, helper | [Sleep Prevention](sleep-prevention.md) |
 | Notifications and sound | `CodexNotificationService`, notification Settings | [Notifications](notifications.md) |

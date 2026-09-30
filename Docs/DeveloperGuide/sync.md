@@ -55,7 +55,7 @@ zone 确认和账户 salt 在 actor 内跨轮次缓存；同步失败时使两�
 同步只有在以下条件全部成立时运行：
 
 - 用户打开 CloudKit 同步
-- `CodexHookSettings.isEnabled` 为 `true`，历史同步可继续消费已落盘聚合
+- `AdvancedModeSettings.isEnabled` 为 `true`，历史同步可继续消费已落盘聚合
 - 当前 iCloud 账户可用
 - 本地聚合服务可用
 

@@ -280,7 +280,7 @@ struct CodexActivityTokenUsageTests {
 
     private func makeMonitor(directory: TestDirectory, preferences: TestPreferences) throws -> CodexActivityMonitor {
         try CodexActivityMonitor(
-            codexHookSettings: CodexHookSettings(
+            advancedModeSettings: AdvancedModeSettings(
                 hooksURL: directory.url.appendingPathComponent("hooks.json"),
                 codexStatusService: makeStatusService(suiteName: preferences.suite)
             ),

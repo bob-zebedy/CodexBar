@@ -46,9 +46,9 @@ nonisolated enum LogTrigger: String {
     case wake
     case settings
     case retry
-    /// Hook 开关转为开启后补跑同步
-    case hookEnabled
-    case hookChanged
+    /// 进阶模式开关转为开启后补跑同步
+    case advancedModeEnabled
+    case advancedModeChanged
     case taskChanged
     case helperRegistered
     case termination
