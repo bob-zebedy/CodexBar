@@ -175,11 +175,13 @@ struct CodexActivityCard: View {
                 Text(usage.cacheHitRate.map { $0.formatted(.percent.precision(.fractionLength(0 ... 1))) } ?? "—")
                     .font(.caption2.monospacedDigit().weight(.semibold))
                     .foregroundStyle(Color.codexLabel)
+                    .contentTransition(.numericText(value: usage.cacheHitRate ?? 0))
             }
             .frame(minWidth: 0, maxWidth: .infinity)
             tokenMetric("activity.tokens.reasoning", tokens: usage.reasoningOutputTokens)
         }
         .lineLimit(1)
+        .animation(.codexStatus, value: usage)
     }
 
     private func tokenMetric(_ title: LocalizedStringKey, tokens: Int64) -> some View {

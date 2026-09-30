@@ -82,6 +82,8 @@ struct StatusItemIconView: View {
             .opacity(state.showsQuota && state.isStale ? 0.75 : 1)
         }
         .animation(.easeInOut(duration: 0.2), value: state.showsQuota)
+        // 菜单栏跨桌面切换时使用图标快照, 先合成圆弧和人物以保持绘制一致
+        .drawingGroup()
         .frame(width: Self.size.width, height: Self.size.height)
         .allowsHitTesting(false)
     }

@@ -94,6 +94,8 @@ When no tasks are active, `CodexActivitySnapshot.statusItemActivity(at:)` select
 
 A persistent SwiftUI view lives inside the native `NSStatusBarButton`, with a transparent image preserving automatic spacing. Symbols use the system foreground color. The hosting view rejects focus and hit testing, leaving mouse actions with the original button.
 
+The arc and person symbol are composited with `drawingGroup()` so the quota arc keeps the same length and color when switching between full-screen and regular desktops.
+
 The tooltip updates every 60 seconds while tasks are active and stops its timer when idle.
 
 Left-click opens the main panel. Right-click or Control-click opens the context menu.
@@ -140,6 +142,7 @@ Special rules include:
 - Command-Space temporarily suppresses activation dismissal so opening Spotlight does not close the surface accidentally
 - After a click, the code pins `NSVisualEffectView` back to inactive so AppKit background emphasis does not cause a brightness jump
 - After first installing observers, `Task.yield()` performs a second window acquisition and focus pass in case the popover window was not attached yet
+- Focusing the menu window only calls `orderFrontRegardless()` and `makeKey()`, without activating the app again, so an activation transition does not dismiss the native popover over another app's full-screen window; the fallback panel handles app activation in its own presentation entry point
 
 ### Fades and Completion Tasks
 

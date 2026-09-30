@@ -44,7 +44,7 @@ CodexBar refreshes account, rate-limit, and token usage data every 60 seconds. D
 | --- | --- |
 | Left-click the menu bar icon | Open or close the main panel |
 | Right-click or Control-click the menu bar icon | Open the Settings, Logs, and Quit menu |
-| `⌘⇧W` | Open or close the main panel with the default global shortcut |
+| `⌘⇧E` | Open or close the main panel with the default global shortcut |
 | `⌘,` | Open the Settings window |
 | `⌘L` | Close the main panel and open the Logs window while the panel is open |
 | Double-click the account icon | Refresh account, rate-limit, and usage data immediately |

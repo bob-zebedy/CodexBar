@@ -16,7 +16,7 @@
 
 [Features](#features) | [Installation](#installation) | [Quick Start](#quick-start) | [Documentation](#documentation) | [Privacy](#privacy) | [Runtime Architecture](https://codexbar.zabrian.app/architecture) | [Performance Report](https://codexbar.zabrian.app/performance)
 
-<img src="Images/preview-en.gif" width="640" alt="CodexBar preview">
+<img src="Images/preview.gif" width="640" alt="CodexBar preview">
 
 </div>
 
@@ -93,7 +93,7 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 3. Right-click or Control-click the icon to open Settings, Logs, or the Quit menu
 4. Enable CodexBar Hook under `Settings > Advanced` to unlock live tasks, task notifications, sleep prevention, and Hook metrics
 
-The default global shortcut is `⌘⇧W`. You can record a different shortcut or disable it in Settings.
+The default global shortcut is `⌘⇧E`. You can record a different shortcut or disable it in Settings.
 
 ## Documentation
 

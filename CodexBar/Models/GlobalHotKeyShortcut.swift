@@ -8,9 +8,9 @@ nonisolated struct GlobalHotKeyShortcut: Codable, Equatable {
     let keyLabel: String
 
     static let `default` = GlobalHotKeyShortcut(
-        keyCode: UInt32(kVK_ANSI_W),
+        keyCode: UInt32(kVK_ANSI_E),
         modifiers: UInt32(cmdKey | shiftKey),
-        keyLabel: "W"
+        keyLabel: "E"
     )
 
     init(keyCode: UInt32, modifiers: UInt32, keyLabel: String) {

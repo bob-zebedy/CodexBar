@@ -31,6 +31,7 @@ struct TokenCountText: View {
             }
         } else {
             Text(parts.text)
+                .contentTransition(.numericText(value: Double(tokens)))
         }
     }
 }

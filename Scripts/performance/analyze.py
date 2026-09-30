@@ -204,11 +204,7 @@ def profile_summary(table: Table, pid: int) -> Profile:
         if timestamp is not None:
             seconds[int(timestamp / 1e9)] += weight
         stack = table.resolve(row.get("stack"))
-        backtrace = table.resolve(stack.find("backtrace")) if stack is not None else None
-        if backtrace is None:
-            missing += weight
-            continue
-        frames = [table.resolve(f) for f in backtrace]
+        frames = [table.resolve(f) for f in stack.findall("frame")] if stack is not None else []
         if not frames:
             missing += weight
             continue

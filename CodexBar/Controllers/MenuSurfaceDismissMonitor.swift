@@ -183,7 +183,9 @@ final class MenuSurfaceDismissMonitor {
             return
         }
 
-        activeMenuSurfaceWindow.bringToFrontActivatingApp()
+        // 原生 popover 借用键盘焦点, 强制激活 App 会触发全屏空间的失活关闭
+        activeMenuSurfaceWindow.orderFrontRegardless()
+        activeMenuSurfaceWindow.makeKey()
     }
 
     private func removeEventMonitor(_ monitor: inout Any?) {

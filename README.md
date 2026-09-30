@@ -16,7 +16,7 @@
 
 [功能](#功能) | [安装](#安装) | [快速开始](#快速开始) | [使用文档](#使用文档) | [隐私](#隐私) | [运行架构](https://codexbar.zabrian.app/architecture) | [性能报告](https://codexbar.zabrian.app/performance)
 
-<img src="Images/preview-zh.gif" width="640" alt="CodexBar 预览">
+<img src="Images/preview.gif" width="640" alt="CodexBar 预览">
 
 </div>
 
@@ -93,7 +93,7 @@ brew install --cask bob-zebedy/tap/codexbar
 3. 右键或按住 Control 点击图标打开设置、日志或退出菜单
 4. 在 `设置 > 高级` 中启用 CodexBar Hook，解锁实时任务、任务类通知、防睡眠和 Hook 统计
 
-默认全局快捷键为 `⌘⇧W`，可在设置中重新录制或关闭。
+默认全局快捷键为 `⌘⇧E`，可在设置中重新录制或关闭。
 
 ## 使用文档
 

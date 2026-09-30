@@ -14,7 +14,7 @@ Right-click or Control-click the menu bar icon and choose `Settings`, or press `
 | Launch at Login | Start CodexBar when you sign in to your Mac | Follows the system login-item state |
 | Automatically Check for Updates | Periodically check for CodexBar updates | Follows the current update setting |
 | Menu Bar Quota Indicator | Show the remaining allowance in a selected window | Primary quota |
-| Global Shortcut | Toggle the main panel from any app | `⌘⇧W` |
+| Global Shortcut | Toggle the main panel from any app | `⌘⇧E` |
 
 ### Main Panel Layout
 

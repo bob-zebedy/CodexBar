@@ -94,6 +94,8 @@ UI 使用 SwiftUI 声明内容，由 AppKit Controller 管理窗口。
 
 SwiftUI 视图持续挂载在原生 `NSStatusBarButton` 中，透明图片用于系统自适应占位。图标使用系统前景色，宿主视图不接受焦点或鼠标命中，左右键仍交给原按钮处理。
 
+圆弧和人物通过 `drawingGroup()` 合成为一个绘制结果，保持全屏与普通桌面切换时额度圆弧的长度和颜色一致。
+
 tooltip 在存在活跃任务时每 60 秒更新，空闲时停止计时。
 
 左键打开主面板。右键或按住 Control 点击打开上下文菜单。
@@ -140,6 +142,7 @@ hidden -> opening -> shown -> closing -> hidden
 - Command-Space 短暂抑制 activation dismiss，避免打开 Spotlight 时误关
 - 点击后重新固定 `NSVisualEffectView` 为 inactive，避免 AppKit 自动强调背景导致明暗跳变
 - 初次安装 observer 后 `Task.yield()` 再补一次窗口获取和聚焦，覆盖 popover window 尚未挂载的时机
+- 菜单窗口聚焦只执行 `orderFrontRegardless()` 和 `makeKey()`，不额外激活 App，避免原生 popover 在其他 App 全屏时因激活切换而关闭；备用面板在自身展示入口处理 App 激活
 
 ### 淡入淡出与完成任务
 
