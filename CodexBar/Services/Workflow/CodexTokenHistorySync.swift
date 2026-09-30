@@ -5,29 +5,31 @@ import Foundation
 actor CodexTokenHistorySync {
     private let database: CKDatabase
     private let directoryURL: URL
+    private var fileCache: CodexTokenFileCache<TokenSyncCache>
     static let recordType = "CodexBarTokenTurn"
     private static let currentSchema = 1
 
     init(database: CKDatabase, directoryURL: URL) {
         self.database = database
         self.directoryURL = directoryURL
+        fileCache = CodexTokenFileCache(url: directoryURL.appendingPathComponent("cache.json"))
     }
 
-    func recoveryBaseline(accountID: String?) -> CodexTokenHistoryBaseline? {
-        guard let accountID, let cache = try? load(), cache.accountID == accountID else { return nil }
+    func recoveryBaseline(accountScopedDeviceID: String?) -> CodexTokenHistoryBaseline? {
+        guard let accountScopedDeviceID, let cache = try? load(), cache.accountScopedDeviceID == accountScopedDeviceID else { return nil }
         return CodexTokenHistoryBaseline(salt: cache.salt, turns: cache.turns)
     }
 
-    func snapshot(local: [CodexTokenTurn], accountID: String?) -> [String: CodexTokenUsage] {
-        guard let cache = try? load(), cache.accountID == accountID else {
+    func snapshot(local: [CodexTokenTurn], accountScopedDeviceID: String?) -> [String: CodexTokenUsage] {
+        guard let cache = try? load(), cache.accountScopedDeviceID == accountScopedDeviceID else {
             return CodexTokenTurn.dailyUsage(local)
         }
-        return CodexTokenTurn.dailyUsage(local.map { $0.pseudonymized(salt: cache.salt) } + Array(cache.turns.values))
+        return CodexTokenTurn.dailyUsage(CodexTokenTurn.pseudonymized(local, salt: cache.salt) + Array(cache.turns.values))
     }
 
-    func hasPendingUpdates(local: [CodexTokenTurn], accountID: String?) -> Bool {
+    func hasPendingUpdates(local: [CodexTokenTurn], accountScopedDeviceID: String?) -> Bool {
         let records = CodexTokenTurn.syncable(local)
-        guard let cache = try? load(), cache.accountID == accountID else { return !records.isEmpty }
+        guard let cache = try? load(), cache.accountScopedDeviceID == accountScopedDeviceID else { return !records.isEmpty }
         return records.contains { turn in
             let candidate = turn.pseudonymized(salt: cache.salt)
             guard let remote = cache.turns[candidate.id] else { return true }
@@ -35,13 +37,13 @@ actor CodexTokenHistorySync {
         }
     }
 
-    func synchronize(local: [CodexTokenTurn], accountID: String, salt: Data, zoneID: CKRecordZone.ID) async throws {
+    func synchronize(local: [CodexTokenTurn], accountScopedDeviceID: String, salt: Data, zoneID: CKRecordZone.ID) async throws {
         // 整轮同步共用非阻塞锁, 防止另一个进程用较早的快照覆盖游标, 界面读取不等待网络
         guard let lock = try CodexTokenFileStorage.acquireLock(in: directoryURL, name: "sync.lock", nonblocking: true) else { return }
         defer { CodexTokenFileStorage.releaseLock(lock) }
-        var cache = try load() ?? TokenSyncCache(accountID: accountID, salt: salt)
-        if cache.accountID != accountID || cache.salt != salt {
-            cache = TokenSyncCache(accountID: accountID, salt: salt)
+        var cache = try load() ?? TokenSyncCache(accountScopedDeviceID: accountScopedDeviceID, salt: salt)
+        if cache.accountScopedDeviceID != accountScopedDeviceID || cache.salt != salt {
+            cache = TokenSyncCache(accountScopedDeviceID: accountScopedDeviceID, salt: salt)
         }
         do {
             try await fetch(into: &cache, zoneID: zoneID)
@@ -80,7 +82,7 @@ actor CodexTokenHistorySync {
     }
 
     private func upload(local: [CodexTokenTurn], cache: inout TokenSyncCache, zoneID: CKRecordZone.ID) async throws {
-        let pending = CodexTokenTurn.syncable(local).map { $0.pseudonymized(salt: cache.salt) }
+        let pending = CodexTokenTurn.pseudonymized(CodexTokenTurn.syncable(local), salt: cache.salt)
             .filter { candidate in
                 guard let remote = cache.turns[candidate.id] else { return true }
                 return remote.merging(candidate) != remote
@@ -157,7 +159,7 @@ actor CodexTokenHistorySync {
 
     private func load() throws -> TokenSyncCache? {
         try CodexTokenFileStorage.withLock(in: directoryURL) {
-            let cache = try CodexTokenFileStorage.load(TokenSyncCache.self, from: directoryURL.appendingPathComponent("cache.json"))
+            let cache = try fileCache.load()
             guard cache == nil || cache?.schema == TokenSyncCache.currentSchema else { throw CocoaError(.fileReadCorruptFile) }
             return cache
         }
@@ -165,7 +167,7 @@ actor CodexTokenHistorySync {
 
     private func save(_ cache: TokenSyncCache) throws {
         try CodexTokenFileStorage.withLock(in: directoryURL) {
-            try CodexTokenFileStorage.save(cache, to: directoryURL.appendingPathComponent("cache.json"))
+            try fileCache.save(cache)
         }
     }
 
@@ -207,13 +209,19 @@ actor CodexTokenHistorySync {
     }
 }
 
-private nonisolated struct TokenSyncCache: Codable {
+private nonisolated struct TokenSyncCache: Codable, Equatable {
     static let currentSchema = 1
     var schema = currentSchema
-    let accountID: String
+    let accountScopedDeviceID: String
     let salt: Data
     var turns: [String: CodexTokenTurn] = [:]
     var cursor: Data?
+
+    private enum CodingKeys: String, CodingKey {
+        case schema
+        case accountScopedDeviceID = "accountID"
+        case salt, turns, cursor
+    }
 }
 
 private nonisolated enum TokenHistorySyncError: Error {

@@ -721,7 +721,7 @@
         }
       }
     },
-    "activity.tokens.cache-write" : {
+    "activity.tokens.cache-write-input" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -737,7 +737,7 @@
         }
       }
     },
-    "activity.tokens.cached-read" : {
+    "activity.tokens.cached-input" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -753,7 +753,7 @@
         }
       }
     },
-    "activity.tokens.reasoning" : {
+    "activity.tokens.reasoning-output" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1185,7 +1185,7 @@
         }
       }
     },
-    "codex-hook.version.unavailable" : {
+    "hook.version.unavailable" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1201,7 +1201,7 @@
         }
       }
     },
-    "codex-hook.version.unsupported" : {
+    "hook.version.unsupported" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2337,7 +2337,7 @@
         }
       }
     },
-    "keep-alive.error.auto-reset-wake-schedule-failed" : {
+    "auto-reset.error.wake-schedule-failed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4369,7 +4369,7 @@
         }
       }
     },
-    "settings.main-panel.entrance-animations" : {
+    "settings.main-panel.animations" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4785,7 +4785,7 @@
         }
       }
     },
-    "settings.screen-edge-indicator.title" : {
+    "settings.task-glow.title" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5366,13 +5366,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Session token data"
+            "value" : "Session data"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "会话 Token 数据"
+            "value" : "会话数据"
           }
         }
       }
@@ -5425,7 +5425,7 @@
         }
       }
     },
-    "usage.status.updated" : {
+    "usage.status.last-updated" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5638,13 +5638,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Recalculate activity data and session token data for %@ from local Hook events and rollouts.\nAfter syncing, local data will be replaced and cloud data updated."
+            "value" : "Recalculate activity data and session data for %@ from local Hook events and rollouts.\nAfter syncing, local data will be replaced and cloud data updated"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将从本机 Hook 事件和 rollout 重新统计 %@ 的活动数据和会话 Token 数据\n同步后将替换本机数据并更新云端数据"
+            "value" : "将从本机 Hook 事件和 rollout 重新统计 %@ 的活动数据和会话数据\n同步后将替换本机数据并更新云端数据"
           }
         }
       }
@@ -5857,50 +5857,50 @@
         }
       }
     },
-    "workflow.rebuild.summary.tokens" : {
+    "workflow.rebuild.summary.token-record-count" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; %lld session token records"
+            "value" : "; %lld session data records"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; 会话 Token 数据 %lld 条"
+            "value" : "; 会话数据 %lld 条"
           }
         }
       }
     },
-    "workflow.rebuild.summary.tokens-failed" : {
+    "workflow.rebuild.summary.token-history-incomplete" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; session token data rebuild incomplete, please retry"
+            "value" : "; session data rebuild incomplete, please retry"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; 会话 Token 数据重建未完成, 请重试"
+            "value" : "; 会话数据重建未完成, 请重试"
           }
         }
       }
     },
-    "workflow.rebuild.error.already-running" : {
+    "workflow.rebuild.error.token-history-already-running" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Session token data is already being rebuilt"
+            "value" : "Session data is already being rebuilt"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "会话 Token 数据正在重建中"
+            "value" : "会话数据正在重建中"
           }
         }
       }

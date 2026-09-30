@@ -398,12 +398,12 @@ private extension CodexHookSettings {
                 String(localized: "hook.status.disabled-by-codex")
             case let .codexVersionUnavailable(minimum):
                 String(
-                    localized: "codex-hook.version.unavailable",
+                    localized: "hook.version.unavailable",
                     defaultValue: "\(minimum)"
                 )
             case let .unsupportedCodexVersion(minimum):
                 String(
-                    localized: "codex-hook.version.unsupported",
+                    localized: "hook.version.unsupported",
                     defaultValue: "\(minimum)"
                 )
             case let .hookValidationFailed(message):

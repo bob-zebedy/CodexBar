@@ -92,9 +92,9 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
     let effort: String?
     let permissionMode: String?
     let approvalReviewer: CodexApprovalReviewer?
-    let sessionId: String?
-    let turnId: String?
-    let agentId: String?
+    let sessionID: String?
+    let turnID: String?
+    let agentID: String?
 
     init(
         timestamp: Date,
@@ -106,9 +106,9 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         effort: String?,
         permissionMode: String?,
         approvalReviewer: CodexApprovalReviewer?,
-        sessionId: String?,
-        turnId: String?,
-        agentId: String?
+        sessionID: String?,
+        turnID: String?,
+        agentID: String?
     ) {
         self.timestamp = timestamp
         self.name = name
@@ -119,9 +119,9 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         self.effort = effort
         self.permissionMode = permissionMode
         self.approvalReviewer = approvalReviewer
-        self.sessionId = sessionId
-        self.turnId = turnId
-        self.agentId = agentId
+        self.sessionID = sessionID
+        self.turnID = turnID
+        self.agentID = agentID
     }
 
     init(from decoder: Decoder) throws {
@@ -153,9 +153,9 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
             CodexApprovalReviewer.self,
             forKey: .approvalReviewer
         )
-        sessionId = Self.string(from: container, key: .sessionId)
-        turnId = Self.string(from: container, key: .turnId)
-        agentId = Self.string(from: container, key: .agentId)
+        sessionID = Self.string(from: container, key: .sessionID)
+        turnID = Self.string(from: container, key: .turnID)
+        agentID = Self.string(from: container, key: .agentID)
     }
 
     var hookEvent: CodexHookEvent? {
@@ -209,9 +209,9 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
             WorkflowJSON.field("effort", effort),
             WorkflowJSON.field("permission", permissionMode),
             WorkflowJSON.field("approval", approvalReviewer),
-            WorkflowJSON.field("session", sessionId),
-            WorkflowJSON.field("turn", turnId),
-            WorkflowJSON.field("agent", agentId),
+            WorkflowJSON.field("session", sessionID),
+            WorkflowJSON.field("turn", turnID),
+            WorkflowJSON.field("agent", agentID),
             WorkflowJSON.field("tool", toolName),
             WorkflowJSON.field("cwd", directoryPath)
         ]
@@ -229,9 +229,9 @@ nonisolated struct WorkflowHookEvent: Decodable, Equatable {
         case effort
         case permissionMode = "permission"
         case approvalReviewer = "approval"
-        case sessionId = "session"
-        case turnId = "turn"
-        case agentId = "agent"
+        case sessionID = "session"
+        case turnID = "turn"
+        case agentID = "agent"
     }
 
     private static let autoReviewModelName = "codex-auto-review"
@@ -360,13 +360,13 @@ nonisolated struct WorkflowSnapshot: Equatable {
     init(
         localAggregates: [WorkflowDailyAggregate],
         syncedRecords: [WorkflowSyncedDailyRecord],
-        currentDeviceId: String?
+        currentDeviceID: String?
     ) {
         var metricsByDate = [String: WorkflowDailyMetrics]()
 
         let localByDate = Dictionary(uniqueKeysWithValues: localAggregates.map { ($0.date, $0) })
-        let currentDeviceRecords = syncedRecords.filter { $0.deviceId == currentDeviceId }
-        let otherDeviceRecords = syncedRecords.filter { $0.deviceId != currentDeviceId }
+        let currentDeviceRecords = syncedRecords.filter { $0.deviceID == currentDeviceID }
+        let otherDeviceRecords = syncedRecords.filter { $0.deviceID != currentDeviceID }
 
         Self.merge(otherDeviceRecords, into: &metricsByDate)
 
@@ -447,8 +447,8 @@ nonisolated enum WorkflowIdentifierStorage {
 /// 全量和增量路径都收集 ID, 只有 finalize 时才按保留策略决定是否落盘
 nonisolated struct WorkflowDailyAccumulator {
     private var aggregate: WorkflowDailyAggregate
-    private var sessionIds: Set<String> = []
-    private var turnIds: Set<String> = []
+    private var sessionIDs: Set<String> = []
+    private var turnIDs: Set<String> = []
 
     init(
         rebuilding date: String,
@@ -473,8 +473,8 @@ nonisolated struct WorkflowDailyAccumulator {
         aggregate.sourceGeneration = sourceGeneration
         aggregate.sourceIsFresh = sourceIsFresh
         self.aggregate = aggregate
-        sessionIds = Set(aggregate.sessionIds ?? [])
-        turnIds = Set(aggregate.turnIds ?? [])
+        sessionIDs = Set(aggregate.sessionIDs ?? [])
+        turnIDs = Set(aggregate.turnIDs ?? [])
     }
 
     mutating func record(_ event: WorkflowHookEvent) {
@@ -498,11 +498,11 @@ nonisolated struct WorkflowDailyAccumulator {
         }
 
         // 终态事件不单独构成对应的当日活跃轮次
-        if event.hookEvent != .sessionEnd, let sessionId = event.sessionId {
-            sessionIds.insert(sessionId)
+        if event.hookEvent != .sessionEnd, let sessionID = event.sessionID {
+            sessionIDs.insert(sessionID)
         }
-        if event.hookEvent != .stop, event.hookEvent != .interrupt, let turnId = event.turnId {
-            turnIds.insert(turnId)
+        if event.hookEvent != .stop, event.hookEvent != .interrupt, let turnID = event.turnID {
+            turnIDs.insert(turnID)
         }
 
         if let projectDisplayName = event.projectDisplayName {
@@ -519,13 +519,13 @@ nonisolated struct WorkflowDailyAccumulator {
         case .retained:
             aggregate.sessionCount = nil
             aggregate.turnCount = nil
-            aggregate.sessionIds = Self.normalizedIdentifiers(sessionIds)
-            aggregate.turnIds = Self.normalizedIdentifiers(turnIds)
+            aggregate.sessionIDs = Self.normalizedIdentifiers(sessionIDs)
+            aggregate.turnIDs = Self.normalizedIdentifiers(turnIDs)
         case .compacted:
-            aggregate.sessionCount = sessionIds.count
-            aggregate.turnCount = turnIds.count
-            aggregate.sessionIds = nil
-            aggregate.turnIds = nil
+            aggregate.sessionCount = sessionIDs.count
+            aggregate.turnCount = turnIDs.count
+            aggregate.sessionIDs = nil
+            aggregate.turnIDs = nil
         }
         return aggregate
     }
@@ -595,8 +595,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
     var turnCount: Int?
     var projectCounts: [String: Int]
     var modelCounts: [String: Int]
-    var sessionIds: [String]?
-    var turnIds: [String]?
+    var sessionIDs: [String]?
+    var turnIDs: [String]?
 
     /// 增量路径只有在完整 ID 集合仍然存在时才能继续安全去重
     var supportsIncrementalAggregation: Bool {
@@ -629,8 +629,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
         turnCount = nil
         projectCounts = [:]
         modelCounts = [:]
-        sessionIds = []
-        turnIds = []
+        sessionIDs = []
+        turnIDs = []
     }
 
     init(from decoder: Decoder) throws {
@@ -655,27 +655,27 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
         turnCount = try container.decodeIfPresent(Int.self, forKey: .turnCount)
         projectCounts = try container.decodeIfPresent([String: Int].self, forKey: .projectCounts) ?? [:]
         modelCounts = try container.decodeIfPresent([String: Int].self, forKey: .modelCounts) ?? [:]
-        sessionIds = try container.decodeIfPresent([String].self, forKey: .sessionIds)
-        turnIds = try container.decodeIfPresent([String].self, forKey: .turnIds)
+        sessionIDs = try container.decodeIfPresent([String].self, forKey: .sessionIDs)
+        turnIDs = try container.decodeIfPresent([String].self, forKey: .turnIDs)
     }
 
     mutating func normalizeIdentifierStorage(retainsIdentifiers: Bool) {
         guard !retainsIdentifiers else {
-            sessionIds = Self.normalizedIdentifiers(sessionIds)
-            turnIds = Self.normalizedIdentifiers(turnIds)
+            sessionIDs = Self.normalizedIdentifiers(sessionIDs)
+            turnIDs = Self.normalizedIdentifiers(turnIDs)
             return
         }
 
         sessionCount = WorkflowCountResolution.preferredCount(
             compactedCount: sessionCount,
-            identifiers: sessionIds
+            identifiers: sessionIDs
         ) ?? sessionStartCount
         turnCount = WorkflowCountResolution.preferredCount(
             compactedCount: turnCount,
-            identifiers: turnIds
+            identifiers: turnIDs
         ) ?? stopCount
-        sessionIds = nil
-        turnIds = nil
+        sessionIDs = nil
+        turnIDs = nil
     }
 
     var metrics: WorkflowDailyMetrics {
@@ -722,8 +722,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
             WorkflowJSON.field("turnCount", turnCount),
             WorkflowJSON.field("projectCounts", projectCounts),
             WorkflowJSON.field("modelCounts", modelCounts),
-            WorkflowJSON.field("sessionIds", sessionIds),
-            WorkflowJSON.field("turnIds", turnIds)
+            WorkflowJSON.field("sessionIds", sessionIDs),
+            WorkflowJSON.field("turnIds", turnIDs)
         ])
 
         return WorkflowJSON.lineData(fields)
@@ -777,14 +777,14 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
     private var syncedSessionCount: Int? {
         WorkflowCountResolution.preferredCount(
             compactedCount: sessionCount,
-            identifiers: sessionIds
+            identifiers: sessionIDs
         )
     }
 
     private var syncedTurnCount: Int? {
         WorkflowCountResolution.preferredCount(
             compactedCount: turnCount,
-            identifiers: turnIds
+            identifiers: turnIDs
         )
     }
 
@@ -835,8 +835,8 @@ nonisolated struct WorkflowDailyAggregate: Codable, Equatable {
         case turnCount
         case projectCounts
         case modelCounts
-        case sessionIds
-        case turnIds
+        case sessionIDs = "sessionIds"
+        case turnIDs = "turnIds"
     }
 }
 
@@ -984,20 +984,25 @@ extension WorkflowSyncedDailyAggregate {
 }
 
 nonisolated struct WorkflowSyncedDailyRecord: Codable, Equatable, Identifiable {
-    let deviceId: String
+    let deviceID: String
     let daily: WorkflowSyncedDailyAggregate
     var updatedAt: Date?
     var recordName: String?
 
+    private enum CodingKeys: String, CodingKey {
+        case deviceID = "deviceId"
+        case daily, updatedAt, recordName
+    }
+
     var id: String {
-        recordName ?? Self.legacyRecordName(deviceId: deviceId, date: daily.date)
+        recordName ?? Self.legacyRecordName(deviceID: deviceID, date: daily.date)
     }
 
     var date: String {
         daily.date
     }
 
-    static func legacyRecordName(deviceId: String, date: String) -> String {
-        "\(deviceId)_\(date)"
+    static func legacyRecordName(deviceID: String, date: String) -> String {
+        "\(deviceID)_\(date)"
     }
 }

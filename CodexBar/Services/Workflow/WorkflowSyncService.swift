@@ -83,11 +83,11 @@ actor WorkflowSyncService {
 
     func tokenRecoveryBaselineIfEnabled() async -> CodexTokenHistoryBaseline? {
         guard WorkflowSyncSettings.isEnabled() else { return nil }
-        return await tokenHistorySync.recoveryBaseline(accountID: loadState().deviceId)
+        return await tokenHistorySync.recoveryBaseline(accountScopedDeviceID: loadState().deviceID)
     }
 
     func hasPendingTokenUpdates(local: [CodexTokenTurn]) async -> Bool {
-        await tokenHistorySync.hasPendingUpdates(local: local, accountID: loadState().deviceId)
+        await tokenHistorySync.hasPendingUpdates(local: local, accountScopedDeviceID: loadState().deviceID)
     }
 
     func synchronizeIfEnabled(
@@ -119,15 +119,15 @@ actor WorkflowSyncService {
         do {
             try await ensureSyncZoneExists()
             stage = .device
-            let deviceId = try await resolveCurrentDeviceId()
-            try resetStateIfDeviceChanged(deviceId, state: &state)
+            let deviceID = try await resolveCurrentDeviceID()
+            try resetStateIfDeviceChanged(deviceID, state: &state)
             try await migrateStateIfNeeded(&state)
 
             stage = .fetch
             let localByDate = Self.syncedAggregatesByDate(localAggregates)
             try await refreshCacheBeforeUpload(
                 localByDate: localByDate,
-                deviceId: deviceId,
+                deviceID: deviceID,
                 state: &state
             )
 
@@ -145,11 +145,11 @@ actor WorkflowSyncService {
             try await refreshCacheFromRemote()
             stage = .tokens
             try await tokenHistorySync.synchronize(
-                local: localTokenTurns, accountID: deviceId, salt: accountSalt(), zoneID: syncZoneID
+                local: localTokenTurns, accountScopedDeviceID: deviceID, salt: accountSalt(), zoneID: syncZoneID
             )
             stage = .prune
             let deletedCount = try await pruneCurrentDeviceRecordsIfNeeded(
-                deviceId: deviceId,
+                deviceID: deviceID,
                 state: &state
             )
             try saveState(state)
@@ -227,7 +227,7 @@ actor WorkflowSyncService {
 
     private func refreshCacheBeforeUpload(
         localByDate: [String: LocalSyncAggregate],
-        deviceId: String,
+        deviceID: String,
         state: inout WorkflowSyncState
     ) async throws {
         guard !state.replacementDates.isEmpty else {
@@ -239,7 +239,7 @@ actor WorkflowSyncService {
         try await rebuildCacheFromRemote()
         try await preparePendingReplacements(
             localByDate: localByDate,
-            deviceId: deviceId,
+            deviceID: deviceID,
             state: &state
         )
     }
@@ -256,10 +256,10 @@ actor WorkflowSyncService {
     }
 
     private func resetStateIfDeviceChanged(
-        _ deviceId: String,
+        _ deviceID: String,
         state: inout WorkflowSyncState
     ) throws {
-        guard state.deviceId != deviceId else {
+        guard state.deviceID != deviceID else {
             return
         }
 
@@ -267,7 +267,7 @@ actor WorkflowSyncService {
         try saveCachedRecords([])
 
         let resetState = WorkflowSyncState(
-            deviceId: deviceId,
+            deviceID: deviceID,
             replacementDates: state.replacementDates
         )
         try saveState(resetState)
@@ -286,19 +286,19 @@ actor WorkflowSyncService {
     }
 
     private func snapshot(from state: WorkflowSyncState, localTokenTurns: [CodexTokenTurn]) async -> WorkflowSyncSnapshot {
-        guard let deviceId = state.deviceId else {
+        guard let deviceID = state.deviceID else {
             return .disabled
         }
 
         let replacementDates = Set(state.replacementDates)
         let records = Self.filteredRetained(records: loadCachedRecords()).filter { record in
-            record.deviceId != deviceId || !replacementDates.contains(record.date)
+            record.deviceID != deviceID || !replacementDates.contains(record.date)
         }
 
         return await WorkflowSyncSnapshot(
             records: records,
-            currentDeviceId: deviceId,
-            tokenUsageByDate: tokenHistorySync.snapshot(local: localTokenTurns, accountID: deviceId)
+            currentDeviceID: deviceID,
+            tokenUsageByDate: tokenHistorySync.snapshot(local: localTokenTurns, accountScopedDeviceID: deviceID)
         )
     }
 }
@@ -351,7 +351,7 @@ private extension WorkflowSyncService {
     enum FieldKeys {
         static let salt = "salt"
         static let schemaVersion = "schemaVersion"
-        static let deviceId = "deviceId"
+        static let deviceID = "deviceId"
         static let date = "date"
         static let sourceGeneration = "sourceGeneration"
         static let eventCount = "eventCount"
@@ -407,7 +407,7 @@ private extension WorkflowSyncService {
         remoteRecords: [WorkflowSyncedDailyRecord],
         state: inout WorkflowSyncState
     ) async throws -> Set<String> {
-        guard let deviceId = state.deviceId else {
+        guard let deviceID = state.deviceID else {
             return []
         }
 
@@ -442,7 +442,7 @@ private extension WorkflowSyncService {
             do {
                 confirmedBatch = try await processUploadBatch(
                     batch,
-                    deviceId: deviceId,
+                    deviceID: deviceID,
                     remoteRecords: remoteRecords
                 )
             } catch {
@@ -469,7 +469,7 @@ private extension WorkflowSyncService {
 
     func preparePendingReplacements(
         localByDate: [String: LocalSyncAggregate],
-        deviceId: String,
+        deviceID: String,
         state: inout WorkflowSyncState
     ) async throws {
         let replacementDates = Set(state.replacementDates).intersection(localByDate.keys)
@@ -479,23 +479,23 @@ private extension WorkflowSyncService {
 
         let cachedRecords = loadCachedRecords()
         let recordsToReplace = cachedRecords.filter {
-            $0.deviceId == deviceId && replacementDates.contains($0.date)
+            $0.deviceID == deviceID && replacementDates.contains($0.date)
         }
         var recordIDs = Set(recordsToReplace.map {
             CKRecord.ID(recordName: $0.id, zoneID: syncZoneID)
         })
 
         for date in replacementDates {
-            recordIDs.insert(recordID(deviceId: deviceId, date: date))
+            recordIDs.insert(recordID(deviceID: deviceID, date: date))
             if let generation = localByDate[date]?.aggregate.sourceGeneration {
-                recordIDs.insert(recordID(deviceId: deviceId, date: date, generation: generation))
+                recordIDs.insert(recordID(deviceID: deviceID, date: date, generation: generation))
             }
         }
 
         try await deleteRecords(Array(recordIDs))
 
         try saveCachedRecords(cachedRecords.filter {
-            $0.deviceId != deviceId || !replacementDates.contains($0.date)
+            $0.deviceID != deviceID || !replacementDates.contains($0.date)
         })
         for date in replacementDates {
             state.hashByDate.removeValue(forKey: date)
@@ -578,7 +578,7 @@ private extension WorkflowSyncService {
     /// 远端已有更完整的同源聚合, 或者同日已有记录且本地不是新鲜来源时都不覆盖
     private func resolveUploadTarget(
         _ pendingRecord: PendingRecord,
-        deviceId: String,
+        deviceID: String,
         remoteRecords: [WorkflowSyncedDailyRecord],
         existingRecords: [CKRecord.ID: Result<CKRecord, any Error>]
     ) throws -> UploadTarget {
@@ -611,7 +611,7 @@ private extension WorkflowSyncService {
 
         // 上面两个分支都用不到它; 放在早退之后, 命中缓存的那些 pending 就不必扫一遍全量远端记录
         var knownRemoteRecords = remoteRecords.filter {
-            $0.deviceId == deviceId && $0.date == pendingRecord.upload.date
+            $0.deviceID == deviceID && $0.date == pendingRecord.upload.date
         }
         for record in fetchedRecords.compactMap({ Self.remoteDailyRecord(from: $0) })
             where !knownRemoteRecords.contains(where: { $0.id == record.id }) {
@@ -639,15 +639,15 @@ private extension WorkflowSyncService {
 
     func processUploadBatch(
         _ pendingUploads: [PendingUpload],
-        deviceId: String,
+        deviceID: String,
         remoteRecords: [WorkflowSyncedDailyRecord]
     ) async throws -> [ConfirmedHash] {
         let pendingRecords: [PendingRecord] = pendingUploads.map { upload in
             PendingRecord(
                 upload: upload,
-                legacyRecordID: recordID(deviceId: deviceId, date: upload.date),
+                legacyRecordID: recordID(deviceID: deviceID, date: upload.date),
                 generationRecordID: upload.aggregate.sourceGeneration.map { generation in
-                    recordID(deviceId: deviceId, date: upload.date, generation: generation)
+                    recordID(deviceID: deviceID, date: upload.date, generation: generation)
                 }
             )
         }
@@ -661,7 +661,7 @@ private extension WorkflowSyncService {
         for pendingRecord in pendingRecords {
             switch try resolveUploadTarget(
                 pendingRecord,
-                deviceId: deviceId,
+                deviceID: deviceID,
                 remoteRecords: remoteRecords,
                 existingRecords: existingRecords
             ) {
@@ -674,7 +674,7 @@ private extension WorkflowSyncService {
                     )
                 )
             case let .save(record):
-                apply(pendingRecord.upload.aggregate, deviceId: deviceId, to: record)
+                apply(pendingRecord.upload.aggregate, deviceID: deviceID, to: record)
                 recordsToSave.append(
                     RecordToSave(upload: pendingRecord.upload, record: record)
                 )
@@ -786,7 +786,7 @@ private extension WorkflowSyncService {
             predicate: NSPredicate(format: "TRUEPREDICATE")
         )
         query.sortDescriptors = [
-            NSSortDescriptor(key: FieldKeys.deviceId, ascending: true),
+            NSSortDescriptor(key: FieldKeys.deviceID, ascending: true),
             NSSortDescriptor(key: FieldKeys.date, ascending: true)
         ]
 
@@ -795,15 +795,15 @@ private extension WorkflowSyncService {
     }
 
     func fetchCurrentDeviceRecordIDsToPrune(
-        deviceId: String,
+        deviceID: String,
         cutoffKey: String
     ) async throws -> [CKRecord.ID] {
         let query = CKQuery(
             recordType: RecordTypes.dailyAggregate,
             predicate: NSPredicate(
                 format: "%K == %@",
-                FieldKeys.deviceId,
-                deviceId
+                FieldKeys.deviceID,
+                deviceID
             )
         )
 
@@ -894,7 +894,7 @@ private extension WorkflowSyncService {
 
     @discardableResult
     func pruneCurrentDeviceRecordsIfNeeded(
-        deviceId: String,
+        deviceID: String,
         state: inout WorkflowSyncState
     ) async throws -> Int {
         let today = WorkflowStorage.dateKey(for: Date())
@@ -907,7 +907,7 @@ private extension WorkflowSyncService {
         state.replacementDates.removeAll { $0 < cutoffKey }
         var recordIDs = try await Set(
             fetchCurrentDeviceRecordIDsToPrune(
-                deviceId: deviceId,
+                deviceID: deviceID,
                 cutoffKey: cutoffKey
             )
         )
@@ -915,7 +915,7 @@ private extension WorkflowSyncService {
             recordIDs.insert(
                 CKRecord.ID(
                     recordName: WorkflowSyncedDailyRecord.legacyRecordName(
-                        deviceId: deviceId,
+                        deviceID: deviceID,
                         date: date
                     ),
                     zoneID: syncZoneID
@@ -938,7 +938,7 @@ private extension WorkflowSyncService {
 
     // MARK: - 账号与设备标识
 
-    func resolveCurrentDeviceId() async throws -> String {
+    func resolveCurrentDeviceID() async throws -> String {
         let salt = try await accountSalt()
         let uuid = try Self.ioPlatformUUID()
         let mac = HMAC<SHA256>.authenticationCode(
@@ -1046,11 +1046,11 @@ private extension WorkflowSyncService {
 
     func apply(
         _ aggregate: WorkflowSyncedDailyAggregate,
-        deviceId: String,
+        deviceID: String,
         to record: CKRecord
     ) {
         record[FieldKeys.schemaVersion] = Metrics.syncSchemaVersion as CKRecordValue
-        record[FieldKeys.deviceId] = deviceId as CKRecordValue
+        record[FieldKeys.deviceID] = deviceID as CKRecordValue
         record[FieldKeys.date] = aggregate.date as CKRecordValue
         record[FieldKeys.sourceGeneration] = aggregate.sourceGeneration as CKRecordValue?
         record[FieldKeys.eventCount] = aggregate.eventCount as CKRecordValue?
@@ -1073,28 +1073,28 @@ private extension WorkflowSyncService {
         record[FieldKeys.updatedAt] = Date() as CKRecordValue
     }
 
-    func recordID(deviceId: String, date: String) -> CKRecord.ID {
-        recordID(deviceId: deviceId, date: date, generation: nil)
+    func recordID(deviceID: String, date: String) -> CKRecord.ID {
+        recordID(deviceID: deviceID, date: date, generation: nil)
     }
 
     func recordID(
-        deviceId: String,
+        deviceID: String,
         date: String,
         generation: String?
     ) -> CKRecord.ID {
         CKRecord.ID(
-            recordName: recordName(deviceId: deviceId, date: date, generation: generation),
+            recordName: recordName(deviceID: deviceID, date: date, generation: generation),
             zoneID: syncZoneID
         )
     }
 
     func recordName(
-        deviceId: String,
+        deviceID: String,
         date: String,
         generation: String?
     ) -> String {
         let legacyName = WorkflowSyncedDailyRecord.legacyRecordName(
-            deviceId: deviceId,
+            deviceID: deviceID,
             date: date
         )
         return generation.map { "\(legacyName)_\($0)" } ?? legacyName
@@ -1188,13 +1188,13 @@ private extension WorkflowSyncService {
         let encoder = JSONLines.stableEncoder
         let data = try records
             .sorted { lhs, rhs in
-                if lhs.deviceId == rhs.deviceId {
+                if lhs.deviceID == rhs.deviceID {
                     if lhs.date == rhs.date {
                         return lhs.id < rhs.id
                     }
                     return lhs.date < rhs.date
                 }
-                return lhs.deviceId < rhs.deviceId
+                return lhs.deviceID < rhs.deviceID
             }
             .reduce(into: Data()) { result, record in
                 try result.append(encoder.encode(record))
@@ -1246,7 +1246,7 @@ private extension WorkflowSyncService {
 
     static func remoteDailyRecord(from record: CKRecord) -> WorkflowSyncedDailyRecord? {
         guard record.recordType == RecordTypes.dailyAggregate,
-              let deviceId = record[FieldKeys.deviceId] as? String,
+              let deviceID = record[FieldKeys.deviceID] as? String,
               let date = record[FieldKeys.date] as? String,
               WorkflowStorage.isValidDateKey(date) else {
             return nil
@@ -1275,7 +1275,7 @@ private extension WorkflowSyncService {
         )
 
         return WorkflowSyncedDailyRecord(
-            deviceId: deviceId,
+            deviceID: deviceID,
             daily: aggregate,
             updatedAt: record[FieldKeys.updatedAt] as? Date ?? record.modificationDate,
             recordName: record.recordID.recordName
@@ -1378,10 +1378,10 @@ private extension WorkflowSyncService {
 /// currentDeviceId 用于展示时替换本机云端副本, 避免重复计数
 nonisolated struct WorkflowSyncSnapshot: Equatable {
     let records: [WorkflowSyncedDailyRecord]
-    let currentDeviceId: String?
+    let currentDeviceID: String?
     var tokenUsageByDate: [String: CodexTokenUsage]?
 
-    static let disabled = WorkflowSyncSnapshot(records: [], currentDeviceId: nil)
+    static let disabled = WorkflowSyncSnapshot(records: [], currentDeviceID: nil)
 }
 
 private nonisolated struct WorkflowSyncState: Codable, Equatable {
@@ -1393,7 +1393,7 @@ private nonisolated struct WorkflowSyncState: Codable, Equatable {
     }
 
     var schema: Int
-    var deviceId: String?
+    var deviceID: String?
     var hashByDate: [String: String]
     var replacementDates: [String]
     var lastUploadAt: Date?
@@ -1401,14 +1401,14 @@ private nonisolated struct WorkflowSyncState: Codable, Equatable {
 
     init(
         schema: Int = Self.currentSchema,
-        deviceId: String? = nil,
+        deviceID: String? = nil,
         hashByDate: [String: String] = [:],
         replacementDates: [String] = [],
         lastUploadAt: Date? = nil,
         lastPrunedDate: String? = nil
     ) {
         self.schema = schema
-        self.deviceId = deviceId
+        self.deviceID = deviceID
         self.hashByDate = hashByDate
         self.replacementDates = replacementDates
         self.lastUploadAt = lastUploadAt
@@ -1419,7 +1419,7 @@ private nonisolated struct WorkflowSyncState: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         schema = try container.decodeIfPresent(Int.self, forKey: .schema) ?? Self.currentSchema
-        deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
+        deviceID = try container.decodeIfPresent(String.self, forKey: .deviceID)
         hashByDate = try container.decodeIfPresent([String: String].self, forKey: .hashByDate)
             ?? [:]
         let decodedReplacementDates = try container.decodeIfPresent(
@@ -1435,7 +1435,7 @@ private nonisolated struct WorkflowSyncState: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case schema
-        case deviceId
+        case deviceID = "deviceId"
         case hashByDate
         case replacementDates
         case lastUploadAt

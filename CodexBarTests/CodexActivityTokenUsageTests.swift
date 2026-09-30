@@ -37,8 +37,8 @@ struct CodexActivityTokenUsageTests {
         var childState = state(child)
         switch scenario {
         case "unavailable": childState.readStatus = .unavailable
-        case "other-root": childState.rootTurnId = "other-root"
-        case "other-session": childState.rootSessionId = "other-session"
+        case "other-root": childState.rootTurnID = "other-root"
+        case "other-session": childState.rootSessionID = "other-session"
         case "missing-usage": childState.tokenUsage = nil
         case "running-child": childState = state(child, terminal: nil)
         default: break
@@ -76,9 +76,9 @@ struct CodexActivityTokenUsageTests {
         let request = request(root: root, children: [child])
         var childState = state(child, terminal: nil)
         switch scenario {
-        case "other-root": childState.rootTurnId = "other-root"
-        case "other-session": childState.rootSessionId = "other-session"
-        case "other-thread": childState.threadId = "other-thread"
+        case "other-root": childState.rootTurnID = "other-root"
+        case "other-session": childState.rootSessionID = "other-session"
+        case "other-thread": childState.recordedThreadID = "other-thread"
         case "unavailable": childState.readStatus = .unavailable
         default: childState.tokenUsage = nil
         }
@@ -143,7 +143,7 @@ struct CodexActivityTokenUsageTests {
         #expect(!monitor.applyActiveTokenUsage([state(reference("session-a", "turn-a"))]))
         #expect(monitor.tasks[key]?.tokenUsage == nil)
         var current = state(reference("session-a", "turn-b"), terminal: nil)
-        current.rootTurnId = "turn-b"
+        current.rootTurnID = "turn-b"
         #expect(monitor.applyActiveTokenUsage([current]))
         #expect(monitor.tasks[key]?.tokenUsage?.totalTokens == 110)
         current.readStatus = .unavailable
@@ -195,7 +195,7 @@ struct CodexActivityTokenUsageTests {
         #expect(monitor.terminations.first?.tokenUsage == nil)
 
         var stopped = state(reference("session-a", "turn-b"), input: 200, terminal: nil)
-        stopped.rootTurnId = "turn-b"
+        stopped.rootTurnID = "turn-b"
         let states = [state(reference("session-a", "turn-a")), stopped]
         #expect(monitor.applyTerminalTokenUsage(states))
         #expect(monitor.completions.first?.tokenUsage?.totalTokens == 110)
@@ -206,7 +206,7 @@ struct CodexActivityTokenUsageTests {
         stopped.readStatus = .unavailable
         #expect(!monitor.applyTerminalTokenUsage([stopped]))
         #expect(monitor.terminations.first?.tokenUsage?.totalTokens == 210)
-        _ = monitor.terminalTokenUsageReferences(now: Date().addingTimeInterval(31))
+        _ = monitor.prepareTerminalTokenUsageReadBatch(now: Date().addingTimeInterval(31))
         #expect(monitor.terminalTokenUsageRequests.isEmpty)
         #expect(monitor.completions.first?.tokenUsage?.totalTokens == 110)
         monitor.clearCollectedActivityState()
@@ -249,17 +249,17 @@ struct CodexActivityTokenUsageTests {
         var unavailable = firstState
         unavailable.readStatus = .unavailable
         #expect(!monitor.applyTerminalTokenUsage([unavailable]))
-        _ = monitor.terminalTokenUsageReferences(now: Date().addingTimeInterval(31))
+        _ = monitor.prepareTerminalTokenUsageReadBatch(now: Date().addingTimeInterval(31))
         #expect(monitor.completions.first?.tokenUsage?.totalTokens == 320)
     }
 
     private func reference(_ thread: String, _ turn: String) -> CodexActivityTurnReference {
-        CodexActivityTurnReference(sessionId: thread, turnId: turn, startedAt: TestFixtures.now)
+        CodexActivityTurnReference(threadID: thread, turnID: turn, startedAt: TestFixtures.now)
     }
 
     private func request(root: CodexActivityTurnReference, children: [CodexActivityTurnReference]) -> CodexTaskTokenUsageRequest {
         CodexTaskTokenUsageRequest(
-            root: root, expectedAgentIDs: Set(children.map(\.sessionId)), references: Set([root] + children), deadline: TestFixtures.now
+            root: root, expectedAgentIDs: Set(children.map(\.threadID)), references: Set([root] + children), deadline: TestFixtures.now
         )
     }
 
@@ -268,9 +268,9 @@ struct CodexActivityTokenUsageTests {
         terminal: CodexSessionTaskTerminalState? = .completed(at: TestFixtures.now, duration: 1)
     ) -> CodexSessionTaskLifecycleState {
         CodexSessionTaskLifecycleState(
-            sessionId: reference.sessionId, turnId: reference.turnId, startedAt: TestFixtures.now,
+            requestedThreadID: reference.threadID, turnID: reference.turnID, startedAt: TestFixtures.now,
             approvalReviewer: nil, effort: nil, lastProgressAt: TestFixtures.now, terminal: terminal,
-            rootTurnId: "turn-a", threadId: reference.sessionId, rootSessionId: "session-a",
+            rootTurnID: "turn-a", recordedThreadID: reference.threadID, rootSessionID: "session-a",
             tokenUsage: CodexTokenUsage(
                 inputTokens: input, cachedInputTokens: 20, cacheWriteInputTokens: 0,
                 outputTokens: 10, reasoningOutputTokens: 2, totalTokens: input + 10

@@ -2,7 +2,7 @@ import AppKit
 import Darwin
 import SwiftUI
 
-// 无宿主测试编译同一份源码, 仅移除可执行入口以避免启动常驻服务
+// 测试时禁用应用入口
 #if !CODEXBAR_TESTING
     @main
 #endif

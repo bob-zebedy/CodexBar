@@ -43,8 +43,10 @@ struct CodexQuotaAndIdentityTests {
           "zeta":{"secondary":{"usedPercent":30}}
          }}
         """)
+        #expect(response.rateLimits.limitID == "codex")
+        #expect(response.rateLimitsByLimitID?.count == 4)
         let snapshot = try CodexQuotaSnapshot(accountResponse: accountResponse, rateLimitsResponse: response)
-        #expect(snapshot.limits.map(\.limitId) == ["codex", "alpha", "zeta"])
+        #expect(snapshot.limits.map(\.limitID) == ["codex", "alpha", "zeta"])
         #expect(snapshot.codexLimit?.window(ofKind: .primary)?.usedPercent == 20)
         #expect(snapshot.credits?.balance == "12")
     }

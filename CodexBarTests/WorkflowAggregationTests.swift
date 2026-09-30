@@ -2,6 +2,25 @@ import Foundation
 import Testing
 
 struct WorkflowAggregationTests {
+    @Test func identifierFieldsKeepTheirStoredNames() throws {
+        let aggregate = try TestFixtures.decode(WorkflowDailyAggregate.self, #"{"date":"2026-09-15","sessionIds":["session-a"],"turnIds":["turn-a"]}"#)
+        #expect(aggregate.sessionIDs == ["session-a"])
+        #expect(aggregate.turnIDs == ["turn-a"])
+        let encoded = try JSONEncoder().encode(aggregate)
+        let fields = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(fields["sessionIds"] as? [String] == ["session-a"])
+        #expect(fields["turnIds"] as? [String] == ["turn-a"])
+        #expect(fields["sessionIDs"] == nil)
+        #expect(fields["turnIDs"] == nil)
+
+        let record = try TestFixtures.decode(WorkflowSyncedDailyRecord.self, #"{"deviceId":"device-a","daily":{"date":"2026-09-15"}}"#)
+        #expect(record.deviceID == "device-a")
+        let recordData = try JSONEncoder().encode(record)
+        let recordFields = try #require(JSONSerialization.jsonObject(with: recordData) as? [String: Any])
+        #expect(recordFields["deviceId"] as? String == "device-a")
+        #expect(recordFields["deviceID"] == nil)
+    }
+
     @Test func missingHookCountsRemainUnavailableThroughBothStorageFormats() throws {
         let aggregate = try TestFixtures.decode(WorkflowDailyAggregate.self, #"{"date":"2026-09-15","stopCount":0}"#)
         #expect(aggregate.eventCount == nil)
@@ -24,15 +43,15 @@ struct WorkflowAggregationTests {
         let retained = accumulator.finalized(identifierStorage: .retained)
         let compacted = accumulator.finalized(identifierStorage: .compacted)
         #expect(retained.eventCount == 10)
-        #expect(retained.sessionIds == ["interrupt-only", "session-a", "terminal-only"])
-        #expect(retained.turnIds == ["turn-a"])
+        #expect(retained.sessionIDs == ["interrupt-only", "session-a", "terminal-only"])
+        #expect(retained.turnIDs == ["turn-a"])
         #expect(retained.metrics.toolCallCount == 1)
         #expect(retained.metrics.contextCompactionCount == 1)
         #expect(retained.metrics.subagentCount == 1)
         #expect(retained.metrics.interruptCount == 1)
         #expect(retained.metrics == compacted.metrics)
-        #expect(compacted.sessionIds == nil)
-        #expect(compacted.turnIds == nil)
+        #expect(compacted.sessionIDs == nil)
+        #expect(compacted.turnIDs == nil)
         #expect(!compacted.supportsIncrementalAggregation)
     }
 
@@ -89,7 +108,7 @@ struct WorkflowAggregationTests {
         aggregate.normalizeIdentifierStorage(retainsIdentifiers: false)
         #expect(aggregate.sessionCount == 2)
         #expect(aggregate.turnCount == 1)
-        #expect(aggregate.sessionIds == nil)
+        #expect(aggregate.sessionIDs == nil)
     }
 
     @Test func syncExportContainsCountsWithoutRawTaskIdentifiers() throws {
@@ -135,15 +154,15 @@ struct WorkflowMergeTests {
     }
 
     @Test func remoteOnlyDaysRemainVisible() {
-        let result = WorkflowSnapshot(localAggregates: [], syncedRecords: [record(TestFixtures.aggregate(turns: 4))], currentDeviceId: "device")
+        let result = WorkflowSnapshot(localAggregates: [], syncedRecords: [record(TestFixtures.aggregate(turns: 4))], currentDeviceID: "device")
         #expect(result.dailyMetrics.first?.turnCount == 4)
     }
 
     private func record(_ aggregate: WorkflowDailyAggregate, device: String = "device") -> WorkflowSyncedDailyRecord {
-        WorkflowSyncedDailyRecord(deviceId: device, daily: aggregate.syncedAggregate)
+        WorkflowSyncedDailyRecord(deviceID: device, daily: aggregate.syncedAggregate)
     }
 
     private func snapshot(_ local: WorkflowDailyAggregate, _ remote: [WorkflowSyncedDailyRecord]) -> WorkflowSnapshot {
-        WorkflowSnapshot(localAggregates: [local], syncedRecords: remote, currentDeviceId: "device")
+        WorkflowSnapshot(localAggregates: [local], syncedRecords: remote, currentDeviceID: "device")
     }
 }

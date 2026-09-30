@@ -1,9 +1,111 @@
 import CloudKit
+import CryptoKit
 import Foundation
 import Synchronization
 import Testing
 
 struct CodexTokenHistoryTests {
+    @Test func unchangedTokenStorageDoesNotReplaceFile() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let url = directory.url.appendingPathComponent("cache.json")
+        let values = [turn("main", "a", input: 100)]
+        try CodexTokenFileStorage.save(values, to: url)
+        let before = try #require(WorkflowStorage.fileStat(at: url))
+        try CodexTokenFileStorage.save(values, to: url)
+        let after = try #require(WorkflowStorage.fileStat(at: url))
+        #expect(after.identifier == before.identifier)
+        #expect(after.modifiedAtNanoseconds == before.modifiedAtNanoseconds)
+        #expect(try CodexTokenFileStorage.load([CodexTokenTurn].self, from: url) == values)
+    }
+
+    @Test func tokenIdentitiesMatchExistingEncodingExactly() throws {
+        let bytes = Data((0 ... 255).map(UInt8.init))
+        #expect(CodexTokenTurn.hexString(bytes) == bytes.map { String(format: "%02x", $0) }.joined())
+        #expect(CodexTokenTurn.hexString(Data()).isEmpty)
+        let salt = Data((0 ... 255).map(UInt8.init))
+        for thread in ["", "thread", "中文/路径", "a\u{0000}b", String(repeating: "x", count: 1024)] {
+            let data = try JSONEncoder().encode(["token-turn-v1", thread, "turn"])
+            let expected = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            #expect(CodexTokenTurn.identifier(thread: thread, turn: "turn") == expected)
+            for root in [expected, "other-root"] {
+                let value = CodexTokenTurn(id: expected, rootID: root, updatedAt: TestFixtures.now)
+                let exported = value.pseudonymized(salt: salt)
+                func legacyHash(_ text: String) -> String {
+                    HMAC<SHA256>.authenticationCode(for: Data(text.utf8), using: SymmetricKey(data: salt))
+                        .map { String(format: "%02x", $0) }.joined()
+                }
+                #expect(exported.id == legacyHash(expected))
+                #expect(exported.rootID == legacyHash(root))
+                #expect(exported.updatedAt == value.updatedAt)
+            }
+        }
+    }
+
+    @Test func batchPseudonymsPreserveUpdatedValuesAndAccountIsolation() {
+        let root = turn("main", "a", input: 100)
+        let child = turn("child", "b", root: root.id, input: 200)
+        var updated = child
+        updated.usage = usage(input: 50)
+        updated.rebuiltAt = TestFixtures.now.addingTimeInterval(60)
+        let records = [root, child, updated]
+        for salt in [Data("account-a".utf8), Data("account-b".utf8), Data()] {
+            #expect(CodexTokenTurn.pseudonymized(records, salt: salt) == records.map { $0.pseudonymized(salt: salt) })
+        }
+    }
+
+    @Test func cachedTokenFileChecksBytesAcrossExternalWritesAndDeletion() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let url = directory.url.appendingPathComponent("cache.json")
+        var first = CodexTokenFileCache<[String: Int]>(url: url)
+        var second = CodexTokenFileCache<[String: Int]>(url: url)
+        try first.save(["cursor": 1])
+        #expect(try first.load() == ["cursor": 1])
+        #expect(try second.load() == ["cursor": 1])
+        let initial = try #require(WorkflowStorage.fileStat(at: url))
+        try first.save(["cursor": 1])
+        #expect(WorkflowStorage.fileStat(at: url)?.identifier == initial.identifier)
+        let modifiedAt = try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate]
+        try Data("{\"cursor\":2}".utf8).write(to: url)
+        if let modifiedAt {
+            try FileManager.default.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: url.path)
+        }
+        #expect(WorkflowStorage.fileStat(at: url)?.size == initial.size)
+        #expect(try first.load() == ["cursor": 2])
+        #expect(try second.load() == ["cursor": 2])
+        try second.save(["cursor": 3])
+        #expect(try first.load() == ["cursor": 3])
+        // 内存命中不能跳过另一进程修改后的保存检查点
+        try second.save(["cursor": 4])
+        try first.save(["cursor": 3])
+        #expect(try second.load() == ["cursor": 3])
+        try Data("invalid".utf8).write(to: url)
+        #expect(throws: (any Error).self) { try first.load() }
+        try FileManager.default.removeItem(at: url)
+        #expect(try first.load() == nil)
+        try first.save(["cursor": 3])
+        #expect(try second.load() == ["cursor": 3])
+    }
+
+    @Test func idleRefreshPreservesResultsAndPersistedScanScheduling() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let source = try directory.write(lines(input: 100), to: "sessions/rollout-main.jsonl")
+        let store = makeStore(directory)
+        let original = try await store.refresh(now: TestFixtures.now)
+        let later = TestFixtures.now.addingTimeInterval(60)
+        #expect(try await store.refresh(now: later) == original)
+        let ledgerURL = directory.url.appendingPathComponent("history/ledger.json")
+        let json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: ledgerURL)) as? [String: Any])
+        let cursors = try #require(json["files"] as? [String: [String: Any]])
+        let cursor = try #require(cursors.values.first)
+        #expect(cursor["lastReadAt"] as? Double == later.timeIntervalSinceReferenceDate)
+        let sourceSize = try Data(contentsOf: source).count
+        #expect(cursor["offset"] as? Int == sourceSize)
+        #expect(try await makeStore(directory).refresh(now: later) == original)
+    }
+
     @Test func replayProgressReportsBackfillAndCompletionWithoutIdleOrIncrementalSpam() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

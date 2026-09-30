@@ -52,19 +52,19 @@ nonisolated struct CodexRolloutTokenUsageRecord: Decodable {
 }
 
 nonisolated struct CodexRolloutTokenUsagePayload: Decodable {
-    let threadId: String
-    let sessionId: String
-    let turnId: String
-    let rootTurnId: String
-    let responseId: String
+    let threadID: String
+    let sessionID: String
+    let turnID: String
+    let rootTurnID: String
+    let responseID: String
     let turnTokenUsage: CodexTokenUsage
 
     private enum CodingKeys: String, CodingKey {
-        case threadId = "thread_id"
-        case sessionId = "session_id"
-        case turnId = "turn_id"
-        case rootTurnId = "root_turn_id"
-        case responseId = "response_id"
+        case threadID = "thread_id"
+        case sessionID = "session_id"
+        case turnID = "turn_id"
+        case rootTurnID = "root_turn_id"
+        case responseID = "response_id"
         case turnTokenUsage = "turn_token_usage"
     }
 }

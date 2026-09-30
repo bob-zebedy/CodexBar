@@ -165,8 +165,8 @@ struct CodexActivityCard: View {
             tokenMetric("activity.tokens.total", tokens: usage.totalTokens)
             tokenMetric("activity.tokens.input", tokens: usage.inputTokens)
             tokenMetric("activity.tokens.output", tokens: usage.outputTokens)
-            tokenMetric("activity.tokens.cached-read", tokens: usage.cachedInputTokens)
-            tokenMetric("activity.tokens.cache-write", tokens: usage.cacheWriteInputTokens)
+            tokenMetric("activity.tokens.cached-input", tokens: usage.cachedInputTokens)
+            tokenMetric("activity.tokens.cache-write-input", tokens: usage.cacheWriteInputTokens)
             VStack(spacing: 3) {
                 Text("activity.tokens.cache-hit-rate")
                     .font(.caption2)
@@ -178,7 +178,7 @@ struct CodexActivityCard: View {
                     .contentTransition(.numericText(value: usage.cacheHitRate ?? 0))
             }
             .frame(minWidth: 0, maxWidth: .infinity)
-            tokenMetric("activity.tokens.reasoning", tokens: usage.reasoningOutputTokens)
+            tokenMetric("activity.tokens.reasoning-output", tokens: usage.reasoningOutputTokens)
         }
         .lineLimit(1)
         .animation(.codexStatus, value: usage)

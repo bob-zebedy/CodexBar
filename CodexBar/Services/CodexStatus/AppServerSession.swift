@@ -21,7 +21,7 @@ final nonisolated class AppServerSession {
     private let timeout: TimeInterval
     private let deadline: Date?
     private let logStorage: RequestLogStorage?
-    private var nextId = 1
+    private var nextID = 1
     private var unsupportedMethods: Set<String> = []
 
     private init(
@@ -217,8 +217,8 @@ final nonisolated class AppServerSession {
         params: [String: Any]? = nil,
         as type: Response.Type
     ) throws -> Response {
-        let id = nextId
-        nextId += 1
+        let id = nextID
+        nextID += 1
         let encoded = try encodeMessage(method: method, id: id, params: params)
         let token = logStorage?.beginRequest(method: method, payload: encoded.text) ?? UUID()
 

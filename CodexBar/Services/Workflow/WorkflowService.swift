@@ -108,7 +108,7 @@ actor WorkflowService {
         var snapshot = WorkflowSnapshot(
             localAggregates: localAggregates,
             syncedRecords: syncSnapshot.records,
-            currentDeviceId: syncSnapshot.currentDeviceId
+            currentDeviceID: syncSnapshot.currentDeviceID
         )
         snapshot.tokenUsageByDate = syncSnapshot.tokenUsageByDate ?? CodexTokenTurn.dailyUsage(tokenTurns)
         return snapshot

@@ -167,7 +167,7 @@ nonisolated enum KeepAliveLocalizedMessage {
     static let retryLimitReached = String(localized: "keep-alive.error.retry-limit-reached")
     static let invalidHelperInterface = String(localized: "keep-alive.error.invalid-helper-interface")
     static let connectionInterrupted = String(localized: "keep-alive.error.connection-interrupted")
-    static let autoResetWakeScheduleFailed = String(localized: "keep-alive.error.auto-reset-wake-schedule-failed")
+    static let autoResetWakeScheduleFailed = String(localized: "auto-reset.error.wake-schedule-failed")
 }
 
 nonisolated enum KeepAliveError: LocalizedError {

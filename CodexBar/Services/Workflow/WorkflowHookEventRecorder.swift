@@ -42,9 +42,9 @@ nonisolated enum WorkflowHookEventRecorder {
         let tool = payload.string(for: "tool_name")
         let model = payload.string(for: "model")
         let permission = payload.string(for: "permission_mode")
-        let sessionId = payload.string(for: "session_id")
-        let turnId = payload.string(for: "turn_id")
-        let agentId = payload.string(for: "agent_id")
+        let sessionID = payload.string(for: "session_id")
+        let turnID = payload.string(for: "turn_id")
+        let agentID = payload.string(for: "agent_id")
         let transcriptPath = payload.string(for: "transcript_path")
         let sourcePath = hookEvent == .subagentStop
             ? payload.string(for: "agent_transcript_path") : transcriptPath
@@ -52,7 +52,7 @@ nonisolated enum WorkflowHookEventRecorder {
         let turnContext = readTurnContext(
             transcriptPath: transcriptPath,
             hookEvent: hookEvent,
-            turnId: turnId
+            turnID: turnID
         )
         let event = WorkflowHookEvent(
             timestamp: timestamp,
@@ -64,9 +64,9 @@ nonisolated enum WorkflowHookEventRecorder {
             effort: turnContext?.effort,
             permissionMode: permission,
             approvalReviewer: turnContext?.approvalReviewer,
-            sessionId: sessionId,
-            turnId: turnId,
-            agentId: agentId
+            sessionID: sessionID,
+            turnID: turnID,
+            agentID: agentID
         )
 
         try recordWorkflowTransaction(
@@ -78,17 +78,17 @@ nonisolated enum WorkflowHookEventRecorder {
     private static func readTurnContext(
         transcriptPath: String?,
         hookEvent: CodexHookEvent?,
-        turnId: String?
+        turnID: String?
     ) -> WorkflowTurnContext? {
         guard let hookEvent,
               hookEvent == .userPromptSubmit || hookEvent == .permissionRequest,
-              let turnId,
+              let turnID,
               let transcriptPath else {
             return nil
         }
         return WorkflowTurnContextReader.context(
             transcriptPath: transcriptPath,
-            turnId: turnId
+            turnID: turnID
         )
     }
 
@@ -301,24 +301,24 @@ private nonisolated struct WorkflowRolloutMetadataEnvelope: Decodable {
 
 nonisolated struct WorkflowRolloutMetadataPayload: Decodable {
     let id: String?
-    let sessionId: String?
-    private let explicitParentThreadId: String?
-    var parentThreadId: String? {
-        explicitParentThreadId ?? source?.parentThreadId
+    let sessionID: String?
+    private let explicitParentThreadID: String?
+    var parentThreadID: String? {
+        explicitParentThreadID ?? source?.parentThreadID
     }
 
     let source: WorkflowRolloutSource?
 
     private enum CodingKeys: String, CodingKey {
         case id, source
-        case sessionId = "session_id"
-        case explicitParentThreadId = "parent_thread_id"
+        case sessionID = "session_id"
+        case explicitParentThreadID = "parent_thread_id"
     }
 }
 
 nonisolated struct WorkflowRolloutSource: Decodable {
     let origin: WorkflowEventOrigin
-    var parentThreadId: String?
+    var parentThreadID: String?
 
     init(from decoder: Decoder) throws {
         if let name = try? decoder.singleValueContainer().decode(String.self) {
@@ -333,7 +333,7 @@ nonisolated struct WorkflowRolloutSource: Decodable {
         if let subagentKey = container.allKeys.first(where: { $0.stringValue == "subagent" }) {
             let subagent = try? container.decode(WorkflowRolloutSubagentSource.self, forKey: subagentKey)
             origin = subagent?.origin ?? .unknown
-            parentThreadId = subagent?.parentThreadId
+            parentThreadID = subagent?.parentThreadID
             return
         }
         if let customKey = container.allKeys.first(where: { $0.stringValue == "custom" }),
@@ -355,7 +355,7 @@ nonisolated struct WorkflowRolloutSource: Decodable {
 
 private nonisolated struct WorkflowRolloutSubagentSource: Decodable {
     let origin: WorkflowEventOrigin
-    var parentThreadId: String?
+    var parentThreadID: String?
 
     init(from decoder: Decoder) throws {
         if let name = try? decoder.singleValueContainer().decode(String.self) {
@@ -371,7 +371,7 @@ private nonisolated struct WorkflowRolloutSubagentSource: Decodable {
         if let spawnKey = container.allKeys.first(where: { $0.stringValue == "thread_spawn" }),
            let spawn = try? container.nestedContainer(keyedBy: WorkflowRolloutSourceKey.self, forKey: spawnKey),
            let parentKey = spawn.allKeys.first(where: { $0.stringValue == "parent_thread_id" }) {
-            parentThreadId = try? spawn.decode(String.self, forKey: parentKey)
+            parentThreadID = try? spawn.decode(String.self, forKey: parentKey)
         }
         if let otherKey = container.allKeys.first(where: { $0.stringValue == "other" }) {
             guard let name = try? container.decode(String.self, forKey: otherKey),
@@ -403,7 +403,7 @@ private nonisolated struct WorkflowRolloutSourceKey: CodingKey {
 private nonisolated enum WorkflowTurnContextReader {
     static func context(
         transcriptPath: String,
-        turnId: String
+        turnID: String
     ) -> WorkflowTurnContext? {
         let url = URL(fileURLWithPath: transcriptPath)
         let size = WorkflowStorage.fileSize(at: url)
@@ -428,7 +428,7 @@ private nonisolated enum WorkflowTurnContextReader {
             .reversed() {
             guard envelope.type == "turn_context",
                   let payload = envelope.payload,
-                  payload.turnId == turnId else {
+                  payload.turnID == turnID else {
                 continue
             }
             return WorkflowTurnContext(

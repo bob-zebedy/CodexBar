@@ -20,7 +20,6 @@ final class ActivityCenterPanelController {
     private var cancellables = Set<AnyCancellable>()
     private var presentationTask: Task<Void, Never>?
     private var panelUpdateTask: Task<Void, Never>?
-    private var panelUpdateGeneration = 0
     private lazy var presenter = SidePanelDrawerPresenter(
         animationKey: Metrics.drawerTransformAnimationKey,
         contentViewProvider: { [weak self] in
@@ -221,7 +220,6 @@ final class ActivityCenterPanelController {
 
     private func schedulePanelUpdate(hasContent: Bool) {
         cancelScheduledPanelUpdate()
-        let generation = panelUpdateGeneration
         panelUpdateTask = Task { @MainActor [weak self] in
             if hasContent {
                 await Task.yield()
@@ -229,8 +227,7 @@ final class ActivityCenterPanelController {
                 try? await Task.sleep(for: .seconds(Metrics.contentUpdateDuration))
             }
 
-            guard let self, !Task.isCancelled,
-                  generation == panelUpdateGeneration else {
+            guard let self, !Task.isCancelled else {
                 return
             }
             let snapshot = activityMonitor.snapshot
@@ -248,7 +245,6 @@ final class ActivityCenterPanelController {
     }
 
     private func cancelScheduledPanelUpdate() {
-        panelUpdateGeneration += 1
         panelUpdateTask?.cancel()
         panelUpdateTask = nil
     }

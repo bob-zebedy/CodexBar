@@ -432,10 +432,10 @@ actor HookEventTailReader {
 
             for event in JSONLines.decode(WorkflowHookEvent.self, from: completeData)
                 where event.hookEvent == .userPromptSubmit && event.timestamp < cutoff {
-                guard let sessionId = event.sessionId, let turnId = event.turnId else {
+                guard let sessionID = event.sessionID, let turnID = event.turnID else {
                     continue
                 }
-                let key = CodexActivityPromptReference(sessionId: sessionId, turnId: turnId)
+                let key = CodexActivityPromptReference(sessionID: sessionID, turnID: turnID)
                 guard unresolvedKeys.remove(key) != nil else {
                     continue
                 }

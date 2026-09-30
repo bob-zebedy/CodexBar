@@ -21,8 +21,8 @@ nonisolated enum CodexActivityEvent: Equatable {
 
 /// bootstrap 后需要向更早日期定向查找 Prompt 起点的精确任务引用
 nonisolated struct CodexActivityPromptReference: Hashable {
-    let sessionId: String
-    let turnId: String
+    let sessionID: String
+    let turnID: String
 }
 
 /// 正在运行或等待批准的任务摘要, 不对 UI 暴露原始会话 ID

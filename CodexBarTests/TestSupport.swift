@@ -21,7 +21,7 @@ nonisolated enum TestFixtures {
             timestamp: timestamp, name: name.rawValue, origin: origin,
             directoryPath: "/projects/example", toolName: "exec_command", modelName: "gpt-5",
             effort: "high", permissionMode: nil, approvalReviewer: reviewer,
-            sessionId: session, turnId: turn, agentId: agent
+            sessionID: session, turnID: turn, agentID: agent
         )
     }
 
@@ -35,8 +35,8 @@ nonisolated enum TestFixtures {
         aggregate.eventCount = events
         aggregate.turnCount = turns
         aggregate.sessionCount = 1
-        aggregate.sessionIds = nil
-        aggregate.turnIds = nil
+        aggregate.sessionIDs = nil
+        aggregate.turnIDs = nil
         return aggregate
     }
 }

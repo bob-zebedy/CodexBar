@@ -40,14 +40,14 @@ actor CodexTokenHistoryStore {
                 ledger.files.removeAll()
             }
             let cutoff = WorkflowStorage.retentionCutoffDate(today: now)
-            let files = rolloutFiles(since: cutoff)
+            let files = rolloutFiles(since: cutoff).map { (url: $0, key: fileKey($0)) }
             var remaining = byteBudget
             // 每轮先处理上次尚未扫描的文件, 防止大型活跃文件让历史补读饥饿
             let ordered = files.map { file in
                 (
-                    url: file,
-                    lastReadAt: ledger.files[fileKey(file)]?.lastReadAt ?? .distantPast,
-                    modifiedAt: (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                    file: file,
+                    lastReadAt: ledger.files[file.key]?.lastReadAt ?? .distantPast,
+                    modifiedAt: (try? file.url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
                 )
             }.sorted { lhs, rhs in
                 if lhs.lastReadAt != rhs.lastReadAt {
@@ -57,17 +57,17 @@ actor CodexTokenHistoryStore {
                 if lhs.modifiedAt != rhs.modifiedAt {
                     return lhs.modifiedAt > rhs.modifiedAt
                 }
-                return lhs.url.path < rhs.url.path
-            }.map(\.url)
+                return lhs.file.url.path < rhs.file.url.path
+            }.map(\.file)
             var results: [String: TokenHistoryScanResult] = [:]
             for file in ordered where remaining > 0 {
                 try Task.checkCancellation()
-                results[fileKey(file)] = try scan(file, ledger: &ledger, remaining: &remaining, now: now, baseline: baseline)
+                results[file.key] = try scan(file.url, key: file.key, ledger: &ledger, remaining: &remaining, now: now, baseline: baseline)
             }
             let roots = Set(ledger.turns.values.filter { $0.updatedAt >= cutoff }.map(\.rootID))
             ledger.turns = ledger.turns.filter { $0.value.updatedAt >= cutoff || roots.contains($0.key) }
             ledger.recoveryCutoffs = ledger.recoveryCutoffs?.filter { ledger.turns[$0.key] != nil }
-            let fileKeys = Set(files.map(fileKey))
+            let fileKeys = Set(files.map(\.key))
             ledger.files = ledger.files.filter { fileKeys.contains($0.key) }
             try CodexTokenFileStorage.save(ledger, to: url)
             let progress = replayProgress(files: files, ledger: ledger, results: results, batchBytes: byteBudget - remaining, duration: duration)
@@ -77,12 +77,11 @@ actor CodexTokenHistoryStore {
     }
 
     private func replayProgress(
-        files: [URL], ledger: TokenHistoryLedger, results: [String: TokenHistoryScanResult], batchBytes: Int, duration: LogDuration
+        files: [(url: URL, key: String)], ledger: TokenHistoryLedger, results: [String: TokenHistoryScanResult], batchBytes: Int, duration: LogDuration
     ) -> CodexTokenReplayProgress {
         var progress = CodexTokenReplayProgress(totalFiles: files.count, batchBytes: batchBytes, elapsed: duration.elapsed)
-        for file in files {
-            let key = fileKey(file)
-            guard let stat = WorkflowStorage.fileStat(at: file) else {
+        for (url, key) in files {
+            guard let stat = WorkflowStorage.fileStat(at: url) else {
                 progress.unavailableFiles += 1
                 continue
             }
@@ -130,7 +129,7 @@ actor CodexTokenHistoryStore {
 
     @discardableResult
     private func scan(
-        _ url: URL, ledger: inout TokenHistoryLedger, remaining: inout Int, now: Date,
+        _ url: URL, key: String? = nil, ledger: inout TokenHistoryLedger, remaining: inout Int, now: Date,
         snapshot: WorkflowFileStat? = nil, baseline: CodexTokenHistoryBaseline? = nil
     ) throws -> TokenHistoryScanResult {
         guard let source = try openSource(url, snapshot: snapshot) else { return .unavailable }
@@ -138,7 +137,7 @@ actor CodexTokenHistoryStore {
         defer { try? handle.close() }
         let size = snapshot?.size ?? source.stat.size
         let inode = source.stat.identifier
-        let key = fileKey(url)
+        let key = key ?? fileKey(url)
         var cursor = ledger.files[key] ?? TokenHistoryCursor(inode: inode)
         if cursor.inode != inode || cursor.offset > size {
             cursor = TokenHistoryCursor(inode: inode)
@@ -228,14 +227,14 @@ actor CodexTokenHistoryStore {
             }
             return nil
         }
-        return TokenHistoryReadSource(stat: stat, thread: thread, session: metadata.sessionId ?? thread, handle: handle)
+        return TokenHistoryReadSource(stat: stat, thread: thread, session: metadata.sessionID ?? thread, handle: handle)
     }
 
     private func boundaryHash(_ handle: FileHandle, at offset: UInt64) throws -> String {
         let count = min(offset, 512)
         try handle.seek(toOffset: offset - count)
         let data = try handle.read(upToCount: Int(count)) ?? Data()
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return CodexTokenTurn.hexString(SHA256.hash(data: data))
     }
 
     private func consume(
@@ -245,12 +244,12 @@ actor CodexTokenHistoryStore {
         guard let envelope = try? JSONDecoder().decode(TokenHistoryLine.self, from: line) else { return }
         if envelope.type == "token_usage_record" {
             guard let payload = try? JSONDecoder().decode(CodexRolloutTokenUsageRecord.self, from: line).payload,
-                  payload.threadId == thread, payload.sessionId == session,
-                  !payload.turnId.isEmpty, !payload.rootTurnId.isEmpty, !payload.responseId.isEmpty,
+                  payload.threadID == thread, payload.sessionID == session,
+                  !payload.turnID.isEmpty, !payload.rootTurnID.isEmpty, !payload.responseID.isEmpty,
                   payload.turnTokenUsage.isValid, let timestamp = envelope.date else { return }
-            let id = CodexTokenTurn.identifier(thread: thread, turn: payload.turnId)
+            let id = CodexTokenTurn.identifier(thread: thread, turn: payload.turnID)
             var value = CodexTokenTurn(
-                id: id, rootID: CodexTokenTurn.identifier(thread: session, turn: payload.rootTurnId),
+                id: id, rootID: CodexTokenTurn.identifier(thread: session, turn: payload.rootTurnID),
                 startedAt: ledger.turns[id]?.startedAt, updatedAt: timestamp,
                 usage: payload.turnTokenUsage, rebuiltAt: ledger.turns[id]?.rebuiltAt
             )
@@ -262,7 +261,7 @@ actor CodexTokenHistoryStore {
             guard timestamp > (ledger.recoveryCutoffs?[id] ?? .distantPast) else { return }
             ledger.turns[id] = ledger.turns[id]?.merging(value) ?? value
         } else if envelope.type == "event_msg", ["task_started", "turn_started"].contains(envelope.payload?.type ?? ""),
-                  let turn = envelope.payload?.turnId, !turn.isEmpty,
+                  let turn = envelope.payload?.turnID, !turn.isEmpty,
                   let timestamp = envelope.payload?.startedAt.flatMap(TokenHistoryLine.eventDate) ?? envelope.date {
             let id = CodexTokenTurn.identifier(thread: thread, turn: turn)
             let value = CodexTokenTurn(
@@ -277,7 +276,7 @@ actor CodexTokenHistoryStore {
     }
 
     private func fileKey(_ url: URL) -> String {
-        SHA256.hash(data: Data(url.path.utf8)).map { String(format: "%02x", $0) }.joined()
+        CodexTokenTurn.hexString(SHA256.hash(data: Data(url.path.utf8)))
     }
 }
 
@@ -383,7 +382,7 @@ private nonisolated enum CodexTokenRebuildError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .sourceChanged: String(localized: "workflow.rebuild.error.source-changed")
-        case .alreadyRunning: String(localized: "workflow.rebuild.error.already-running")
+        case .alreadyRunning: String(localized: "workflow.rebuild.error.token-history-already-running")
         }
     }
 }
@@ -507,11 +506,11 @@ private nonisolated struct TokenHistoryLine: Decodable {
 
 private nonisolated struct TokenHistoryEvent: Decodable {
     let type: String?
-    let turnId: String?
+    let turnID: String?
     let startedAt: Double?
     enum CodingKeys: String, CodingKey {
         case type
-        case turnId = "turn_id"
+        case turnID = "turn_id"
         case startedAt = "started_at"
     }
 }
@@ -550,6 +549,48 @@ nonisolated enum CodexTokenFileStorage {
     }
 
     static func save(_ value: some Encodable, to url: URL) throws {
-        try JSONLines.stableEncoder.encode(value).write(to: url, options: .atomic)
+        let data = try JSONLines.stableEncoder.encode(value)
+        guard (try? Data(contentsOf: url)) != data else { return }
+        try data.write(to: url, options: .atomic)
+    }
+}
+
+/// 调用方持有文件锁, 每次核对磁盘字节后复用解码结果, 不依赖 mtime 判断跨进程修改
+nonisolated struct CodexTokenFileCache<Value: Codable & Equatable> {
+    let url: URL
+    private var data: Data?
+    private var value: Value?
+
+    init(url: URL) {
+        self.url = url
+    }
+
+    mutating func load() throws -> Value? {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            data = nil
+            value = nil
+            return nil
+        }
+        let current = try Data(contentsOf: url)
+        if current == data {
+            return value
+        }
+        let decoded = try JSONDecoder().decode(Value.self, from: current)
+        data = current
+        value = decoded
+        return decoded
+    }
+
+    mutating func save(_ updated: Value) throws {
+        let current = try? Data(contentsOf: url)
+        if let current, current == data, updated == value {
+            return
+        }
+        let encoded = try JSONLines.stableEncoder.encode(updated)
+        if current != encoded {
+            try encoded.write(to: url, options: .atomic)
+        }
+        data = encoded
+        value = updated
     }
 }

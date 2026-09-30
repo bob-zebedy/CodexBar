@@ -65,7 +65,7 @@ nonisolated struct MainPanelLayout: Equatable, Sendable {
 @MainActor
 final class MainPanelSettings: ObservableObject {
     @Published private(set) var layout: MainPanelLayout
-    @Published private(set) var areEntranceAnimationsEnabled: Bool
+    @Published private(set) var areAnimationsEnabled: Bool
 
     private let defaults: UserDefaults
     private var isHookEnabled: Bool?
@@ -73,13 +73,13 @@ final class MainPanelSettings: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         layout = Self.loadLayout(from: defaults)
-        areEntranceAnimationsEnabled = Self.loadEntranceAnimationsEnabled(from: defaults)
+        areAnimationsEnabled = Self.loadAnimationsEnabled(from: defaults)
     }
 
     func refresh() {
-        let loadedEntranceAnimationsEnabled = Self.loadEntranceAnimationsEnabled(from: defaults)
-        if loadedEntranceAnimationsEnabled != areEntranceAnimationsEnabled {
-            areEntranceAnimationsEnabled = loadedEntranceAnimationsEnabled
+        let loadedAnimationsEnabled = Self.loadAnimationsEnabled(from: defaults)
+        if loadedAnimationsEnabled != areAnimationsEnabled {
+            areAnimationsEnabled = loadedAnimationsEnabled
         }
 
         let loadedLayout = Self.loadLayout(from: defaults)
@@ -118,14 +118,14 @@ final class MainPanelSettings: ObservableObject {
         saveAndPublish(updatedLayout)
     }
 
-    func setEntranceAnimationsEnabled(_ enabled: Bool) {
-        guard enabled != areEntranceAnimationsEnabled else {
+    func setAnimationsEnabled(_ enabled: Bool) {
+        guard enabled != areAnimationsEnabled else {
             return
         }
 
         AppLog.settings.notice("动画效果变更: enabled=\(enabled ? 1 : 0)")
-        defaults.set(enabled, forKey: Self.entranceAnimationsEnabledKey)
-        areEntranceAnimationsEnabled = enabled
+        defaults.set(enabled, forKey: Self.animationsEnabledKey)
+        areAnimationsEnabled = enabled
     }
 
     func setSection(
@@ -236,12 +236,12 @@ final class MainPanelSettings: ObservableObject {
         )
     }
 
-    private static func loadEntranceAnimationsEnabled(from defaults: UserDefaults) -> Bool {
-        guard defaults.object(forKey: entranceAnimationsEnabledKey) != nil else {
+    private static func loadAnimationsEnabled(from defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: animationsEnabledKey) != nil else {
             return true
         }
 
-        return defaults.bool(forKey: entranceAnimationsEnabledKey)
+        return defaults.bool(forKey: animationsEnabledKey)
     }
 
     private static func orderLogValue(for layout: MainPanelLayout) -> String {
@@ -250,5 +250,5 @@ final class MainPanelSettings: ObservableObject {
 
     private static let sectionOrderKey = "MainPanel.sectionOrder"
     private static let hiddenSectionsKey = "MainPanel.hiddenSections"
-    private static let entranceAnimationsEnabledKey = "MainPanel.entranceAnimationsEnabled"
+    private static let animationsEnabledKey = "MainPanel.entranceAnimationsEnabled"
 }

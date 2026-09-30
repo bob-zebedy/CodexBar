@@ -11,7 +11,7 @@ extension CodexActivityMonitor {
             return
         }
 
-        let match = matchingTerminalTask(for: event, allowsAnonymousFallback: event.sessionId == nil)
+        let match = matchingTerminalTask(for: event, allowsAnonymousFallback: event.sessionID == nil)
         let key: CodexActivityTaskKey
         let task: CodexActivityTask?
         switch match {
@@ -245,8 +245,8 @@ extension CodexActivityMonitor {
 
     func recordEndedTask(_ key: CodexActivityTaskKey, at date: Date) {
         recentlyEndedTaskAt[key] = max(recentlyEndedTaskAt[key] ?? .distantPast, date)
-        if let sessionId = key.sessionId {
-            let sessionKey = CodexActivityTaskKey.session(sessionId)
+        if let sessionID = key.sessionID {
+            let sessionKey = CodexActivityTaskKey.session(sessionID)
             recentlyEndedTaskAt[sessionKey] = max(recentlyEndedTaskAt[sessionKey] ?? .distantPast, date)
         }
     }

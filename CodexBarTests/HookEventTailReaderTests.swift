@@ -13,7 +13,7 @@ struct HookEventTailReaderTests {
         let url = try directory.write(old.jsonLineData() + current.jsonLineData(), to: path)
         let reader = HookEventTailReader(eventsDirectoryURL: directory.url, now: { now }, onBatch: recorder.receive)
         await reader.start()
-        #expect(recorder.bootstrapEvents.map(\.turnId) == ["current"])
+        #expect(recorder.bootstrapEvents.map(\.turnID) == ["current"])
         #expect(recorder.liveEvents.isEmpty)
         let live = TestFixtures.event(.preToolUse, at: now.addingTimeInterval(1), turn: "live")
         try append(live.jsonLineData(), to: url)
@@ -22,7 +22,7 @@ struct HookEventTailReaderTests {
         await reader.stop()
         #expect(first == .completed)
         #expect(second == .completed)
-        #expect(recorder.liveEvents.map(\.turnId) == ["live"])
+        #expect(recorder.liveEvents.map(\.turnID) == ["live"])
     }
 
     @Test func partialLiveLineWaitsForNewlineAndIsDeliveredOnce() async throws {
@@ -57,7 +57,7 @@ struct HookEventTailReaderTests {
         await reader.stop()
         #expect(result == .completed)
         #expect(recorder.bootstrapCount == 2)
-        #expect(recorder.bootstrapEvents.map(\.turnId) == ["replacement"])
+        #expect(recorder.bootstrapEvents.map(\.turnID) == ["replacement"])
         #expect(recorder.liveEvents.isEmpty)
     }
 

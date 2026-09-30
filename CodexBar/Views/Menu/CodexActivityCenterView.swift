@@ -336,7 +336,7 @@ struct CodexActivityCenterView: View {
                         text: detail,
                         tint: tint,
                         effect: presentationState.isPresented
-                            && mainPanelSettings.areEntranceAnimationsEnabled
+                            && mainPanelSettings.areAnimationsEnabled
                             ? effect : .none
                     )
                     if let tokenUsage {

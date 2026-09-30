@@ -7,23 +7,23 @@ enum CodexActivityTaskKey: Hashable {
     case anonymous(project: String)
 
     init(event: WorkflowHookEvent) {
-        if let sessionId = event.sessionId, let turnId = event.turnId {
-            self = .turn(session: sessionId, turn: turnId)
-        } else if let sessionId = event.sessionId {
-            self = .session(sessionId)
+        if let sessionID = event.sessionID, let turnID = event.turnID {
+            self = .turn(session: sessionID, turn: turnID)
+        } else if let sessionID = event.sessionID {
+            self = .session(sessionID)
         } else {
             self = .anonymous(project: Self.projectIdentifier(event.projectDisplayName))
         }
     }
 
-    var sessionId: String? {
+    var sessionID: String? {
         switch self {
         case let .turn(session, _), let .session(session): session
         case .anonymous: nil
         }
     }
 
-    var turnId: String? {
+    var turnID: String? {
         if case let .turn(_, turn) = self {
             return turn
         }
@@ -119,7 +119,7 @@ struct PendingTerminalTask {
 struct CodexActivityTask {
     let displayID: UUID
     let key: CodexActivityTaskKey
-    var associatedTurnId: String?
+    var associatedTurnID: String?
     var lifecycleCoverageCheckedAt: Date?
     var incompleteTailCheckedAt: Date?
     var incompleteTailUnchangedSince: Date?
@@ -150,7 +150,7 @@ struct CodexActivityTask {
     ) {
         self.displayID = displayID
         self.key = key
-        associatedTurnId = key.turnId
+        associatedTurnID = key.turnID
         self.state = state
         self.latestEvent = latestEvent
         projectName = event.projectDisplayName
@@ -197,26 +197,26 @@ struct CodexActivityTask {
     }
 
     var turnReference: CodexActivityTurnReference? {
-        guard let sessionId = key.sessionId, let turnId = associatedTurnId else {
+        guard let sessionID = key.sessionID, let turnID = associatedTurnID else {
             return nil
         }
         return CodexActivityTurnReference(
-            sessionId: sessionId,
-            turnId: turnId,
+            threadID: sessionID,
+            turnID: turnID,
             startedAt: startedAt ?? lastActivityAt
         )
     }
 
     var promptReference: CodexActivityPromptReference? {
         guard startedAt == nil,
-              let sessionId = key.sessionId, let turnId = associatedTurnId else {
+              let sessionID = key.sessionID, let turnID = associatedTurnID else {
             return nil
         }
-        return CodexActivityPromptReference(sessionId: sessionId, turnId: turnId)
+        return CodexActivityPromptReference(sessionID: sessionID, turnID: turnID)
     }
 
     var resolvedTurnKey: CodexActivityTaskKey? {
-        guard let session = key.sessionId, let turn = associatedTurnId else { return nil }
+        guard let session = key.sessionID, let turn = associatedTurnID else { return nil }
         return .turn(session: session, turn: turn)
     }
 
@@ -250,8 +250,8 @@ struct CodexActivityTask {
     }
 
     mutating func mergeMetadata(from event: WorkflowHookEvent) {
-        if associatedTurnId == nil, !key.isAnonymous, event.agentId == nil {
-            associatedTurnId = event.turnId
+        if associatedTurnID == nil, !key.isAnonymous, event.agentID == nil {
+            associatedTurnID = event.turnID
         }
         projectName = event.projectDisplayName ?? projectName
         modelName = event.modelName ?? modelName
@@ -287,24 +287,24 @@ struct CodexActivityTask {
     }
 
     mutating func recordSubagentActivity(
-        agentId: String?,
+        agentID: String?,
         isStarting: Bool,
         hasEnded: Bool = false,
         at timestamp: Date
     ) {
-        guard let agentId else {
+        guard let agentID else {
             isSubagentCountReliable = false
             return
         }
 
-        let previous = subagentsByID[agentId]
+        let previous = subagentsByID[agentID]
         if let previous, timestamp < previous.timestamp {
             return
         }
         if !isStarting, previous == nil {
             isSubagentCountReliable = false
         }
-        subagentsByID[agentId] = CodexSubagentObservation(
+        subagentsByID[agentID] = CodexSubagentObservation(
             isRunning: isStarting && !hasEnded,
             timestamp: timestamp
         )
@@ -343,14 +343,14 @@ struct CodexActivityTask {
 
     func executionKey(for event: WorkflowHookEvent) -> CodexActivityExecutionKey {
         CodexActivityExecutionKey(
-            agentId: event.agentId,
-            turnId: event.turnId,
-            isUnattributed: event.agentId == nil && event.origin != .main
+            agentID: event.agentID,
+            turnID: event.turnID,
+            isUnattributed: event.agentID == nil && event.origin != .main
         )
     }
 
     var lastMainHookEventAt: Date {
-        executions.filter { $0.key.agentId == nil && !$0.key.isUnattributed }
+        executions.filter { $0.key.agentID == nil && !$0.key.isUnattributed }
             .values.map(\.lastHookEventAt).max() ?? startedAt ?? .distantPast
     }
 
@@ -466,12 +466,12 @@ struct CodexActivityTask {
 }
 
 struct CodexActivityExecutionKey: Hashable {
-    let agentId: String?
-    let turnId: String?
+    let agentID: String?
+    let turnID: String?
     var isUnattributed = false
 
     var isReliable: Bool {
-        turnId != nil && !isUnattributed
+        turnID != nil && !isUnattributed
     }
 }
 

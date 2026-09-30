@@ -303,8 +303,8 @@ final class CodexNotificationService: NSObject {
             for window in limit.windows where window.hasData {
                 let stateKey = Self.quotaWindowStateKey(
                     accountKey: accountKey,
-                    limitId: limit.limitId,
-                    windowId: window.id
+                    limitID: limit.limitID,
+                    windowID: window.id
                 )
                 body(window, limit, stateKey)
             }
@@ -724,10 +724,10 @@ final class CodexNotificationService: NSObject {
 
     private nonisolated static func quotaWindowStateKey(
         accountKey: String,
-        limitId: String,
-        windowId: String
+        limitID: String,
+        windowID: String
     ) -> String {
-        "\(accountKey)|\(limitId)|\(windowId)"
+        "\(accountKey)|\(limitID)|\(windowID)"
     }
 
     private nonisolated static func creditExpiryReminderDates(for expirationDate: Date) -> [Date] {

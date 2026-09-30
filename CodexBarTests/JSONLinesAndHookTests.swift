@@ -30,7 +30,7 @@ struct JSONLinesAndHookTests {
         """)
         #expect(event.hookEvent == .userPromptSubmit)
         #expect(event.origin == .unknown)
-        #expect(event.sessionId == nil)
+        #expect(event.sessionID == nil)
         #expect(event.toolName == nil)
     }
 
@@ -46,7 +46,7 @@ struct JSONLinesAndHookTests {
             timestamp: TestFixtures.now, name: "PreToolUse", origin: .main,
             directoryPath: "/projects/a\"b", toolName: "line\nbreak", modelName: nil,
             effort: nil, permissionMode: nil, approvalReviewer: nil,
-            sessionId: "session", turnId: "turn", agentId: "agent"
+            sessionID: "session", turnID: "turn", agentID: "agent"
         )
         let data = try event.jsonLineData()
         #expect(data.filter { $0 == JSONLines.newlineByte }.count == 1)

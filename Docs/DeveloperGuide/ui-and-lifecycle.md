@@ -164,7 +164,7 @@ popover 和备用面板分别持有 `MenuSurfaceAnimationState`。展示前将 `
 
 `CodexActivityCard` 使用 `primaryActivity`，优先显示等待批准，其次是运行中；无活跃任务时按结束时间选择最新的完成或终止，时间相同优先终止。`isActivelyPreventingSleep` 为 `true` 且卡片数据可用时显示青绿色 `sun.max.fill`，tooltip 按 `sleepPreventionSource` 显示来源。所属宿主的 `mainPanelAnimationsEnabled` 开启时，太阳徽标匀速顺时针旋转；关闭时移除旋转视图并显示静态图标。
 
-活动卡片和任务中心共用 `CodexActivityStatusText`，文字颜色跟随任务状态。运行时显示扫光，等待批准时显示橙色粒子，完成和终止时静态显示。卡片状态文字动画由 `mainPanelAnimationsEnabled` 控制，任务中心状态文字动画要求 `presentationState.isPresented` 和 `MainPanelSettings.areEntranceAnimationsEnabled` 同时开启。每个面板共用一条粒子时间线，只从可见的等待文字发射粒子，按面板边界裁剪；没有发射源时移除时间线。
+活动卡片和任务中心共用 `CodexActivityStatusText`，文字颜色跟随任务状态。运行时显示扫光，等待批准时显示橙色粒子，完成和终止时静态显示。卡片状态文字动画由 `mainPanelAnimationsEnabled` 控制，任务中心状态文字动画要求 `presentationState.isPresented` 和 `MainPanelSettings.areAnimationsEnabled` 同时开启。每个面板共用一条粒子时间线，只从可见的等待文字发射粒子，按面板边界裁剪；没有发射源时移除时间线。
 
 活动卡片在 `primaryActivity.tokenUsage` 可用时展示 Token 指标和分割线。状态行固定在卡片顶部，卡片高度随 Token 区域显隐调整。
 

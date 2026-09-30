@@ -2,6 +2,21 @@ import Foundation
 import Testing
 
 struct SettingsAndMaintenanceTests {
+    @Test func mainPanelAnimationsPreserveStoredPreferenceAndDefault() throws {
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let defaults = preferences.defaults
+        #expect(MainPanelSettings(defaults: defaults).areAnimationsEnabled)
+        defaults.set(false, forKey: "MainPanel.entranceAnimationsEnabled")
+        let settings = MainPanelSettings(defaults: defaults)
+        #expect(!settings.areAnimationsEnabled)
+        settings.setAnimationsEnabled(true)
+        #expect(defaults.bool(forKey: "MainPanel.entranceAnimationsEnabled"))
+        defaults.set(false, forKey: "MainPanel.entranceAnimationsEnabled")
+        settings.refresh()
+        #expect(!settings.areAnimationsEnabled)
+    }
+
     @Test func rebuildRangeIncludesDatesWithoutHookEvents() {
         let range = RebuildDateRange.starting(at: "2026-09-15").completing(with: "2026-09-17")
         #expect(range.dateKeys == ["2026-09-15", "2026-09-16", "2026-09-17"])

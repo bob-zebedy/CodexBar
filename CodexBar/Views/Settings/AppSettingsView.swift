@@ -267,7 +267,7 @@ private extension AppSettingsView {
             VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
                 mainPanelLayoutRow
                 LiquidGlassDivider()
-                MainPanelEntranceAnimationsSettingsRow(settings: mainPanelSettings)
+                MainPanelAnimationsSettingsRow(settings: mainPanelSettings)
                 LiquidGlassDivider()
                 TaskGlowSettingsRow(
                     settings: taskGlowSettings,
@@ -835,9 +835,9 @@ private extension AppSettingsView {
             localized: "workflow.rebuild.summary.completed",
             defaultValue: "\(summary.rebuiltDateCount, specifier: "%lld")\(summary.eventCount, specifier: "%lld")"
         )
-        message += String(localized: "workflow.rebuild.summary.tokens", defaultValue: "\(summary.tokenTurnCount, specifier: "%lld")")
+        message += String(localized: "workflow.rebuild.summary.token-record-count", defaultValue: "\(summary.tokenTurnCount, specifier: "%lld")")
         if summary.didFailTokenRebuild {
-            message += String(localized: "workflow.rebuild.summary.tokens-failed")
+            message += String(localized: "workflow.rebuild.summary.token-history-incomplete")
         }
         if summary.corruptLineCount > 0 {
             message += String(localized: "workflow.rebuild.summary.skipped-invalid-events", defaultValue: "\(summary.corruptLineCount, specifier: "%lld")")

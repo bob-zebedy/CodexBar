@@ -11,7 +11,7 @@ struct CodexActivityTaskTests {
     }
 
     @Test func taskIdentitySeparatesSessionsTurnsAndAnonymousProjects() {
-        #expect(CodexActivityTaskKey(event: TestFixtures.event()).sessionId == "session-a")
+        #expect(CodexActivityTaskKey(event: TestFixtures.event()).sessionID == "session-a")
         #expect(CodexActivityTaskKey(event: TestFixtures.event(turn: nil)).isSessionOnly)
         let first = CodexActivityTaskKey.turn(session: "ab", turn: "c").activityProtectionIdentifier
         let second = CodexActivityTaskKey.turn(session: "a", turn: "bc").activityProtectionIdentifier
@@ -83,7 +83,7 @@ struct CodexActivityTaskTests {
         let now = TestFixtures.now.addingTimeInterval(3600)
         var state = incompleteTail(since: TestFixtures.now)
         state.lastExecutionProgressAt = now
-        let owner = CodexActivityExecutionKey(agentId: nil, turnId: "turn-a")
+        let owner = CodexActivityExecutionKey(agentID: nil, turnID: "turn-a")
         task.recordLifecycleRead(state, at: now)
         task.mergeExecutionLifecycle(state, owner: owner)
         #expect(task.state == .waitingApproval)
@@ -100,7 +100,7 @@ struct CodexActivityTaskTests {
 
     private func incompleteTail(since date: Date) -> CodexSessionTaskLifecycleState {
         CodexSessionTaskLifecycleState(
-            sessionId: "session-a", turnId: "turn-a", startedAt: nil, approvalReviewer: nil, effort: nil,
+            requestedThreadID: "session-a", turnID: "turn-a", startedAt: nil, approvalReviewer: nil, effort: nil,
             lastProgressAt: nil, terminal: nil, readStatus: .incomplete, hasContext: true,
             incompleteTailUnchangedSince: date
         )
@@ -213,20 +213,20 @@ struct CodexActivityTaskTests {
     @Test func subagentCountDeduplicatesAndRejectsOlderEvents() {
         var task = makeTask()
         #expect(task.snapshot.activeSubagentCount == 0)
-        task.recordSubagentActivity(agentId: "agent", isStarting: true, at: TestFixtures.now)
-        task.recordSubagentActivity(agentId: "agent", isStarting: true, at: TestFixtures.now)
+        task.recordSubagentActivity(agentID: "agent", isStarting: true, at: TestFixtures.now)
+        task.recordSubagentActivity(agentID: "agent", isStarting: true, at: TestFixtures.now)
         #expect(task.snapshot.activeSubagentCount == 1)
-        task.recordSubagentActivity(agentId: "agent", isStarting: false, at: TestFixtures.now.addingTimeInterval(2))
-        task.recordSubagentActivity(agentId: "agent", isStarting: true, at: TestFixtures.now.addingTimeInterval(1))
+        task.recordSubagentActivity(agentID: "agent", isStarting: false, at: TestFixtures.now.addingTimeInterval(2))
+        task.recordSubagentActivity(agentID: "agent", isStarting: true, at: TestFixtures.now.addingTimeInterval(1))
         #expect(task.snapshot.activeSubagentCount == 0)
     }
 
     @Test func missingSubagentIdentityAndUnmatchedStopMakeCountUnavailable() {
         var missing = makeTask()
-        missing.recordSubagentActivity(agentId: nil, isStarting: true, at: TestFixtures.now)
+        missing.recordSubagentActivity(agentID: nil, isStarting: true, at: TestFixtures.now)
         #expect(missing.snapshot.activeSubagentCount == nil)
         var unmatched = makeTask()
-        unmatched.recordSubagentActivity(agentId: "unknown", isStarting: false, at: TestFixtures.now)
+        unmatched.recordSubagentActivity(agentID: "unknown", isStarting: false, at: TestFixtures.now)
         #expect(unmatched.snapshot.activeSubagentCount == nil)
     }
 
@@ -243,12 +243,12 @@ struct CodexActivityTaskTests {
         var task = makeTask(TestFixtures.event(reviewer: nil))
         let requestedWaiting = task.recordApprovalRequest(from: TestFixtures.event(.permissionRequest, reviewer: nil))
         #expect(!requestedWaiting)
-        let otherOwner = CodexActivityExecutionKey(agentId: "other", turnId: "turn-a")
+        let otherOwner = CodexActivityExecutionKey(agentID: "other", turnID: "turn-a")
         task.mergeApprovalContext(reviewer: .user, observedAt: TestFixtures.now, owner: otherOwner)
         let resolvedOtherExecution = task.resolvePendingApprovals()
         #expect(!resolvedOtherExecution)
         #expect(task.state == .running)
-        let owner = CodexActivityExecutionKey(agentId: nil, turnId: "turn-a")
+        let owner = CodexActivityExecutionKey(agentID: nil, turnID: "turn-a")
         task.mergeApprovalContext(reviewer: .user, observedAt: TestFixtures.now, owner: owner)
         let resolvedOwner = task.resolvePendingApprovals()
         #expect(resolvedOwner)
@@ -273,10 +273,10 @@ struct CodexActivityTaskTests {
         let agentRequest = TestFixtures.event(.permissionRequest, at: TestFixtures.now.addingTimeInterval(1), agent: "agent", origin: .auxiliary)
         let agentEnteredWaiting = task.recordApprovalRequest(from: agentRequest)
         #expect(!agentEnteredWaiting)
-        task.finishExecution(CodexActivityExecutionKey(agentId: nil, turnId: "turn-a"), at: TestFixtures.now.addingTimeInterval(2))
+        task.finishExecution(CodexActivityExecutionKey(agentID: nil, turnID: "turn-a"), at: TestFixtures.now.addingTimeInterval(2))
         #expect(task.state == .waitingApproval)
         #expect(task.displayedApproval?.requestedAt == TestFixtures.now.addingTimeInterval(1))
-        task.finishExecution(CodexActivityExecutionKey(agentId: "agent", turnId: "turn-a"), at: TestFixtures.now.addingTimeInterval(3))
+        task.finishExecution(CodexActivityExecutionKey(agentID: "agent", turnID: "turn-a"), at: TestFixtures.now.addingTimeInterval(3))
         #expect(task.state == .running)
     }
 
@@ -287,14 +287,14 @@ struct CodexActivityTaskTests {
         let lateRequestChanged = task.recordApprovalRequest(from: TestFixtures.event(.permissionRequest))
         #expect(!lateRequestChanged)
         #expect(task.state == .running)
-        task.finishExecution(CodexActivityExecutionKey(agentId: nil, turnId: "turn-a"), at: progress)
+        task.finishExecution(CodexActivityExecutionKey(agentID: nil, turnID: "turn-a"), at: progress)
         #expect(!task.acceptsExecutionEvent(TestFixtures.event(.preToolUse, at: progress.addingTimeInterval(1))))
     }
 
     @Test func equalTimestampRolloutProgressDoesNotDismissApproval() {
         var task = makeTask()
         _ = task.recordApprovalRequest(from: TestFixtures.event(.permissionRequest))
-        let owner = CodexActivityExecutionKey(agentId: nil, turnId: "turn-a")
+        let owner = CodexActivityExecutionKey(agentID: nil, turnID: "turn-a")
         task.mergeExecutionProgress(at: TestFixtures.now, owner: owner)
         #expect(task.state == .waitingApproval)
         task.mergeExecutionProgress(at: TestFixtures.now.addingTimeInterval(0.001), owner: owner)

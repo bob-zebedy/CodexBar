@@ -39,7 +39,7 @@ nonisolated struct CodexQuotaSnapshot: Equatable {
 
     var codexLimit: CodexQuotaLimitSnapshot? {
         limits.first {
-            $0.limitId.compare("codex", options: [.caseInsensitive]) == .orderedSame
+            $0.limitID.compare("codex", options: [.caseInsensitive]) == .orderedSame
         }
     }
 
@@ -54,12 +54,12 @@ nonisolated struct CodexQuotaSnapshot: Equatable {
 
 /// 单个额度类型的展示快照, 例如 codex 或其他 limit id
 nonisolated struct CodexQuotaLimitSnapshot: Equatable, Identifiable {
-    let limitId: String
+    let limitID: String
     let limitName: String?
     let windows: [QuotaWindow]
 
     var id: String {
-        limitId
+        limitID
     }
 
     func window(ofKind kind: QuotaWindowKind) -> QuotaWindow? {
@@ -71,7 +71,7 @@ nonisolated struct CodexQuotaLimitSnapshot: Equatable, Identifiable {
             return limitName.capitalizingFirstLetter()
         }
 
-        return limitId.capitalizingFirstLetter()
+        return limitID.capitalizingFirstLetter()
     }
 }
 
@@ -139,8 +139,14 @@ nonisolated struct QuotaWindow: Equatable, Identifiable {
 /// app-server account/rateLimits 原始响应模型
 nonisolated struct AccountRateLimitsResponse: Decodable {
     let rateLimits: RateLimitSnapshot
-    let rateLimitsByLimitId: [String: RateLimitSnapshot]?
+    let rateLimitsByLimitID: [String: RateLimitSnapshot]?
     let rateLimitResetCredits: RateLimitResetCreditsSummary?
+
+    private enum CodingKeys: String, CodingKey {
+        case rateLimits
+        case rateLimitsByLimitID = "rateLimitsByLimitId"
+        case rateLimitResetCredits
+    }
 }
 
 /// app-server 返回的可用额度重置次数和明细
@@ -233,12 +239,17 @@ nonisolated enum AutoResetServiceError: Error, Sendable {
 
 /// app-server 返回的单个 limit, primary/secondary 可能独立缺失
 nonisolated struct RateLimitSnapshot: Decodable {
-    let limitId: String?
+    let limitID: String?
     let limitName: String?
     let planType: String?
     let primary: RateLimitWindow?
     let secondary: RateLimitWindow?
     let credits: RateLimitCreditsSnapshot?
+
+    private enum CodingKeys: String, CodingKey {
+        case limitID = "limitId"
+        case limitName, planType, primary, secondary, credits
+    }
 }
 
 /// app-server 返回的 Credits 余额状态
@@ -275,7 +286,7 @@ nonisolated extension CodexQuotaSnapshot {
 
         let limits = rateLimitsResponse.map { response in
             Self.orderedSnapshots(from: response).compactMap { entry in
-                CodexQuotaLimitSnapshot(limitId: entry.limitId, snapshot: entry.snapshot)
+                CodexQuotaLimitSnapshot(limitID: entry.limitID, snapshot: entry.snapshot)
             }
         } ?? []
 
@@ -308,41 +319,41 @@ nonisolated extension CodexQuotaSnapshot {
     }
 
     private static func primaryCredits(from response: AccountRateLimitsResponse) -> RateLimitCreditsSnapshot? {
-        let primaryLimitId = response.rateLimits.limitId ?? "codex"
-        return response.rateLimitsByLimitId?[primaryLimitId]?.credits ?? response.rateLimits.credits
+        let primaryLimitID = response.rateLimits.limitID ?? "codex"
+        return response.rateLimitsByLimitID?[primaryLimitID]?.credits ?? response.rateLimits.credits
     }
 
     // 展示顺序: 顶层 rateLimits 指向的主 limit 置顶, 其余按名称排序
     private static func orderedSnapshots(
         from response: AccountRateLimitsResponse
-    ) -> [(limitId: String, snapshot: RateLimitSnapshot)] {
-        let primaryLimitId = response.rateLimits.limitId ?? "codex"
+    ) -> [(limitID: String, snapshot: RateLimitSnapshot)] {
+        let primaryLimitID = response.rateLimits.limitID ?? "codex"
 
-        guard let byLimitId = response.rateLimitsByLimitId, !byLimitId.isEmpty else {
-            return [(primaryLimitId, response.rateLimits)]
+        guard let byLimitID = response.rateLimitsByLimitID, !byLimitID.isEmpty else {
+            return [(primaryLimitID, response.rateLimits)]
         }
 
-        return byLimitId
-            .map { (limitId: $0.key, snapshot: $0.value) }
+        return byLimitID
+            .map { (limitID: $0.key, snapshot: $0.value) }
             .sorted { lhs, rhs in
-                if (lhs.limitId == primaryLimitId) != (rhs.limitId == primaryLimitId) {
-                    return lhs.limitId == primaryLimitId
+                if (lhs.limitID == primaryLimitID) != (rhs.limitID == primaryLimitID) {
+                    return lhs.limitID == primaryLimitID
                 }
 
-                let lhsName = lhs.snapshot.limitName ?? lhs.limitId
-                let rhsName = rhs.snapshot.limitName ?? rhs.limitId
+                let lhsName = lhs.snapshot.limitName ?? lhs.limitID
+                let rhsName = rhs.snapshot.limitName ?? rhs.limitID
                 let nameOrder = lhsName.localizedStandardCompare(rhsName)
                 if nameOrder != .orderedSame {
                     return nameOrder == .orderedAscending
                 }
 
-                return lhs.limitId.localizedStandardCompare(rhs.limitId) == .orderedAscending
+                return lhs.limitID.localizedStandardCompare(rhs.limitID) == .orderedAscending
             }
     }
 }
 
 nonisolated extension CodexQuotaLimitSnapshot {
-    init?(limitId: String, snapshot: RateLimitSnapshot) {
+    init?(limitID: String, snapshot: RateLimitSnapshot) {
         let windows = [(QuotaWindowKind.primary, snapshot.primary), (.secondary, snapshot.secondary)]
             .compactMap { kind, window in
                 window.map { QuotaWindow(kind: kind, window: $0) }
@@ -353,7 +364,7 @@ nonisolated extension CodexQuotaLimitSnapshot {
         }
 
         self.init(
-            limitId: limitId,
+            limitID: limitID,
             limitName: snapshot.limitName,
             windows: windows
         )

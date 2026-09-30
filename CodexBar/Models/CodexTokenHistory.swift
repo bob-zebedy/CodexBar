@@ -13,7 +13,18 @@ nonisolated struct CodexTokenTurn: Codable, Equatable, Identifiable {
     static func identifier(thread: String, turn: String) -> String {
         // 哈希身份域是固定输入, 不随存储 schema 变化, 避免同一轮次生成多个身份
         let data = (try? JSONEncoder().encode(["token-turn-v1", thread, turn])) ?? Data()
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return hexString(SHA256.hash(data: data))
+    }
+
+    static func hexString(_ bytes: some Sequence<UInt8>) -> String {
+        let digits = Array("0123456789abcdef".utf8)
+        var result: [UInt8] = []
+        result.reserveCapacity(bytes.underestimatedCount * 2)
+        for byte in bytes {
+            result.append(digits[Int(byte >> 4)])
+            result.append(digits[Int(byte & 0x0F)])
+        }
+        return String(bytes: result, encoding: .utf8) ?? ""
     }
 
     func merging(_ other: Self) -> Self {
@@ -75,11 +86,33 @@ nonisolated struct CodexTokenTurn: Codable, Equatable, Identifiable {
     }
 
     func pseudonymized(salt: Data) -> Self {
-        func hash(_ value: String) -> String {
-            HMAC<SHA256>.authenticationCode(for: Data(value.utf8), using: SymmetricKey(data: salt))
-                .map { String(format: "%02x", $0) }.joined()
+        let key = SymmetricKey(data: salt)
+        return pseudonymized { value in
+            Self.hexString(HMAC<SHA256>.authenticationCode(for: Data(value.utf8), using: key))
         }
-        return Self(id: hash(id), rootID: hash(rootID), startedAt: startedAt, updatedAt: updatedAt, usage: usage, rebuiltAt: rebuiltAt)
+    }
+
+    static func pseudonymized(_ records: [Self], salt: Data) -> [Self] {
+        let key = SymmetricKey(data: salt)
+        var identities: [String: String] = [:]
+        return records.map { record in
+            record.pseudonymized { value in
+                if let cached = identities[value] {
+                    return cached
+                }
+                let hashed = hexString(HMAC<SHA256>.authenticationCode(for: Data(value.utf8), using: key))
+                identities[value] = hashed
+                return hashed
+            }
+        }
+    }
+
+    private func pseudonymized(hash: (String) -> String) -> Self {
+        let exportedID = hash(id)
+        return Self(
+            id: exportedID, rootID: rootID == id ? exportedID : hash(rootID),
+            startedAt: startedAt, updatedAt: updatedAt, usage: usage, rebuiltAt: rebuiltAt
+        )
     }
 
     static func syncable(_ records: [Self]) -> [Self] {
@@ -102,9 +135,17 @@ nonisolated struct CodexTokenTurn: Codable, Equatable, Identifiable {
 /// 云端身份只通过账户 salt 与本地已发现的轮次匹配, 不导入其他设备的轮次
 nonisolated struct CodexTokenHistoryBaseline {
     let salt: Data
-    let turns: [String: CodexTokenTurn]
+    private let turns: [String: CodexTokenTurn]
+    private let latestRebuiltAt: Date?
+
+    init(salt: Data, turns: [String: CodexTokenTurn]) {
+        self.salt = salt
+        self.turns = turns.filter { $0.value.rebuiltAt != nil }
+        latestRebuiltAt = self.turns.values.compactMap(\.rebuiltAt).max()
+    }
 
     func replacement(for local: CodexTokenTurn) -> CodexTokenTurn? {
+        guard let latestRebuiltAt, latestRebuiltAt > (local.rebuiltAt ?? .distantPast) else { return nil }
         let exported = local.pseudonymized(salt: salt)
         guard let remote = turns[exported.id], let rebuiltAt = remote.rebuiltAt,
               rebuiltAt > (local.rebuiltAt ?? .distantPast), remote.rootID == exported.rootID else { return nil }

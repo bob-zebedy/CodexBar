@@ -119,7 +119,7 @@ struct UsageSummaryView: View {
                 value: Self.dayText(usage?.summary.longestStreakDays)
             )
             textMetric(
-                label: "usage.summary.longest-chat",
+                label: "usage.summary.longest-turn-duration",
                 value: Self.durationText(seconds: usage?.summary.longestRunningTurnSec)
             )
         }
@@ -669,8 +669,8 @@ struct UsageHeatmapDayDetailView: View {
             dailyTokenRow("activity.tokens.total", tokens: usage?.totalTokens, tint: .blue)
             dailyTokenRow("activity.tokens.input", tokens: usage?.inputTokens, tint: .indigo)
             dailyTokenRow("activity.tokens.output", tokens: usage?.outputTokens, tint: .orange)
-            dailyTokenRow("activity.tokens.cached-read", tokens: usage?.cachedInputTokens, tint: .green)
-            dailyTokenRow("activity.tokens.cache-write", tokens: usage?.cacheWriteInputTokens, tint: .purple)
+            dailyTokenRow("activity.tokens.cached-input", tokens: usage?.cachedInputTokens, tint: .green)
+            dailyTokenRow("activity.tokens.cache-write-input", tokens: usage?.cacheWriteInputTokens, tint: .purple)
             metricRowLayout {
                 metricDot(tint: .teal)
                 Text("activity.tokens.cache-hit-rate")
@@ -682,7 +682,7 @@ struct UsageHeatmapDayDetailView: View {
                     comparison: cacheHitRate
                 )
             }
-            dailyTokenRow("activity.tokens.reasoning", tokens: usage?.reasoningOutputTokens, tint: .cyan)
+            dailyTokenRow("activity.tokens.reasoning-output", tokens: usage?.reasoningOutputTokens, tint: .cyan)
         }
     }
 

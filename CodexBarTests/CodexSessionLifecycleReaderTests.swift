@@ -9,7 +9,7 @@ struct CodexSessionLifecycleReaderTests {
         let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
         let state = try #require(await reader.lifecycleStates(for: [reference]).first)
         #expect(state.readStatus == .complete)
-        #expect(state.threadId == "session-a")
+        #expect(state.recordedThreadID == "session-a")
         #expect(state.startedAt == Date(timeIntervalSince1970: 1789459200))
         #expect(state.approvalReviewer == .user)
         #expect(state.effort == "high")
@@ -239,7 +239,7 @@ struct CodexSessionLifecycleReaderTests {
     }
 
     private var reference: CodexActivityTurnReference {
-        CodexActivityTurnReference(sessionId: "session-a", turnId: "turn-a", startedAt: TestFixtures.now)
+        CodexActivityTurnReference(threadID: "session-a", turnID: "turn-a", startedAt: TestFixtures.now)
     }
 
     @Test func tokenUsageUpdatesIncrementallyBeforeTaskCompletion() async throws {
@@ -270,7 +270,7 @@ struct CodexSessionLifecycleReaderTests {
         let state = try #require(await reader.lifecycleStates(for: [reference]).first)
         #expect(state.tokenUsage?.inputTokens == 200)
         #expect(state.tokenUsage?.totalTokens == 210)
-        #expect(state.rootTurnId == "turn-a")
+        #expect(state.rootTurnID == "turn-a")
     }
 
     @Test func lateUsageAfterAbortIsReadWithoutIncludingNextTurn() async throws {
@@ -388,11 +388,11 @@ struct CodexSessionLifecycleReaderTests {
             to: "sessions/\(datePath)/rollout-test-child-a.jsonl"
         )
         let reader = CodexSessionLifecycleReader(codexHomeURL: directory.url)
-        let child = CodexActivityTurnReference(sessionId: "child-a", turnId: "child-turn", startedAt: TestFixtures.now)
+        let child = CodexActivityTurnReference(threadID: "child-a", turnID: "child-turn", startedAt: TestFixtures.now)
         let state = try #require(await reader.lifecycleStates(for: [child]).first)
-        #expect(state.threadId == "child-a")
-        #expect(state.rootSessionId == "session-a")
-        #expect(state.rootTurnId == "turn-a")
+        #expect(state.recordedThreadID == "child-a")
+        #expect(state.rootSessionID == "session-a")
+        #expect(state.rootTurnID == "turn-a")
         #expect(state.tokenUsage?.totalTokens == 110)
     }
 

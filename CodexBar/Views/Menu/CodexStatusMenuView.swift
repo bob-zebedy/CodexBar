@@ -56,11 +56,11 @@ struct CodexStatusMenuView: View {
         }
         .environment(
             \.mainPanelAnimationsEnabled,
-            animationState.allowsAnimations && mainPanelSettings.areEntranceAnimationsEnabled
+            animationState.allowsAnimations && mainPanelSettings.areAnimationsEnabled
         )
         .environment(
             \.mainPanelEntranceAnimationsEnabled,
-            mainPanelSettings.areEntranceAnimationsEnabled
+            mainPanelSettings.areAnimationsEnabled
         )
         .padding(Metrics.padding)
         .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, isOuterSurface: true)

@@ -18,8 +18,11 @@ final class AppUpdater: NSObject, ObservableObject {
 
     private var updaterController: SPUStandardUpdaterController?
     private var clearSettingsStatusMessageTask: Task<Void, Never>?
-    private var isManualCheckInProgress = false
     private var manualCheckTimeoutTask: Task<Void, Never>?
+
+    private var isManualCheckInProgress: Bool {
+        manualCheckTimeoutTask != nil
+    }
 
     private static let missingUpdateConfigurationMessage = String(localized: "updater.status.missing-configuration")
     /// Sparkle 可能既不回调 didFindValidUpdate / didNotFindUpdate 也不回调 didAbortWithError
@@ -90,8 +93,6 @@ final class AppUpdater: NSObject, ObservableObject {
     }
 
     private func beginManualCheck() {
-        isManualCheckInProgress = true
-
         manualCheckTimeoutTask?.cancel()
         manualCheckTimeoutTask = Task { [weak self] in
             try? await Task.sleep(for: Self.manualCheckTimeout)
@@ -99,7 +100,6 @@ final class AppUpdater: NSObject, ObservableObject {
                 return
             }
 
-            isManualCheckInProgress = false
             manualCheckTimeoutTask = nil
         }
     }
@@ -113,7 +113,6 @@ final class AppUpdater: NSObject, ObservableObject {
     private func finishManualCheck() {
         manualCheckTimeoutTask?.cancel()
         manualCheckTimeoutTask = nil
-        isManualCheckInProgress = false
     }
 
     private func showSettingsStatusMessage(_ message: String, autoDismissDelay: Duration? = .seconds(3)) {

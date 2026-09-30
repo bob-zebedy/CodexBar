@@ -1,15 +1,15 @@
 import SwiftUI
 
-struct MainPanelEntranceAnimationsSettingsRow: View {
+struct MainPanelAnimationsSettingsRow: View {
     @ObservedObject var settings: MainPanelSettings
 
     var body: some View {
         SettingsToggleRow(
             icon: "sparkles",
-            title: "settings.main-panel.entrance-animations",
+            title: "settings.main-panel.animations",
             isOn: Binding(
-                get: { settings.areEntranceAnimationsEnabled },
-                set: { settings.setEntranceAnimationsEnabled($0) }
+                get: { settings.areAnimationsEnabled },
+                set: { settings.setAnimationsEnabled($0) }
             )
         )
     }
@@ -28,7 +28,7 @@ struct TaskGlowSettingsRow: View {
     var body: some View {
         SettingsToggleRow(
             icon: "light.max",
-            title: "settings.screen-edge-indicator.title",
+            title: "settings.task-glow.title",
             isOn: Binding(
                 get: { codexHookSettings.isOperable && settings.isEnabled },
                 set: { settings.setEnabled($0) }

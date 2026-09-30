@@ -70,7 +70,7 @@ With sync enabled, rebuilding replaces this device's activity statistics and the
 | --- | --- |
 | Codex service | Read account, quota, and usage data; perform Automatic Reset |
 | Update service | Check for and download CodexBar updates |
-| iCloud | After enabling synchronization, transmit daily Hook statistics and session token data |
+| iCloud | After enabling synchronization, transmit daily Hook statistics and session data |
 
 The proxy applies only to CodexBar’s Codex service connection, not updates, iCloud, or other apps.
 

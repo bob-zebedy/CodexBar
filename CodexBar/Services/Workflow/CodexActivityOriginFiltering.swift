@@ -10,7 +10,7 @@ extension CodexActivityMonitor {
             timestamp: event.timestamp, name: event.name, origin: origin,
             directoryPath: event.directoryPath, toolName: event.toolName, modelName: event.modelName,
             effort: event.effort, permissionMode: event.permissionMode, approvalReviewer: event.approvalReviewer,
-            sessionId: event.sessionId, turnId: event.turnId, agentId: event.agentId
+            sessionID: event.sessionID, turnID: event.turnID, agentID: event.agentID
         )
     }
 
@@ -67,11 +67,11 @@ extension CodexActivityMonitor {
     }
 
     private static func exactTurnKey(for event: WorkflowHookEvent) -> CodexActivityTaskKey? {
-        guard let sessionId = event.sessionId,
-              let turnId = event.turnId else {
+        guard let sessionID = event.sessionID,
+              let turnID = event.turnID else {
             return nil
         }
-        return .turn(session: sessionId, turn: turnId)
+        return .turn(session: sessionID, turn: turnID)
     }
 
     private func discardExcludedActivity(for key: CodexActivityTaskKey) {
@@ -100,17 +100,17 @@ extension CodexActivityMonitor {
 
     private func removeTerminalMemory(for key: CodexActivityTaskKey) {
         guard let removedAt = recentlyEndedTaskAt.removeValue(forKey: key),
-              let sessionId = key.sessionId else {
+              let sessionID = key.sessionID else {
             return
         }
 
-        let sessionKey = CodexActivityTaskKey.session(sessionId)
+        let sessionKey = CodexActivityTaskKey.session(sessionID)
         guard recentlyEndedTaskAt[sessionKey] == removedAt else {
             return
         }
         let remainingSessionDate = recentlyEndedTaskAt.compactMap { candidateKey, date -> Date? in
             guard candidateKey != sessionKey,
-                  candidateKey.sessionId == sessionId else {
+                  candidateKey.sessionID == sessionID else {
                 return nil
             }
             return date

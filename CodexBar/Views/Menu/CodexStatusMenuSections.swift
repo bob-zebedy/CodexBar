@@ -275,7 +275,7 @@ struct UpdatedAtRow: View {
                     color: .blue
                 )
 
-                Text("usage.status.updated")
+                Text("usage.status.last-updated")
                     .foregroundStyle(Self.secondaryTextColor)
 
                 Text(Self.timeFormatter.string(from: snapshot.generatedAt))
