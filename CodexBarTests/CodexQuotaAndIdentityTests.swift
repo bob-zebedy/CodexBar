@@ -33,6 +33,34 @@ struct CodexQuotaAndIdentityTests {
         #expect(!QuotaWindow(kind: .primary, windowDurationMins: nil, usedPercent: nil, resetsAt: nil).hasData)
     }
 
+    @Test func quotaWindowLabelsUseLargestExactUnitAndFourWeekMonths() {
+        let cases: [(minutes: Int, expected: String)] = [
+            (1, "1 Mins"),
+            (59, "59 Mins"),
+            (60, "Hourly"),
+            (90, "90 Mins"),
+            (300, "5 Hours"),
+            (1439, "1439 Mins"),
+            (1440, "Daily"),
+            (1441, "1441 Mins"),
+            (2160, "36 Hours"),
+            (6 * 1440, "6 Days"),
+            (7 * 1440, "Weekly"),
+            (8 * 1440, "8 Days"),
+            (14 * 1440, "2 Weeks"),
+            (21 * 1440, "3 Weeks"),
+            (28 * 1440, "Monthly"),
+            (30 * 1440, "30 Days"),
+            (35 * 1440, "5 Weeks"),
+            (56 * 1440, "2 Months"),
+            (57 * 1440, "57 Days")
+        ]
+        for (minutes, expected) in cases {
+            let window = QuotaWindow(kind: .secondary, windowDurationMins: minutes, usedPercent: 0, resetsAt: nil)
+            #expect(window.label == expected)
+        }
+    }
+
     @Test func primaryLimitPrecedesAlphabeticalLimitsAndUsesMatchingCredits() throws {
         let response = try TestFixtures.decode(AccountRateLimitsResponse.self, """
         {"rateLimits":{"limitId":"codex","primary":{"usedPercent":99}},

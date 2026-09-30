@@ -183,7 +183,6 @@ private extension AppSettingsView {
         static let tabVerticalPadding: CGFloat = 7
         static let tabContentSpacing = padding
         static let windowChromeHeight = padding * 2 + tabBarHeight + tabContentSpacing
-        static let menuBarQuotaPickerWidth: CGFloat = 72
         static let dataUpdateIntervalPickerWidth: CGFloat = 90
         static let syncStatusRowHeight: CGFloat = 16
         static let syncStatusValueWidth: CGFloat = 160
@@ -395,7 +394,7 @@ private extension AppSettingsView {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .controlSize(.small)
-                .frame(width: Metrics.menuBarQuotaPickerWidth)
+                .fixedSize(horizontal: true, vertical: false)
                 .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
         }

@@ -46,9 +46,9 @@ struct QuotaRow: View {
 
 private extension QuotaRow {
     enum Metrics {
-        static let labelWidth: CGFloat = 34
-        static let labelMinimumScaleFactor: CGFloat = 0.75
-        static let labelBarSpacing: CGFloat = 12
+        static let labelWidth: CGFloat = 60
+        static let labelMinimumScaleFactor: CGFloat = 0.8
+        static let labelBarSpacing: CGFloat = 10
         static let barPercentSpacing: CGFloat = 8
         static let percentWidth: CGFloat = 37
         static let percentResetSpacing: CGFloat = 6
@@ -239,7 +239,7 @@ private struct SegmentedQuotaBar: View, Animatable {
 private extension SegmentedQuotaBar {
     enum Metrics {
         static let segmentCount = 50
-        static let segmentWidth: CGFloat = 3.5
+        static let segmentWidth: CGFloat = 3
         static let segmentSpacing: CGFloat = 2
         static let segmentHeight: CGFloat = 12
 

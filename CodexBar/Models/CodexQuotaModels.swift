@@ -124,15 +124,32 @@ nonisolated struct QuotaWindow: Equatable, Identifiable {
             return String(localized: "quota.window.fallback")
         }
 
-        if minutes.isMultiple(of: 1440) {
-            return "\(minutes / 1440)d"
+        let minutesPerHour = 60
+        let minutesPerDay = 24 * minutesPerHour
+        let minutesPerWeek = 7 * minutesPerDay
+        let minutesPerMonth = 4 * minutesPerWeek
+
+        if minutes.isMultiple(of: minutesPerMonth) {
+            let months = minutes / minutesPerMonth
+            return months == 1 ? "Monthly" : "\(months) Months"
         }
 
-        if minutes.isMultiple(of: 60) {
-            return "\(minutes / 60)h"
+        if minutes.isMultiple(of: minutesPerWeek) {
+            let weeks = minutes / minutesPerWeek
+            return weeks == 1 ? "Weekly" : "\(weeks) Weeks"
         }
 
-        return "\(minutes)m"
+        if minutes.isMultiple(of: minutesPerDay) {
+            let days = minutes / minutesPerDay
+            return days == 1 ? "Daily" : "\(days) Days"
+        }
+
+        if minutes.isMultiple(of: minutesPerHour) {
+            let hours = minutes / minutesPerHour
+            return hours == 1 ? "Hourly" : "\(hours) Hours"
+        }
+
+        return "\(minutes) Mins"
     }
 }
 

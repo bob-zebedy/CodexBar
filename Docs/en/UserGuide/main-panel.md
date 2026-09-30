@@ -46,7 +46,7 @@ CodexBar shows every rate-limit group and window returned by Codex.
 
 Each rate-limit window includes:
 
-- A window name, such as `5h` or `7d`
+- A window name, such as `5 Hours` or `Weekly`
 - Remaining percentage
 - A segmented progress bar
 - The next reset time
