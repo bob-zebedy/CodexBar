@@ -83,7 +83,7 @@ nonisolated struct CodexCLIVersionDisplay: Equatable {
     }
 }
 
-/// 并发检测 Codex CLI 与 Codex APP 内置 CLI 的磁盘版本
+/// 并发检测 Codex CLI 与 Codex App 内置 CLI 的磁盘版本
 actor CodexCLIVersionService {
     private let timeout: TimeInterval
     private static let pipeDrainTimeout: TimeInterval = 0.25

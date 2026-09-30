@@ -103,7 +103,7 @@ HTTP 代理也能转发 HTTPS 请求。只有代理端口本身支持 TLS 时才
 | --- | --- |
 | 来源 | 自动优先选择 Codex CLI，找不到时使用 ChatGPT App 或 Codex App 内置的 Codex，也可手动选择 |
 | 重新建立连接 | 使用所选 Codex 来源重新连接，更新 Codex 后可用它立即切换到新版本 |
-| Codex CLI / Codex APP | 查看检测到的版本，点击路径可复制 |
+| Codex CLI / Codex App | 查看检测到的版本，点击路径可复制 |
 | 当前使用 | 当前连接所用的来源和版本 |
 | 不可用（Codex 来源） | 之前使用或选择的来源已无法找到 |
 | CodexBar Helper | 查看后台组件的安装与授权状态 |

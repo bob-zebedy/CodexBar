@@ -103,7 +103,7 @@ Automatic Reset runs independently of notifications. Configure result alerts in 
 | --- | --- |
 | Source | Automatic selection prefers Codex CLI, then Codex bundled with ChatGPT App or Codex App; manual selection is also available |
 | Reconnect | Reconnect using the selected source; use after upgrading Codex to switch immediately to the new version |
-| Codex CLI / Codex APP | View detected versions; click a path to copy it |
+| Codex CLI / Codex App | View detected versions; click a path to copy it |
 | Currently Using | Source and version used by the current connection |
 | Unavailable (Codex source) | A previously used or selected source can no longer be found |
 | CodexBar Helper | View the background component's installation and authorization status |

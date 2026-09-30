@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// 设置窗口根视图, 按通用; 工作流和关于分页汇总设置与版本信息
+/// 设置窗口根视图, 按通用、高级和关于分页汇总设置与版本信息
 struct AppSettingsView: View {
     @EnvironmentObject private var statusViewModel: CodexStatusViewModel
     @EnvironmentObject private var appUpdater: AppUpdater
@@ -631,7 +631,7 @@ private extension AppSettingsView {
     }
 
     /// 返回 nil 表示这一行整个收起
-    /// 正常运行时不必占一行说"一切正常", 是否正在防睡眠由主面板的咖啡杯标记呈现
+    /// 正常运行时不必占一行说"一切正常", 是否正在防睡眠由主面板的太阳标记呈现
     var keepAliveCaption: SettingsStatusCaption? {
         guard keepAliveController.isEnabled else {
             return nil
@@ -919,7 +919,7 @@ private extension AppSettingsView {
         .background {
             ScreenFrameReader(provider: notificationAnchorProvider)
         }
-        // 关掉总开关或被系统拒授权都会让 canShowOptions 转假, 收面板只需要认这一个信号
+        // 关掉总开关或被系统拒绝授权都会让 canShowOptions 转假, 收面板只需要认这一个信号
         .onChange(of: notificationSettings.canShowOptions) { _, canShowOptions in
             guard !canShowOptions else {
                 return

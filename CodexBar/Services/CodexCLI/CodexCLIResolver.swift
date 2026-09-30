@@ -9,7 +9,7 @@ nonisolated enum CodexCLIExecutableSource: String, Equatable {
     var displayName: String {
         switch self {
         case .global: "Codex CLI"
-        case .bundled: "Codex APP"
+        case .bundled: "Codex App"
         }
     }
 }

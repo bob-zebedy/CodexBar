@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Codex CLI/APP 版本区, 同时展示磁盘版本和当前 app-server 运行版本
+/// Codex CLI/App 版本区, 同时展示磁盘版本和当前 app-server 运行版本
 struct CodexVersionSection: View {
     @EnvironmentObject private var animationState: SettingsWindowAnimationState
     let snapshot: CodexCLIVersionSnapshot
