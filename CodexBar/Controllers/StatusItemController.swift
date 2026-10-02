@@ -153,6 +153,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private struct StatusIconState: Equatable {
         let usesErrorImage: Bool
+        let ordinaryUsageAllowed: Bool?
         let progress: StatusIconProgress?
         let activity: CodexActivitySnapshot
 
@@ -432,6 +433,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         .map { loadState, snapshot, selection, activity in
             StatusIconState(
                 usesErrorImage: loadState.isError || snapshot?.hasTrustedData == false,
+                ordinaryUsageAllowed: snapshot?.ordinaryUsageAllowed,
                 progress: StatusIconProgress(snapshot: snapshot, selection: selection),
                 activity: snapshot == nil ? .empty : activity
             )
@@ -582,6 +584,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         statusItem.button?.toolTip = toolTip
         statusIconPresentation.update(
             symbolName: state.symbolName(at: now),
+            ordinaryUsageAllowed: state.ordinaryUsageAllowed,
             percent: state.progress?.percent,
             isStale: state.progress?.isStale ?? false,
             animated: animated

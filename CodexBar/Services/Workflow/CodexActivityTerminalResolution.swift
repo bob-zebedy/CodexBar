@@ -39,7 +39,7 @@ extension CodexActivityMonitor {
         tasks.removeValue(forKey: key)
         pendingTerminalTasks.removeValue(forKey: key)
         clearActivityProtection(for: key, taskID: task?.displayID, reason: .terminal)
-        storeTermination(
+        let termination = storeTermination(
             for: key,
             projectName: event.projectDisplayName ?? task?.projectName,
             modelName: event.modelName ?? task?.modelName,
@@ -48,6 +48,7 @@ extension CodexActivityMonitor {
             duration: task?.preciseDuration(until: event.timestamp),
             task: task
         )
+        recordTerminalPresentationEvent(.terminated(termination))
         recordEndedTask(key, at: event.timestamp)
         if let resolved = task?.resolvedTurnKey {
             recordEndedTask(resolved, at: event.timestamp)
@@ -83,6 +84,7 @@ extension CodexActivityMonitor {
         task: CodexActivityTask,
         key: CodexActivityTaskKey,
         abortFallback: Date,
+        publishesEvents: Bool = true,
         into transitions: inout [CodexActivityTransition]
     ) {
         clearActivityProtection(
@@ -96,7 +98,10 @@ extension CodexActivityMonitor {
         switch terminal {
         case let .aborted(reportedAt):
             let terminatedAt = max(reportedAt ?? abortFallback, task.lastActivityAt)
-            storeTermination(task, at: terminatedAt, includesDuration: reportedAt != nil)
+            let termination = storeTermination(task, at: terminatedAt, includesDuration: reportedAt != nil)
+            if publishesEvents {
+                recordTerminalPresentationEvent(.terminated(termination))
+            }
             recordEndedTask(key, at: terminatedAt)
             if let resolved = task.resolvedTurnKey {
                 recordEndedTask(resolved, at: terminatedAt)
@@ -108,6 +113,8 @@ extension CodexActivityMonitor {
                 completedAt: completedAt,
                 reportedDuration: duration
             )
+            guard publishesEvents else { return }
+            recordTerminalPresentationEvent(.completed(completion))
             if canPublishActivityTransitions, !completion.isAnonymous,
                Date().timeIntervalSince(completion.completedAt) <= 10,
                let sessionTransitionNotBefore,
@@ -164,7 +171,6 @@ extension CodexActivityMonitor {
         completions.append(completion)
         terminalTaskKeyByID[completion.id] = key
         registerTerminalTokenUsage(id: completion.id, key: key, task: task, endedAt: recordedCompletedAt)
-        recordTerminalPresentationEvent(.completed(completion))
         recordEndedTask(key, at: recordedCompletedAt)
         if let resolved = task.resolvedTurnKey {
             recordEndedTask(resolved, at: recordedCompletedAt)
@@ -172,11 +178,11 @@ extension CodexActivityMonitor {
         return completion
     }
 
-    func storeTermination(
+    private func storeTermination(
         _ task: CodexActivityTask,
         at terminatedAt: Date,
         includesDuration: Bool
-    ) {
+    ) -> CodexActivityTermination {
         storeTermination(
             for: task.key,
             projectName: task.projectName,
@@ -196,7 +202,7 @@ extension CodexActivityMonitor {
         terminatedAt: Date,
         duration: TimeInterval?,
         task: CodexActivityTask? = nil
-    ) {
+    ) -> CodexActivityTermination {
         let termination = CodexActivityTermination(
             id: UUID(),
             isAnonymous: key.isAnonymous,
@@ -209,7 +215,7 @@ extension CodexActivityMonitor {
         terminations.append(termination)
         terminalTaskKeyByID[termination.id] = key
         registerTerminalTokenUsage(id: termination.id, key: key, task: task, endedAt: terminatedAt)
-        recordTerminalPresentationEvent(.terminated(termination))
+        return termination
     }
 
     func recordTerminalPresentationEvent(_ event: CodexActivityTerminalEvent) {

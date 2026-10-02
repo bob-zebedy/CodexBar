@@ -5,6 +5,7 @@ import SwiftUI
 final class StatusItemIconPresentation: ObservableObject {
     struct State: Equatable {
         var symbolName = "person.fill"
+        var isOrdinaryUsageRestricted = false
         var remainingPercent = 0
         var showsQuota = false
         var isStale = false
@@ -12,9 +13,10 @@ final class StatusItemIconPresentation: ObservableObject {
 
     @Published private(set) var state = State()
 
-    func update(symbolName: String, percent: Int?, isStale: Bool, animated: Bool) {
+    func update(symbolName: String, ordinaryUsageAllowed: Bool?, percent: Int?, isStale: Bool, animated: Bool) {
         let next = State(
             symbolName: symbolName,
+            isOrdinaryUsageRestricted: ordinaryUsageAllowed == false,
             remainingPercent: percent.map { min(max($0, 0), 100) } ?? state.remainingPercent,
             showsQuota: percent != nil,
             isStale: percent == nil ? state.isStale : isStale
@@ -42,6 +44,7 @@ final class StatusItemIconHostingView: NSHostingView<StatusItemIconView> {
 struct StatusItemIconView: View {
     @ObservedObject var presentation: StatusItemIconPresentation
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var colorScheme
 
     static let size = NSSize(width: 26, height: 22)
     private static var symbolImages: [String: [CGFloat: CGImage]] = [:]
@@ -73,6 +76,7 @@ struct StatusItemIconView: View {
                         anchor: UnitPoint(x: 0.5, y: 18.0 / 22.0)
                     )))
             }
+            .foregroundStyle(symbolColor)
             .animation(.easeInOut(duration: 0.2), value: state.symbolName)
             .scaleEffect(
                 state.showsQuota ? 1 : 16.0 / 14.0,
@@ -88,16 +92,19 @@ struct StatusItemIconView: View {
         .allowsHitTesting(false)
     }
 
+    private var symbolColor: Color {
+        guard presentation.state.isOrdinaryUsageRestricted else { return .primary }
+        return Color(hex: colorScheme == .dark ? 0xE8B27C : 0xD99858)
+    }
+
     @ViewBuilder
     private func symbolImage(named name: String) -> some View {
         let scale = ceil(max(displayScale, 1) * 16 / 14)
         if let image = Self.rasterizedSymbol(named: name, displayScale: displayScale, scale: scale) {
             Image(decorative: image, scale: scale)
                 .renderingMode(.template)
-                .foregroundStyle(.primary)
         } else {
             Self.symbolContent(named: name)
-                .foregroundStyle(.primary)
         }
     }
 

@@ -101,7 +101,11 @@ extension CodexActivityMonitor {
             terminalTokenUsageRequests[id] = request
             references.formUnion(request.references)
         }
-        return Array(references)
+        return references.map {
+            var reference = $0
+            reference.isTerminalUsageOnly = true
+            return reference
+        }
     }
 
     @discardableResult

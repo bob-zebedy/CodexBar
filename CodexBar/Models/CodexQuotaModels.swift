@@ -15,6 +15,7 @@ nonisolated enum CodexPercentageFormat {
 nonisolated struct CodexQuotaSnapshot: Equatable {
     let account: CodexAccount
     let planType: String?
+    let ordinaryUsageAllowed: Bool?
     let credits: RateLimitCreditsSnapshot?
     let resetCreditsAvailableCount: Int?
     let resetCreditExpirationDates: [Date]?
@@ -155,11 +156,13 @@ nonisolated struct QuotaWindow: Equatable, Identifiable {
 
 /// app-server account/rateLimits 原始响应模型
 nonisolated struct AccountRateLimitsResponse: Decodable {
+    let ordinaryUsageAllowed: Bool?
     let rateLimits: RateLimitSnapshot
     let rateLimitsByLimitID: [String: RateLimitSnapshot]?
     let rateLimitResetCredits: RateLimitResetCreditsSummary?
 
     private enum CodingKeys: String, CodingKey {
+        case ordinaryUsageAllowed
         case rateLimits
         case rateLimitsByLimitID = "rateLimitsByLimitId"
         case rateLimitResetCredits
@@ -323,6 +326,7 @@ nonisolated extension CodexQuotaSnapshot {
         self.init(
             account: account,
             planType: rateLimitsResponse?.rateLimits.planType,
+            ordinaryUsageAllowed: rateLimitsResponse?.ordinaryUsageAllowed,
             credits: rateLimitsResponse.flatMap { Self.primaryCredits(from: $0) },
             resetCreditsAvailableCount: rateLimitsResponse?.rateLimitResetCredits?.availableCount,
             resetCreditExpirationDates: resetCreditExpirationDates,

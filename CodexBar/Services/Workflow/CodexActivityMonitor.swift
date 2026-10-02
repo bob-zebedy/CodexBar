@@ -321,6 +321,7 @@ final class CodexActivityMonitor: ObservableObject {
                 task: pending.task,
                 key: key,
                 abortFallback: pending.supersededAt,
+                publishesEvents: !state.isHistoricalTerminal,
                 into: &transitions
             )
             return true
@@ -353,6 +354,7 @@ final class CodexActivityMonitor: ObservableObject {
                 task: task,
                 key: key,
                 abortFallback: Date(),
+                publishesEvents: !state.isHistoricalTerminal,
                 into: &transitions
             )
             return true

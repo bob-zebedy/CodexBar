@@ -81,7 +81,7 @@ UI 使用 SwiftUI 声明内容，由 AppKit Controller 管理窗口。
 
 ### 分离图标与 tooltip 状态
 
-`StatusIconState` 保存活动和额度输入。`StatusItemIconPresentation` 只发布影响图像的符号名称、额度、显隐和缓存标记，相同渲染状态不会重复发布：
+`StatusIconState` 保存活动、额度和 `ordinaryUsageAllowed` 输入。`StatusItemIconPresentation` 发布符号名称、常规用量受限状态、额度、显隐和缓存标记，相同渲染状态不会重复发布：
 
 - 活跃任务持续时间每分钟变化，只更新 tooltip
 - 额度过期但仍展示缓存时，图标和进度使用降低后的 alpha
@@ -92,7 +92,7 @@ UI 使用 SwiftUI 声明内容，由 AppKit Controller 管理窗口。
 - 关闭额度时保留最后的额度和配色供收回动画使用，零额度与缺失额度保持不同语义
 - 初次渲染和唤醒重算时不播放过渡动画
 
-SwiftUI 视图持续挂载在原生 `NSStatusBarButton` 中，透明图片用于系统自适应占位。图标使用系统前景色，宿主视图不接受焦点或鼠标命中，左右键仍交给原按钮处理。
+SwiftUI 视图持续挂载在原生 `NSStatusBarButton` 中，透明图片用于系统自适应占位。`ordinaryUsageAllowed == false` 时，人物及徽章使用适配浅色、深色外观的浅橙色；值为 `true` 或缺失时使用系统前景色。额度圆弧按剩余比例配色。宿主视图不接受焦点或鼠标命中，左右键交给原按钮处理。
 
 圆弧和人物通过 `drawingGroup()` 合成为一个绘制结果，保持全屏与普通桌面切换时额度圆弧的长度和颜色一致。
 
@@ -166,7 +166,7 @@ popover 和备用面板分别持有 `MenuSurfaceAnimationState`。展示前将 `
 
 活动卡片和任务中心共用 `CodexActivityStatusText`，文字颜色跟随任务状态。运行时显示扫光，等待批准时显示橙色粒子，完成和终止时静态显示。卡片状态文字动画由 `mainPanelAnimationsEnabled` 控制，任务中心状态文字动画要求 `presentationState.isPresented` 和 `MainPanelSettings.areAnimationsEnabled` 同时开启。每个面板共用一条粒子时间线，只从可见的等待文字发射粒子，按面板边界裁剪；没有发射源时移除时间线。
 
-活动卡片在 `primaryActivity.tokenUsage` 可用时展示 Token 指标和分割线。状态行固定在卡片顶部，卡片高度随 Token 区域显隐调整。
+活动卡片在 `primaryActivity.tokenUsage` 可用时展示 Token 指标和分割线，为空时隐藏整个用量区域。完成或终止后的用量补读在后台进行，界面先显示结束状态，取得用量后再展开指标；查询到期不显示超时提示。任务中心的完成和终止条目仅在用量可用时显示总 Token。状态行固定在卡片顶部，卡片高度随 Token 区域显隐调整。
 
 展开和收起采用平滑减速的过渡，独立于“动画效果”设置。Token 区域随展开进度淡入并轻微上移，收起时提前淡出。`ActivityCardHeight` 逐帧提交插值后的布局高度，使相邻区块和主面板尺寸同步变化。防睡眠徽标、匿名图标和并发任务数的动画限定在状态行内。
 

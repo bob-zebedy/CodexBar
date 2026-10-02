@@ -9,6 +9,7 @@ CodexBar combines a person symbol with an optional circular rate-limit arc:
 | Appearance | Meaning |
 | --- | --- |
 | Plain person | Default or idle state |
+| Pale orange person and badge | Account data indicates ordinary usage is restricted |
 | Slashed person | You are signed out, initialization failed, or trusted rate-limit and usage data is unavailable |
 | Clock badge | At least one task is running |
 | Key badge | At least one task is waiting for approval |
@@ -31,7 +32,7 @@ Reorder and show or hide sections in `Settings > General > Main Panel Layout`, w
 ## Account
 
 - Shows the signed-in account or account type
-- Identifies Enterprise, Team, Business, Pro, Plus, Edu, and Free plans
+- Identifies Enterprise, Team, Business, ProMax, Pro, ProLite, Plus, Go, Edu, and Free plans
 - Double-clicking the account icon refreshes account, rate-limit, and usage data immediately
 - Double-clicking the email toggles blurring
 - Shows `Not signed in` when no account is signed in
@@ -121,7 +122,7 @@ Click a populated activity card to open Task Center. In both views, status-text 
 
 Once rollout usage is available, the activity card shows token metrics beneath its status, including totals, input and output, cache usage, and reasoning output. Counts use K/M/B units. The usage row and its divider expand or collapse together, independently of `Animation Effects`. Both remain hidden when usage is unavailable.
 
-While a task is running or waiting for approval, usage updates for main and child threads whose ownership is confirmed. Later thread records fill in the subtotal. Completed and terminated tasks briefly reread turn usage and display it once a complete total is available. Later temporary read failures preserve the usage already obtained for the ended task. These values cover the current turn and its subagents, rather than the entire conversation.
+While a task is running or waiting for approval, usage updates for main and child threads whose ownership is confirmed. Later thread records fill in the subtotal. After completion or termination is confirmed, background usage queries run for up to 30 seconds, displaying a complete total when available and accepting updates until the deadline. The terminal state appears immediately, without a query countdown or loading indicator. If usage is still unavailable at expiry, the usage area stays hidden; values already obtained remain visible. These values cover the current turn and its subagents.
 
 Total equals input plus output. Cached input and cache write are included in input; reasoning is included in output. These subsets must not be added to the total again. Cache-H is cached input divided by input; the card shows `—` when input is zero. Cached shows the number of input tokens served from cache; Cache-W shows cache writes.
 

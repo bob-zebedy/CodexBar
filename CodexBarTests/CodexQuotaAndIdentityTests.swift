@@ -2,6 +2,44 @@ import Foundation
 import Testing
 
 struct CodexQuotaAndIdentityTests {
+    @MainActor
+    @Test func ordinaryUsagePermissionReachesStatusIconWithoutInferringFromQuota() throws {
+        let presentation = StatusItemIconPresentation()
+        let cases: [(field: String, allowed: Bool?)] = [
+            (#""ordinaryUsageAllowed":false,"#, false),
+            (#""ordinaryUsageAllowed":true,"#, true),
+            (#""ordinaryUsageAllowed":false,"#, false),
+            (#""ordinaryUsageAllowed":null,"#, nil),
+            (#""ordinaryUsageAllowed":false,"#, false),
+            ("", nil)
+        ]
+        for (field, allowed) in cases {
+            let response = try TestFixtures.decode(AccountRateLimitsResponse.self, """
+            {\(field)"rateLimits":{"primary":{"usedPercent":0}}}
+            """)
+            let snapshot = try CodexQuotaSnapshot(accountResponse: accountResponse, rateLimitsResponse: response)
+            #expect(snapshot.ordinaryUsageAllowed == allowed)
+            for percent: Int? in [100, 0, nil] {
+                presentation.update(
+                    symbolName: "person.fill",
+                    ordinaryUsageAllowed: snapshot.ordinaryUsageAllowed,
+                    percent: percent,
+                    isStale: false,
+                    animated: false
+                )
+                #expect(presentation.state.isOrdinaryUsageRestricted == (allowed == false))
+            }
+        }
+    }
+
+    @Test func cachedQuotaRetainsLastExplicitOrdinaryUsagePermission() throws {
+        let response = try TestFixtures.decode(AccountRateLimitsResponse.self, #"{"ordinaryUsageAllowed":false,"rateLimits":{}}"#)
+        let snapshot = try CodexQuotaSnapshot(accountResponse: accountResponse, rateLimitsResponse: response, isRateLimitsStale: true)
+        #expect(snapshot.ordinaryUsageAllowed == false)
+        let empty = try CodexQuotaSnapshot(accountResponse: accountResponse, rateLimitsResponse: nil)
+        #expect(empty.ordinaryUsageAllowed == nil)
+    }
+
     @Test func resetCandidatesRequireExplicitStatusTypeAndExpiration() throws {
         let summary = try TestFixtures.decode(RateLimitResetCreditsSummary.self, """
         {"availableCount":5,"credits":[

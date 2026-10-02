@@ -7,6 +7,10 @@ nonisolated enum JSONLines {
     /// RFC 8259 允许出现在值前后的空白, 用于识别只含空白的空行
     private static let jsonWhitespaceBytes: Set<UInt8> = [0x20, 0x09, 0x0A, 0x0D]
 
+    static func isBlankLine(_ data: Data) -> Bool {
+        !data.contains(where: { !jsonWhitespaceBytes.contains($0) })
+    }
+
     /// 落盘 JSON 统一的稳定输出配置, 保证文件可 diff 且格式一致
     /// 配置后不再修改, encode 可重入, 可跨并发域缓存共享
     static let stableEncoder: JSONEncoder = {
@@ -44,7 +48,7 @@ nonisolated enum JSONLines {
         // 直接把字节切片交给 JSONDecoder: 它自己跳过首尾空白并拒收非法 UTF-8,
         // 省掉每行 String 转换 + trim + 再编码回 Data 的三次拷贝 (单次读取可达上万行)
         for line in data.split(separator: newlineByte) {
-            guard line.contains(where: { !Self.jsonWhitespaceBytes.contains($0) }) else {
+            guard !isBlankLine(line) else {
                 continue
             }
             guard let value = try? decoder.decode(T.self, from: Data(line)) else {

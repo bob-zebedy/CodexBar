@@ -103,7 +103,7 @@ The Hook recorder may be writing the final line. The reader includes only bytes 
 
 A partial line is neither discarded nor classified as corrupt. The next cycle rereads from the old offset and commits after the line is complete. Until the fixed boundary is fully consumed, the barrier returns `sourceUnavailable`. A malformed complete line degrades its date cursor until that date leaves the reading window or a replacement file is replayed.
 
-While the Hook source is degraded, rollout reads continue for known tasks, accepting only explicit completion or interruption records from a complete current read with matching task identity. These tasks end silently. This path does not apply ordinary progress, backfill approval state, restore suppressed tasks, or resume Activity Protection. It pauses during system sleep and bootstrap, and discards results after cancellation or a reader generation change. Full lifecycle recovery still requires a successful Hook read barrier.
+While the Hook source is degraded, rollout reads continue for known tasks, accepting only explicit completion or interruption records after a successful current read with matching thread and turn identity. These tasks end silently. This path does not apply ordinary progress, backfill approval state, restore suppressed tasks, or resume Activity Protection. It pauses during system sleep and bootstrap, and discards results after cancellation or a reader generation change. Full lifecycle recovery still requires a successful Hook read barrier.
 
 ### Date Rollover and File Replacement
 
@@ -143,8 +143,8 @@ Rules are:
 
 - Poll every 1 second by default
 - Begin with a 512 KiB tail window
-- Look back at most 8 MiB for turn-context fields such as effort
-- Parse only thread relationships, lifecycle, turn, progress, effort, and reviewer
+- Backfill missing lifecycle or turn context over multiple cycles, sharing an 8 MiB body-read budget per cycle
+- Parse thread relationships, lifecycle, turn progress, `effort`, `reviewer`, and turn token usage
 - Keep conversation content out of the activity model and product presentation
 
 Hook `Stop` marks the task as “Finishing up” and keeps it active; approval waiting takes priority while another agent is still waiting. Tools, approvals, and other progress continue updating the same task. Rollout completion records confirm the end of the turn; transition freshness and recovery conditions determine whether a completion transition is emitted.
@@ -173,13 +173,17 @@ Filenames match the thread ID exactly, optionally followed by an underscore and 
 
 ### Rollout Read Budget
 
-Live tasks need lifecycle near an active turn, not a full read of a long-running session. Starting from the last 512 KiB reduces resident I/O and discards the first potentially partial line.
+For files larger than 512 KiB, the initial cursor starts at the last 512 KiB and discards the first potentially partial line. Smaller files are read from the beginning.
 
-If context, effort, or reviewer is missing, the reader replays up to 8 MiB to recover turn ownership, metadata, and progress together. Each file cursor stops looking back after one successful backfill; each cycle backfills at most one session.
+The forward cursor consumes appended content while a reverse cursor restores history over multiple cycles. For an active turn without a confirmed terminal, backfill continues while its start, context, effort, reviewer, or initial progress ownership is missing, until the required information is available, a terminal is confirmed, or the file head is reached. A line straddling the bootstrap boundary that finishes later is located and read again.
 
-Incremental scanning shares an 8 MiB budget per cycle across sessions in rotating order. At most 16 pending tasks are queried per cycle. Budget exhaustion and partial lines return `incomplete`, read failures return `unavailable`, and unresolved files return `notFound`. Cached facts do not establish successful current coverage. A complete read with turn context sets `lifecycleCoverageCheckedAt` to the check time; an incomplete or failed read, a missing file, or missing context clears it. Normal inactivity protection requires this timestamp to be present and less than five seconds old.
+After a successful read with matching thread and turn identity, the reader returns a confirmed terminal without waiting for usage. Applying a child terminal to its parent task also requires confirmed ownership. Supplemental backfill seeks missing ownership and usage, not missing `effort` or `reviewer` fields. An invalid latest usage record cannot be replaced with an older valid snapshot. Each turn's supplemental query may read at most 32 MiB of historical body data, including usage-only queries after a Hook-confirmed end. Active lifecycle searches are not subject to this cumulative cap.
 
-The incremental scan advances its offset by bytes read and carries an unfinished line across cycles. The per-cycle read budget remains 8 MiB, while a single line may buffer up to 16 MiB. Larger lines mark a read gap and are skipped in chunks through their newline so later records remain consumable. An explicit rollout terminal remains authoritative despite an earlier read gap.
+Queries for the same file share a reverse cursor, decoded facts, and cumulative bytes actually read. Each supplemental query records the cumulative count at registration and uses the difference to calculate its consumed budget, including reads driven by other queries. Registrations and associated terminal facts are retained for 24 hours after the latest query; repeated queries refresh only that time. Finding the required information, reaching the file head, or exhausting the budget stops that query from driving backfill. The file head means history is exhausted; a spent budget may leave history unchecked. Appended records or reads required by other queries can still supply missing facts. Bytes read during short reads, failed post-read checks, and retries all count toward the budget. Cursors and budgets are in-memory and reset on file replacement, detectable truncation, or reader recreation.
+
+Incremental scanning and historical backfill share an 8 MiB body-read budget per cycle across sessions in rotating order. At most 16 pending tasks are queried per cycle. An unread tail, a partial line, or a coverage gap for a nonterminal turn returns `incomplete`; read failures return `unavailable`, and unresolved files return `notFound`. A confirmed matching terminal returns `complete` after a successful current read even when another trailing record is unfinished; token usage still requires a complete tail. A turn with `complete` status and turn context sets `lifecycleCoverageCheckedAt` to the check time; an incomplete or failed read, a missing file, or missing context clears it. Normal inactivity protection requires this timestamp to be present and less than five seconds old.
+
+The incremental scan advances its offset by bytes read and carries an unfinished line across cycles. A single line may buffer up to 16 MiB. Larger lines mark a read gap and are skipped in chunks through their newline so later records remain consumable. An explicit rollout terminal remains authoritative despite an earlier read gap.
 
 When the file is readable and scanning reaches its actual end with only a bounded partial line remaining, the reader records the first observation or latest append time. A task with turn context, no other coverage gap or known terminal, and an observation less than five seconds old may use a partial-tail fallback: both its last progress and the tail's last growth must be at least the configured inactivity threshold ago before suppression. Further growth restarts the timer. Read failures, file replacement or truncation, and app restarts require a new observation period. Unread backlog, missing context, and oversized lines being discarded do not qualify.
 
@@ -187,18 +191,20 @@ A partial tail always returns `incomplete`. Its observation affects protection t
 
 A malformed rollout line marks unfinished turns as having a coverage gap. Repeated context for the same turn does not clear the gap. New turns establish independent coverage, and explicit terminal records can end a task with incomplete history. Later malformed lines do not revoke known terminal facts. Failed or incomplete reads cannot use cached progress to advance task progress, restore suppressed tasks, or remove protection records.
 
+Older turns not yet identified when corruption occurs inherit the gap by file position during backfill. Later progress with an explicit turn ID or repeated context cannot clear that gap. Turns beginning after the malformed line establish independent coverage. Historical terminals update task records and deduplication state without publishing notifications or terminal presentation events.
+
 ### Associating Rollout Progress with a Turn
 
-Each session file cursor stores its own `currentTurnId`, updated in JSONL file order:
+Each session file cursor stores its own `currentTurnID`, updated in JSONL file order:
 
 - Outer `type = "turn_context"`, or `type = "event_msg"` with `payload.type` equal to `task_started` or `turn_started`, establishes context from `payload.turn_id`
 - `response_item` prefers `payload.internal_chat_message_metadata_passthrough.turn_id`; other progress records use `payload.turn_id`, falling back to cursor context when absent
 - `task_complete`, `turn_complete`, or `turn_aborted` for the current turn clears context; a late terminal for another turn does not
-- Truncation or replacement rebuilds the cursor and clears both context and cached lifecycle states
+- A changed file identifier or file size below the forward read position rebuilds the cursor and clears context, cached lifecycle, and supplemental budgets
 
 Progress includes records whose outer `type` is `response_item` or `token_usage_record`, and `event_msg` records whose `payload.type` is `token_count`, `item_completed`, `agent_message`, `agent_reasoning`, `task_started`, `turn_started`, `task_complete`, `turn_complete`, or `turn_aborted`. Time comes from outer `timestamp`, then `payload.completed_at`, then `payload.started_at`.
 
-A record needs a usable timestamp and turn identity. It advances task progress only after a complete current read and when newer than `lastProgressAt`. A `token_usage_record` is treated as activity without comparing token totals. Records lacking both an explicit turn and cursor context do not contribute task progress.
+A record needs a usable timestamp and turn identity. It advances task progress only after a complete current read and when newer than `lastProgressAt`. A `token_usage_record` is treated as activity without comparing token totals. Initial records without an explicit turn or context retain only their progress times until backfill establishes reliable ownership; unresolved progress does not update a task. Both forward buffering and reverse backfill match terminals by turn: another turn's late terminal cannot cut off current progress, and unassigned progress after a turn's own terminal cannot be attributed back to it.
 
 Execution progress eligible to infer approval recovery is recorded separately as `lastExecutionProgressAt`: `response_item` records with `role = "assistant"` or a type of `function_call_output`, `custom_tool_call_output`, or `tool_search_output`, and `agent_message` or `agent_reasoning` events. Only execution progress from the same agent and turn, later than the approval request, clears that wait. Ordinary activity such as usage records updates only task progress time.
 
@@ -226,7 +232,7 @@ All required token counters must be present and nonnegative. Total must equal in
 
 `CodexActivityTokenUsage.swift` collects main and associated child-thread references for the root task, deduplicating by thread and turn. While running, it sums matching threads with complete current reads; threads without usage wait for later refreshes. The displayed value may therefore be a subtotal of known threads. The live card reads the in-memory task snapshot, not historical daily totals or iCloud caches.
 
-Completed and terminated records start without usage and receive it through terminal rereads. Rereading lasts up to 30 seconds, scheduled every 2 seconds for at most 16 pending tasks per batch. Final aggregation requires all expected child identities and thread usage, with child threads ended. Once terminal usage has been obtained, later incomplete reads preserve that value. Late child associations join only their root turn, without affecting subsequent turns. Terminal state, notifications, and sleep-prevention release do not wait for token rereads.
+Completed and terminated records start without usage and receive it through terminal rereads. Rereading lasts up to 30 seconds from query registration, scheduled every 2 seconds for at most 16 pending tasks per batch. Final aggregation requires all expected child identities and thread usage, with child threads ended. After usage is obtained, further updates are accepted until the deadline; incomplete reads preserve the existing value. Expiry removes the query, leaving records without usage empty. Late child associations join only their root turn, without affecting subsequent turns. Terminal state, notifications, and sleep-prevention release do not wait for token rereads.
 
 Historical replay uses its own ledger and read cursors. See [Rollout Token History](sync.md#rollout-token-history).
 

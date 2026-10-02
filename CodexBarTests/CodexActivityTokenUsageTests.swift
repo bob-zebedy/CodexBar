@@ -206,6 +206,13 @@ struct CodexActivityTokenUsageTests {
         stopped.readStatus = .unavailable
         #expect(!monitor.applyTerminalTokenUsage([stopped]))
         #expect(monitor.terminations.first?.tokenUsage?.totalTokens == 210)
+        let queryTime = Date()
+        let terminalReferences = monitor.prepareTerminalTokenUsageReadBatch(now: queryTime)
+        #expect(terminalReferences.count == 2)
+        for reference in terminalReferences {
+            #expect(reference.isTerminalUsageOnly)
+        }
+        #expect(monitor.prepareTerminalTokenUsageReadBatch(now: queryTime.addingTimeInterval(1)).isEmpty)
         _ = monitor.prepareTerminalTokenUsageReadBatch(now: Date().addingTimeInterval(31))
         #expect(monitor.terminalTokenUsageRequests.isEmpty)
         #expect(monitor.completions.first?.tokenUsage?.totalTokens == 110)
@@ -251,6 +258,84 @@ struct CodexActivityTokenUsageTests {
         #expect(!monitor.applyTerminalTokenUsage([unavailable]))
         _ = monitor.prepareTerminalTokenUsageReadBatch(now: Date().addingTimeInterval(31))
         #expect(monitor.completions.first?.tokenUsage?.totalTokens == 320)
+    }
+
+    @Test(arguments: [false, true])
+    func historicalTerminalUpdatesHistoryWithoutPublishingEvents(aborted: Bool) throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = try makeMonitor(directory: directory, preferences: preferences)
+        monitor.isActivitySourceHealthy = true
+        monitor.isActivityProtectionRecoveryInProgress = false
+        let now = Date()
+        monitor.sessionTransitionNotBefore = now.addingTimeInterval(-1)
+        monitor.terminalPresentationNotBefore = now.addingTimeInterval(-1)
+        #expect(monitor.canPublishActivityTransitions)
+        for publishesEvents in [false, true] {
+            let event = TestFixtures.event(at: now, turn: publishesEvents ? "live-turn" : "historical-turn")
+            let key = CodexActivityTaskKey(event: event)
+            let task = CodexActivityTask(
+                displayID: UUID(), key: key, event: event, state: .running,
+                latestEvent: .promptSubmitted, startedAt: now, progressGeneration: 1
+            )
+            var transitions: [CodexActivityTransition] = []
+            monitor.resolveTerminal(
+                aborted ? .aborted(at: now) : .completed(at: now, duration: 1),
+                task: task, key: key, abortFallback: now, publishesEvents: publishesEvents, into: &transitions
+            )
+            #expect(transitions.isEmpty == (aborted || !publishesEvents))
+            #expect(monitor.pendingTerminalPresentationEvents.isEmpty == !publishesEvents)
+            #expect(monitor.recentEndedDate(for: key, now: now) != nil)
+            let presentationCount = monitor.pendingTerminalPresentationEvents.count
+            monitor.resolveTerminal(
+                aborted ? .aborted(at: now) : .completed(at: now, duration: 1),
+                task: task, key: key, abortFallback: now, publishesEvents: true, into: &transitions
+            )
+            #expect(monitor.pendingTerminalPresentationEvents.count == presentationCount)
+        }
+        #expect(aborted ? monitor.terminations.count == 2 : monitor.completions.count == 2)
+        #expect(monitor.terminalTokenUsageRequests.count == 2)
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func liveTerminalPresentationPreservesAnonymousAndInterruptBehavior(interrupted: Bool, anonymous: Bool) throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = try makeMonitor(directory: directory, preferences: preferences)
+        monitor.isActivitySourceHealthy = true
+        monitor.isActivityProtectionRecoveryInProgress = false
+        let now = Date()
+        monitor.sessionTransitionNotBefore = now.addingTimeInterval(-1)
+        monitor.terminalPresentationNotBefore = now.addingTimeInterval(-1)
+        let event = TestFixtures.event(.interrupt, at: now, session: anonymous ? nil : "session-a")
+        let key = CodexActivityTaskKey(event: event)
+        let task = CodexActivityTask(
+            displayID: UUID(), key: key, event: event, state: .running,
+            latestEvent: .promptSubmitted, startedAt: now, progressGeneration: 1
+        )
+        var transitions: [CodexActivityTransition] = []
+        if interrupted {
+            monitor.tasks[key] = task
+            monitor.interruptTask(from: event, source: .live)
+            monitor.interruptTask(from: event, source: .live)
+            #expect(monitor.tasks.isEmpty)
+            #expect(monitor.terminations.count == 1)
+            #expect(monitor.terminations.first?.isAnonymous == anonymous)
+        } else {
+            monitor.resolveTerminal(
+                .completed(at: now, duration: 1), task: task, key: key,
+                abortFallback: now, into: &transitions
+            )
+            #expect(monitor.completions.count == 1)
+            #expect(monitor.completions.first?.isAnonymous == anonymous)
+        }
+        #expect(transitions.count == (interrupted || anonymous ? 0 : 1))
+        #expect(monitor.pendingTerminalPresentationEvents.count == 1)
+        #expect(monitor.terminalTokenUsageRequests.count == (anonymous ? 0 : 1))
     }
 
     private func reference(_ thread: String, _ turn: String) -> CodexActivityTurnReference {

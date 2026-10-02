@@ -91,7 +91,7 @@ Hook recorder 通过 `transcript_path` 读取当前 rollout，`SubagentStop` 的
 
 Token 历史扫描从文件起点建立轮次账本，再按游标增量读取。云端身份使用账户 salt 做 HMAC-SHA256，不上传原始线程或轮次 ID。字段和保留规则见 [Rollout Token 历史](sync.md#rollout-token-历史)
 
-实时 rollout reader 从文件尾部按预算扫描，一方面减少 I/O，另一方面降低无关历史内容进入进程内存的范围。解析 DTO 只声明所需字段，JSONDecoder 自动忽略其余内容。
+实时 rollout reader 初始读取末尾最多 512 KiB，随后增量读取追加内容，并按需向前补查历史。解析 DTO 只声明所需字段，`JSONDecoder` 忽略其余内容。补查停止条件和预算见 [Rollout 读取预算](activity-monitor.md#rollout-读取预算)
 
 ### Reset Credits 明细
 

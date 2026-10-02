@@ -91,7 +91,7 @@ These reads parse structural fields including origin classification, thread and 
 
 Historical token scanning starts at the beginning of each source and then follows persisted cursors. Cloud identities use account-salted HMAC-SHA256; raw thread and turn IDs are not uploaded. See [Rollout Token History](sync.md#rollout-token-history) for fields and retention.
 
-The live rollout reader scans backward from file tails under a budget. This reduces I/O and limits how much unrelated historical content enters process memory. Parsing DTOs declare only required fields, and `JSONDecoder` ignores everything else.
+The live rollout reader initially reads up to the last 512 KiB, then consumes appended content incrementally and backfills earlier history as needed. Parsing DTOs declare only required fields, and `JSONDecoder` ignores everything else. See [Rollout Read Budget](activity-monitor.md#rollout-read-budget) for stopping conditions and budgets.
 
 ### Reset Credits Details
 

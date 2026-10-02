@@ -81,7 +81,7 @@ When no tasks are active, `CodexActivitySnapshot.statusItemActivity(at:)` select
 
 ### Separating Icon State from Tooltip State
 
-`StatusIconState` retains activity and quota inputs. `StatusItemIconPresentation` publishes only changes to symbol name, quota, visibility, and stale state:
+`StatusIconState` retains activity, quota, and `ordinaryUsageAllowed` inputs. `StatusItemIconPresentation` publishes changes to symbol name, ordinary-usage restriction state, quota, visibility, and stale state:
 
 - Minute-by-minute duration updates affect only the tooltip
 - Cached quota dims the symbol and arc
@@ -92,7 +92,7 @@ When no tasks are active, `CodexActivitySnapshot.statusItemActivity(at:)` select
 - Hiding quota retains its last percentage and color for retraction; zero and unavailable quota remain distinct
 - Initial rendering and wake reconciliation disable transitions
 
-A persistent SwiftUI view lives inside the native `NSStatusBarButton`, with a transparent image preserving automatic spacing. Symbols use the system foreground color. The hosting view rejects focus and hit testing, leaving mouse actions with the original button.
+A persistent SwiftUI view lives inside the native `NSStatusBarButton`, with a transparent image preserving automatic spacing. When `ordinaryUsageAllowed == false`, the person and badge use pale orange adapted to light and dark appearances; `true` or an absent value uses the system foreground color. The quota arc uses colors based on the remaining percentage. The hosting view rejects focus and hit testing, leaving mouse actions with the original button.
 
 The arc and person symbol are composited with `drawingGroup()` so the quota arc keeps the same length and color when switching between full-screen and regular desktops.
 
@@ -166,7 +166,7 @@ The main panel root view uses a fixed width and its ideal content height. The po
 
 The activity card and Task Center share `CodexActivityStatusText`, whose color follows task state. Running text shimmers, approval-waiting text emits orange particles, and completed or terminated text stays static. Status-text animations in the card use `mainPanelAnimationsEnabled`; those in Task Center require both `presentationState.isPresented` and `MainPanelSettings.areAnimationsEnabled`. Each panel shares one particle timeline, emits only from visible waiting text, clips particles to the panel bounds, and removes the timeline when no emitters remain.
 
-The activity card shows token metrics and a divider when `primaryActivity.tokenUsage` is available. The status row stays anchored at the top, and the card height adjusts as the token area appears or disappears.
+The activity card shows token metrics and a divider when `primaryActivity.tokenUsage` is available, hiding the entire usage area when it is absent. Usage rereads after completion or termination run in the background: the UI shows the terminal state first and expands the metrics when usage arrives, without a timeout message on expiry. Completed and terminated entries in Task Center show total tokens only when usage is available. The status row stays anchored at the top, and the card height adjusts as the token area appears or disappears.
 
 Expansion and collapse use a smooth, decelerating transition, independently of Animation Effects. The token area fades in and moves slightly upward with expansion progress, and fades out early during collapse. `ActivityCardHeight` commits the interpolated layout height on every animation frame so adjacent sections and the main panel resize together. Animations for the sleep-prevention badge, anonymous-task icon, and concurrent-task count are scoped to the status row.
 
