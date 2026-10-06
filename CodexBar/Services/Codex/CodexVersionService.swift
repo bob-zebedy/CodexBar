@@ -47,33 +47,31 @@ nonisolated struct CodexVersionItem: Equatable, Identifiable {
 /// 并发检测 Codex CLI 与 Codex App 内置 CLI 的磁盘版本
 actor CodexVersionService {
     private let timeout: TimeInterval
-    private static let pipeDrainTimeout: TimeInterval = 0.25
-    private static let maxPipeOutputBytes = 64 * 1024
+    private let environment: [String: String]?
+    private let installations: CodexInstallations?
+    private var activeSources = Set<CodexExecutableSource>()
+    private var unfinishedProcesses: [CodexExecutableSource: Process] = [:]
 
-    init(timeout: TimeInterval = 5) {
+    init(timeout: TimeInterval = 5, environment: [String: String]? = nil, installations: CodexInstallations? = nil) {
         self.timeout = timeout
+        self.environment = environment
+        self.installations = installations
     }
 
     func fetchSnapshot() async -> CodexVersionSnapshot {
-        await Self.fetchSnapshot(timeout: timeout)
-    }
-
-    private static func fetchSnapshot(timeout: TimeInterval) async -> CodexVersionSnapshot {
-        let environment = CodexPaths.environment
-        let installations = CodexPaths.resolveInstallations(environment: environment)
+        let environment = environment ?? CodexPaths.environment
+        let installations = installations ?? CodexPaths.resolveInstallations(environment: environment)
 
         // 两个安装源互不依赖, 并发检测避免两个超时串行叠加
         async let global = probeVersion(
             source: .global,
             path: installations.globalPath,
-            environment: environment,
-            timeout: timeout
+            environment: environment
         )
         async let bundled = probeVersion(
             source: .bundled,
             path: installations.bundledPath,
-            environment: environment,
-            timeout: timeout
+            environment: environment
         )
         let (globalItem, bundledItem) = await (global, bundled)
 
@@ -84,90 +82,58 @@ actor CodexVersionService {
         )
     }
 
-    private static func probeVersion(
+    private func probeVersion(
         source: CodexExecutableSource,
         path: String?,
-        environment: [String: String],
-        timeout: TimeInterval
+        environment: [String: String]
     ) async -> CodexVersionItem {
-        guard let path else {
-            return CodexVersionItem(source: source)
+        guard let path else { return CodexVersionItem(source: source) }
+        // await 会让出 actor, 同一安装源的旧命令退出前不能再次启动
+        guard !activeSources.contains(source), unfinishedProcesses[source]?.isRunning != true else {
+            Self.logVersionDetectionFailure(source: source, stage: "busy")
+            return Self.failedVersionItem(source: source, path: path, failure: .read)
         }
-
-        let deadline = Date().addingTimeInterval(timeout)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = ["--version"]
-        process.environment = environment
-
-        let standardOutput = Pipe()
-        let standardError = Pipe()
-        let outputCollector = PipeReadBuffer(
-            fileHandle: standardOutput.fileHandleForReading,
-            maxBytes: Self.maxPipeOutputBytes
+        unfinishedProcesses[source] = nil
+        activeSources.insert(source)
+        defer { activeSources.remove(source) }
+        let result = await BoundedProcess.runAsync(
+            executable: URL(fileURLWithPath: path), arguments: ["--version"], timeout: timeout, environment: environment,
+            configuration: .init(
+                outputMode: .separate, gracefulTimeout: 0.2, killTimeout: 0.2,
+                deadline: timeout.isFinite ? ContinuousClock.now.advanced(by: .seconds(max(0, timeout))) : nil
+            )
         )
-        let errorCollector = PipeReadBuffer(
-            fileHandle: standardError.fileHandleForReading,
-            maxBytes: Self.maxPipeOutputBytes
-        )
-        let exitWaiter = ProcessExitWaiter()
-
-        process.standardOutput = standardOutput
-        process.standardError = standardError
-        process.terminationHandler = { _ in
-            exitWaiter.finish(true)
+        unfinishedProcesses[source] = result.runningProcess
+        switch result.completion {
+        case .exited:
+            guard result.exitCode == 0 else {
+                Self.logVersionDetectionFailure(source: source, stage: "exit", exitCode: result.exitCode)
+                return Self.failedVersionItem(source: source, path: path, failure: .read)
+            }
+        case let .launchFailed(detail):
+            Self.logVersionDetectionFailure(source: source, stage: "launch", detail: detail)
+            return Self.failedVersionItem(source: source, path: path, failure: .launch)
+        case .timedOut:
+            Self.logVersionDetectionFailure(source: source, stage: "timeout")
+            return Self.failedVersionItem(source: source, path: path, failure: .timeout)
+        case .cancelled:
+            // 刷新协调器会丢弃取消结果, 不将主动取消记录为超时
+            return Self.failedVersionItem(source: source, path: path, failure: .timeout)
+        case .ioFailed, .invalidConfiguration:
+            Self.logVersionDetectionFailure(source: source, stage: "read")
+            return Self.failedVersionItem(source: source, path: path, failure: .read)
         }
 
-        do {
-            try process.run()
-        } catch {
-            process.terminationHandler = nil
-            stopCollectors(outputCollector: outputCollector, errorCollector: errorCollector)
-            logVersionDetectionFailure(
-                source: source,
-                stage: "launch",
-                detail: error.localizedDescription
-            )
-            return failedVersionItem(source: source, path: path, failure: .launch)
-        }
-        defer {
-            process.terminationHandler = nil
-        }
-
-        guard await exitWaiter.wait(timeout: max(0, deadline.timeIntervalSinceNow)) else {
-            terminateTimedOutProbe(
-                process: process,
-                outputCollector: outputCollector,
-                errorCollector: errorCollector
-            )
-            logVersionDetectionFailure(source: source, stage: "timeout")
-            return failedVersionItem(source: source, path: path, failure: .timeout)
-        }
-
-        let output = collectedText(from: outputCollector, deadline: deadline)
-        let errorOutput = collectedText(from: errorCollector, deadline: deadline)
-
-        guard process.terminationStatus == 0 else {
-            logVersionDetectionFailure(
-                source: source,
-                stage: "exit",
-                exitCode: process.terminationStatus
-            )
-            return failedVersionItem(source: source, path: path, failure: .read)
-        }
-
-        guard let version = firstLine(in: output) ?? firstLine(in: errorOutput) else {
-            logVersionDetectionFailure(source: source, stage: "parse")
-            return failedVersionItem(source: source, path: path, failure: .parse)
+        let output = String(data: result.standardOutput.data, encoding: .utf8) ?? ""
+        let errorOutput = String(data: result.standardError.data, encoding: .utf8) ?? ""
+        guard let version = Self.firstLine(in: output) ?? Self.firstLine(in: errorOutput) else {
+            Self.logVersionDetectionFailure(source: source, stage: "parse")
+            return Self.failedVersionItem(source: source, path: path, failure: .parse)
         }
 
         let displayVersion = CodexVersionReader.displayVersion(from: version)
-        logVersionDetectionCompleted(source: source, version: displayVersion)
-        return CodexVersionItem(
-            source: source,
-            path: path,
-            version: displayVersion
-        )
+        Self.logVersionDetectionCompleted(source: source, version: displayVersion)
+        return CodexVersionItem(source: source, path: path, version: displayVersion)
     }
 
     private static func logVersionDetectionFailure(
@@ -201,36 +167,12 @@ actor CodexVersionService {
         AppLog.codex.notice("版本检测完成: \(details, privacy: .public)")
     }
 
-    private static func terminateTimedOutProbe(
-        process: Process,
-        outputCollector: PipeReadBuffer,
-        errorCollector: PipeReadBuffer
-    ) {
-        _ = ProcessTermination.terminate(
-            process,
-            gracefulTimeout: 0.2,
-            killTimeout: 0.2
-        )
-        stopCollectors(outputCollector: outputCollector, errorCollector: errorCollector)
-    }
-
     private static func failedVersionItem(
         source: CodexExecutableSource,
         path: String,
         failure: VersionProbeFailure
     ) -> CodexVersionItem {
         CodexVersionItem(source: source, path: path, errorMessage: failure.message)
-    }
-
-    private static func stopCollectors(outputCollector: PipeReadBuffer, errorCollector: PipeReadBuffer) {
-        _ = outputCollector.stopAndRead()
-        _ = errorCollector.stopAndRead()
-    }
-
-    private static func collectedText(from collector: PipeReadBuffer, deadline: Date) -> String {
-        let drainTimeout = min(Self.pipeDrainTimeout, max(0, deadline.timeIntervalSinceNow))
-        _ = collector.waitUntilClosed(timeout: drainTimeout)
-        return String(bytes: collector.stopAndRead(), encoding: .utf8) ?? ""
     }
 
     private static func firstLine(in text: String) -> String? {
@@ -258,65 +200,6 @@ actor CodexVersionService {
                 String(localized: "codex.version.parse-failed")
             }
         }
-    }
-}
-
-/// 将 Process.terminationHandler 桥接成可超时等待的 async 结果
-private final nonisolated class ProcessExitWaiter: Sendable {
-    private struct State {
-        var continuation: CheckedContinuation<Bool, Never>?
-        var result: Bool?
-    }
-
-    private let state = OSAllocatedUnfairLock(initialState: State())
-
-    func wait(timeout: TimeInterval) async -> Bool {
-        await withTaskCancellationHandler {
-            let timeoutTask = Task { [weak self] in
-                do {
-                    try await Task.sleep(for: .seconds(max(0, timeout)))
-                } catch {
-                    return
-                }
-
-                self?.finish(false)
-            }
-            defer {
-                timeoutTask.cancel()
-            }
-
-            return await withCheckedContinuation { continuation in
-                let immediateResult: Bool? = state.withLock {
-                    if let result = $0.result {
-                        return result
-                    }
-
-                    $0.continuation = continuation
-                    return nil
-                }
-
-                if let immediateResult {
-                    continuation.resume(returning: immediateResult)
-                }
-            }
-        } onCancel: {
-            finish(false)
-        }
-    }
-
-    func finish(_ result: Bool) {
-        let continuation: CheckedContinuation<Bool, Never>? = state.withLock {
-            guard $0.result == nil else {
-                return nil
-            }
-
-            $0.result = result
-            let continuation = $0.continuation
-            $0.continuation = nil
-            return continuation
-        }
-
-        continuation?.resume(returning: result)
     }
 }
 

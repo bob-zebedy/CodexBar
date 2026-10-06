@@ -63,6 +63,21 @@ nonisolated struct TestDirectory {
     func remove() throws {
         try FileManager.default.removeItem(at: url)
     }
+
+    func executable(_ body: String, named name: String = "test command") throws -> URL {
+        let command = try write("#!/bin/sh\n\(body)\n", to: name)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: command.path)
+        return command
+    }
+
+    func waitForFile(_ name: String) async throws {
+        let path = url.appendingPathComponent(name).path
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !FileManager.default.fileExists(atPath: path), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(FileManager.default.fileExists(atPath: path), "Test process did not create \(name)")
+    }
 }
 
 struct TestPreferences {

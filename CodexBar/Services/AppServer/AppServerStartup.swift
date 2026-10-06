@@ -8,6 +8,8 @@ actor AppServerStartup {
     private let probeConnection: @Sendable () throws -> Void
     private let commandTimeout: TimeInterval
     private let readinessAttempts: Int
+    private var isStarting = false
+    private var unfinishedProcess: Process?
 
     init(
         socketURL: URL = AppServerActivityReader.defaultSocketURL,
@@ -29,6 +31,11 @@ actor AppServerStartup {
 
     func ensureStarted() async throws {
         try Task.checkCancellation()
+        // 异步命令执行期间允许 actor 重入, 但不能重叠启动命令
+        guard !isStarting, unfinishedProcess?.isRunning != true else { throw StartupError.notReady }
+        unfinishedProcess = nil
+        isStarting = true
+        defer { isStarting = false }
         do {
             try probeConnection()
             AppLog.codex.notice("Codex 后台服务已就绪: source=existing")
@@ -37,7 +44,7 @@ actor AppServerStartup {
             // 只有明确缺少监听者才启动, 权限或协议错误不改变服务状态
         }
 
-        let executable = try supportedExecutable()
+        let executable = try await supportedExecutable()
         try Task.checkCancellation()
         // 能力检测期间其他客户端可能已经启动服务
         do {
@@ -46,12 +53,13 @@ actor AppServerStartup {
         } catch let error as AppServerConnectionError where error.serverIsAbsent {}
 
         AppLog.codex.notice("Codex 后台服务启动请求已发送")
-        let result = BoundedProcess.run(
+        let result = await BoundedProcess.runAsync(
             executable: executable,
             arguments: ["app-server", "daemon", "start"],
             timeout: commandTimeout,
             environment: environment
         )
+        unfinishedProcess = result.runningProcess
         try Task.checkCancellation()
         // 命令失败也探测一次, 允许与其他客户端并发启动后复用已就绪的服务
         for attempt in 0 ..< readinessAttempts {
@@ -70,7 +78,7 @@ actor AppServerStartup {
         }
     }
 
-    private func supportedExecutable() throws -> URL {
+    private func supportedExecutable() async throws -> URL {
         let installations = installations ?? CodexPaths.resolveInstallations(environment: environment)
         let paths = [installations.globalPath, installations.bundledPath].compactMap(\.self)
         guard !paths.isEmpty else { throw StartupError.notInstalled }
@@ -78,13 +86,15 @@ actor AppServerStartup {
         for path in paths where checked.insert(CodexPaths.canonicalPath(path)).inserted {
             try Task.checkCancellation()
             let executable = URL(fileURLWithPath: path)
-            let result = BoundedProcess.run(
+            let result = await BoundedProcess.runAsync(
                 executable: executable,
                 arguments: ["app-server", "daemon", "start", "--help"],
                 timeout: 2.5,
                 environment: environment
             )
+            unfinishedProcess = result.runningProcess
             try Task.checkCancellation()
+            guard result.runningProcess == nil else { throw StartupError.notReady }
             if result.exitCode == 0, result.output.contains("daemon start") {
                 return executable
             }

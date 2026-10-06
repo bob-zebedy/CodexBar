@@ -5,6 +5,7 @@ import os
 @MainActor
 final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     private let codexStatusService = CodexStatusService()
+    private lazy var appServerStartup = AppServerStartup()
     lazy var viewModel = CodexStatusViewModel(service: codexStatusService)
     let historyViewModel = HistoryViewModel()
     lazy var tuiNotificationSettings = TUINotificationSettings(
@@ -96,10 +97,10 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         self.taskGlowController = taskGlowController
         keepAliveController.start()
         logLaunchState()
-        startupTask = Task { [weak self] in
+        startupTask = Task { [weak self, startup = appServerStartup] in
             var startupError: String?
             do {
-                try await AppServerStartup().ensureStarted()
+                try await startup.ensureStarted()
             } catch is CancellationError {
                 return
             } catch {

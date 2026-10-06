@@ -3980,7 +3980,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 后台服务"
+            "value" : "Codex Daemon"
           }
         }
       }

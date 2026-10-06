@@ -18,8 +18,8 @@ struct AppServerStartupTests {
     @Test func startsMissingServiceWithResolvedEnvironmentAndBundledFallback() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let unsupported = try executable(in: directory, name: "old codex", body: "exit 2")
-        let supported = try executable(in: directory, body: """
+        let unsupported = try directory.executable("exit 2", named: "old codex")
+        let supported = try directory.executable("""
         printf '%s\\n' "$*" >> "$HOME/calls"
         if [ "$4" = '--help' ]; then
             printf 'Usage: codex app-server daemon start [OPTIONS]'
@@ -28,7 +28,7 @@ struct AppServerStartupTests {
         else
             exit 4
         fi
-        """)
+        """, named: "fake codex")
         let server = try SharedServerFixture { _ in }
         defer { server.close() }
         let marker = directory.url.appendingPathComponent("started")
@@ -79,7 +79,7 @@ struct AppServerStartupTests {
     @Test func reportsMissingAndUnsupportedInstallations() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let unsupported = try executable(in: directory, body: "exit 2")
+        let unsupported = try directory.executable("exit 2", named: "fake codex")
         for path in [nil, unsupported.path] {
             let startup = AppServerStartup(
                 environment: [:], installations: CodexInstallations(globalPath: path, bundledPath: nil),
@@ -102,14 +102,14 @@ struct AppServerStartupTests {
     func boundsFailedStartsAndReadinessRetries(_ body: String) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let command = try executable(in: directory, body: """
+        let command = try directory.executable("""
         if [ "$4" = '--help' ]; then
             printf 'Usage: codex app-server daemon start [OPTIONS]'
             exit 0
         fi
         printf 'start\\n' >> "$HOME/calls"
         \(body)
-        """)
+        """, named: "fake codex")
         let startup = AppServerStartup(
             environment: ["HOME": directory.url.path],
             installations: CodexInstallations(globalPath: command.path, bundledPath: nil),
@@ -135,13 +135,13 @@ struct AppServerStartupTests {
     @Test func rechecksConnectionBeforeIssuingStart() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let command = try executable(in: directory, body: """
+        let command = try directory.executable("""
         if [ "$4" != '--help' ]; then
             printf 'unexpected start' > "$HOME/started"
             exit 1
         fi
         printf 'Usage: codex app-server daemon start [OPTIONS]'
-        """)
+        """, named: "fake codex")
         let probes = OSAllocatedUnfairLock(initialState: 0)
         let startup = AppServerStartup(
             environment: ["HOME": directory.url.path],
@@ -160,6 +160,72 @@ struct AppServerStartupTests {
         #expect(!FileManager.default.fileExists(atPath: directory.url.appendingPathComponent("started").path))
     }
 
+    @Test func reusesServiceEvenWhenTheStartCommandFails() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let command = try directory.executable("""
+        if [ "$4" = '--help' ]; then printf 'daemon start'; exit 0; fi
+        printf ready > "$PROCESS_TEST_DIR/started"
+        exit 7
+        """)
+        let marker = directory.url.appendingPathComponent("started")
+        let startup = AppServerStartup(
+            environment: ["PROCESS_TEST_DIR": directory.url.path],
+            installations: .init(globalPath: command.path, bundledPath: nil),
+            probeConnection: {
+                if !FileManager.default.fileExists(atPath: marker.path) {
+                    throw AppServerConnectionError(code: ENOENT)
+                }
+            }
+        )
+        try await startup.ensureStarted()
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test(arguments: ["help", "start"])
+    func preventsOverlappingCommandsAndAllowsRetryAfterCancellation(_ stage: String) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let command = try directory.executable("""
+        if [ -f "$PROCESS_TEST_DIR/retry" ]; then
+            if [ "$4" = '--help' ]; then printf 'daemon start'
+            else printf ready > "$PROCESS_TEST_DIR/started"; fi
+            exit 0
+        fi
+        if [ "$4" = '--help' ] && [ "$PROCESS_TEST_STAGE" = 'start' ]; then printf 'daemon start'; exit 0; fi
+        trap '' TERM
+        printf blocked >> "$PROCESS_TEST_DIR/calls"
+        printf ready > "$PROCESS_TEST_DIR/blocked"
+        while :; do :; done
+        """)
+        let marker = directory.url.appendingPathComponent("started")
+        let startup = AppServerStartup(
+            environment: ["PROCESS_TEST_DIR": directory.url.path, "PROCESS_TEST_STAGE": stage],
+            installations: .init(globalPath: command.path, bundledPath: nil),
+            probeConnection: {
+                if !FileManager.default.fileExists(atPath: marker.path) {
+                    throw AppServerConnectionError(code: ENOENT)
+                }
+            }
+        )
+        let task = Task { try await startup.ensureStarted() }
+        defer { task.cancel() }
+        try await directory.waitForFile("blocked")
+        do {
+            try await startup.ensureStarted()
+            Issue.record("Expected overlapping startup to be rejected")
+        } catch let error as AppServerStartup.StartupError {
+            guard case .notReady = error else { throw error }
+        }
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+        #expect(try String(contentsOf: directory.url.appendingPathComponent("calls"), encoding: .utf8) == "blocked")
+        _ = try directory.write("retry", to: "retry")
+        try await startup.ensureStarted()
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @Test nonisolated func missingSocketPreservesConnectionErrno() throws {
         let socket = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).sock")
         do {
@@ -169,11 +235,5 @@ struct AppServerStartupTests {
             #expect(error.code == ENOENT)
             #expect(error.serverIsAbsent)
         }
-    }
-
-    private func executable(in directory: TestDirectory, name: String = "fake codex", body: String) throws -> URL {
-        let url = try directory.write("#!/bin/sh\n\(body)\n", to: name)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
-        return url
     }
 }
