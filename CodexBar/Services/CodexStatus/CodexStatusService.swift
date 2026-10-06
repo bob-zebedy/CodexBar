@@ -135,7 +135,7 @@ private nonisolated extension ReadResult {
     }
 }
 
-/// 独立持有账户连接, 与活动监听连接同一个共享服务
+/// 独立持有账户连接, 与活动监听连接同一个 Codex 后台服务
 actor CodexStatusService {
     private var connection: AppServerConnection?
     private var supplementalDataCache = SupplementalDataCache()
@@ -161,12 +161,7 @@ actor CodexStatusService {
         return connection.connectionInfo
     }
 
-    /// 需要以实际运行版本做能力检查时建立或复用连接
-    func readyConnectionInfo() throws -> CodexServerConnectionInfo {
-        try readyConnection().connectionInfo
-    }
-
-    /// 只重建当前客户端连接, 不重启共享服务
+    /// 只重建当前客户端连接, 不重启 Codex 后台服务
     func reconnect(minimumVersion: String) throws -> CodexServerConnectionInfo {
         teardownConnection()
         supplementalDataCache = SupplementalDataCache()
@@ -654,7 +649,7 @@ actor CodexStatusService {
     }
 }
 
-/// 持有共享服务客户端连接及账户和运行版本信息
+/// 持有 Codex 后台服务客户端连接及账户和运行版本信息
 private final nonisolated class AppServerConnection {
     let session: AccountSession
     let connectionInfo: CodexServerConnectionInfo

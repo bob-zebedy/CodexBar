@@ -14,7 +14,7 @@ final class AppServerLogViewModel: ObservableObject {
     private let storage: AppServerLogStore
     private let pageSize: Int
     private let maximumEntries: Int
-    @Published private(set) var browsingHistory = false
+    private var browsingHistory = false
     private var revision: Int64 = 0
     private var generation: Int64 = 0
     private var isLoaded = false
@@ -132,12 +132,6 @@ final class AppServerLogViewModel: ObservableObject {
                 errorMessage = error.localizedDescription
             }
         }
-    }
-
-    func showLatest() async {
-        guard !isReading else { return }
-        isLoaded = false
-        await refresh()
     }
 
     func clear() async {

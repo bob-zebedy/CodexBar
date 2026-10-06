@@ -2,7 +2,19 @@ import CryptoKit
 import Darwin
 import Foundation
 
-/// 每条连接由所属 actor 独占, 通过 Unix WebSocket 访问共享服务, 不拥有 daemon 生命周期
+nonisolated struct AppServerConnectionError: LocalizedError {
+    let code: Int32
+
+    var serverIsAbsent: Bool {
+        code == ENOENT || code == ECONNREFUSED
+    }
+
+    var errorDescription: String? {
+        String(localized: "codex-status.app-server.error.connection-closed") + " (\(String(cString: strerror(code))), errno=\(code))"
+    }
+}
+
+/// 每条连接由所属 actor 独占, 通过 Unix WebSocket 访问 Codex 后台服务, 不拥有 daemon 生命周期
 final nonisolated class AppServerSession {
     private var descriptor: Int32 = -1
     private var nextID = 0
@@ -25,7 +37,8 @@ final nonisolated class AppServerSession {
         let connectionLogID = logStorage?.recordConnection(method: "connection/open", detail: socketPath, connection: connectionName, status: .pending)
         do {
             descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-            guard descriptor >= 0 else { throw CodexStatusError.serverConnectionClosed }
+            guard descriptor >= 0 else { throw AppServerConnectionError(code: errno) }
+            guard fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0 else { throw AppServerConnectionError(code: errno) }
             var address = sockaddr_un()
             address.sun_family = sa_family_t(AF_UNIX)
             let path = Array(socketURL.path.utf8CString)
@@ -40,10 +53,21 @@ final nonisolated class AppServerSession {
                     Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
                 }
             }
-            guard result == 0 else { throw CodexStatusError.serverConnectionClosed }
+            if result != 0 {
+                let code = errno
+                guard code == EINPROGRESS else { throw AppServerConnectionError(code: code) }
+                guard try ready(Int16(POLLOUT), before: Date().addingTimeInterval(2)) else {
+                    throw CodexStatusError.serverTimeout
+                }
+                var socketError: Int32 = 0
+                var size = socklen_t(MemoryLayout<Int32>.size)
+                guard getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &socketError, &size) == 0 else {
+                    throw AppServerConnectionError(code: errno)
+                }
+                guard socketError == 0 else { throw AppServerConnectionError(code: socketError) }
+            }
             var enabled: Int32 = 1
             _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout<Int32>.size))
-            _ = fcntl(descriptor, F_SETFL, O_NONBLOCK)
             try handshake()
             if let connectionLogID {
                 logStorage?.finishRequest(connectionLogID, response: socketPath)

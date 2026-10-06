@@ -71,6 +71,7 @@ final class CodexStatusViewModel: ObservableObject {
     private var pendingForcedRefreshTrigger: LogTrigger?
     private let refreshCoordinator = RefreshTaskCoordinator()
     private var connectionInfoGeneration: UInt64 = 0
+    private var startupErrorMessage: String?
 
     init(service: CodexStatusService = CodexStatusService(), defaults: UserDefaults = .standard) {
         self.service = service
@@ -93,12 +94,13 @@ final class CodexStatusViewModel: ObservableObject {
         refresh(trigger: trigger)
     }
 
-    func startAutoRefresh() {
+    func startAutoRefresh(startupError: String? = nil) {
         guard autoRefreshTask == nil else {
             return
         }
 
-        refreshIfNeeded(trigger: .launch)
+        startupErrorMessage = startupError
+        refreshAfterCurrent(trigger: .launch)
         scheduleAutoRefresh()
     }
 
@@ -177,7 +179,10 @@ final class CodexStatusViewModel: ObservableObject {
                     elapsed: duration.elapsed
                 )
                 codexConnectionInfo = result.connectionInfo
-                connectionErrorMessage = result.fetch.outcome.connectionErrorMessage
+                if loadState != .initializationFailed {
+                    startupErrorMessage = nil
+                }
+                connectionErrorMessage = startupErrorMessage ?? result.fetch.outcome.connectionErrorMessage
                 autoRefreshCountdownStartedAt = Date()
             }
         )
@@ -280,9 +285,9 @@ final class CodexStatusViewModel: ObservableObject {
         }
     }
 
-    func reconnectCodex() async -> Bool {
+    func reconnectCodex() async {
         guard !isRefreshing, !isReconnecting else {
-            return false
+            return
         }
 
         isReconnecting = true
@@ -306,7 +311,6 @@ final class CodexStatusViewModel: ObservableObject {
                 minimumVersion: CodexMinimumVersion.activity
             )
             didReconnect = true
-            return true
         } catch {
             loadState = switch error {
             case CodexStatusError.notLoggedIn: .notLoggedIn
@@ -314,7 +318,6 @@ final class CodexStatusViewModel: ObservableObject {
             default: .initializationFailed
             }
             connectionErrorMessage = error.localizedDescription
-            return false
         }
     }
 

@@ -258,12 +258,9 @@ private extension AppSettingsView {
             VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
                 mainPanelLayoutRow
                 LiquidGlassDivider()
-                MainPanelAnimationsSettingsRow(settings: mainPanelSettings)
+                notificationRow
                 LiquidGlassDivider()
-                TaskGlowSettingsRow(
-                    settings: taskGlowSettings,
-                    onOptionsAction: onOptionsAction
-                )
+                MainPanelAnimationsSettingsRow(settings: mainPanelSettings)
                 LiquidGlassDivider()
                 launchAtLoginRow
                 LiquidGlassDivider()
@@ -282,7 +279,10 @@ private extension AppSettingsView {
 
     var advancedSettingsPage: some View {
         VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
-            notificationRow
+            TaskGlowSettingsRow(
+                settings: taskGlowSettings,
+                onOptionsAction: onOptionsAction
+            )
             LiquidGlassDivider()
             autoResetRow
             LiquidGlassDivider()
@@ -935,7 +935,7 @@ private extension AppSettingsView {
             errorMessage: statusViewModel.connectionErrorMessage,
             onReconnect: {
                 Task { @MainActor in
-                    _ = await statusViewModel.reconnectCodex()
+                    await statusViewModel.reconnectCodex()
                     codexVersions.refresh(force: true)
                 }
             }

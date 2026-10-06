@@ -82,11 +82,7 @@ final class SyncSettings: ObservableObject {
     }
 
     nonisolated static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        // 新键优先, 旧设置只作为首次改名后的读取来源
-        if defaults.object(forKey: enabledKey) != nil {
-            return defaults.bool(forKey: enabledKey)
-        }
-        return defaults.bool(forKey: "WorkflowSync.isEnabled")
+        defaults.bool(forKey: enabledKey)
     }
 
     private func observeSyncNotifications() {

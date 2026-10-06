@@ -262,12 +262,13 @@ extension AppServerLogTests {
             visited.formUnion(model.entries.map(\.id))
         }
         #expect(visited.count == 20)
-        #expect(model.browsingHistory)
+        let historyIDs = model.entries.map(\.id)
         storage.recordFailure(message: "latest")
         await model.refresh()
         #expect(model.entries.count <= 6)
-        await model.showLatest()
-        #expect(!model.browsingHistory)
+        #expect(model.entries.map(\.id) == historyIDs)
+        model.stop()
+        await model.refresh()
         #expect(model.entries.first?.detail == "latest")
     }
 }

@@ -3,30 +3,27 @@ import Testing
 
 struct SettingsTests {
     @Test(arguments: [false, true])
-    func syncPreferencePreservesOldValueAndPrefersNewKey(_ oldValue: Bool) throws {
+    func syncPreferenceDefaultsOffAndReadsStoredValue(_ enabled: Bool) throws {
         let preferences = try TestPreferences()
         defer { preferences.remove() }
         let defaults = preferences.defaults
         #expect(!SyncSettings.isEnabled(defaults: defaults))
-        defaults.set(oldValue, forKey: "WorkflowSync.isEnabled")
-        #expect(SyncSettings.isEnabled(defaults: defaults) == oldValue)
-        defaults.set(!oldValue, forKey: "Sync.isEnabled")
-        #expect(SyncSettings.isEnabled(defaults: defaults) == !oldValue)
+        defaults.set(enabled, forKey: "Sync.isEnabled")
+        #expect(SyncSettings.isEnabled(defaults: defaults) == enabled)
     }
 
-    @Test func protectionPreferencePreservesOldValueAndWritesNewKey() throws {
+    @Test func protectionPreferencePersistsAndRefreshes() throws {
         let preferences = try TestPreferences()
         defer { preferences.remove() }
         let defaults = preferences.defaults
-        defaults.set(7200, forKey: "KeepAlive.abnormalTaskInactivitySeconds")
         let settings = ProtectionSettings(defaults: defaults)
-        #expect(settings.inactivityDuration == .twoHours)
+        #expect(settings.inactivityDuration == .oneHour)
         settings.setInactivityDuration(.thirtyMinutes)
-        #expect(defaults.integer(forKey: "Protection.inactivityDuration") == 1800)
-        defaults.set(14400, forKey: "KeepAlive.abnormalTaskInactivitySeconds")
+        #expect(defaults.integer(forKey: "Protection.inactivityDurationSeconds") == 1800)
+        defaults.set(14400, forKey: "Protection.inactivityDurationSeconds")
         settings.refresh()
-        #expect(settings.inactivityDuration == .thirtyMinutes)
-        #expect(ProtectionSettings(defaults: defaults).inactivityDuration == .thirtyMinutes)
+        #expect(settings.inactivityDuration == .fourHours)
+        #expect(ProtectionSettings(defaults: defaults).inactivityDuration == .fourHours)
     }
 
     @Test(arguments: DataUpdateInterval.allCases)
@@ -77,12 +74,12 @@ struct SettingsTests {
         defer { preferences.remove() }
         let defaults = preferences.defaults
         #expect(MainPanelSettings(defaults: defaults).areAnimationsEnabled)
-        defaults.set(false, forKey: "MainPanel.entranceAnimationsEnabled")
+        defaults.set(false, forKey: "MainPanel.areAnimationsEnabled")
         let settings = MainPanelSettings(defaults: defaults)
         #expect(!settings.areAnimationsEnabled)
         settings.setAnimationsEnabled(true)
-        #expect(defaults.bool(forKey: "MainPanel.entranceAnimationsEnabled"))
-        defaults.set(false, forKey: "MainPanel.entranceAnimationsEnabled")
+        #expect(defaults.bool(forKey: "MainPanel.areAnimationsEnabled"))
+        defaults.set(false, forKey: "MainPanel.areAnimationsEnabled")
         settings.refresh()
         #expect(!settings.areAnimationsEnabled)
     }
@@ -115,12 +112,12 @@ struct SettingsTests {
     @Test func protectionFallsBackToOneHourAndReloadsChanges() throws {
         let preferences = try TestPreferences()
         defer { preferences.remove() }
-        preferences.defaults.set("invalid", forKey: "Protection.inactivityDuration")
+        preferences.defaults.set("invalid", forKey: "Protection.inactivityDurationSeconds")
         let settings = ProtectionSettings(defaults: preferences.defaults)
         #expect(settings.inactivityDuration == .oneHour)
         settings.setInactivityDuration(.thirtyMinutes)
         #expect(ProtectionSettings(defaults: preferences.defaults).inactivityDuration == .thirtyMinutes)
-        preferences.defaults.set(7200, forKey: "Protection.inactivityDuration")
+        preferences.defaults.set(7200, forKey: "Protection.inactivityDurationSeconds")
         settings.refresh()
         #expect(settings.inactivityDuration == .twoHours)
     }

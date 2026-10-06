@@ -1046,13 +1046,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The shared Codex service is unavailable. Start a Codex session with the background service enabled, then reconnect."
+            "value" : "Codex Daemon is unavailable"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 共享服务不可用, 请启动已启用后台服务的 Codex 会话后重新连接"
+            "value" : "Codex 后台服务不可用"
           }
         }
       }
@@ -1121,18 +1121,82 @@
         }
       }
     },
-    "codex.source.error.not-found" : {
+    "codex.daemon.command-failed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ not found"
+            "value" : "Failed to start Codex Daemon: %d"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "未找到 %@"
+            "value" : "Codex 后台服务启动失败: %d"
+          }
+        }
+      }
+    },
+    "codex.daemon.not-installed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No usable Codex installation found"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未找到可用的 Codex"
+          }
+        }
+      }
+    },
+    "codex.daemon.not-ready" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cannot connect to Codex Daemon"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 后台服务无法连接"
+          }
+        }
+      }
+    },
+    "codex.daemon.timeout" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Daemon startup timed out"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 后台服务启动超时"
+          }
+        }
+      }
+    },
+    "codex.daemon.unsupported-command" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Daemon is not supported"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 不支持后台服务"
           }
         }
       }
@@ -2332,7 +2396,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "开启防止系统睡眠?"
+            "value" : "开启防止睡眠?"
           }
         }
       }
@@ -2653,22 +2717,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "复制完整%@"
-          }
-        }
-      }
-    },
-    "log.action.latest" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Latest"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最新日志"
           }
         }
       }
@@ -3932,7 +3980,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex Daemon"
+            "value" : "Codex 后台服务"
           }
         }
       }
@@ -3958,13 +4006,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Data Update Interval"
+            "value" : "Data Update Frequency"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "数据更新间隔"
+            "value" : "数据更新频率"
           }
         }
       }
@@ -4076,7 +4124,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "防止系统睡眠"
+            "value" : "防止睡眠"
           }
         }
       }
@@ -4610,35 +4658,33 @@
       }
     },
     "sync.error.activity-generation" : {
-      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Activity history for %@ has no valid generation and cannot be synchronized"
+            "value" : "Activity history for %@ is missing required information and cannot be synced"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ 的活动历史缺少有效代次, 无法同步"
+            "value" : "%@ 的活动历史信息不完整, 无法同步"
           }
         }
       }
     },
     "sync.error.activity-identity" : {
-      "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The activity record identity does not match its device, date and generation"
+            "value" : "Activity history information is inconsistent and cannot be synced"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "活动同步记录身份与设备 日期 代次不一致"
+            "value" : "活动历史信息不一致, 无法同步"
           }
         }
       }
@@ -4696,13 +4742,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Service temporarily unavailable"
+            "value" : "Sync service is temporarily unavailable"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "服务暂时不可用"
+            "value" : "同步服务暂不可用"
           }
         }
       }

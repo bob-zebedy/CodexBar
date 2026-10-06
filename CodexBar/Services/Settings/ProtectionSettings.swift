@@ -36,12 +36,11 @@ final class ProtectionSettings: ObservableObject {
 
     private static func storedDuration(in defaults: UserDefaults) -> InactivityDuration {
         let value = defaults.object(forKey: inactivityDurationKey)
-            ?? defaults.object(forKey: "KeepAlive.abnormalTaskInactivitySeconds")
         return (value as? Int)
             .flatMap(InactivityDuration.init(rawValue:)) ?? .oneHour
     }
 
-    private static let inactivityDurationKey = "Protection.inactivityDuration"
+    private static let inactivityDurationKey = "Protection.inactivityDurationSeconds"
 }
 
 extension ProtectionSettings {

@@ -4,14 +4,15 @@ import Testing
 struct CodexVersionTests {
     @Test(arguments: [
         ("0.150.0", false),
-        ("0.152.1", false),
-        ("0.160.0-alpha.2", false),
-        ("0.160.0", true),
+        ("0.156.0", false),
+        ("0.157.0-alpha.2", false),
+        ("0.157.0", true),
+        ("0.160.0-alpha.2", true),
         ("0.160.1", true)
     ])
     func activityRequiresSharedServerProtocol(_ version: String, _ expected: Bool) {
         #expect(CodexVersionReader.isVersion(version, atLeast: CodexMinimumVersion.activity) == expected)
-        #expect(CodexVersionReader.isVersion(version, atLeast: CodexMinimumVersion.global) == expected)
+        #expect(CodexVersionReader.isVersion(version, atLeast: CodexMinimumVersion.account) == expected)
     }
 
     @Test(arguments: [
@@ -30,13 +31,6 @@ struct CodexVersionTests {
     @Test(arguments: ["unknown", "0.150", "0.150.x", "0.150.0-", "0.150.0-alpha..1"])
     func unrecognizedVersionHasNoOrdering(_ version: String) {
         #expect(CodexVersionReader.isVersion(version, atLeast: "0.150.0") == nil)
-    }
-
-    @Test func installedVersionDoesNotClaimToBeSharedServerVersion() {
-        let item = CodexVersionItem(source: .global, path: "/installed/codex", version: "0.160.1")
-        let display = CodexVersionDisplay(item: item)
-        #expect(display.displayVersion == "0.160.1")
-        #expect(display.path == "/installed/codex")
     }
 
     @Test func codexHomeUsesExplicitEnvironmentAndTrimsWhitespace() {

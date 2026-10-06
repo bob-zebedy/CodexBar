@@ -91,7 +91,7 @@ final class AutoResetSettings: ObservableObject {
         return leadTime
     }
 
-    private static let enabledKey = "AutoReset.enabled"
+    private static let enabledKey = "AutoReset.isEnabled"
     private static let leadTimeKey = "AutoReset.leadTimeSeconds"
     private static let defaultLeadTime = AutoResetLeadTime.thirtyMinutes
 }

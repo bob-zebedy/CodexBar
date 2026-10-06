@@ -13,7 +13,7 @@ struct AppServerSessionTests {
         let server = try SharedServerFixture { peer in
             let initialize = try peer.readMessage()
             #expect(initialize["method"] as? String == "initialize")
-            try peer.reply(to: initialize, result: ["userAgent": supported ? "codex/0.160.0" : "codex/0.159.0"])
+            try peer.reply(to: initialize, result: ["userAgent": supported ? "codex/0.157.0" : "codex/0.156.0"])
             if supported {
                 #expect(try peer.readMessage()["method"] as? String == "initialized")
                 for _ in 0 ..< 4 {
@@ -195,7 +195,7 @@ struct AppServerSessionTests {
             let initialize = try peer.readMessage()
             #expect(initialize["method"] as? String == "initialize")
             #expect((initialize["params"] as? [String: Any])?["capabilities"] as? [String: Bool] == ["experimentalApi": true])
-            try peer.reply(to: initialize, result: ["userAgent": "codex/0.160.0"])
+            try peer.reply(to: initialize, result: ["userAgent": "codex/0.157.0"])
             #expect(try peer.readMessage()["method"] as? String == "initialized")
             let account = try peer.readMessage()
             #expect(account["method"] as? String == "account/read")
@@ -205,7 +205,7 @@ struct AppServerSessionTests {
         defer { server.close() }
         let session = try AccountSession(socketURL: server.url, logStorage: nil)
         let result = try session.initializeAccount()
-        #expect(result.version == "0.160.0")
+        #expect(result.version == "0.157.0")
         #expect(result.account.account != nil)
         session.close()
         #expect(!session.isOpen)
@@ -263,7 +263,7 @@ struct AppServerSessionTests {
 
     @Test func missingSharedSocketFailsWithoutFallback() throws {
         let url = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).sock")
-        #expect(throws: CodexStatusError.self) {
+        #expect(throws: AppServerConnectionError.self) {
             _ = try AccountSession(socketURL: url, logStorage: nil)
         }
         #expect(!FileManager.default.fileExists(atPath: url.path))

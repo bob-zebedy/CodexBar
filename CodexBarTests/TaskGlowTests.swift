@@ -140,7 +140,7 @@ struct TaskGlowTests {
         preferences.defaults.set("invalid", forKey: "TaskGlow.color.running")
         preferences.defaults.set("FFFFFFF", forKey: "TaskGlow.color.waiting")
         preferences.defaults.set("future", forKey: "TaskGlow.animationSpeed")
-        preferences.defaults.set(-2, forKey: "TaskGlow.terminalDuration")
+        preferences.defaults.set(-2, forKey: "TaskGlow.terminalDurationSeconds")
         preferences.defaults.set(4, forKey: "TaskGlow.brightness")
         let settings = TaskGlowSettings(defaults: preferences.defaults)
         #expect(settings.appearance == TaskGlowAppearance())

@@ -14,7 +14,7 @@ nonisolated enum CodexExecutableSource: String, Equatable {
     }
 }
 
-/// 当前共享 app-server 的握手信息, 不将安装路径误作服务运行来源
+/// 当前 Codex 后台服务的握手信息, 不将安装路径误作服务运行来源
 nonisolated struct CodexServerConnectionInfo: Equatable {
     let socketPath: String
     /// 来自 initialize 握手, 代表当前 app-server 进程真实运行的版本
@@ -38,7 +38,7 @@ nonisolated enum CodexPaths {
     }
 
     /// Codex 配置目录: 优先 CODEX_HOME, 回退真实用户 HOME 下的 .codex
-    /// 共享服务 socket 位置统一从这里解析
+    /// Codex 后台服务 socket 位置统一从这里解析
     static func codexHomeDirectory(environment: [String: String] = environment) -> URL {
         if let codexHome = nonEmptyEnvironmentValue("CODEX_HOME", in: environment) {
             return URL(fileURLWithPath: codexHome, isDirectory: true)

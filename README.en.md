@@ -81,7 +81,8 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 
 - macOS 15.0 or later
 - [Codex CLI](https://github.com/openai/codex) installed and signed in, or ChatGPT App or Codex App with bundled Codex installed
-- A running Codex interactive session with the background service enabled, using shared-service version `0.160.0` or later
+- Codex Daemon version `0.157.0` or later. CodexBar reuses an existing service on launch or starts it through an installed Codex that supports `codex app-server daemon start`. Codex Daemon remains running when CodexBar quits
+- If the installed Codex does not support the start command, first start a Codex interactive session with the background service enabled
 - Cross-device sync requires an available iCloud account on the Mac
 
 ## Quick Start
@@ -89,7 +90,7 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 1. Launch CodexBar and find its icon in the menu bar
 2. Left-click the icon to view your account, rate limits, and token usage
 3. Right-click or Control-click the icon to open Settings, Logs, or the Quit menu
-4. Activity capture and statistics start with the app; configure notifications, sleep prevention, and sync under `Settings > Advanced`
+4. Activity capture and statistics start with the app; configure system notifications under `Settings > General`, and sleep prevention and sync under `Settings > Advanced`
 
 The default global shortcut is `⌘⇧E`. You can record a different shortcut or disable it in Settings.
 
@@ -101,7 +102,7 @@ Raw activity events and live tasks are processed locally. Enabling cross-device 
 
 Activity history is rebuilt from recorded events. Token history is recomputed from raw cumulative counter observations captured while collection was active. Both retain 210 days of data; rebuilding cannot recover unobserved usage or deleted source records. If cross-device token corrections lack a verifiable coverage relationship, no historical token aggregate is generated for the affected date.
 
-Request logs retain at most 10,000 entries and 50 MiB of serialized records. Each request or response body is limited to 64 KiB and includes a truncation marker when shortened. The oldest entries are removed when limits are exceeded. The log window caches at most 1,000 entries; use **Latest** to return from older history to the live list. Database indexes and WAL files add storage overhead.
+Request logs retain at most 10,000 entries and 50 MiB of serialized records. Each request or response body is limited to 64 KiB and includes a truncation marker when shortened. The oldest entries are removed when limits are exceeded. The log window caches at most 1,000 entries; close and reopen the window to return from older history to the live list. Database indexes and WAL files add storage overhead.
 
 ## Feedback
 

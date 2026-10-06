@@ -107,17 +107,19 @@ CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用，使用 Swift 6,
 
 ### 启动与并发边界
 
-- 共享 app-server 采集由独立 actor 拥有连接和解析状态，不在主 actor 执行阻塞 I/O
+- Codex 后台服务采集由独立 actor 拥有连接和解析状态，不在主 actor 执行阻塞 I/O
 - 采集消息和读取时间必须有界，共享数据写入必须加锁
 - 普通模式由 App 的统一入口装配长期服务
 - 工程默认采用 `MainActor` 隔离，共享可变状态放入 actor，跨 actor 值类型按需声明 `nonisolated`，禁止在主 actor 执行阻塞 I/O
 - 类型命名使用 `UpperCamelCase`，成员命名使用 `lowerCamelCase`
+- 设置持久化 key 使用 `UpperCamelCase.lowerCamelCase`，模块名按职责命名，不跟随界面文案变化；总开关使用 `isEnabled`，子开关使用 `is…Enabled` 或 `are…Enabled`，行为布尔值可使用 `keeps…` 等自然谓词；时长以秒保存并带 `Seconds` 后缀，百分比带 `Percent` 后缀
 
 ### 数据链路与权限边界
 
 - 保持 app-server 额度与用量、活动历史聚合、实时任务三条数据链路独立
 - 账户主链路、活动连接启用与校验必须分别检查当前 app-server 的实际版本是否满足各自最低要求
-- 活动连接只订阅已加载线程，不创建用户轮次、不回答审批、不修改 Codex 配置或管理共享 daemon 生命周期
+- 活动连接只订阅已加载线程，不创建用户轮次、不回答审批、不修改 Codex 配置或管理 Codex 后台服务生命周期
+- App 启动入口允许在 Codex 后台服务缺失时通过官方 `codex app-server daemon start` 命令确保服务启动，能力检测、等待和重试必须有界；禁止停止、重启、更新 Codex 后台服务或修改 Codex 配置
 - helper 只能执行固定的睡眠控制和自动重置唤醒计划，不得增加网络、任意命令执行或额外文件访问
 - 新增网络访问、日志数据或 CloudKit 字段前先核对隐私边界
 - 开启自动重置或防睡眠前必须取得用户确认，打开 helper 授权系统设置必须由用户显式操作触发

@@ -40,27 +40,7 @@ nonisolated struct CodexVersionItem: Equatable, Identifiable {
     }
 
     var displayVersion: String {
-        if path == nil {
-            return String(
-                localized: "codex.source.error.not-found",
-                defaultValue: "\(source.displayName)"
-            )
-        }
-
-        return version ?? errorMessage ?? String(localized: "codex.version.unknown")
-    }
-}
-
-/// 安装版本只描述磁盘文件, 不推断共享服务的运行来源
-nonisolated struct CodexVersionDisplay: Equatable {
-    let displayVersion: String
-    let hasVersion: Bool
-    let path: String?
-
-    init(item: CodexVersionItem) {
-        displayVersion = item.displayVersion
-        hasVersion = item.version != nil
-        path = item.path
+        version ?? errorMessage ?? String(localized: "codex.version.unknown")
     }
 }
 
@@ -342,8 +322,8 @@ private final nonisolated class ProcessExitWaiter: Sendable {
 
 /// CodexBar 各能力依赖的 app-server 最低版本
 nonisolated enum CodexMinimumVersion {
-    static let global = "0.160.0"
-    static let activity = "0.160.0"
+    static let account = "0.157.0"
+    static let activity = "0.157.0"
 }
 
 /// 从 ` codex --version` 的输出中提取用户可读版本号

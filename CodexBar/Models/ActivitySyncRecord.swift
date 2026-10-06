@@ -192,9 +192,9 @@ nonisolated enum ActivitySyncError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .missingGeneration(date):
-            String(localized: "sync.error.activity-generation", defaultValue: "Activity history for \(date) has no valid generation and cannot be synchronized")
+            String(localized: "sync.error.activity-generation", defaultValue: "\(date)")
         case .invalidRecordIdentity:
-            String(localized: "sync.error.activity-identity", defaultValue: "The activity record identity does not match its device, date and generation")
+            String(localized: "sync.error.activity-identity")
         }
     }
 }

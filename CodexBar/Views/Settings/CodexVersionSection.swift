@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// 分别展示安装版本和共享服务运行版本, 只重连当前客户端
+/// 分别展示安装版本和 Codex 后台服务运行版本, 只重连当前客户端
 struct CodexVersionSection: View {
     @EnvironmentObject private var animationState: SettingsWindowAnimationState
     let snapshot: CodexVersionSnapshot
@@ -121,8 +121,7 @@ struct CodexVersionSection: View {
     }
 
     private func codexVersionRow(icon: String, item: CodexVersionItem) -> some View {
-        let row = CodexVersionDisplay(item: item)
-        let isUnavailable = snapshot.refreshedAt != .distantPast && item.path == nil
+        let hasVersion = item.version != nil
         let isPathCopied = copiedPathResetTasks[item.source.rawValue] != nil
 
         return HStack(alignment: .top, spacing: 10) {
@@ -136,19 +135,14 @@ struct CodexVersionSection: View {
             Spacer(minLength: 28)
 
             VStack(alignment: .trailing, spacing: 3) {
-                HStack(spacing: 12) {
-                    if row.hasVersion || !isUnavailable {
-                        Text(row.displayVersion)
-                            .font(row.hasVersion ? .body.monospacedDigit() : .body)
-                            .foregroundStyle(row.hasVersion ? .secondary : .tertiary)
-                            .lineLimit(1)
-                            .contentTransition(.opacity)
-                            .animation(Metrics.statusAnimation, value: row.displayVersion)
-                    }
-                }
-                .animation(Metrics.statusAnimation, value: isUnavailable)
+                Text(item.displayVersion)
+                    .font(hasVersion ? .body.monospacedDigit() : .body)
+                    .foregroundStyle(hasVersion ? .secondary : .tertiary)
+                    .lineLimit(1)
+                    .contentTransition(.opacity)
+                    .animation(Metrics.statusAnimation, value: item.displayVersion)
 
-                if let path = row.path {
+                if let path = item.path {
                     CopyablePathText(path: path, isCopied: isPathCopied)
                         .animation(Metrics.statusAnimation, value: isPathCopied)
                         .help(
@@ -163,7 +157,7 @@ struct CodexVersionSection: View {
                 }
             }
             .frame(maxWidth: Metrics.versionColumnWidth, alignment: .trailing)
-            .animation(Metrics.statusAnimation, value: row.path)
+            .animation(Metrics.statusAnimation, value: item.path)
         }
     }
 

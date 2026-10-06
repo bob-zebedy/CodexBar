@@ -1,7 +1,7 @@
 import AppKit
 import os
 
-/// 应用级对象装配点, 持有共享服务和 ViewModel 生命周期
+/// 应用级对象装配点, 持有服务和 ViewModel 生命周期
 @MainActor
 final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     private let codexStatusService = CodexStatusService()
@@ -30,6 +30,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     private var taskGlowController: TaskGlowController?
     private var notificationService: NotificationService?
     private var autoResetController: AutoResetController?
+    private var startupTask: Task<Void, Never>?
     private var terminationPreparationTask: Task<Void, Never>?
     private var hasPreparedForTermination = false
 
@@ -93,13 +94,30 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         )
         taskGlowController.start()
         self.taskGlowController = taskGlowController
-        activityMonitor.start()
         keepAliveController.start()
         logLaunchState()
+        startupTask = Task { [weak self] in
+            var startupError: String?
+            do {
+                try await AppServerStartup().ensureStarted()
+            } catch is CancellationError {
+                return
+            } catch {
+                startupError = error.localizedDescription
+                AppLog.app.error("Codex 后台服务准备失败")
+                AppServerLogStore.shared.recordFailure(method: "daemon/start", message: error.localizedDescription)
+            }
+            guard let self, !Task.isCancelled else { return }
+            startupTask = nil
+            viewModel.startAutoRefresh(startupError: startupError)
+            activityMonitor.start()
+        }
     }
 
     func applicationWillTerminate(_: Notification) {
         AppLog.app.notice("App 即将退出: reason=userQuit")
+        startupTask?.cancel()
+        startupTask = nil
         terminationPreparationTask?.cancel()
         terminationPreparationTask = nil
         AppProcessDiagnostics.recordCleanExit()

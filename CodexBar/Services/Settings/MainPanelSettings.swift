@@ -4,8 +4,8 @@ import os
 
 nonisolated enum MainPanelSection: String, CaseIterable, Identifiable, Sendable {
     case account
-    case activity
     case quota
+    case activity
     case usage
     case status
 
@@ -197,5 +197,5 @@ final class MainPanelSettings: ObservableObject {
 
     private static let sectionOrderKey = "MainPanel.sectionOrder"
     private static let hiddenSectionsKey = "MainPanel.hiddenSections"
-    private static let animationsEnabledKey = "MainPanel.entranceAnimationsEnabled"
+    private static let animationsEnabledKey = "MainPanel.areAnimationsEnabled"
 }

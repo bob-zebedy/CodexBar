@@ -47,12 +47,6 @@ struct LogView: View {
 
             Spacer()
 
-            if store.browsingHistory {
-                Button("log.action.latest") { Task { await store.showLatest() } }
-                    .controlSize(.small)
-                    .disabled(store.isLoading)
-            }
-
             Button {
                 Task { await store.clear() }
             } label: {

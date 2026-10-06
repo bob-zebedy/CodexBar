@@ -10,10 +10,14 @@ nonisolated enum BoundedProcess {
         let runningProcess: Process?
     }
 
-    static func run(executable: URL, arguments: [String], timeout: TimeInterval = 2.5) -> Result {
+    static func run(executable: URL, arguments: [String], timeout: TimeInterval = 2.5, environment: [String: String]? = nil) -> Result {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
+        process.environment = environment
+        guard !Task.isCancelled else {
+            return Result(exitCode: -1, output: "", timedOut: false, runningProcess: nil)
+        }
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
@@ -26,11 +30,12 @@ nonisolated enum BoundedProcess {
         defer { pipe.fileHandleForReading.closeFile() }
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(max(0, timeout)))
-        let killDeadline = deadline.advanced(by: .milliseconds(250))
-        let end = killDeadline.advanced(by: .milliseconds(500))
+        var killDeadline = deadline.advanced(by: .milliseconds(250))
+        var end = killDeadline.advanced(by: .milliseconds(500))
         var output = Data()
         var buffer = [UInt8](repeating: 0, count: 8192)
         var terminated = false
+        var timedOut = false
         var killed = false
         while true {
             // 每轮读取有界, 持续输出不能阻止检查超时
@@ -44,8 +49,11 @@ nonisolated enum BoundedProcess {
             if !process.isRunning {
                 break
             }
-            if clock.now >= deadline, !terminated {
+            if clock.now >= deadline || Task.isCancelled, !terminated {
+                timedOut = clock.now >= deadline
                 terminated = true
+                killDeadline = clock.now.advanced(by: .milliseconds(250))
+                end = killDeadline.advanced(by: .milliseconds(500))
                 process.terminate()
             }
             if clock.now >= killDeadline, !killed {
@@ -61,7 +69,7 @@ nonisolated enum BoundedProcess {
         return Result(
             exitCode: terminated || running ? -1 : process.terminationStatus,
             output: String(decoding: output, as: UTF8.self),
-            timedOut: terminated,
+            timedOut: timedOut,
             runningProcess: running ? process : nil
         )
     }

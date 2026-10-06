@@ -239,7 +239,7 @@ struct ActivityTask {
         lastProgressAt
     }
 
-    /// 隐藏还要求共享服务提供的新鲜生命周期覆盖
+    /// 隐藏还要求 Codex 后台服务提供的新鲜生命周期覆盖
     func protectionDeadline(at now: Date, inactivityDuration: TimeInterval) -> Date? {
         guard hasFreshLifecycle(at: now) else { return nil }
         return protectionReferenceAt.addingTimeInterval(inactivityDuration)

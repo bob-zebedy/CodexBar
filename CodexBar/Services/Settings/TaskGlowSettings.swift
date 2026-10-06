@@ -97,7 +97,7 @@ final class TaskGlowSettings: ObservableObject {
     private let previewSubject = PassthroughSubject<TaskGlowPreviewRequest, Never>()
     private static let enabledKey = "TaskGlow.isEnabled"
     private static let speedKey = "TaskGlow.animationSpeed"
-    private static let durationKey = "TaskGlow.terminalDuration"
+    private static let durationKey = "TaskGlow.terminalDurationSeconds"
     private static let brightnessKey = "TaskGlow.brightness"
 
     private static func colorKey(_ role: TaskGlowColorRole) -> String {

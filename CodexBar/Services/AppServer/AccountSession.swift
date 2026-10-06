@@ -31,7 +31,7 @@ final nonisolated class AccountSession {
             as: InitializeResult.self
         )
         let version = Self.serverVersion(fromUserAgent: result.userAgent)
-        let minimum = CodexMinimumVersion.global
+        let minimum = CodexMinimumVersion.account
         // 版本未知不能作为明确的低版本结论
         guard let version, let isSupported = CodexVersionReader.isVersion(version, atLeast: minimum) else {
             throw CodexStatusError.invalidServerResponse

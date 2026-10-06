@@ -395,7 +395,7 @@ private final class KeepAliveCleanupCommand {
         }
 
         try runChecked(destinationExecutableURL.path, ["--unregister-child", target.plistName])
-        for key in ["KeepAlive.isEnabled", "AutoReset.enabled"] {
+        for key in ["KeepAlive.isEnabled", "AutoReset.isEnabled"] {
             try runChecked(
                 "/usr/bin/defaults",
                 ["write", target.bundleIdentifier, key, "-bool", "false"]
