@@ -95,7 +95,7 @@ final class HelperStatusMonitor {
         case let .updateReset(exitCode):
             guard exitCode == 0 else {
                 AppLog.keepAlive.error(
-                    "Helper 更新后的睡眠重置失败: exit=\(exitCode)"
+                    "Helper 更新后睡眠状态检查失败: exit=\(exitCode)"
                 )
                 return false
             }
@@ -105,7 +105,7 @@ final class HelperStatusMonitor {
         case .timedOut:
             let wait = LogDuration.seconds(timeout)
             AppLog.keepAlive.error(
-                "Helper 更新后的睡眠重置超时: timeout=\(wait, privacy: .public)"
+                "Helper 更新后睡眠状态检查超时: timeout=\(wait, privacy: .public)"
             )
             onTimeout()
         case .status, .wakeSchedule, .invalidResponse, .cancelled:

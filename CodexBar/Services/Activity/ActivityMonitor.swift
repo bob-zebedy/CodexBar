@@ -550,7 +550,7 @@ final class ActivityMonitor: ObservableObject {
             }
             publishWaitingApprovalTransitions(waitingTaskKeys)
             if !pendingTerminalTasks.isEmpty {
-                // 新进入终态确认窗口的任务立即查询, 不等待下次周期对账
+                // 新进入终态确认窗口的任务立即查询, 不等待下次周期核对
                 refreshSessionLifecycleNow()
             } else if events.contains(where: { $0.eventKind == .turnCompleted }) {
                 refreshSessionLifecycleNow()

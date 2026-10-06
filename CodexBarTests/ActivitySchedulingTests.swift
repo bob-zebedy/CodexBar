@@ -263,7 +263,7 @@ struct ActivitySchedulingTests {
             try peer.reply(to: request, result: ["data": ["a-missing", "thread"]])
             onDiscovery()
         }
-        // 强制对账重新尝试失败线程, 服务端恢复后无需重连即可加入
+        // 强制核对重新尝试失败线程, 服务端恢复后无需重连即可加入
         let discovery = try peer.readMessage()
         #expect(discovery["method"] as? String == "thread/loaded/list")
         try peer.reply(to: discovery, result: ["data": ["a-missing", "thread"]])

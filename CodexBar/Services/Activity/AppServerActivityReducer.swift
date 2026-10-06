@@ -1,6 +1,6 @@
 import Foundation
 
-/// 将协议事件映射为既有业务阶段, 快照对账与实时统计分别处理
+/// 将协议事件映射为既有业务阶段, 快照核对与实时统计分别处理
 nonisolated struct AppServerActivityReducer {
     var threads: [String: ActivityThread] = [:]
     var states: [ActivityTurnReference: SessionLifecycleState] = [:]

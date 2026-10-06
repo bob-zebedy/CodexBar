@@ -22,7 +22,7 @@
 
 ---
 
-CodexBar 是面向 macOS 15 及更高版本的菜单栏 App，用于集中展示 Codex 账户、额度、Token 用量和实时任务状态。
+CodexBar 是 macOS 的菜单栏 App，用于集中展示 Codex 账户、额度、Token 用量和实时任务状态。
 
 它可以在任务完成、等待批准或额度变化时提醒你，也能在符合条件的 Codex 任务存在时自动防止系统睡眠。
 

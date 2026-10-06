@@ -273,7 +273,7 @@ actor AppServerActivityReader {
         for id in candidates {
             try checkGeneration(current)
             try await reconcileThread(id, loaded: loaded, bootstrap: bootstrap, generation: current)
-            // 日常对账分轮执行, 强制排空则等待本轮完整覆盖
+            // 日常核对分轮执行, 强制排空则等待本轮完整覆盖
             if !forced, ContinuousClock.now >= deadline {
                 break
             }

@@ -36,7 +36,14 @@ enum OwnershipRecordState {
     case unreadable(Error)
 }
 
-struct OwnershipStore {
+protocol OwnershipStoring {
+    var url: URL { get }
+    func ensureOwnershipDirectory() throws
+    func writeOwnershipDataDurably(_ data: Data) throws
+    func ownershipRecordState() -> OwnershipRecordState
+}
+
+struct OwnershipStore: OwnershipStoring {
     let url: URL
 
     func ensureOwnershipDirectory() throws {

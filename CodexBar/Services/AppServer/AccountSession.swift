@@ -3,7 +3,6 @@ import os
 
 /// 账户连接负责业务解码与重试, 传输和请求日志复用共享 WebSocket
 final nonisolated class AccountSession {
-    private typealias EncodedMessage = (data: Data, text: String)
     private let transport: AppServerSession
     private let timeout: TimeInterval
     private let logStorage: AppServerLogStore?
@@ -69,9 +68,8 @@ final nonisolated class AccountSession {
     }
 
     func notify(_ method: String, params: [String: Any]? = nil) throws {
-        let encoded = try encodeMessage(method: method, id: nil, params: params)
-
-        try transport.notify(encoded.data)
+        let data = try AppServerRPC.encode(method: method, id: nil, params: params)
+        try transport.notify(data)
     }
 
     func request<Response: Decodable>(
@@ -111,27 +109,19 @@ final nonisolated class AccountSession {
         params: [String: Any]? = nil,
         as type: Response.Type
     ) throws -> Response {
+        try AppServerRequestBudget.checkCurrent()
         let id = nextID
         nextID += 1
-        let encoded = try encodeMessage(method: method, id: id, params: params)
+        let payload = try AppServerRPC.encode(method: method, id: id, params: params)
         do {
-            let data = try transport.exchange(encoded.data, id: id, timeout: timeout)
-            return try decodeResponse(data, as: type)
+            let data = try transport.exchange(payload, id: id, timeout: timeout)
+            return try AppServerRPC.decode(data, as: type)
         } catch {
-            if let failure = error as? CodexStatusError, failure.isTransportFailure {
+            if error is CancellationError || (error as? CodexStatusError)?.isTransportFailure == true {
                 close()
             }
             throw error
         }
-    }
-
-    private func encodeMessage(method: String, id: Int?, params: [String: Any]?) throws -> EncodedMessage {
-        let data = try AppServerRPC.encode(method: method, id: id, params: params)
-        return (data, String(bytes: data, encoding: .utf8) ?? "")
-    }
-
-    private func decodeResponse<Response: Decodable>(_ data: Data, as type: Response.Type) throws -> Response {
-        try AppServerRPC.decode(data, as: type)
     }
 }
 

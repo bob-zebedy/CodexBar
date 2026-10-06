@@ -4,823 +4,458 @@ import Foundation
 import IOKit
 import os
 
-/// 自动重置的本机状态机
-/// 计划执行前通过 helper 预约系统唤醒, 唤醒后仍经新鲜读取决定是否使用
+@MainActor
+protocol AutoResetWakeActivity: AnyObject {
+    func beginPreventingIdleSleep() -> IOReturn
+    func endPreventingIdleSleep() -> IOReturn
+}
+
+extension SystemSleepService: AutoResetWakeActivity {}
+
+/// 定时器只负责触发, 凭证预算和执行结果由控制器拥有
 @MainActor
 final class AutoResetController {
-    private enum ScheduledKind: Equatable {
-        case threshold
-        case retry
+    struct Dependencies {
+        var read: (AppServerRequestBudget) async throws -> AutoResetRead
+        var consume: (AutoResetCandidate, String, AppServerRequestBudget) async throws -> ResetCreditConsumeResult
+        var setRequested: (Bool) -> Void
+        var setWakeDate: (Date?) -> Void
+        var succeeded: (Int?, String) -> Void
+        var failed: (AutoResetFailureNotice, String) -> Void
+        var refresh: () -> Void
+        var makeWakeActivity: () -> any AutoResetWakeActivity = {
+            SystemSleepService(sleepAssertionName: "CodexBar - Automatic Reset")
+        }
+
+        var now: () -> Date = Date.init
+        var sleep: (Date) async throws -> Void = { date in
+            try await Task.sleep(for: .seconds(max(0, date.timeIntervalSinceNow)))
+        }
     }
 
-    private enum RetryCause: Equatable {
-        case transient
-        case detailsUnavailable
-        case nothingToReset
-        case noCredit
-    }
+    private enum BlockReason { case authentication, permanent }
 
-    private enum BlockReason: Equatable {
-        case authentication
-        case permanent
+    private struct Record {
+        var schedule = AutoResetSchedule()
+        var expirationDate: Date
+        var block: BlockReason?
+        var consumed = false
+        var notifiedExpiration: Date?
     }
 
     private struct Target {
         let accountIdentity: String
         let candidate: AutoResetCandidate
-        let key: String
-
-        var idempotencyKey: String {
-            AutoResetIdentity.idempotencyKey(forCreditID: candidate.id)
+        var key: String {
+            AutoResetIdentity.notificationToken(accountIdentity: accountIdentity, creditID: candidate.id)
         }
     }
 
-    private struct RetryWindow {
-        let targetKey: String
-        let deadline: Date
+    private struct Evaluation {
+        let target: Target
+        let attempt: AutoResetSchedule.Attempt
     }
 
-    private static let retryDelays: [TimeInterval] = [15, 30, 60, 120, 300]
-    private static let retryWindowDuration: TimeInterval = 5 * 60
-    private static let finalNothingToResetWindow: TimeInterval = 10 * 60
-    private static let finalNothingToResetDelay: TimeInterval = 60
-
     private let settings: AutoResetSettings
-    private let statusViewModel: CodexStatusViewModel
-    private let service: CodexStatusService
-    private let notificationService: NotificationService
-    private let keepAliveController: KeepAliveController
-    private let wakeActivity = SystemSleepService(
-        sleepAssertionName: "CodexBar - Automatic Reset"
-    )
-
+    private let snapshots: AnyPublisher<CodexQuotaSnapshot?, Never>
+    private let dependencies: Dependencies
     private var cancellables = Set<AnyCancellable>()
     private var scheduledTask: Task<Void, Never>?
     private var evaluationTask: Task<Void, Never>?
-    private var settingsActivationTask: Task<Void, Never>?
-    private var evaluationGeneration = 0
-    private var pendingEvaluation = false
-    private var latestSnapshot: CodexQuotaSnapshot?
+    private var activationTask: Task<Void, Never>?
+    private var generation = 0
+    private var pendingTrigger: LogTrigger?
     private var target: Target?
-    private var retryWindow: RetryWindow?
-    private var retryIndex = 0
-    private var consumedTargetKeys = Set<String>()
-    private var expiredTargetDates: [String: Date] = [:]
-    private var blockedTargets: [String: BlockReason] = [:]
+    private var accountIdentity: String?
+    private var records: [String: Record] = [:]
     private var isStarted = false
+    private var isSleeping = false
+    private var isPreparingForTermination = false
+    private(set) var scheduledDate: Date?
+    private(set) var wakeDate: Date?
 
-    init(
+    convenience init(
         settings: AutoResetSettings,
         statusViewModel: CodexStatusViewModel,
         service: CodexStatusService,
         notificationService: NotificationService,
         keepAliveController: KeepAliveController
     ) {
+        self.init(settings: settings, snapshots: statusViewModel.$snapshot.eraseToAnyPublisher(), dependencies: Dependencies(
+            read: { try await service.readCreditsForAutoReset(budget: $0) },
+            consume: { candidate, account, budget in
+                try await service.consumeResetCredit(
+                    id: candidate.id,
+                    idempotencyKey: AutoResetIdentity.idempotencyKey(forCreditID: candidate.id),
+                    expectedAccountIdentity: account,
+                    expirationDate: candidate.expirationDate,
+                    budget: budget
+                )
+            },
+            setRequested: { keepAliveController.setAutoResetRequested($0) },
+            setWakeDate: { keepAliveController.setAutoResetWakeDate($0) },
+            succeeded: { notificationService.notifyAutoResetSucceeded(remainingCount: $0, dedupToken: $1) },
+            failed: { notificationService.notifyAutoResetFailed(reason: $0, dedupToken: $1) },
+            refresh: { statusViewModel.refreshAfterCurrent(trigger: .autoReset) }
+        ))
+    }
+
+    init(settings: AutoResetSettings, snapshots: AnyPublisher<CodexQuotaSnapshot?, Never>, dependencies: Dependencies) {
         self.settings = settings
-        self.statusViewModel = statusViewModel
-        self.service = service
-        self.notificationService = notificationService
-        self.keepAliveController = keepAliveController
+        self.snapshots = snapshots
+        self.dependencies = dependencies
     }
 
     deinit {
         scheduledTask?.cancel()
         evaluationTask?.cancel()
-        settingsActivationTask?.cancel()
+        activationTask?.cancel()
     }
 
     func start() {
-        guard !isStarted else {
-            return
-        }
+        guard !isStarted else { return }
         isStarted = true
-        keepAliveController.setAutoResetRequested(settings.isEnabled)
-
-        statusViewModel.$snapshot
-            .sink { [weak self] snapshot in
-                self?.handleSnapshot(snapshot)
-            }
-            .store(in: &cancellables)
-
-        settings.$isEnabled
-            .dropFirst()
-            .sink { [weak self] enabled in
-                self?.handleEnabledChange(enabled)
-            }
-            .store(in: &cancellables)
-
-        settings.$leadTime
-            .dropFirst()
-            .sink { [weak self] leadTime in
-                self?.handleLeadTimeChange(leadTime)
-            }
-            .store(in: &cancellables)
-
-        NSWorkspace.shared.notificationCenter
-            .publisher(for: NSWorkspace.didWakeNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.requestEvaluation(trigger: .wake)
-            }
-            .store(in: &cancellables)
-
-        if settings.isEnabled {
-            requestEvaluation(trigger: .launch)
-        }
+        dependencies.setRequested(settings.isEnabled)
+        snapshots.sink { [weak self] in self?.handleSnapshot($0) }.store(in: &cancellables)
+        settings.$isEnabled.dropFirst().sink { [weak self] in self?.handleEnabledChange($0) }.store(in: &cancellables)
+        settings.$leadTime.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            guard let self, settings.isEnabled else { return }
+            invalidateEvaluation()
+            requestEvaluation(trigger: .settings)
+        }.store(in: &cancellables)
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)
+            .receive(on: DispatchQueue.main).sink { [weak self] _ in self?.handleSleep() }.store(in: &cancellables)
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
+            .receive(on: DispatchQueue.main).sink { [weak self] _ in self?.handleWake() }.store(in: &cancellables)
+        NotificationCenter.default.publisher(for: .NSSystemClockDidChange)
+            .receive(on: DispatchQueue.main).sink { [weak self] _ in self?.handleClockChange() }.store(in: &cancellables)
+        requestEvaluation(trigger: .launch)
     }
 
     func stop() {
-        guard isStarted else {
-            return
-        }
         isStarted = false
-        keepAliveController.setAutoResetRequested(false)
+        dependencies.setRequested(false)
         cancellables.removeAll()
         cancelWork()
         target = nil
     }
 
+    func prepareForTermination() {
+        isPreparingForTermination = true
+        cancelWork()
+    }
+
+    func resumeAfterTerminationCancellation() {
+        isPreparingForTermination = false
+        requestEvaluation(trigger: .launch)
+    }
+
+    func handleSleep() {
+        isSleeping = true
+        invalidateEvaluation()
+        cancelTimer()
+        // 系统睡眠不撤销首次执行和最终复查的唤醒预约
+        refreshSchedule()
+    }
+
+    func handleWake() {
+        isSleeping = false
+        requestEvaluation(trigger: .wake)
+    }
+
+    func handleClockChange() {
+        invalidateEvaluation()
+        setWakeDate(nil)
+        refreshSchedule()
+        requestEvaluation(trigger: .statusRefresh)
+    }
+
+    private var isEnabled: Bool {
+        isStarted && settings.isEnabled && !isPreparingForTermination
+    }
+
+    private var canEvaluate: Bool {
+        isEnabled && !isSleeping
+    }
+
     private func handleEnabledChange(_ enabled: Bool) {
-        keepAliveController.setAutoResetRequested(enabled)
+        dependencies.setRequested(enabled)
         guard enabled else {
             cancelWork()
             target = nil
             return
         }
-
-        settingsActivationTask?.cancel()
-        settingsActivationTask = Task { @MainActor [weak self] in
+        activationTask?.cancel()
+        activationTask = Task { @MainActor [weak self] in
+            // @Published 在 willSet 发值, 等设置提交后再读取
             await Task.yield()
-            guard let self,
-                  !Task.isCancelled,
-                  settings.isEnabled else {
-                return
-            }
-
-            settingsActivationTask = nil
-            if let latestSnapshot {
-                handleSnapshot(latestSnapshot)
-            }
+            guard let self, !Task.isCancelled else { return }
+            activationTask = nil
             requestEvaluation(trigger: .settings)
         }
     }
 
-    private func handleLeadTimeChange(_: AutoResetLeadTime) {
-        guard settings.isEnabled else {
-            return
-        }
-        requestEvaluation(trigger: .settings)
-    }
-
     private func handleSnapshot(_ snapshot: CodexQuotaSnapshot?) {
-        latestSnapshot = snapshot
-        guard settings.isEnabled,
-              let snapshot,
-              !snapshot.isRateLimitsStale else {
-            return
+        guard isEnabled, let snapshot, !snapshot.isRateLimitsStale else { return }
+        let previousKey = target?.key
+        let previousExpiration = target?.candidate.expirationDate
+        let identity = AutoResetIdentity.accountIdentity(for: snapshot.account)
+        if let accountIdentity, accountIdentity != identity {
+            invalidateEvaluation()
         }
-
-        reconcile(
-            accountIdentity: AutoResetIdentity.accountIdentity(for: snapshot.account),
-            availableCount: snapshot.resetCreditsAvailableCount,
-            candidates: snapshot.autoResetCandidates,
-            now: Date()
-        )
-        scheduleCurrentTargetIfNeeded()
+        reconcile(AutoResetRead(accountIdentity: identity, availableCount: snapshot.resetCreditsAvailableCount, candidates: snapshot.autoResetCandidates))
+        if let previousKey, previousKey != target?.key || previousExpiration != target?.candidate.expirationDate {
+            invalidateEvaluation()
+        }
+        refreshSchedule()
     }
 
-    private func requestEvaluation(
-        trigger: LogTrigger,
-        expectedTargetKey: String? = nil
-    ) {
-        guard isStarted, settings.isEnabled else {
-            return
-        }
+    private func requestEvaluation(trigger: LogTrigger) {
+        guard canEvaluate else { return }
         guard evaluationTask == nil else {
-            pendingEvaluation = true
+            pendingTrigger = trigger
             return
         }
-
-        let startedAt = Date()
-        if let retryWindow,
-           retryWindow.deadline <= startedAt {
-            finishRetryWindow(ifMatching: retryWindow.targetKey)
-            if trigger == .retry {
-                cancelScheduledTask()
-                return
-            }
-        }
-
-        cancelScheduledTask()
-        evaluationGeneration += 1
-        let generation = evaluationGeneration
+        cancelTimer()
+        let generation = generation
         evaluationTask = Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-            await performEvaluation(
-                trigger: trigger,
-                expectedTargetKey: expectedTargetKey,
-                startedAt: startedAt
-            )
-            finishEvaluation(generation: generation)
+            guard let self else { return }
+            await performEvaluation(trigger: trigger, generation: generation)
+            finishEvaluation()
         }
     }
 
-    private func finishEvaluation(generation: Int) {
-        guard generation == evaluationGeneration else {
-            return
-        }
-
+    private func finishEvaluation() {
         evaluationTask = nil
-        guard pendingEvaluation else {
-            scheduleCurrentTargetIfNeeded()
-            return
+        if let trigger = pendingTrigger {
+            pendingTrigger = nil
+            requestEvaluation(trigger: trigger)
         }
-
-        pendingEvaluation = false
-        requestEvaluation(trigger: .retry)
+        refreshSchedule()
     }
 
-    private func performEvaluation(
-        trigger: LogTrigger,
-        expectedTargetKey: String?,
-        startedAt: Date
-    ) async {
-        let holdsWakeActivity = beginWakeActivityIfNeeded(trigger: trigger)
+    private func isCurrent(_ generation: Int) -> Bool {
+        generation == self.generation && canEvaluate && !Task.isCancelled
+    }
+
+    private func performEvaluation(trigger: LogTrigger, generation: Int) async {
+        guard isCurrent(generation) else { return }
+        let activity = dependencies.makeWakeActivity()
+        let holdsAssertion = activity.beginPreventingIdleSleep() == kIOReturnSuccess
+        if !holdsAssertion {
+            AppLog.app.error("自动重置短时防睡眠建立失败")
+        }
         defer {
-            endWakeActivityIfNeeded(holdsWakeActivity)
+            if holdsAssertion, activity.endPreventingIdleSleep() != kIOReturnSuccess {
+                AppLog.app.error("自动重置短时防睡眠释放失败")
+            }
         }
-
-        if let target,
-           expectedTargetKey == nil || expectedTargetKey == target.key,
-           thresholdDate(for: target) <= startedAt {
-            startRetryWindowIfNeeded(for: target, startedAt: startedAt)
+        var evaluation = beginDueEvaluation()
+        var transientFailure = true
+        defer {
+            if let evaluation {
+                finishAttempt(evaluation, transientFailure: transientFailure, coversFinal: isCurrent(generation))
+            }
         }
-
-        let freshRead: AutoResetRead
         do {
-            freshRead = try await service.readCreditsForAutoReset()
-        } catch {
-            guard !Task.isCancelled, settings.isEnabled else {
+            let readDeadline = evaluation?.attempt.deadline ?? dependencies.now().addingTimeInterval(60)
+            let budget = AppServerRequestBudget(deadline: readDeadline, now: dependencies.now())
+            let read = try await dependencies.read(budget)
+            guard isCurrent(generation) else { return }
+            reconcile(read)
+            guard read.candidates != nil else { return }
+            guard let currentTarget = target else { return }
+            if let evaluation, evaluation.target.key != currentTarget.key {
                 return
             }
-            handleRequestFailure(error, windowStartedAt: startedAt)
-            return
-        }
-
-        guard !Task.isCancelled, settings.isEnabled else {
-            return
-        }
-
-        let now = Date()
-        reconcile(freshRead, now: now)
-
-        guard freshRead.candidates != nil else {
-            if target != nil || (freshRead.availableCount ?? 0) > 0 {
-                scheduleRetry(cause: .detailsUnavailable, windowStartedAt: startedAt)
+            if evaluation == nil {
+                evaluation = beginDueEvaluation()
             }
-            return
-        }
-        guard let target else {
-            return
-        }
-        if let expectedTargetKey, expectedTargetKey != target.key {
-            scheduleCurrentTargetIfNeeded()
-            return
-        }
-        guard blockedTargets[target.key] == nil else {
-            return
-        }
-        guard target.candidate.expirationDate > now else {
-            finishExpiredTarget(target)
-            return
-        }
-
-        let thresholdDate = thresholdDate(for: target)
-        guard thresholdDate <= now else {
-            scheduleCurrentTargetIfNeeded()
-            return
-        }
-
-        startRetryWindowIfNeeded(for: target, startedAt: startedAt)
-
-        AppLog.app.notice(
-            "自动重置开始: trigger=\(trigger.rawValue, privacy: .public)"
-        )
-        let attemptedTarget = target
-        do {
-            let result = try await service.consumeResetCredit(
-                id: attemptedTarget.candidate.id,
-                idempotencyKey: attemptedTarget.idempotencyKey,
-                expectedAccountIdentity: attemptedTarget.accountIdentity
+            guard let evaluation, records[evaluation.target.key]?.block == nil else { return }
+            let deadline = min(evaluation.attempt.deadline, AutoResetSchedule.cutoff(for: currentTarget.candidate.expirationDate))
+            guard dependencies.now() < deadline, isCurrent(generation) else { return }
+            updateWakeDate(during: evaluation)
+            AppLog.app.notice("自动重置开始: trigger=\(trigger.rawValue, privacy: .public)")
+            let result = try await dependencies.consume(
+                currentTarget.candidate, currentTarget.accountIdentity,
+                budget.constrained(to: deadline, now: dependencies.now())
             )
-            handleConsumeResult(result, attemptedTarget: attemptedTarget)
+            transientFailure = false
+            handleConsumeResult(result, evaluation: evaluation, isCurrent: isCurrent(generation))
         } catch {
-            handleConsumeFailure(
-                error,
-                attemptedTarget: attemptedTarget,
-                windowStartedAt: startedAt
-            )
+            guard isCurrent(generation) else { return }
+            handleFailure(error, evaluation: evaluation)
         }
     }
 
-    private func handleConsumeResult(
-        _ result: ResetCreditConsumeResult,
-        attemptedTarget: Target
-    ) {
+    private func beginDueEvaluation() -> Evaluation? {
+        let now = dependencies.now()
+        guard let target, var record = records[target.key], !record.consumed, record.block == nil,
+              let attempt = record.schedule.begin(expirationDate: target.candidate.expirationDate, leadTime: settings.leadTime.duration, now: now) else { return nil }
+        records[target.key] = record
+        let evaluation = Evaluation(target: target, attempt: attempt)
+        updateWakeDate(during: evaluation)
+        return evaluation
+    }
+
+    private func finishAttempt(_ evaluation: Evaluation, transientFailure: Bool, coversFinal: Bool) {
+        guard var record = records[evaluation.target.key], !record.consumed else { return }
+        record.schedule.finish(evaluation.attempt, transientFailure: transientFailure, leadTime: settings.leadTime.duration, now: dependencies.now())
+        if coversFinal {
+            record.schedule.coverFinalIfNeeded(evaluation.attempt, expirationDate: record.expirationDate, transientFailure: transientFailure, now: dependencies.now())
+        }
+        records[evaluation.target.key] = record
+    }
+
+    private func handleConsumeResult(_ result: ResetCreditConsumeResult, evaluation: Evaluation, isCurrent: Bool) {
+        let attempted = evaluation.target
         switch result.outcome {
         case .reset, .alreadyRedeemed:
-            consumedTargetKeys.insert(attemptedTarget.key)
-            expiredTargetDates.removeValue(forKey: attemptedTarget.key)
-            blockedTargets.removeValue(forKey: attemptedTarget.key)
-            clearTarget(ifMatching: attemptedTarget.key)
-
-            let refreshedRead = result.refreshedRead
-            let remainingCount = refreshedRead?.accountIdentity == attemptedTarget.accountIdentity
-                ? refreshedRead?.availableCount
-                : nil
-            notificationService.notifyAutoResetSucceeded(
-                remainingCount: remainingCount,
-                dedupToken: attemptedTarget.key
-            )
-            AppLog.app.notice(
-                "自动重置完成: outcome=\(result.outcome.rawValue, privacy: .public)"
-            )
-
-            if settings.isEnabled,
-               let refreshedRead,
-               refreshedRead.accountIdentity == attemptedTarget.accountIdentity {
-                reconcile(refreshedRead)
-                scheduleCurrentTargetIfNeeded()
+            // 已确认的副作用不能因任务取消丢失, 但旧读取不能重建计划
+            var record = records[attempted.key] ?? Record(expirationDate: attempted.candidate.expirationDate)
+            let wasConsumed = record.consumed
+            record.consumed = true
+            record.block = nil
+            records[attempted.key] = record
+            if !wasConsumed {
+                let remaining = result.refreshedRead.flatMap { $0.accountIdentity == attempted.accountIdentity ? $0.availableCount : nil }
+                dependencies.succeeded(remaining, attempted.key)
             }
-            statusViewModel.refreshAfterCurrent(trigger: .autoReset)
-
+            if target?.key == attempted.key {
+                target = nil
+            }
+            if isCurrent, let read = result.refreshedRead {
+                reconcile(read)
+            }
+            dependencies.refresh()
+            AppLog.app.notice("自动重置完成: outcome=\(result.outcome.rawValue, privacy: .public)")
         case .nothingToReset, .noCredit:
-            if let refreshedRead = result.refreshedRead {
-                reconcile(refreshedRead)
+            guard isCurrent else { return }
+            if let read = result.refreshedRead {
+                reconcile(read)
             }
-
-            guard settings.isEnabled,
-                  target?.key == attemptedTarget.key else {
-                statusViewModel.refreshAfterCurrent(trigger: .autoReset)
-                return
-            }
-
-            let cause: RetryCause = result.outcome == .nothingToReset
-                ? .nothingToReset
-                : .noCredit
-            AppLog.app.notice(
-                "自动重置未完成: outcome=\(result.outcome.rawValue, privacy: .public)"
-            )
-            scheduleRetry(cause: cause)
-
             if result.outcome == .noCredit {
-                statusViewModel.refreshAfterCurrent(trigger: .autoReset)
+                dependencies.refresh()
             }
+            AppLog.app.notice("自动重置等待复查: outcome=\(result.outcome.rawValue, privacy: .public)")
         }
     }
 
-    private func handleConsumeFailure(
-        _ error: Error,
-        attemptedTarget: Target,
-        windowStartedAt: Date
-    ) {
-        guard !Task.isCancelled,
-              settings.isEnabled,
-              target?.key == attemptedTarget.key else {
+    private func handleFailure(_ error: Error, evaluation: Evaluation?) {
+        if case AutoResetServiceError.accountChanged = error {
+            target = nil
+            dependencies.refresh()
             return
         }
-        handleRequestFailure(error, windowStartedAt: windowStartedAt)
-    }
-
-    private func handleRequestFailure(_ error: Error, windowStartedAt: Date) {
-        if error is AutoResetServiceError {
-            clearTarget()
-            statusViewModel.refreshAfterCurrent(trigger: .autoReset)
+        if error is CancellationError || error is AutoResetServiceError {
             return
         }
-
+        guard let key = evaluation?.target.key ?? target?.key else { return }
         if let error = error as? CodexStatusError {
             if error.isAuthenticationRequired {
-                blockCurrentTarget(reason: .authentication)
-                statusViewModel.refreshAfterCurrent(trigger: .autoReset)
-                return
+                records[key]?.block = .authentication
+                dependencies.failed(.authentication, key)
+                dependencies.refresh()
+            } else if error.isProtocolOrParameterFailure {
+                records[key]?.block = .permanent
+                dependencies.failed(.permanent, key)
             }
-            if error.isProtocolOrParameterFailure {
-                blockCurrentTarget(reason: .permanent)
-                return
-            }
+        } else {
+            records[key]?.block = .permanent
+            dependencies.failed(.permanent, key)
+        }
+    }
 
-            if scheduleRetry(cause: .transient, windowStartedAt: windowStartedAt) {
-                AppLog.app.notice("自动重置稍后重试: reason=requestFailed")
-            }
+    // MARK: - 新鲜凭证与计划
+
+    private func reconcile(_ read: AutoResetRead) {
+        let now = dependencies.now()
+        records = records.filter { $0.value.expirationDate > now.addingTimeInterval(-86400) }
+        if accountIdentity != read.accountIdentity {
+            target = nil
+            accountIdentity = read.accountIdentity
+        }
+        guard read.availableCount != 0 else { target = nil
             return
         }
-
-        blockCurrentTarget(reason: .permanent)
+        guard let candidates = read.candidates else { return }
+        if let target, let expired = candidates.first(where: { $0.id == target.candidate.id && $0.expirationDate <= now }),
+           records[target.key]?.notifiedExpiration != expired.expirationDate {
+            records[target.key]?.notifiedExpiration = expired.expirationDate
+            dependencies.failed(.expired, target.key)
+        }
+        for candidate in candidates {
+            let key = AutoResetIdentity.notificationToken(accountIdentity: read.accountIdentity, creditID: candidate.id)
+            var record = records[key] ?? Record(expirationDate: candidate.expirationDate)
+            record.expirationDate = candidate.expirationDate
+            if record.block == .authentication {
+                record.block = nil
+            }
+            records[key] = record
+        }
+        target = candidates.filter { candidate in
+            let key = AutoResetIdentity.notificationToken(accountIdentity: read.accountIdentity, creditID: candidate.id)
+            return candidate.expirationDate > now && records[key]?.consumed != true && records[key]?.block != .permanent
+        }.sorted {
+            $0.expirationDate == $1.expirationDate ? $0.id < $1.id : $0.expirationDate < $1.expirationDate
+        }.first.map { Target(accountIdentity: read.accountIdentity, candidate: $0) }
     }
 
-    private func blockCurrentTarget(reason: BlockReason) {
-        guard let target else {
+    private func refreshSchedule() {
+        cancelTimer()
+        guard isEnabled, let target, var record = records[target.key], record.block == nil, !record.consumed else {
+            setWakeDate(nil)
             return
         }
-
-        blockedTargets[target.key] = reason
-        cancelScheduledTask()
-        resetRetryWindow(ifMatching: target.key)
-        switch reason {
-        case .authentication:
-            notificationService.notifyAutoResetFailed(
-                reason: .authentication,
-                dedupToken: target.key
-            )
-            AppLog.app.error("自动重置已暂停: reason=authentication")
-        case .permanent:
-            notificationService.notifyAutoResetFailed(
-                reason: .permanent,
-                dedupToken: target.key
-            )
-            AppLog.app.error("自动重置已停止: reason=permanentFailure")
-        }
-    }
-
-    @discardableResult
-    private func scheduleRetry(
-        cause: RetryCause,
-        windowStartedAt: Date = Date()
-    ) -> Bool {
-        guard settings.isEnabled,
-              let target,
-              thresholdDate(for: target) <= windowStartedAt else {
-            return false
-        }
-        guard blockedTargets[target.key] == nil else {
-            return false
-        }
-
-        let now = Date()
-        let remaining = target.candidate.expirationDate.timeIntervalSince(now)
-        guard remaining > 0 else {
-            finishExpiredTarget(target)
-            return false
-        }
-
-        let retryWindow = startRetryWindowIfNeeded(
-            for: target,
-            startedAt: windowStartedAt
-        )
-        guard retryWindow.deadline > now else {
-            scheduleRetryWindowEnd(
-                at: now,
-                expectedTargetKey: target.key
-            )
-            return false
-        }
-
-        var delay = nextRetryDelay()
-        if cause == .nothingToReset, remaining <= Self.finalNothingToResetWindow {
-            delay = Self.finalNothingToResetDelay
-        }
-        delay = min(delay, remaining)
-        let retryDate = now.addingTimeInterval(delay)
-        guard retryDate < retryWindow.deadline else {
-            scheduleRetryWindowEnd(
-                at: retryWindow.deadline,
-                expectedTargetKey: target.key
-            )
-            return false
-        }
-        schedule(
-            at: retryDate,
-            kind: .retry,
-            expectedTargetKey: target.key
-        )
-        return true
-    }
-
-    private func nextRetryDelay() -> TimeInterval {
-        let index = min(retryIndex, Self.retryDelays.count - 1)
-        retryIndex += 1
-        return Self.retryDelays[index]
-    }
-
-    private func scheduleCurrentTargetIfNeeded() {
-        guard isStarted,
-              settings.isEnabled,
-              evaluationTask == nil,
-              scheduledTask == nil,
-              let target,
-              blockedTargets[target.key] == nil else {
+        if evaluationTask != nil {
+            let finalDate = target.candidate.expirationDate.addingTimeInterval(-AutoResetSchedule.finalLeadTime)
+            setWakeDate(finalDate > dependencies.now() ? finalDate : nil)
             return
         }
-
-        let thresholdDate = thresholdDate(for: target)
-        if thresholdDate > Date() {
-            // 回到正常阈值等待后开始新的重试周期, 避免旧故障影响正式执行
-            resetRetryWindow()
-        }
-        schedule(
-            at: thresholdDate,
-            kind: .threshold,
-            expectedTargetKey: target.key
-        )
-    }
-
-    private func schedule(
-        at date: Date,
-        kind: ScheduledKind,
-        expectedTargetKey: String
-    ) {
-        cancelScheduledTask(clearsWakeSchedule: false)
-        keepAliveController.setAutoResetWakeDate(date)
-        scheduledTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(max(0, date.timeIntervalSinceNow)))
-            } catch {
-                return
-            }
-            guard let self, !Task.isCancelled else {
-                return
-            }
-
+        let plan = record.schedule.plan(expirationDate: target.candidate.expirationDate, leadTime: settings.leadTime.duration, now: dependencies.now())
+        records[target.key] = record
+        setWakeDate(plan?.wakeDate)
+        guard let plan, !isSleeping else { return }
+        scheduledDate = plan.evaluationDate
+        let generation = generation
+        scheduledTask = Task { @MainActor [weak self, sleep = dependencies.sleep] in
+            do { try await sleep(plan.evaluationDate) } catch { return }
+            guard let self, !Task.isCancelled, generation == self.generation else { return }
             scheduledTask = nil
-            requestEvaluation(
-                trigger: kind == .threshold ? .auto : .retry,
-                expectedTargetKey: expectedTargetKey
-            )
+            scheduledDate = nil
+            requestEvaluation(trigger: .auto)
         }
     }
 
-    private func scheduleRetryWindowEnd(
-        at date: Date,
-        expectedTargetKey: String
-    ) {
-        cancelScheduledTask()
-        // 截止任务占住 scheduledTask, 防止当前评估返回后立即重排已经过去的阈值
-        // 系统唤醒已由 cancelScheduledTask 清除
-        scheduledTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(max(0, date.timeIntervalSinceNow)))
-            } catch {
-                return
-            }
-            guard let self, !Task.isCancelled else {
-                return
-            }
-
-            scheduledTask = nil
-            finishRetryWindow(ifMatching: expectedTargetKey)
-        }
+    private func updateWakeDate(during evaluation: Evaluation) {
+        let finalDate = evaluation.target.candidate.expirationDate.addingTimeInterval(-AutoResetSchedule.finalLeadTime)
+        setWakeDate(evaluation.attempt.phase == .final || finalDate <= dependencies.now() ? nil : finalDate)
     }
 
-    private func reconcile(
-        accountIdentity: String,
-        availableCount: Int?,
-        candidates: [AutoResetCandidate]?,
-        now: Date
-    ) {
-        if let target, target.accountIdentity != accountIdentity {
-            clearTarget()
-        }
-
-        if availableCount == 0 {
-            clearTarget()
-            return
-        }
-
-        guard let candidates else {
-            return
-        }
-
-        if let currentTarget = target,
-           currentTarget.accountIdentity == accountIdentity {
-            if let matchingCandidate = candidates.first(where: {
-                $0.id == currentTarget.candidate.id
-            }) {
-                let expirationChanged = matchingCandidate.expirationDate
-                    != currentTarget.candidate.expirationDate
-                let updatedTarget = makeTarget(
-                    accountIdentity: accountIdentity,
-                    candidate: matchingCandidate
-                )
-                target = updatedTarget
-                if expirationChanged {
-                    // creditId 决定幂等身份, expiresAt 是可变调度数据
-                    // 取消阈值或重试任务, 由当前调用链按新时间重建
-                    cancelScheduledTask()
-                    let direction = matchingCandidate.expirationDate
-                        < currentTarget.candidate.expirationDate ? "earlier" : "later"
-                    AppLog.app.notice(
-                        "自动重置计划已更新: reason=expirationChanged direction=\(direction, privacy: .public)"
-                    )
-                }
-                if blockedTargets[currentTarget.key] == .authentication {
-                    blockedTargets.removeValue(forKey: currentTarget.key)
-                }
-                if matchingCandidate.expirationDate <= now {
-                    finishExpiredTarget(updatedTarget)
-                    return
-                }
-            } else {
-                // 凭证消失无法区分手动使用 其他设备使用或服务端过期
-                // 因此只停止本机任务, 不发送自动重置通知
-                clearTarget()
-            }
-        }
-
-        let nextCandidate = candidates
-            .filter { candidate in
-                isCandidateEligible(
-                    candidate,
-                    accountIdentity: accountIdentity,
-                    now: now
-                )
-            }
-            .sorted { lhs, rhs in
-                if lhs.expirationDate != rhs.expirationDate {
-                    return lhs.expirationDate < rhs.expirationDate
-                }
-                return lhs.id < rhs.id
-            }
-            .first
-
-        guard let nextCandidate else {
-            return
-        }
-
-        let nextTarget = makeTarget(
-            accountIdentity: accountIdentity,
-            candidate: nextCandidate
-        )
-        if expiredTargetDates.removeValue(forKey: nextTarget.key) != nil {
-            AppLog.app.notice("自动重置计划已恢复: reason=expirationExtended")
-        }
-        if target?.key == nextTarget.key {
-            return
-        }
-
-        cancelScheduledTask()
-        resetRetryWindow()
-        target = nextTarget
-        if blockedTargets[nextTarget.key] == .authentication {
-            blockedTargets.removeValue(forKey: nextTarget.key)
-        }
+    private func setWakeDate(_ date: Date?) {
+        guard date != wakeDate else { return }
+        wakeDate = date
+        dependencies.setWakeDate(date)
     }
 
-    private func reconcile(
-        _ read: AutoResetRead,
-        now: Date = Date()
-    ) {
-        reconcile(
-            accountIdentity: read.accountIdentity,
-            availableCount: read.availableCount,
-            candidates: read.candidates,
-            now: now
-        )
-    }
-
-    private func isCandidateEligible(
-        _ candidate: AutoResetCandidate,
-        accountIdentity: String,
-        now: Date
-    ) -> Bool {
-        guard candidate.expirationDate > now else {
-            return false
-        }
-
-        let key = AutoResetIdentity.notificationToken(
-            accountIdentity: accountIdentity,
-            creditID: candidate.id
-        )
-        guard !consumedTargetKeys.contains(key) else {
-            return false
-        }
-        guard let expiredDate = expiredTargetDates[key] else {
-            return true
-        }
-        return candidate.expirationDate > expiredDate
-    }
-
-    private func makeTarget(
-        accountIdentity: String,
-        candidate: AutoResetCandidate
-    ) -> Target {
-        Target(
-            accountIdentity: accountIdentity,
-            candidate: candidate,
-            key: AutoResetIdentity.notificationToken(
-                accountIdentity: accountIdentity,
-                creditID: candidate.id
-            )
-        )
-    }
-
-    private func thresholdDate(for target: Target) -> Date {
-        target.candidate.expirationDate
-            .addingTimeInterval(-settings.leadTime.duration)
-    }
-
-    @discardableResult
-    private func startRetryWindowIfNeeded(
-        for target: Target,
-        startedAt: Date
-    ) -> RetryWindow {
-        if let retryWindow,
-           retryWindow.targetKey == target.key {
-            return retryWindow
-        }
-
-        let retryWindow = RetryWindow(
-            targetKey: target.key,
-            deadline: startedAt.addingTimeInterval(Self.retryWindowDuration)
-        )
-        self.retryWindow = retryWindow
-        retryIndex = 0
-        AppLog.app.notice("自动重置重试窗口已开始")
-        return retryWindow
-    }
-
-    private func finishRetryWindow(ifMatching targetKey: String) {
-        guard retryWindow?.targetKey == targetKey else {
-            return
-        }
-
-        retryWindow = nil
-        retryIndex = 0
-        AppLog.app.notice("自动重置重试窗口已结束: reason=deadline")
-    }
-
-    private func resetRetryWindow(ifMatching targetKey: String? = nil) {
-        if let targetKey,
-           retryWindow?.targetKey != targetKey {
-            return
-        }
-
-        retryWindow = nil
-        retryIndex = 0
-    }
-
-    private func finishExpiredTarget(_ expiredTarget: Target) {
-        expiredTargetDates[expiredTarget.key] = expiredTarget.candidate.expirationDate
-        clearTarget(ifMatching: expiredTarget.key)
-        notificationService.notifyAutoResetFailed(
-            reason: .expired,
-            dedupToken: expiredTarget.key
-        )
-        AppLog.app.error("自动重置失败: reason=expired")
-        statusViewModel.refreshAfterCurrent(trigger: .autoReset)
-    }
-
-    private func clearTarget(ifMatching key: String? = nil) {
-        if let key, target?.key != key {
-            return
-        }
-        cancelScheduledTask()
-        target = nil
-        resetRetryWindow()
-    }
-
-    private func cancelScheduledTask(clearsWakeSchedule: Bool = true) {
+    private func cancelTimer() {
         scheduledTask?.cancel()
         scheduledTask = nil
-        if clearsWakeSchedule {
-            keepAliveController.setAutoResetWakeDate(nil)
-        }
+        scheduledDate = nil
     }
 
-    private func beginWakeActivityIfNeeded(trigger: LogTrigger) -> Bool {
-        guard trigger == .auto || trigger == .retry || trigger == .wake else {
-            return false
-        }
-
-        let result = wakeActivity.beginPreventingIdleSleep()
-        guard result == kIOReturnSuccess else {
-            AppLog.app.error("自动重置短时防睡眠失败: code=\(result)")
-            return false
-        }
-        return true
-    }
-
-    private func endWakeActivityIfNeeded(_ isActive: Bool) {
-        guard isActive else {
-            return
-        }
-
-        let result = wakeActivity.endPreventingIdleSleep()
-        if result != kIOReturnSuccess {
-            AppLog.app.error("自动重置短时防睡眠释放失败: code=\(result)")
-        }
+    private func invalidateEvaluation() {
+        generation += 1
+        evaluationTask?.cancel()
+        // 保留引用直到旧轮收尾, 新触发只排队, 不并行消费同一凭证
     }
 
     private func cancelWork() {
-        cancelScheduledTask()
-        resetRetryWindow()
-        settingsActivationTask?.cancel()
-        settingsActivationTask = nil
-        evaluationGeneration += 1
-        evaluationTask?.cancel()
-        evaluationTask = nil
-        pendingEvaluation = false
+        cancelTimer()
+        setWakeDate(nil)
+        activationTask?.cancel()
+        activationTask = nil
+        pendingTrigger = nil
+        invalidateEvaluation()
     }
 }

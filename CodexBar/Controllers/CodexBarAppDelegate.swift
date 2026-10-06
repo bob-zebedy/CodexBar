@@ -142,6 +142,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
                 NSApplication.shared.reply(toApplicationShouldTerminate: false)
                 return
             }
+            autoResetController?.prepareForTermination()
             let success = await keepAliveController.prepareForTermination()
             guard !Task.isCancelled else {
                 return
@@ -150,6 +151,9 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
                 do { try await AppServerLogStore.shared.finish() } catch {
                     AppLog.app.error("退出前请求日志写入失败")
                 }
+            }
+            if !success {
+                autoResetController?.resumeAfterTerminationCancellation()
             }
             terminationPreparationTask = nil
             hasPreparedForTermination = success

@@ -197,9 +197,11 @@ actor CodexStatusService {
     }
 
     /// 自动重置前必须绕过补充数据缓存读取一份新凭证明细
-    func readCreditsForAutoReset() throws -> AutoResetRead {
-        try withAutoResetConnection { connection in
-            try readCreditsForAutoReset(using: connection)
+    func readCreditsForAutoReset(budget: AppServerRequestBudget) throws -> AutoResetRead {
+        try AppServerRequestBudget.$current.withValue(budget) {
+            try withAutoResetConnection { connection in
+                try readCreditsForAutoReset(using: connection)
+            }
         }
     }
 
@@ -207,7 +209,20 @@ actor CodexStatusService {
     func consumeResetCredit(
         id creditID: String,
         idempotencyKey: String,
-        expectedAccountIdentity: String
+        expectedAccountIdentity: String,
+        expirationDate: Date,
+        budget: AppServerRequestBudget
+    ) throws -> ResetCreditConsumeResult {
+        try AppServerRequestBudget.$current.withValue(budget) {
+            try consumeResetCreditWithinBudget(id: creditID, idempotencyKey: idempotencyKey, expectedAccountIdentity: expectedAccountIdentity, expirationDate: expirationDate)
+        }
+    }
+
+    private func consumeResetCreditWithinBudget(
+        id creditID: String,
+        idempotencyKey: String,
+        expectedAccountIdentity: String,
+        expirationDate: Date
     ) throws -> ResetCreditConsumeResult {
         let response: ResetCreditConsumeResponse = try withAutoResetConnection { connection in
             let accountResponse = try connection.session.request(
@@ -223,6 +238,11 @@ actor CodexStatusService {
             }
 
             connection.accountResponse = accountResponse
+            // 每次重发前重查, 排队和认证刷新都可能跨过截止时间
+            try AppServerRequestBudget.checkCurrent()
+            guard Date() < AutoResetSchedule.cutoff(for: expirationDate) else {
+                throw AutoResetServiceError.deadlineReached
+            }
             return try connection.session.request(
                 "account/rateLimitResetCredit/consume",
                 params: [
@@ -235,7 +255,7 @@ actor CodexStatusService {
 
         // 消费结果已经确定时刷新失败不能覆盖结果
         // 控制器仍会触发完整额度刷新, 这里先满足协议要求并尽快取得剩余次数
-        let refreshedRead = try? readCreditsForAutoReset()
+        let refreshedRead = try? withAutoResetConnection { try readCreditsForAutoReset(using: $0) }
         return ResetCreditConsumeResult(
             outcome: response.outcome,
             refreshedRead: refreshedRead
@@ -308,6 +328,7 @@ actor CodexStatusService {
         var canRebuild = true
 
         while true {
+            try AppServerRequestBudget.checkCurrent()
             let activeConnection = try readyConnection()
 
             do {
@@ -330,6 +351,7 @@ actor CodexStatusService {
         do {
             return try operation(connection)
         } catch let error as CodexStatusError where error.isAuthenticationRequired {
+            try AppServerRequestBudget.checkCurrent()
             do {
                 try Self.refreshAccount(using: connection)
             } catch FetchFailure.notLoggedIn {

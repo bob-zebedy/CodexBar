@@ -139,7 +139,8 @@ final class HelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Sendable 
     }
 
     private let queue = DispatchQueue(label: CodexBarHelperIPC.machServiceName + ".state")
-    private let ownershipStore = OwnershipStore(url: CodexBarHelperStorage.ownershipURL)
+    private let ownershipStore: any OwnershipStoring
+    private let sleepOperations: HelperSleepOperations
     private var ownership = SleepOwnership.idle
     private var transactionID = UUID()
     private var lastCompletedUpdateIdentifier: String?
@@ -153,6 +154,12 @@ final class HelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Sendable 
     private var isAutoResetWakeCleanupPending = false
     private var signalSources = [DispatchSourceSignal]()
     private var listener: NSXPCListener?
+
+    init(ownershipStore: (any OwnershipStoring)? = nil, sleepOperations: HelperSleepOperations = .system) {
+        self.ownershipStore = ownershipStore ?? OwnershipStore(url: CodexBarHelperStorage.ownershipURL)
+        self.sleepOperations = sleepOperations
+        super.init()
+    }
 
     func run() {
         guard geteuid() == 0 else {
@@ -281,16 +288,17 @@ final class HelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Sendable 
                 return
             }
 
-            let result = setAndVerifySleepDisabled(false)
-            guard result.exitCode == 0 else {
-                reply(result.exitCode)
+            let exitCode = reconcileSleepAfterUpdate()
+            guard exitCode == 0 else {
+                reply(exitCode)
                 return
             }
 
             let previousUpdateIdentifier = lastCompletedUpdateIdentifier
             lastCompletedUpdateIdentifier = updateIdentifier
             do {
-                try persistOwnership(.idle)
+                // 更新完成不代表系统必须允许睡眠, 有效租约和外部设置仍然保留
+                try persistOwnership(ownership)
             } catch {
                 lastCompletedUpdateIdentifier = previousUpdateIdentifier
                 logOwnershipWriteFailure(error)
@@ -298,9 +306,21 @@ final class HelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Sendable 
                 return
             }
 
-            helperLog.notice("Helper 更新后睡眠状态已重置")
+            helperLog.notice("Helper 更新后已完成睡眠状态检查")
             reply(0)
         }
+    }
+
+    private func reconcileSleepAfterUpdate() -> Int32 {
+        if ownership.needsRestore || activeClientCount > 0 {
+            return reconcileReleasedSleep(source: currentSource(), trigger: .appRequest).exitCode
+        }
+        let current = readCurrentSleepDisabled()
+        guard current.result.exitCode == 0, current.value != nil else {
+            logPmsetReadFailure(current.result)
+            return normalizedFailureCode(current.result.exitCode)
+        }
+        return 0
     }
 
     fileprivate func setAutoResetWakeSchedule(
@@ -623,7 +643,7 @@ final class HelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Sendable 
     private func setAndVerifySleepDisabled(
         _ disabled: Bool
     ) -> (exitCode: Int32, value: Bool?) {
-        let writeResult = PmsetRunner.setSleepDisabled(disabled)
+        let writeResult = sleepOperations.write(disabled)
         guard writeResult.exitCode == 0 else {
             let details = LogFields.joined(
                 "target=\(disabled ? 1 : 0)",
@@ -651,7 +671,7 @@ final class HelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Sendable 
     }
 
     private func readCurrentSleepDisabled() -> (result: PmsetResult, value: Bool?) {
-        let current = PmsetRunner.currentSleepDisabled()
+        let current = sleepOperations.read()
         if current.result.exitCode == 0, let value = current.value {
             lastKnownSleepDisabled = value
         }
@@ -725,7 +745,7 @@ final class HelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Sendable 
 
     // MARK: - 异常恢复
 
-    private func recoverOwnershipAtStartup() {
+    func recoverOwnershipAtStartup() {
         let state = ownershipStore.ownershipRecordState()
         switch state {
         case .absent:

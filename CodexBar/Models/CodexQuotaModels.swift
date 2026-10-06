@@ -255,6 +255,7 @@ nonisolated struct ResetCreditConsumeResult: Sendable {
 
 nonisolated enum AutoResetServiceError: Error, Sendable {
     case accountChanged
+    case deadlineReached
 }
 
 /// app-server 返回的单个 limit, primary/secondary 可能独立缺失

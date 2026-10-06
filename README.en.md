@@ -22,7 +22,7 @@
 
 ---
 
-CodexBar is a menu bar app for macOS 15 and later that brings your Codex account, rate limits, token usage, and live task status into one place.
+CodexBar is a menu bar app for macOS that displays your Codex account information, usage limits, token usage, and real-time task status in one place.
 
 It can notify you when a task finishes, needs approval, or when your rate limits change. It can also keep your Mac awake while eligible Codex tasks are active.
 

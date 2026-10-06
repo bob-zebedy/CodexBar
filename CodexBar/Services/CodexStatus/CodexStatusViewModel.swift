@@ -188,7 +188,7 @@ final class CodexStatusViewModel: ObservableObject {
         )
     }
 
-    /// 自动消费完成后不能因为普通刷新正在运行而丢掉最终对账
+    /// 自动消费完成后不能因为普通刷新正在运行而丢掉最终核对
     func refreshAfterCurrent(trigger: LogTrigger) {
         guard isRefreshing || isReconnecting else {
             refresh(trigger: trigger)

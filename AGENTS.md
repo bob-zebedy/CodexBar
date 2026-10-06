@@ -54,7 +54,7 @@
 
 ## 项目结构与模块组织
 
-CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。工程只有 `CodexBar` scheme，包含主 App、`CodexBarHelper` 和 `CodexBarTests` 三个 target。
+CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。工程只有 `CodexBar` scheme，包含主 App、`CodexBarHelper`、`CodexBarTests` 和 `CodexBarHelperTests` 四个 target。
 
 `CodexBar/` 按 `App/` `Views/` `Controllers/` `Models/` `Services/` 和 `Resources/` 分层。root LaunchDaemon 位于 `CodexBarHelper/` 目录，跨 target XPC 接口位于 `Shared/` 目录。`Scripts/` 提供发布和 helper 清理工具，`Images/` 存放 README 资源。
 
@@ -130,8 +130,8 @@ CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用，使用 Swift 6,
 - helper 只接受有限时间戳，维护单一的系统唤醒计划；目标变化、功能关闭、App 退出、对应连接断开或 helper 启动时必须收敛并清理计划
 - 修改唤醒事件的归属或类型时，必须考虑旧版本遗留事件的清理兼容性
 - 异常会话保护跟随防睡眠开关，只判定非匿名运行中任务，等待批准任务不参与判定
-- 活动连接初始化、系统睡眠、唤醒恢复或数据源不可用期间暂停异常会话判定，数据恢复后执行无通知对账
-- 主动排空活动读取是屏障，每个调用方必须等待一轮在本次请求之后开始的读取；唤醒后只有该轮读取成功，才能执行生命周期对账并恢复保护判定
+- 活动连接初始化、系统睡眠、唤醒恢复或数据源不可用期间暂停异常会话判定，数据恢复后执行无通知核对
+- 主动排空活动读取是屏障，每个调用方必须等待一轮在本次请求之后开始的读取；唤醒后只有该轮读取成功，才能执行生命周期核对并恢复保护判定
 - reader 更换时丢弃旧结果，数据源不可用或任务取消时不得使用旧快照继续判定
 
 ### 数据语义与兼容性
@@ -143,7 +143,7 @@ CodexBar 是面向 macOS 15+ 的 `LSUIElement` 菜单栏应用，使用 Swift 6,
 
 ## 测试规范
 
-`CodexBarTests` 使用 Swift Testing，无 App 宿主，直接编译 `CodexBar/` 与 `Shared/` 源码。测试 target 独有的 `CODEXBAR_TESTING` 条件只移除 `@main`，不启动 App、Codex、CloudKit 或 helper。文件测试使用独立临时目录，偏好测试使用独立 `UserDefaults` suite，禁止读写真实用户数据。仓库没有覆盖率门槛。
+`CodexBarTests` 使用 Swift Testing，无 App 宿主，直接编译 `CodexBar/` 与 `Shared/` 源码。测试 target 独有的 `CODEXBAR_TESTING` 条件只移除 `@main`，不启动 App、Codex、CloudKit 或 helper。文件测试使用独立临时目录，偏好测试使用独立 `UserDefaults` suite，禁止读写真实用户数据。`CodexBarHelperTests` 独立编译 helper 与 `Shared/` 源码，排除 `main.swift`，通过模拟睡眠操作和内存存储验证 helper，不启动 root 服务或修改系统状态。仓库没有覆盖率门槛。
 
 每次代码改动至少应完成构建和单元测试，运行 `swiftformat` 和 `swiftlint` 两项检查，并手动验证受影响流程。菜单、窗口焦点、活动采集、同步、通知和防睡眠改动必须说明手动验证场景。Debug 与 Release 使用不同 App 和 helper bundle ID，排查时不要混用。
 

@@ -23,6 +23,7 @@ final nonisolated class AppServerSession {
     private let socketPath: String
     private let connectionName: String
     private let retainsNotifications: Bool
+    private var exchangeDeadline: ContinuousClock.Instant?
     var isOpen: Bool {
         descriptor >= 0
     }
@@ -56,7 +57,7 @@ final nonisolated class AppServerSession {
             if result != 0 {
                 let code = errno
                 guard code == EINPROGRESS else { throw AppServerConnectionError(code: code) }
-                guard try ready(Int16(POLLOUT), before: Date().addingTimeInterval(2)) else {
+                guard try ready(Int16(POLLOUT), before: ContinuousClock.now.advanced(by: .seconds(2))) else {
                     throw CodexStatusError.serverTimeout
                 }
                 var socketError: Int32 = 0
@@ -141,7 +142,7 @@ final nonisolated class AppServerSession {
     func poll(_ request: PendingRequest) throws -> RequestPoll {
         try Task.checkCancellation()
         guard ContinuousClock.now < request.deadline else { throw CodexStatusError.serverTimeout }
-        guard let data = try receive(before: Date().addingTimeInterval(0.02), matchingResponseID: request.id) else { return .waiting }
+        guard let data = try receive(before: ContinuousClock.now.advanced(by: .seconds(0.02)), matchingResponseID: request.id) else { return .waiting }
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CodexStatusError.invalidServerResponse
         }
@@ -167,6 +168,9 @@ final nonisolated class AppServerSession {
 
     /// 账户和活动连接共用帧协议与请求日志, 业务解码由调用方负责
     func exchange(_ payload: Data, id: Int, timeout: TimeInterval) throws -> Data {
+        try AppServerRequestBudget.checkCurrent()
+        exchangeDeadline = ContinuousClock.now.advanced(by: .seconds(timeout))
+        defer { exchangeDeadline = nil }
         let request = try JSONSerialization.jsonObject(with: payload) as? [String: Any]
         let method = request?["method"] as? String ?? "unknown"
         let text = String(data: payload, encoding: .utf8) ?? ""
@@ -193,8 +197,9 @@ final nonisolated class AppServerSession {
 
     private func receiveResponse(_ payload: Data, id: Int, timeout: TimeInterval) throws -> Data {
         try sendFrame(payload, opcode: 1)
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
+        let deadline = exchangeDeadline ?? ContinuousClock.now.advanced(by: .seconds(timeout))
+        while ContinuousClock.now < deadline {
+            try AppServerRequestBudget.checkCurrent()
             guard let data = try receive(before: deadline, matchingResponseID: id),
                   let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             if object["id"] as? Int == id, object["result"] != nil || object["error"] != nil {
@@ -227,7 +232,7 @@ final nonisolated class AppServerSession {
             return notifications.removeFirst()
         }
         do {
-            return try receive(before: Date().addingTimeInterval(0.05))
+            return try receive(before: ContinuousClock.now.advanced(by: .seconds(0.05)))
         } catch {
             logStorage?.recordFailure(method: "connection/receive", message: error.localizedDescription, connection: connectionName, source: .connection)
             throw error
@@ -237,7 +242,7 @@ final nonisolated class AppServerSession {
     private func handshake() throws {
         let key = Data((0 ..< 16).map { _ in UInt8.random(in: .min ... .max) }).base64EncodedString()
         let text = "GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: \(key)\r\nSec-WebSocket-Version: 13\r\n\r\n"
-        let deadline = Date().addingTimeInterval(5)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         let token = logStorage?.beginRequest(method: "websocket/handshake", payload: text, connection: connectionName, source: .connection)
         var header = Data()
         do {
@@ -281,7 +286,7 @@ final nonisolated class AppServerSession {
         frame.append(contentsOf: mask)
         frame.append(contentsOf: payload.enumerated().map { $0.element ^ mask[$0.offset % 4] })
         do {
-            try write(frame, before: Date().addingTimeInterval(5))
+            try write(frame, before: ContinuousClock.now.advanced(by: .seconds(5)))
             if opcode != 1 {
                 logStorage?.recordSent(method: controlMethod(opcode), payload: framePayload(payload), connection: connectionName)
             }
@@ -298,9 +303,9 @@ final nonisolated class AppServerSession {
         }
     }
 
-    private func receive(before deadline: Date, matchingResponseID: Int? = nil) throws -> Data? {
+    private func receive(before deadline: ContinuousClock.Instant, matchingResponseID: Int? = nil) throws -> Data? {
         guard try ready(Int16(POLLIN), before: deadline) else { return nil }
-        let frameDeadline = Date().addingTimeInterval(10)
+        let frameDeadline = ContinuousClock.now.advanced(by: .seconds(10))
         var message = Data()
         var fragmented = false
         while true {
@@ -388,12 +393,14 @@ final nonisolated class AppServerSession {
         String(data: data, encoding: .utf8) ?? "base64:" + data.base64EncodedString()
     }
 
-    private func ready(_ events: Int16, before deadline: Date) throws -> Bool {
+    private func ready(_ events: Int16, before deadline: ContinuousClock.Instant) throws -> Bool {
+        try AppServerRequestBudget.checkCurrent()
         guard descriptor >= 0 else { throw CodexStatusError.serverConnectionClosed }
+        let deadline = min(deadline, exchangeDeadline ?? deadline, AppServerRequestBudget.current?.deadline ?? deadline)
         var descriptor = pollfd(fd: descriptor, events: events, revents: 0)
-        while Date() < deadline {
-            try Task.checkCancellation()
-            let result = Darwin.poll(&descriptor, 1, Int32(max(1, min(100, deadline.timeIntervalSinceNow * 1000))))
+        while ContinuousClock.now < deadline {
+            try AppServerRequestBudget.checkCurrent()
+            let result = Darwin.poll(&descriptor, 1, Int32(max(1, min(100, TimeInterval(ContinuousClock.now.duration(to: deadline)) * 1000))))
             if result < 0, errno == EINTR {
                 continue
             }
@@ -409,7 +416,7 @@ final nonisolated class AppServerSession {
         return false
     }
 
-    private func read(_ count: Int, before deadline: Date) throws -> Data {
+    private func read(_ count: Int, before deadline: ContinuousClock.Instant) throws -> Data {
         var result = Data()
         var buffer = [UInt8](repeating: 0, count: min(count, 65536))
         while result.count < count {
@@ -424,7 +431,7 @@ final nonisolated class AppServerSession {
         return result
     }
 
-    private func write(_ data: Data, before deadline: Date) throws {
+    private func write(_ data: Data, before deadline: ContinuousClock.Instant) throws {
         var offset = 0
         while offset < data.count {
             guard try ready(Int16(POLLOUT), before: deadline) else { throw CodexStatusError.serverTimeout }

@@ -631,7 +631,7 @@ final class KeepAliveController: ObservableObject {
                 } else if helperStatus == .enabled {
                     helperWasUpdated = await completeHelperUpdate(updateIdentifier)
                 } else {
-                    // 从 enabled 更新后若需要系统批准, 一次性重置会在批准后继续
+                    // 从 enabled 更新后若需要系统批准, 睡眠状态核对会在批准后继续
                     helperWasUpdated = true
                 }
             }

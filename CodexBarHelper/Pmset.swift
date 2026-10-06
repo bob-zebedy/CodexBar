@@ -7,6 +7,15 @@ struct PmsetResult {
     let output: String
 }
 
+struct HelperSleepOperations {
+    var read: () -> (result: PmsetResult, value: Bool?)
+    var write: (Bool) -> PmsetResult
+
+    static var system: Self {
+        Self(read: PmsetRunner.currentSleepDisabled, write: PmsetRunner.setSleepDisabled)
+    }
+}
+
 // MARK: - pmset 调用
 
 enum PmsetRunner {

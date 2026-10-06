@@ -41,6 +41,14 @@
                ReferencedContainer = "container:CodexBar.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference skipped = "NO" parallelizable = "NO">
+            <BuildableReference BuildableIdentifier = "primary"
+               BlueprintIdentifier = "E10000000000000000000010"
+               BuildableName = "CodexBarHelperTests.xctest"
+               BlueprintName = "CodexBarHelperTests"
+               ReferencedContainer = "container:CodexBar.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction
