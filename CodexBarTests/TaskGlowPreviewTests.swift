@@ -83,11 +83,11 @@ struct TaskGlowPreviewTests {
         state.resume(now: time(10.4))
         state.refresh(now: time(10), terminalDuration: 15)
         state.suspend(now: time(10.1))
-        let termination = CodexActivityTermination(
+        let termination = ActivityTermination(
             id: UUID(), isAnonymous: false, projectName: nil, modelName: nil,
             effort: nil, terminatedAt: time(10.2), duration: 60
         )
-        let snapshot = CodexActivitySnapshot(
+        let snapshot = ActivitySnapshot(
             waitingTasks: [], runningTasks: [], recentCompletions: completed(at: 0).recentCompletions,
             recentTerminations: [termination]
         )
@@ -204,14 +204,14 @@ struct TaskGlowPreviewTests {
         #expect(abs(preview.playback.mediaStart - 100 - preview.playback.startsAt.timeIntervalSince(now)) < 0.00001)
     }
 
-    private func enabledState(snapshot: CodexActivitySnapshot = .empty) -> TaskGlowPresentationState {
+    private func enabledState(snapshot: ActivitySnapshot = .empty) -> TaskGlowPresentationState {
         var state = TaskGlowPresentationState()
         update(&state, snapshot: snapshot, at: 0)
         state.refresh(now: now, terminalDuration: 15)
         return state
     }
 
-    private func update(_ state: inout TaskGlowPresentationState, snapshot: CodexActivitySnapshot, at seconds: TimeInterval) {
+    private func update(_ state: inout TaskGlowPresentationState, snapshot: ActivitySnapshot, at seconds: TimeInterval) {
         state.update(snapshot: snapshot, terminalEvents: [], isEnabled: true, acceptsBriefEvents: true, now: time(seconds))
     }
 
@@ -219,21 +219,21 @@ struct TaskGlowPreviewTests {
         now.addingTimeInterval(seconds)
     }
 
-    private func completed(at seconds: TimeInterval) -> CodexActivitySnapshot {
-        let completion = CodexActivityCompletion(
+    private func completed(at seconds: TimeInterval) -> ActivitySnapshot {
+        let completion = ActivityCompletion(
             id: UUID(), isAnonymous: false, projectName: nil, modelName: nil,
             effort: nil, completedAt: time(seconds), duration: 60
         )
-        return CodexActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])
+        return ActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])
     }
 
-    private func active(waiting: Bool = false) -> CodexActivitySnapshot {
-        let task = CodexActivityTaskSnapshot(
+    private func active(waiting: Bool = false) -> ActivitySnapshot {
+        let task = ActivityTaskSnapshot(
             id: UUID(), isAnonymous: false, latestEvent: .toolStarted, projectName: nil,
             modelName: nil, effort: nil, toolName: nil, startedAt: now,
             stateChangedAt: now, showsPreciseDuration: true, activeSubagentCount: nil
         )
-        return CodexActivitySnapshot(
+        return ActivitySnapshot(
             waitingTasks: waiting ? [task] : [], runningTasks: waiting ? [] : [task], recentCompletions: [], recentTerminations: []
         )
     }

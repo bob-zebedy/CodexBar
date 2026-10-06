@@ -6,11 +6,8 @@ struct AppSettingsView: View {
     @EnvironmentObject private var statusViewModel: CodexStatusViewModel
     @EnvironmentObject private var appUpdater: AppUpdater
     @StateObject private var loginItemSettings = LoginItemSettings()
-    @StateObject private var codexVersions = CodexCLIVersionViewModel()
-    @ObservedObject var proxySettings: CodexProxySettings
-    @State private var isShowingProxySettings = false
-    @ObservedObject var advancedModeSettings: AdvancedModeSettings
-    @ObservedObject var syncSettings: WorkflowSyncSettings
+    @StateObject private var codexVersions = CodexVersionViewModel()
+    @ObservedObject var syncSettings: SyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
     @ObservedObject var menuBarQuotaSettings: MenuBarQuotaSettings
     let mainPanelSettings: MainPanelSettings
@@ -19,7 +16,7 @@ struct AppSettingsView: View {
     @ObservedObject var autoResetSettings: AutoResetSettings
     @ObservedObject var keepAliveController: KeepAliveController
     let onSyncChanged: (Bool) -> Void
-    let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
+    let onRebuildHistoryData: SyncScheduler.RebuildHandler
     let onOptionsAction: (SettingsOptionsPanelAction) -> Void
     let onContentHeightChanged: (CGFloat) -> Void
     @State private var selectedTab = SettingsTab.general
@@ -30,7 +27,7 @@ struct AppSettingsView: View {
     @State private var rebuildableDates = [String]()
     @State private var selectedRebuildRange: RebuildDateRange?
     @State private var isShowingRebuildConfirmation = false
-    @State private var isRebuildingWorkflowData = false
+    @State private var isRebuildingHistoryData = false
     @State private var rebuildResult: RebuildResult?
     @State private var helperFeatureConfirmation: HelperFeatureConfirmation?
 
@@ -74,11 +71,6 @@ struct AppSettingsView: View {
             ),
             isOuterSurface: true
         )
-        .sheet(isPresented: $isShowingProxySettings) {
-            ProxySettingsView(source: statusViewModel.codexSourceSelection, settings: proxySettings) {
-                statusViewModel.refreshAfterCurrent(trigger: .settings)
-            }
-        }
         .onAppear {
             loginItemSettings.refresh()
             syncSettings.refresh()
@@ -90,7 +82,6 @@ struct AppSettingsView: View {
             refreshStatusRows()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            advancedModeSettings.reconcileConfiguration()
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
             mainPanelSettings.refresh()
@@ -129,18 +120,18 @@ struct AppSettingsView: View {
             onContentHeightChanged(pageHeight + Metrics.windowChromeHeight)
         }
         .alert(
-            LocalizedStringResource("workflow.rebuild.confirmation.title", defaultValue: "\(selectedRebuildDateKeys.count, specifier: "%lld")"),
+            LocalizedStringResource("history.rebuild.confirmation.title", defaultValue: "\(selectedRebuildDateKeys.count, specifier: "%lld")"),
             isPresented: $isShowingRebuildConfirmation
         ) {
             Button("common.action.cancel", role: .cancel) {}
-            Button("workflow.rebuild.action", role: .destructive) {
-                rebuildWorkflowData()
+            Button("history.rebuild.action", role: .destructive) {
+                rebuildHistoryData()
             }
         } message: {
-            Text(LocalizedStringResource("workflow.rebuild.confirmation.message", defaultValue: "\(selectedRebuildRange?.displayText ?? "")"))
+            Text(LocalizedStringResource("history.rebuild.confirmation.message", defaultValue: "\(selectedRebuildRange?.displayText ?? "")"))
         }
         .alert(
-            rebuildResult?.title ?? LocalizedStringResource("workflow.rebuild.result.completed"),
+            rebuildResult?.title ?? LocalizedStringResource("history.rebuild.result.completed"),
             isPresented: Binding(
                 get: { rebuildResult != nil },
                 set: {
@@ -271,7 +262,6 @@ private extension AppSettingsView {
                 LiquidGlassDivider()
                 TaskGlowSettingsRow(
                     settings: taskGlowSettings,
-                    advancedModeSettings: advancedModeSettings,
                     onOptionsAction: onOptionsAction
                 )
                 LiquidGlassDivider()
@@ -292,8 +282,6 @@ private extension AppSettingsView {
 
     var advancedSettingsPage: some View {
         VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
-            advancedModeRow
-            LiquidGlassDivider()
             notificationRow
             LiquidGlassDivider()
             autoResetRow
@@ -302,14 +290,9 @@ private extension AppSettingsView {
             LiquidGlassDivider()
             syncRow
             LiquidGlassDivider()
-            ProxySettingsRow(settings: proxySettings) {
-                onOptionsAction(.closeAll)
-                isShowingProxySettings = true
-            }
-            LiquidGlassDivider()
             dataUpdateIntervalRow
             LiquidGlassDivider()
-            rebuildWorkflowDataRow
+            rebuildHistoryDataRow
         }
         .padding(Metrics.panelPadding)
         .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
@@ -458,24 +441,6 @@ private extension AppSettingsView {
         .frame(minHeight: SettingsRowMetrics.optionsButtonSize)
     }
 
-    var advancedModeRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            SettingsToggleRow(
-                icon: "wrench.and.screwdriver",
-                title: "advanced-mode.name",
-                isOn: Binding(
-                    get: { advancedModeSettings.isEnabled },
-                    set: { advancedModeSettings.setEnabled($0) }
-                ),
-                isEnabled: !advancedModeSettings.isUpdating
-            )
-
-            if let message = advancedModeSettings.errorMessage {
-                SettingsCaptionMessageRow(message: message)
-            }
-        }
-    }
-
     var autoResetRow: some View {
         let isEnabled = autoResetSettings.isEnabled
         let canShowOptions = isEnabled && keepAliveController.helperStatus == .enabled
@@ -572,8 +537,7 @@ private extension AppSettingsView {
                             keepAliveController.setEnabled(false)
                         }
                     }
-                ),
-                isEnabled: advancedModeSettings.isOperable && !advancedModeSettings.isUpdating
+                )
             ) {
                 SettingsOptionsButton(isAvailable: canShowKeepAliveOptions) {
                     onOptionsAction(
@@ -640,9 +604,6 @@ private extension AppSettingsView {
         }
         if let errorMessage = keepAliveController.errorMessage {
             return SettingsStatusCaption(message: errorMessage, isError: true)
-        }
-        guard advancedModeSettings.isVerified else {
-            return SettingsStatusCaption(message: String(localized: "advanced-mode.hook.status.inactive"))
         }
 
         if keepAliveController.isActivelyPreventingSleep,
@@ -736,9 +697,7 @@ private extension AppSettingsView {
 
     var syncRowState: SyncRowState {
         SyncRowState(
-            isActive: syncSettings.isEffectivelyActive(isAdvancedModeEnabled: advancedModeSettings.isEnabled),
-            isAdvancedModeEnabled: advancedModeSettings.isEnabled,
-            isAdvancedModeUpdating: advancedModeSettings.isUpdating,
+            isActive: syncSettings.isEffectivelyActive,
             isSyncAvailable: syncSettings.isSyncAvailable,
             isSyncing: syncSettings.isSyncing
         )
@@ -746,13 +705,13 @@ private extension AppSettingsView {
 
     // MARK: - 数据重建
 
-    var rebuildWorkflowDataRow: some View {
+    var rebuildHistoryDataRow: some View {
         HStack(spacing: SettingsRowMetrics.spacing) {
             Image(systemName: "arrow.clockwise.circle")
                 .frame(width: SettingsRowMetrics.iconWidth)
                 .foregroundStyle(.tint)
 
-            Text("workflow.rebuild.title")
+            Text("history.rebuild.title")
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
 
@@ -761,7 +720,7 @@ private extension AppSettingsView {
             RebuildDatePicker(
                 selection: $selectedRebuildRange,
                 dataDateKeys: Set(rebuildableDates),
-                isEnabled: !isRebuildingWorkflowData
+                isEnabled: !isRebuildingHistoryData
             )
             .frame(
                 width: RebuildLayoutMetrics.pickerWidth,
@@ -769,12 +728,12 @@ private extension AppSettingsView {
                 alignment: .leading
             )
 
-            if isRebuildingWorkflowData {
+            if isRebuildingHistoryData {
                 ProgressView()
                     .controlSize(.small)
                     .frame(minWidth: RebuildLayoutMetrics.actionMinimumWidth)
             } else {
-                Button("workflow.rebuild.action") {
+                Button("history.rebuild.action") {
                     isShowingRebuildConfirmation = true
                 }
                 .controlSize(.small)
@@ -795,9 +754,9 @@ private extension AppSettingsView {
     func refreshRebuildableDates() {
         Task {
             let dates = await Task.detached(priority: .utility) {
-                let hookDates = WorkflowStorage.rebuildableEventDateKeys()
-                let tokenDates = await (try? CodexTokenHistoryStore().rebuildableDateKeys()) ?? []
-                return Set(hookDates + tokenDates).sorted()
+                let eventDates = HistoryStorage.rebuildableEventDateKeys()
+                let tokenDates = await (try? TokenHistoryStore().rebuildableDateKeys()) ?? []
+                return Set(eventDates + tokenDates).sorted()
             }.value
             rebuildableDates = dates
         }
@@ -810,25 +769,22 @@ private extension AppSettingsView {
         refreshRebuildableDates()
     }
 
-    func rebuildWorkflowData() {
+    func rebuildHistoryData() {
         let dateKeys = selectedRebuildDateKeys
-        guard !dateKeys.isEmpty, !isRebuildingWorkflowData else {
+        guard !dateKeys.isEmpty, !isRebuildingHistoryData else {
             return
         }
 
-        isRebuildingWorkflowData = true
+        isRebuildingHistoryData = true
         rebuildResult = nil
-        onRebuildWorkflowData(dateKeys) { result in
-            isRebuildingWorkflowData = false
+        onRebuildHistoryData(dateKeys) { result in
+            isRebuildingHistoryData = false
             refreshRebuildableDates()
 
             switch result {
             case let .success(summary):
                 rebuildResult = RebuildResult(
-                    message: Self.rebuildSuccessMessage(
-                        for: summary,
-                        autoRetryAvailable: advancedModeSettings.isEnabled
-                    ),
+                    message: Self.rebuildSuccessMessage(for: summary),
                     isError: false
                 )
             case let .failure(error):
@@ -849,39 +805,35 @@ private extension AppSettingsView {
     static let rebuildFailedDateListLimit = 3
 
     /// 未完成的日期只列前几个, 避免长范围重建时结果过长
-    /// autoRetryAvailable: 常规维护只在进阶模式开启时运行, 关闭时不能承诺自动重试
     static func rebuildSuccessMessage(
-        for summary: WorkflowDataRebuildSummary,
-        autoRetryAvailable: Bool
+        for summary: HistoryDataRebuildSummary
     ) -> String {
         var message = String(
-            localized: "workflow.rebuild.summary.completed",
+            localized: "history.rebuild.summary.completed",
             defaultValue: "\(summary.rebuiltDateCount, specifier: "%lld")\(summary.eventCount, specifier: "%lld")"
         )
-        message += String(localized: "workflow.rebuild.summary.token-record-count", defaultValue: "\(summary.tokenTurnCount, specifier: "%lld")")
+        message += String(localized: "history.rebuild.summary.token-record-count", defaultValue: "\(summary.tokenTurnCount, specifier: "%lld")")
         if summary.didFailTokenRebuild {
-            message += String(localized: "workflow.rebuild.summary.token-history-incomplete")
+            message += String(localized: "history.rebuild.summary.token-history-incomplete")
         }
         if summary.corruptLineCount > 0 {
-            message += String(localized: "workflow.rebuild.summary.skipped-invalid-events", defaultValue: "\(summary.corruptLineCount, specifier: "%lld")")
+            message += String(localized: "history.rebuild.summary.skipped-invalid-events", defaultValue: "\(summary.corruptLineCount, specifier: "%lld")")
         }
 
         if !summary.failedDateKeys.isEmpty {
             let listed = summary.failedDateKeys.prefix(rebuildFailedDateListLimit)
             var dates = listed.joined(separator: ", ")
             if summary.failedDateKeys.count > listed.count {
-                dates += String(localized: "workflow.rebuild.summary.additional-dates")
+                dates += String(localized: "history.rebuild.summary.additional-dates")
             }
-            message += String(localized: "workflow.rebuild.summary.incomplete-dates", defaultValue: "\(summary.failedDateKeys.count, specifier: "%lld")\(dates)")
-            message += autoRetryAvailable
-                ? String(localized: "workflow.rebuild.summary.retry-later")
-                : String(localized: "workflow.rebuild.summary.retry-after-advanced-mode-enabled")
+            message += String(localized: "history.rebuild.summary.incomplete-dates", defaultValue: "\(summary.failedDateKeys.count, specifier: "%lld")\(dates)")
+            message += String(localized: "history.rebuild.summary.retry-later")
         }
 
         if summary.didFailSyncReplacementMarking {
-            message += String(localized: "workflow.rebuild.summary.sync-replacement-marking-failed")
+            message += String(localized: "history.rebuild.summary.sync-replacement-marking-failed")
         } else if summary.isSyncReplacementPending {
-            message += String(localized: "workflow.rebuild.summary.cloud-replacement-pending")
+            message += String(localized: "history.rebuild.summary.cloud-replacement-pending")
         }
 
         return message
@@ -978,16 +930,12 @@ private extension AppSettingsView {
         CodexVersionSection(
             snapshot: codexVersions.snapshot,
             connectionInfo: statusViewModel.codexConnectionInfo,
-            sourceSelection: statusViewModel.pendingCodexSourceSelection ?? statusViewModel.codexSourceSelection,
             isReconnecting: statusViewModel.isReconnecting,
             isBusy: statusViewModel.isRefreshing || statusViewModel.isReconnecting || codexVersions.isRefreshing,
             errorMessage: statusViewModel.connectionErrorMessage,
-            unavailableSource: statusViewModel.unavailableConnectionSource,
-            onReconnect: { selection in
+            onReconnect: {
                 Task { @MainActor in
-                    if await statusViewModel.reconnectCodex(selection: selection, requiresAdvancedMode: advancedModeSettings.isEnabled) {
-                        advancedModeSettings.reconcileConfiguration()
-                    }
+                    _ = await statusViewModel.reconnectCodex()
                     codexVersions.refresh(force: true)
                 }
             }
@@ -1053,321 +1001,12 @@ private extension AppSettingsView {
     }
 }
 
-private enum RebuildLayoutMetrics {
-    static let pickerWidth: CGFloat = 190
-    static let controlHeight: CGFloat = 26
-    static let actionMinimumWidth: CGFloat = 42
-}
-
-private struct RebuildDatePicker: View {
-    @Binding var selection: RebuildDateRange?
-    let dataDateKeys: Set<String>
-    let isEnabled: Bool
-
-    @State private var isPresented = false
-    @State private var displayedMonth = Date()
-
-    private enum Metrics {
-        static let daySize: CGFloat = 28
-        static let columnSpacing: CGFloat = 6
-        static let visibleWeekCount = 6
-        static let popoverWidth: CGFloat = 260
-        static let popoverHeight: CGFloat = 296
-    }
-
-    private static let columns = Array(
-        repeating: GridItem(.fixed(Metrics.daySize), spacing: Metrics.columnSpacing),
-        count: 7
-    )
-    var body: some View {
-        Button {
-            let focusedDateKey = selection?.endDateKey ?? selection?.startDateKey
-            if let focusedDateKey,
-               let selectedDate = CodexDateFormat.dayDate(from: focusedDateKey) {
-                displayedMonth = startOfMonth(for: selectedDate)
-            }
-            isPresented.toggle()
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "calendar")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.tint)
-
-                Group {
-                    if let selection {
-                        Text(verbatim: selection.displayText)
-                    } else {
-                        Text("date-picker.select-range")
-                    }
-                }
-                .font(.caption.monospacedDigit().weight(.medium))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.9)
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 7)
-            .frame(maxWidth: .infinity, minHeight: RebuildLayoutMetrics.controlHeight)
-            .background {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(
-                        isPresented ? Color.accentColor.opacity(0.70) : Color.primary.opacity(0.12),
-                        lineWidth: isPresented ? 1.2 : 0.8
-                    )
-            }
-            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .help("date-picker.select-range")
-        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-            calendarPopover
-        }
-    }
-
-    private var calendarPopover: some View {
-        let weekdaySymbols = weekdaySymbols
-
-        return VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                monthNavigationButton(
-                    systemImage: "chevron.left",
-                    help: "date-picker.previous-month",
-                    offset: -1
-                )
-
-                Spacer()
-
-                Text(monthTitle)
-                    .font(.system(.body, design: .rounded).weight(.semibold))
-                    .monospacedDigit()
-
-                Spacer()
-
-                monthNavigationButton(
-                    systemImage: "chevron.right",
-                    help: "date-picker.next-month",
-                    offset: 1
-                )
-            }
-
-            LazyVGrid(columns: Self.columns, spacing: 5) {
-                ForEach(weekdaySymbols.indices, id: \.self) { index in
-                    Text(verbatim: weekdaySymbols[index])
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: Metrics.daySize, height: 18)
-                }
-
-                ForEach(monthDates, id: \.self) { date in
-                    dayButton(for: date)
-                }
-            }
-
-            Group {
-                if selection?.isComplete == false {
-                    Text("date-picker.select-end")
-                } else {
-                    Text("date-picker.select-start")
-                }
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .frame(height: 14)
-        }
-        .padding(12)
-        .frame(width: Metrics.popoverWidth, height: Metrics.popoverHeight)
-    }
-
-    private func monthNavigationButton(
-        systemImage: String,
-        help: LocalizedStringResource,
-        offset: Int
-    ) -> some View {
-        Button {
-            guard let nextMonth = calendar.date(byAdding: .month, value: offset, to: displayedMonth) else {
-                return
-            }
-            displayedMonth = nextMonth
-        } label: {
-            Image(systemName: systemImage)
-                .font(.system(size: 10, weight: .semibold))
-                .frame(width: 24, height: 22)
-                .background {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.primary.opacity(0.055))
-                }
-        }
-        .buttonStyle(.plain)
-        .disabled(!canMoveMonth(by: offset))
-        .help(help)
-    }
-
-    private func dayButton(for date: Date) -> some View {
-        let dateKey = WorkflowStorage.dateKey(for: date)
-        let isSelectable = selectableDateRange.contains(calendar.startOfDay(for: date))
-        let hasData = dataDateKeys.contains(dateKey)
-        let isInDisplayedMonth = calendar.isDate(
-            date,
-            equalTo: displayedMonth,
-            toGranularity: .month
-        )
-        let isStart = selection?.startDateKey == dateKey
-        let isEnd = selection?.endDateKey == dateKey
-        let isEndpoint = isStart || isEnd
-        let isInCompletedRange = selection?.contains(dateKey) == true
-        let day = calendar.component(.day, from: date)
-
-        return Button {
-            select(dateKey)
-        } label: {
-            ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(dayBackgroundColor(
-                        isEndpoint: isEndpoint,
-                        isInCompletedRange: isInCompletedRange
-                    ))
-
-                Text(String(day))
-                    .font(.system(size: 11, weight: isEndpoint ? .semibold : .regular))
-                    .foregroundStyle(dayTextColor(
-                        isSelectable: isSelectable,
-                        isEndpoint: isEndpoint,
-                        isInDisplayedMonth: isInDisplayedMonth
-                    ))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if hasData, !isEndpoint {
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.75))
-                        .frame(width: 2.5, height: 2.5)
-                        .padding(.bottom, 2)
-                }
-            }
-            .frame(width: Metrics.daySize, height: Metrics.daySize)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isSelectable)
-    }
-
-    private var monthTitle: String {
-        Self.monthFormatter.string(from: displayedMonth)
-    }
-
-    private var monthDates: [Date] {
-        let monthStart = startOfMonth(for: displayedMonth)
-        let leadingDayCount = (
-            calendar.component(.weekday, from: monthStart) - calendar.firstWeekday + 7
-        ) % 7
-        guard let gridStart = calendar.date(
-            byAdding: .day,
-            value: -leadingDayCount,
-            to: monthStart
-        ) else {
-            return []
-        }
-
-        let visibleDayCount = Self.columns.count * Metrics.visibleWeekCount
-        return (0 ..< visibleDayCount).compactMap { dayOffset in
-            calendar.date(byAdding: .day, value: dayOffset, to: gridStart)
-        }
-    }
-
-    private var calendar: Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.locale = .autoupdatingCurrent
-        calendar.timeZone = .autoupdatingCurrent
-        return calendar
-    }
-
-    private var weekdaySymbols: [String] {
-        let symbols = calendar.veryShortStandaloneWeekdaySymbols
-
-        let firstIndex = max(0, min(symbols.count - 1, calendar.firstWeekday - 1))
-        return Array(symbols[firstIndex...] + symbols[..<firstIndex])
-    }
-
-    private static let monthFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .autoupdatingCurrent
-        formatter.setLocalizedDateFormatFromTemplate("yyyyMMMM")
-        return formatter
-    }()
-
-    private var selectableDateRange: ClosedRange<Date> {
-        let today = calendar.startOfDay(for: Date())
-        let cutoff = WorkflowStorage.retentionCutoffDate(today: today, calendar: calendar)
-        return cutoff ... today
-    }
-
-    private func startOfMonth(for date: Date) -> Date {
-        let components = calendar.dateComponents([.year, .month], from: date)
-        return calendar.date(from: components) ?? date
-    }
-
-    private func canMoveMonth(by offset: Int) -> Bool {
-        guard let candidate = calendar.date(byAdding: .month, value: offset, to: displayedMonth) else {
-            return false
-        }
-
-        let month = startOfMonth(for: candidate)
-        return month >= startOfMonth(for: selectableDateRange.lowerBound)
-            && month <= startOfMonth(for: selectableDateRange.upperBound)
-    }
-
-    private func select(_ dateKey: String) {
-        if let selection, !selection.isComplete {
-            self.selection = selection.completing(with: dateKey)
-            isPresented = false
-        } else {
-            selection = .starting(at: dateKey)
-        }
-    }
-
-    private func dayBackgroundColor(
-        isEndpoint: Bool,
-        isInCompletedRange: Bool
-    ) -> Color {
-        if isEndpoint {
-            return .accentColor
-        }
-        return isInCompletedRange ? Color.accentColor.opacity(0.16) : .clear
-    }
-
-    private func dayTextColor(
-        isSelectable: Bool,
-        isEndpoint: Bool,
-        isInDisplayedMonth: Bool
-    ) -> Color {
-        if isEndpoint {
-            return .white
-        }
-        if !isInDisplayedMonth {
-            return .codexSecondaryLabel.opacity(isSelectable ? 0.58 : 0.24)
-        }
-        return isSelectable ? .codexLabel : .codexSecondaryLabel.opacity(0.36)
-    }
-}
-
 private struct RebuildResult {
     let message: String
     let isError: Bool
 
     var title: LocalizedStringResource {
-        isError ? "workflow.rebuild.result.failed" : "workflow.rebuild.result.completed"
+        isError ? "history.rebuild.result.failed" : "history.rebuild.result.completed"
     }
 }
 
@@ -1418,15 +1057,13 @@ private struct SettingsPageHeightPreferenceKey: PreferenceKey {
 }
 
 private struct SyncRowState {
-    /// 由 WorkflowSyncSettings.isEffectivelyActive 统一判定, 视图层不再拼接业务谓词
+    /// 由 SyncSettings.isEffectivelyActive 统一判定, 视图层不再拼接业务谓词
     let isActive: Bool
-    let isAdvancedModeEnabled: Bool
-    let isAdvancedModeUpdating: Bool
     let isSyncAvailable: Bool
     let isSyncing: Bool
 
     var canToggle: Bool {
-        isAdvancedModeEnabled && !isAdvancedModeUpdating && isSyncAvailable
+        isSyncAvailable
     }
 
     func shouldShowSyncStatus(lastSyncText: String?) -> Bool {

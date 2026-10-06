@@ -5,23 +5,19 @@ import os
 @MainActor
 final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     private let codexStatusService = CodexStatusService()
-    lazy var proxySettings = CodexProxySettings(service: codexStatusService)
     lazy var viewModel = CodexStatusViewModel(service: codexStatusService)
-    let workflowViewModel = WorkflowViewModel()
-    lazy var advancedModeSettings = AdvancedModeSettings(codexStatusService: codexStatusService)
-    lazy var codexCLINotificationSettings = CodexCLINotificationSettings(
+    let historyViewModel = HistoryViewModel()
+    lazy var tuiNotificationSettings = TUINotificationSettings(
         codexStatusService: codexStatusService
     )
-    let activityProtectionSettings = ActivityProtectionSettings()
-    lazy var activityMonitor = CodexActivityMonitor(
-        advancedModeSettings: advancedModeSettings,
-        activityProtectionSettings: activityProtectionSettings
+    let protectionSettings = ProtectionSettings()
+    lazy var activityMonitor = ActivityMonitor(
+        protectionSettings: protectionSettings
     )
     lazy var keepAliveController = KeepAliveController(
-        activityMonitor: activityMonitor,
-        advancedModeSettings: advancedModeSettings
+        activityMonitor: activityMonitor
     )
-    let syncSettings = WorkflowSyncSettings()
+    let syncSettings = SyncSettings()
     let globalHotKeySettings = GlobalHotKeySettings()
     let menuBarQuotaSettings = MenuBarQuotaSettings()
     let mainPanelSettings = MainPanelSettings()
@@ -32,7 +28,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItemController: StatusItemController?
     private var taskGlowController: TaskGlowController?
-    private var notificationService: CodexNotificationService?
+    private var notificationService: NotificationService?
     private var autoResetController: AutoResetController?
     private var terminationPreparationTask: Task<Void, Never>?
     private var hasPreparedForTermination = false
@@ -40,13 +36,11 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - App 生命周期
 
     func applicationDidFinishLaunching(_: Notification) {
-        // Hook 子进程模式绝不会走到这里, 干净退出标志因此不会被它改写
         AppProcessDiagnostics.install()
         let controller = StatusItemController(
             viewModel: viewModel,
-            workflowViewModel: workflowViewModel,
-            advancedModeSettings: advancedModeSettings,
-            codexCLINotificationSettings: codexCLINotificationSettings,
+            historyViewModel: historyViewModel,
+            tuiNotificationSettings: tuiNotificationSettings,
             activityMonitor: activityMonitor,
             syncSettings: syncSettings,
             globalHotKeySettings: globalHotKeySettings,
@@ -56,13 +50,12 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             notificationSettings: notificationSettings,
             autoResetSettings: autoResetSettings,
             keepAliveController: keepAliveController,
-            appUpdater: appUpdater,
-            proxySettings: proxySettings
+            appUpdater: appUpdater
         )
         controller.install()
         statusItemController = controller
 
-        let notificationService = CodexNotificationService(
+        let notificationService = NotificationService(
             settings: notificationSettings,
             statusViewModel: viewModel,
             activityMonitor: activityMonitor
@@ -88,16 +81,15 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         keepAliveController.onKeepAliveLimitTriggered = { [weak notificationService] duration in
             await notificationService?.notifyKeepAliveLimitReached(durationText: duration.title) ?? false
         }
-        activityMonitor.onInactivityProtectionTriggered = { [weak notificationService] notice in
-            await notificationService?.notifyActivityProtection(notice) ?? false
+        activityMonitor.onProtectionTriggered = { [weak notificationService] notice in
+            await notificationService?.notifyProtection(notice) ?? false
         }
-        activityMonitor.onInactivityProtectionInvalidated = { [weak notificationService] taskID, attemptID in
-            notificationService?.invalidateActivityProtectionNotification(taskID: taskID, attemptID: attemptID)
+        activityMonitor.onProtectionInvalidated = { [weak notificationService] taskID, attemptID in
+            notificationService?.invalidateProtectionNotification(taskID: taskID, attemptID: attemptID)
         }
         let taskGlowController = TaskGlowController(
             settings: taskGlowSettings,
-            activityMonitor: activityMonitor,
-            advancedModeSettings: advancedModeSettings
+            activityMonitor: activityMonitor
         )
         taskGlowController.start()
         self.taskGlowController = taskGlowController
@@ -135,6 +127,11 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             guard !Task.isCancelled else {
                 return
             }
+            if success {
+                do { try await AppServerLogStore.shared.finish() } catch {
+                    AppLog.app.error("退出前请求日志写入失败")
+                }
+            }
             terminationPreparationTask = nil
             hasPreparedForTermination = success
             NSApplication.shared.reply(toApplicationShouldTerminate: success)
@@ -149,13 +146,12 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         let state = LogFields.joined(
             "version=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-")",
             "build=\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-")",
-            "advancedMode=\(advancedModeSettings.isEnabled ? 1 : 0)",
             "keepAlive=\(keepAliveController.isEnabled ? 1 : 0)",
             "keepAliveLimit=\(keepAliveController.maximumDuration.loggedHours)",
             "keepAliveBattery=\(keepAliveController.lowBatteryThreshold.rawValue)",
             "keepAliveWaiting=\(keepAliveController.keepsAwakeWhileWaiting ? 1 : 0)",
             "keepAliveDisplay=\(keepAliveController.keepsDisplayAwake ? 1 : 0)",
-            "activityProtectionMinutes=\(activityProtectionSettings.inactivityDuration.loggedMinutes)",
+            "protectionMinutes=\(protectionSettings.inactivityDuration.loggedMinutes)",
             "sync=\(syncSettings.isEnabled ? 1 : 0)",
             "notification=\(notificationSettings.isEnabled ? 1 : 0)",
             "autoReset=\(autoResetSettings.isEnabled ? 1 : 0)",

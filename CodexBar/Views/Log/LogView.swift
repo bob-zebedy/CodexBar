@@ -3,16 +3,25 @@ import SwiftUI
 
 /// app-server 交互日志窗口根视图
 struct LogView: View {
-    @ObservedObject var store: RequestLogStore
+    @ObservedObject var store: AppServerLogViewModel
 
     var body: some View {
         // 每轮渲染只取一次发布快照复用
         let entries = store.entries
         VStack(spacing: 0) {
-            header(entries: entries)
+            header
             Divider()
 
-            if entries.isEmpty {
+            if let error = store.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(8)
+            }
+
+            if entries.isEmpty, store.isLoading {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if entries.isEmpty {
                 emptyState
             } else {
                 logList(entries: entries)
@@ -21,7 +30,7 @@ struct LogView: View {
         .frame(minWidth: 640, minHeight: 480)
     }
 
-    private func header(entries: [RequestLogEntry]) -> some View {
+    private var header: some View {
         HStack(spacing: 10) {
             Image(systemName: "doc.text.magnifyingglass")
                 .foregroundStyle(.tint)
@@ -29,7 +38,7 @@ struct LogView: View {
             Text("log.app-server.window.title")
                 .font(.headline)
 
-            Text(verbatim: "\(entries.count)")
+            Text(verbatim: "\(store.totalCount)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 7)
@@ -38,13 +47,19 @@ struct LogView: View {
 
             Spacer()
 
+            if store.browsingHistory {
+                Button("log.action.latest") { Task { await store.showLatest() } }
+                    .controlSize(.small)
+                    .disabled(store.isLoading)
+            }
+
             Button {
-                store.clear()
+                Task { await store.clear() }
             } label: {
                 Label("common.action.clear", systemImage: "trash")
             }
             .controlSize(.small)
-            .disabled(entries.isEmpty)
+            .disabled(store.totalCount == 0 || store.isLoading)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -62,12 +77,18 @@ struct LogView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func logList(entries: [RequestLogEntry]) -> some View {
+    private func logList(entries: [AppServerLogEntry]) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(entries) { entry in
                     LogRow(entry: entry)
                     Divider()
+                }
+                if store.hasMore {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .task(id: entries.last?.id) { await store.loadMore() }
                 }
             }
         }
@@ -79,7 +100,7 @@ struct LogView: View {
 
 /// 单条日志行, 摘要行可展开查看请求和响应预览
 private struct LogRow: View {
-    let entry: RequestLogEntry
+    let entry: AppServerLogEntry
     @State private var isExpanded = false
     @State private var fullTextItem: FullLogTextItem?
 
@@ -110,9 +131,9 @@ private struct LogRow: View {
                             caption: detailCaption,
                             time: entry.respondedAt,
                             text: detail,
-                            color: entry.kind == .failure ? .red : .primary
+                            color: entry.status == .failure ? .red : .primary
                         )
-                    } else if entry.kind == .pending {
+                    } else if entry.status == .pending {
                         Text("log.status.waiting-response")
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
@@ -142,14 +163,14 @@ private struct LogRow: View {
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
 
-            Text(entry.kind.label)
+            Text(entry.source.label)
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(entry.kind.tint)
+                .foregroundStyle(entry.status.tint)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1)
                 .background(
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(entry.kind.tint.opacity(0.14))
+                        .fill(entry.status.tint.opacity(0.14))
                 )
 
             if let method = entry.method {
@@ -159,7 +180,7 @@ private struct LogRow: View {
             } else if let detail = entry.detail {
                 // 无方法名的记录 (信息/进程级错误) 直接预览正文
                 // 避免标签后留空
-                Text(RequestLogEntry.singleLinePreview(detail, limit: RequestLogEntry.summaryPreviewLength))
+                Text(AppServerLogEntry.singleLinePreview(detail, limit: AppServerLogEntry.summaryPreviewLength))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -179,9 +200,9 @@ private struct LogRow: View {
     ) -> some View {
         let caption = String(localized: caption)
         let hasText = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let displayText = RequestLogEntry.singleLinePreview(
+        let displayText = AppServerLogEntry.singleLinePreview(
             text,
-            limit: RequestLogEntry.expandedInlinePreviewLength
+            limit: AppServerLogEntry.expandedInlinePreviewLength
         )
 
         return VStack(alignment: .leading, spacing: 2) {
@@ -228,20 +249,22 @@ private struct LogRow: View {
     }
 
     private var detailCaption: LocalizedStringResource {
-        switch entry.kind {
-        case .response, .emptyResponse:
-            "log.payload.response"
-        case .failure:
-            "log.label.error"
-        default:
-            "log.payload.details"
+        if entry.isConnectionEvent {
+            return "log.payload.details"
         }
+        if entry.isReceived {
+            return "log.payload.received"
+        }
+        if entry.status == .failure {
+            return "log.label.error"
+        }
+        return entry.source == .request ? "log.payload.response" : "log.payload.details"
     }
 
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm:ss.SSS"
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
         return formatter
     }()
 }
@@ -330,224 +353,25 @@ private struct FullLogTextView: View {
     }
 }
 
-// MARK: - JSON 预览与高亮
-
-/// 日志预览文本, JSON 时会带基础语法高亮
-private struct LogCodePreview {
-    let attributedText: NSAttributedString
-    let language: String?
-}
-
-/// 将 JSON 格式化并做轻量 token 高亮, 非 JSON 保持纯文本
-private enum LogCodePreviewFormatter {
-    private static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    private static var baseAttributes: [NSAttributedString.Key: Any] {
-        [
-            .font: font,
-            .foregroundColor: NSColor.labelColor
-        ]
-    }
-
-    private static let jsonReadingOptions: JSONSerialization.ReadingOptions = [.fragmentsAllowed]
-    private static let jsonWritingOptions: JSONSerialization.WritingOptions = [
-        .fragmentsAllowed,
-        .prettyPrinted,
-        .sortedKeys,
-        .withoutEscapingSlashes
-    ]
-    private static let tokenRegex = try? NSRegularExpression(
-        pattern: #""(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b(?:true|false|null)\b|[{}\[\]:,]"#
-    )
-
-    static func preview(for text: String) -> LogCodePreview {
-        if let formattedJSON = formattedJSON(text) {
-            return LogCodePreview(
-                attributedText: highlightedJSON(formattedJSON),
-                language: "JSON"
-            )
-        }
-
-        return LogCodePreview(
-            attributedText: attributedPlainText(text),
-            language: nil
-        )
-    }
-
-    private static func formattedJSON(_ text: String) -> String? {
-        guard let data = text.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data, options: jsonReadingOptions),
-              let output = try? JSONSerialization.data(
-                  withJSONObject: object,
-                  options: jsonWritingOptions
-              ) else {
-            return nil
-        }
-
-        return String(bytes: output, encoding: .utf8)
-    }
-
-    private static func attributedPlainText(_ text: String) -> NSAttributedString {
-        NSAttributedString(
-            string: text,
-            attributes: baseAttributes
-        )
-    }
-
-    private static func highlightedJSON(_ text: String) -> NSAttributedString {
-        let attributedText = NSMutableAttributedString(
-            string: text,
-            attributes: baseAttributes
-        )
-
-        guard let tokenRegex else {
-            return attributedText
-        }
-
-        let nsText = text as NSString
-        let fullRange = NSRange(location: 0, length: nsText.length)
-        tokenRegex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
-            guard let range = match?.range else {
-                return
-            }
-
-            let token = nsText.substring(with: range)
-            attributedText.addAttribute(
-                .foregroundColor,
-                value: color(for: token, in: nsText, range: range),
-                range: range
-            )
-        }
-
-        return attributedText
-    }
-
-    private static func color(for token: String, in text: NSString, range: NSRange) -> NSColor {
-        if token.hasPrefix("\"") {
-            return isJSONKey(in: text, after: range) ? .systemBlue : .systemGreen
-        }
-
-        if token == "true" || token == "false" {
-            return .systemOrange
-        }
-
-        if token == "null" {
-            return .secondaryLabelColor
-        }
-
-        if token.first?.isNumber == true || token.hasPrefix("-") {
-            return .systemPurple
-        }
-
-        return .tertiaryLabelColor
-    }
-
-    private static func isJSONKey(in text: NSString, after range: NSRange) -> Bool {
-        var cursor = range.location + range.length
-        while cursor < text.length {
-            guard let scalar = UnicodeScalar(Int(text.character(at: cursor))),
-                  CharacterSet.whitespacesAndNewlines.contains(scalar) else {
-                break
-            }
-            cursor += 1
-        }
-
-        guard cursor < text.length else {
-            return false
-        }
-
-        return text.character(at: cursor) == 58
-    }
-}
-
-/// AppKit 文本视图承载完整日志, 支持横向滚动
-private struct LogCodePreviewView: NSViewRepresentable {
-    let attributedText: NSAttributedString
-
-    func makeNSView(context _: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = false
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = .textBackgroundColor
-
-        let textView = NSTextView()
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.isRichText = true
-        textView.drawsBackground = true
-        textView.backgroundColor = .textBackgroundColor
-        textView.textContainerInset = NSSize(width: 12, height: 12)
-        textView.minSize = NSSize(width: 0, height: scrollView.contentSize.height)
-        textView.maxSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
-        textView.autoresizingMask = []
-        textView.textContainer?.containerSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.textContainer?.widthTracksTextView = false
-
-        scrollView.documentView = textView
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context _: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else {
-            return
-        }
-
-        textView.textStorage?.setAttributedString(attributedText)
-        updateDocumentSize(for: textView, in: scrollView)
-    }
-
-    private func updateDocumentSize(for textView: NSTextView, in scrollView: NSScrollView) {
-        guard let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer else {
-            return
-        }
-
-        layoutManager.ensureLayout(for: textContainer)
-        let usedRect = layoutManager.usedRect(for: textContainer)
-        let inset = textView.textContainerInset
-        let minimumSize = scrollView.contentSize
-        let fittedSize = NSSize(
-            width: max(ceil(usedRect.maxX + inset.width * 2), minimumSize.width),
-            height: max(ceil(usedRect.maxY + inset.height * 2), minimumSize.height)
-        )
-
-        textView.setFrameSize(fittedSize)
-    }
-}
-
-private extension RequestLogEntry.Kind {
+private extension AppServerLogEntry.Source {
     var label: LocalizedStringResource {
         switch self {
-        case .pending:
-            "log.status.in-progress"
-        case .response:
-            "common.status.completed"
-        case .failure:
-            "log.label.error"
-        case .emptyResponse:
-            "log.payload.request"
+        case .request: "log.payload.request"
+        case .sent: "log.label.sent"
+        case .received: "log.label.received"
+        case .connection: "log.label.connection-event"
+        case .local: "log.label.local"
         }
     }
+}
 
+private extension AppServerLogEntry.Status {
     var tint: Color {
         switch self {
-        case .pending:
-            .orange
-        case .response:
-            .green
-        case .failure:
-            .red
-        case .emptyResponse:
-            .blue
+        case .pending: .orange
+        case .success: .green
+        case .failure: .red
+        case .information: .blue
         }
     }
 }

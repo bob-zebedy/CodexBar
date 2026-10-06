@@ -14,12 +14,12 @@ nonisolated enum UsageHeatmapTokenState: Equatable {
     }
 }
 
-/// 热力图单元格模型, 合并 app-server token 数据和本地 Hook 工作流统计
+/// 热力图单元格模型, 合并 app-server token 数据和本地 活动统计
 nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     let startDate: String
     let tokenState: UsageHeatmapTokenState
-    let workflow: WorkflowDailyMetrics
-    var tokenUsage: CodexTokenUsage?
+    let history: ActivityMetrics
+    var tokenUsage: TokenUsage?
 
     var id: String {
         startDate
@@ -35,17 +35,16 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
 
     static func grid(
         usage: CodexUsageSnapshot?,
-        workflow: WorkflowSnapshot,
-        showsWorkflow: Bool,
+        history: HistorySnapshot,
+        showsActivity: Bool,
         columnCount: Int,
         today: Date
     ) -> [UsageHeatmapDay?] {
         let todayTokenCount = usage?.tokenCount(on: today)
         let hasDailyUsageBuckets = usage?.hasDailyUsageBuckets == true
-        // 进阶模式开启时当天工作流统计可见
-        // 进阶模式关闭时只在 token bucket 已返回时展示今天
-        let endingDaysAgo = showsWorkflow || todayTokenCount != nil ? 0 : 1
-        let workflowByDate = workflow.dailyMetrics.reduce(into: [String: WorkflowDailyMetrics]()) { result, metrics in
+        // 活动统计可见时包含今天, 仅展示 Token 时等待当天 bucket 返回
+        let endingDaysAgo = showsActivity || todayTokenCount != nil ? 0 : 1
+        let historyByDate = history.dailyMetrics.reduce(into: [String: ActivityMetrics]()) { result, metrics in
             result[metrics.startDate] = metrics
         }
         let todayString = CodexDateFormat.dayString(from: today)
@@ -73,8 +72,8 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
             return UsageHeatmapDay(
                 startDate: startDate,
                 tokenState: tokenState,
-                workflow: workflowByDate[startDate] ?? .empty(startDate: startDate),
-                tokenUsage: workflow.tokenUsageByDate[startDate]
+                history: historyByDate[startDate] ?? .empty(startDate: startDate),
+                tokenUsage: history.tokenUsageByDate[startDate]
             )
         }
     }

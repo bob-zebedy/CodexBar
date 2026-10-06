@@ -7,11 +7,10 @@ import SwiftUI
 @MainActor
 final class StatusItemController: NSObject, NSMenuDelegate {
     private let viewModel: CodexStatusViewModel
-    private let workflowViewModel: WorkflowViewModel
-    private let advancedModeSettings: AdvancedModeSettings
-    private let codexCLINotificationSettings: CodexCLINotificationSettings
-    private let activityMonitor: CodexActivityMonitor
-    private let syncSettings: WorkflowSyncSettings
+    private let historyViewModel: HistoryViewModel
+    private let tuiNotificationSettings: TUINotificationSettings
+    private let activityMonitor: ActivityMonitor
+    private let syncSettings: SyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
     private let menuBarQuotaSettings: MenuBarQuotaSettings
     private let mainPanelSettings: MainPanelSettings
@@ -19,17 +18,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let notificationSettings: NotificationSettings
     private let autoResetSettings: AutoResetSettings
     private let keepAliveController: KeepAliveController
-    private let proxySettings: CodexProxySettings
     private let appUpdater: AppUpdater
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let menuSurfaceVisibility = MenuSurfaceVisibilityState()
     private let popoverAnimationState = MenuSurfaceAnimationState()
     private let fallbackPanelAnimationState = MenuSurfaceAnimationState()
-    private let activityCenterPresentationState = CodexActivityCenterPresentationState()
-    private let heatmapDetailPanelController = HeatmapDetailPanelController()
+    private let activityCenterPresentationState = ActivityCenterPresentationState()
+    private let heatmapDetailPanelController = HeatmapPanelController()
     private let resetCreditsPanelController = ResetCreditsPanelController()
-    private lazy var activityCenterPanelController = ActivityCenterPanelController(
+    private lazy var activityCenterPanelController = ActivityPanelController(
         activityMonitor: activityMonitor,
         presentationState: activityCenterPresentationState,
         mainPanelSettings: mainPanelSettings
@@ -46,9 +44,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private lazy var settingsWindowController = SettingsWindowController(
         viewModel: viewModel,
         appUpdater: appUpdater,
-        proxySettings: proxySettings,
-        advancedModeSettings: advancedModeSettings,
-        codexCLINotificationSettings: codexCLINotificationSettings,
+        tuiNotificationSettings: tuiNotificationSettings,
         syncSettings: syncSettings,
         globalHotKeySettings: globalHotKeySettings,
         menuBarQuotaSettings: menuBarQuotaSettings,
@@ -56,29 +52,29 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         taskGlowSettings: taskGlowSettings,
         notificationSettings: notificationSettings,
         autoResetSettings: autoResetSettings,
-        activityProtectionSettings: activityMonitor.activityProtectionSettings,
+        protectionSettings: activityMonitor.protectionSettings,
         keepAliveController: keepAliveController
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
     } onSyncChanged: { [weak self] _ in
         // setEnabled 在回调之前已经写回属性, 现场求值就是新结论
-        self?.workflowSyncScheduler.requestSync(trigger: .settings)
-    } onRebuildWorkflowData: { [weak self] dateKeys, completion in
+        self?.syncScheduler.requestSync(trigger: .settings)
+    } onRebuildHistoryData: { [weak self] dateKeys, completion in
         guard let self else {
             completion(.failure(CancellationError()))
             return
         }
-        workflowSyncScheduler.requestRebuild(for: dateKeys, completion: completion)
+        syncScheduler.requestRebuild(for: dateKeys, completion: completion)
     }
 
     private lazy var logWindowController = LogWindowController { [weak self] in
         self?.statusItem.button?.window?.screen
     }
 
-    private lazy var workflowSyncScheduler = WorkflowSyncScheduler(
-        viewModel: workflowViewModel,
+    private lazy var syncScheduler = SyncScheduler(
+        viewModel: historyViewModel,
         syncActivation: { [weak self] in
-            self?.workflowSyncActivation ?? .syncOff
+            self?.syncActivation ?? .syncOff
         }
     )
 
@@ -118,11 +114,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     init(
         viewModel: CodexStatusViewModel,
-        workflowViewModel: WorkflowViewModel,
-        advancedModeSettings: AdvancedModeSettings,
-        codexCLINotificationSettings: CodexCLINotificationSettings,
-        activityMonitor: CodexActivityMonitor,
-        syncSettings: WorkflowSyncSettings,
+        historyViewModel: HistoryViewModel,
+        tuiNotificationSettings: TUINotificationSettings,
+        activityMonitor: ActivityMonitor,
+        syncSettings: SyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
         menuBarQuotaSettings: MenuBarQuotaSettings,
         mainPanelSettings: MainPanelSettings,
@@ -130,13 +125,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         notificationSettings: NotificationSettings,
         autoResetSettings: AutoResetSettings,
         keepAliveController: KeepAliveController,
-        appUpdater: AppUpdater,
-        proxySettings: CodexProxySettings
+        appUpdater: AppUpdater
     ) {
         self.viewModel = viewModel
-        self.workflowViewModel = workflowViewModel
-        self.advancedModeSettings = advancedModeSettings
-        self.codexCLINotificationSettings = codexCLINotificationSettings
+        self.historyViewModel = historyViewModel
+        self.tuiNotificationSettings = tuiNotificationSettings
         self.activityMonitor = activityMonitor
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
@@ -147,120 +140,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.autoResetSettings = autoResetSettings
         self.keepAliveController = keepAliveController
         self.appUpdater = appUpdater
-        self.proxySettings = proxySettings
         super.init()
-    }
-
-    private struct StatusIconState: Equatable {
-        let usesErrorImage: Bool
-        let ordinaryUsageAllowed: Bool?
-        let progress: StatusIconProgress?
-        let activity: CodexActivitySnapshot
-
-        func symbolName(at now: Date) -> String {
-            if usesErrorImage {
-                return "person.slash.fill"
-            }
-            switch activity.statusItemActivity(at: now) {
-            case .waiting: return "person.badge.key.fill"
-            case .running: return "person.badge.clock.fill"
-            case .completed: return "person.badge.shield.checkmark.fill"
-            case .terminated: return "person.badge.shield.exclamationmark.fill"
-            case .idle: return "person.fill"
-            }
-        }
-
-        var hasLiveDuration: Bool {
-            activity.hasActiveTasks
-        }
-
-        func toolTip(at now: Date) -> String? {
-            var lines: [String] = []
-            if usesErrorImage {
-                lines.append(String(localized: "codex-status.account.unavailable"))
-            }
-
-            if let activityText = activityToolTip(at: now) {
-                lines.append(activityText)
-            }
-            if activity.activeCount > 1 {
-                lines.append(
-                    String(localized: "status-item.activity-summary", defaultValue: "\(activity.waitingCount, specifier: "%lld")\(activity.runningCount, specifier: "%lld")")
-                )
-            }
-            if let progress {
-                lines.append(progress.toolTip)
-            }
-            return lines.isEmpty ? nil : lines.joined(separator: "\n")
-        }
-
-        private func activityToolTip(at now: Date) -> String? {
-            switch activity.statusItemActivity(at: now) {
-            case let .waiting(task):
-                var text = String(localized: "activity.status.codex-waiting-for-approval")
-                if let projectName = task.projectName {
-                    text += " • \(projectName)"
-                }
-                if let toolName = task.toolName {
-                    text += " • \(toolName)"
-                }
-                text += " • \(CodexActivityDisplayFormat.waitingDurationFragment(since: task.stateChangedAt, now: now))"
-                return text
-            case let .running(task):
-                var text = String(localized: "activity.status.codex-running")
-                if let projectName = task.projectName {
-                    text += " • \(projectName)"
-                }
-                if task.showsPreciseDuration, let startedAt = task.startedAt {
-                    text += " • \(CodexActivityDisplayFormat.runningDurationFragment(since: startedAt, now: now))"
-                }
-                return text
-            case let .completed(completion):
-                var text = String(localized: "activity.status.codex-just-completed")
-                if let projectName = completion.projectName {
-                    text += " • \(projectName)"
-                }
-                if let duration = completion.duration {
-                    text += " • \(CodexActivityDisplayFormat.elapsedDurationFragment(for: duration))"
-                }
-                return text
-            case let .terminated(termination):
-                var text = String(localized: "activity.status.codex-stopped")
-                if let projectName = termination.projectName {
-                    text += " • \(projectName)"
-                }
-                if let duration = termination.duration {
-                    text += " • \(CodexActivityDisplayFormat.elapsedDurationFragment(for: duration))"
-                }
-                return text
-            case .idle:
-                return nil
-            }
-        }
-    }
-
-    private struct StatusIconProgress: Equatable {
-        let label: String
-        let percent: Int
-        let isStale: Bool
-
-        var toolTip: String {
-            let percentText = CodexPercentageFormat.string(from: percent)
-            return String(localized: "quota.status.remaining", defaultValue: "\(label)\(percentText)")
-        }
-
-        init?(snapshot: CodexQuotaSnapshot?, selection: MenuBarQuotaSelection) {
-            guard let targetKind = selection.windowKind,
-                  let snapshot,
-                  let window = snapshot.codexLimit?.window(ofKind: targetKind),
-                  window.hasData else {
-                return nil
-            }
-
-            label = window.label
-            percent = window.remainingPercent
-            isStale = snapshot.isRateLimitsStale
-        }
     }
 
     // MARK: - 装配与对外入口
@@ -271,9 +151,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         observeGlobalHotKeySettings()
         // 订阅时 CombineLatest 会同步发出当前值, 初始图标由订阅路径统一渲染
         observeViewModel()
-        observeWorkflowSyncState()
-        advancedModeSettings.reconcileConfiguration()
-        observeMainPanelAdvancedModeState()
+        observeSyncState()
         viewModel.startAutoRefresh()
     }
 
@@ -284,7 +162,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         statusIconHostingView?.removeFromSuperview()
         statusIconHostingView = nil
         statusToolTipTask?.cancel()
-        workflowSyncScheduler.cancel()
+        syncScheduler.cancel()
         setAuxiliaryWindowKeyFocus(true)
         globalHotKeyController.uninstall()
         cancellables.removeAll()
@@ -353,8 +231,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     ) -> NSHostingController<AnyView> {
         let rootView = CodexStatusMenuView(
             viewModel: viewModel,
-            workflowViewModel: workflowViewModel,
-            advancedModeSettings: advancedModeSettings,
+            historyViewModel: historyViewModel,
             mainPanelSettings: mainPanelSettings,
             activityMonitor: activityMonitor,
             syncSettings: syncSettings,
@@ -400,14 +277,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .map(\.hasTaskCenterContent)
             .removeDuplicates()
 
-        let isTaskCenterVisible = Publishers.CombineLatest(
-            advancedModeSettings.$isEnabled,
-            mainPanelSettings.$layout
-        )
-        .map { isAdvancedModeEnabled, layout in
-            isAdvancedModeEnabled && layout.isVisible(.activity)
-        }
-        .removeDuplicates()
+        let isTaskCenterVisible = mainPanelSettings.$layout
+            .map { $0.isVisible(.activity) }
+            .removeDuplicates()
 
         Publishers.CombineLatest4(
             menuSurfaceVisibility.$isVisible,
@@ -450,7 +322,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 guard let self else {
                     return
                 }
-                refreshWorkflowIfAdvancedModeEnabled(performMaintenance: true)
+                refreshHistory(performMaintenance: true)
             }
             .store(in: &cancellables)
 
@@ -481,40 +353,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .store(in: &cancellables)
     }
 
-    private func observeWorkflowSyncState() {
-        advancedModeSettings.$isEnabled
-            .removeDuplicates()
-            .sink { [weak self] isEnabled in
-                guard let self else {
-                    return
-                }
-
-                if isEnabled {
-                    // 回调跑在 willSet, advancedModeSettings.isEnabled 此刻还是旧值, 只能用参数
-                    workflowSyncScheduler.requestSync(
-                        trigger: .advancedModeEnabled,
-                        activation: syncSettings.activation(isAdvancedModeEnabled: true)
-                    )
-                } else {
-                    workflowSyncScheduler.clearPendingMaintenance()
-                    activityCenterPanelController.hide(immediate: true)
-                }
-            }
-            .store(in: &cancellables)
-
+    private func observeSyncState() {
         syncSettings.$syncAvailability
             .removeDuplicates()
             .sink { [weak self] availability in
                 self?.handleSyncChanged(isSyncAvailable: availability.isAvailable)
-            }
-            .store(in: &cancellables)
-    }
-
-    private func observeMainPanelAdvancedModeState() {
-        advancedModeSettings.$isEnabled
-            .removeDuplicates()
-            .sink { [weak self] isEnabled in
-                self?.mainPanelSettings.updateAdvancedModeEnabled(isEnabled)
             }
             .store(in: &cancellables)
     }
@@ -591,7 +434,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
     }
 
-    /// 终态提示按墙上时间到期, 即使没有后续 Hook 事件也会恢复普通图标
+    /// 终态提示按墙上时间到期, 即使没有后续活动事件也会恢复普通图标
     private func scheduleStatusIconExpiration() {
         statusIconExpirationTask?.cancel()
         statusIconExpirationTask = nil
@@ -763,7 +606,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             guard let self, isActiveMenuSurfaceVisible else { return }
             menuSurfaceState = .shown
             // 展开完成后再刷新共享状态, 避免主面板与设置窗口在淡入期间一起重算
-            refreshWorkflowIfAdvancedModeEnabled(performMaintenance: false)
+            refreshHistory(performMaintenance: false)
             viewModel.refreshIfNeeded(trigger: .panelOpen)
         }
     }
@@ -1000,22 +843,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: - 刷新与同步
 
-    private func refreshWorkflowIfAdvancedModeEnabled(performMaintenance: Bool) {
-        // 进阶模式与额度使用同一刷新节奏, 配置和信任状态损坏后都能自动收敛
-        advancedModeSettings.reconcileConfiguration()
-        guard advancedModeSettings.isEnabled else {
-            workflowSyncScheduler.clearPendingMaintenance()
-            return
-        }
-
+    private func refreshHistory(performMaintenance: Bool) {
         if performMaintenance {
             // 统计维护挂在额度刷新完成事件上, 触发来源继承那一次刷新
-            workflowSyncScheduler.requestMaintenance(
+            syncScheduler.requestMaintenance(
                 allowsSync: true,
                 trigger: viewModel.lastRefreshTrigger
             )
         } else {
-            workflowViewModel.refreshIfNeeded()
+            historyViewModel.refreshIfNeeded()
         }
     }
 
@@ -1023,17 +859,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// 从 $syncAvailability 的订阅进来时 syncSettings.isSyncAvailable 还是旧值, 只有回调参数是新的
     /// 不在这里判断该不该跳过: requestSync 的 guard 已经统一处理并记下 reason=
     private func handleSyncChanged(isSyncAvailable: Bool) {
-        workflowSyncScheduler.requestSync(
+        syncScheduler.requestSync(
             trigger: .settings,
             activation: syncSettings.activation(
-                isAdvancedModeEnabled: advancedModeSettings.isEnabled,
                 isSyncAvailable: isSyncAvailable
             )
         )
     }
 
-    private var workflowSyncActivation: WorkflowSyncActivation {
-        syncSettings.activation(isAdvancedModeEnabled: advancedModeSettings.isEnabled)
+    private var syncActivation: SyncActivation {
+        syncSettings.activation()
     }
 
     // MARK: - 侧边面板
@@ -1073,7 +908,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
     }
 
-    private func toggleActivityCenterPanel(_ context: CodexActivityCenterPanelContext) {
+    private func toggleActivityCenterPanel(_ context: ActivityCenterPanelContext) {
         guard isActiveMenuSurfaceVisible,
               let menuSurfaceContentView = activeMenuSurfaceContentView,
               let menuSurfaceWindow = activeMenuSurfaceWindow else {
@@ -1178,6 +1013,6 @@ private protocol MenuSideDetailPanel: AnyObject {
     func containsScreenPoint(_ screenPoint: NSPoint) -> Bool
 }
 
-extension HeatmapDetailPanelController: MenuSideDetailPanel {}
+extension HeatmapPanelController: MenuSideDetailPanel {}
 extension ResetCreditsPanelController: MenuSideDetailPanel {}
-extension ActivityCenterPanelController: MenuSideDetailPanel {}
+extension ActivityPanelController: MenuSideDetailPanel {}

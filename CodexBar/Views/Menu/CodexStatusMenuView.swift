@@ -34,20 +34,19 @@ struct CodexStatusMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + MenuMetrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
 
     @ObservedObject var viewModel: CodexStatusViewModel
-    @ObservedObject var workflowViewModel: WorkflowViewModel
-    @ObservedObject var advancedModeSettings: AdvancedModeSettings
+    @ObservedObject var historyViewModel: HistoryViewModel
     @ObservedObject var mainPanelSettings: MainPanelSettings
     // 活动状态与时间变化由卡片自行观察, 避免刷新整个菜单树
-    let activityMonitor: CodexActivityMonitor
-    @ObservedObject var syncSettings: WorkflowSyncSettings
+    let activityMonitor: ActivityMonitor
+    @ObservedObject var syncSettings: SyncSettings
     // 同 activityMonitor, 交给活动卡片自行观察, 不让 helper 状态变化重算整个菜单树
     let keepAliveController: KeepAliveController
     @ObservedObject var menuSurfaceVisibility: MenuSurfaceVisibilityState
     @ObservedObject var animationState: MenuSurfaceAnimationState
-    let activityCenterPresentationState: CodexActivityCenterPresentationState
+    let activityCenterPresentationState: ActivityCenterPresentationState
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
     let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
-    let onActivityCenterTap: (CodexActivityCenterPanelContext) -> Void
+    let onActivityCenterTap: (ActivityCenterPanelContext) -> Void
     @EnvironmentObject private var appUpdater: AppUpdater
 
     var body: some View {
@@ -65,7 +64,6 @@ struct CodexStatusMenuView: View {
         .padding(Metrics.padding)
         .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, isOuterSurface: true)
         .animation(Metrics.statusAnimation, value: viewModel.loadState)
-        .animation(Metrics.statusAnimation, value: advancedModeSettings.isEnabled)
         .animation(Metrics.statusAnimation, value: mainPanelSettings.layout)
         .animation(Metrics.statusAnimation, value: syncSettings.isEnabled)
         .animation(Metrics.statusAnimation, value: syncSettings.isSyncing)
@@ -145,24 +143,21 @@ private extension CodexStatusMenuView {
         }
     }
 
-    @ViewBuilder
     var activitySection: some View {
-        if advancedModeSettings.isEnabled {
-            CodexActivityCard(
-                activityMonitor: activityMonitor,
-                presentationState: activityCenterPresentationState,
-                keepAliveController: keepAliveController,
-                showsUnavailableState: viewModel.snapshot == nil,
-                onTaskCenterTap: { anchorProvider in
-                    onActivityCenterTap(
-                        CodexActivityCenterPanelContext(
-                            anchorProvider: anchorProvider,
-                            preferredSide: .right
-                        )
+        ActivityCard(
+            activityMonitor: activityMonitor,
+            presentationState: activityCenterPresentationState,
+            keepAliveController: keepAliveController,
+            showsUnavailableState: viewModel.snapshot == nil,
+            onTaskCenterTap: { anchorProvider in
+                onActivityCenterTap(
+                    ActivityCenterPanelContext(
+                        anchorProvider: anchorProvider,
+                        preferredSide: .right
                     )
-                }
-            )
-        }
+                )
+            }
+        )
     }
 
     @ViewBuilder
@@ -184,12 +179,11 @@ private extension CodexStatusMenuView {
 
     @ViewBuilder
     func usageSection(dataPlaceholderSection: MainPanelSection?) -> some View {
-        if let snapshot = viewModel.snapshot,
-           snapshot.usage != nil || advancedModeSettings.isEnabled {
+        if let snapshot = viewModel.snapshot {
             UsageSummaryView(
                 usage: snapshot.usage,
-                workflow: workflowViewModel.snapshot,
-                showsWorkflow: advancedModeSettings.isEnabled,
+                history: historyViewModel.snapshot,
+                showsActivity: true,
                 isStale: snapshot.isUsageStale,
                 onHoverContextChange: onUsageHeatmapHoverChange
             )
@@ -226,8 +220,7 @@ private extension CodexStatusMenuView {
         case .quota:
             viewModel.snapshot?.limits.isEmpty == false
         case .usage:
-            viewModel.snapshot?.usage != nil
-                || (viewModel.snapshot != nil && advancedModeSettings.isEnabled)
+            viewModel.snapshot != nil
         case .account, .activity, .status:
             false
         }
@@ -242,7 +235,7 @@ private extension CodexStatusMenuView {
             case .account:
                 true
             case .activity:
-                advancedModeSettings.isEnabled
+                true
             case .quota, .usage:
                 hasData(for: section) || dataPlaceholderSection == section
             case .status:
@@ -257,8 +250,7 @@ private extension CodexStatusMenuView {
             countdownStartedAt: viewModel.autoRefreshCountdownStartedAt ?? snapshot.generatedAt,
             countdownInterval: viewModel.autoRefreshInterval,
             isCountdownActive: menuSurfaceVisibility.isVisible,
-            syncDisplayState: WorkflowSyncDisplayState(
-                isAdvancedModeEnabled: advancedModeSettings.isEnabled,
+            syncDisplayState: SyncDisplayState(
                 settings: syncSettings
             ),
             updateMessage: appUpdater.panelUpdateMessage,

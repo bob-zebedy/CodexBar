@@ -1,7 +1,7 @@
 import AppKit
 import QuartzCore
 
-private extension CodexActivityTerminalEvent {
+private extension ActivityTerminalEvent {
     var glowState: TaskGlowState {
         switch self {
         case .completed: .completed
@@ -12,9 +12,9 @@ private extension CodexActivityTerminalEvent {
 
 /// 短提示只消费开启后新增的结束记录, 到期后按最新快照恢复等待或运行状态
 struct TaskGlowPresentationState {
-    private var snapshot = CodexActivitySnapshot.empty
+    private var snapshot = ActivitySnapshot.empty
     private var enabledAt: Date?
-    private var briefEvent: CodexActivityTerminalEvent?
+    private var briefEvent: ActivityTerminalEvent?
     private var briefExpiration: Date?
     private var suspendedAt: Date?
     private var resumesAt: Date?
@@ -49,8 +49,8 @@ struct TaskGlowPresentationState {
     }
 
     mutating func update(
-        snapshot: CodexActivitySnapshot,
-        terminalEvents: [CodexActivityTerminalEvent],
+        snapshot: ActivitySnapshot,
+        terminalEvents: [ActivityTerminalEvent],
         isEnabled: Bool,
         acceptsBriefEvents: Bool,
         now: Date
@@ -119,7 +119,7 @@ struct TaskGlowPresentationState {
         terminal = nil
     }
 
-    private mutating func show(_ event: CodexActivityTerminalEvent, until expiration: Date, fadeDuration: TimeInterval, now: Date) {
+    private mutating func show(_ event: ActivityTerminalEvent, until expiration: Date, fadeDuration: TimeInterval, now: Date) {
         terminal = TaskGlowTerminalPresentation(
             eventID: event.id,
             startedAt: terminal.flatMap { $0.eventID == event.id ? $0.startedAt : nil } ?? now,

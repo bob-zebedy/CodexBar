@@ -6,27 +6,25 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController: HostingWindowController {
     private let viewModel: CodexStatusViewModel
-    private let proxySettings: CodexProxySettings
     private let appUpdater: AppUpdater
-    private let advancedModeSettings: AdvancedModeSettings
-    private let codexCLINotificationSettings: CodexCLINotificationSettings
-    private let syncSettings: WorkflowSyncSettings
+    private let tuiNotificationSettings: TUINotificationSettings
+    private let syncSettings: SyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
     private let menuBarQuotaSettings: MenuBarQuotaSettings
     private let mainPanelSettings: MainPanelSettings
     private let taskGlowSettings: TaskGlowSettings
     private let notificationSettings: NotificationSettings
     private let autoResetSettings: AutoResetSettings
-    private let activityProtectionSettings: ActivityProtectionSettings
+    private let protectionSettings: ProtectionSettings
     private let keepAliveController: KeepAliveController
     private let onSyncChanged: (Bool) -> Void
-    private let onRebuildWorkflowData: WorkflowSyncScheduler.RebuildHandler
+    private let onRebuildHistoryData: SyncScheduler.RebuildHandler
     private let mainPanelUndoManager = UndoManager()
     private let animationState = SettingsWindowAnimationState()
     private var windowFocusObserver: AnyCancellable?
     private var windowVisibilityObserver: AnyCancellable?
     /// 只在真的要展开时构造: hosting controller 与动态面板订阅会常驻到 App 结束, 而用户可能一次子面板都没开过
-    private var optionsPanelControllers: [SettingsOptionsPanel: SettingsOptionsPanelController] = [:]
+    private var optionsPanelControllers: [SettingsOptionsPanel: OptionsPanelController] = [:]
     private var optionsDismissEventMonitor: Any?
     private var optionsDismissFocusObserver: AnyCancellable?
     private var optionsDismissedByClick: (panel: SettingsOptionsPanel, event: NSEvent)?
@@ -36,27 +34,23 @@ final class SettingsWindowController: HostingWindowController {
     init(
         viewModel: CodexStatusViewModel,
         appUpdater: AppUpdater,
-        proxySettings: CodexProxySettings,
-        advancedModeSettings: AdvancedModeSettings,
-        codexCLINotificationSettings: CodexCLINotificationSettings,
-        syncSettings: WorkflowSyncSettings,
+        tuiNotificationSettings: TUINotificationSettings,
+        syncSettings: SyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
         menuBarQuotaSettings: MenuBarQuotaSettings,
         mainPanelSettings: MainPanelSettings,
         taskGlowSettings: TaskGlowSettings,
         notificationSettings: NotificationSettings,
         autoResetSettings: AutoResetSettings,
-        activityProtectionSettings: ActivityProtectionSettings,
+        protectionSettings: ProtectionSettings,
         keepAliveController: KeepAliveController,
         screenProvider: @escaping () -> NSScreen?,
         onSyncChanged: @escaping (Bool) -> Void,
-        onRebuildWorkflowData: @escaping WorkflowSyncScheduler.RebuildHandler
+        onRebuildHistoryData: @escaping SyncScheduler.RebuildHandler
     ) {
         self.viewModel = viewModel
         self.appUpdater = appUpdater
-        self.proxySettings = proxySettings
-        self.advancedModeSettings = advancedModeSettings
-        self.codexCLINotificationSettings = codexCLINotificationSettings
+        self.tuiNotificationSettings = tuiNotificationSettings
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
         self.menuBarQuotaSettings = menuBarQuotaSettings
@@ -64,10 +58,10 @@ final class SettingsWindowController: HostingWindowController {
         self.taskGlowSettings = taskGlowSettings
         self.notificationSettings = notificationSettings
         self.autoResetSettings = autoResetSettings
-        self.activityProtectionSettings = activityProtectionSettings
+        self.protectionSettings = protectionSettings
         self.keepAliveController = keepAliveController
         self.onSyncChanged = onSyncChanged
-        self.onRebuildWorkflowData = onRebuildWorkflowData
+        self.onRebuildHistoryData = onRebuildHistoryData
         super.init(screenProvider: screenProvider)
     }
 
@@ -84,8 +78,6 @@ final class SettingsWindowController: HostingWindowController {
     override func makeWindow() -> NSWindow {
         let hostingController = NSHostingController(
             rootView: AppSettingsView(
-                proxySettings: proxySettings,
-                advancedModeSettings: advancedModeSettings,
                 syncSettings: syncSettings,
                 globalHotKeySettings: globalHotKeySettings,
                 menuBarQuotaSettings: menuBarQuotaSettings,
@@ -95,7 +87,7 @@ final class SettingsWindowController: HostingWindowController {
                 autoResetSettings: autoResetSettings,
                 keepAliveController: keepAliveController,
                 onSyncChanged: onSyncChanged,
-                onRebuildWorkflowData: onRebuildWorkflowData,
+                onRebuildHistoryData: onRebuildHistoryData,
                 onOptionsAction: { [weak self] action in
                     self?.handleOptionsAction(action)
                 },
@@ -157,20 +149,19 @@ final class SettingsWindowController: HostingWindowController {
 
     private func refreshSettingsState() {
         notificationSettings.refreshAuthorizationStatus()
-        advancedModeSettings.reconcileConfiguration()
-        codexCLINotificationSettings.refresh()
+        tuiNotificationSettings.refresh()
         syncSettings.refresh()
         menuBarQuotaSettings.refresh()
         mainPanelSettings.refresh()
         taskGlowSettings.refresh()
         autoResetSettings.refresh()
-        activityProtectionSettings.refresh()
+        protectionSettings.refresh()
         keepAliveController.refresh()
     }
 
     private func optionsPanelController(
         _ panel: SettingsOptionsPanel
-    ) -> SettingsOptionsPanelController {
+    ) -> OptionsPanelController {
         if let existing = existingOptionsPanelController(panel) {
             return existing
         }
@@ -183,18 +174,18 @@ final class SettingsWindowController: HostingWindowController {
     /// 没建过就说明它不可能开着, 收起动作不必为此把它构造出来
     private func existingOptionsPanelController(
         _ panel: SettingsOptionsPanel
-    ) -> SettingsOptionsPanelController? {
+    ) -> OptionsPanelController? {
         optionsPanelControllers[panel]
     }
 
     private func makeOptionsPanelController(
         _ panel: SettingsOptionsPanel
-    ) -> SettingsOptionsPanelController {
+    ) -> OptionsPanelController {
         switch panel {
         case .mainPanel:
             makeMainPanelOptionsPanelController()
         case .taskGlow:
-            SettingsOptionsPanelController(
+            OptionsPanelController(
                 animationKey: "CodexBar.taskGlowOptionsDrawerTransform",
                 initialPanelSize: TaskGlowOptionsView.initialPanelSize,
                 willHide: { [taskGlowSettings] in taskGlowSettings.endColorPreview() },
@@ -203,17 +194,16 @@ final class SettingsWindowController: HostingWindowController {
                 }
             )
         case .notification:
-            SettingsOptionsPanelController(
+            OptionsPanelController(
                 animationKey: "CodexBar.notificationOptionsDrawerTransform",
                 initialPanelSize: NotificationOptionsView.initialPanelSize,
-                willShow: { [codexCLINotificationSettings] in
-                    codexCLINotificationSettings.refresh()
+                willShow: { [tuiNotificationSettings] in
+                    tuiNotificationSettings.refresh()
                 },
-                contentProvider: { [notificationSettings, advancedModeSettings, codexCLINotificationSettings, autoResetSettings, keepAliveController] in
+                contentProvider: { [notificationSettings, tuiNotificationSettings, autoResetSettings, keepAliveController] in
                     NotificationOptionsView(
                         notificationSettings: notificationSettings,
-                        advancedModeSettings: advancedModeSettings,
-                        codexCLINotificationSettings: codexCLINotificationSettings,
+                        tuiNotificationSettings: tuiNotificationSettings,
                         autoResetSettings: autoResetSettings,
                         keepAliveController: keepAliveController
                     )
@@ -222,7 +212,6 @@ final class SettingsWindowController: HostingWindowController {
                 // 防睡眠只订阅相关派生值, 避免每次任务起停都触发面板高度重算
                 contentChanges: Publishers.MergeMany([
                     notificationSettings.objectWillChange.eraseToAnyPublisher(),
-                    advancedModeSettings.objectWillChange.eraseToAnyPublisher(),
                     autoResetSettings.$isEnabled
                         .map { _ in () }
                         .eraseToAnyPublisher(),
@@ -235,7 +224,7 @@ final class SettingsWindowController: HostingWindowController {
                 ]).eraseToAnyPublisher()
             )
         case .autoReset:
-            SettingsOptionsPanelController(
+            OptionsPanelController(
                 animationKey: "CodexBar.autoResetOptionsDrawerTransform",
                 initialPanelSize: AutoResetOptionsView.initialPanelSize,
                 contentProvider: { [autoResetSettings] in
@@ -243,13 +232,13 @@ final class SettingsWindowController: HostingWindowController {
                 }
             )
         case .keepAlive:
-            SettingsOptionsPanelController(
+            OptionsPanelController(
                 animationKey: "CodexBar.keepAliveOptionsDrawerTransform",
                 initialPanelSize: KeepAliveOptionsView.initialPanelSize,
-                contentProvider: { [keepAliveController, activityProtectionSettings] in
+                contentProvider: { [keepAliveController, protectionSettings] in
                     KeepAliveOptionsView(
                         keepAliveController: keepAliveController,
-                        activityProtectionSettings: activityProtectionSettings
+                        protectionSettings: protectionSettings
                     )
                 },
                 // 面板里只有 hasBattery 会增删行, 其余各行的取值不改高度
@@ -260,17 +249,16 @@ final class SettingsWindowController: HostingWindowController {
         }
     }
 
-    private func makeMainPanelOptionsPanelController() -> SettingsOptionsPanelController {
-        SettingsOptionsPanelController(
+    private func makeMainPanelOptionsPanelController() -> OptionsPanelController {
+        OptionsPanelController(
             animationKey: "CodexBar.mainPanelOptionsDrawerTransform",
             initialPanelSize: MainPanelOptionsView.initialPanelSize,
             willShow: { [mainPanelSettings] in
                 mainPanelSettings.refresh()
             },
-            contentProvider: { [mainPanelSettings, advancedModeSettings, mainPanelUndoManager] in
+            contentProvider: { [mainPanelSettings, mainPanelUndoManager] in
                 MainPanelOptionsView(
                     settings: mainPanelSettings,
-                    advancedModeSettings: advancedModeSettings,
                     undoManager: mainPanelUndoManager
                 )
             }

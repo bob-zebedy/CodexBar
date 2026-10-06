@@ -4,14 +4,14 @@ import SwiftUI
 /// 行样式与度量沿用通知子面板, 只有面板宽度按内容收窄
 struct KeepAliveOptionsView: View {
     @ObservedObject var keepAliveController: KeepAliveController
-    @ObservedObject var activityProtectionSettings: ActivityProtectionSettings
+    @ObservedObject var protectionSettings: ProtectionSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
             waitingApprovalRow
             displayAwakeRow
             maximumDurationRow
-            activityProtectionRow
+            protectionRow
 
             // 台式机读不到电池, 这一行整个收起而不是置灰
             if keepAliveController.hasBattery {
@@ -47,15 +47,15 @@ struct KeepAliveOptionsView: View {
         )
     }
 
-    private var activityProtectionRow: some View {
+    private var protectionRow: some View {
         pickerRow(
-            title: "activity-protection.title",
-            caption: "activity-protection.caption",
+            title: "protection.title",
+            caption: "protection.caption",
             selection: Binding(
-                get: { activityProtectionSettings.inactivityDuration },
-                set: { activityProtectionSettings.setInactivityDuration($0) }
+                get: { protectionSettings.inactivityDuration },
+                set: { protectionSettings.setInactivityDuration($0) }
             ),
-            options: ActivityProtectionSettings.InactivityDuration.allCases,
+            options: ProtectionSettings.InactivityDuration.allCases,
             label: \.title
         )
     }

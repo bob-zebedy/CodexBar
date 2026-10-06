@@ -116,7 +116,6 @@ extension KeepAliveController {
     enum SleepBlockReason: String {
         case notStarted
         case userOff
-        case advancedModeDisabled
         case noTasks
         case helperUnavailable
         case helperRefreshing
@@ -131,7 +130,6 @@ extension KeepAliveController {
     struct SleepConditions: Equatable {
         let blockReason: SleepBlockReason?
         let enabled: Bool
-        let advancedMode: Bool
         let tasks: Bool
         let helper: HelperStatus
         let refreshing: Bool

@@ -14,7 +14,7 @@
 [![Downloads](https://img.shields.io/github/downloads/bob-zebedy/CodexBar/total?color=2EA043)](https://github.com/bob-zebedy/CodexBar/releases)
 [![License](https://img.shields.io/github/license/bob-zebedy/CodexBar?color=8957E5)](LICENSE)
 
-[功能](#功能) | [安装](#安装) | [快速开始](#快速开始) | [使用文档](#使用文档) | [隐私](#隐私) | [运行架构](https://codexbar.zabrian.app/architecture) | [性能报告](https://codexbar.zabrian.app/performance)
+[功能](#功能) | [安装](#安装) | [快速开始](#快速开始) | [隐私](#隐私) | [运行架构](https://codexbar.zabrian.app/architecture) | [性能报告](https://codexbar.zabrian.app/performance)
 
 <img src="Images/preview.gif" width="640" alt="CodexBar 预览">
 
@@ -24,7 +24,7 @@
 
 CodexBar 是面向 macOS 15 及更高版本的菜单栏 App，用于集中展示 Codex 账户、额度、Token 用量和实时任务状态。
 
-它可以在任务完成、等待批准或额度变化时提醒你，也能只在 Codex 任务运行期间自动防止系统睡眠。
+它可以在任务完成、等待批准或额度变化时提醒你，也能在符合条件的 Codex 任务存在时自动防止系统睡眠。
 
 ## 功能
 
@@ -41,7 +41,7 @@ CodexBar 是面向 macOS 15 及更高版本的菜单栏 App，用于集中展示
 - 展示累计 Token、单日峰值和连续使用天数
 - 展示最长任务时长
 - 通过热力图回顾近期每日 Token 用量
-- 开启进阶模式后可查看会话、对话轮次、工具调用和子 Agent 等每日统计
+- 可查看会话、对话轮次、工具调用和子 Agent 等每日统计
 
 ### 不错过正在发生的任务
 
@@ -63,8 +63,7 @@ CodexBar 是面向 macOS 15 及更高版本的菜单栏 App，用于集中展示
 - 作为菜单栏 App 运行，不占用 Dock
 - 支持全局快捷键、开机启动和自动更新
 - 支持简体中文和英文界面
-- 支持为 Codex 服务配置 HTTP/HTTPS 代理
-- 可选通过 iCloud 合并多台 Mac 的每日 Hook 统计
+- 可选通过 iCloud 合并多台 Mac 的每日活动统计和 Token 用量记录
 
 ## 安装
 
@@ -82,8 +81,7 @@ brew install --cask bob-zebedy/tap/codexbar
 
 - macOS 15.0 或更高版本
 - 已安装并登录 [Codex CLI](https://github.com/openai/codex) 或安装了内置 Codex 的 ChatGPT App 或 Codex App
-- 当前运行的 Codex 版本需要为 `0.145.0` 或更高版本
-- 启用进阶模式时，当前运行的 Codex 版本需要为 `0.153.0` 或更高版本
+- 已启动启用后台服务的 Codex 交互会话，共享服务版本为 `0.160.0` 或更高版本
 - 使用跨设备同步时，Mac 需要登录可用的 iCloud 账户
 
 ## 快速开始
@@ -91,23 +89,19 @@ brew install --cask bob-zebedy/tap/codexbar
 1. 启动 CodexBar，在菜单栏找到 CodexBar 图标
 2. 左键点击图标查看账户、额度和 Token 用量
 3. 右键或按住 Control 点击图标打开设置、日志或退出菜单
-4. 在 `设置 > 高级` 中启用进阶模式，解锁实时任务、任务类通知、防睡眠和 Hook 统计
+4. 会话活动和统计随 App 启动；在 `设置 > 高级` 中按需配置通知、防睡眠和同步
 
 默认全局快捷键为 `⌘⇧E`，可在设置中重新录制或关闭。
 
-## 使用文档
-
-| 文档 | 内容 |
-| --- | --- |
-| [用户指南](Docs/README.md#用户指南) | 安装、主面板、Hook、通知、防睡眠、同步、全部设置和问题排查 |
-| [开发者指南](Docs/DeveloperGuide/README.md) | 架构、数据链路、核心状态机、存储、隐私边界和开发验证 |
-| [文档导航](Docs/README.md) | 全部文档入口 |
-
 ## 隐私
 
-Hook 原始事件和实时任务在本机处理。开启跨设备同步后，日级 Hook 聚合会上传到 iCloud private database。账户和用量通过本机 Codex app-server 获取，由 Codex 连接服务端；更新检查使用 Sparkle。
+活动原始事件和实时任务在本机处理。开启跨设备同步后，日级活动聚合和 Token 用量记录会上传到 iCloud private database。账户和用量通过本机 Codex app-server 获取，由 Codex 连接服务端；更新检查使用 Sparkle。
 
-完整的数据访问、本机存储和网络边界见 [数据、同步与隐私](Docs/UserGuide/sync-data-privacy.md)
+## 本地历史与日志
+
+活动历史按已记录的事件重建，Token 历史按采集期间保存的原始累计计数观测重新计算。两者保留 210 天的数据；重建无法补回未采集的消耗或已删除的原始记录。跨设备 Token 修正缺少可核对的覆盖关系时，对应日期不生成历史 Token 汇总。
+
+请求日志最多保留 10,000 条，序列化记录总量不超过 50 MiB，单份请求或响应正文最多保留 64 KiB。超过限制时清理最旧记录，超长正文带截断标记。日志窗口最多缓存 1,000 条，浏览更早记录后可通过“最新日志”返回实时列表。数据库索引和 WAL 会产生额外文件开销。
 
 ## 反馈
 

@@ -48,7 +48,7 @@ final class AutoResetController {
     private let settings: AutoResetSettings
     private let statusViewModel: CodexStatusViewModel
     private let service: CodexStatusService
-    private let notificationService: CodexNotificationService
+    private let notificationService: NotificationService
     private let keepAliveController: KeepAliveController
     private let wakeActivity = SystemSleepService(
         sleepAssertionName: "CodexBar - Automatic Reset"
@@ -73,7 +73,7 @@ final class AutoResetController {
         settings: AutoResetSettings,
         statusViewModel: CodexStatusViewModel,
         service: CodexStatusService,
-        notificationService: CodexNotificationService,
+        notificationService: NotificationService,
         keepAliveController: KeepAliveController
     ) {
         self.settings = settings

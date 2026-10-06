@@ -30,18 +30,18 @@ struct DateAndPresentationTests {
         let today = try #require(CodexDateFormat.dayDate(from: "2026-09-15"))
         let summary = try TestFixtures.decode(UsageSummary.self, "{}")
         let usage = CodexUsageSnapshot(summary: summary, dailyBuckets: [])
-        let grid = UsageHeatmapDay.grid(usage: usage, workflow: .empty, showsWorkflow: true, columnCount: 2, today: today).compactMap(\.self)
+        let grid = UsageHeatmapDay.grid(usage: usage, history: .empty, showsActivity: true, columnCount: 2, today: today).compactMap(\.self)
         #expect(grid.last?.tokenState == .pending)
         #expect(grid.first?.tokenState == .available(0))
-        let unavailable = UsageHeatmapDay.grid(usage: nil, workflow: .empty, showsWorkflow: true, columnCount: 2, today: today).compactMap(\.self)
+        let unavailable = UsageHeatmapDay.grid(usage: nil, history: .empty, showsActivity: true, columnCount: 2, today: today).compactMap(\.self)
         #expect(unavailable.allSatisfy { $0.tokenState == .unavailable })
-        let hiddenToday = UsageHeatmapDay.grid(usage: usage, workflow: .empty, showsWorkflow: false, columnCount: 2, today: today).compactMap(\.self)
+        let hiddenToday = UsageHeatmapDay.grid(usage: usage, history: .empty, showsActivity: false, columnCount: 2, today: today).compactMap(\.self)
         #expect(!hiddenToday.contains { $0.startDate == "2026-09-15" })
     }
 
     @Test func statusItemTerminalExpiresAtTenSecondsWhileCardKeepsHistory() {
-        let completion = CodexActivityCompletion(id: UUID(), isAnonymous: false, projectName: nil, modelName: nil, effort: nil, completedAt: TestFixtures.now, duration: 30)
-        let snapshot = CodexActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])
+        let completion = ActivityCompletion(id: UUID(), isAnonymous: false, projectName: nil, modelName: nil, effort: nil, completedAt: TestFixtures.now, duration: 30)
+        let snapshot = ActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])
         #expect(snapshot.statusItemActivity(at: TestFixtures.now.addingTimeInterval(9.999)) == .completed(completion))
         #expect(snapshot.statusItemActivity(at: TestFixtures.now.addingTimeInterval(10)) == .idle)
         #expect(snapshot.primaryActivity == .completed(completion))
@@ -52,14 +52,14 @@ struct DateAndPresentationTests {
     @Test func waitingTaskTakesPriorityAndAnonymousTasksRemainVisible() {
         let waiting = task(isAnonymous: true)
         let running = task(isAnonymous: false)
-        let snapshot = CodexActivitySnapshot(waitingTasks: [waiting], runningTasks: [running], recentCompletions: [], recentTerminations: [])
+        let snapshot = ActivitySnapshot(waitingTasks: [waiting], runningTasks: [running], recentCompletions: [], recentTerminations: [])
         #expect(snapshot.primaryActivity == .waiting(waiting))
         #expect(snapshot.activeCount == 2)
         #expect(snapshot.statusItemActivityExpiration == nil)
     }
 
-    private func task(isAnonymous: Bool) -> CodexActivityTaskSnapshot {
-        CodexActivityTaskSnapshot(
+    private func task(isAnonymous: Bool) -> ActivityTaskSnapshot {
+        ActivityTaskSnapshot(
             id: UUID(), isAnonymous: isAnonymous, latestEvent: .promptSubmitted,
             projectName: nil, modelName: nil, effort: nil, toolName: nil,
             startedAt: TestFixtures.now, stateChangedAt: TestFixtures.now,

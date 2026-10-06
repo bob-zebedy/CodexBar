@@ -201,12 +201,12 @@ struct TaskGlowTests {
 
     @Test func concurrentTaskCompletionStillShowsBrieflyThenRestoresRunning() throws {
         var presentation = TaskGlowPresentationState()
-        let running = CodexActivityTaskSnapshot(
+        let running = ActivityTaskSnapshot(
             id: UUID(), isAnonymous: false, latestEvent: .toolStarted, projectName: nil,
             modelName: nil, effort: nil, toolName: nil, startedAt: TestFixtures.now,
             stateChangedAt: TestFixtures.now, showsPreciseDuration: true, activeSubagentCount: nil
         )
-        let snapshot = CodexActivitySnapshot(
+        let snapshot = ActivitySnapshot(
             waitingTasks: [], runningTasks: [running],
             recentCompletions: completedSnapshot().recentCompletions, recentTerminations: []
         )
@@ -222,11 +222,11 @@ struct TaskGlowTests {
         #expect(presentation.state == .running)
     }
 
-    private func completedSnapshot() -> CodexActivitySnapshot {
-        let completion = CodexActivityCompletion(
+    private func completedSnapshot() -> ActivitySnapshot {
+        let completion = ActivityCompletion(
             id: UUID(), isAnonymous: false, projectName: nil, modelName: nil,
             effort: nil, completedAt: TestFixtures.now, duration: 60
         )
-        return CodexActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])
+        return ActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])
     }
 }

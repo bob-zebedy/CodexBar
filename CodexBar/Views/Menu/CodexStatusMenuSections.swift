@@ -266,7 +266,7 @@ struct UpdatedAtRow: View {
     let countdownStartedAt: Date
     let countdownInterval: TimeInterval
     let isCountdownActive: Bool
-    let syncDisplayState: WorkflowSyncDisplayState
+    let syncDisplayState: SyncDisplayState
     let updateMessage: String?
     let startUpdate: () -> Void
 
@@ -331,17 +331,17 @@ struct UpdatedAtRow: View {
     }
 }
 
-struct WorkflowSyncDisplayState: Equatable {
+struct SyncDisplayState: Equatable {
     let symbolName: String
     let tint: Color
     let helpText: String
 
-    static func == (lhs: WorkflowSyncDisplayState, rhs: WorkflowSyncDisplayState) -> Bool {
+    static func == (lhs: SyncDisplayState, rhs: SyncDisplayState) -> Bool {
         lhs.symbolName == rhs.symbolName && lhs.helpText == rhs.helpText
     }
 
-    init(isAdvancedModeEnabled: Bool, settings: WorkflowSyncSettings) {
-        guard settings.isEffectivelyActive(isAdvancedModeEnabled: isAdvancedModeEnabled) else {
+    init(settings: SyncSettings) {
+        guard settings.isEffectivelyActive else {
             self = .disabled
             return
         }
@@ -352,7 +352,7 @@ struct WorkflowSyncDisplayState: Equatable {
             self.init(
                 symbolName: "exclamationmark.icloud",
                 tint: .orange,
-                helpText: settings.syncFailureMessage ?? WorkflowSyncFailureReason.retryLater.message
+                helpText: settings.syncFailureMessage ?? SyncFailureReason.retryLater.message
             )
         } else {
             self.init(
@@ -370,13 +370,13 @@ struct WorkflowSyncDisplayState: Equatable {
         self.helpText = helpText
     }
 
-    private static let disabled = WorkflowSyncDisplayState(
+    private static let disabled = SyncDisplayState(
         symbolName: "icloud.slash",
         tint: .codexSecondaryLabel,
         helpText: String(localized: "sync.status.disabled")
     )
 
-    private static let syncing = WorkflowSyncDisplayState(
+    private static let syncing = SyncDisplayState(
         symbolName: "arrow.trianglehead.clockwise.icloud",
         tint: .blue,
         helpText: String(localized: "sync.status.syncing")

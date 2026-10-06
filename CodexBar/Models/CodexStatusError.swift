@@ -2,31 +2,25 @@ import Foundation
 
 /// UI 和日志共用的 app-server 错误分类, 保留可重试/需重连判断
 nonisolated enum CodexStatusError: LocalizedError {
-    case executableNotFound
-    case sourceUnavailable(CodexCLIExecutableSource)
     case serverTimeout
     case serverConnectionClosed
     case invalidServerResponse
     case invalidResponsePayload
-    case serverError(String)
+    case serverError(AppServerRPCError)
     case unsupportedMethod
     case unsupportedVersion(minimum: String)
     case notLoggedIn
 
     var errorDescription: String? {
         switch self {
-        case .executableNotFound:
-            String(localized: "codex-status.cli.error.executable-not-found")
-        case let .sourceUnavailable(source):
-            "\(source.displayName): \(String(localized: "codex-cli.source.status.unavailable"))"
         case .serverTimeout:
             String(localized: "codex-status.app-server.error.server-timeout")
         case .serverConnectionClosed:
             String(localized: "codex-status.app-server.error.connection-closed")
         case .invalidServerResponse, .invalidResponsePayload:
             String(localized: "codex-status.app-server.error.invalid-response")
-        case let .serverError(message):
-            message
+        case let .serverError(error):
+            error.message
         case .unsupportedMethod:
             String(localized: "codex-status.app-server.error.unsupported-method")
         case let .unsupportedVersion(minimum):
@@ -52,7 +46,7 @@ nonisolated enum CodexStatusError: LocalizedError {
         case .unsupportedMethod:
             true
         default:
-            serverErrorMessageContains("Invalid request: unknown variant")
+            serverErrorCode == -32601 || serverErrorMessageContains("Invalid request: unknown variant")
         }
     }
 
@@ -61,7 +55,13 @@ nonisolated enum CodexStatusError: LocalizedError {
             return false
         }
 
-        return !isAuthenticationRequired && !isUnsupportedMethod
+        return !isAuthenticationRequired && !isUnsupportedMethod && !isProtocolOrParameterFailure
+    }
+
+    /// 服务端也用 -32600 表示线程历史不可用, 仅匹配当前线程的已知错误
+    func isMissingRollout(for threadID: String) -> Bool {
+        guard case let .serverError(error) = self else { return false }
+        return error.code == -32600 && error.message == "no rollout found for thread id \(threadID)"
     }
 
     /// 参数或协议形状不正确时继续用同一请求重试不会恢复
@@ -70,7 +70,7 @@ nonisolated enum CodexStatusError: LocalizedError {
         case .invalidResponsePayload, .unsupportedMethod, .unsupportedVersion:
             true
         case .serverError:
-            serverErrorMessageContains("invalid params")
+            [-32700, -32600, -32602].contains(serverErrorCode ?? 0) || serverErrorMessageContains("invalid params")
                 || serverErrorMessageContains("invalid request")
                 || serverErrorMessageContains("missing field")
                 || serverErrorMessageContains("unknown field")
@@ -90,11 +90,16 @@ nonisolated enum CodexStatusError: LocalizedError {
         }
     }
 
+    private var serverErrorCode: Int? {
+        guard case let .serverError(error) = self else { return nil }
+        return error.code
+    }
+
     private func serverErrorMessageContains(_ keyword: String) -> Bool {
-        guard case let .serverError(message) = self else {
+        guard case let .serverError(error) = self else {
             return false
         }
 
-        return message.range(of: keyword, options: .caseInsensitive) != nil
+        return error.message.range(of: keyword, options: .caseInsensitive) != nil
     }
 }

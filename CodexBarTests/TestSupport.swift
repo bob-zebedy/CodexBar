@@ -9,18 +9,18 @@ nonisolated enum TestFixtures {
     }
 
     static func event(
-        _ name: CodexHookEvent = .userPromptSubmit,
+        _ name: ActivityEventKind = .turnStarted,
         at timestamp: Date = now,
         session: String? = "session-a",
         turn: String? = "turn-a",
         agent: String? = nil,
-        origin: WorkflowEventOrigin = .main,
-        reviewer: CodexApprovalReviewer? = .user
-    ) -> WorkflowHookEvent {
-        WorkflowHookEvent(
+        origin: ActivityOrigin = .main,
+        reviewer: ApprovalReviewer? = .user
+    ) -> ActivityRecord {
+        ActivityRecord(
             timestamp: timestamp, name: name.rawValue, origin: origin,
-            directoryPath: "/projects/example", toolName: "exec_command", modelName: "gpt-5",
-            effort: "high", permissionMode: nil, approvalReviewer: reviewer,
+            cwd: "/projects/example", tool: "exec_command", model: "gpt-5",
+            effort: "high", approvalReviewer: reviewer,
             sessionID: session, turnID: turn, agentID: agent
         )
     }
@@ -30,8 +30,8 @@ nonisolated enum TestFixtures {
         fresh: Bool = false,
         events: Int = 2,
         turns: Int = 1
-    ) -> WorkflowDailyAggregate {
-        var aggregate = WorkflowDailyAggregate(date: "2026-09-15", sourceGeneration: generation, sourceIsFresh: fresh)
+    ) -> ActivityAggregate {
+        var aggregate = ActivityAggregate(date: "2026-09-15", generationID: generation, generationStartedEmpty: fresh)
         aggregate.eventCount = events
         aggregate.turnCount = turns
         aggregate.sessionCount = 1

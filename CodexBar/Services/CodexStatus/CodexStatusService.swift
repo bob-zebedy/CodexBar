@@ -135,56 +135,14 @@ private nonisolated extension ReadResult {
     }
 }
 
-/// 维持一条 codex app-server stdio 会话, 复用失败后按需重建
+/// 独立持有账户连接, 与活动监听连接同一个共享服务
 actor CodexStatusService {
-    private static let requestTimeout: TimeInterval = 20
-    // 定期回收连接, 让后台升级后的 codex 二进制有机会生效
-    private static let connectionMaxAge: TimeInterval = 1 * 60 * 60
-    private static let environment = CodexCLIResolver.environment
-
     private var connection: AppServerConnection?
     private var supplementalDataCache = SupplementalDataCache()
-    private var lastResolvedSource: CodexCLIExecutableSource?
-    private let defaults: UserDefaults
-    private var sourceSelection: CodexCLISourceSelection
+    private let socketURL: URL
 
-    /// app-server 退出后继续写管道会触发 SIGPIPE
-    /// 忽略信号, 让 write 抛错后走重建
-    private static let ignoreBrokenPipeSignal: Void = {
-        signal(SIGPIPE, SIG_IGN)
-    }()
-
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        sourceSelection = CodexCLISourceSelection.load(from: defaults)
-        _ = Self.ignoreBrokenPipeSignal
-    }
-
-    func applyProxy(_ configuration: CodexProxyConfiguration?, password: String) throws {
-        try CodexProxyStore.save(configuration, password: password, to: defaults)
-        // actor 内提交设置并回收旧进程, 后续所有业务入口统一按新配置建立连接
-        teardownConnection()
-        supplementalDataCache = SupplementalDataCache()
-    }
-
-    private func openConfiguredConnection(command: AppServerCommand) throws -> ConnectionResolution {
-        let stored = try CodexProxyStore.load(from: defaults)
-        let configuration = stored?.configuration
-        let usesCustomProxy = configuration?.isEnabled == true
-        let environment: [String: String] = if let configuration, usesCustomProxy {
-            try configuration.environment(
-                overriding: Self.environment,
-                password: stored?.password ?? ""
-            )
-        } else {
-            Self.environment
-        }
-        return Self.openConnection(
-            command: command,
-            environment: environment,
-            timeout: Self.requestTimeout,
-            usesCustomProxy: usesCustomProxy
-        )
+    init(socketURL: URL = AppServerActivityReader.defaultSocketURL) {
+        self.socketURL = socketURL
     }
 
     // MARK: - 对外入口
@@ -195,79 +153,43 @@ actor CodexStatusService {
         return CodexFetchResult(outcome: outcome, trace: trace)
     }
 
-    func currentConnectionInfo() async -> CodexCLIConnectionInfo? {
-        guard let connection, connection.session.process.isRunning else {
+    func currentConnectionInfo() async -> CodexServerConnectionInfo? {
+        guard let connection, connection.session.isOpen else {
             return nil
         }
 
-        return connection.commandInfo
-    }
-
-    func currentSourceSelection() -> CodexCLISourceSelection {
-        sourceSelection
+        return connection.connectionInfo
     }
 
     /// 需要以实际运行版本做能力检查时建立或复用连接
-    func readyConnectionInfo() throws -> CodexCLIConnectionInfo {
-        try readyConnection().commandInfo
+    func readyConnectionInfo() throws -> CodexServerConnectionInfo {
+        try readyConnection().connectionInfo
     }
 
-    /// 重连先关闭旧会话, 新连接失败时保持断开
-    func reconnect(
-        selection: CodexCLISourceSelection? = nil,
-        minimumVersion: String
-    ) throws -> CodexCLIConnectionInfo {
+    /// 只重建当前客户端连接, 不重启共享服务
+    func reconnect(minimumVersion: String) throws -> CodexServerConnectionInfo {
         teardownConnection()
         supplementalDataCache = SupplementalDataCache()
-        let requestedSelection = selection ?? sourceSelection
-        let command = try CodexCLIResolver.command(
-            from: CodexCLIResolver.resolveInstallations(environment: Self.environment),
-            source: requestedSelection.source
-        )
-        let resolution = try openConfiguredConnection(command: command)
-        switch resolution {
-        case let .ready(candidate, _):
-            guard let version = candidate.commandInfo.version,
-                  CodexCLIVersionReader.isVersion(version, atLeast: minimumVersion) == true else {
-                candidate.close()
-                throw CodexStatusError.unsupportedVersion(minimum: minimumVersion)
-            }
-
-            connection = candidate
-            sourceSelection = requestedSelection
-            sourceSelection.save(to: defaults)
-            lastResolvedSource = command.source
-            AppLog.codexCLI.notice("Codex 连接已切换: source=\(command.source.rawValue, privacy: .public)")
-            return candidate.commandInfo
-        case .notLoggedIn:
-            throw CodexStatusError.notLoggedIn
-        case let .unsupportedVersion(minimum):
-            throw CodexStatusError.unsupportedVersion(minimum: minimum)
-        case .initializationFailed:
-            throw CodexStatusError.serverConnectionClosed
+        let candidate = try readyConnection()
+        guard let version = candidate.connectionInfo.version,
+              CodexVersionReader.isVersion(version, atLeast: minimumVersion) == true else {
+            teardownConnection()
+            throw CodexStatusError.unsupportedVersion(minimum: minimumVersion)
         }
+        return candidate.connectionInfo
     }
 
-    func readCodexConfig() async throws -> CodexConfigReadResponse {
+    func readCodexConfig() async throws -> ConfigReadResponse {
         let connection = try readyConnection()
         return try connection.session.request(
             "config/read",
             params: ["includeLayers": false],
-            as: CodexConfigReadResponse.self
-        )
-    }
-
-    func listCodexHooks(cwds: [String]) async throws -> CodexHooksListResponse {
-        let connection = try readyConnection()
-        return try connection.session.request(
-            "hooks/list",
-            params: ["cwds": cwds],
-            as: CodexHooksListResponse.self
+            as: ConfigReadResponse.self
         )
     }
 
     /// 设置写入统一走批量接口, 让 Codex 负责刷新用户配置
-    func writeCodexConfigBatch(edits: [CodexConfigBatchEdit]) async throws -> CodexConfigWriteResponse {
+    func writeCodexConfigBatch(edits: [ConfigBatchEdit]) async throws -> ConfigWriteResponse {
         let connection = try readyConnection()
         return try connection.session.request(
             "config/batchWrite",
@@ -275,7 +197,7 @@ actor CodexStatusService {
                 "edits": edits.map(\.appServerObject),
                 "reloadUserConfig": true
             ],
-            as: CodexConfigWriteResponse.self
+            as: ConfigWriteResponse.self
         )
     }
 
@@ -326,7 +248,7 @@ actor CodexStatusService {
     }
 
     /// 复用连接出现传输故障时只重建重试一次
-    /// 避免故障状态下反复拉起进程
+    /// 避免故障状态下反复建立连接
     private func resolveOutcome(
         allowRebuild: Bool,
         trace: inout CodexFetchTrace
@@ -384,7 +306,7 @@ actor CodexStatusService {
     }
 
     /// 自动重置链路在传输故障后重建一次连接
-    /// 每次逻辑操作最多刷新一次认证, 不在业务错误上创建新进程
+    /// 每次逻辑操作最多刷新一次认证, 不在业务错误上重建连接
     private func withAutoResetConnection<Value>(
         _ operation: (AppServerConnection) throws -> Value
     ) throws -> Value {
@@ -430,63 +352,13 @@ actor CodexStatusService {
     }
 
     private func ensureConnection() -> ConnectionResolution {
-        if let connection, connection.session.process.isRunning,
-           Date().timeIntervalSince(connection.openedAt) < Self.connectionMaxAge {
+        if let connection, connection.session.isOpen {
             return .ready(connection: connection, reused: true)
         }
-
-        // 只记失效这个事实: 下面还可能解析不到 codex 或者开不起来
-        // 收尾由额度刷新那条的 conn=new 承载, 不必在这里再记一条
-        if let connection {
-            let reason = connection.session.process.isRunning ? "expired" : "processExited"
-            AppLog.app.notice("codex 连接已失效: reason=\(reason, privacy: .public)")
-        }
         teardownConnection()
-
-        let command: AppServerCommand
-        do {
-            command = try CodexCLIResolver.command(
-                from: CodexCLIResolver.resolveInstallations(environment: Self.environment),
-                source: sourceSelection.source
-            )
-        } catch {
-            let details = LogFields.joined(
-                "stage=resolveCLI",
-                "detail=\(error.localizedDescription)"
-            )
-            AppLog.app.error("codex 连接失败: \(details, privacy: .public)")
-            RequestLogStorage.shared.recordFailure(message: error.localizedDescription)
-            return .initializationFailed(message: error.localizedDescription)
-        }
-
-        // 可执行文件路径含用户名, 只记来源分类
-        // 每次新建连接都重新解析, 换了来源才值得记一条
-        if lastResolvedSource != command.source {
-            lastResolvedSource = command.source
-            AppLog.codexCLI.notice(
-                "codex 路径已解析: source=\(command.source.rawValue, privacy: .public)"
-            )
-        }
-
-        let resolution: ConnectionResolution
-        do {
-            resolution = try openConfiguredConnection(command: command)
-        } catch let error as CodexProxyError {
-            AppLog.settings.error("\(error.localizedDescription, privacy: .public)")
-            return .initializationFailed(message: error.localizedDescription)
-        } catch {
-            RequestLogStorage.shared.recordFailure(message: error.localizedDescription)
-            return .initializationFailed(message: error.localizedDescription)
-        }
-        switch resolution {
-        case let .ready(newConnection, _):
+        let resolution = Self.openConnection(socketURL: socketURL)
+        if case let .ready(newConnection, _) = resolution {
             connection = newConnection
-        case .unsupportedVersion:
-            AppLog.app.error("codex 连接失败: stage=version")
-        case .initializationFailed:
-            AppLog.app.error("codex 连接失败: stage=open")
-        case .notLoggedIn:
-            break
         }
         return resolution
     }
@@ -730,49 +602,26 @@ actor CodexStatusService {
         }
     }
 
-    /// 初始化失败与未登录在这里分流; 两者都不复用本次新建的进程
-    private static func openConnection(
-        command: AppServerCommand,
-        environment: [String: String],
-        timeout: TimeInterval,
-        usesCustomProxy: Bool
-    ) -> ConnectionResolution {
-        let session: AppServerSession
+    /// 初始化失败与未登录在这里分流; 两者都关闭本次新建的连接
+    private static func openConnection(socketURL: URL) -> ConnectionResolution {
         do {
-            session = try AppServerSession.launch(
-                command: command,
-                environment: environment,
-                timeout: timeout,
-                usesCustomProxy: usesCustomProxy
-            )
+            let session = try AccountSession(socketURL: socketURL)
+            return initializeConnection(session: session, socketURL: socketURL, openedAt: Date())
         } catch {
-            RequestLogStorage.shared.recordFailure(
-                message: String(
-                    localized: "log.app-server.error.launch-failed",
-                    defaultValue: "\(error.localizedDescription)"
-                )
-            )
-            return .initializationFailed(message: CodexStatusError.serverConnectionClosed.localizedDescription)
+            AppServerLogStore.shared.recordFailure(message: error.localizedDescription)
+            return .initializationFailed(message: String(localized: "codex-status.daemon.error.unavailable"))
         }
-        let openedAt = Date()
-
-        return initializeConnection(
-            session: session,
-            command: command,
-            openedAt: openedAt
-        )
     }
 
     private static func initializeConnection(
-        session: AppServerSession,
-        command: AppServerCommand,
+        session: AccountSession,
+        socketURL: URL,
         openedAt: Date
     ) -> ConnectionResolution {
         do {
             let initialized = try session.initializeAccount()
-            let commandInfo = CodexCLIConnectionInfo(
-                source: command.source,
-                executablePath: command.executablePath,
+            let connectionInfo = CodexServerConnectionInfo(
+                socketPath: socketURL.path,
                 version: initialized.version,
                 openedAt: openedAt
             )
@@ -781,7 +630,7 @@ actor CodexStatusService {
                 connection: AppServerConnection(
                     session: session,
                     accountResponse: initialized.account,
-                    commandInfo: commandInfo
+                    connectionInfo: connectionInfo
                 ),
                 reused: false
             )
@@ -793,7 +642,7 @@ actor CodexStatusService {
             return .unsupportedVersion(minimum: minimum)
         } catch {
             // app-server 链路的细节按既有分工进日志窗口, 不重复写系统日志
-            RequestLogStorage.shared.recordFailure(
+            AppServerLogStore.shared.recordFailure(
                 message: String(
                     localized: "log.app-server.error.initialization-failed",
                     defaultValue: "\(error.localizedDescription)"
@@ -805,25 +654,25 @@ actor CodexStatusService {
     }
 }
 
-/// 持有 stdio 会话及初始化阶段读取到的账号/版本信息
+/// 持有共享服务客户端连接及账户和运行版本信息
 private final nonisolated class AppServerConnection {
-    let session: AppServerSession
-    let commandInfo: CodexCLIConnectionInfo
+    let session: AccountSession
+    let connectionInfo: CodexServerConnectionInfo
     var accountResponse: AccountReadResponse
     private var isClosed = false
 
     var openedAt: Date {
-        commandInfo.openedAt
+        connectionInfo.openedAt
     }
 
     init(
-        session: AppServerSession,
+        session: AccountSession,
         accountResponse: AccountReadResponse,
-        commandInfo: CodexCLIConnectionInfo
+        connectionInfo: CodexServerConnectionInfo
     ) {
         self.session = session
         self.accountResponse = accountResponse
-        self.commandInfo = commandInfo
+        self.connectionInfo = connectionInfo
     }
 
     deinit {

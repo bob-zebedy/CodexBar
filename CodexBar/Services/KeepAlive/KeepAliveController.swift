@@ -87,8 +87,7 @@ final class KeepAliveController: ObservableObject {
         isEnabled && isPreventingSleep
     }
 
-    private let activityMonitor: CodexActivityMonitor
-    private let advancedModeSettings: AdvancedModeSettings
+    private let activityMonitor: ActivityMonitor
     private let defaults: UserDefaults
     private let systemSleepService = SystemSleepService()
     private let powerSourceMonitor = PowerSourceMonitor()
@@ -112,7 +111,7 @@ final class KeepAliveController: ObservableObject {
     private var pendingRequestCompletion: ((Bool) -> Void)?
     private var retryTask: Task<Void, Never>?
     private var requestTimeoutTask: Task<Void, Never>?
-    private let helperRuntimeStatusMonitor = HelperRuntimeStatusMonitor()
+    private let helperStatusMonitor = HelperStatusMonitor()
     private var retryAttempt = 0
     private var helperRegistrationTask: Task<Void, Never>?
     private let helperPackageValidation = HelperPackageValidation()
@@ -133,22 +132,16 @@ final class KeepAliveController: ObservableObject {
     private var isStarted = false
     private var isPreparingForTermination = false
     private var lastLoggedSleepConditions: SleepConditions?
-    /// advancedModeSettings.isOperable 的最新值, 由订阅维护
-    /// 不直接读那个属性: 订阅回调跑在 willSet, 那时它还是改动前的值
-    private var isAdvancedModeEnabled: Bool
 
     // MARK: - 生命周期
 
     init(
-        activityMonitor: CodexActivityMonitor,
-        advancedModeSettings: AdvancedModeSettings,
+        activityMonitor: ActivityMonitor,
         defaults: UserDefaults = .standard
     ) {
         self.activityMonitor = activityMonitor
-        self.advancedModeSettings = advancedModeSettings
         self.defaults = defaults
         durationLimiter = KeepAliveDurationLimiter(defaults: defaults)
-        isAdvancedModeEnabled = advancedModeSettings.isOperable
         isEnabled = defaults.bool(forKey: Self.enabledKey)
         // 默认关闭: 老版本升上来的用户不该多出一条中断任务的路径
         lowBatteryThreshold = (defaults.object(forKey: Self.lowBatteryThresholdKey) as? Int)
@@ -157,7 +150,7 @@ final class KeepAliveController: ObservableObject {
         keepsAwakeWhileWaiting = defaults.bool(forKey: Self.keepsAwakeWhileWaitingKey)
         // 默认关闭: 它会让人离开后机器一直停在解锁状态, 这个取舍只能由用户自己做
         keepsDisplayAwake = defaults.bool(forKey: Self.keepsDisplayAwakeKey)
-        activityMonitor.setActivityProtectionEnabled(isEnabled)
+        activityMonitor.setProtectionEnabled(isEnabled)
         autoResetWakeScheduler.onErrorMessageChanged = { [weak self] message in
             self?.autoResetWakeScheduleErrorMessage = message
         }
@@ -170,21 +163,6 @@ final class KeepAliveController: ObservableObject {
         isStarted = true
         helperPackageValidation.objectWillChange
             .sink { [weak self] in self?.objectWillChange.send() }
-            .store(in: &cancellables)
-
-        // 进阶模式是本功能的依赖, 不是用户意图
-        // 只重新求值当前该不该防止系统睡眠, 绝不改写用户保存的开关
-        // 看 isOperable 那两个输入而不是只看 isEnabled: Codex 那边全局关掉 hooks
-        // 或者不信任我们的 handler 时事件送不过来, 任务恒为空, 防睡眠也就不该显示成可用
-        // @Published 在 willSet 就发信号, 此刻回读 advancedModeSettings.isOperable 会拿到
-        // 正在变的那一项的旧值; CombineLatest 的两个参数都是各自的新值, 所以只认闭包参数
-        Publishers.CombineLatest(advancedModeSettings.$isEnabled, advancedModeSettings.$isVerified)
-            .map { $0 && $1 }
-            .removeDuplicates()
-            .sink { [weak self] isOperable in
-                self?.isAdvancedModeEnabled = isOperable
-                self?.reconcileSleepState(trigger: .advancedModeChanged)
-            }
             .store(in: &cancellables)
 
         activityMonitor.$snapshot
@@ -298,10 +276,6 @@ final class KeepAliveController: ObservableObject {
     // MARK: - 设置入口
 
     func setEnabled(_ enabled: Bool) {
-        // 与 sleepBlockReason 读同一份镜像, 类内只保留一个进阶模式状态的真相来源
-        guard !enabled || isAdvancedModeEnabled else {
-            return
-        }
         guard enabled != isEnabled else {
             return
         }
@@ -309,7 +283,7 @@ final class KeepAliveController: ObservableObject {
         AppLog.keepAlive.notice("KeepAlive 开关变更: enabled=\(enabled ? 1 : 0)")
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
-        activityMonitor.setActivityProtectionEnabled(enabled)
+        activityMonitor.setProtectionEnabled(enabled)
         registrationErrorMessage = nil
         operationErrorMessage = nil
 
@@ -503,7 +477,7 @@ final class KeepAliveController: ObservableObject {
         hasNotifiedLowBattery = false
     }
 
-    private func handleActivitySnapshot(_ snapshot: CodexActivitySnapshot) {
+    private func handleActivitySnapshot(_ snapshot: ActivitySnapshot) {
         let runningTaskIDs = keepAliveTaskIDs(in: snapshot.runningTasks)
         let currentWaitingTaskIDs = keepAliveTaskIDs(in: snapshot.waitingTasks)
         let activeTaskIDs = runningTaskIDs.union(currentWaitingTaskIDs)
@@ -525,7 +499,7 @@ final class KeepAliveController: ObservableObject {
         reconcileSleepState(trigger: .taskChanged)
     }
 
-    private func keepAliveTaskIDs(in tasks: [CodexActivityTaskSnapshot]) -> Set<UUID> {
+    private func keepAliveTaskIDs(in tasks: [ActivityTaskSnapshot]) -> Set<UUID> {
         Set(tasks.lazy.filter { !$0.isAnonymous }.map(\.id))
     }
 
@@ -549,15 +523,15 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
-        let service = KeepAliveHelperConfiguration.service
+        let service = HelperConfiguration.service
         refreshHelperStatus()
 
         switch helperStatus {
         case .enabled, .requiresApproval:
-            if KeepAliveHelperConfiguration.registrationNeedsRefresh(defaults: defaults) {
+            if HelperConfiguration.registrationNeedsRefresh(defaults: defaults) {
                 refreshRegisteredHelper()
             } else if helperStatus == .enabled,
-                      let updateIdentifier = KeepAliveHelperConfiguration.pendingUpdateIdentifier(
+                      let updateIdentifier = HelperConfiguration.pendingUpdateIdentifier(
                           defaults: defaults
                       ) {
                 completePendingHelperUpdate(updateIdentifier)
@@ -566,7 +540,7 @@ final class KeepAliveController: ObservableObject {
             }
             return
         case .notRegistered, .notFound:
-            guard KeepAliveHelperConfiguration.assetsArePresent else {
+            guard HelperConfiguration.assetsArePresent else {
                 helperPackageValidation.reportMissingAssets()
                 return
             }
@@ -586,9 +560,9 @@ final class KeepAliveController: ObservableObject {
         }
 
         refreshHelperStatus()
-        KeepAliveHelperConfiguration.recordRegistration(defaults: defaults, status: helperStatus)
+        HelperConfiguration.recordRegistration(defaults: defaults, status: helperStatus)
         if helperStatus == .enabled,
-           let updateIdentifier = KeepAliveHelperConfiguration.pendingUpdateIdentifier(
+           let updateIdentifier = HelperConfiguration.pendingUpdateIdentifier(
                defaults: defaults
            ) {
             completePendingHelperUpdate(updateIdentifier)
@@ -599,13 +573,13 @@ final class KeepAliveController: ObservableObject {
     private func refreshRegisteredHelper() {
         let requiresSleepReset = helperStatus == .enabled
         guard helperRegistrationTask == nil,
-              KeepAliveHelperConfiguration.assetsArePresent else {
+              HelperConfiguration.assetsArePresent else {
             return
         }
         guard autoResetWakeScheduler.beginHelperInterruptionPreparation() else {
             return
         }
-        guard let updateIdentifier = KeepAliveHelperConfiguration.beginUpdate(
+        guard let updateIdentifier = HelperConfiguration.beginUpdate(
             defaults: defaults,
             requiresSleepReset: requiresSleepReset
         ) else {
@@ -621,7 +595,7 @@ final class KeepAliveController: ObservableObject {
         registrationErrorMessage = nil
         operationErrorMessage = nil
 
-        let service = KeepAliveHelperConfiguration.service
+        let service = HelperConfiguration.service
         helperRegistrationTask = Task { @MainActor [weak self] in
             guard let self else {
                 return
@@ -648,7 +622,7 @@ final class KeepAliveController: ObservableObject {
             var helperWasUpdated = false
             if updateError == nil,
                helperStatus.isRegisteredOrAwaitingApproval {
-                KeepAliveHelperConfiguration.recordRegistration(
+                HelperConfiguration.recordRegistration(
                     defaults: defaults,
                     status: helperStatus
                 )
@@ -693,7 +667,7 @@ final class KeepAliveController: ObservableObject {
 
     private func refreshHelperStatus() {
         let previousStatus = helperStatus
-        assign(HelperStatus(KeepAliveHelperConfiguration.service.status), to: \.helperStatus)
+        assign(HelperStatus(HelperConfiguration.service.status), to: \.helperStatus)
         // 每次 App 激活都会跑, 只记真正的迁移, 否则日志会被无变化的求值淹没
         // 取局部量再插值: Logger 的插值是 autoclosure, 直接写属性会被要求显式 self, 与 --self remove 冲突
         let currentStatus = helperStatus
@@ -780,10 +754,10 @@ final class KeepAliveController: ObservableObject {
         publishNotificationDependencies()
     }
 
-    /// 通知选项是否可用取决于用户开关, 进阶模式, 电量和时长上限
+    /// 通知选项是否可用取决于用户开关, 电量和时长上限
     /// 各输入的更新路径统一调用此方法, 避免各自维护判定规则
     private func publishNotificationDependencies() {
-        let isKeepAliveUsable = isEnabled && isAdvancedModeEnabled
+        let isKeepAliveUsable = isEnabled
         assign(
             isKeepAliveUsable && hasBattery && lowBatteryThreshold != .off,
             to: \.isLowBatteryProtectionEnabled
@@ -798,7 +772,7 @@ final class KeepAliveController: ObservableObject {
     /// 因任务, 电量或时长暂停防睡眠时, 仍允许修改设置
     private static func allowsOptions(_ blockReason: SleepBlockReason?) -> Bool {
         switch blockReason {
-        case .notStarted, .userOff, .advancedModeDisabled, .helperUnavailable, .terminating:
+        case .notStarted, .userOff, .helperUnavailable, .terminating:
             false
         case nil, .noTasks, .helperRefreshing, .lowBattery, .limitReached:
             true
@@ -813,7 +787,6 @@ final class KeepAliveController: ObservableObject {
         let conditions = SleepConditions(
             blockReason: blockReason,
             enabled: isEnabled,
-            advancedMode: isAdvancedModeEnabled,
             tasks: hasKeepAliveTasks,
             helper: helperStatus,
             refreshing: isRefreshingHelper,
@@ -833,7 +806,6 @@ final class KeepAliveController: ObservableObject {
             "trigger=\(triggerName)",
             "want=\(blockReason == nil ? 1 : 0)",
             "enabled=\(conditions.enabled ? 1 : 0)",
-            "advancedMode=\(conditions.advancedMode ? 1 : 0)",
             "tasks=\(conditions.tasks ? 1 : 0)",
             "helper=\(helperName)",
             "refreshing=\(conditions.refreshing ? 1 : 0)",
@@ -873,7 +845,7 @@ final class KeepAliveController: ObservableObject {
             }
         }
 
-        helperRuntimeStatusMonitor.cancelRequest()
+        helperStatusMonitor.cancelRequest()
         completePendingRequest(success: false)
         let connection = connection ?? makeConnection()
         appliedSleepPreventionRequested = requested
@@ -1091,13 +1063,13 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func fetchHelperRuntimeStatus() async -> HelperRuntimeStatus? {
-        guard !requestInFlight, !helperRuntimeStatusMonitor.isRequestInFlight else {
+        guard !requestInFlight, !helperStatusMonitor.isRequestInFlight else {
             return nil
         }
         let connection = connection ?? makeConnection()
-        return await helperRuntimeStatusMonitor.fetch(
+        return await helperStatusMonitor.fetch(
             connection: connection,
-            timeout: KeepAliveHelperConfiguration.requestTimeout,
+            timeout: HelperConfiguration.requestTimeout,
             onConnectionFailure: { [weak self] error in
                 self?.handleConnectionFailure(error)
             },
@@ -1108,14 +1080,14 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func resetSleepAfterHelperUpdate(_ updateIdentifier: String) async -> Bool {
-        guard !requestInFlight, !helperRuntimeStatusMonitor.isRequestInFlight else {
+        guard !requestInFlight, !helperStatusMonitor.isRequestInFlight else {
             return false
         }
         let connection = connection ?? makeConnection()
-        return await helperRuntimeStatusMonitor.resetSleepAfterUpdate(
+        return await helperStatusMonitor.resetSleepAfterUpdate(
             connection: connection,
             updateIdentifier: updateIdentifier,
-            timeout: KeepAliveHelperConfiguration.requestTimeout,
+            timeout: HelperConfiguration.requestTimeout,
             onConnectionFailure: { [weak self] error in
                 self?.handleConnectionFailure(error)
             },
@@ -1210,14 +1182,14 @@ final class KeepAliveController: ObservableObject {
     private func scheduleRequestTimeout(for requested: Bool, generation: UInt64) {
         requestTimeoutTask?.cancel()
         requestTimeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: KeepAliveHelperConfiguration.requestTimeout)
+            try? await Task.sleep(for: HelperConfiguration.requestTimeout)
             // 认状态而不是认取消位: 每条取消路径都同时推进了 generation 或清了 in-flight,
             // 认状态就不必依赖将来每个新路径都记得 cancel
             guard let self, generation == requestGeneration, requestInFlight else {
                 return
             }
 
-            let timeout = LogDuration.seconds(KeepAliveHelperConfiguration.requestTimeout)
+            let timeout = LogDuration.seconds(HelperConfiguration.requestTimeout)
             let details = LogFields.joined(
                 "op=\(requested ? "acquire" : "release")",
                 "generation=\(generation)",
@@ -1236,7 +1208,7 @@ final class KeepAliveController: ObservableObject {
     private func invalidateConnection() {
         cancelRequestTimeout()
         cancelExternalObservation()
-        helperRuntimeStatusMonitor.cancelRequest()
+        helperStatusMonitor.cancelRequest()
         requestGeneration &+= 1
         let connection = connection
         self.connection = nil
@@ -1277,8 +1249,8 @@ final class KeepAliveController: ObservableObject {
             cancelExternalObservation()
             return
         }
-        helperRuntimeStatusMonitor.startObservation(
-            interval: KeepAliveHelperConfiguration.externalObservationInterval
+        helperStatusMonitor.startObservation(
+            interval: HelperConfiguration.externalObservationInterval
         ) { [weak self] in
             guard let self,
                   sleepPreventionSource == .external,
@@ -1320,7 +1292,7 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func cancelExternalObservation() {
-        helperRuntimeStatusMonitor.cancelObservation()
+        helperStatusMonitor.cancelObservation()
     }
 
     // MARK: - 屏幕常亮
@@ -1381,15 +1353,15 @@ final class KeepAliveController: ObservableObject {
 
         // 每次重试都会重建特权连接并以 root 拉起 pmset
         // 限制重试次数, 避免 helper 持续失败时反复拉起特权进程
-        guard retryAttempt < KeepAliveHelperConfiguration.sleepToggleRetryDelays.count else {
+        guard retryAttempt < HelperConfiguration.sleepToggleRetryDelays.count else {
             AppLog.keepAlive.error(
-                "KeepAlive 切换重试已放弃: attempts=\(KeepAliveHelperConfiguration.sleepToggleRetryDelays.count)"
+                "KeepAlive 切换重试已放弃: attempts=\(HelperConfiguration.sleepToggleRetryDelays.count)"
             )
             operationErrorMessage = KeepAliveLocalizedMessage.retryLimitReached
             return
         }
 
-        let delay = KeepAliveHelperConfiguration.sleepToggleRetryDelays[retryAttempt]
+        let delay = HelperConfiguration.sleepToggleRetryDelays[retryAttempt]
         retryAttempt += 1
         let attempt = retryAttempt
         let wait = LogDuration.seconds(delay)
@@ -1444,10 +1416,7 @@ final class KeepAliveController: ObservableObject {
         if !isEnabled {
             return .userOff
         }
-        if !isAdvancedModeEnabled {
-            return .advancedModeDisabled
-        }
-        // 先检查依赖, 避免进阶模式恢复任务前以 noTasks 提前放出未授权 Helper 的设置入口
+        // 先检查依赖, 避免任务恢复前以 noTasks 提前放出未授权 Helper 的设置入口
         if helperStatus != .enabled {
             return .helperUnavailable
         }
@@ -1487,7 +1456,7 @@ extension KeepAliveController {
         try await service.unregister()
         mayHaveHelperLease = false
         try Task.checkCancellation()
-        try await KeepAliveHelperConfiguration.registerRefreshedHelper(service)
+        try await HelperConfiguration.registerRefreshedHelper(service)
     }
 
     func setAutoResetRequested(_ requested: Bool) {
@@ -1513,10 +1482,10 @@ extension KeepAliveController {
     private var isHelperReadyForAutoResetWake: Bool {
         guard helperStatus == .enabled,
               !isRefreshingHelper,
-              !KeepAliveHelperConfiguration.registrationNeedsRefresh(defaults: defaults) else {
+              !HelperConfiguration.registrationNeedsRefresh(defaults: defaults) else {
             return false
         }
-        return KeepAliveHelperConfiguration.pendingUpdateIdentifier(defaults: defaults) == nil
+        return HelperConfiguration.pendingUpdateIdentifier(defaults: defaults) == nil
     }
 
     private func reconcileAutoResetWakeSchedule() {
@@ -1560,7 +1529,7 @@ private extension KeepAliveController {
     }
 
     func completeHelperUpdate(_ updateIdentifier: String) async -> Bool {
-        for delay in KeepAliveHelperConfiguration.updateCompletionRetryDelays {
+        for delay in HelperConfiguration.updateCompletionRetryDelays {
             if delay > .zero {
                 try? await Task.sleep(for: delay)
             }
@@ -1573,7 +1542,7 @@ private extension KeepAliveController {
                 continue
             }
             if await resetSleepAfterHelperUpdate(updateIdentifier) {
-                KeepAliveHelperConfiguration.completeUpdate(
+                HelperConfiguration.completeUpdate(
                     updateIdentifier,
                     defaults: defaults
                 )

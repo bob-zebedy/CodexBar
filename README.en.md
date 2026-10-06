@@ -14,7 +14,7 @@
 [![Downloads](https://img.shields.io/github/downloads/bob-zebedy/CodexBar/total?color=2EA043)](https://github.com/bob-zebedy/CodexBar/releases)
 [![License](https://img.shields.io/github/license/bob-zebedy/CodexBar?color=8957E5)](LICENSE)
 
-[Features](#features) | [Installation](#installation) | [Quick Start](#quick-start) | [Documentation](#documentation) | [Privacy](#privacy) | [Runtime Architecture](https://codexbar.zabrian.app/architecture) | [Performance Report](https://codexbar.zabrian.app/performance)
+[Features](#features) | [Installation](#installation) | [Quick Start](#quick-start) | [Privacy](#privacy) | [Runtime Architecture](https://codexbar.zabrian.app/architecture) | [Performance Report](https://codexbar.zabrian.app/performance)
 
 <img src="Images/preview.gif" width="640" alt="CodexBar preview">
 
@@ -24,7 +24,7 @@
 
 CodexBar is a menu bar app for macOS 15 and later that brings your Codex account, rate limits, token usage, and live task status into one place.
 
-It can notify you when a task finishes, needs approval, or when your rate limits change. It can also keep your Mac awake only while Codex tasks are running.
+It can notify you when a task finishes, needs approval, or when your rate limits change. It can also keep your Mac awake while eligible Codex tasks are active.
 
 ## Features
 
@@ -41,7 +41,7 @@ It can notify you when a task finishes, needs approval, or when your rate limits
 - Track total tokens, your highest daily usage, and usage streaks
 - See your longest task duration
 - Review recent daily token usage in a heatmap
-- Enable Advanced Mode for daily session, turn, tool call, subagent, and other activity metrics
+- View daily session, turn, tool call, subagent, and other activity metrics
 
 ### Keep track of active tasks
 
@@ -63,8 +63,7 @@ It can notify you when a task finishes, needs approval, or when your rate limits
 - Runs as a menu bar app without taking up space in the Dock
 - Supports a global keyboard shortcut, launch at login, and automatic updates
 - Provides Simplified Chinese and English interfaces
-- Configurable HTTP/HTTPS proxy for the Codex service
-- Optionally merges daily Hook metrics across Macs through iCloud
+- Optionally merges daily activity metrics and token usage records across Macs through iCloud
 
 ## Installation
 
@@ -82,8 +81,7 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 
 - macOS 15.0 or later
 - [Codex CLI](https://github.com/openai/codex) installed and signed in, or ChatGPT App or Codex App with bundled Codex installed
-- The running Codex version must be `0.145.0` or later
-- Advanced Mode requires the running Codex version to be `0.153.0` or later
+- A running Codex interactive session with the background service enabled, using shared-service version `0.160.0` or later
 - Cross-device sync requires an available iCloud account on the Mac
 
 ## Quick Start
@@ -91,23 +89,19 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 1. Launch CodexBar and find its icon in the menu bar
 2. Left-click the icon to view your account, rate limits, and token usage
 3. Right-click or Control-click the icon to open Settings, Logs, or the Quit menu
-4. Enable Advanced Mode under `Settings > Advanced` to unlock live tasks, task notifications, sleep prevention, and Hook metrics
+4. Activity capture and statistics start with the app; configure notifications, sleep prevention, and sync under `Settings > Advanced`
 
 The default global shortcut is `⌘⇧E`. You can record a different shortcut or disable it in Settings.
 
-## Documentation
-
-| Document | Contents |
-| --- | --- |
-| [User Guide](Docs/en/UserGuide/README.md) | Installation, main panel, Hook, notifications, sleep prevention, sync, settings, and troubleshooting |
-| [Developer Guide](Docs/en/DeveloperGuide/README.md) | Architecture, data flows, core state machines, storage, privacy boundaries, and development validation |
-| [Documentation Index](Docs/en/README.md) | Complete documentation index |
-
 ## Privacy
 
-Raw Hook events and live tasks are processed locally. Enabling cross-device sync uploads daily Hook aggregates to your private iCloud database. Account and usage data come through the local Codex app-server, which connects to the service; update checks use Sparkle.
+Raw activity events and live tasks are processed locally. Enabling cross-device sync uploads daily activity aggregates and per-turn token usage records to your private iCloud database. Account and usage data come through the local Codex app-server, which connects to the service; update checks use Sparkle.
 
-See [Data, Sync, and Privacy](Docs/en/UserGuide/sync-data-privacy.md) for complete details about data access, local storage, and network boundaries.
+## Local history and logs
+
+Activity history is rebuilt from recorded events. Token history is recomputed from raw cumulative counter observations captured while collection was active. Both retain 210 days of data; rebuilding cannot recover unobserved usage or deleted source records. If cross-device token corrections lack a verifiable coverage relationship, no historical token aggregate is generated for the affected date.
+
+Request logs retain at most 10,000 entries and 50 MiB of serialized records. Each request or response body is limited to 64 KiB and includes a truncation marker when shortened. The oldest entries are removed when limits are exceeded. The log window caches at most 1,000 entries; use **Latest** to return from older history to the live list. Database indexes and WAL files add storage overhead.
 
 ## Feedback
 

@@ -5,7 +5,7 @@ import os
 import UserNotifications
 
 /// 管理通知偏好和系统授权状态
-/// 具体的通知发送与触觉反馈由 CodexNotificationService 处理
+/// 具体的通知发送与触觉反馈由 NotificationService 处理
 @MainActor
 final class NotificationSettings: ObservableObject {
     @Published private(set) var isEnabled: Bool

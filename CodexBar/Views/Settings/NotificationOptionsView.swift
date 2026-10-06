@@ -5,8 +5,7 @@ import SwiftUI
 /// 通知开启时展开音效子行, 关闭时连同占位一起收起
 struct NotificationOptionsView: View {
     @ObservedObject var notificationSettings: NotificationSettings
-    @ObservedObject var advancedModeSettings: AdvancedModeSettings
-    @ObservedObject var codexCLINotificationSettings: CodexCLINotificationSettings
+    @ObservedObject var tuiNotificationSettings: TUINotificationSettings
     @ObservedObject var autoResetSettings: AutoResetSettings
     @ObservedObject var keepAliveController: KeepAliveController
     @State private var previewSound: NSSound?
@@ -22,7 +21,7 @@ struct NotificationOptionsView: View {
             lowBatteryRow
             keepAliveLimitRow
             taskHapticRow
-            codexCLINotificationRow
+            tuiNotificationRow
         }
         .padding(.horizontal, Metrics.horizontalPadding)
         .padding(.vertical, Metrics.verticalPadding)
@@ -81,9 +80,8 @@ struct NotificationOptionsView: View {
         )
     }
 
-    /// 进阶模式未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isTaskCompletionEnabled
     private var taskCompletionRow: some View {
-        let isDisplayedOn = advancedModeSettings.isOperable && notificationSettings.isTaskCompletionEnabled
+        let isDisplayedOn = notificationSettings.isTaskCompletionEnabled
 
         return notificationOptionRow(
             title: "settings.notifications.task-completion.title",
@@ -91,7 +89,6 @@ struct NotificationOptionsView: View {
                 get: { isDisplayedOn },
                 set: { notificationSettings.setTaskCompletionEnabled($0) }
             ),
-            isEnabled: advancedModeSettings.isOperable,
             sound: Binding(
                 get: { notificationSettings.taskCompletionSound },
                 set: { notificationSettings.setTaskCompletionSound($0) }
@@ -109,9 +106,8 @@ struct NotificationOptionsView: View {
         }
     }
 
-    /// 进阶模式未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isTaskWaitingEnabled
     private var taskWaitingRow: some View {
-        let isDisplayedOn = advancedModeSettings.isOperable && notificationSettings.isTaskWaitingEnabled
+        let isDisplayedOn = notificationSettings.isTaskWaitingEnabled
 
         return notificationOptionRow(
             title: "settings.notifications.task-waiting.title",
@@ -119,7 +115,6 @@ struct NotificationOptionsView: View {
                 get: { isDisplayedOn },
                 set: { notificationSettings.setTaskWaitingEnabled($0) }
             ),
-            isEnabled: advancedModeSettings.isOperable,
             sound: Binding(
                 get: { notificationSettings.taskWaitingSound },
                 set: { notificationSettings.setTaskWaitingSound($0) }
@@ -127,9 +122,8 @@ struct NotificationOptionsView: View {
         )
     }
 
-    /// 进阶模式未开启或链路校验不通时显示为关闭并置灰, 不修改持久化的 isTaskHapticEnabled
     private var taskHapticRow: some View {
-        let isDisplayedOn = advancedModeSettings.isOperable && notificationSettings.isTaskHapticEnabled
+        let isDisplayedOn = notificationSettings.isTaskHapticEnabled
 
         return VStack(spacing: 0) {
             optionRow(
@@ -137,8 +131,7 @@ struct NotificationOptionsView: View {
                 isOn: Binding(
                     get: { isDisplayedOn },
                     set: { notificationSettings.setTaskHapticEnabled($0) }
-                ),
-                isEnabled: advancedModeSettings.isOperable
+                )
             )
 
             captionRow("settings.notifications.task-haptics.caption")
@@ -220,21 +213,21 @@ struct NotificationOptionsView: View {
         )
     }
 
-    private var codexCLINotificationRow: some View {
+    private var tuiNotificationRow: some View {
         VStack(spacing: 0) {
             optionRow(
                 title: "settings.notifications.codex-tui.title",
                 isOn: Binding(
-                    get: { codexCLINotificationSettings.isEnabled },
-                    set: { codexCLINotificationSettings.setEnabled($0) }
+                    get: { tuiNotificationSettings.isEnabled },
+                    set: { tuiNotificationSettings.setEnabled($0) }
                 ),
-                isEnabled: !codexCLINotificationSettings.isUpdating
+                isEnabled: !tuiNotificationSettings.isUpdating
             ) {
-                if codexCLINotificationSettings.isUpdating {
+                if tuiNotificationSettings.isUpdating {
                     ProgressView()
                         .controlSize(.mini)
                         .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
-                } else if let errorMessage = codexCLINotificationSettings.errorMessage {
+                } else if let errorMessage = tuiNotificationSettings.errorMessage {
                     Image(systemName: "exclamationmark.circle")
                         .foregroundStyle(.orange)
                         .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)

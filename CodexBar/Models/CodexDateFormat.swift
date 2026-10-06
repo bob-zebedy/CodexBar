@@ -44,7 +44,7 @@ nonisolated enum CodexDateFormat {
         return date
     }
 
-    /// yyyy-MM-dd HH:mm:ss.SSS, Hook 原始事件写入本机时间字符串
+    /// yyyy-MM-dd HH:mm:ss.SSS, 归一化活动事件写入本机时间字符串
     static func localTimestampString(from date: Date) -> String {
         localTimestampFormatter.string(from: date)
     }

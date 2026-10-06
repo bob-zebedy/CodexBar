@@ -1,17 +1,23 @@
 import AppKit
 import SwiftUI
 
-/// 日志窗口控制器, 使用全局 RequestLogStore 保持关闭后日志不丢失
+/// 日志窗口控制器, 日志持续写入本地, 仅在窗口打开时读取显示内容
 @MainActor
 final class LogWindowController: HostingWindowController {
-    private let store: RequestLogStore
+    private var closeObserver: (any NSObjectProtocol)?
+    private let store: AppServerLogViewModel
 
     init(
-        store: RequestLogStore = .shared,
+        store: AppServerLogViewModel = .shared,
         screenProvider: @escaping () -> NSScreen?
     ) {
         self.store = store
         super.init(screenProvider: screenProvider)
+    }
+
+    override func open() {
+        super.open()
+        store.start()
     }
 
     override func makeWindow() -> NSWindow {
@@ -22,6 +28,9 @@ final class LogWindowController: HostingWindowController {
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.contentMinSize = Metrics.minimumContentSize
         window.setContentSize(Metrics.defaultContentSize)
+        closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.store.stop() }
+        }
         return window
     }
 

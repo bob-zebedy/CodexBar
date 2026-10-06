@@ -6,15 +6,11 @@ import SwiftUI
 #if !CODEXBAR_TESTING
     @main
 #endif
-/// 应用入口; Hook 子进程模式会在初始化阶段记录事件并退出
+/// 应用入口
 struct CodexBarApp: App {
     @NSApplicationDelegateAdaptor(CodexBarAppDelegate.self) private var appDelegate
 
     init() {
-        if WorkflowHookEventRecorder.handleIfRequested() {
-            exit(EXIT_SUCCESS)
-        }
-
         // 缩短系统工具提示首次出现的延迟 (毫秒)
         UserDefaults.standard.set(500, forKey: "NSInitialToolTipDelay")
     }

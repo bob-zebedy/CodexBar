@@ -1,0 +1,418 @@
+import Combine
+import SwiftUI
+
+/// 活动卡片与任务中心共享的显隐和逐秒时间状态
+@MainActor
+final class ActivityCenterPresentationState: ObservableObject {
+    @Published var isPresented = false
+    @Published private(set) var timelineDate = Date()
+    private var timelineTask: Task<Void, Never>?
+
+    func setTimelineActive(_ isActive: Bool) {
+        guard isActive else {
+            timelineTask?.cancel()
+            timelineTask = nil
+            return
+        }
+        guard timelineTask == nil else {
+            return
+        }
+
+        timelineDate = Date()
+        timelineTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                let now = Date()
+                let fraction = now.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: 1)
+                try? await Task.sleep(for: .seconds(max(0.01, 1 - fraction)))
+                guard let self, !Task.isCancelled else {
+                    return
+                }
+                timelineDate = Date()
+            }
+        }
+    }
+}
+
+/// 点击活动卡片时传给 AppKit 控制器的定位信息
+@MainActor
+struct ActivityCenterPanelContext {
+    let anchorProvider: ScreenFrameProvider
+    let preferredSide: UsageHeatmapDetailSide
+}
+
+// MARK: - 任务中心面板
+
+/// 并发任务中心, 实时展示全部等待; 运行; 最近完成和最近终止任务
+struct ActivityCenterView: View {
+    @ObservedObject var activityMonitor: ActivityMonitor
+    @ObservedObject var presentationState: ActivityCenterPresentationState
+    @ObservedObject var mainPanelSettings: MainPanelSettings
+
+    var body: some View {
+        content(now: presentationState.timelineDate)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .topLeading
+            )
+            .activityStatusParticles(cornerRadius: Metrics.cornerRadius)
+            .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
+    }
+
+    static var initialPanelSize: CGSize {
+        CGSize(width: Metrics.panelWidth, height: Metrics.preferredPanelHeight)
+    }
+
+    static var panelCornerRadius: CGFloat {
+        Metrics.cornerRadius
+    }
+
+    static func panelSize(
+        maximumHeight: CGFloat,
+        snapshot: ActivitySnapshot
+    ) -> CGSize {
+        let visibleSectionCounts = [
+            snapshot.waitingTasks.count,
+            snapshot.runningTasks.count,
+            snapshot.recentCompletions.count,
+            snapshot.recentTerminations.count
+        ].filter { $0 > 0 }
+        let rowCount = visibleSectionCounts.reduce(0, +)
+        let contentHeight = Metrics.headerHeight
+            + Metrics.dividerHeight
+            + Metrics.verticalPadding * 2
+            + CGFloat(visibleSectionCounts.count) * Metrics.sectionHeaderHeight
+            + CGFloat(rowCount) * (Metrics.rowHeight + Metrics.rowSpacing)
+            + CGFloat(max(0, visibleSectionCounts.count - 1)) * Metrics.sectionSpacing
+
+        return CGSize(
+            width: Metrics.panelWidth,
+            height: min(maximumHeight, contentHeight)
+        )
+    }
+
+    private func content(now: Date) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+
+            LiquidGlassDivider()
+
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+                    if !activityMonitor.snapshot.waitingTasks.isEmpty {
+                        taskSection(
+                            title: "activity-center.section.waiting",
+                            symbolName: "hand.raised.fill",
+                            tint: .orange,
+                            tasks: activityMonitor.snapshot.waitingTasks,
+                            now: now,
+                            isWaiting: true
+                        )
+                    }
+
+                    if !activityMonitor.snapshot.runningTasks.isEmpty {
+                        taskSection(
+                            title: "activity-center.section.running",
+                            symbolName: "bolt.fill",
+                            tint: .blue,
+                            tasks: activityMonitor.snapshot.runningTasks,
+                            now: now,
+                            isWaiting: false
+                        )
+                    }
+
+                    if !activityMonitor.snapshot.recentCompletions.isEmpty {
+                        completionSection(now: now)
+                    }
+
+                    if !activityMonitor.snapshot.recentTerminations.isEmpty {
+                        terminationSection(now: now)
+                    }
+                }
+                .animation(.codexStatus, value: activityMonitor.snapshot)
+                .padding(.horizontal, Metrics.horizontalPadding)
+                .padding(.vertical, Metrics.verticalPadding)
+            }
+            .scrollIndicators(.never)
+            .activityStatusParticleViewport()
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("activity-center.title")
+                .font(.caption.weight(.semibold))
+
+            Spacer(minLength: 8)
+
+            Text(headerSummary)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, Metrics.horizontalPadding)
+        .frame(height: Metrics.headerHeight)
+    }
+
+    private var headerSummary: String {
+        let snapshot = activityMonitor.snapshot
+        var components = [String]()
+        if snapshot.waitingCount > 0 {
+            components.append(String(localized: "activity-center.summary.waiting", defaultValue: "\(snapshot.waitingCount, specifier: "%lld")"))
+        }
+        if snapshot.runningCount > 0 {
+            components.append(String(localized: "activity-center.summary.running", defaultValue: "\(snapshot.runningCount, specifier: "%lld")"))
+        }
+        if snapshot.activeCount == 0 {
+            if !snapshot.recentCompletions.isEmpty {
+                components.append(
+                    String(localized: "activity-center.summary.recent-completions", defaultValue: "\(snapshot.recentCompletions.count, specifier: "%lld")")
+                )
+            }
+            if !snapshot.recentTerminations.isEmpty {
+                components.append(
+                    String(localized: "activity-center.summary.recent-terminations", defaultValue: "\(snapshot.recentTerminations.count, specifier: "%lld")")
+                )
+            }
+        }
+        return components.joined(separator: " • ")
+    }
+
+    // MARK: - 分区与行
+
+    private func taskSection(
+        title: LocalizedStringResource,
+        symbolName: String,
+        tint: Color,
+        tasks: [ActivityTaskSnapshot],
+        now: Date,
+        isWaiting: Bool
+    ) -> some View {
+        section(title: title, count: tasks.count) {
+            ForEach(tasks) { task in
+                taskRow(
+                    task,
+                    symbolName: symbolName,
+                    tint: tint,
+                    now: now,
+                    isWaiting: isWaiting
+                )
+            }
+        }
+    }
+
+    private func completionSection(now: Date) -> some View {
+        section(
+            title: "activity-center.section.recent-completions",
+            count: activityMonitor.snapshot.recentCompletions.count
+        ) {
+            ForEach(activityMonitor.snapshot.recentCompletions) { completion in
+                completionRow(completion, now: now)
+            }
+        }
+    }
+
+    private func terminationSection(now: Date) -> some View {
+        section(
+            title: "activity-center.section.recent-terminations",
+            count: activityMonitor.snapshot.recentTerminations.count
+        ) {
+            ForEach(activityMonitor.snapshot.recentTerminations) { termination in
+                terminationRow(termination, now: now)
+            }
+        }
+    }
+
+    private func section(
+        title: LocalizedStringResource,
+        count: Int,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
+            HStack(spacing: 5) {
+                Text(title)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Text(verbatim: "\(count)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(height: Metrics.sectionHeaderHeight)
+
+            content()
+        }
+    }
+
+    private func taskRow(
+        _ task: ActivityTaskSnapshot,
+        symbolName: String,
+        tint: Color,
+        now: Date,
+        isWaiting: Bool
+    ) -> some View {
+        row(
+            symbolName: symbolName,
+            tint: tint,
+            projectName: task.projectName,
+            modelName: task.modelName,
+            effort: task.effort,
+            isAnonymous: task.isAnonymous,
+            detail: taskDetail(task, now: now, isWaiting: isWaiting),
+            effect: isWaiting ? .ionizing(taskID: task.id) : .shimmer
+        )
+    }
+
+    private func completionRow(_ completion: ActivityCompletion, now: Date) -> some View {
+        row(
+            symbolName: "checkmark.circle.fill",
+            tint: .green,
+            projectName: completion.projectName,
+            modelName: completion.modelName,
+            effort: completion.effort,
+            isAnonymous: completion.isAnonymous,
+            detail: historyDetail(
+                duration: completion.duration,
+                relativeText: ActivityDisplayFormat.completionRelativeText(
+                    completion.completedAt,
+                    now: now
+                )
+            ),
+            tokenUsage: completion.tokenUsage
+        )
+    }
+
+    private func terminationRow(_ termination: ActivityTermination, now: Date) -> some View {
+        row(
+            symbolName: "xmark.circle.fill",
+            tint: .red,
+            projectName: termination.projectName,
+            modelName: termination.modelName,
+            effort: termination.effort,
+            isAnonymous: termination.isAnonymous,
+            detail: historyDetail(
+                duration: termination.duration,
+                relativeText: ActivityDisplayFormat.terminationRelativeText(
+                    termination.terminatedAt,
+                    now: now
+                )
+            ),
+            tokenUsage: termination.tokenUsage
+        )
+    }
+
+    private func row(
+        symbolName: String,
+        tint: Color,
+        projectName: String?,
+        modelName: String?,
+        effort: String?,
+        isAnonymous: Bool,
+        detail: String,
+        tokenUsage: TokenUsage? = nil,
+        effect: ActivityStatusText.Effect = .none
+    ) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            if isAnonymous {
+                ActivityAnonymousIcon()
+                    .frame(width: Metrics.symbolWidth, height: Metrics.titleLineHeight)
+            } else {
+                Image(systemName: symbolName)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: Metrics.symbolWidth, height: Metrics.titleLineHeight)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                titleLine(
+                    projectName: projectName,
+                    modelName: modelName,
+                    effort: effort
+                )
+
+                HStack(spacing: 6) {
+                    ActivityStatusText(
+                        text: detail,
+                        tint: tint,
+                        effect: presentationState.isPresented
+                            && mainPanelSettings.areAnimationsEnabled
+                            ? effect : .none
+                    )
+                    if let tokenUsage {
+                        Spacer(minLength: 0)
+                        TokenUsageText(usage: tokenUsage)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: Metrics.rowHeight, alignment: .top)
+        .transition(Metrics.contentTransition)
+    }
+
+    private func titleLine(
+        projectName: String?,
+        modelName: String?,
+        effort: String?
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(projectName ?? String(localized: "common.codex"))
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Spacer(minLength: 4)
+
+            if let metadata = ActivityDisplayFormat.modelMetadata(
+                modelName: modelName,
+                effort: effort
+            ) {
+                Text(metadata)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .frame(height: Metrics.titleLineHeight)
+    }
+
+    private func taskDetail(
+        _ task: ActivityTaskSnapshot,
+        now: Date,
+        isWaiting: Bool
+    ) -> String {
+        let components = isWaiting
+            ? ActivityDisplayFormat.waitingDetailComponents(for: task, now: now)
+            : ActivityDisplayFormat.runningDetailComponents(for: task, now: now)
+        return components.joined(separator: " • ")
+    }
+
+    private func historyDetail(duration: TimeInterval?, relativeText: String) -> String {
+        ActivityDisplayFormat.historyDetailComponents(
+            duration: duration,
+            relativeText: relativeText
+        ).joined(separator: " • ")
+    }
+
+    private enum Metrics {
+        static let panelWidth: CGFloat = 312
+        static let preferredPanelHeight: CGFloat = 360
+        static let headerHeight: CGFloat = 42
+        static let dividerHeight: CGFloat = 1
+        static let horizontalPadding: CGFloat = 12
+        static let verticalPadding: CGFloat = 10
+        static let sectionSpacing: CGFloat = 14
+        static let sectionHeaderHeight: CGFloat = 14
+        static let rowSpacing: CGFloat = 9
+        static let rowHeight: CGFloat = 33
+        static let symbolWidth: CGFloat = 16
+        static let titleLineHeight: CGFloat = 16
+        static let cornerRadius: CGFloat = 12
+        static let contentTransition = AnyTransition.asymmetric(
+            insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+            removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .top))
+        )
+    }
+}

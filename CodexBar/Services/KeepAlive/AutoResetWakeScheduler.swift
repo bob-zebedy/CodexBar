@@ -33,7 +33,7 @@ final class AutoResetWakeScheduler {
 
     var onErrorMessageChanged: ((String?) -> Void)?
 
-    private let runtimeStatusMonitor = HelperRuntimeStatusMonitor()
+    private let runtimeStatusMonitor = HelperStatusMonitor()
     private var isRequested = false
     private var isHelperReady = false
     private var desiredWakeDate: Date?
@@ -204,7 +204,7 @@ final class AutoResetWakeScheduler {
     }
 
     private func cancelOwnedSchedule(reason: String) async -> Bool {
-        for delay in KeepAliveHelperConfiguration.wakeCancellationRetryDelays {
+        for delay in HelperConfiguration.wakeCancellationRetryDelays {
             if delay > .zero {
                 try? await Task.sleep(for: delay)
             }
@@ -215,7 +215,7 @@ final class AutoResetWakeScheduler {
             let result = await runtimeStatusMonitor.setAutoResetWakeSchedule(
                 connection: connection ?? makeConnection(),
                 unixTimestamp: 0,
-                timeout: KeepAliveHelperConfiguration.requestTimeout
+                timeout: HelperConfiguration.requestTimeout
             )
             guard !Task.isCancelled else {
                 return false
@@ -270,7 +270,7 @@ final class AutoResetWakeScheduler {
             let result = await runtimeStatusMonitor.setAutoResetWakeSchedule(
                 connection: connection ?? makeConnection(),
                 unixTimestamp: requestedDate?.timeIntervalSince1970 ?? 0,
-                timeout: KeepAliveHelperConfiguration.requestTimeout
+                timeout: HelperConfiguration.requestTimeout
             )
             guard !Task.isCancelled, isHelperReady else {
                 return
@@ -304,11 +304,11 @@ final class AutoResetWakeScheduler {
 
             appliedSchedule = .unknown
             errorMessage = KeepAliveLocalizedMessage.autoResetWakeScheduleFailed
-            guard retryIndex < KeepAliveHelperConfiguration.wakeScheduleRetryDelays.count else {
+            guard retryIndex < HelperConfiguration.wakeScheduleRetryDelays.count else {
                 return
             }
 
-            let delay = KeepAliveHelperConfiguration.wakeScheduleRetryDelays[retryIndex]
+            let delay = HelperConfiguration.wakeScheduleRetryDelays[retryIndex]
             retryIndex += 1
             try? await Task.sleep(for: delay)
         }

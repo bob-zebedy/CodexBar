@@ -45,20 +45,6 @@ nonisolated struct MainPanelLayout: Equatable, Sendable {
     func isVisible(_ section: MainPanelSection) -> Bool {
         !hiddenSections.contains(section)
     }
-
-    func disablingActivitySection() -> MainPanelLayout {
-        var hiddenSections = hiddenSections
-        hiddenSections.insert(.activity)
-
-        if orderedSections.allSatisfy(hiddenSections.contains) {
-            hiddenSections.remove(.account)
-        }
-
-        return MainPanelLayout(
-            orderedSections: orderedSections,
-            hiddenSections: hiddenSections
-        )
-    }
 }
 
 /// 主面板区域布局与动画效果偏好
@@ -68,7 +54,6 @@ final class MainPanelSettings: ObservableObject {
     @Published private(set) var areAnimationsEnabled: Bool
 
     private let defaults: UserDefaults
-    private var isAdvancedModeEnabled: Bool?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -82,40 +67,7 @@ final class MainPanelSettings: ObservableObject {
             areAnimationsEnabled = loadedAnimationsEnabled
         }
 
-        let loadedLayout = Self.loadLayout(from: defaults)
-        guard isAdvancedModeEnabled == false else {
-            publish(loadedLayout)
-            return
-        }
-
-        let updatedLayout = loadedLayout.disablingActivitySection()
-        if updatedLayout == loadedLayout {
-            publish(updatedLayout)
-        } else {
-            saveAndPublish(updatedLayout)
-        }
-    }
-
-    func updateAdvancedModeEnabled(_ isEnabled: Bool) {
-        let wasEnabled = isAdvancedModeEnabled
-        isAdvancedModeEnabled = isEnabled
-        let updatedLayout: MainPanelLayout
-        if isEnabled {
-            // 首次恢复进阶模式状态时保留布局, 只有关闭到开启的转换才自动显示任务
-            guard wasEnabled == false else { return }
-            updatedLayout = MainPanelLayout(
-                orderedSections: layout.orderedSections,
-                hiddenSections: layout.hiddenSections.subtracting([.activity])
-            )
-        } else {
-            updatedLayout = layout.disablingActivitySection()
-        }
-        guard updatedLayout != layout else {
-            return
-        }
-
-        AppLog.settings.notice("进阶模式开关已同步主面板任务中心")
-        saveAndPublish(updatedLayout)
+        publish(Self.loadLayout(from: defaults))
     }
 
     func setAnimationsEnabled(_ enabled: Bool) {
@@ -133,9 +85,6 @@ final class MainPanelSettings: ObservableObject {
         isVisible: Bool,
         undoManager: UndoManager
     ) {
-        guard section != .activity || !isVisible || isAdvancedModeEnabled == true else {
-            return
-        }
         guard layout.isVisible(section) != isVisible else {
             return
         }
@@ -184,9 +133,7 @@ final class MainPanelSettings: ObservableObject {
         _ requestedLayout: MainPanelLayout,
         undoManager: UndoManager
     ) {
-        let updatedLayout = isAdvancedModeEnabled == false
-            ? requestedLayout.disablingActivitySection()
-            : requestedLayout
+        let updatedLayout = requestedLayout
         guard updatedLayout != layout else {
             return
         }

@@ -48,20 +48,15 @@ final class CodexStatusViewModel: ObservableObject {
     @Published private(set) var snapshot: CodexQuotaSnapshot?
     @Published private(set) var isRefreshing = false
     @Published private(set) var loadState: CodexLoadState = .loading
-    @Published private(set) var codexConnectionInfo: CodexCLIConnectionInfo?
+    @Published private(set) var codexConnectionInfo: CodexServerConnectionInfo?
     @Published private(set) var connectionErrorMessage: String?
-    @Published private(set) var unavailableConnectionSource: CodexCLIExecutableSource?
-    @Published private(set) var codexSourceSelection = CodexCLISourceSelection.automatic
-    @Published private(set) var pendingCodexSourceSelection: CodexCLISourceSelection?
     @Published private(set) var autoRefreshCountdownStartedAt: Date?
     @Published private(set) var dataUpdateInterval: DataUpdateInterval
 
     /// 统计维护挂在额度刷新完成事件上, 由它继承本次刷新的触发来源
     private(set) var lastRefreshTrigger: LogTrigger = .launch
 
-    var isReconnecting: Bool {
-        pendingCodexSourceSelection != nil
-    }
+    @Published private(set) var isReconnecting = false
 
     var autoRefreshInterval: TimeInterval {
         dataUpdateInterval.duration
@@ -151,8 +146,7 @@ final class CodexStatusViewModel: ObservableObject {
             operation: { [service = self.service] in
                 await (
                     fetch: service.fetchOutcome(),
-                    connectionInfo: service.currentConnectionInfo(),
-                    selection: service.currentSourceSelection()
+                    connectionInfo: service.currentConnectionInfo()
                 )
             },
             commit: { [weak self] result in
@@ -183,9 +177,7 @@ final class CodexStatusViewModel: ObservableObject {
                     elapsed: duration.elapsed
                 )
                 codexConnectionInfo = result.connectionInfo
-                codexSourceSelection = result.selection
                 connectionErrorMessage = result.fetch.outcome.connectionErrorMessage
-                unavailableConnectionSource = nil
                 autoRefreshCountdownStartedAt = Date()
             }
         )
@@ -281,33 +273,27 @@ final class CodexStatusViewModel: ObservableObject {
         let generation = connectionInfoGeneration
         Task {
             let info = await service.currentConnectionInfo()
-            let selection = await service.currentSourceSelection()
             guard generation == connectionInfoGeneration, !isReconnecting else {
                 return
             }
             codexConnectionInfo = info
-            codexSourceSelection = selection
         }
     }
 
-    func reconnectCodex(
-        selection: CodexCLISourceSelection? = nil,
-        requiresAdvancedMode: Bool
-    ) async -> Bool {
+    func reconnectCodex() async -> Bool {
         guard !isRefreshing, !isReconnecting else {
             return false
         }
 
-        pendingCodexSourceSelection = selection ?? codexSourceSelection
+        isReconnecting = true
         codexConnectionInfo = nil
         snapshot = nil
         loadState = .loading
         connectionErrorMessage = nil
-        unavailableConnectionSource = nil
         connectionInfoGeneration &+= 1
         var didReconnect = false
         defer {
-            pendingCodexSourceSelection = nil
+            isReconnecting = false
             let trigger = pendingForcedRefreshTrigger
             pendingForcedRefreshTrigger = nil
             if didReconnect || trigger != nil {
@@ -317,10 +303,8 @@ final class CodexStatusViewModel: ObservableObject {
 
         do {
             codexConnectionInfo = try await service.reconnect(
-                selection: selection,
-                minimumVersion: requiresAdvancedMode ? CodexCLIMinimumVersion.advancedMode : CodexCLIMinimumVersion.global
+                minimumVersion: CodexMinimumVersion.activity
             )
-            codexSourceSelection = await service.currentSourceSelection()
             didReconnect = true
             return true
         } catch {
@@ -329,14 +313,7 @@ final class CodexStatusViewModel: ObservableObject {
             case let CodexStatusError.unsupportedVersion(minimum): .unsupportedVersion(minimum: minimum)
             default: .initializationFailed
             }
-            if case let CodexStatusError.sourceUnavailable(source) = error {
-                unavailableConnectionSource = source
-            } else {
-                connectionErrorMessage = error.localizedDescription
-            }
-            if let error = error as? CodexProxyError {
-                AppLog.settings.error("\(error.localizedDescription, privacy: .public)")
-            }
+            connectionErrorMessage = error.localizedDescription
             return false
         }
     }

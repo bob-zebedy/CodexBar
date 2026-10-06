@@ -36,8 +36,8 @@ struct TokenCountText: View {
     }
 }
 
-struct CodexTokenUsageText: View {
-    let usage: CodexTokenUsage
+struct TokenUsageText: View {
+    let usage: TokenUsage
 
     var body: some View {
         HStack(spacing: 3) {
