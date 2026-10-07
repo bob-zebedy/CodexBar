@@ -22,11 +22,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
         AppStorage.directoryURL().appendingPathComponent("Logs", isDirectory: true)
     }
 
-    #if DEBUG
-        static let databaseName = "logs-debug.sqlite"
-    #else
-        static let databaseName = "logs.sqlite"
-    #endif
+    static let databaseName = "logs.sqlite"
 
     struct Limits: Sendable {
         var entries = 10000

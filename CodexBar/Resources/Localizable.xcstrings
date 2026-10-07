@@ -2022,13 +2022,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Recalculate activity data and session data for %@ from locally collected app-server events and Token records.\nAfter syncing, local data will be replaced and cloud data updated"
+            "value" : "Recalculate activity data and session data for %@ from locally collected app-server events\nAfter syncing, local data will be replaced and cloud data updated"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "将从本机采集的 app-server 事件和 Token 记录 重新统计 %@ 的活动数据和会话数据\n同步后将替换本机数据并更新云端数据"
+            "value" : "将从本地采集的 app-server 事件重新统计 %@ 的活动数据和会话数据\n同步后将替换本机数据并更新云端数据"
           }
         }
       }
@@ -2054,13 +2054,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The original event log contains unreadable records. Previous results have been kept. Repair the log and retry."
+            "value" : "The original event data contains unreadable records. Please fix them and retry."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "原始事件日志包含无法读取的记录, 已保留原结果, 请修复日志后重试"
+            "value" : "原始事件包含无法读取的记录, 请修复后重试"
           }
         }
       }
@@ -2182,13 +2182,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Days fully rebuilt: %1$lld; rebuilt events: %2$lld"
+            "value" : "Days rebuilt: %1$lld; events: %2$lld"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "完整重建 %1$lld 天, 已重算活动事件 %2$lld 条"
+            "value" : "已重建 %1$lld 天, 活动事件 %2$lld 条"
           }
         }
       }
@@ -2209,6 +2209,22 @@
         }
       }
     },
+    "history.rebuild.summary.request-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "; rebuild could not start, please retry"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "; 部分重建未能开始, 请重新尝试"
+          }
+        }
+      }
+    },
     "history.rebuild.summary.retry-later" : {
       "localizations" : {
         "en" : {
@@ -2225,34 +2241,18 @@
         }
       }
     },
-    "history.rebuild.summary.request-failed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "; rebuild could not start for %@, please retry"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "; 重建请求未能保存 (%@), 请重新尝试"
-          }
-        }
-      }
-    },
     "history.rebuild.summary.token-history-incomplete" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; session data rebuild incomplete (%@), please retry the incomplete dates"
+            "value" : "; session data rebuild incomplete, please retry"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; 会话数据重建未完成 (%@), 请重新尝试未完成日期"
+            "value" : "; 会话数据未完成重建, 请重试"
           }
         }
       }

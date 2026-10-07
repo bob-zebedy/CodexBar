@@ -654,9 +654,7 @@ private extension AppSettingsView {
             if let message = syncSettings.unavailableMessage {
                 SettingsCaptionMessageRow(message: message)
                     .frame(minHeight: Metrics.syncStatusRowHeight, alignment: .top)
-            } else if state.isActive {
-                let showsSyncStatus = state.shouldShowSyncStatus(lastSyncText: lastSyncText)
-
+            } else if state.shouldShowSyncStatus(lastSyncText: lastSyncText) {
                 SettingsIndentedRow {
                     Text("sync.status.last-sync")
                         .font(.caption)
@@ -690,7 +688,6 @@ private extension AppSettingsView {
                     .animation(Metrics.statusAnimation, value: syncSettings.isSyncing)
                 }
                 .frame(height: Metrics.syncStatusRowHeight)
-                .opacity(showsSyncStatus ? 1 : 0)
             }
         }
     }
@@ -814,8 +811,7 @@ private extension AppSettingsView {
         )
         message += String(localized: "history.rebuild.summary.token-record-count", defaultValue: "\(summary.tokenTurnCount, specifier: "%lld")")
         if summary.didFailTokenRebuild {
-            let dates = summary.failedTokenDateKeys.prefix(rebuildFailedDateListLimit).joined(separator: ", ")
-            message += String(localized: "history.rebuild.summary.token-history-incomplete", defaultValue: "\(dates)")
+            message += String(localized: "history.rebuild.summary.token-history-incomplete")
         }
 
         let retryDates = summary.failedDateKeys.filter { !summary.failedRequestDateKeys.contains($0) }
@@ -830,8 +826,7 @@ private extension AppSettingsView {
         }
 
         if !summary.failedRequestDateKeys.isEmpty {
-            let dates = summary.failedRequestDateKeys.prefix(rebuildFailedDateListLimit).joined(separator: ", ")
-            message += String(localized: "history.rebuild.summary.request-failed", defaultValue: "\(dates)")
+            message += String(localized: "history.rebuild.summary.request-failed")
         }
         if summary.isSyncReplacementPending {
             message += String(localized: "history.rebuild.summary.cloud-replacement-pending")
