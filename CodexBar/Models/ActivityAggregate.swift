@@ -276,22 +276,7 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
     }
 
     func jsonLineData() throws -> Data {
-        var fields = try [
-            OrderedJSON.field(CodingKeys.date.rawValue, date),
-            OrderedJSON.field(CodingKeys.generationID.rawValue, generationID),
-            OrderedJSON.field(CodingKeys.generationStartedEmpty.rawValue, generationStartedEmpty)
-        ]
-        try fields.append(contentsOf: OrderedJSON.presentCountFields(eventCountFields))
-        try fields.append(contentsOf: [
-            OrderedJSON.field(CodingKeys.sessionCount.rawValue, sessionCount),
-            OrderedJSON.field(CodingKeys.turnCount.rawValue, turnCount),
-            OrderedJSON.field(CodingKeys.projectCounts.rawValue, projectCounts),
-            OrderedJSON.field(CodingKeys.modelCounts.rawValue, modelCounts),
-            OrderedJSON.field(CodingKeys.sessionIDs.rawValue, sessionIDs),
-            OrderedJSON.field(CodingKeys.turnIDs.rawValue, turnIDs)
-        ])
-
-        return OrderedJSON.lineData(fields)
+        try JSONLines.stableEncoder.encode(self) + Data([JSONLines.newlineByte])
     }
 
     var eventCountAvailability: ActivityCountAvailability {
@@ -351,24 +336,6 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
             compactedCount: turnCount,
             identifiers: turnIDs
         )
-    }
-
-    private var eventCountFields: [(String, Int?)] {
-        [
-            (CodingKeys.eventCount.rawValue, eventCount),
-            (CodingKeys.sessionStartedCount.rawValue, sessionStartedCount),
-            (CodingKeys.sessionEndedCount.rawValue, sessionEndedCount),
-            (CodingKeys.turnStartedCount.rawValue, turnStartedCount),
-            (CodingKeys.turnCompletedCount.rawValue, turnCompletedCount),
-            (CodingKeys.turnAbortedCount.rawValue, turnAbortedCount),
-            (CodingKeys.toolStartedCount.rawValue, toolStartedCount),
-            (CodingKeys.toolCompletedCount.rawValue, toolCompletedCount),
-            (CodingKeys.approvalRequestedCount.rawValue, approvalRequestedCount),
-            (CodingKeys.compactionStartedCount.rawValue, compactionStartedCount),
-            (CodingKeys.compactionCompletedCount.rawValue, compactionCompletedCount),
-            (CodingKeys.subagentStartedCount.rawValue, subagentStartedCount),
-            (CodingKeys.subagentEndedCount.rawValue, subagentEndedCount)
-        ]
     }
 
     private static func normalizedIdentifiers(_ identifiers: [String]?) -> [String]? {

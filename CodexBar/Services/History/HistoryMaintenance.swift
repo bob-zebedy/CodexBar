@@ -10,7 +10,7 @@ nonisolated struct HistoryMaintenanceState: Codable, Equatable {
     }
 
     /// 原始事件到每日聚合的算法版本, 变化时统一从原始 JSONL 重建
-    static let currentVersion = 2
+    static let currentVersion = 1
 
     var version: Int
     var pending: [String]
@@ -114,6 +114,7 @@ nonisolated struct HistoryMaintenanceState: Codable, Equatable {
         fileIdentifier: UInt64?
     ) {
         days[dateKey] = HistoryDayMaintenanceState(
+            requiresCloudReplacement: days[dateKey]?.requiresCloudReplacement ?? false,
             generationID: Self.makeGenerationID(),
             generationStartedEmpty: startedEmpty,
             fileIdentifier: fileIdentifier
@@ -154,6 +155,7 @@ nonisolated struct HistoryMaintenanceState: Codable, Equatable {
 
 nonisolated struct HistoryDayMaintenanceState: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
+        case requiresCloudReplacement
         case offset
         case size
         case corrupt
@@ -163,6 +165,7 @@ nonisolated struct HistoryDayMaintenanceState: Codable, Equatable {
         case boundaryHash
     }
 
+    var requiresCloudReplacement: Bool
     var offset: UInt64
     var size: UInt64
     var corrupt: Int
@@ -172,6 +175,7 @@ nonisolated struct HistoryDayMaintenanceState: Codable, Equatable {
     var boundaryHash: String?
 
     init(
+        requiresCloudReplacement: Bool = false,
         offset: UInt64 = 0,
         size: UInt64 = 0,
         corrupt: Int = 0,
@@ -180,6 +184,7 @@ nonisolated struct HistoryDayMaintenanceState: Codable, Equatable {
         fileIdentifier: UInt64? = nil,
         boundaryHash: String? = nil
     ) {
+        self.requiresCloudReplacement = requiresCloudReplacement
         self.offset = offset
         self.size = size
         self.corrupt = corrupt
@@ -191,6 +196,7 @@ nonisolated struct HistoryDayMaintenanceState: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        requiresCloudReplacement = try container.decodeIfPresent(Bool.self, forKey: .requiresCloudReplacement) ?? false
         offset = try container.decodeIfPresent(UInt64.self, forKey: .offset) ?? 0
         size = try container.decodeIfPresent(UInt64.self, forKey: .size) ?? 0
         corrupt = try container.decodeIfPresent(Int.self, forKey: .corrupt) ?? 0

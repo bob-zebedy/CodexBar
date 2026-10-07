@@ -814,25 +814,26 @@ private extension AppSettingsView {
         )
         message += String(localized: "history.rebuild.summary.token-record-count", defaultValue: "\(summary.tokenTurnCount, specifier: "%lld")")
         if summary.didFailTokenRebuild {
-            message += String(localized: "history.rebuild.summary.token-history-incomplete")
-        }
-        if summary.corruptLineCount > 0 {
-            message += String(localized: "history.rebuild.summary.skipped-invalid-events", defaultValue: "\(summary.corruptLineCount, specifier: "%lld")")
+            let dates = summary.failedTokenDateKeys.prefix(rebuildFailedDateListLimit).joined(separator: ", ")
+            message += String(localized: "history.rebuild.summary.token-history-incomplete", defaultValue: "\(dates)")
         }
 
-        if !summary.failedDateKeys.isEmpty {
-            let listed = summary.failedDateKeys.prefix(rebuildFailedDateListLimit)
+        let retryDates = summary.failedDateKeys.filter { !summary.failedRequestDateKeys.contains($0) }
+        if !retryDates.isEmpty {
+            let listed = retryDates.prefix(rebuildFailedDateListLimit)
             var dates = listed.joined(separator: ", ")
-            if summary.failedDateKeys.count > listed.count {
+            if retryDates.count > listed.count {
                 dates += String(localized: "history.rebuild.summary.additional-dates")
             }
-            message += String(localized: "history.rebuild.summary.incomplete-dates", defaultValue: "\(summary.failedDateKeys.count, specifier: "%lld")\(dates)")
+            message += String(localized: "history.rebuild.summary.incomplete-dates", defaultValue: "\(retryDates.count, specifier: "%lld")\(dates)")
             message += String(localized: "history.rebuild.summary.retry-later")
         }
 
-        if summary.didFailSyncReplacementMarking {
-            message += String(localized: "history.rebuild.summary.sync-replacement-marking-failed")
-        } else if summary.isSyncReplacementPending {
+        if !summary.failedRequestDateKeys.isEmpty {
+            let dates = summary.failedRequestDateKeys.prefix(rebuildFailedDateListLimit).joined(separator: ", ")
+            message += String(localized: "history.rebuild.summary.request-failed", defaultValue: "\(dates)")
+        }
+        if summary.isSyncReplacementPending {
             message += String(localized: "history.rebuild.summary.cloud-replacement-pending")
         }
 

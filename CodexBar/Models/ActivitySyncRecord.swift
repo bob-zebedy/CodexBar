@@ -45,37 +45,7 @@ nonisolated struct SyncedActivity: Codable, Equatable {
     }
 
     func jsonLineData() throws -> Data {
-        var fields = try [
-            OrderedJSON.field(CodingKeys.date.rawValue, date),
-            OrderedJSON.field(CodingKeys.generationID.rawValue, generationID)
-        ]
-        try fields.append(contentsOf: OrderedJSON.presentCountFields(eventCountFields))
-        try fields.append(contentsOf: [
-            OrderedJSON.field(CodingKeys.sessionCount.rawValue, sessionCount),
-            OrderedJSON.field(CodingKeys.turnCount.rawValue, turnCount),
-            OrderedJSON.field(CodingKeys.projectCounts.rawValue, projectCounts),
-            OrderedJSON.field(CodingKeys.modelCounts.rawValue, modelCounts)
-        ])
-
-        return OrderedJSON.lineData(fields)
-    }
-
-    private var eventCountFields: [(String, Int?)] {
-        [
-            (CodingKeys.eventCount.rawValue, eventCount),
-            (CodingKeys.sessionStartedCount.rawValue, sessionStartedCount),
-            (CodingKeys.sessionEndedCount.rawValue, sessionEndedCount),
-            (CodingKeys.turnStartedCount.rawValue, turnStartedCount),
-            (CodingKeys.turnCompletedCount.rawValue, turnCompletedCount),
-            (CodingKeys.turnAbortedCount.rawValue, turnAbortedCount),
-            (CodingKeys.toolStartedCount.rawValue, toolStartedCount),
-            (CodingKeys.toolCompletedCount.rawValue, toolCompletedCount),
-            (CodingKeys.approvalRequestedCount.rawValue, approvalRequestedCount),
-            (CodingKeys.compactionStartedCount.rawValue, compactionStartedCount),
-            (CodingKeys.compactionCompletedCount.rawValue, compactionCompletedCount),
-            (CodingKeys.subagentStartedCount.rawValue, subagentStartedCount),
-            (CodingKeys.subagentEndedCount.rawValue, subagentEndedCount)
-        ]
+        try JSONLines.stableEncoder.encode(self) + Data([JSONLines.newlineByte])
     }
 
     func requiredGenerationID() throws -> String {

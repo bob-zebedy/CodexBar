@@ -89,7 +89,7 @@ struct AppServerEventStorageTests {
         let store = TokenHistoryStore(directoryURL: directory.url)
         var turn = token()
         turn.rebuiltAt = now
-        try await store.record([turn], now: now)
+        try await directory.seedTokenSnapshots([turn], now: now)
         let data = try AppServerEventRecord(token: turn, recordedAt: now).jsonLineData()
         let record = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(Set(record.keys) == ["version", "kind", "recordedAt", "token"])
@@ -110,8 +110,8 @@ struct AppServerEventStorageTests {
 
     @Test func unsupportedVersionAndMixedPayloadAreRejected() throws {
         let valid = try #require(String(bytes: AppServerEventRecord(token: token(), recordedAt: now).jsonLineData(), encoding: .utf8))
-        let future = valid.replacingOccurrences(of: "\"version\":2", with: "\"version\":99")
-        let mixed = valid.replacingOccurrences(of: "\"version\":2", with: "\"version\":2,\"activityPayload\":{}")
+        let future = valid.replacingOccurrences(of: "\"version\":1", with: "\"version\":99")
+        let mixed = valid.replacingOccurrences(of: "\"version\":1", with: "\"version\":1,\"activityPayload\":{}")
         for text in [future, mixed] {
             #expect(throws: (any Error).self) { try AppServerEventRecord.decode(from: Data(text.utf8)) }
         }
@@ -121,12 +121,12 @@ struct AppServerEventStorageTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let first = TokenHistoryStore(directoryURL: directory.url)
-        let second = TokenHistoryStore(directoryURL: directory.url)
-        try await first.record([token()], now: now)
-        try await second.record([token()], now: now)
-        #expect(try events(in: directory.url).count == 1)
+        try await directory.seedTokenSnapshots([token()], now: now)
+        try await directory.seedTokenSnapshots([token()], now: now)
+        #expect(try events(in: directory.url).count == 2)
+        #expect(try await first.refresh(now: now) == [token()])
         let update = token(at: now.addingTimeInterval(1), input: 200)
-        try await second.record([update], now: now)
+        try await directory.seedTokenSnapshots([update], now: now)
         #expect(try await first.refresh(now: now).first?.usage == update.usage)
         try FileManager.default.removeItem(at: directory.url.appendingPathComponent("Aggregates/tokens.json"))
         let restarted = TokenHistoryStore(directoryURL: directory.url)
@@ -141,7 +141,7 @@ struct AppServerEventStorageTests {
         defer { try? directory.remove() }
         let store = TokenHistoryStore(directoryURL: directory.url)
         let timestamp = now.addingTimeInterval(0.1234567)
-        try await store.record([token(at: timestamp)], now: timestamp)
+        try await directory.seedTokenSnapshots([token(at: timestamp)], now: timestamp)
         _ = try await store.rebuild(for: [HistoryStorage.dateKey(for: timestamp)], now: timestamp.addingTimeInterval(0.0000456))
         let original = try await store.refresh(now: timestamp)
         try FileManager.default.removeItem(at: directory.url.appendingPathComponent("Aggregates/tokens.json"))
@@ -191,7 +191,7 @@ struct AppServerEventStorageTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = TokenHistoryStore(directoryURL: directory.url)
-        try await store.record([token()], now: now)
+        try await directory.seedTokenSnapshots([token()], now: now)
         let url = HistoryStorage.eventLogURL(for: HistoryStorage.dateKey(for: now), in: HistoryStorage.eventsDirectoryURL(in: directory.url))
         let seconds = Int(now.timeIntervalSince1970)
         let firstTimes = [timespec(tv_sec: seconds, tv_nsec: 1000100), timespec(tv_sec: seconds, tv_nsec: 1000100)]
@@ -241,8 +241,8 @@ struct AppServerEventStorageTests {
         let start = try #require(CodexDateFormat.dayDate(from: "2026-09-15")).addingTimeInterval(86390)
         let next = start.addingTimeInterval(60)
         let store = TokenHistoryStore(directoryURL: directory.url)
-        try await store.record([token(at: start)], now: start)
-        try await store.record([token(id: "child", at: next, input: 200)], now: next)
+        try await directory.seedTokenSnapshots([token(at: start)], now: start)
+        try await directory.seedTokenSnapshots([token(id: "child", at: next, input: 200)], now: next)
         try FileManager.default.removeItem(at: directory.url.appendingPathComponent("Aggregates/tokens.json"))
         let restored = try await store.refresh(now: next)
         #expect(TokenTurn.dailyUsage(restored, now: next)["2026-09-15"]?.totalTokens == 320)
@@ -260,14 +260,14 @@ struct AppServerEventStorageTests {
             approvalReviewer: nil, sessionID: "thread", turnID: "turn", agentID: nil, id: "tool"
         )
         try await recorder.record(event: event)
-        try await store.record([token()], now: now)
+        try await directory.seedTokenSnapshots([token()], now: now)
         let url = HistoryStorage.eventLogURL(for: HistoryStorage.dateKey(for: now), in: HistoryStorage.eventsDirectoryURL(in: directory.url))
         let handle = try FileHandle(forWritingTo: url)
         try handle.seekToEnd()
         try handle.write(contentsOf: Data("{\"partial\":".utf8))
         try handle.close()
         let updated = token(at: now.addingTimeInterval(1), input: 300)
-        try await store.record([updated], now: now)
+        try await directory.seedTokenSnapshots([updated], now: now)
         try await recorder.record(event: event)
         let entries = try events(in: directory.url)
         #expect(entries.compactMap(\.activity).count == 1)

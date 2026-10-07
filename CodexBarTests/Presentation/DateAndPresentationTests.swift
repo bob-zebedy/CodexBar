@@ -66,4 +66,19 @@ struct DateAndPresentationTests {
             showsPreciseDuration: !isAnonymous, activeSubagentCount: nil
         )
     }
+
+    @Test(arguments: [false, true])
+    func accountFailureKeepsLiveTaskIconAndExplainsBothStates(waiting: Bool) {
+        let task = task(isAnonymous: false)
+        let activity = ActivitySnapshot(
+            waitingTasks: waiting ? [task] : [], runningTasks: waiting ? [] : [task],
+            recentCompletions: [], recentTerminations: []
+        )
+        let state = StatusIconState(usesErrorImage: true, ordinaryUsageAllowed: nil, progress: nil, activity: activity)
+        #expect(state.symbolName(at: TestFixtures.now) == (waiting ? "person.badge.key.fill" : "person.badge.clock.fill"))
+        #expect(state.hasLiveDuration)
+        #expect(state.toolTip(at: TestFixtures.now)?.contains(String(localized: "codex-status.account.unavailable")) == true)
+        let idle = StatusIconState(usesErrorImage: true, ordinaryUsageAllowed: nil, progress: nil, activity: .empty)
+        #expect(idle.symbolName(at: TestFixtures.now) == "person.slash.fill")
+    }
 }

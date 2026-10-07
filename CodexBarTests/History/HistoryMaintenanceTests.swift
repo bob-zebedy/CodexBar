@@ -130,7 +130,7 @@ extension HistoryMaintenanceTests {
         let days = try #require(root["days"] as? [String: [String: Any]])
         let day = try #require(days[date])
         #expect(Set(day.keys) == [
-            "offset", "size", "corrupt", "generationID", "generationStartedEmpty",
+            "requiresCloudReplacement", "offset", "size", "corrupt", "generationID", "generationStartedEmpty",
             "fileIdentifier", "boundaryHash"
         ])
         #expect(try JSONDecoder().decode(HistoryMaintenanceState.self, from: data) == state)

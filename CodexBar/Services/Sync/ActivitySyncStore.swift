@@ -102,7 +102,6 @@ nonisolated struct SyncState: Codable, Equatable {
     var containerIdentifier: String?
     var deviceID: String?
     var hashByDate: [String: String]
-    var replacementDates: [String]
     var lastUploadAt: Date?
     var lastPrunedDate: String?
 
@@ -110,14 +109,12 @@ nonisolated struct SyncState: Codable, Equatable {
         containerIdentifier: String? = SyncCloudKit.containerIdentifier,
         deviceID: String? = nil,
         hashByDate: [String: String] = [:],
-        replacementDates: [String] = [],
         lastUploadAt: Date? = nil,
         lastPrunedDate: String? = nil
     ) {
         self.containerIdentifier = containerIdentifier
         self.deviceID = deviceID
         self.hashByDate = hashByDate
-        self.replacementDates = replacementDates
         self.lastUploadAt = lastUploadAt
         self.lastPrunedDate = lastPrunedDate
     }
@@ -129,13 +126,6 @@ nonisolated struct SyncState: Codable, Equatable {
         deviceID = try container.decodeIfPresent(String.self, forKey: .deviceID)
         hashByDate = try container.decodeIfPresent([String: String].self, forKey: .hashByDate)
             ?? [:]
-        let decodedReplacementDates = try container.decodeIfPresent(
-            [String].self,
-            forKey: .replacementDates
-        ) ?? []
-        replacementDates = Set(
-            decodedReplacementDates.filter(HistoryStorage.isValidDateKey)
-        ).sorted()
         lastUploadAt = try container.decodeIfPresent(Date.self, forKey: .lastUploadAt)
         lastPrunedDate = try container.decodeIfPresent(String.self, forKey: .lastPrunedDate)
     }
@@ -144,7 +134,6 @@ nonisolated struct SyncState: Codable, Equatable {
         case containerIdentifier
         case deviceID
         case hashByDate
-        case replacementDates
         case lastUploadAt
         case lastPrunedDate
     }

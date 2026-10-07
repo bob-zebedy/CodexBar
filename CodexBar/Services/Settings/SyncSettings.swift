@@ -13,13 +13,32 @@ final class SyncSettings: ObservableObject {
     @Published private(set) var syncAvailability = SyncAvailability.unknown
 
     private let defaults: UserDefaults
+    private let queryAvailability: () async -> SyncAvailabilityResult
+    private let loadLastUpload: () -> Date?
     private var cancellables = Set<AnyCancellable>()
     private let accountStatusCoordinator = RefreshTaskCoordinator()
+    private var isCheckingAvailability = false
+    private var lastAvailabilityCheckAt: Date?
+    private static let availabilityRetryInterval: TimeInterval = 60
 
-    init(defaults: UserDefaults = .standard) {
+    convenience init(defaults: UserDefaults = .standard) {
+        self.init(
+            defaults: defaults,
+            queryAvailability: { await Self.querySyncAvailability() },
+            loadLastUpload: Self.loadLastUploadAt
+        )
+    }
+
+    init(
+        defaults: UserDefaults,
+        queryAvailability: @escaping () async -> SyncAvailabilityResult,
+        loadLastUpload: @escaping () -> Date?
+    ) {
         self.defaults = defaults
+        self.queryAvailability = queryAvailability
+        self.loadLastUpload = loadLastUpload
         isEnabled = Self.isEnabled(defaults: defaults)
-        lastUploadAt = Self.loadLastUploadAt()
+        lastUploadAt = loadLastUpload()
         observeSyncNotifications()
         refreshSyncAvailability()
     }
@@ -29,8 +48,17 @@ final class SyncSettings: ObservableObject {
         if !isEnabled {
             clearSyncActivity()
         }
-        lastUploadAt = Self.loadLastUploadAt()
+        lastUploadAt = loadLastUpload()
         refreshSyncAvailability()
+    }
+
+    /// 自动维护只重查未恢复的同步状态, 本地维护无需等待 iCloud
+    func refreshAvailabilityIfNeeded(now: Date = Date()) {
+        guard isEnabled, !isSyncAvailable,
+              lastAvailabilityCheckAt.map({ now.timeIntervalSince($0) >= Self.availabilityRetryInterval }) ?? true else {
+            return
+        }
+        refreshSyncAvailability(now: now)
     }
 
     @discardableResult
@@ -45,10 +73,12 @@ final class SyncSettings: ObservableObject {
         }
         defaults.set(enabled, forKey: Self.enabledKey)
         if !enabled {
+            accountStatusCoordinator.cancel()
+            isCheckingAvailability = false
             clearSyncActivity()
         }
         isEnabled = enabled
-        lastUploadAt = Self.loadLastUploadAt()
+        lastUploadAt = loadLastUpload()
         return previousValue != enabled
     }
 
@@ -60,9 +90,9 @@ final class SyncSettings: ObservableObject {
         syncFailureMessage != nil
     }
 
-    func activation(isSyncAvailable: Bool? = nil) -> SyncActivation {
+    func activation() -> SyncActivation {
         guard isEnabled else { return .syncOff }
-        guard isSyncAvailable ?? self.isSyncAvailable else { return .unavailable }
+        guard isSyncAvailable else { return .unavailable }
         return .active
     }
 
@@ -107,16 +137,21 @@ final class SyncSettings: ObservableObject {
             .store(in: &cancellables)
     }
 
-    private func refreshSyncAvailability() {
-        accountStatusCoordinator.start { [weak self] generation in
-            let result = await Self.querySyncAvailability()
+    private func refreshSyncAvailability(now: Date = Date()) {
+        guard !isCheckingAvailability else { return }
+        isCheckingAvailability = true
+        lastAvailabilityCheckAt = now
+        accountStatusCoordinator.start { [weak self, queryAvailability] generation in
+            let result = await queryAvailability()
             guard let self,
                   accountStatusCoordinator.canCommit(generation) else {
                 return
             }
 
             applyAvailabilityResult(result)
-            accountStatusCoordinator.finish(generation) {}
+            accountStatusCoordinator.finish(generation) {
+                isCheckingAvailability = false
+            }
         }
     }
 
@@ -135,7 +170,7 @@ final class SyncSettings: ObservableObject {
         } else {
             applySyncFailure(failureMessage)
         }
-        lastUploadAt = Self.loadLastUploadAt()
+        lastUploadAt = loadLastUpload()
     }
 
     private func applyAvailabilityResult(_ result: SyncAvailabilityResult) {

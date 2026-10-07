@@ -7,15 +7,12 @@ struct StatusIconState: Equatable {
     let activity: ActivitySnapshot
 
     func symbolName(at now: Date) -> String {
-        if usesErrorImage {
-            return "person.slash.fill"
-        }
         switch activity.statusItemActivity(at: now) {
-        case .waiting: return "person.badge.key.fill"
-        case .running: return "person.badge.clock.fill"
-        case .completed: return "person.badge.shield.checkmark.fill"
-        case .terminated: return "person.badge.shield.exclamationmark.fill"
-        case .idle: return "person.fill"
+        case .waiting: "person.badge.key.fill"
+        case .running: "person.badge.clock.fill"
+        case .completed: "person.badge.shield.checkmark.fill"
+        case .terminated: "person.badge.shield.exclamationmark.fill"
+        case .idle: usesErrorImage ? "person.slash.fill" : "person.fill"
         }
     }
 

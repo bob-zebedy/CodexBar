@@ -1,8 +1,43 @@
 import CloudKit
+import CryptoKit
 import Foundation
 import Testing
 
 struct SyncRecoveryTests {
+    @Test func previousEncodingHashConvergesWithoutRepeatedUploads() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let database = SyncDatabaseFixture()
+        let date = HistoryStorage.dateKey(for: Date())
+        let local = try TestFixtures.decode(ActivityAggregate.self, """
+        {"date":"\(date)","generationID":"source","eventCount":1}
+        """)
+        let service = SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
+        _ = await service.synchronizeIfEnabled(localAggregates: [local], trigger: .manual)
+        let store = ActivitySyncStore(directoryURL: directory.url)
+        var state = store.loadState()
+        let currentHash = try #require(state.hashByDate[date])
+        let previousBytes = Data(("""
+        {"date":"\(date)","generationID":"source","eventCount":1,"sessionCount":null,"turnCount":null,"projectCounts":{},"modelCounts":{}}
+        """ + "\n").utf8)
+        let previousHash = TokenTurn.hexString(SHA256.hash(data: previousBytes))
+        #expect(previousHash != currentHash)
+        state.hashByDate[date] = previousHash
+        try store.saveState(state)
+
+        let restarted = SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
+        _ = await restarted.synchronizeIfEnabled(localAggregates: [local], trigger: .manual)
+        #expect(store.loadState().hashByDate[date] == currentHash)
+        #expect(await database.activityRecords().count == 1)
+        #expect(await database.activityRecords().first?["eventCount"] as? Int == 1)
+        #expect(await database.deletedIDs.isEmpty)
+        let writes = await database.savedTypes.count
+        let reads = await database.requestedIDs.filter { $0.recordName != "accountSalt" }.count
+        _ = await restarted.synchronizeIfEnabled(localAggregates: [local], trigger: .manual)
+        #expect(await database.savedTypes.count == writes)
+        #expect(await database.requestedIDs.filter { $0.recordName != "accountSalt" }.count == reads)
+    }
+
     private static let zone = CKRecordZone.ID(zoneName: SyncCloudKit.zoneName, ownerName: CKCurrentUserDefaultName)
     private static let salt = Data(repeating: 1, count: 32)
 
@@ -139,7 +174,7 @@ struct SyncRecoveryTests {
         json["cursor"] = Data("previous cursor".utf8).base64EncodedString()
         try JSONSerialization.data(withJSONObject: json).write(to: url)
         var updated = state
-        updated.replacementDates = ["2026-10-05"]
+        updated.lastPrunedDate = "2026-10-05"
         try store.saveState(updated)
         #expect(try store.load().cursor == Data("previous cursor".utf8))
         let daily = SyncedActivity(date: "2026-10-05", generationID: "source", eventCount: 2, projectCounts: [:], modelCounts: [:])
@@ -236,12 +271,11 @@ struct SyncRecoveryTests {
         local.eventCount = 5
         _ = await service.synchronizeIfEnabled(localAggregates: [local], trigger: .manual)
         let before = await database.activityRecords().map(\.recordID)
-        try await service.markReplacementNeeded(for: [local.date])
         local.generationID = nil
-        _ = await service.synchronizeIfEnabled(localAggregates: [local], trigger: .manual)
+        let result = await service.synchronizeIfEnabled(localAggregates: [local], replacements: [local], trigger: .manual)
         #expect(await database.deletedIDs.isEmpty)
         #expect(await database.activityRecords().map(\.recordID) == before)
-        #expect(await service.hasPendingReplacement(for: [local.date]))
+        #expect(result.completedReplacements.isEmpty)
     }
 
     @Test func invalidGenerationDuringCursorBaselineStopsActivityUpload() async throws {
@@ -275,13 +309,12 @@ struct SyncRecoveryTests {
         #expect(previous.count == 2)
         local.generationID = "rebuilt"
         local.generationStartedEmpty = false
-        try await service.markReplacementNeeded(for: [local.date])
-        _ = await service.synchronizeIfEnabled(localAggregates: [local], trigger: .manual)
+        let result = await service.synchronizeIfEnabled(localAggregates: [local], replacements: [local], trigger: .manual)
         let current = await database.activityRecords()
         #expect(current.count == 1)
         #expect(current.first?["generationID"] as? String == "rebuilt")
         #expect(await previous.isSubset(of: Set(database.deletedIDs)))
-        #expect(await !service.hasPendingReplacement(for: [local.date]))
+        #expect(result.completedReplacements == [local.date: "rebuilt"])
     }
 
     private static func cachedTurnCount(in directory: URL) throws -> Int {
@@ -303,16 +336,34 @@ private actor SyncDatabaseFixture: SyncDatabase {
     private let changesFail: Bool
     private var changesRecordFails = false
     private var failingName: String?
-    private let failingDate: String?
+    private var failingDate: String?
     private let readFailure: Bool
     private(set) var queryCount = 0
     private(set) var savedTypes: [String] = []
     private(set) var requestedIDs: [CKRecord.ID] = []
     private(set) var deletedIDs: [CKRecord.ID] = []
     private var changesRecord: CKRecord?
+    private var deletionFails = false
+    private var activitySaveCallback: (@Sendable () -> Void)?
+
+    func failNextDeletion() {
+        deletionFails = true
+    }
+
+    func failActivityUpload(on date: String) {
+        failingDate = date
+    }
+
+    func afterActivitySave(_ callback: @escaping @Sendable () -> Void) {
+        activitySaveCallback = callback
+    }
 
     func activityRecords() -> [CKRecord] {
         stored.values.filter { $0.recordType == "Activity" }.map(Self.copy)
+    }
+
+    func storeRecord(_ record: CKRecord) {
+        stored[record.recordID] = Self.copy(record)
     }
 
     func injectChangesRecord(_ record: CKRecord) {
@@ -337,6 +388,8 @@ private actor SyncDatabaseFixture: SyncDatabase {
 
     func repair() {
         failingName = nil
+        failingDate = nil
+        activitySaveCallback = nil
     }
 
     func records(for ids: [CKRecord.ID], desiredKeys _: [CKRecord.FieldKey]?) async throws -> Records {
@@ -358,11 +411,18 @@ private actor SyncDatabaseFixture: SyncDatabase {
                 stored[record.recordID] = record.copy() as? CKRecord
                 saved[record.recordID] = .success(record)
                 savedTypes.append(record.recordType)
+                if record.recordType == "Activity" {
+                    activitySaveCallback?()
+                }
             }
         }
         deletedIDs.append(contentsOf: ids)
         for id in ids {
             stored[id] = nil
+            if deletionFails {
+                deletionFails = false
+                throw CKError(.networkFailure)
+            }
         }
         return (saved, Dictionary(uniqueKeysWithValues: ids.map { ($0, .success(())) }))
     }
@@ -399,5 +459,271 @@ private actor SyncDatabaseFixture: SyncDatabase {
             records[CKRecord.ID(recordName: "failed-record")] = .failure(CKError(.constraintViolation))
         }
         return SyncChanges(records: records, deletions: [], token: nil, moreComing: false)
+    }
+}
+
+extension SyncRecoveryTests {
+    @Test func failedRebuildPreservesCloudUntilSuccessfulRetryAfterRestart() async throws {
+        let fixture = try await HistoryRebuildFixture()
+        defer { try? fixture.directory.remove() }
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: fixture.eventURL.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fixture.eventURL.path) }
+        await #expect(throws: (any Error).self) {
+            try await fixture.history.rebuildData(for: [fixture.date], synchronize: true)
+        }
+        #expect(await fixture.history.hasPendingReplacement(for: [fixture.date]))
+        let restarted = HistoryService(directoryURL: fixture.directory.url, syncService: fixture.sync)
+        _ = await restarted.loadSnapshotWithMaintenance(synchronize: true, trigger: .auto)
+        #expect(await fixture.database.activityRecords().first?["eventCount"] as? Int == 9)
+        #expect(await fixture.database.deletedIDs.isEmpty)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fixture.eventURL.path)
+        _ = await restarted.loadSnapshotWithMaintenance(synchronize: true, trigger: .auto)
+        #expect(await fixture.database.activityRecords().first?["eventCount"] as? Int == 1)
+        #expect(await !restarted.hasPendingReplacement(for: [fixture.date]))
+    }
+
+    @Test func zeroRebuildSurvivesRestartAndClearsOldCloudContribution() async throws {
+        let fixture = try await HistoryRebuildFixture()
+        defer { try? fixture.directory.remove() }
+        let now = Date()
+        let id = TokenTurn.identifier(thread: "zero", turn: "zero")
+        let token = TokenTurn(id: id, rootID: id, startedAt: now, updatedAt: now, usage: .zero)
+        try AppServerEventRecord(token: token, recordedAt: now).jsonLineData().write(to: fixture.eventURL)
+        let outcome = try await fixture.history.rebuildData(for: [fixture.date], synchronize: false)
+        #expect(outcome.summary.eventCount == 0)
+        #expect(outcome.summary.isSyncReplacementPending)
+        let restarted = HistoryService(directoryURL: fixture.directory.url, syncService: fixture.sync)
+        _ = await restarted.loadSnapshotWithMaintenance(synchronize: true, trigger: .auto)
+        #expect(await fixture.database.activityRecords().count == 1)
+        #expect(await fixture.database.activityRecords().first?["eventCount"] as? Int == 0)
+        #expect(await !restarted.hasPendingReplacement(for: [fixture.date]))
+        let snapshot = await restarted.loadSnapshot(synchronize: true)
+        #expect(snapshot.dailyMetrics.isEmpty)
+    }
+
+    @Test func ordinaryTokenOnlyDateDoesNotUploadActivity() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let database = SyncDatabaseFixture()
+        let sync = SyncService(database: database, directoryURL: HistoryStorage.syncDirectoryURL(in: directory.url), isEnabled: { true })
+        let tokens = TokenHistoryStore(directoryURL: directory.url)
+        let now = Date()
+        let id = TokenTurn.identifier(thread: "only", turn: "tokens")
+        try await directory.seedTokenSnapshots([TokenTurn(id: id, rootID: id, startedAt: now, updatedAt: now, usage: .zero)], now: now)
+        let history = HistoryService(directoryURL: directory.url, syncService: sync, tokenHistory: tokens)
+        _ = await history.loadSnapshotWithMaintenance(synchronize: true, trigger: .auto)
+        #expect(await database.activityRecords().isEmpty)
+        #expect(await database.deletedIDs.isEmpty)
+    }
+
+    @Test func uncommittedAggregateCannotAuthorizeCloudReplacement() async throws {
+        let fixture = try await HistoryRebuildFixture()
+        defer { try? fixture.directory.remove() }
+        var state = HistoryStorage.loadMaintenanceState(in: fixture.directory.url)
+        state.startNewGeneration(for: fixture.date, startedEmpty: false, fileIdentifier: state.days[fixture.date]?.fileIdentifier)
+        state.days[fixture.date]?.requiresCloudReplacement = true
+        try HistoryStorage.saveMaintenanceState(state, in: fixture.directory.url)
+        var aggregate = fixture.local
+        aggregate.generationID = state.days[fixture.date]?.generationID
+        aggregate.eventCount = 0
+        try ActivityAggregate.encodeJSONLines([aggregate]).write(to: HistoryStorage.dailyURL(in: fixture.directory.url))
+        let restarted = HistoryService(directoryURL: fixture.directory.url, syncService: fixture.sync)
+        _ = await restarted.loadSnapshot(synchronize: true)
+        #expect(await fixture.database.deletedIDs.isEmpty)
+        #expect(await fixture.database.activityRecords().first?["eventCount"] as? Int == 9)
+        _ = await restarted.loadSnapshotWithMaintenance(synchronize: true, trigger: .auto)
+        #expect(await fixture.database.activityRecords().first?["eventCount"] as? Int == 1)
+        #expect(await !restarted.hasPendingReplacement(for: [fixture.date]))
+    }
+
+    @Test func requestSaveFailureDoesNotModifyAggregateOrCloud() async throws {
+        let fixture = try await HistoryRebuildFixture()
+        defer { try? fixture.directory.remove() }
+        let aggregateURL = HistoryStorage.dailyURL(in: fixture.directory.url)
+        let original = try Data(contentsOf: aggregateURL)
+        let stateDirectory = HistoryStorage.maintenanceURL(in: fixture.directory.url).deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: stateDirectory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stateDirectory.path) }
+        await #expect(throws: (any Error).self) {
+            try await fixture.history.rebuildData(for: [fixture.date], synchronize: true)
+        }
+        #expect(try Data(contentsOf: aggregateURL) == original)
+        #expect(await !fixture.history.hasPendingReplacement(for: [fixture.date]))
+        #expect(await fixture.database.deletedIDs.isEmpty)
+    }
+
+    @Test(arguments: ["delete", "upload", "acknowledge"])
+    func interruptedReplacementRetriesAfterRestart(_ stage: String) async throws {
+        let fixture = try await HistoryRebuildFixture()
+        defer { try? fixture.directory.remove() }
+        _ = try await fixture.history.rebuildData(for: [fixture.date], synchronize: false)
+        let stateDirectory = HistoryStorage.maintenanceURL(in: fixture.directory.url).deletingLastPathComponent()
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stateDirectory.path) }
+        switch stage {
+        case "delete": await fixture.database.failNextDeletion()
+        case "upload": await fixture.database.failActivityUpload(on: fixture.date)
+        default:
+            await fixture.database.afterActivitySave {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: stateDirectory.path)
+            }
+        }
+        _ = await fixture.history.loadSnapshot(synchronize: true)
+        #expect(await fixture.history.hasPendingReplacement(for: [fixture.date]))
+        await fixture.database.repair()
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stateDirectory.path)
+        let sync = SyncService(database: fixture.database, directoryURL: HistoryStorage.syncDirectoryURL(in: fixture.directory.url), isEnabled: { true })
+        let restarted = HistoryService(directoryURL: fixture.directory.url, syncService: sync)
+        _ = await restarted.loadSnapshotWithMaintenance(synchronize: true, trigger: .auto)
+        #expect(await !restarted.hasPendingReplacement(for: [fixture.date]))
+        #expect(await fixture.database.activityRecords().count == 1)
+        #expect(await fixture.database.activityRecords().first?["eventCount"] as? Int == 1)
+    }
+
+    @Test func staleAcknowledgementCannotClearNewRebuildRequest() async throws {
+        let fixture = try await HistoryRebuildFixture()
+        defer { try? fixture.directory.remove() }
+        _ = try await fixture.history.rebuildData(for: [fixture.date], synchronize: false)
+        let old = try #require(HistoryStorage.loadMaintenanceState(in: fixture.directory.url).days[fixture.date]?.generationID)
+        _ = try await fixture.history.rebuildData(for: [fixture.date], synchronize: false)
+        await fixture.history.acknowledgeReplacements([fixture.date: old])
+        #expect(await fixture.history.hasPendingReplacement(for: [fixture.date]))
+        _ = await fixture.history.loadSnapshot(synchronize: true)
+        #expect(await !fixture.history.hasPendingReplacement(for: [fixture.date]))
+    }
+}
+
+private struct HistoryRebuildFixture {
+    let directory: TestDirectory
+    let database: SyncDatabaseFixture
+    let sync: SyncService
+    let history: HistoryService
+    let date: String
+    let eventURL: URL
+    let local: ActivityAggregate
+
+    init() async throws {
+        directory = try TestDirectory()
+        database = SyncDatabaseFixture()
+        sync = SyncService(database: database, directoryURL: HistoryStorage.syncDirectoryURL(in: directory.url), isEnabled: { true })
+        history = HistoryService(directoryURL: directory.url, syncService: sync)
+        let now = Date()
+        date = HistoryStorage.dateKey(for: now)
+        eventURL = try directory.write(AppServerEventRecord(activity: TestFixtures.event(at: now), recordedAt: now).jsonLineData(), to: "Events/\(date).jsonl")
+        _ = await history.loadSnapshotWithMaintenance(synchronize: false, trigger: .manual)
+        local = try #require(JSONLines.decode(ActivityAggregate.self, from: Data(contentsOf: HistoryStorage.dailyURL(in: directory.url))).first)
+        var remote = local
+        remote.eventCount = 9
+        remote.generationStartedEmpty = true
+        _ = await sync.synchronizeIfEnabled(localAggregates: [remote], trigger: .manual)
+    }
+}
+
+extension SyncRecoveryTests {
+    @Test func partialReplacementAcknowledgesHealthyDatesAndPreservesOtherDevices() async throws {
+        let fixture = try await HistoryRebuildFixture()
+        defer { try? fixture.directory.remove() }
+        let otherDate = HistoryStorage.dateKey(for: Date().addingTimeInterval(-86400))
+        let otherEvent = TestFixtures.event(at: Date().addingTimeInterval(-86400))
+        _ = try fixture.directory.write(AppServerEventRecord(activity: otherEvent).jsonLineData(), to: "Events/\(otherDate).jsonl")
+        let otherDevice = CKRecord(recordType: "Activity", recordID: CKRecord.ID(recordName: "other_\(fixture.date)_source", zoneID: Self.zone))
+        let contribution = SyncedActivity(date: fixture.date, generationID: "source", eventCount: 7, projectCounts: [:], modelCounts: [:])
+        ActivityRecordCodec.apply(contribution, deviceID: "other", to: otherDevice)
+        await fixture.database.storeRecord(otherDevice)
+        _ = try await fixture.history.rebuildData(for: [fixture.date, otherDate], synchronize: false)
+        await fixture.database.failActivityUpload(on: otherDate)
+        _ = await fixture.history.loadSnapshot(synchronize: true)
+        #expect(await !fixture.history.hasPendingReplacement(for: [fixture.date]))
+        #expect(await fixture.history.hasPendingReplacement(for: [otherDate]))
+        let records = await fixture.database.activityRecords()
+        #expect(records.first { $0["deviceID"] as? String == "other" }?["eventCount"] as? Int == 7)
+        #expect(await !fixture.database.deletedIDs.contains(otherDevice.recordID))
+        await fixture.database.repair()
+        _ = await fixture.history.loadSnapshot(synchronize: true)
+        #expect(await !fixture.history.hasPendingReplacement(for: [otherDate]))
+    }
+
+    @Test func disabledSyncKeepsRebuildRequestForNextEnabledService() async throws {
+        let fixture = try await HistoryRebuildFixture()
+        defer { try? fixture.directory.remove() }
+        let disabled = SyncService(database: fixture.database, directoryURL: HistoryStorage.syncDirectoryURL(in: fixture.directory.url), isEnabled: { false })
+        let history = HistoryService(directoryURL: fixture.directory.url, syncService: disabled)
+        _ = try await history.rebuildData(for: [fixture.date], synchronize: true)
+        #expect(await history.hasPendingReplacement(for: [fixture.date]))
+        #expect(await fixture.database.deletedIDs.isEmpty)
+        #expect(await fixture.database.activityRecords().first?["eventCount"] as? Int == 9)
+        _ = await fixture.history.loadSnapshot(synchronize: true)
+        #expect(await !history.hasPendingReplacement(for: [fixture.date]))
+        #expect(await fixture.database.activityRecords().first?["eventCount"] as? Int == 1)
+    }
+}
+
+extension SyncRecoveryTests {
+    @Test func appendedEventsKeepReplacementGenerationAndAreIncludedInRetry() async throws {
+        let fixture = try await HistoryRebuildFixture()
+        defer { try? fixture.directory.remove() }
+        _ = try await fixture.history.rebuildData(for: [fixture.date], synchronize: false)
+        let generation = HistoryStorage.loadMaintenanceState(in: fixture.directory.url).days[fixture.date]?.generationID
+        let recorder = ActivityRecorder(directoryURL: fixture.directory.url)
+        let event = ActivityRecord(
+            timestamp: Date(), name: ActivityEventKind.toolStarted.rawValue, origin: .main,
+            cwd: nil, tool: "exec_command", model: nil, effort: nil, approvalReviewer: nil,
+            sessionID: "session-a", turnID: "turn-a", agentID: nil, id: "appended-tool"
+        )
+        try await recorder.record(event: event)
+        _ = await fixture.history.loadSnapshotWithMaintenance(synchronize: true, trigger: .auto)
+        #expect(await !fixture.history.hasPendingReplacement(for: [fixture.date]))
+        let remote = try #require(await fixture.database.activityRecords().first)
+        #expect(remote["eventCount"] as? Int == 2)
+        #expect(remote["generationID"] as? String == generation)
+    }
+
+    @Test func partialTokenFailureIsReportedWithoutClaimingWholeDaySuccess() async throws {
+        let fixture = try await HistoryRebuildFixture()
+        defer { try? fixture.directory.remove() }
+        let now = Date()
+        let goodID = TokenTurn.identifier(thread: "good", turn: "summary")
+        let badID = TokenTurn.identifier(thread: "bad", turn: "summary")
+        let good = TokenObservation(
+            turn: TokenTurn(id: goodID, rootID: goodID, startedAt: now, updatedAt: now), rootStartedAt: now,
+            streamID: "good", sequence: 1, previous: .zero, current: .zero
+        )
+        let bad = TokenObservation(
+            turn: TokenTurn(id: badID, rootID: badID, startedAt: now, updatedAt: now), rootStartedAt: now,
+            streamID: "bad", sequence: 2, previous: .zero, current: .zero
+        )
+        let handle = try FileHandle(forWritingTo: fixture.eventURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: AppServerEventRecord(observation: good, recordedAt: now).jsonLineData())
+        try handle.write(contentsOf: AppServerEventRecord(observation: bad, recordedAt: now).jsonLineData())
+        try handle.close()
+        let result = try await fixture.history.rebuildData(for: [fixture.date], synchronize: false)
+        #expect(result.summary.rebuiltDateCount == 0)
+        #expect(result.summary.eventCount == 1)
+        #expect(result.summary.tokenTurnCount == 1)
+        #expect(result.summary.failedTokenDateKeys == [fixture.date])
+        #expect(result.summary.didFailTokenRebuild)
+        #expect(result.summary.failedDateKeys.isEmpty)
+        #expect(result.summary.failedRequestDateKeys.isEmpty)
+    }
+}
+
+extension SyncRecoveryTests {
+    @Test func corruptJournalCannotBecomeAuthoritativeZeroDuringRebuildOrRetry() async throws {
+        let fixture = try await HistoryRebuildFixture()
+        defer { try? fixture.directory.remove() }
+        let original = try Data(contentsOf: fixture.eventURL)
+        try Data("broken event\n".utf8).write(to: fixture.eventURL)
+        await #expect(throws: (any Error).self) {
+            try await fixture.history.rebuildData(for: [fixture.date], synchronize: true)
+        }
+        let restarted = HistoryService(directoryURL: fixture.directory.url, syncService: fixture.sync)
+        _ = await restarted.loadSnapshotWithMaintenance(synchronize: true, trigger: .auto)
+        #expect(await fixture.database.deletedIDs.isEmpty)
+        #expect(await fixture.database.activityRecords().first?["eventCount"] as? Int == 9)
+        #expect(await restarted.hasPendingReplacement(for: [fixture.date]))
+        try original.write(to: fixture.eventURL)
+        _ = await restarted.loadSnapshotWithMaintenance(synchronize: true, trigger: .auto)
+        #expect(await fixture.database.activityRecords().first?["eventCount"] as? Int == 1)
+        #expect(await !restarted.hasPendingReplacement(for: [fixture.date]))
     }
 }

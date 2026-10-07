@@ -9,7 +9,7 @@ struct ActivityRecoveryTests {
         let store = TokenHistoryStore(directoryURL: directory.url)
         let id = TokenTurn.identifier(thread: "t", turn: "u")
         let record = TokenTurn(id: id, rootID: id, startedAt: now, updatedAt: now, usage: .zero)
-        try await store.record([record], now: now)
+        try await directory.seedTokenSnapshots([record], now: now)
         let cache = try directory.write("broken", to: "Aggregates/tokens.json")
         var refreshFailed = false
         var rebuildFailed = false

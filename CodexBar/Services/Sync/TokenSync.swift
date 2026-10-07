@@ -8,7 +8,7 @@ actor TokenSync {
     private let isEnabled: @Sendable () -> Bool
     private var fileCache: TokenFileCache<TokenSyncCache>
     static let recordType = "Tokens"
-    private static let currentVersion = 2
+    private static let currentVersion = 1
 
     init(database: any SyncDatabase, directoryURL: URL, isEnabled: @escaping @Sendable () -> Bool = { SyncSettings.isEnabled() }) {
         self.database = database
@@ -260,7 +260,7 @@ actor TokenSync {
 private nonisolated struct TokenSyncCacheHeader: Decodable { let version: Int }
 
 private nonisolated struct TokenSyncCache: Codable, Equatable {
-    static let currentVersion = 2
+    static let currentVersion = 1
     var version = currentVersion
     let accountScopedDeviceID: String
     let salt: Data

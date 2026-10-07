@@ -209,14 +209,6 @@ struct ActivityTask {
         )
     }
 
-    var promptReference: ActivityPromptReference? {
-        guard startedAt == nil,
-              let sessionID = key.sessionID, let turnID = associatedTurnID else {
-            return nil
-        }
-        return ActivityPromptReference(sessionID: sessionID, turnID: turnID)
-    }
-
     var resolvedTurnKey: ActivityTaskKey? {
         guard let session = key.sessionID, let turn = associatedTurnID else { return nil }
         return .turn(session: session, turn: turn)

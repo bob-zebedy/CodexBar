@@ -2,9 +2,9 @@ import Foundation
 
 nonisolated enum AppStorage {
     #if DEBUG
-        static let directoryName = "CodexBar Debug"
+        static let directoryName = "CodexBar Data Debug"
     #else
-        static let directoryName = "CodexBar"
+        static let directoryName = "CodexBar Data"
     #endif
 
     static func directoryURL(fileManager: FileManager = .default) -> URL {

@@ -2049,6 +2049,22 @@
         }
       }
     },
+    "history.rebuild.error.incomplete-source" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The original event log contains unreadable records. Previous results have been kept. Repair the log and retry."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原始事件日志包含无法读取的记录, 已保留原结果, 请修复日志后重试"
+          }
+        }
+      }
+    },
     "history.rebuild.error.source-changed" : {
       "localizations" : {
         "en" : {
@@ -2166,13 +2182,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Days rebuilt: %1$lld; events: %2$lld"
+            "value" : "Days fully rebuilt: %1$lld; rebuilt events: %2$lld"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已重建 %1$lld 天, 包含活动事件 %2$lld 条"
+            "value" : "完整重建 %1$lld 天, 已重算活动事件 %2$lld 条"
           }
         }
       }
@@ -2209,34 +2225,18 @@
         }
       }
     },
-    "history.rebuild.summary.skipped-invalid-events" : {
+    "history.rebuild.summary.request-failed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; skipped %lld invalid events"
+            "value" : "; rebuild could not start for %@, please retry"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : ", 跳过 %lld 条无效数据"
-          }
-        }
-      }
-    },
-    "history.rebuild.summary.sync-replacement-marking-failed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "; could not replace cloud data, please try again later"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "; 云端替换未能完成, 请稍后重新尝试"
+            "value" : "; 重建请求未能保存 (%@), 请重新尝试"
           }
         }
       }
@@ -2246,13 +2246,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; session data rebuild incomplete, please retry"
+            "value" : "; session data rebuild incomplete (%@), please retry the incomplete dates"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; 会话数据重建未完成, 请重试"
+            "value" : "; 会话数据重建未完成 (%@), 请重新尝试未完成日期"
           }
         }
       }

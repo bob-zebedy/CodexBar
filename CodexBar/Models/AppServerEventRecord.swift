@@ -25,7 +25,7 @@ nonisolated struct AppServerEventSource: Codable, Equatable {
 nonisolated struct AppServerEventRecord: Codable, Equatable {
     enum Kind: String, Codable { case activity, tokenSnapshot, tokenObservation }
 
-    static let currentVersion = 2
+    static let currentVersion = 1
     let version: Int
     let kind: Kind
     let recordedAt: Date

@@ -41,17 +41,6 @@ nonisolated enum JSONLines {
         Date(timeIntervalSince1970: (date.timeIntervalSince1970 * 1000).rounded(.down) / 1000)
     }
 
-    /// 从文件中部 seek 读取时首行必然残缺: 丢弃首个换行(含)之前的内容
-    /// 找不到换行时原样返回, 交给按行解码当坏行跳过
-    static func droppingLeadingPartialLine(_ data: Data) -> Data {
-        guard let firstNewlineIndex = data.firstIndex(of: newlineByte) else {
-            return data
-        }
-
-        let firstCompleteIndex = data.index(after: firstNewlineIndex)
-        return firstCompleteIndex < data.endIndex ? Data(data[firstCompleteIndex...]) : Data()
-    }
-
     /// 按行解码 JSONL: 切分换行, 跳过空行与解码失败的行
     static func decode<T: Decodable>(_ type: T.Type = T.self, from data: Data) -> [T] {
         decodeWithFailures(type, from: data).values

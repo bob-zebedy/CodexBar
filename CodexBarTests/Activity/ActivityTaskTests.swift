@@ -2,6 +2,21 @@ import Foundation
 import Testing
 
 struct ActivityTaskTests {
+    @Test(arguments: [-172800.0, 0.5, 2.0])
+    func lifecycleBackfillsMissingStartWithTimestampTolerance(offset: TimeInterval) {
+        var task = makeTask()
+        task.startedAt = nil
+        let start = task.lastActivityAt.addingTimeInterval(offset)
+        let state = healthyLifecycle(startedAt: start)
+        _ = ActivityMonitor.mergeLifecycleBackfill(from: state, into: &task)
+        #expect(task.startedAt == (offset <= 1 ? start : nil))
+        if task.startedAt != nil {
+            let earlier = healthyLifecycle(startedAt: start.addingTimeInterval(-60))
+            _ = ActivityMonitor.mergeLifecycleBackfill(from: earlier, into: &task)
+            #expect(task.startedAt == start)
+        }
+    }
+
     @Test func namelessToolAndApprovalDoNotReusePreviousToolName() {
         var task = makeTask(TestFixtures.event(.toolStarted))
         #expect(task.snapshot.toolName == "exec_command")
@@ -123,9 +138,9 @@ struct ActivityTaskTests {
         #expect(task.state == .running)
     }
 
-    private func healthyLifecycle() -> SessionLifecycleState {
+    private func healthyLifecycle(startedAt: Date? = nil) -> SessionLifecycleState {
         SessionLifecycleState(
-            requestedThreadID: "session-a", turnID: "turn-a", startedAt: nil, approvalReviewer: nil, effort: nil,
+            requestedThreadID: "session-a", turnID: "turn-a", startedAt: startedAt, approvalReviewer: nil, effort: nil,
             lastProgressAt: nil, terminal: nil, readStatus: .complete, hasContext: true
         )
     }

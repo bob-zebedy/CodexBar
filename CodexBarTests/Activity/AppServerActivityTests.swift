@@ -304,8 +304,11 @@ struct AppServerActivityTests {
             reasoningOutputTokens: 5,
             totalTokens: 120
         )
-        let record = TokenTurn(id: "one", rootID: "one", startedAt: now, updatedAt: now, usage: usage)
-        try await store.record([record, record], now: now)
+        let observation = TokenObservation(
+            turn: TokenTurn(id: "one", rootID: "one", startedAt: now, updatedAt: now),
+            rootStartedAt: now, streamID: "stream", sequence: 1, previous: .zero, current: usage
+        )
+        _ = try await store.recordObservations([observation, observation], now: now)
         let restarted = TokenHistoryStore(directoryURL: directory.url)
         let records = try await restarted.refresh(now: now)
         #expect(records.count == 1)
@@ -462,7 +465,7 @@ extension AppServerActivityTests {
             totalTokens: 60
         )
         correction.startNewGeneration(at: now)
-        try await store.record([correction], now: now)
+        try await directory.seedTokenSnapshots([correction], now: now)
         // 修正发生在采集器提交下一笔之前, 内存仍可能暂时持有旧累计值
         _ = try reducer.consume(tokenMessage(total: 110), now: now.addingTimeInterval(1))
         let result = try await store.recordObservations(reducer.takeTokenObservations(), now: now)

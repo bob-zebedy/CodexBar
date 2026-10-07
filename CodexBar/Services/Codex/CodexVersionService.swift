@@ -228,16 +228,6 @@ nonisolated enum CodexVersionReader {
         return parsedVersion >= parsedMinimumVersion
     }
 
-    /// 返回 nil 表示任一版本不可识别, 构建标记不影响版本优先级
-    static func isVersion(_ version: String, newerThan otherVersion: String) -> Bool? {
-        guard let parsedVersion = SemanticVersion(version),
-              let parsedOtherVersion = SemanticVersion(otherVersion) else {
-            return nil
-        }
-
-        return parsedVersion > parsedOtherVersion
-    }
-
     private struct SemanticVersion: Comparable {
         let core: [Int]
         let prerelease: [PrereleaseIdentifier]?

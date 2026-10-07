@@ -58,34 +58,13 @@ actor SyncService {
 
     // MARK: - 同步入口
 
-    func snapshotFromCacheIfEnabled(localTokenTurns: [TokenTurn] = []) async -> SyncSnapshot {
+    func snapshotFromCacheIfEnabled(localTokenTurns: [TokenTurn] = [], replacements: [ActivityAggregate] = []) async -> SyncSnapshot {
         guard isEnabled() else {
             return .disabled
         }
 
         let state = activityStore.loadState()
-        return await snapshot(from: state, localTokenTurns: localTokenTurns)
-    }
-
-    /// 显式重建后, 将所选日期标记为当前设备云端贡献的权威替换来源
-    func markReplacementNeeded(for dates: [String]) throws {
-        let validDates = Set(dates.filter(HistoryStorage.isValidDateKey))
-        guard !validDates.isEmpty else {
-            return
-        }
-
-        var state = activityStore.loadState()
-        state.replacementDates = Set(state.replacementDates)
-            .union(validDates)
-            .sorted()
-        for date in validDates {
-            state.hashByDate.removeValue(forKey: date)
-        }
-        try activityStore.saveState(state)
-    }
-
-    func hasPendingReplacement(for dates: [String]) -> Bool {
-        !Set(activityStore.loadState().replacementDates).isDisjoint(with: dates)
+        return await snapshot(from: state, localTokenTurns: localTokenTurns, replacementDates: Set(replacements.map(\.date)))
     }
 
     func tokenRecoveryBaselineIfEnabled() async -> TokenHistoryBaseline? {
@@ -100,6 +79,7 @@ actor SyncService {
     func synchronizeIfEnabled(
         localAggregates: [ActivityAggregate],
         localTokenTurns: [TokenTurn] = [],
+        replacements: [ActivityAggregate] = [],
         trigger: LogTrigger
     ) async -> SyncSnapshot {
         guard isEnabled(), !Task.isCancelled else {
@@ -122,6 +102,7 @@ actor SyncService {
         }
 
         var state = activityStore.loadState()
+        var completedReplacements: [String: String] = [:]
 
         // 显式开启同步允许恢复缺失的 zone, 同一轮最多重新执行一次
         cachedAccountSalt = nil
@@ -130,7 +111,8 @@ actor SyncService {
                 try SyncCancellation.check(isEnabled: isEnabled)
                 failureMessage = try await synchronizeOnce(
                     localAggregates: localAggregates, localTokenTurns: localTokenTurns,
-                    state: &state, stage: &stage, trigger: trigger, duration: duration
+                    replacements: replacements, completedReplacements: &completedReplacements,
+                    state: &state, stage: &stage, trigger: trigger
                 )
                 didSucceed = failureMessage == nil
                 break
@@ -140,6 +122,7 @@ actor SyncService {
                     invalidateAccountScopedCaches()
                 }
                 if SyncRecovery.isMissingZone(error, zoneID: syncZoneID), !Task.isCancelled, isEnabled() {
+                    completedReplacements.removeAll()
                     do {
                         try await resetSyncState(state: &state)
                         if attempt == 0 {
@@ -163,13 +146,17 @@ actor SyncService {
 
         guard !Task.isCancelled, isEnabled() else { return .disabled }
         let latestState = activityStore.loadState()
-        return await snapshot(from: latestState, localTokenTurns: localTokenTurns)
+        var result = await snapshot(from: latestState, localTokenTurns: localTokenTurns, replacementDates: Set(replacements.map(\.date)))
+        result.completedReplacements = completedReplacements
+        return result
     }
 
     private func synchronizeOnce(
         localAggregates: [ActivityAggregate], localTokenTurns: [TokenTurn],
-        state: inout SyncState, stage: inout SyncStage, trigger: LogTrigger, duration: LogDuration
+        replacements: [ActivityAggregate], completedReplacements: inout [String: String],
+        state: inout SyncState, stage: inout SyncStage, trigger: LogTrigger
     ) async throws -> String? {
+        let duration = LogDuration()
         try await ensureSyncZoneExists(state: &state)
         stage = .device
         let deviceID = try await resolveCurrentDeviceID()
@@ -181,7 +168,15 @@ actor SyncService {
         do {
             stage = .upload
             localByDate = try Self.syncedAggregatesByDate(localAggregates)
-            confirmedDates = try await synchronizeActivity(localByDate: localByDate, deviceID: deviceID, state: &state, stage: &stage)
+            for (date, var replacement) in try Self.syncedAggregatesByDate(replacements) {
+                guard replacement.aggregate.eventCount != nil else { throw ActivitySyncError.invalidRecordIdentity }
+                replacement.isReplacement = true
+                localByDate[date] = replacement
+            }
+            confirmedDates = try await synchronizeActivity(
+                localByDate: localByDate, deviceID: deviceID, state: &state, stage: &stage,
+                completedReplacements: &completedReplacements
+            )
         } catch {
             if SyncRecovery.stopsOtherSync(error) {
                 throw error
@@ -222,13 +217,16 @@ actor SyncService {
 
     private func synchronizeActivity(
         localByDate: [String: LocalSyncAggregate], deviceID: String,
-        state: inout SyncState, stage: inout SyncStage
+        state: inout SyncState, stage: inout SyncStage,
+        completedReplacements: inout [String: String]
     ) async throws -> Set<String> {
         stage = .fetch
         try await refreshCacheBeforeUpload(localByDate: localByDate, deviceID: deviceID, state: &state)
         stage = .upload
-        let dates = try await uploadChangedAggregates(localByDate: localByDate, remoteRecords: activityStore.loadCachedRecords(), state: &state)
-        try finalizeUpload(confirmedDates: dates, state: &state)
+        let dates = try await uploadChangedAggregates(
+            localByDate: localByDate, remoteRecords: activityStore.loadCachedRecords(),
+            state: &state, completedReplacements: &completedReplacements
+        )
         stage = .fetch
         try await refreshCacheFromRemote()
         return dates
@@ -281,7 +279,7 @@ actor SyncService {
         deviceID: String,
         state: inout SyncState
     ) async throws {
-        guard !state.replacementDates.isEmpty else {
+        guard localByDate.values.contains(where: \.isReplacement) else {
             try await refreshCacheFromRemote()
             return
         }
@@ -293,17 +291,6 @@ actor SyncService {
             deviceID: deviceID,
             state: &state
         )
-    }
-
-    private func finalizeUpload(
-        confirmedDates: Set<String>,
-        state: inout SyncState
-    ) throws {
-        let completedReplacementDates = Set(state.replacementDates).intersection(confirmedDates)
-        if !completedReplacementDates.isEmpty {
-            state.replacementDates.removeAll { completedReplacementDates.contains($0) }
-            try activityStore.saveState(state)
-        }
     }
 
     private func resetStateIfDeviceChanged(
@@ -322,7 +309,7 @@ actor SyncService {
     private func resetSyncState(state: inout SyncState) async throws {
         try SyncCancellation.check(isEnabled: isEnabled)
         // 先持久化未绑定状态, 中途失败或退出后仍会重新清理, 不把旧缓存当作已恢复
-        state = SyncState(replacementDates: state.replacementDates)
+        state = SyncState()
         try activityStore.reset(state: state)
         try await tokenSync.resetCache()
         try SyncCancellation.check(isEnabled: isEnabled)
@@ -340,12 +327,11 @@ actor SyncService {
         }
     }
 
-    private func snapshot(from state: SyncState, localTokenTurns: [TokenTurn]) async -> SyncSnapshot {
+    private func snapshot(from state: SyncState, localTokenTurns: [TokenTurn], replacementDates: Set<String>) async -> SyncSnapshot {
         guard let deviceID = state.deviceID else {
             return .disabled
         }
 
-        let replacementDates = Set(state.replacementDates)
         let records = Self.filteredRetained(records: activityStore.loadCachedRecords()).filter { record in
             record.deviceID != deviceID || !replacementDates.contains(record.date)
         }
@@ -362,12 +348,14 @@ private extension SyncService {
     struct LocalSyncAggregate {
         let aggregate: SyncedActivity
         let generationStartedEmpty: Bool
+        var isReplacement = false
     }
 
     struct PendingUpload {
         let date: String
         let aggregate: SyncedActivity
         let generationStartedEmpty: Bool
+        var isReplacement = false
         let hash: String
     }
 
@@ -423,7 +411,8 @@ private extension SyncService {
     func uploadChangedAggregates(
         localByDate: [String: LocalSyncAggregate],
         remoteRecords: [ActivitySyncRecord],
-        state: inout SyncState
+        state: inout SyncState,
+        completedReplacements: inout [String: String]
     ) async throws -> Set<String> {
         guard let deviceID = state.deviceID else {
             return []
@@ -459,6 +448,9 @@ private extension SyncService {
             let batchEnd = min(batchStart + Metrics.uploadBatchSize, pendingUploads.count)
             let batch = Array(pendingUploads[batchStart ..< batchEnd])
             let result = try await processUploadBatch(batch, deviceID: deviceID, remoteRecords: remoteRecords)
+            for confirmation in result.confirmed where confirmation.didUpload && localByDate[confirmation.date]?.isReplacement == true {
+                completedReplacements[confirmation.date] = localByDate[confirmation.date]?.aggregate.generationID
+            }
             try applyConfirmedHashes(result.confirmed, to: &state)
             confirmedDates.formUnion(result.confirmed.map(\.date))
             try result.failures.checkStopping()
@@ -476,7 +468,7 @@ private extension SyncService {
         deviceID: String,
         state: inout SyncState
     ) async throws {
-        let replacementDates = Set(state.replacementDates).intersection(localByDate.keys)
+        let replacementDates = Set(localByDate.filter(\.value.isReplacement).keys)
         guard !replacementDates.isEmpty else {
             return
         }
@@ -565,6 +557,7 @@ private extension SyncService {
                 date: date,
                 aggregate: local.aggregate,
                 generationStartedEmpty: local.generationStartedEmpty,
+                isReplacement: local.isReplacement,
                 hash: hash
             )
         }
@@ -585,6 +578,9 @@ private extension SyncService {
         existingRecords: [CKRecord.ID: Result<CKRecord, any Error>]
     ) throws -> UploadTarget {
         let existing = try Self.fetchedRecord(from: existingRecords[pendingRecord.recordID])
+        if pendingRecord.upload.isReplacement {
+            return .save(existing ?? CKRecord(recordType: RecordTypes.activity, recordID: pendingRecord.recordID))
+        }
         if let existing {
             guard let remote = try ActivityRecordCodec.remoteDailyRecord(from: existing) else {
                 throw ActivitySyncError.invalidRecordIdentity
@@ -881,7 +877,6 @@ private extension SyncService {
 
         let cutoffKey = HistoryStorage.dateKey(for: HistoryStorage.retentionCutoffDate())
         let expiredDates = Set(state.hashByDate.keys.filter { $0 < cutoffKey })
-        state.replacementDates.removeAll { $0 < cutoffKey }
         let recordIDs = try await Set(
             fetchCurrentDeviceRecordIDsToPrune(
                 deviceID: deviceID,
@@ -1148,6 +1143,7 @@ nonisolated struct SyncSnapshot: Equatable {
     let records: [ActivitySyncRecord]
     let currentDeviceID: String?
     var tokenUsageByDate: [String: TokenUsage]?
+    var completedReplacements: [String: String] = [:]
 
     static let disabled = SyncSnapshot(records: [], currentDeviceID: nil)
 }

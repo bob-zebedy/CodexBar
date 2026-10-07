@@ -121,17 +121,6 @@ actor AppServerActivityReader {
         return await withCheckedContinuation { drainWaiters.append($0) }
     }
 
-    func findPromptStartTimes(for references: [ActivityPromptReference]) -> [ActivityPromptReference: Date] {
-        var result: [ActivityPromptReference: Date] = [:]
-        for reference in references {
-            let key = ActivityTurnReference(threadID: reference.sessionID, turnID: reference.turnID, startedAt: Date())
-            if let start = reducer.states[key]?.startedAt {
-                result[reference] = start
-            }
-        }
-        return result
-    }
-
     private func run(generation current: Int) async {
         while isRunning, generation == current, !Task.isCancelled {
             do {

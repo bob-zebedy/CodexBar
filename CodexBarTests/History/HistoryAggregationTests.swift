@@ -3,27 +3,47 @@ import Foundation
 import Testing
 
 struct HistoryAggregationTests {
-    @Test func syncStateIsIsolatedByApplicationRoot() async throws {
+    @Test func aggregateJSONLinesPreserveSlashesAndStableBytes() throws {
+        var first = TestFixtures.aggregate()
+        first.projectCounts = ["/projects/a": 1, "/projects/z": 2]
+        first.modelCounts = ["model/name": 3]
+        var second = first
+        second.projectCounts = Dictionary(uniqueKeysWithValues: first.projectCounts.sorted { $0.key > $1.key })
+        let local = try first.jsonLineData()
+        let synced = try first.syncedAggregate.jsonLineData()
+        #expect(try local == (second.jsonLineData()))
+        #expect(try synced == (second.syncedAggregate.jsonLineData()))
+        for data in [local, synced] {
+            let text = try #require(String(bytes: data, encoding: .utf8))
+            #expect(text.contains("/projects/a"))
+            #expect(text.contains("model/name"))
+            #expect(!text.contains(#"\/"#))
+            #expect(data.last == JSONLines.newlineByte)
+            #expect(data.filter { $0 == JSONLines.newlineByte }.count == 1)
+        }
+        #expect(try JSONLines.decoder.decode(ActivityAggregate.self, from: local) == first)
+        #expect(try JSONLines.decoder.decode(SyncedActivity.self, from: synced) == first.syncedAggregate)
+    }
+
+    @Test func syncStateIsIsolatedByApplicationRoot() throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let debugRoot = directory.url.appendingPathComponent("CodexBar Debug", isDirectory: true)
-        let releaseRoot = directory.url.appendingPathComponent("CodexBar", isDirectory: true)
-        let debugSync = SyncService(directoryURL: HistoryStorage.syncDirectoryURL(in: debugRoot), isEnabled: { false })
-        let releaseSync = SyncService(directoryURL: HistoryStorage.syncDirectoryURL(in: releaseRoot), isEnabled: { false })
-        try await releaseSync.markReplacementNeeded(for: ["2026-09-15"])
-        #expect(await !debugSync.hasPendingReplacement(for: ["2026-09-15"]))
-        try await debugSync.markReplacementNeeded(for: ["2026-10-05"])
-        #expect(await !releaseSync.hasPendingReplacement(for: ["2026-10-05"]))
-        let restored = SyncService(directoryURL: HistoryStorage.syncDirectoryURL(in: debugRoot), isEnabled: { false })
-        #expect(await restored.hasPendingReplacement(for: ["2026-10-05"]))
-        #expect(FileManager.default.fileExists(atPath: debugRoot.appendingPathComponent("Sync/Activity/cache.json").path))
-        #expect(FileManager.default.fileExists(atPath: releaseRoot.appendingPathComponent("Sync/Activity/cache.json").path))
+        let debugRoot = directory.url.appendingPathComponent("CodexBar Data Debug", isDirectory: true)
+        let releaseRoot = directory.url.appendingPathComponent("CodexBar Data", isDirectory: true)
+        let debugStore = ActivitySyncStore(directoryURL: HistoryStorage.syncDirectoryURL(in: debugRoot))
+        let releaseStore = ActivitySyncStore(directoryURL: HistoryStorage.syncDirectoryURL(in: releaseRoot))
+        try releaseStore.saveState(SyncState(hashByDate: ["2026-09-15": "release"]))
+        #expect(debugStore.loadState().hashByDate.isEmpty)
+        try debugStore.saveState(SyncState(hashByDate: ["2026-10-05": "debug"]))
+        #expect(releaseStore.loadState().hashByDate["2026-10-05"] == nil)
+        let restored = ActivitySyncStore(directoryURL: HistoryStorage.syncDirectoryURL(in: debugRoot))
+        #expect(restored.loadState().hashByDate["2026-10-05"] == "debug")
         #expect(SyncCloudKit.zoneName == "CodexBarAppZone")
         let root = AppStorage.directoryURL()
         #if DEBUG
-            #expect(root.lastPathComponent == "CodexBar Debug")
+            #expect(root.lastPathComponent == "CodexBar Data Debug")
         #else
-            #expect(root.lastPathComponent == "CodexBar")
+            #expect(root.lastPathComponent == "CodexBar Data")
         #endif
         #expect(HistoryStorage.directoryURL() == root)
         #expect(HistoryStorage.syncDirectoryURL() == root.appendingPathComponent("Sync", isDirectory: true))

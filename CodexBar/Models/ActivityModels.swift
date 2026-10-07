@@ -19,12 +19,6 @@ nonisolated enum ActivityPhase: Equatable {
     case stopRequested
 }
 
-/// bootstrap 后需要向更早日期定向查找 Prompt 起点的精确任务引用
-nonisolated struct ActivityPromptReference: Hashable {
-    let sessionID: String
-    let turnID: String
-}
-
 /// 正在运行或等待批准的任务摘要, 不对 UI 暴露原始会话 ID
 nonisolated struct ActivityTaskSnapshot: Equatable, Identifiable {
     let id: UUID

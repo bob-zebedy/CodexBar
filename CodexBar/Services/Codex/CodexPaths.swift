@@ -156,9 +156,8 @@ nonisolated enum CodexPaths {
     }
 
     /// "两个路径是否指向同一文件"的统一口径
-    static func canonicalPath(_ path: String, expandingTilde: Bool = false) -> String {
-        let expandedPath = expandingTilde ? (path as NSString).expandingTildeInPath : path
-        return URL(fileURLWithPath: expandedPath)
+    static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path)
             .resolvingSymlinksInPath()
             .standardizedFileURL
             .path

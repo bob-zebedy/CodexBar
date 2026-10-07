@@ -56,10 +56,8 @@ final class SyncScheduler {
         drain()
     }
 
-    /// activation 传 nil 时现场求值
-    /// 从 @Published 的订阅里调用必须显式传入: 那时属性还是旧值, 现场求值会得到刚被改掉的那个结论
-    func requestSync(trigger: LogTrigger, activation overrideActivation: SyncActivation? = nil) {
-        let activation = overrideActivation ?? syncActivation()
+    func requestSync(trigger: LogTrigger) {
+        let activation = syncActivation()
         guard activation.isActive else {
             let details = LogFields.joined(
                 "trigger=\(trigger.rawValue)",

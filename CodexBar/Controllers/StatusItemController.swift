@@ -268,10 +268,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - 订阅与全局快捷键
 
     private func observeViewModel() {
-        let hasQuotaSnapshot = viewModel.$snapshot
-            .map { $0 != nil }
-            .removeDuplicates()
-
         let hasTaskCenterContent = activityMonitor.$snapshot
             .map(\.hasTaskCenterContent)
             .removeDuplicates()
@@ -280,14 +276,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .map { $0.isVisible(.activity) }
             .removeDuplicates()
 
-        Publishers.CombineLatest4(
+        Publishers.CombineLatest3(
             menuSurfaceVisibility.$isVisible,
-            hasQuotaSnapshot,
             hasTaskCenterContent,
             isTaskCenterVisible
         )
-        .map { isMenuVisible, hasQuotaSnapshot, hasActivity, isTaskCenterVisible in
-            isMenuVisible && hasQuotaSnapshot && hasActivity && isTaskCenterVisible
+        .map { isMenuVisible, hasActivity, isTaskCenterVisible in
+            isMenuVisible && hasActivity && isTaskCenterVisible
         }
         .removeDuplicates()
         .sink { [weak self] isActive in
@@ -306,7 +301,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
                 usesErrorImage: loadState.isError || snapshot?.hasTrustedData == false,
                 ordinaryUsageAllowed: snapshot?.ordinaryUsageAllowed,
                 progress: StatusIconProgress(snapshot: snapshot, selection: selection),
-                activity: snapshot == nil ? .empty : activity
+                activity: activity
             )
         }
         .removeDuplicates()
@@ -325,7 +320,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
             .store(in: &cancellables)
 
-        hasQuotaSnapshot
+        hasTaskCenterContent
             .sink { [weak self] isAvailable in
                 guard let self, !isAvailable else {
                     return
@@ -355,8 +350,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func observeSyncState() {
         syncSettings.$syncAvailability
             .removeDuplicates()
+            // 同步调度会回读设置, 等可用性提交后再处理恢复
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] availability in
-                self?.handleSyncChanged(isSyncAvailable: availability.isAvailable)
+                guard let self, availability == syncSettings.syncAvailability else { return }
+                syncScheduler.requestSync(trigger: .settings)
             }
             .store(in: &cancellables)
     }
@@ -844,6 +842,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func refreshHistory(performMaintenance: Bool) {
         if performMaintenance {
+            syncSettings.refreshAvailabilityIfNeeded()
             // 统计维护挂在额度刷新完成事件上, 触发来源继承那一次刷新
             syncScheduler.requestMaintenance(
                 allowsSync: true,
@@ -852,18 +851,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         } else {
             historyViewModel.refreshIfNeeded()
         }
-    }
-
-    /// isSyncAvailable 由调用方传入
-    /// 从 $syncAvailability 的订阅进来时 syncSettings.isSyncAvailable 还是旧值, 只有回调参数是新的
-    /// 不在这里判断该不该跳过: requestSync 的 guard 已经统一处理并记下 reason=
-    private func handleSyncChanged(isSyncAvailable: Bool) {
-        syncScheduler.requestSync(
-            trigger: .settings,
-            activation: syncSettings.activation(
-                isSyncAvailable: isSyncAvailable
-            )
-        )
     }
 
     private var syncActivation: SyncActivation {

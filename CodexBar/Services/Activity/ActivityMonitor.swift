@@ -56,7 +56,7 @@ final class ActivityMonitor: ObservableObject {
     var protectionPersistenceTask: Task<Void, Never>?
     private var isProtectionStateLoaded = false
     var isProtectionEnabled = false
-    var isActivitySourceHealthy = false
+    @Published var isActivitySourceHealthy = false
     private var unavailableTurns = Set<ActivityTaskKey>()
     var isProtectionRecoveryInProgress = false
     var protectionRecoveryGeneration: UInt64 = 0
@@ -222,7 +222,7 @@ final class ActivityMonitor: ObservableObject {
         clearCollectedActivityState()
         isBootstrapping = false
         sessionTransitionNotBefore = nil
-        snapshot = .empty
+        publishSnapshot(.empty)
     }
 
     // MARK: - 会话生命周期
@@ -495,7 +495,7 @@ final class ActivityMonitor: ObservableObject {
 
     // MARK: - 活动事件消费
 
-    private func consume(_ batch: ActivityEventBatch) {
+    func consume(_ batch: ActivityEventBatch) {
         switch batch {
         case .lifecycleChanged:
             refreshSessionLifecycleNow()
@@ -513,6 +513,7 @@ final class ActivityMonitor: ObservableObject {
             isActivitySourceHealthy = false
             cancelInactivityCheck()
             clearCollectedActivityState()
+            publishSnapshot(.empty)
         case let .bootstrapEvents(events):
             bootstrapEventCount += events.count
             for event in events {
@@ -562,7 +563,7 @@ final class ActivityMonitor: ObservableObject {
             isActivitySourceHealthy = false
             resetTerminalPresentationEvents()
             beginProtectionRecovery()
-            snapshot = .empty
+            publishSnapshot(.empty)
             cancelInactivityCheck()
             cancelAllProtectionAttempts()
             AppLog.activity.error(
@@ -607,7 +608,6 @@ final class ActivityMonitor: ObservableObject {
         let now = Date()
         applyPersistedProtection(now: now)
         reconcileProtection(now: now, sendsNotification: false)
-        backfillPromptStartTimesFromHistory()
 
         let activeCount = snapshot.activeCount
         let eventCount = bootstrapEventCount
@@ -619,44 +619,6 @@ final class ActivityMonitor: ObservableObject {
             "elapsed=\(elapsed)"
         )
         AppLog.activity.notice("历史回放完成: \(details, privacy: .public)")
-    }
-
-    /// bootstrap 只覆盖 24 小时窗口; 窗口内恢复出的无起点任务向更早日期回查 Prompt 起点
-    private func backfillPromptStartTimesFromHistory() {
-        let references = tasks.values.compactMap(\.promptReference)
-        guard !references.isEmpty, let reader = activityReader else {
-            return
-        }
-        let generation = activityReaderGeneration
-
-        Task { @MainActor [weak self] in
-            let startTimes = await reader.findPromptStartTimes(for: references)
-            guard let self,
-                  activityReaderGeneration == generation,
-                  !isBootstrapping,
-                  !startTimes.isEmpty else {
-                return
-            }
-            backfillStartTimes(startTimes)
-        }
-    }
-
-    private func backfillStartTimes(_ startTimes: [ActivityPromptReference: Date]) {
-        var didChange = false
-        for (reference, startedAt) in startTimes {
-            let key = ActivityTaskKey.turn(session: reference.sessionID, turn: reference.turnID)
-            guard var task = tasks[key],
-                  task.startedAt == nil,
-                  startedAt <= task.lastActivityAt else {
-                continue
-            }
-            task.startedAt = startedAt
-            tasks[key] = task
-            didChange = true
-        }
-        if didChange {
-            refreshSnapshot(now: Date())
-        }
     }
 
     func apply(
@@ -1170,16 +1132,20 @@ final class ActivityMonitor: ObservableObject {
         )
         let events = pendingTerminalPresentationEvents.filter { terminalTaskKeyByID[$0.id] != nil }
         pendingTerminalPresentationEvents.removeAll()
+        publishSnapshot(newSnapshot, terminalEvents: events)
+
+        scheduleNextCleanup(now: now)
+        scheduleNextInactivityCheck(now: now)
+    }
+
+    private func publishSnapshot(_ newSnapshot: ActivitySnapshot, terminalEvents: [ActivityTerminalEvent] = []) {
         let didChange = newSnapshot != snapshot
         if didChange {
             snapshot = newSnapshot
         }
-        if didChange || !events.isEmpty {
-            presentationSubject.send(ActivityPresentationUpdate(snapshot: newSnapshot, terminalEvents: events))
+        if didChange || !terminalEvents.isEmpty {
+            presentationSubject.send(ActivityPresentationUpdate(snapshot: newSnapshot, terminalEvents: terminalEvents))
         }
-
-        scheduleNextCleanup(now: now)
-        scheduleNextInactivityCheck(now: now)
     }
 
     private func sortedTasks(in state: ActivityTaskState) -> [ActivityTask] {

@@ -148,7 +148,6 @@ private extension CodexStatusMenuView {
             activityMonitor: activityMonitor,
             presentationState: activityCenterPresentationState,
             keepAliveController: keepAliveController,
-            showsUnavailableState: viewModel.snapshot == nil,
             onTaskCenterTap: { anchorProvider in
                 onActivityCenterTap(
                     ActivityCenterPanelContext(
@@ -179,12 +178,12 @@ private extension CodexStatusMenuView {
 
     @ViewBuilder
     func usageSection(dataPlaceholderSection: MainPanelSection?) -> some View {
-        if let snapshot = viewModel.snapshot {
+        if hasData(for: .usage) {
             UsageSummaryView(
-                usage: snapshot.usage,
+                usage: viewModel.snapshot?.usage,
                 history: historyViewModel.snapshot,
                 showsActivity: true,
-                isStale: snapshot.isUsageStale,
+                isStale: viewModel.snapshot?.isUsageStale ?? false,
                 onHoverContextChange: onUsageHeatmapHoverChange
             )
             .id(menuSurfaceVisibility.presentationGeneration)
@@ -220,7 +219,8 @@ private extension CodexStatusMenuView {
         case .quota:
             viewModel.snapshot?.limits.isEmpty == false
         case .usage:
-            viewModel.snapshot != nil
+            viewModel.snapshot != nil || !historyViewModel.snapshot.dailyMetrics.isEmpty
+                || !historyViewModel.snapshot.tokenUsageByDate.isEmpty
         case .account, .activity, .status:
             false
         }

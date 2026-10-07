@@ -19,12 +19,6 @@ struct JSONLinesAndActivityTests {
         #expect(result.failedLineCount == 2)
     }
 
-    @Test func leadingPartialLineIsDroppedAtByteBoundary() {
-        #expect(JSONLines.droppingLeadingPartialLine(Data("partial\n1\n2\n".utf8)) == Data("1\n2\n".utf8))
-        #expect(JSONLines.droppingLeadingPartialLine(Data("partial\n".utf8)).isEmpty)
-        #expect(JSONLines.droppingLeadingPartialLine(Data("partial".utf8)) == Data("partial".utf8))
-    }
-
     @Test(arguments: ["PermissionRequest", "permission_request", "permission-request", "approval.requested"])
     func eventAliasesAreNotAccepted(_ name: String) {
         #expect(ActivityEventKind(eventName: name) == nil)

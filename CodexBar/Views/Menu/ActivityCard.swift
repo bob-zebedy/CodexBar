@@ -6,14 +6,17 @@ struct ActivityCard: View {
     @ObservedObject var activityMonitor: ActivityMonitor
     @ObservedObject var presentationState: ActivityCenterPresentationState
     @ObservedObject var keepAliveController: KeepAliveController
-    let showsUnavailableState: Bool
     let onTaskCenterTap: (ScreenFrameProvider) -> Void
     @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
     @State private var frameProvider = ScreenFrameProvider()
     @State private var isHovered = false
 
     private var snapshot: ActivitySnapshot {
-        showsUnavailableState ? .empty : activityMonitor.snapshot
+        activityMonitor.snapshot
+    }
+
+    private var showsUnavailableState: Bool {
+        !activityMonitor.isActivitySourceHealthy
     }
 
     private var timelineDate: Date {

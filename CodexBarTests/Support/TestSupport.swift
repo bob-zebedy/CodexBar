@@ -60,6 +60,16 @@ nonisolated struct TestDirectory {
         try write(Data(text.utf8), to: relativePath)
     }
 
+    func seedTokenSnapshots(_ turns: [TokenTurn], now: Date) async throws {
+        try HistoryStorage.withExclusiveLock(in: url) {
+            var journal = AppServerEventJournal()
+            for turn in turns {
+                try journal.append(AppServerEventRecord(token: turn, recordedAt: now), in: url)
+            }
+        }
+        _ = try await TokenHistoryStore(directoryURL: url).refresh(now: now)
+    }
+
     func remove() throws {
         try FileManager.default.removeItem(at: url)
     }

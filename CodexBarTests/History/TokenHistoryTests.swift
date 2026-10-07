@@ -346,7 +346,7 @@ extension TokenHistoryTests {
         var bad = try #require(try await store.recordObservations([first], now: TestFixtures.now).first)
         bad.startNewGeneration(at: TestFixtures.now)
         bad.usage = observation(sequence: 1, previous: 0, current: 900).current
-        try await store.record([bad], now: TestFixtures.now)
+        try await directory.seedTokenSnapshots([bad], now: TestFixtures.now)
         _ = try await store.rebuild(for: [day], now: TestFixtures.now)
         let restored = try #require(try await store.currentTurns(now: TestFixtures.now).first)
         #expect(restored.usage?.totalTokens == 100)
@@ -354,8 +354,10 @@ extension TokenHistoryTests {
         let second = observation(sequence: 2, previous: 1100, current: 1120)
         var remote = try second.applying(to: restored)
         remote.startNewGeneration(at: TestFixtures.now)
-        try await store.record([remote], now: TestFixtures.now)
-        await #expect(throws: TokenCacheError.self) { try await store.rebuild(for: [day], now: TestFixtures.now) }
+        try await directory.seedTokenSnapshots([remote], now: TestFixtures.now)
+        let failed = try await store.rebuild(for: [day], now: TestFixtures.now)
+        #expect(failed.failedDateKeys == [day])
+        #expect(failed.turnCount == 0)
         #expect(try await store.currentTurns(now: TestFixtures.now).first == remote)
     }
 
@@ -399,5 +401,138 @@ extension TokenHistoryTests {
         #expect(stale.merging(correction) == merged)
         #expect(merged.merging(stale) == merged)
         #expect(merged.merging(correction) == merged)
+    }
+}
+
+extension TokenHistoryTests {
+    private func rebuildObservation(
+        _ name: String, root: String? = nil, start: Date = TestFixtures.now,
+        sequence: Int64 = 1, previous: Int64 = 0, current: Int64 = 10
+    ) -> TokenObservation {
+        let id = TokenTurn.identifier(thread: name, turn: "rebuild")
+        let rootID = TokenTurn.identifier(thread: root ?? name, turn: "rebuild")
+        let counts = observation(sequence: sequence, previous: previous, current: current)
+        return TokenObservation(
+            turn: TokenTurn(id: id, rootID: rootID, startedAt: start, updatedAt: TestFixtures.now),
+            rootStartedAt: start, streamID: name, sequence: sequence, previous: counts.previous, current: counts.current
+        )
+    }
+
+    private func writeJournal(_ observations: [TokenObservation], in directory: TestDirectory, at date: Date = TestFixtures.now) throws {
+        let data = try observations.reduce(into: Data()) { result, observation in
+            try result.append(AppServerEventRecord(observation: observation, recordedAt: date).jsonLineData())
+        }
+        _ = try directory.write(data, to: "Events/\(HistoryStorage.dateKey(for: date)).jsonl")
+    }
+
+    @Test func unselectedIncompleteRootDoesNotBlockRebuildOrSubsequentCacheLoad() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let selected = rebuildObservation("selected")
+        let unselected = rebuildObservation("other", start: TestFixtures.now.addingTimeInterval(-86400), sequence: 2, previous: 10, current: 20)
+        try writeJournal([selected, unselected], in: directory)
+        let store = TokenHistoryStore(directoryURL: directory.url)
+        let result = try await store.rebuild(for: [day], now: TestFixtures.now)
+        #expect(result.failedDateKeys.isEmpty)
+        #expect(result.turnCount == 1)
+        let expected = try #require(result.turns?.first { $0.id == selected.turn.id })
+        #expect(expected.usage?.totalTokens == 10)
+        let restarted = TokenHistoryStore(directoryURL: directory.url)
+        let loaded = try await restarted.refresh(now: TestFixtures.now)
+        #expect(loaded == [expected])
+        let cache = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: directory.url.appendingPathComponent("Aggregates/tokens.json"))) as? [String: Any])
+        #expect((cache["files"] as? [String: Any])?.isEmpty == true)
+    }
+
+    @Test func failedRootPreservesOldResultWhileSameDayHealthyRootIsRebuilt() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let store = TokenHistoryStore(directoryURL: directory.url)
+        let previous = rebuildObservation("bad")
+        let old = try #require(try await store.recordObservations([previous], now: TestFixtures.now).first)
+        let good = rebuildObservation("good")
+        let broken = rebuildObservation("bad", sequence: 3, previous: 20, current: 30)
+        try writeJournal([good, broken], in: directory)
+        let result = try await store.rebuild(for: [day], now: TestFixtures.now)
+        #expect(result.failedDateKeys == [day])
+        #expect(result.turnCount == 1)
+        #expect(result.turns?.first { $0.id == old.id } == old)
+        let rebuilt = try #require(result.turns?.first { $0.id == good.turn.id })
+        #expect(rebuilt.generationID != "initial")
+        let reopened = TokenHistoryStore(directoryURL: directory.url)
+        let loaded = try await reopened.refresh(now: TestFixtures.now)
+        #expect(loaded.first { $0.id == old.id } == old)
+        #expect(loaded.first { $0.id == rebuilt.id } == rebuilt)
+    }
+
+    @Test func rebuildIncludesChildObservationsWrittenOnAnotherDay() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let root = rebuildObservation("root")
+        let child = rebuildObservation("child", root: "root", current: 20)
+        try writeJournal([root], in: directory)
+        try writeJournal([child], in: directory, at: TestFixtures.now.addingTimeInterval(86400))
+        let store = TokenHistoryStore(directoryURL: directory.url)
+        let result = try await store.rebuild(for: [day], now: TestFixtures.now.addingTimeInterval(86400))
+        #expect(result.failedDateKeys.isEmpty)
+        #expect(result.turnCount == 2)
+        #expect(TokenTurn.dailyUsage(result.turns ?? [], now: TestFixtures.now.addingTimeInterval(86400))[day]?.totalTokens == 30)
+    }
+
+    @Test func missingCachedChildPreventsReplacingItsWholeRoot() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let store = TokenHistoryStore(directoryURL: directory.url)
+        let root = rebuildObservation("root")
+        let child = rebuildObservation("child", root: "root")
+        let before = try await store.recordObservations([root, child], now: TestFixtures.now)
+        try writeJournal([root], in: directory)
+        let result = try await store.rebuild(for: [day], now: TestFixtures.now)
+        #expect(result.failedDateKeys == [day])
+        #expect(result.turnCount == 0)
+        #expect(Set(result.turns?.map(\.generationID) ?? []) == Set(before.map(\.generationID)))
+        #expect(result.turns?.first { $0.id == child.turn.id } == before.first { $0.id == child.turn.id })
+    }
+
+    @Test func failedRootRollsBackAcrossFilesAndRetainsCursorsUntilRepair() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let first = rebuildObservation("root")
+        let second = rebuildObservation("root", sequence: 2, previous: 10, current: 20)
+        let third = rebuildObservation("root", sequence: 3, previous: 20, current: 30)
+        let fourth = rebuildObservation("root", sequence: 4, previous: 30, current: 40)
+        let store = TokenHistoryStore(directoryURL: directory.url)
+        let before = try #require(try await store.recordObservations([first], now: TestFixtures.now).first)
+        try writeJournal([first, second], in: directory)
+        let nextDay = TestFixtures.now.addingTimeInterval(86400)
+        try writeJournal([fourth], in: directory, at: nextDay)
+        let partial = try await store.refresh(now: nextDay)
+        #expect(partial == [before])
+        let cacheURL = directory.url.appendingPathComponent("Aggregates/tokens.json")
+        let cache = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: cacheURL)) as? [String: Any])
+        #expect((cache["files"] as? [String: Any])?.isEmpty == true)
+        try writeJournal([third, fourth], in: directory, at: nextDay)
+        let restarted = TokenHistoryStore(directoryURL: directory.url)
+        let repaired = try await restarted.refresh(now: nextDay)
+        #expect(repaired.first?.usage?.totalTokens == 40)
+        #expect(try await restarted.refresh(now: nextDay) == repaired)
+    }
+
+    @Test func unattributedCorruptionAndConflictingOwnershipDoNotOverwriteLedger() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let store = TokenHistoryStore(directoryURL: directory.url)
+        let first = rebuildObservation("root")
+        _ = try await store.recordObservations([first], now: TestFixtures.now)
+        let cacheURL = directory.url.appendingPathComponent("Aggregates/tokens.json")
+        let before = try Data(contentsOf: cacheURL)
+        let eventURL = HistoryStorage.eventLogURL(for: day, in: HistoryStorage.eventsDirectoryURL(in: directory.url))
+        try Data("broken record\n".utf8).write(to: eventURL)
+        await #expect(throws: TokenCacheError.self) { try await store.rebuild(for: [day], now: TestFixtures.now) }
+        #expect(try Data(contentsOf: cacheURL) == before)
+        let ambiguous = rebuildObservation("root", root: "different")
+        try writeJournal([first, ambiguous], in: directory)
+        await #expect(throws: TokenCacheError.self) { try await store.rebuild(for: [day], now: TestFixtures.now) }
+        #expect(try Data(contentsOf: cacheURL) == before)
     }
 }

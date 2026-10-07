@@ -89,7 +89,8 @@ actor HistoryService {
         trigger: LogTrigger,
         localTokenTurns: [TokenTurn]? = nil
     ) async -> HistorySnapshot {
-        // 只有 Token 的日志日期需要维护游标, 但不能生成一次活动统计贡献
+        let replacements = readyReplacements()
+        // 零值替换仍需同步, 展示和普通上传不生成 Token-only 日期的活动贡献
         let localAggregates = localAggregates.filter { $0.eventCount != 0 }
         let tokenTurns: [TokenTurn]
         if let localTokenTurns {
@@ -105,13 +106,16 @@ actor HistoryService {
             }
         }
         let syncSnapshot: SyncSnapshot = if synchronize {
-            await syncService.synchronizeIfEnabled(localAggregates: localAggregates, localTokenTurns: tokenTurns, trigger: trigger)
+            await syncService.synchronizeIfEnabled(
+                localAggregates: localAggregates, localTokenTurns: tokenTurns, replacements: replacements, trigger: trigger
+            )
         } else {
-            await syncService.snapshotFromCacheIfEnabled(localTokenTurns: tokenTurns)
+            await syncService.snapshotFromCacheIfEnabled(localTokenTurns: tokenTurns, replacements: replacements)
         }
+        acknowledgeReplacements(syncSnapshot.completedReplacements)
         var snapshot = HistorySnapshot(
             localAggregates: localAggregates,
-            syncedRecords: syncSnapshot.records,
+            syncedRecords: syncSnapshot.records.filter { $0.daily.eventCount != 0 },
             currentDeviceID: syncSnapshot.currentDeviceID
         )
         snapshot.tokenUsageByDate = syncSnapshot.tokenUsageByDate ?? TokenTurn.dailyUsage(tokenTurns)
@@ -129,15 +133,17 @@ actor HistoryService {
             throw HistoryDataRebuildError.sourceUnavailable
         }
 
-        // 单日失败不中止整批: 失败的日期已被 rebuildLocalData 标脏, 常规维护会自动重建
+        // 已保存请求的失败日期交给常规维护重试, 单日失败不中止整批
         // 中止会让「前几天已改写, 后几天没碰」这个事实完全不被上报
         var rebuildResults = [HistoryMaintenanceResult]()
         var failedDateKeys = [String]()
+        var failedRequestDateKeys = [String]()
         var firstFailure: Error?
         let eventDateKeysWithData = normalizedDateKeys.filter { HistoryStorage.fileSize(at: eventLogURL(for: $0)) > 0 }
         for dateKey in eventDateKeysWithData {
+            var requestWasSaved = false
             do {
-                try rebuildResults.append(rebuildLocalData(for: dateKey))
+                try rebuildResults.append(rebuildLocalData(for: dateKey, requestWasSaved: &requestWasSaved))
             } catch {
                 // 整批成功时这个原因不会往上抛, 摘要只带得走日期
                 let details = LogFields.joined(
@@ -147,9 +153,10 @@ actor HistoryService {
                 )
                 AppLog.history.error("数据重建失败: \(details, privacy: .public)")
                 failedDateKeys.append(dateKey)
-                if firstFailure == nil {
-                    firstFailure = error
+                if !requestWasSaved {
+                    failedRequestDateKeys.append(dateKey)
                 }
+                firstFailure = firstFailure ?? error
             }
         }
 
@@ -157,27 +164,14 @@ actor HistoryService {
         var didFailTokenRebuild = false
         do {
             tokenResult = try await tokenHistory.rebuild(for: normalizedDateKeys)
+            if !tokenResult.failedDateKeys.isEmpty {
+                firstFailure = firstFailure ?? TokenCacheError.incompleteJournal
+            }
         } catch {
             didFailTokenRebuild = true
             firstFailure = firstFailure ?? error
             let error = error as NSError
             AppLog.history.error("Token 重建失败: domain=\(error.domain, privacy: .public) code=\(error.code)")
-        }
-
-        // 成功与失败的日期都要登记: 失败的日期稍后会被自动重建并推进 generationID,
-        // 届时会上传到新的 record ID, 不清理旧记录会在云端留下同日重复的贡献
-        // 全部失败时同样要登记, 它们一样已被标脏
-        var didFailReplacementMarking = false
-        do {
-            try await syncService.markReplacementNeeded(for: eventDateKeysWithData)
-        } catch {
-            let details = LogFields.joined(
-                "stage=replacementMarking",
-                "dates=\(normalizedDateKeys.count)",
-                "detail=\(error.localizedDescription)"
-            )
-            AppLog.history.error("数据重建失败: \(details, privacy: .public)")
-            didFailReplacementMarking = true
         }
 
         // 一天都没成功才算整体失败, 并保留首个真实原因而非笼统报「数据发生变化」
@@ -186,7 +180,11 @@ actor HistoryService {
         }
 
         // 重建只由设置页的用户操作发起
-        let localTurns = await (try? tokenHistory.currentTurns()) ?? []
+        let localTurns = if let turns = tokenResult.turns {
+            turns
+        } else {
+            await (try? tokenHistory.currentTurns()) ?? []
+        }
         let snapshot = await makeSnapshot(
             localAggregates: loadDailyAggregates() ?? [],
             synchronize: synchronize,
@@ -194,27 +192,65 @@ actor HistoryService {
             localTokenTurns: localTurns
         )
         let tokenSyncPending = await syncService.hasPendingTokenUpdates(local: localTurns)
-        let summary = await HistoryDataRebuildSummary(
-            rebuiltDateCount: Set(rebuildResults.map(\.dateKey)).union(tokenResult.dateKeys).count,
+        let tokenFailures = didFailTokenRebuild ? normalizedDateKeys : tokenResult.failedDateKeys
+        let summary = HistoryDataRebuildSummary(
+            rebuiltDateCount: Set(rebuildResults.map(\.dateKey)).union(tokenResult.dateKeys)
+                .subtracting(failedDateKeys).subtracting(tokenFailures).count,
             eventCount: rebuildResults.reduce(0) { $0 + ($1.aggregate.eventCount ?? 0) },
-            corruptLineCount: rebuildResults.reduce(0) { $0 + $1.corrupt },
-            isSyncReplacementPending: syncService.hasPendingReplacement(for: eventDateKeysWithData) || tokenSyncPending,
+            isSyncReplacementPending: hasPendingReplacement(for: eventDateKeysWithData) || tokenSyncPending,
             failedDateKeys: failedDateKeys,
-            didFailSyncReplacementMarking: didFailReplacementMarking,
+            failedRequestDateKeys: failedRequestDateKeys,
+            failedTokenDateKeys: tokenFailures,
             tokenTurnCount: tokenResult.turnCount,
-            didFailTokenRebuild: didFailTokenRebuild
+            didFailTokenRebuild: didFailTokenRebuild || !tokenResult.failedDateKeys.isEmpty
         )
         let elapsed = duration.elapsed
         let details = LogFields.joined(
             "dates=\(summary.rebuiltDateCount)",
             "events=\(summary.eventCount)",
             "tokenTurns=\(summary.tokenTurnCount)",
-            "corruptLines=\(summary.corruptLineCount)",
             "failedDates=\(failedDateKeys.count)",
             "elapsed=\(elapsed)"
         )
         AppLog.history.notice("数据重建完成: \(details, privacy: .public)")
         return HistoryDataRebuildOutcome(snapshot: snapshot, summary: summary)
+    }
+
+    func hasPendingReplacement(for dates: [String]) -> Bool {
+        let state = HistoryStorage.loadMaintenanceState(in: directoryURL)
+        return dates.contains { state.days[$0]?.requiresCloudReplacement == true }
+    }
+
+    /// 只从同一锁内读取的聚合和提交状态形成替换授权, dirty 状态不允许覆盖云端
+    private func readyReplacements() -> [ActivityAggregate] {
+        (try? HistoryStorage.withExclusiveLock(in: directoryURL) {
+            let state = HistoryStorage.loadMaintenanceState(in: directoryURL)
+            return (loadDailyAggregates() ?? []).filter { aggregate in
+                guard let day = state.days[aggregate.date], day.requiresCloudReplacement,
+                      !state.dirty.contains(aggregate.date), day.corrupt == 0, day.offset == day.size, day.offset > 0,
+                      let generation = day.generationID, aggregate.generationID == generation,
+                      aggregate.eventCount != nil,
+                      let stat = HistoryStorage.fileStat(at: eventLogURL(for: aggregate.date)),
+                      stat.identifier == day.fileIdentifier, stat.size >= day.offset else { return false }
+                return !hasBoundaryChanged(dateKey: aggregate.date, day: day, stat: stat)
+            }
+        }) ?? []
+    }
+
+    func acknowledgeReplacements(_ completed: [String: String]) {
+        guard !completed.isEmpty else { return }
+        do {
+            try HistoryStorage.withExclusiveLock(in: directoryURL) {
+                var state = HistoryStorage.loadMaintenanceState(in: directoryURL)
+                for (date, generation) in completed where state.days[date]?.generationID == generation
+                    && !state.dirty.contains(date) {
+                    state.days[date]?.requiresCloudReplacement = false
+                }
+                try HistoryStorage.saveMaintenanceState(state, in: directoryURL)
+            }
+        } catch {
+            AppLog.history.error("云端替换确认保存失败: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func loadDailyAggregates() -> [ActivityAggregate]? {
@@ -232,7 +268,7 @@ actor HistoryService {
 
     // MARK: - 重建与维护调度
 
-    private func rebuildLocalData(for dateKey: String) throws -> HistoryMaintenanceResult {
+    private func rebuildLocalData(for dateKey: String, requestWasSaved: inout Bool) throws -> HistoryMaintenanceResult {
         var aggregates = loadDailyAggregates() ?? []
         let eventCountAvailability = aggregates
             .first(where: { $0.date == dateKey })?
@@ -241,6 +277,7 @@ actor HistoryService {
             for: dateKey,
             eventCountAvailability: eventCountAvailability
         )
+        requestWasSaved = true
 
         do {
             let result = try buildDailyAggregate(for: task)
@@ -271,14 +308,11 @@ actor HistoryService {
             }
 
             var state = HistoryStorage.loadMaintenanceState(in: directoryURL)
-            state.ensureGenerationID(for: dateKey, fileIdentifier: stat.identifier)
-            state.markDirty(dateKey)
+            state.startNewGeneration(for: dateKey, startedEmpty: false, fileIdentifier: stat.identifier)
+            state.days[dateKey]?.requiresCloudReplacement = true
             try HistoryStorage.saveMaintenanceState(state, in: directoryURL)
             guard let day = state.days[dateKey] else { throw HistoryDataRebuildError.sourceUnavailable }
-            var task = dirtyTask(for: dateKey, day: day, size: stat.size, eventCountAvailability: eventCountAvailability)
-            task.generationID = UUID().uuidString.lowercased()
-            task.generationStartedEmpty = false
-            return task
+            return dirtyTask(for: dateKey, day: day, size: stat.size, eventCountAvailability: eventCountAvailability)
         }
     }
 
@@ -597,7 +631,6 @@ actor HistoryService {
             size: size ?? stat?.size ?? 0,
             mode: .rebuild(eventCountAvailability),
             existingCorrupt: 0,
-            expectedGenerationID: day.generationID,
             generationID: day.generationID,
             generationStartedEmpty: day.generationStartedEmpty,
             fileIdentifier: stat?.identifier
@@ -616,7 +649,6 @@ actor HistoryService {
             size: size,
             mode: .append(baseAggregate),
             existingCorrupt: day.corrupt,
-            expectedGenerationID: day.generationID,
             generationID: day.generationID,
             generationStartedEmpty: day.generationStartedEmpty,
             fileIdentifier: day.fileIdentifier
@@ -705,7 +737,6 @@ actor HistoryService {
         return try HistoryMaintenanceResult(
             dateKey: task.dateKey,
             aggregate: aggregate,
-            expectedGenerationID: task.expectedGenerationID,
             size: task.size,
             corrupt: corrupt,
             fileIdentifier: task.fileIdentifier,
@@ -792,12 +823,16 @@ actor HistoryService {
         try HistoryStorage.withExclusiveLock(in: directoryURL) {
             var state = HistoryStorage.loadMaintenanceState(in: directoryURL)
             guard let currentSize = try validatedEventLogSize(for: result, state: &state) else { return false }
+            if state.days[result.dateKey]?.requiresCloudReplacement == true, result.corrupt > 0 {
+                throw HistoryDataRebuildError.incompleteSource
+            }
             // 两个文件提交前先标脏, 中途退出会从事件重建, 不沿旧偏移重复追加
             state.markDirty(result.dateKey)
             try HistoryStorage.saveMaintenanceState(state, in: directoryURL)
             aggregates = loadDailyAggregates() ?? []
             try writeDailyAggregate(result.aggregate, into: &aggregates)
             state.days[result.dateKey] = HistoryDayMaintenanceState(
+                requiresCloudReplacement: state.days[result.dateKey]?.requiresCloudReplacement ?? false,
                 offset: result.size, size: result.size, corrupt: result.corrupt,
                 generationID: result.aggregate.generationID,
                 generationStartedEmpty: result.aggregate.generationStartedEmpty,
@@ -819,7 +854,7 @@ actor HistoryService {
         for result: HistoryMaintenanceResult,
         state: inout HistoryMaintenanceState
     ) throws -> UInt64? {
-        guard state.days[result.dateKey]?.generationID == result.expectedGenerationID else {
+        guard state.days[result.dateKey]?.generationID == result.aggregate.generationID else {
             return nil
         }
 
@@ -998,9 +1033,8 @@ private nonisolated struct HistoryMaintenanceTask {
     let size: UInt64
     let mode: HistoryMaintenanceMode
     let existingCorrupt: Int
-    let expectedGenerationID: String?
-    var generationID: String?
-    var generationStartedEmpty: Bool
+    let generationID: String?
+    let generationStartedEmpty: Bool
     let fileIdentifier: UInt64?
 
     var baseEventCount: Int {
@@ -1017,7 +1051,6 @@ private nonisolated struct HistoryMaintenanceTask {
 private nonisolated struct HistoryMaintenanceResult {
     let dateKey: String
     let aggregate: ActivityAggregate
-    let expectedGenerationID: String?
     let size: UInt64
     let corrupt: Int
     let fileIdentifier: UInt64?
@@ -1027,11 +1060,10 @@ private nonisolated struct HistoryMaintenanceResult {
 nonisolated struct HistoryDataRebuildSummary: Equatable, Sendable {
     let rebuiltDateCount: Int
     let eventCount: Int
-    let corruptLineCount: Int
     let isSyncReplacementPending: Bool
-    /// 未完成的日期, 已标脏并会由常规维护自动重建
     let failedDateKeys: [String]
-    let didFailSyncReplacementMarking: Bool
+    let failedRequestDateKeys: [String]
+    let failedTokenDateKeys: [String]
     let tokenTurnCount: Int
     let didFailTokenRebuild: Bool
 }
@@ -1044,6 +1076,7 @@ nonisolated struct HistoryDataRebuildOutcome {
 private nonisolated enum HistoryDataRebuildError: LocalizedError {
     case sourceUnavailable
     case sourceChanged
+    case incompleteSource
 
     var errorDescription: String? {
         switch self {
@@ -1051,6 +1084,8 @@ private nonisolated enum HistoryDataRebuildError: LocalizedError {
             String(localized: "history.rebuild.error.source-unavailable")
         case .sourceChanged:
             String(localized: "history.rebuild.error.source-changed")
+        case .incompleteSource:
+            String(localized: "history.rebuild.error.incomplete-source")
         }
     }
 }
