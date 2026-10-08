@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum CountResolution {
     static func preferredCount(
         compactedCount: Int?,

@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated struct TokenUsage: Codable, Equatable {
     let inputTokens: Int64
     let cachedInputTokens: Int64

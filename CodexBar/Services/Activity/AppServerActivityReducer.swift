@@ -24,12 +24,16 @@ nonisolated struct AppServerActivityReducer {
         approvals.removeAll()
         waitingSince.removeAll()
         observingSince = now
+        for key in states.keys {
+            states[key]?.presentation = nil
+        }
     }
 
     mutating func invalidateThread(_ id: String) {
         threads[id]?.status = ActivityThreadStatus(type: "notLoaded")
         for key in states.keys where key.threadID == id && states[key]?.terminal == nil {
             states[key]?.readStatus = .unavailable
+            states[key]?.presentation = nil
         }
     }
 
@@ -57,12 +61,8 @@ nonisolated struct AppServerActivityReducer {
     }
 
     mutating func restoreTokenTurns(_ turns: [TokenTurn]) {
-        tokenTurns = turns
         threadTotals.removeAll()
-        let records = Dictionary(uniqueKeysWithValues: turns.map { ($0.id, $0) })
-        for key in states.keys {
-            states[key]?.tokenUsage = records[TokenTurn.identifier(thread: key.threadID, turn: key.turnID)]?.usage
-        }
+        acceptTokenTurns(turns)
     }
 
     mutating func reconcile(thread: ActivityThread, turns: [ActivityTurn], reviewer: ApprovalReviewer?, now: Date, bootstrap: Bool = false) -> [ActivityRecord] {
@@ -81,6 +81,11 @@ nonisolated struct AppServerActivityReducer {
             }
         }
         updateWaiting(threadID: thread.id, status: thread.status, now: now)
+        if let key = activeReference(thread.id) {
+            var live = states[key]?.presentation ?? ActivityLivePresentation()
+            live.reconcile(status: thread.status)
+            states[key]?.presentation = live
+        }
         resolveRoots()
         return events
     }
@@ -157,9 +162,28 @@ nonisolated struct AppServerActivityReducer {
                 progress(threadID, turnID, at: now)
             }
         }
+        updatePresentation(notification, threadID: threadID, turnID: turnID, at: date)
         resolveRoots()
         prune(now: now)
         return finish(events, notification: notification, threadID: threadID, turnID: turnID, now: now)
+    }
+
+    private mutating func updatePresentation(_ notification: ActivityNotification, threadID: String, turnID: String?, at date: Date) {
+        let requestID = notification.params.requestId?.identifier
+        // resolved 不携带 turnId, 必须先匹配原请求, 不能误清除新轮次的等待
+        let matched = requestID.flatMap { id in
+            states.keys.first { $0.threadID == threadID && states[$0]?.presentation?.requests[id] != nil }
+        }
+        guard let key = matched ?? turnID.map({ reference(threadID, $0, at: date) }),
+              states[key]?.terminal == nil, states[key] != nil else { return }
+        // 独立的 MCP 和 Hook 请求没有明确轮次归属时不挂到当前任务
+        if ["mcpServer/elicitation/request", "hook/started", "hook/completed"].contains(notification.method),
+           notification.live.turnId == nil {
+            return
+        }
+        var live = states[key]?.presentation ?? ActivityLivePresentation()
+        live.consume(notification, at: date)
+        states[key]?.presentation = live
     }
 
     private mutating func finish(
@@ -303,8 +327,8 @@ nonisolated struct AppServerActivityReducer {
             approvalReviewer: reviewer ?? previous?.approvalReviewer,
             effort: threads[threadID]?.reasoningEffort, lastProgressAt: previous?.lastProgressAt ?? start,
             terminal: terminal, readStatus: terminal == nil && (!isLoaded || turn.status != "inProgress") ? .unavailable : .complete,
-            hasContext: true, contextObservedAt: now, rootTurnID: previous?.rootTurnID,
-            recordedThreadID: threadID, rootSessionID: previous?.rootSessionID,
+            contextObservedAt: now, rootTurnID: previous?.rootTurnID,
+            rootSessionID: previous?.rootSessionID,
             parentThreadID: threads[threadID]?.parentID,
             lastExecutionProgressAt: previous?.lastExecutionProgressAt,
             tokenUsage: previous?.tokenUsage ?? tokenTurns.first(where: { $0.id == TokenTurn.identifier(thread: threadID, turn: turn.id) })?.usage,
@@ -314,6 +338,11 @@ nonisolated struct AppServerActivityReducer {
         if terminal != nil {
             state.terminalObservedAt = previous?.terminalObservedAt ?? now
             state.lastProgressAt = turn.completedAt.map(Date.init(timeIntervalSince1970:)) ?? state.terminalObservedAt
+        }
+        state.presentation = previous?.presentation
+        state.turnStatus = turn.status
+        if terminal != nil {
+            state.presentation = nil
         }
         states[reference] = state
     }

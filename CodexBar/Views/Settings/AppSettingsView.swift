@@ -5,6 +5,7 @@ import SwiftUI
 struct AppSettingsView: View {
     @EnvironmentObject private var statusViewModel: CodexStatusViewModel
     @EnvironmentObject private var appUpdater: AppUpdater
+    @EnvironmentObject private var animationState: SettingsWindowAnimationState
     @StateObject private var loginItemSettings = LoginItemSettings()
     @StateObject private var codexVersions = CodexVersionViewModel()
     @ObservedObject var syncSettings: SyncSettings
@@ -568,9 +569,9 @@ private extension AppSettingsView {
             SettingsIndentedRow(alignment: .top) {
                 Text(caption.message)
                     .font(.caption)
-                    .foregroundStyle(caption.isError ? .red : .secondary)
+                    .foregroundStyle(caption.isError ? Color.red : Color.codexSecondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.opacity)
+                    .numericTransition(value: caption.message, enabled: animationState.allowsAnimations)
 
                 Spacer(minLength: 8)
 
@@ -675,7 +676,8 @@ private extension AppSettingsView {
                         } else if let lastSyncText {
                             Text(lastSyncText)
                                 .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.codexSecondaryLabel)
+                                .numericTransition(value: lastSyncText, enabled: animationState.allowsAnimations)
                                 .lineLimit(1)
                                 .transition(.opacity)
                         }
@@ -892,10 +894,9 @@ private extension AppSettingsView {
 
             Text(status.text)
                 .font(status.isVersionLabel ? .body.monospacedDigit() : .body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.codexSecondaryLabel)
                 .lineLimit(1)
-                .contentTransition(.opacity)
-                .animation(Metrics.statusAnimation, value: status.text)
+                .numericTransition(value: status.text, enabled: animationState.allowsAnimations)
 
             if appUpdater.availableUpdateMessage != nil {
                 Button {

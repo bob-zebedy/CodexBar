@@ -30,6 +30,7 @@ struct UsageHeatmap: View {
     let onScreenFrameChange: (CGRect?) -> Void
     @Binding var selection: UsageHeatmapSelection?
     @Environment(\.mainPanelEntranceAnimationsEnabled) private var animatesEntrance
+    @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
     @State private var areSquaresRevealed = false
     @State private var entranceStartedAt: TimeInterval?
     @State private var snapSelection: UsageHeatmapSelection?
@@ -77,7 +78,8 @@ struct UsageHeatmap: View {
                 if let dateRangeText {
                     Text(dateRangeText)
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                        .numericTransition(value: dateRangeText, enabled: allowsAnimations)
                         .lineLimit(1)
                 }
             }

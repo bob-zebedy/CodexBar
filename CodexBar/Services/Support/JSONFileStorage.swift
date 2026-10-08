@@ -2,16 +2,17 @@ import Darwin
 import Foundation
 
 nonisolated enum JSONFileStorage {
-    static func withLock<T>(in directory: URL, _ operation: () throws -> T) throws -> T {
-        guard let descriptor = try acquireLock(in: directory) else { throw POSIXError(.EIO) }
+    static func withLock<T>(in directory: URL, name: String = "store.lock", _ operation: () throws -> T) throws -> T {
+        guard let descriptor = try acquireLock(in: directory, name: name) else { throw POSIXError(.EIO) }
         defer { releaseLock(descriptor) }
         return try operation()
     }
 
     static func acquireLock(in directory: URL, name: String = "store.lock", nonblocking: Bool = false) throws -> Int32? {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // 原子创建并打开锁文件, 避免替换其他进程已锁定的 inode
         let descriptor = open(directory.appendingPathComponent(name).path, O_RDWR | O_CREAT, 0o600)
-        guard descriptor >= 0 else { throw POSIXError(.EIO) }
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         guard flock(descriptor, LOCK_EX | (nonblocking ? LOCK_NB : 0)) == 0 else {
             let code = errno
             close(descriptor)

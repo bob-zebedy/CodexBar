@@ -46,7 +46,8 @@ extension ActivityMonitor {
             effort: event.effort ?? task?.effort,
             terminatedAt: event.timestamp,
             duration: event.source == nil || event.source?.turnCompletedAt != nil ? task?.preciseDuration(until: event.timestamp) : nil,
-            task: task
+            task: task,
+            isFailure: event.source?.turnStatus == "failed"
         )
         recordTerminalPresentationEvent(.terminated(termination))
         recordEndedTask(key, at: event.timestamp)
@@ -142,6 +143,9 @@ extension ActivityMonitor {
         into task: inout ActivityTask
     ) -> Bool {
         var didChange = false
+        if state.readStatus == .complete, let status = state.turnStatus {
+            task.terminalFailed = status == "failed"
+        }
         if let startedAt = backfilledStartedAt(for: task, state: state) {
             task.startedAt = startedAt
             didChange = true
@@ -203,7 +207,8 @@ extension ActivityMonitor {
         effort: String?,
         terminatedAt: Date,
         duration: TimeInterval?,
-        task: ActivityTask? = nil
+        task: ActivityTask? = nil,
+        isFailure: Bool = false
     ) -> ActivityTermination {
         let termination = ActivityTermination(
             id: UUID(),
@@ -212,7 +217,8 @@ extension ActivityMonitor {
             modelName: modelName,
             effort: effort,
             terminatedAt: terminatedAt,
-            duration: duration
+            duration: duration,
+            isFailure: isFailure || task?.terminalFailed == true
         )
         terminations.append(termination)
         terminalTaskKeyByID[termination.id] = key

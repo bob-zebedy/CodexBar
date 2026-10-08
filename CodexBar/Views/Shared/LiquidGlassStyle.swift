@@ -25,6 +25,23 @@ extension Color {
 
 // MARK: - View 修饰符
 
+extension View {
+    /// 数值比较决定滚动方向, 复合文案按显示内容触发过渡
+    func numericTransition(
+        value: some Equatable,
+        comparison: Double? = nil,
+        enabled: Bool = true
+    ) -> some View {
+        let transition: ContentTransition = if let comparison {
+            .numericText(value: comparison)
+        } else {
+            .numericText()
+        }
+        return contentTransition(enabled ? transition : .identity)
+            .animation(enabled ? .codexStatus : nil, value: value)
+    }
+}
+
 /// 自绘 Liquid Glass 背景和 stale 状态修饰
 extension View {
     func liquidGlassSurface(

@@ -1,29 +1,14 @@
 import Foundation
 
-/// 实时活动管道的共享保留窗口
-/// tail reader 的 bootstrap 回放范围与任务中心的历史保留期是同一个不变量, 必须相等
+/// 活动状态, 任务历史和子 Agent 关联共用的保留窗口
 nonisolated enum ActivityRetention {
     static let window: TimeInterval = 24 * 60 * 60
-}
-
-/// 活跃任务最近收到的 活动事件, 供活动卡片展示当前执行阶段
-nonisolated enum ActivityPhase: Equatable {
-    case promptSubmitted
-    case toolStarted
-    case toolFinished
-    case compactionStarted
-    case compactionFinished
-    case subagentStarted
-    case subagentFinished
-    case approvalRequested
-    case stopRequested
 }
 
 /// 正在运行或等待批准的任务摘要, 不对 UI 暴露原始会话 ID
 nonisolated struct ActivityTaskSnapshot: Equatable, Identifiable {
     let id: UUID
     let isAnonymous: Bool
-    let latestEvent: ActivityPhase
     let projectName: String?
     let modelName: String?
     let effort: String?
@@ -35,9 +20,10 @@ nonisolated struct ActivityTaskSnapshot: Equatable, Identifiable {
     let activeSubagentCount: Int?
     var tokenUsage: TokenUsage?
     var itemType: String?
+    var presentation: ActivityLiveSummary?
 
     var toolDisplayName: String? {
-        toolName ?? itemType
+        ActivityDisplayFormat.toolActionText(itemType: itemType, toolName: toolName)
     }
 }
 
@@ -88,6 +74,7 @@ nonisolated struct ActivityTermination: Equatable, Identifiable {
     let terminatedAt: Date
     let duration: TimeInterval?
     var tokenUsage: TokenUsage?
+    var isFailure = false
 }
 
 /// 实时越过静默阈值时交给通知服务的最小信息, 不包含原始 session 或 turn ID
@@ -111,6 +98,24 @@ nonisolated struct ActivitySnapshot: Equatable {
         recentCompletions: [],
         recentTerminations: []
     )
+
+    var panelWaitingTasks: [ActivityTaskSnapshot] {
+        waitingTasks + runningTasks.filter { $0.presentation?.waiting != nil }
+    }
+
+    var panelRunningTasks: [ActivityTaskSnapshot] {
+        runningTasks.filter { $0.presentation?.waiting == nil }
+    }
+
+    var panelPrimaryActivity: CodexPrimaryActivity {
+        if let task = panelWaitingTasks.first {
+            return .waiting(task)
+        }
+        if let task = panelRunningTasks.first {
+            return .running(task)
+        }
+        return primaryActivity
+    }
 
     var primaryWaitingTask: ActivityTaskSnapshot? {
         waitingTasks.first
@@ -201,15 +206,6 @@ nonisolated enum CodexPrimaryActivity: Equatable {
     case completed(ActivityCompletion)
     case terminated(ActivityTermination)
     case idle
-
-    var tokenUsage: TokenUsage? {
-        switch self {
-        case let .completed(completion): completion.tokenUsage
-        case let .terminated(termination): termination.tokenUsage
-        case let .waiting(task), let .running(task): task.tokenUsage
-        case .idle: nil
-        }
-    }
 }
 
 /// 只有 live 事件 或 session 生命周期会发布 transition, bootstrap 永远不会触发历史通知
@@ -226,7 +222,7 @@ nonisolated enum ActivityTransition: Equatable {
 }
 
 nonisolated enum CodexDurationFormat {
-    static func activityText(for interval: TimeInterval) -> String {
+    static func activityText(for interval: TimeInterval, locale: Locale = .current) -> String {
         let totalSeconds = max(0, Int(interval.rounded()))
         let duration = Duration.seconds(Double(totalSeconds))
         let allowedUnits: Set<Duration.UnitsFormatStyle.Unit> = if totalSeconds >= 3600 {
@@ -236,21 +232,37 @@ nonisolated enum CodexDurationFormat {
         } else {
             [.seconds]
         }
-        return abbreviated(duration, allowedUnits: allowedUnits)
+        return abbreviated(duration, allowedUnits: allowedUnits, locale: locale)
     }
 
     static func abbreviated(
         _ duration: Duration,
-        allowedUnits: Set<Duration.UnitsFormatStyle.Unit>
+        allowedUnits: Set<Duration.UnitsFormatStyle.Unit>,
+        locale: Locale = .current
     ) -> String {
-        duration.formatted(
+        let formatted = duration.formatted(
             .units(
                 allowed: allowedUnits,
                 width: .abbreviated,
                 zeroValueUnits: .show(length: 1),
                 fractionalPart: .hide(rounded: .down)
             )
+            .locale(locale)
+            .attributed
         )
+        var result = ""
+        var previousPart: AttributeScopes.FoundationAttributes.MeasurementAttribute.Value?
+        // 按系统标记的数字和单位补空格, 保留各语言原有的分隔符和单位名称
+        for (part, range) in formatted.runs[\.measurement] {
+            let text = String(formatted[range].characters)
+            if let part, let previousPart, part != previousPart,
+               result.last?.isWhitespace == false, text.first?.isWhitespace == false {
+                result += " "
+            }
+            result += text
+            previousPart = part
+        }
+        return result
     }
 }
 
@@ -258,31 +270,6 @@ nonisolated enum ActivityDisplayFormat {
     static func modelMetadata(modelName: String?, effort: String?) -> String? {
         let components = [modelName, effort].compactMap(normalizedText)
         return components.isEmpty ? nil : components.joined(separator: " • ")
-    }
-
-    static func eventText(for task: ActivityTaskSnapshot) -> String {
-        switch task.latestEvent {
-        case .promptSubmitted:
-            String(localized: "activity.event.thinking")
-        case .toolStarted:
-            task.toolDisplayName.map { String(localized: "activity.event.using-named-tool", defaultValue: "\($0)") }
-                ?? String(localized: "activity.event.using-tool")
-        case .toolFinished:
-            task.toolDisplayName.map { String(localized: "activity.event.finished-using-tool", defaultValue: "\($0)") }
-                ?? String(localized: "activity.event.tool-completed")
-        case .compactionStarted:
-            String(localized: "activity.event.compacting-context")
-        case .compactionFinished:
-            String(localized: "activity.event.context-compaction-completed")
-        case .subagentStarted:
-            String(localized: "activity.event.starting-subagent")
-        case .subagentFinished:
-            String(localized: "activity.event.subagent-completed")
-        case .approvalRequested:
-            String(localized: "activity.status.waiting-for-approval")
-        case .stopRequested:
-            String(localized: "activity.event.finishing")
-        }
     }
 
     static func completionRelativeText(_ completedAt: Date, now: Date) -> String {
@@ -293,43 +280,9 @@ nonisolated enum ActivityDisplayFormat {
         relativeText(since: terminatedAt, now: now, action: .terminated)
     }
 
-    /// 活动卡片, 任务中心, 菜单栏 tooltip 和系统通知共用的时长片段
-    static func waitingDurationFragment(since stateChangedAt: Date, now: Date) -> String {
-        let duration = CodexDurationFormat.activityText(for: now.timeIntervalSince(stateChangedAt))
-        return String(localized: "activity.duration.waiting", defaultValue: "\(duration)")
-    }
-
-    static func runningDurationFragment(since startedAt: Date, now: Date) -> String {
-        let duration = CodexDurationFormat.activityText(for: now.timeIntervalSince(startedAt))
-        return String(localized: "activity.duration.running", defaultValue: "\(duration)")
-    }
-
     static func elapsedDurationFragment(for duration: TimeInterval) -> String {
         let durationText = CodexDurationFormat.activityText(for: duration)
         return String(localized: "activity.duration.elapsed", defaultValue: "\(durationText)")
-    }
-
-    /// 活动卡片和任务中心共用同一份文案片段
-    static func waitingDetailComponents(
-        for task: ActivityTaskSnapshot,
-        now: Date
-    ) -> [String] {
-        [
-            task.toolDisplayName ?? String(localized: "activity.event.waiting-next-action"),
-            waitingDurationFragment(since: task.stateChangedAt, now: now)
-        ]
-    }
-
-    static func runningDetailComponents(
-        for task: ActivityTaskSnapshot,
-        now: Date
-    ) -> [String] {
-        let duration = if task.showsPreciseDuration, let startedAt = task.startedAt {
-            runningDurationFragment(since: startedAt, now: now)
-        } else {
-            String(localized: "activity.status.running")
-        }
-        return [duration, eventText(for: task)]
     }
 
     static func historyDetailComponents(

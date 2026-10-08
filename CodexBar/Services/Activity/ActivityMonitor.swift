@@ -57,6 +57,8 @@ final class ActivityMonitor: ObservableObject {
     private var isProtectionStateLoaded = false
     var isProtectionEnabled = false
     @Published var isActivitySourceHealthy = false
+    @Published private(set) var sourcePresentation: ActivityLiveLabel? = ActivityLiveLabel("unavailable")
+    private var hasConnectedActivitySource = false
     private var unavailableTurns = Set<ActivityTaskKey>()
     var isProtectionRecoveryInProgress = false
     var protectionRecoveryGeneration: UInt64 = 0
@@ -215,6 +217,7 @@ final class ActivityMonitor: ObservableObject {
         sessionLifecyclePollTask?.cancel()
         sessionLifecyclePollTask = nil
         cancelInactivityCheck()
+        sourcePresentation = ActivityLiveLabel("unavailable")
         isActivitySourceHealthy = false
         cleanupTask?.cancel()
         cleanupTask = nil
@@ -500,6 +503,7 @@ final class ActivityMonitor: ObservableObject {
         case .lifecycleChanged:
             refreshSessionLifecycleNow()
         case .bootstrapStart:
+            sourcePresentation = ActivityLiveLabel(hasConnectedActivitySource ? "reconnecting" : "connecting")
             recoveryTask?.cancel()
             recoveryTask = nil
             // 重试会重新查询初始快照, 计时从第一次开始算才是用户等到的总时长
@@ -515,11 +519,14 @@ final class ActivityMonitor: ObservableObject {
             clearCollectedActivityState()
             publishSnapshot(.empty)
         case let .bootstrapEvents(events):
+            sourcePresentation = ActivityLiveLabel("recovering-state")
             bootstrapEventCount += events.count
             for event in events {
                 _ = apply(event, source: .bootstrap)
             }
         case .bootstrapEnd:
+            sourcePresentation = ActivityLiveLabel("recovering-state")
+            hasConnectedActivitySource = true
             isActivitySourceHealthy = true
             sessionTransitionNotBefore = Date()
             let completionGeneration = bootstrapCompletionGeneration
@@ -557,6 +564,7 @@ final class ActivityMonitor: ObservableObject {
                 refreshSessionLifecycleNow()
             }
         case .sourceUnavailable:
+            sourcePresentation = ActivityLiveLabel("unavailable")
             guard isActivitySourceHealthy else {
                 return
             }
@@ -598,6 +606,7 @@ final class ActivityMonitor: ObservableObject {
         }
         resetTerminalPresentationEvents()
         isBootstrapping = false
+        sourcePresentation = isActivitySourceHealthy ? nil : ActivityLiveLabel("unavailable")
         if isActivitySourceHealthy, !isSystemSleeping {
             if recoveryGeneration == protectionRecoveryGeneration {
                 finishProtectionRecovery(generation: recoveryGeneration)
@@ -637,31 +646,9 @@ final class ActivityMonitor: ObservableObject {
         case .turnStarted:
             guard isTopLevelEvent else { return nil }
             startTask(from: event, source: source)
-        case .toolStarted:
+        case .toolStarted, .toolCompleted, .compactionStarted, .compactionCompleted:
             resumeTask(
                 from: event,
-                latestEvent: .toolStarted,
-                allowsRecovery: isTopLevelEvent,
-                source: source
-            )
-        case .toolCompleted:
-            resumeTask(
-                from: event,
-                latestEvent: .toolFinished,
-                allowsRecovery: isTopLevelEvent,
-                source: source
-            )
-        case .compactionStarted:
-            resumeTask(
-                from: event,
-                latestEvent: .compactionStarted,
-                allowsRecovery: isTopLevelEvent,
-                source: source
-            )
-        case .compactionCompleted:
-            resumeTask(
-                from: event,
-                latestEvent: .compactionFinished,
                 allowsRecovery: isTopLevelEvent,
                 source: source
             )
@@ -771,7 +758,6 @@ final class ActivityMonitor: ObservableObject {
             key: key,
             event: event,
             state: .running,
-            latestEvent: .promptSubmitted,
             startedAt: event.timestamp,
             progressGeneration: (existingTask?.progressGeneration ?? 0) &+ 1
         )
@@ -781,7 +767,6 @@ final class ActivityMonitor: ObservableObject {
 
     private func resumeTask(
         from event: ActivityRecord,
-        latestEvent: ActivityPhase,
         allowsRecovery: Bool,
         source: ActivityEventSource
     ) {
@@ -800,7 +785,7 @@ final class ActivityMonitor: ObservableObject {
             }
 
             let wasSuppressed = task.state == .suppressed
-            task.resumeExecution(from: event, latestEvent: latestEvent)
+            task.resumeExecution(from: event)
             task.mergeMetadata(from: event)
             task.recordEvent(at: event.timestamp)
             tasks[key] = task
@@ -826,7 +811,6 @@ final class ActivityMonitor: ObservableObject {
             key: eventKey,
             event: event,
             state: .running,
-            latestEvent: latestEvent,
             startedAt: nil,
             progressGeneration: 1
         )
@@ -866,7 +850,7 @@ final class ActivityMonitor: ObservableObject {
 
         if task.acceptsExecutionEvent(event) {
             let wasSuppressed = task.state == .suppressed
-            task.resumeExecution(from: event, latestEvent: isStarting ? .subagentStarted : .subagentFinished)
+            task.resumeExecution(from: event)
             task.mergeMetadata(from: event)
             task.recordEvent(at: event.timestamp)
             if wasSuppressed || source == .live {
@@ -924,7 +908,6 @@ final class ActivityMonitor: ObservableObject {
             key: eventKey,
             event: event,
             state: .running,
-            latestEvent: .toolStarted,
             startedAt: nil,
             progressGeneration: 1
         )
@@ -964,7 +947,6 @@ final class ActivityMonitor: ObservableObject {
         case .active, .none:
             resumeTask(
                 from: event,
-                latestEvent: .stopRequested,
                 allowsRecovery: true,
                 source: source
             )
@@ -1254,7 +1236,7 @@ final class ActivityMonitor: ObservableObject {
 private extension ActivityMonitor {
     func resumePromptInSameTurn(from event: ActivityRecord, existing: ActivityTask?) -> Bool {
         guard var task = existing, let turnID = event.turnID, task.associatedTurnID == turnID else { return false }
-        task.resumeExecution(from: event, latestEvent: .promptSubmitted)
+        task.resumeExecution(from: event)
         task.mergeMetadata(from: event)
         task.recordEvent(at: event.timestamp)
         task.startedAt = task.startedAt ?? event.timestamp

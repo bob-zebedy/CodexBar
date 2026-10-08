@@ -29,7 +29,7 @@ struct ActivityTaskTests {
         nameless.source = AppServerEventSource(method: "item/started", threadID: "session-a", itemType: "fileChange")
         task.mergeMetadata(from: nameless)
         #expect(task.snapshot.toolName == nil)
-        #expect(task.snapshot.toolDisplayName == "fileChange")
+        #expect(task.snapshot.toolDisplayName == String(localized: "activity.action.edit-files"))
 
         var approval = ActivityRecord(
             timestamp: TestFixtures.now.addingTimeInterval(2), name: ActivityEventKind.approvalRequested.rawValue,
@@ -41,8 +41,7 @@ struct ActivityTaskTests {
         let enteredWaiting = task.recordApprovalRequest(from: approval)
         #expect(enteredWaiting)
         #expect(task.snapshot.toolName == nil)
-        #expect(task.snapshot.toolDisplayName == "commandExecution")
-        #expect(ActivityDisplayFormat.waitingDetailComponents(for: task.snapshot, now: approval.timestamp).first == "commandExecution")
+        #expect(task.snapshot.toolDisplayName == String(localized: "activity.action.command"))
     }
 
     @Test func anonymousTaskHasNoProtectionIdentityOrPreciseDuration() {
@@ -141,7 +140,7 @@ struct ActivityTaskTests {
     private func healthyLifecycle(startedAt: Date? = nil) -> SessionLifecycleState {
         SessionLifecycleState(
             requestedThreadID: "session-a", turnID: "turn-a", startedAt: startedAt, approvalReviewer: nil, effort: nil,
-            lastProgressAt: nil, terminal: nil, readStatus: .complete, hasContext: true
+            lastProgressAt: nil, terminal: nil, readStatus: .complete
         )
     }
 
@@ -295,9 +294,9 @@ struct ActivityTaskTests {
         let approval = TestFixtures.event(.approvalRequested, agent: "agent", origin: .auxiliary)
         let enteredWaiting = task.recordApprovalRequest(from: approval)
         #expect(enteredWaiting)
-        task.resumeExecution(from: TestFixtures.event(.toolCompleted, at: TestFixtures.now.addingTimeInterval(1)), latestEvent: .toolFinished)
+        task.resumeExecution(from: TestFixtures.event(.toolCompleted, at: TestFixtures.now.addingTimeInterval(1)))
         #expect(task.state == .waitingApproval)
-        task.resumeExecution(from: TestFixtures.event(.toolCompleted, at: TestFixtures.now.addingTimeInterval(2), agent: "agent", origin: .auxiliary), latestEvent: .toolFinished)
+        task.resumeExecution(from: TestFixtures.event(.toolCompleted, at: TestFixtures.now.addingTimeInterval(2), agent: "agent", origin: .auxiliary))
         #expect(task.state == .running)
     }
 
@@ -318,7 +317,7 @@ struct ActivityTaskTests {
     @Test func lateApprovalDoesNotUndoConfirmedExecutionProgress() {
         var task = makeTask()
         let progress = TestFixtures.now.addingTimeInterval(2)
-        task.resumeExecution(from: TestFixtures.event(.toolCompleted, at: progress), latestEvent: .toolFinished)
+        task.resumeExecution(from: TestFixtures.event(.toolCompleted, at: progress))
         let lateRequestChanged = task.recordApprovalRequest(from: TestFixtures.event(.approvalRequested))
         #expect(!lateRequestChanged)
         #expect(task.state == .running)
@@ -339,7 +338,7 @@ struct ActivityTaskTests {
     private func makeTask(_ event: ActivityRecord = TestFixtures.event()) -> ActivityTask {
         ActivityTask(
             displayID: UUID(), key: ActivityTaskKey(event: event), event: event,
-            state: .running, latestEvent: .promptSubmitted, startedAt: event.timestamp, progressGeneration: 1
+            state: .running, startedAt: event.timestamp, progressGeneration: 1
         )
     }
 }

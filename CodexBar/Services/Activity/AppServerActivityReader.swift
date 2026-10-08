@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 nonisolated enum ActivityEventBatch {
     case bootstrapStart
@@ -34,7 +33,6 @@ actor AppServerActivityReader {
     private var generation = 0
     private var connectedAt = Date.distantFuture
     private var reconciledAt = Date.distantPast
-    private var persistedTokens: [TokenTurn] = []
     private var lastTokenRefresh = Date.distantPast
     private var isRunning = false
     private var isStopping = false
@@ -168,7 +166,7 @@ actor AppServerActivityReader {
         // 存储未准备好时不创建连接, 避免本地故障触发重复初始化
         isTokenWriter = try await tokenHistory.acquireRecordingLease()
         try await persistPending()
-        persistedTokens = try await tokenHistory.refresh()
+        let persistedTokens = try await tokenHistory.refresh()
         try checkGeneration(current)
         await onBatch(.bootstrapStart)
         try checkGeneration(current)
@@ -193,7 +191,7 @@ actor AppServerActivityReader {
         do {
             if try await tokenHistory.acquireRecordingLease() {
                 try await persistPending()
-                persistedTokens = try await tokenHistory.refresh()
+                let persistedTokens = try await tokenHistory.refresh()
                 try checkGeneration(current)
                 reducer.restoreTokenTurns(persistedTokens)
                 isTokenWriter = true
@@ -415,7 +413,7 @@ actor AppServerActivityReader {
     private func consume(_ notification: ActivityNotification) {
         stateChanged = true
         if let id = notification.params.threadId ?? notification.params.thread?.id,
-           ActivityNotification.category(for: notification.method) == .state {
+           ActivityNotification.category(for: notification.method) != .progress {
             revisions[id, default: 0] += 1
         }
         let events = reducer.consume(notification, now: Date())
@@ -454,7 +452,6 @@ actor AppServerActivityReader {
             let batch = pendingObservations
             let committed = try await tokenHistory.recordObservations(batch)
             pendingObservations.removeFirst(batch.count)
-            persistedTokens = committed
             reducer.acceptTokenTurns(committed)
             lastTokenRefresh = Date()
         }

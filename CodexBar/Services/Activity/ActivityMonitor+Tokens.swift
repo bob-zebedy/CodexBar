@@ -13,9 +13,9 @@ struct TaskTokenRequest {
         var total: TokenUsage?
         for reference in references {
             guard let state = states.first(where: { $0.requestedThreadID == reference.threadID && $0.turnID == reference.turnID }),
-                  state.readStatus == .complete, state.recordedThreadID == reference.threadID,
+                  state.readStatus == .complete,
                   state.rootTurnID == root.turnID,
-                  (state.rootSessionID ?? state.recordedThreadID) == root.threadID,
+                  (state.rootSessionID ?? state.requestedThreadID) == root.threadID,
                   !requiresFinalUsage || reference == root || state.terminal != nil,
                   let usage = state.tokenUsage else {
                 if requiresFinalUsage {
@@ -101,11 +101,7 @@ extension ActivityMonitor {
             terminalTokenUsageRequests[id] = request
             references.formUnion(request.references)
         }
-        return references.map {
-            var reference = $0
-            reference.isTerminalUsageOnly = true
-            return reference
-        }
+        return Array(references)
     }
 
     @discardableResult

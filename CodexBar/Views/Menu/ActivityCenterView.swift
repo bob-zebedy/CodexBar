@@ -49,6 +49,10 @@ struct ActivityCenterView: View {
     @ObservedObject var presentationState: ActivityCenterPresentationState
     @ObservedObject var mainPanelSettings: MainPanelSettings
 
+    private var allowsAnimations: Bool {
+        presentationState.isPresented && mainPanelSettings.areAnimationsEnabled
+    }
+
     var body: some View {
         content(now: presentationState.timelineDate)
             .frame(
@@ -73,8 +77,8 @@ struct ActivityCenterView: View {
         snapshot: ActivitySnapshot
     ) -> CGSize {
         let visibleSectionCounts = [
-            snapshot.waitingTasks.count,
-            snapshot.runningTasks.count,
+            snapshot.panelWaitingTasks.count,
+            snapshot.panelRunningTasks.count,
             snapshot.recentCompletions.count,
             snapshot.recentTerminations.count
         ].filter { $0 > 0 }
@@ -100,23 +104,23 @@ struct ActivityCenterView: View {
 
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
-                    if !activityMonitor.snapshot.waitingTasks.isEmpty {
+                    if !activityMonitor.snapshot.panelWaitingTasks.isEmpty {
                         taskSection(
                             title: "activity-center.section.waiting",
                             symbolName: "hand.raised.fill",
                             tint: .orange,
-                            tasks: activityMonitor.snapshot.waitingTasks,
+                            tasks: activityMonitor.snapshot.panelWaitingTasks,
                             now: now,
                             isWaiting: true
                         )
                     }
 
-                    if !activityMonitor.snapshot.runningTasks.isEmpty {
+                    if !activityMonitor.snapshot.panelRunningTasks.isEmpty {
                         taskSection(
                             title: "activity-center.section.running",
                             symbolName: "bolt.fill",
                             tint: .blue,
-                            tasks: activityMonitor.snapshot.runningTasks,
+                            tasks: activityMonitor.snapshot.panelRunningTasks,
                             now: now,
                             isWaiting: false
                         )
@@ -130,7 +134,7 @@ struct ActivityCenterView: View {
                         terminationSection(now: now)
                     }
                 }
-                .animation(.codexStatus, value: activityMonitor.snapshot)
+                .animation(allowsAnimations ? .codexStatus : nil, value: activityMonitor.snapshot)
                 .padding(.horizontal, Metrics.horizontalPadding)
                 .padding(.vertical, Metrics.verticalPadding)
             }
@@ -148,7 +152,8 @@ struct ActivityCenterView: View {
 
             Text(headerSummary)
                 .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.codexSecondaryLabel)
+                .numericTransition(value: headerSummary, enabled: allowsAnimations)
                 .lineLimit(1)
         }
         .padding(.horizontal, Metrics.horizontalPadding)
@@ -158,11 +163,11 @@ struct ActivityCenterView: View {
     private var headerSummary: String {
         let snapshot = activityMonitor.snapshot
         var components = [String]()
-        if snapshot.waitingCount > 0 {
-            components.append(String(localized: "activity-center.summary.waiting", defaultValue: "\(snapshot.waitingCount, specifier: "%lld")"))
+        if snapshot.panelWaitingTasks.count > 0 {
+            components.append(String(localized: "activity-center.summary.waiting", defaultValue: "\(snapshot.panelWaitingTasks.count, specifier: "%lld")"))
         }
-        if snapshot.runningCount > 0 {
-            components.append(String(localized: "activity-center.summary.running", defaultValue: "\(snapshot.runningCount, specifier: "%lld")"))
+        if snapshot.panelRunningTasks.count > 0 {
+            components.append(String(localized: "activity-center.summary.running", defaultValue: "\(snapshot.panelRunningTasks.count, specifier: "%lld")"))
         }
         if snapshot.activeCount == 0 {
             if !snapshot.recentCompletions.isEmpty {
@@ -237,7 +242,8 @@ struct ActivityCenterView: View {
 
                 Text(verbatim: "\(count)")
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                    .numericTransition(value: count, comparison: Double(count), enabled: allowsAnimations)
             }
             .frame(height: Metrics.sectionHeaderHeight)
 
@@ -285,7 +291,7 @@ struct ActivityCenterView: View {
 
     private func terminationRow(_ termination: ActivityTermination, now: Date) -> some View {
         row(
-            symbolName: "xmark.circle.fill",
+            symbolName: termination.isFailure ? "exclamationmark.circle.fill" : "xmark.circle.fill",
             tint: .red,
             projectName: termination.projectName,
             modelName: termination.modelName,
@@ -335,10 +341,9 @@ struct ActivityCenterView: View {
                     ActivityStatusText(
                         text: detail,
                         tint: tint,
-                        effect: presentationState.isPresented
-                            && mainPanelSettings.areAnimationsEnabled
-                            ? effect : .none
+                        effect: allowsAnimations ? effect : .none
                     )
+                    .numericTransition(value: detail, enabled: allowsAnimations)
                     if let tokenUsage {
                         Spacer(minLength: 0)
                         TokenUsageText(usage: tokenUsage)
@@ -370,7 +375,8 @@ struct ActivityCenterView: View {
             ) {
                 Text(metadata)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.codexSecondaryLabel)
+                    .numericTransition(value: metadata, enabled: allowsAnimations)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -383,9 +389,7 @@ struct ActivityCenterView: View {
         now: Date,
         isWaiting: Bool
     ) -> String {
-        let components = isWaiting
-            ? ActivityDisplayFormat.waitingDetailComponents(for: task, now: now)
-            : ActivityDisplayFormat.runningDetailComponents(for: task, now: now)
+        let components = ActivityDisplayFormat.liveSummaryComponents(for: task, now: now, waiting: isWaiting)
         return components.joined(separator: " • ")
     }
 

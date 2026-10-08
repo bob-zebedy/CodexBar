@@ -51,7 +51,6 @@ extension ActivityMonitor {
         into transitions: inout [ActivityTransition]
     ) -> Bool {
         guard state.readStatus == .complete,
-              state.recordedThreadID == state.requestedThreadID,
               let rootTurnID = state.rootTurnID,
               let parentThreadID = state.parentThreadID, parentThreadID != state.requestedThreadID else { return false }
         let reference = ActivityTurnReference(threadID: state.requestedThreadID, turnID: state.turnID, startedAt: state.startedAt ?? Date())
@@ -76,7 +75,6 @@ extension ActivityMonitor {
         if wasRunning != isRunning {
             let observedAt = state.lastProgressAt ?? state.startedAt ?? Date()
             task.recordSubagentActivity(agentID: state.requestedThreadID, isStarting: isRunning, at: observedAt)
-            task.latestEvent = isRunning ? .subagentStarted : .subagentFinished
         }
         _ = resolvePendingApprovalIfPossible(for: &task, into: &transitions)
         if !terminalOnly {

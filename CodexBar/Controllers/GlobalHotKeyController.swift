@@ -1,5 +1,4 @@
 import Carbon.HIToolbox
-import Foundation
 import os
 
 /// Carbon 全局快捷键注册器, 将系统回调桥接回 MainActor

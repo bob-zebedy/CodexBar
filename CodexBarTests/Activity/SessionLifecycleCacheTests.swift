@@ -29,7 +29,7 @@ struct SessionLifecycleCacheTests {
         let reference = ActivityTurnReference(threadID: "thread", turnID: "turn", startedAt: now)
         let state = SessionLifecycleState(
             requestedThreadID: "thread", turnID: "turn", startedAt: now, approvalReviewer: .user,
-            effort: "high", lastProgressAt: now, terminal: nil, hasContext: true
+            effort: "high", lastProgressAt: now, terminal: nil
         )
         await reader.replace([reference: state], verifiedThreads: [reference.threadID: now])
         #expect(await reader.lifecycleStates(for: [reference], now: now).first?.readStatus == .complete)

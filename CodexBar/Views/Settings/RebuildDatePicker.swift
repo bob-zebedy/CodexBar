@@ -48,7 +48,8 @@ struct RebuildDatePicker: View {
                     }
                 }
                 .font(.caption.monospacedDigit().weight(.medium))
-                .foregroundStyle(.primary)
+                .foregroundStyle(Color.codexLabel)
+                .numericTransition(value: selection?.displayText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.9)
 
@@ -97,6 +98,8 @@ struct RebuildDatePicker: View {
                 Text(monthTitle)
                     .font(.system(.body, design: .rounded).weight(.semibold))
                     .monospacedDigit()
+                    .foregroundStyle(Color.codexLabel)
+                    .numericTransition(value: monthTitle, comparison: displayedMonth.timeIntervalSinceReferenceDate)
 
                 Spacer()
 

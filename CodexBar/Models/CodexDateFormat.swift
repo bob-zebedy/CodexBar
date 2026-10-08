@@ -44,15 +44,6 @@ nonisolated enum CodexDateFormat {
         return date
     }
 
-    /// yyyy-MM-dd HH:mm:ss.SSS, 归一化活动事件写入本机时间字符串
-    static func localTimestampString(from date: Date) -> String {
-        localTimestampFormatter.string(from: date)
-    }
-
-    static func localTimestampDate(from string: String) -> Date? {
-        localTimestampFormatter.date(from: string)
-    }
-
     /// yyyy-MM-dd HH:mm:ss, 设置页与重置次数详情统一的本地时间展示
     static func localDisplayString(from date: Date) -> String {
         localDisplayFormatter.string(from: date)
@@ -61,11 +52,6 @@ nonisolated enum CodexDateFormat {
     /// yyyy-MM-dd, 日期选择器和日期范围只展示日期部分
     static func localDayDisplayString(from date: Date) -> String {
         dayString(from: date)
-    }
-
-    /// ISO8601 internet date-time, 带或不带小数秒均可解析
-    static func iso8601Date(from string: String) -> Date? {
-        try? Date(string, strategy: .iso8601)
     }
 
     /// 所有日期计算共用: Codex 落盘的日期键与目录名都是公历
@@ -77,16 +63,8 @@ nonisolated enum CodexDateFormat {
         return calendar
     }()
 
-    /// 以下格式器配置后不再修改; DateFormatter/ISO8601DateFormatter
+    /// 以下格式器配置后不再修改; DateFormatter
     /// 在 macOS 10.9+ 线程安全, 可跨并发域缓存共享
-    private static let localTimestampFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .autoupdatingCurrent
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
-        return formatter
-    }()
-
     private static let localDisplayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

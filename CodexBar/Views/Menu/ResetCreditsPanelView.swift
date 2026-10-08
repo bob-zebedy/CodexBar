@@ -35,7 +35,6 @@ nonisolated struct ResetCreditsPanelContext: Equatable {
 /// 重置次数侧边详情, 按过期时间从近到远展示
 struct ResetCreditsPanelView: View {
     let context: ResetCreditsPanelContext
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let groups = expirationGroups
@@ -159,6 +158,7 @@ struct ResetCreditsPanelView: View {
         Text(text)
             .font(.caption2.monospacedDigit().weight(.semibold))
             .foregroundStyle(Color.codexLabel)
+            .numericTransition(value: text)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
     }
@@ -175,6 +175,7 @@ struct ResetCreditsPanelView: View {
         return Text(LocalizedStringResource("banked-reset.available-count", defaultValue: "\(group.count, specifier: "%lld")"))
             .font(.caption2.monospacedDigit().weight(.semibold))
             .foregroundStyle(tint)
+            .numericTransition(value: group.count, comparison: Double(group.count))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 6)

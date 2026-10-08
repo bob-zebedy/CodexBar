@@ -229,7 +229,7 @@ struct TaskGlowPreviewTests {
 
     private func active(waiting: Bool = false) -> ActivitySnapshot {
         let task = ActivityTaskSnapshot(
-            id: UUID(), isAnonymous: false, latestEvent: .toolStarted, projectName: nil,
+            id: UUID(), isAnonymous: false, projectName: nil,
             modelName: nil, effort: nil, toolName: nil, startedAt: now,
             stateChangedAt: now, showsPreciseDuration: true, activeSubagentCount: nil
         )

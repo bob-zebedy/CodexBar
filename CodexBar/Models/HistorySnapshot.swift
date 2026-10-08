@@ -1,5 +1,3 @@
-import Foundation
-
 // MARK: - 每日聚合指标
 
 /// 热力图详情面板直接消费的每日统计

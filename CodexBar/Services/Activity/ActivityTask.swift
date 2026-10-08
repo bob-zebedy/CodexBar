@@ -122,8 +122,8 @@ struct ActivityTask {
     let key: ActivityTaskKey
     var associatedTurnID: String?
     var lifecycleCoverageCheckedAt: Date?
+    var terminalFailed = false
     var state: ActivityTaskState
-    var latestEvent: ActivityPhase
     var projectName: String?
     var modelName: String?
     var effort: String?
@@ -144,7 +144,6 @@ struct ActivityTask {
         key: ActivityTaskKey,
         event: ActivityRecord,
         state: ActivityTaskState,
-        latestEvent: ActivityPhase,
         startedAt: Date?,
         progressGeneration: UInt64
     ) {
@@ -152,7 +151,6 @@ struct ActivityTask {
         self.key = key
         associatedTurnID = key.turnID
         self.state = state
-        self.latestEvent = latestEvent
         projectName = event.projectDisplayName
         modelName = event.model
         effort = Self.normalizedEffort(event.effort)
@@ -184,7 +182,6 @@ struct ActivityTask {
         ActivityTaskSnapshot(
             id: displayID,
             isAnonymous: key.isAnonymous,
-            latestEvent: displayedApproval == nil ? latestEvent : .approvalRequested,
             projectName: projectName,
             modelName: modelName,
             effort: effort,
@@ -194,8 +191,22 @@ struct ActivityTask {
             showsPreciseDuration: showsPreciseDuration,
             activeSubagentCount: activeSubagentCount,
             tokenUsage: tokenUsage,
-            itemType: displayedApproval.map(\.itemType) ?? itemType
+            itemType: displayedApproval.map(\.itemType) ?? itemType,
+            presentation: livePresentation
         )
+    }
+
+    private var livePresentation: ActivityLiveSummary? {
+        let live = executions.filter { !$0.value.isTerminal }.compactMap { key, value in
+            value.presentation.map { (key, $0.summary) }
+        }
+        guard !live.isEmpty else { return nil }
+        let waiting = live.filter { $0.1.waiting != nil }.min { ($0.1.waiting?.since ?? .distantFuture) < ($1.1.waiting?.since ?? .distantFuture) }
+        let root = live.first { $0.0.agentID == nil }
+        var result = (waiting ?? root ?? live.max { $0.1.updatedAt < $1.1.updatedAt })!.1
+        result.recent = live.compactMap(\.1.recent).max { $0.at < $1.at }
+        result.toolCount = live.allSatisfy { $0.1.toolCount != nil } ? live.reduce(0) { $0 + ($1.1.toolCount ?? 0) } : nil
+        return result
     }
 
     var turnReference: ActivityTurnReference? {
@@ -223,7 +234,7 @@ struct ActivityTask {
     }
 
     mutating func recordLifecycleRead(_ state: SessionLifecycleState, at now: Date) {
-        lifecycleCoverageCheckedAt = state.readStatus == .complete && state.hasContext ? now : nil
+        lifecycleCoverageCheckedAt = state.readStatus == .complete ? now : nil
     }
 
     /// 阈值调整与隐藏共用计时起点, 恢复不要求读取结果仍在有效期内
@@ -361,7 +372,7 @@ struct ActivityTask {
         executions[owner] = execution
     }
 
-    mutating func resumeExecution(from event: ActivityRecord, latestEvent: ActivityPhase) {
+    mutating func resumeExecution(from event: ActivityRecord) {
         recordExecutionEvent(event)
         let owner = executionKey(for: event)
         if owner.isReliable, var execution = executions[owner] {
@@ -369,7 +380,6 @@ struct ActivityTask {
             execution.lastExecutionProgressAt = max(execution.lastExecutionProgressAt ?? .distantPast, event.timestamp)
             executions[owner] = execution
         }
-        self.latestEvent = latestEvent
         refreshApprovalState(at: event.timestamp, restoresRunning: true)
     }
 
@@ -418,6 +428,9 @@ struct ActivityTask {
 
     mutating func mergeExecutionLifecycle(_ lifecycle: SessionLifecycleState, owner: ActivityExecutionKey) {
         guard lifecycle.readStatus == .complete else { return }
+        var execution = executions[owner] ?? ActivityExecution()
+        execution.presentation = lifecycle.presentation
+        executions[owner] = execution
         if lifecycle.terminal != nil {
             finishExecution(owner, at: lifecycle.lastProgressAt ?? lastProgressAt)
         } else {
@@ -454,6 +467,7 @@ struct ActivityTask {
         var execution = executions[owner] ?? ActivityExecution()
         execution.approval = nil
         execution.isTerminal = true
+        execution.presentation = nil
         executions[owner] = execution
         refreshApprovalState(at: timestamp)
     }
@@ -509,6 +523,7 @@ struct ActivityExecution {
     var lastApprovalRequestedAt: Date?
     var approval: ActivityApprovalState?
     var isTerminal = false
+    var presentation: ActivityLivePresentation?
 
     mutating func mergeReviewer(_ reviewer: ApprovalReviewer?, at timestamp: Date) {
         guard let reviewer, timestamp >= (approvalContextObservedAt ?? .distantPast) else { return }

@@ -40,7 +40,8 @@ struct LogView: View {
 
             Text(verbatim: "\(store.totalCount)")
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.codexSecondaryLabel)
+                .numericTransition(value: store.totalCount, comparison: Double(store.totalCount))
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
                 .background(Capsule().fill(.quaternary))
@@ -212,20 +213,16 @@ private struct LogRow: View {
                 }
 
                 if hasText {
-                    LogHeaderActionButton(
-                        title: "common.action.preview",
-                        systemImage: "doc.text.magnifyingglass",
-                        help: String(localized: "log.action.preview-full", defaultValue: "\(caption)")
-                    ) {
+                    Button {
                         fullTextItem = FullLogTextItem(title: caption, text: text)
+                    } label: {
+                        Label("common.action.preview", systemImage: "doc.text.magnifyingglass")
                     }
 
-                    LogHeaderActionButton(
-                        title: "common.action.copy",
-                        systemImage: "doc.on.doc",
-                        help: String(localized: "log.action.copy-full", defaultValue: "\(caption)")
-                    ) {
+                    Button {
                         PasteboardWriter.copy(text)
+                    } label: {
+                        Label("common.action.copy", systemImage: "doc.on.doc")
                     }
                 }
             }
@@ -270,21 +267,6 @@ private struct FullLogTextItem: Identifiable {
     let id = UUID()
     let title: String
     let text: String
-}
-
-/// 复制/预览按钮的统一样式入口
-private struct LogHeaderActionButton: View {
-    let title: LocalizedStringResource
-    let systemImage: String
-    let help: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-        }
-        .help(help)
-    }
 }
 
 /// 完整请求/响应预览弹窗

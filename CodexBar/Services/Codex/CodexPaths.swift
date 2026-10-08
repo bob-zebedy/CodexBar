@@ -19,7 +19,6 @@ nonisolated struct CodexServerConnectionInfo: Equatable {
     let socketPath: String
     /// 来自 initialize 握手, 代表当前 app-server 进程真实运行的版本
     let version: String?
-    let openedAt: Date
 }
 
 /// 一次 PATH 扫描得到的安装结果, 供版本检测使用

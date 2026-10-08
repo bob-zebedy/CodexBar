@@ -56,11 +56,15 @@ final class AppServerLogViewModel: ObservableObject {
         guard !isReading else { return }
         let current = observationGeneration
         isReading = true
-        isLoading = !isLoaded
+        if !isLoaded {
+            isLoading = true
+        }
         defer {
             if current == observationGeneration {
                 isReading = false
-                isLoading = false
+                if isLoading {
+                    isLoading = false
+                }
             }
         }
         do {
@@ -71,27 +75,40 @@ final class AppServerLogViewModel: ObservableObject {
                 guard current == observationGeneration else { return }
                 if changes.generation != generation || changes.hasMore {
                     try await loadFirst(current: current)
-                } else {
-                    if !changes.entries.isEmpty {
-                        let newest = entries.first?.position ?? 0
-                        var byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
-                        for entry in changes.entries where byID[entry.id] != nil || (!browsingHistory && entry.position > newest) {
-                            byID[entry.id] = entry
-                        }
-                        entries = Array(byID.values.sorted { $0.position > $1.position }.prefix(maximumEntries))
-                    }
-                    revision = changes.revision
-                    totalCount = changes.total
+                } else if changes.revision != revision {
+                    mergeEntries(changes.entries)
                     let oldest = try await storage.page(before: entries.last?.position, limit: 1)
                     guard current == observationGeneration else { return }
-                    hasMore = !oldest.entries.isEmpty
+                    revision = changes.revision
+                    if totalCount != changes.total {
+                        totalCount = changes.total
+                    }
+                    let more = !oldest.entries.isEmpty
+                    if hasMore != more {
+                        hasMore = more
+                    }
                 }
             }
-            errorMessage = nil
+            if errorMessage != nil {
+                errorMessage = nil
+            }
         } catch {
-            if current == observationGeneration {
+            if current == observationGeneration, errorMessage != error.localizedDescription {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func mergeEntries(_ updates: [AppServerLogEntry]) {
+        guard !updates.isEmpty else { return }
+        let newest = entries.first?.position ?? 0
+        var byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        for entry in updates where byID[entry.id] != nil || (!browsingHistory && entry.position > newest) {
+            byID[entry.id] = entry
+        }
+        let updated = Array(byID.values.sorted { $0.position > $1.position }.prefix(maximumEntries))
+        if entries != updated {
+            entries = updated
         }
     }
 

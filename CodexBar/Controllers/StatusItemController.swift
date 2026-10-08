@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import os
 import SwiftUI
 
 /// 菜单栏入口控制器, 统一管理状态图标, 菜单面板, 右键菜单和全局快捷键
@@ -106,7 +105,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let statusIconPresentation = StatusItemIconPresentation()
     private var statusIconHostingView: StatusItemIconHostingView?
     private var statusIconExpirationTask: Task<Void, Never>?
-    private var statusToolTipTask: Task<Void, Never>?
     private var registeredHotKeyShortcut: GlobalHotKeyShortcut?
     private var auxiliaryWindowFocusRestoreTask: Task<Void, Never>?
     private var activeStatusItemMenu: NSMenu?
@@ -160,7 +158,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         statusIconExpirationTask?.cancel()
         statusIconHostingView?.removeFromSuperview()
         statusIconHostingView = nil
-        statusToolTipTask?.cancel()
         syncScheduler.cancel()
         setAuxiliaryWindowKeyFocus(true)
         globalHotKeyController.uninstall()
@@ -410,9 +407,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let previousState = statusIconState
         guard previousState != state else { return }
         statusIconState = state
-        if previousState?.hasLiveDuration != state.hasLiveDuration {
-            configureStatusToolTipRefresh(for: state)
-        }
         refreshStatusIconPresentation(animated: previousState != nil)
         scheduleStatusIconExpiration()
     }
@@ -420,8 +414,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func refreshStatusIconPresentation(animated: Bool = true) {
         guard let state = statusIconState else { return }
         let now = Date()
-        let toolTip = state.toolTip(at: now)
-        statusItem.button?.toolTip = toolTip
         statusIconPresentation.update(
             symbolName: state.symbolName(at: now),
             ordinaryUsageAllowed: state.ordinaryUsageAllowed,
@@ -447,27 +439,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             guard let self, !Task.isCancelled else { return }
             refreshStatusIconPresentation()
             scheduleStatusIconExpiration()
-        }
-    }
-
-    private func configureStatusToolTipRefresh(for state: StatusIconState) {
-        statusToolTipTask?.cancel()
-        statusToolTipTask = nil
-        guard state.hasLiveDuration else {
-            return
-        }
-
-        statusToolTipTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
-                guard let self,
-                      !Task.isCancelled,
-                      let state = statusIconState,
-                      state.hasLiveDuration else {
-                    return
-                }
-                refreshStatusIconPresentation()
-            }
         }
     }
 

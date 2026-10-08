@@ -126,7 +126,6 @@ final class SidePanelDrawerAnimator {
 /// 热力图详情面板带切边与延迟隐藏 状态机不同 因此不走这里
 @MainActor
 final class SidePanelDrawerPresenter {
-    private let makesKey: Bool
     private let usesUntranslatedInitialLayout: Bool
     private let drawerAnimator: SidePanelDrawerAnimator
     private weak var panel: NSPanel?
@@ -137,11 +136,9 @@ final class SidePanelDrawerPresenter {
 
     init(
         animationKey: String,
-        makesKey: Bool = false,
         usesUntranslatedInitialLayout: Bool = false,
         contentViewProvider: @escaping @MainActor () -> NSView?
     ) {
-        self.makesKey = makesKey
         self.usesUntranslatedInitialLayout = usesUntranslatedInitialLayout
         drawerAnimator = SidePanelDrawerAnimator(
             contentViewProvider: contentViewProvider,
@@ -174,9 +171,6 @@ final class SidePanelDrawerPresenter {
         self.parentWindow = parentWindow
         SidePanelSupport.attach(panel, to: parentWindow)
         panel.order(.above, relativeTo: parentWindow.windowNumber)
-        if makesKey {
-            panel.makeKey()
-        }
         drawerAnimator.animateEntryAfterInitialLayout(
             from: hidden,
             panel: panel,

@@ -1,5 +1,3 @@
-import Foundation
-
 /// config/read 的最小响应模型, 只解出 TUI 通知相关状态
 nonisolated struct ConfigReadResponse: Decodable {
     let config: AppServerConfig

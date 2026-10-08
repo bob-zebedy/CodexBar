@@ -4,7 +4,6 @@ nonisolated struct ActivityTurnReference: Hashable {
     let threadID: String
     let turnID: String
     let startedAt: Date
-    var isTerminalUsageOnly = false
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.threadID == rhs.threadID && lhs.turnID == rhs.turnID
@@ -79,10 +78,8 @@ nonisolated struct SessionLifecycleState {
     var lastProgressAt: Date?
     let terminal: SessionTerminalState?
     var readStatus: SessionReadStatus = .complete
-    var hasContext = false
     var contextObservedAt: Date?
     var rootTurnID: String?
-    var recordedThreadID: String?
     var rootSessionID: String?
     var parentThreadID: String?
     var lastExecutionProgressAt: Date?
@@ -91,6 +88,8 @@ nonisolated struct SessionLifecycleState {
     var isWaitingApproval: Bool?
     var approvalChangedAt: Date?
     var terminalObservedAt: Date?
+    var presentation: ActivityLivePresentation?
+    var turnStatus: String?
 }
 
 nonisolated enum SessionReadStatus {

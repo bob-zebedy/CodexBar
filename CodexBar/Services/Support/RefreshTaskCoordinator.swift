@@ -1,4 +1,3 @@
-import Foundation
 import os
 
 /// 小型刷新任务状态机, 由 MainActor ViewModel 持有和调用

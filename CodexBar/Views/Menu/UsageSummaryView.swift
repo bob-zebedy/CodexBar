@@ -4,6 +4,7 @@ import SwiftUI
 
 /// Token 摘要和近期用量热力图的组合区
 struct UsageSummaryView: View {
+    @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
     let usage: CodexUsageSnapshot?
     let isStale: Bool
     let showsActivity: Bool
@@ -53,8 +54,8 @@ struct UsageSummaryView: View {
             .onChange(of: hoverContext) { _, context in
                 onHoverContextChange(context)
             }
-            .animation(Metrics.statusAnimation, value: usage)
-            .animation(Metrics.statusAnimation, value: days)
+            .animation(allowsAnimations ? Metrics.statusAnimation : nil, value: usage)
+            .animation(allowsAnimations ? Metrics.statusAnimation : nil, value: days)
     }
 
     @ViewBuilder
@@ -107,6 +108,7 @@ struct UsageSummaryView: View {
         metric(label: label) {
             if let value {
                 TokenCountText(tokens: value)
+                    .foregroundStyle(Color.codexLabel)
                     .minimumScaleFactor(0.8)
             } else {
                 Text(verbatim: "--")
@@ -127,6 +129,8 @@ struct UsageSummaryView: View {
         metric(label: label) {
             Text(value)
                 .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(Color.codexLabel)
+                .numericTransition(value: value, enabled: allowsAnimations)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }

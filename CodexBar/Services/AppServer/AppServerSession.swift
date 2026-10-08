@@ -362,19 +362,24 @@ final nonisolated class AppServerSession {
         logStorage.recordReceived(method: method, payload: framePayload(data), connection: connectionName)
     }
 
-    /// 推送只记录业务使用的状态事件, 错误和异常协议消息保留以便排查
+    /// 推送只记录活动采集使用的状态和展示事件, 跳过高频 delta, 保留错误和异常协议消息
     /// 此判断不参与消息路由, 被过滤的消息仍交给业务消费
     private static func shouldRecordIncoming(_ object: [String: Any]?) -> Bool {
         guard let object, let method = object["method"] as? String else { return true }
         if method == "error" || method == "warning" {
             return true
         }
-        guard ActivityNotification.category(for: method) == .state else { return false }
+        switch ActivityNotification.category(for: method) {
+        case .progress, .ignored: return false
+        case .state, .presentation: break
+        }
         switch method {
         case "item/started", "item/completed":
             guard let params = object["params"] as? [String: Any],
                   let item = params["item"] as? [String: Any], let type = item["type"] as? String else { return true }
-            return ActivityItem.isToolType(type) || type == "contextCompaction" || type == "subAgentActivity"
+            return ActivityItem.isToolType(type) || [
+                "contextCompaction", "subAgentActivity", "agentMessage", "reasoning", "plan", "enteredReviewMode", "exitedReviewMode"
+            ].contains(type)
         default:
             return true
         }

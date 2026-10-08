@@ -68,42 +68,12 @@ struct AppServerSessionTests {
         try server.finish()
     }
 
-    @Test(arguments: [true, false])
-    func logsOnlyConsumedPushesWithoutChangingNotificationDelivery(_ interleaved: Bool) async throws {
+    @Test(arguments: [true, false], [true, false])
+    func logsStateAndPresentationWithoutDroppingDeltaDelivery(_ interleaved: Bool, _ polled: Bool) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
-        let filtered = try unusedNotifications()
-        var retained = try [
-            "thread/started", "thread/status/changed", "thread/settings/updated", "turn/started", "turn/completed",
-            "item/autoApprovalReview/started", "serverRequest/resolved", "error", "warning"
-        ].map { try notification($0, params: ["marker": $0]) }
-        for count in 1 ... 3 {
-            try retained.append(notification("thread/tokenUsage/updated", params: ["total": count]))
-        }
-        for type in [
-            "commandExecution",
-            "fileChange",
-            "webSearch",
-            "imageView",
-            "imageGeneration",
-            "sleep",
-            "mcpToolCall",
-            "dynamicToolCall",
-            "collabAgentToolCall",
-            "contextCompaction",
-            "subAgentActivity"
-        ] {
-            for method in ["item/started", "item/completed"] {
-                try retained.append(notification(method, params: ["item": ["type": type, "id": type, "output": "full output"]]))
-            }
-        }
-        for method in ["item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval"] {
-            try retained.append(JSONSerialization.data(withJSONObject: [
-                "id": "approval", "method": method, "params": ["command": "original"]
-            ]))
-        }
-        try retained.append(notification("item/completed", params: ["item": ["id": "malformed", "type": 123]]))
+        let (filtered, retained) = try logDeliveryMessages()
         let messages = filtered + retained
         let server = try SharedServerFixture { peer in
             let request = try peer.readMessage()
@@ -119,16 +89,33 @@ struct AppServerSessionTests {
                 }
             }
             let done = try peer.readMessage()
+            #expect(done["method"] as? String == "done")
             try peer.reply(to: done, result: ["value": 8])
         }
         defer { server.close() }
         let session = try AppServerSession(socketURL: server.url, logStorage: storage)
         defer { session.close() }
-        let response: Value = try session.request("probe")
-        #expect(response.value == 7)
-        for message in messages {
-            #expect(try session.nextEvent() == message)
+        var delivered: [Data] = []
+        if polled {
+            let request = try session.beginRequest("probe", params: [:])
+            receive: while true {
+                switch try session.poll(request) {
+                case .waiting: continue
+                case let .event(data): delivered.append(data)
+                case let .response(data):
+                    #expect(try AppServerRPC.decode(data, as: Value.self).value == 7)
+                    break receive
+                }
+            }
+        } else {
+            let response: Value = try session.request("probe")
+            #expect(response.value == 7)
         }
+        for _ in delivered.count ..< messages.count {
+            let event = try #require(try session.nextEvent())
+            delivered.append(event)
+        }
+        #expect(delivered == messages)
         let _: Value = try session.request("done")
         session.close()
         try server.finish()
@@ -146,6 +133,63 @@ struct AppServerSessionTests {
         #expect(try await reopened.page(limit: 200).entries == page.entries)
     }
 
+    private func logDeliveryMessages() throws -> (filtered: [Data], retained: [Data]) {
+        var filtered = try unusedNotifications()
+        var retained = try [
+            "thread/started", "thread/status/changed", "thread/settings/updated", "turn/started", "turn/completed",
+            "item/autoApprovalReview/started", "item/autoApprovalReview/completed", "serverRequest/resolved", "error", "warning",
+            "hook/started", "hook/completed", "mcpServer/startupStatus/updated", "model/rerouted", "model/verification",
+            "modelProvider/authRecoveryStarted", "modelProvider/authRecoveryCompleted", "model/safetyBuffering/updated",
+            "thread/environment/connected", "thread/environment/disconnected"
+        ].map { try notification($0, params: ["marker": $0]) }
+        try retained.append(notification("turn/diff/updated", params: ["diff": "original patch"]))
+        try retained.append(notification("turn/plan/updated", params: ["plan": [["step": "original step", "status": "pending"]]]))
+        for method in [
+            "item/agentMessage/delta", "item/plan/delta", "item/reasoning/summaryTextDelta", "item/reasoning/textDelta",
+            "item/commandExecution/outputDelta", "item/fileChange/outputDelta"
+        ] {
+            try filtered.append(notification(method, params: [
+                "threadId": "thread", "turnId": "turn", "itemId": "item", "delta": "original fragment", "summaryIndex": 0, "contentIndex": 0
+            ]))
+        }
+        try filtered.append(notification("item/agentMessage/delta", params: ["delta": 123]))
+        for count in 1 ... 3 {
+            try retained.append(notification("thread/tokenUsage/updated", params: ["total": count]))
+        }
+        for type in [
+            "commandExecution",
+            "fileChange",
+            "webSearch",
+            "imageView",
+            "imageGeneration",
+            "sleep",
+            "mcpToolCall",
+            "dynamicToolCall",
+            "collabAgentToolCall",
+            "contextCompaction",
+            "subAgentActivity",
+            "agentMessage",
+            "reasoning",
+            "plan",
+            "enteredReviewMode",
+            "exitedReviewMode"
+        ] {
+            for method in ["item/started", "item/completed"] {
+                try retained.append(notification(method, params: ["item": ["type": type, "id": type, "output": "full output"]]))
+            }
+        }
+        for method in [
+            "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval",
+            "item/tool/requestUserInput", "mcpServer/elicitation/request"
+        ] {
+            try retained.append(JSONSerialization.data(withJSONObject: [
+                "id": "approval", "method": method, "params": ["command": "original"]
+            ]))
+        }
+        try retained.append(notification("item/completed", params: ["item": ["id": "malformed", "type": 123]]))
+        return (filtered, retained)
+    }
+
     private func notification(_ method: String, params: [String: Any]) throws -> Data {
         try JSONSerialization.data(withJSONObject: ["method": method, "params": params])
     }
@@ -153,36 +197,18 @@ struct AppServerSessionTests {
     private func unusedNotifications() throws -> [Data] {
         var messages: [Data] = []
         for method in [
-            "hook/started", "hook/completed", "hook/futureEvent", "account/updated", "account/rateLimits/updated",
-            "mcpServer/startupStatus/updated", "remoteControl/status/changed", "thread/goal/cleared",
-            "thread/name/updated", "item/autoApprovalReview/completed", "future/tool/delta"
+            "hook/futureEvent", "account/updated", "account/rateLimits/updated",
+            "remoteControl/status/changed", "thread/goal/cleared", "thread/name/updated", "future/tool/delta"
         ] {
             try messages.append(notification(method, params: ["marker": method]))
         }
-        for method in ["hook/started", "item/tool/call", "item/tool/requestUserInput", "mcpServer/elicitation/request"] {
-            try messages.append(JSONSerialization.data(withJSONObject: ["id": "unused", "method": method, "params": [:]]))
-        }
-        try messages.append(notification("item/agentMessage/delta", params: ["delta": 123]))
-        for method in [
-            "item/agentMessage/delta",
-            "item/plan/delta",
-            "item/reasoning/summaryTextDelta",
-            "item/reasoning/textDelta",
-            "item/commandExecution/outputDelta",
-            "item/fileChange/outputDelta"
-        ] {
-            try messages.append(notification(method, params: [
-                "threadId": "thread", "turnId": "turn", "itemId": "item", "delta": "original fragment", "summaryIndex": 0, "contentIndex": 0
-            ]))
-        }
+        try messages.append(JSONSerialization.data(withJSONObject: ["id": "unused", "method": "item/tool/call", "params": [:]]))
         for method in ["command/exec/outputDelta", "process/outputDelta", "item/future/delta", "item/future/outputDelta", "hook/delta"] {
             try messages.append(notification(method, params: ["deltaBase64": "dGVzdA==", "stream": "stdout"]))
         }
         try messages.append(notification("item/reasoning/summaryPartAdded", params: ["summaryIndex": 0]))
-        try messages.append(notification("turn/diff/updated", params: ["diff": "patch"]))
-        try messages.append(notification("turn/plan/updated", params: ["plan": [["step": "test", "status": "pending"]]]))
         try messages.append(notification("item/mcpToolCall/progress", params: ["message": "working"]))
-        for type in ["userMessage", "agentMessage", "reasoning", "plan", "hookPrompt", "functionCallOutput", "enteredReviewMode", "exitedReviewMode", "futureItem"] {
+        for type in ["userMessage", "hookPrompt", "functionCallOutput", "futureItem"] {
             for method in ["item/started", "item/completed"] {
                 try messages.append(notification(method, params: ["item": ["id": type, "type": type, "text": "body"]]))
             }

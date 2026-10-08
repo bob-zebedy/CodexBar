@@ -82,7 +82,8 @@ private struct TaskGlowBrightnessControl: View {
             Text(value, format: .percent.precision(.fractionLength(0)))
                 .font(.system(size: 10, weight: .medium, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.codexSecondaryLabel)
+                .numericTransition(value: Int((value * 100).rounded()), comparison: value)
                 .frame(width: 32, alignment: .trailing)
         }
         .padding(.horizontal, 8)

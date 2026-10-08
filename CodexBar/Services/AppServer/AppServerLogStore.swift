@@ -27,7 +27,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
     struct Limits: Sendable {
         var entries = 10000
         var bytes = 50 * 1024 * 1024
-        var bodyBytes = 64 * 1024
+        var bodyBytes = 128 * 1024
         var pageEntries = 1000
     }
 

@@ -10,15 +10,17 @@ struct ActivityStatusText: View {
     let text: String
     let tint: Color
     let effect: Effect
+    var lineLimit: Int? = 1
+    var supplement: String?
 
     var body: some View {
-        Text(text)
+        label
             .foregroundStyle(tint)
             .overlay {
                 if effect == .shimmer {
                     ActivityStatusShimmer()
                         .mask {
-                            Text(text)
+                            label
                                 .foregroundStyle(.white)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                         }
@@ -26,7 +28,7 @@ struct ActivityStatusText: View {
                 }
             }
             .font(.caption2)
-            .lineLimit(1)
+            .lineLimit(lineLimit)
             .truncationMode(.tail)
             .anchorPreference(key: ActivityIonizationSourceKey.self, value: .bounds) { bounds in
                 if case let .ionizing(taskID) = effect {
@@ -34,6 +36,15 @@ struct ActivityStatusText: View {
                 }
                 return []
             }
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if let supplement {
+            ActivitySummaryText(components: [text, supplement], supplementaryLineLimit: 1)
+        } else {
+            Text(text)
+        }
     }
 }
 
@@ -152,6 +163,28 @@ private struct ActivityStatusShimmer: View {
                 )
                 .frame(width: width)
                 .offset(x: (geometry.size.width + width) * progress - width)
+            }
+        }
+    }
+}
+
+/// 附加信息放不下时整体换行, 避免分隔点单独留在行首或行尾
+struct ActivitySummaryText: View {
+    let components: [String]
+    var supplementaryLineLimit: Int?
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            Text(components.joined(separator: " • "))
+                .fixedSize()
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(components.enumerated()), id: \.offset) { index, component in
+                    Text(component)
+                        .lineLimit(index == 0 ? nil : supplementaryLineLimit)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }

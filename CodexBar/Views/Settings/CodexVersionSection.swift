@@ -107,7 +107,8 @@ struct CodexVersionSection: View {
 
                         Text(info.version ?? String(localized: "codex.version.unknown"))
                             .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.codexSecondaryLabel)
+                            .numericTransition(value: info.version, enabled: animationState.allowsAnimations)
                     }
                     CopyablePathText(path: info.socketPath, isCopied: copiedPathResetTasks["shared"] != nil)
                         .onTapGesture { copyPathToPasteboard(info.socketPath, key: "shared") }
@@ -137,10 +138,9 @@ struct CodexVersionSection: View {
             VStack(alignment: .trailing, spacing: 3) {
                 Text(item.displayVersion)
                     .font(hasVersion ? .body.monospacedDigit() : .body)
-                    .foregroundStyle(hasVersion ? .secondary : .tertiary)
+                    .foregroundStyle(Color(nsColor: hasVersion ? .secondaryLabelColor : .tertiaryLabelColor))
                     .lineLimit(1)
-                    .contentTransition(.opacity)
-                    .animation(Metrics.statusAnimation, value: item.displayVersion)
+                    .numericTransition(value: item.displayVersion, enabled: animationState.allowsAnimations)
 
                 if let path = item.path {
                     CopyablePathText(path: path, isCopied: isPathCopied)

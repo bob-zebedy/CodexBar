@@ -114,17 +114,17 @@ struct AppServerActivityTests {
         let restored = try #require(AppServerEventRecord.decode(from: data).activity)
         var task = ActivityTask(
             displayID: UUID(), key: ActivityTaskKey(event: restored), event: restored,
-            state: .running, latestEvent: .toolStarted, startedAt: now, progressGeneration: 0
+            state: .running, startedAt: now, progressGeneration: 0
         )
-        #expect(task.snapshot.toolDisplayName == (expectedTool ?? type))
-        #expect(ActivityDisplayFormat.eventText(for: task.snapshot).contains(expectedTool ?? type))
+        let expectedDisplay = try #require(ActivityDisplayFormat.toolActionText(itemType: type, toolName: expectedTool))
+        #expect(task.snapshot.toolDisplayName == expectedDisplay)
         try task.mergeMetadata(from: #require(ended.first))
-        task.latestEvent = .toolFinished
-        #expect(ActivityDisplayFormat.eventText(for: task.snapshot).contains(expectedTool ?? type))
+
+        #expect(task.snapshot.toolDisplayName == expectedDisplay)
     }
 
     @Test(arguments: ["item/started", "item/completed"])
-    func commandActionsPreserveFirstOccurrenceOrderInDisplayedActivity(_ method: String) throws {
+    func commandActionsKeepRawOrderAndLocalizeDisplay(_ method: String) throws {
         var reducer = try prepared()
         let events = try reducer.consume(message(method, params: """
         {"threadId":"main","turnId":"turn","item":{"id":"command","type":"commandExecution","commandActions":[
@@ -141,11 +141,12 @@ struct AppServerActivityTests {
         let restored = try #require(AppServerEventRecord.decode(from: data).activity)
         let task = ActivityTask(
             displayID: UUID(), key: ActivityTaskKey(event: restored), event: restored,
-            state: .running, latestEvent: method == "item/started" ? .toolStarted : .toolFinished,
+            state: .running,
             startedAt: now, progressGeneration: 0
         )
-        #expect(task.snapshot.toolDisplayName == "search/read/listFiles")
-        #expect(ActivityDisplayFormat.eventText(for: task.snapshot).contains("search/read/listFiles"))
+        #expect(restored.tool == "search/read/listFiles")
+        let expectedDisplay = String(localized: "activity.live.actions-read-listFiles-search")
+        #expect(task.snapshot.toolDisplayName == expectedDisplay)
         #expect(restored.source?.itemType == "commandExecution")
         #expect(restored.eventKind == (method == "item/started" ? .toolStarted : .toolCompleted))
     }
@@ -159,10 +160,10 @@ struct AppServerActivityTests {
         let event = try #require(events.first)
         let task = ActivityTask(
             displayID: UUID(), key: ActivityTaskKey(event: event), event: event,
-            state: .running, latestEvent: .toolStarted, startedAt: now, progressGeneration: 0
+            state: .running, startedAt: now, progressGeneration: 0
         )
         #expect(event.tool == nil)
-        #expect(task.snapshot.toolDisplayName == "commandExecution")
+        #expect(task.snapshot.toolDisplayName == String(localized: "activity.action.command"))
     }
 
     @Test func commandActionsDoNotOverrideOtherToolNames() throws {

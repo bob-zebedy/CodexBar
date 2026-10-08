@@ -2,7 +2,6 @@ import AppKit
 import Combine
 import os
 import Sparkle
-import SwiftUI
 
 /// Sparkle 更新状态桥接层, 同时驱动设置窗和菜单面板的更新提示
 @MainActor

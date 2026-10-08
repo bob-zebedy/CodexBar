@@ -1,5 +1,4 @@
 import AppKit
-import QuartzCore
 
 private extension ActivityTerminalEvent {
     var glowState: TaskGlowState {
@@ -55,7 +54,7 @@ struct TaskGlowPresentationState {
         acceptsBriefEvents: Bool,
         now: Date
     ) {
-        let latestEvent = terminalEvents.max { lhs, rhs in
+        let latestTerminalEvent = terminalEvents.max { lhs, rhs in
             if lhs.endedAt != rhs.endedAt {
                 return lhs.endedAt < rhs.endedAt
             }
@@ -66,8 +65,8 @@ struct TaskGlowPresentationState {
         }
         if isEnabled, let enabledAt, acceptsBriefEvents,
            snapshot.hasActiveTasks,
-           let latestEvent, latestEvent.endedAt >= enabledAt {
-            briefEvent = latestEvent
+           let latestTerminalEvent, latestTerminalEvent.endedAt >= enabledAt {
+            briefEvent = latestTerminalEvent
             briefExpiration = (suspendedAt ?? now).addingTimeInterval(3)
         }
         if !isEnabled || !acceptsBriefEvents || !snapshot.hasActiveTasks {

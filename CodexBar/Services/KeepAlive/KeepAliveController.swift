@@ -94,11 +94,8 @@ final class KeepAliveController: ObservableObject {
     private let durationLimiter: KeepAliveDurationLimiter
     /// 不加 @Published: 设置页在根上观察整个控制器, 任务每起停一次都会重算整页 body
     /// 需要跟着它刷新的只有派生出去的 isLowBatteryBlocking 与 canShowOptions
-    private var hasRunningTasks = false
-    /// 保留仍活跃且已经进入过运行态的任务, 避免普通快照刷新被误判成新任务
-    private var startedRunningTaskIDs = Set<UUID>()
-    /// 最近一份快照中的等待任务, 用于识别等待批准后恢复运行的状态转换
-    /// 开着 keepsAwakeWhileWaiting 时它同时是"有没有任务撑着防睡眠"的另一半输入
+    private var runningTaskIDs = Set<UUID>()
+    /// 开着 keepsAwakeWhileWaiting 时, 等待任务也参与防睡眠判定
     private var waitingTaskIDs = Set<UUID>()
     /// 同一 App 进程内跨 XPC 重连保持不变, helper 据此把连接变化与租约所有权分开
     private let helperClientSessionID = UUID().uuidString
@@ -115,7 +112,7 @@ final class KeepAliveController: ObservableObject {
     private var retryAttempt = 0
     private var helperRegistrationTask: Task<Void, Never>?
     private let helperPackageValidation = HelperPackageValidation()
-    /// 与 hasRunningTasks 同理: 只经由派生状态影响 UI, 自己不发信号
+    /// 只经由派生状态影响 UI, 自己不发信号
     private var isRefreshingHelper = false
     private var isAutoResetRequested = false
     private let autoResetWakeScheduler = AutoResetWakeScheduler()
@@ -207,7 +204,7 @@ final class KeepAliveController: ObservableObject {
         helperPackageValidation.cancel()
         autoResetWakeScheduler.stop()
         cancelExternalObservation()
-        startedRunningTaskIDs.removeAll()
+        runningTaskIDs.removeAll()
         waitingTaskIDs.removeAll()
         durationLimiter.stop()
         powerSourceMonitor.stop()
@@ -478,22 +475,16 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func handleActivitySnapshot(_ snapshot: ActivitySnapshot) {
-        let runningTaskIDs = keepAliveTaskIDs(in: snapshot.runningTasks)
+        let currentRunningTaskIDs = keepAliveTaskIDs(in: snapshot.runningTasks)
         let currentWaitingTaskIDs = keepAliveTaskIDs(in: snapshot.waitingTasks)
-        let activeTaskIDs = runningTaskIDs.union(currentWaitingTaskIDs)
-
-        startedRunningTaskIDs.formIntersection(activeTaskIDs)
-        let newRunningTaskIDs = runningTaskIDs.subtracting(startedRunningTaskIDs)
-        let resumedRunningTaskIDs = runningTaskIDs
-            .intersection(waitingTaskIDs)
-            .subtracting(currentWaitingTaskIDs)
-        startedRunningTaskIDs.formUnion(runningTaskIDs)
+        // 运行与等待互斥, 新任务和等待后恢复都表现为运行集合新增成员
+        let hasEnteredRunning = !currentRunningTaskIDs.isSubset(of: runningTaskIDs)
+        runningTaskIDs = currentRunningTaskIDs
         waitingTaskIDs = currentWaitingTaskIDs
 
-        hasRunningTasks = !runningTaskIDs.isEmpty
-        if activeTaskIDs.isEmpty {
+        if runningTaskIDs.isEmpty, waitingTaskIDs.isEmpty {
             durationLimiter.reset()
-        } else if !newRunningTaskIDs.isEmpty || !resumedRunningTaskIDs.isEmpty {
+        } else if hasEnteredRunning {
             restartMaximumDurationPeriod()
         }
         reconcileSleepState(trigger: .taskChanged)
@@ -1401,7 +1392,7 @@ final class KeepAliveController: ObservableObject {
 
     /// 等待批准算不算"有任务"由用户开关决定, 快照与设置两条路径共用这一份规则
     private var hasKeepAliveTasks: Bool {
-        hasRunningTasks || (keepsAwakeWhileWaiting && !waitingTaskIDs.isEmpty)
+        !runningTaskIDs.isEmpty || (keepsAwakeWhileWaiting && !waitingTaskIDs.isEmpty)
     }
 
     /// 按顺序返回第一个不满足的条件, 全部满足时为 nil

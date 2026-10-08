@@ -1,6 +1,5 @@
 import AppKit
 import QuartzCore
-import SwiftUI
 
 /// 侧边详情面板不接收焦点, 只作为菜单面板的跟随子窗口
 @MainActor

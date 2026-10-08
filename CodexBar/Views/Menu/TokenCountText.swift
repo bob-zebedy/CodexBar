@@ -45,7 +45,7 @@ struct TokenUsageText: View {
             Text(verbatim: "tokens")
                 .font(.caption2)
         }
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Color.codexSecondaryLabel)
         .fixedSize()
     }
 }

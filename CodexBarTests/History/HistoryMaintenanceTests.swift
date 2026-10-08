@@ -92,6 +92,24 @@ extension HistoryMaintenanceTests {
         #expect(flock(descriptor, LOCK_UN) == 0)
     }
 
+    @Test func lockFileOpenFailurePreservesPOSIXError() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        for url in [HistoryStorage.lockURL(in: directory.url), directory.url.appendingPathComponent("store.lock")] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        #expect(throws: POSIXError(.EISDIR)) {
+            try HistoryStorage.withExclusiveLock(in: directory.url) {
+                Issue.record("Lock acquisition should fail before running the operation")
+            }
+        }
+        #expect(throws: POSIXError(.EISDIR)) {
+            try JSONFileStorage.withLock(in: directory.url) {
+                Issue.record("Lock acquisition should fail before running the operation")
+            }
+        }
+    }
+
     @Test func legacyMaintenanceStateRequiresRebuildAndNormalizesDateQueues() throws {
         let state = try TestFixtures.decode(HistoryMaintenanceState.self, """
         {"pending":["2026-09-15","invalid","2026-09-14","2026-09-15"],"dirty":["2026-02-30","2026-09-14"]}

@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated struct ActivityThread: Decodable {
     let id: String
     var cwd: String?
@@ -125,6 +123,13 @@ nonisolated struct ActivityItem: Decodable {
     var agentThreadId: String?
     var kind: String?
     var commandActions: [CommandAction]?
+    var phase: String?
+    var action: WebAction?
+    var success: Bool?
+    var agentsStates: [String: AgentState]?
+
+    struct WebAction: Decodable { var type: String? }
+    struct AgentState: Decodable { var status: String? }
 
     var toolDisplayName: String? {
         guard type == "commandExecution" else { return tool }
@@ -174,6 +179,7 @@ nonisolated struct ActivityNotification: Decodable {
     enum Category {
         case state
         case progress
+        case presentation
         case ignored
     }
 
@@ -187,6 +193,12 @@ nonisolated struct ActivityNotification: Decodable {
         case "item/agentMessage/delta", "item/plan/delta", "item/reasoning/textDelta", "item/reasoning/summaryTextDelta",
              "item/commandExecution/outputDelta", "item/fileChange/outputDelta":
             .progress
+        case "item/tool/requestUserInput", "mcpServer/elicitation/request", "item/autoApprovalReview/completed",
+             "turn/plan/updated", "turn/diff/updated", "model/rerouted", "model/verification",
+             "modelProvider/authRecoveryStarted", "modelProvider/authRecoveryCompleted", "model/safetyBuffering/updated",
+             "thread/environment/connected", "thread/environment/disconnected", "hook/started", "hook/completed",
+             "mcpServer/startupStatus/updated", "error":
+            .presentation
         default:
             .ignored
         }
@@ -195,6 +207,22 @@ nonisolated struct ActivityNotification: Decodable {
     let id: ActivityJSONValue?
     let method: String
     let params: Params
+    let live: ActivityLivePayload
+
+    private enum CodingKeys: String, CodingKey { case id, method, params }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(ActivityJSONValue.self, forKey: .id)
+        method = try container.decode(String.self, forKey: .method)
+        live = try container.decode(ActivityLivePayload.self, forKey: .params)
+        // 展示通知有不同的 status 类型, 不交给线程生命周期解码器解释
+        if Self.category(for: method) == .presentation {
+            params = Params(threadId: live.threadId, turnId: live.turnId, targetItemId: live.targetItemId, reviewId: live.reviewId)
+        } else {
+            params = try container.decode(Params.self, forKey: .params)
+        }
+    }
 
     struct Params: Decodable {
         var threadId: String?

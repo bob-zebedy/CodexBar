@@ -54,13 +54,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Waiting for Approval"
+            "value" : "Waiting"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "等待确认"
+            "value" : "等待中"
           }
         }
       }
@@ -145,6 +145,262 @@
         }
       }
     },
+    "activity.action.assign-subagent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Assign subagent task"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分配子 Agent 任务"
+          }
+        }
+      }
+    },
+    "activity.action.call-tool" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Call tool"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调用工具"
+          }
+        }
+      }
+    },
+    "activity.action.close-subagent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close subagent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭子 Agent"
+          }
+        }
+      }
+    },
+    "activity.action.command" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Run command"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "执行命令"
+          }
+        }
+      }
+    },
+    "activity.action.coordinate-subagents" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Coordinate subagents"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "协调子 Agent"
+          }
+        }
+      }
+    },
+    "activity.action.edit-files" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit files"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "修改文件"
+          }
+        }
+      }
+    },
+    "activity.action.generate-image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generate image"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "生成图片"
+          }
+        }
+      }
+    },
+    "activity.action.interrupt-subagent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Interrupt subagent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中断子 Agent 任务"
+          }
+        }
+      }
+    },
+    "activity.action.message-subagent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Message subagent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送子 Agent 消息"
+          }
+        }
+      }
+    },
+    "activity.action.query-subagent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check subagent status"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查询子 Agent 状态"
+          }
+        }
+      }
+    },
+    "activity.action.resume-subagent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume subagent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "恢复子 Agent 会话"
+          }
+        }
+      }
+    },
+    "activity.action.search-web" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search web"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索网页"
+          }
+        }
+      }
+    },
+    "activity.action.start-subagent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start subagent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启动子 Agent"
+          }
+        }
+      }
+    },
+    "activity.action.view-image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View image"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "查看图片"
+          }
+        }
+      }
+    },
+    "activity.action.wait-subagent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Await subagent results"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待子 Agent 结果"
+          }
+        }
+      }
+    },
+    "activity.action.wait-timer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wait for timer"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待计时结束"
+          }
+        }
+      }
+    },
     "activity.anonymous.keep-awake-exclusion" : {
       "localizations" : {
         "en" : {
@@ -166,7 +422,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Duration: %@"
+            "value" : "Duration %@"
           }
         },
         "zh-Hans" : {
@@ -177,71 +433,711 @@
         }
       }
     },
-    "activity.duration.running" : {
+    "activity.live.action-completed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Running for %@"
+            "value" : "%@ completed"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已运行 %@"
+            "value" : "%@完成"
           }
         }
       }
     },
-    "activity.duration.waiting" : {
+    "activity.live.action-declined" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Waiting for %@"
+            "value" : "%@ declined"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已等待 %@"
+            "value" : "%@被拒绝"
           }
         }
       }
     },
-    "activity.empty.no-activity" : {
+    "activity.live.action-failed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No Codex activity"
+            "value" : "%@ failed"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "暂无 Codex 活动"
+            "value" : "%@失败"
           }
         }
       }
     },
-    "activity.event.compacting-context" : {
+    "activity.live.actions-listFiles" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Compacting context"
+            "value" : "Browsing"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "压缩上下文"
+            "value" : "浏览目录"
           }
         }
       }
     },
-    "activity.event.context-compaction-completed" : {
+    "activity.live.actions-listFiles-search" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Browsing, Searching"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浏览目录, 搜索内容"
+          }
+        }
+      }
+    },
+    "activity.live.actions-read" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取文件"
+          }
+        }
+      }
+    },
+    "activity.live.actions-read-listFiles" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading, Browsing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取文件, 浏览目录"
+          }
+        }
+      }
+    },
+    "activity.live.actions-read-listFiles-search" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading, Browsing, Searching"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取文件, 浏览目录, 搜索内容"
+          }
+        }
+      }
+    },
+    "activity.live.actions-read-search" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading, Searching"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "读取文件, 搜索内容"
+          }
+        }
+      }
+    },
+    "activity.live.actions-search" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Searching"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索内容"
+          }
+        }
+      }
+    },
+    "activity.live.agent-assigning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delegating to subagent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在向子 Agent 分配任务"
+          }
+        }
+      }
+    },
+    "activity.live.agent-closing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Closing subagent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在关闭子 Agent"
+          }
+        }
+      }
+    },
+    "activity.live.agent-completed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subagent done"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "子 Agent 任务已完成"
+          }
+        }
+      }
+    },
+    "activity.live.agent-contacting" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Messaging subagent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在向子 Agent 发送消息"
+          }
+        }
+      }
+    },
+    "activity.live.agent-coordinating" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Coordinating subagents"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在协调子 Agent"
+          }
+        }
+      }
+    },
+    "activity.live.agent-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subagent failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "子 Agent 任务执行失败"
+          }
+        }
+      }
+    },
+    "activity.live.agent-interrupted" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subagent interrupted"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "子 Agent 任务已中断"
+          }
+        }
+      }
+    },
+    "activity.live.agent-interrupting" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Interrupting subagent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在中断子 Agent 任务"
+          }
+        }
+      }
+    },
+    "activity.live.agent-querying" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking subagent status"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在查询子 Agent 状态"
+          }
+        }
+      }
+    },
+    "activity.live.agent-resuming" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resuming subagent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在恢复子 Agent 会话"
+          }
+        }
+      }
+    },
+    "activity.live.agent-started" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subagent started"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "子 Agent 已启动"
+          }
+        }
+      }
+    },
+    "activity.live.agent-starting" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starting subagent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在启动子 Agent"
+          }
+        }
+      }
+    },
+    "activity.live.agent-waiting" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting subagent results"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待子 Agent 结果"
+          }
+        }
+      }
+    },
+    "activity.live.answering" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Answering"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在回答"
+          }
+        }
+      }
+    },
+    "activity.live.approval-aborted" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-approval aborted"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动审批已中止"
+          }
+        }
+      }
+    },
+    "activity.live.approval-approved" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-approved"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动审批已通过"
+          }
+        }
+      }
+    },
+    "activity.live.approval-denied" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-denied"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动审批未通过"
+          }
+        }
+      }
+    },
+    "activity.live.approval-timeout" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-approval timed out"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动审批已超时"
+          }
+        }
+      }
+    },
+    "activity.live.auth-recovery-ended" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auth recovery ended"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "认证恢复流程已结束"
+          }
+        }
+      }
+    },
+    "activity.live.auto-approval" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reviewing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在自动审批"
+          }
+        }
+      }
+    },
+    "activity.live.buffering" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buffering"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在缓冲回复"
+          }
+        }
+      }
+    },
+    "activity.live.calling-named-tool" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calling %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在调用 %@"
+          }
+        }
+      }
+    },
+    "activity.live.calling-tool" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Calling tool"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在调用工具"
+          }
+        }
+      }
+    },
+    "activity.live.command" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running command"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在执行命令"
+          }
+        }
+      }
+    },
+    "activity.live.command-listFiles" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Browsing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在浏览目录"
+          }
+        }
+      }
+    },
+    "activity.live.command-listFiles-search" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Browsing, Searching"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在浏览目录, 搜索内容"
+          }
+        }
+      }
+    },
+    "activity.live.command-read" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在读取文件"
+          }
+        }
+      }
+    },
+    "activity.live.command-read-listFiles" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading, Browsing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在读取文件, 浏览目录"
+          }
+        }
+      }
+    },
+    "activity.live.command-read-listFiles-search" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading, Browsing, Searching"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在读取文件, 浏览目录, 搜索内容"
+          }
+        }
+      }
+    },
+    "activity.live.command-read-search" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading, Searching"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在读取文件, 搜索内容"
+          }
+        }
+      }
+    },
+    "activity.live.command-search" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Searching"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在搜索内容"
+          }
+        }
+      }
+    },
+    "activity.live.command-with-actions" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running command (%@)"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在执行命令 (%@)"
+          }
+        }
+      }
+    },
+    "activity.live.commentary" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updating"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在汇报进度"
+          }
+        }
+      }
+    },
+    "activity.live.compacting" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compacting"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在压缩上下文"
+          }
+        }
+      }
+    },
+    "activity.live.compaction-completed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -257,71 +1153,759 @@
         }
       }
     },
-    "activity.event.finished-using-tool" : {
+    "activity.live.connecting" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Finished using %@"
+            "value" : "Connecting to Codex"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "调用工具 %@ 完成"
+            "value" : "正在连接 Codex 服务"
           }
         }
       }
     },
-    "activity.event.finishing" : {
+    "activity.live.connecting-tool" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Finishing up"
+            "value" : "Starting MCP"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "即将结束"
+            "value" : "正在启动 MCP 服务"
           }
         }
       }
     },
-    "activity.event.starting-subagent" : {
+    "activity.live.diff-updated" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Starting subagent"
+            "value" : "Diff updated"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "启动子智能体"
+            "value" : "改动详情已更新"
           }
         }
       }
     },
-    "activity.event.subagent-completed" : {
+    "activity.live.editing" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Subagent completed"
+            "value" : "Editing"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "子智能体完成"
+            "value" : "正在修改文件"
           }
         }
       }
     },
-    "activity.event.thinking" : {
+    "activity.live.elapsed-running" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running for"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已运行"
+          }
+        }
+      }
+    },
+    "activity.live.elapsed-waiting" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waited"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已等待"
+          }
+        }
+      }
+    },
+    "activity.live.environment-connected" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Environment connected"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已连接执行环境"
+          }
+        }
+      }
+    },
+    "activity.live.environment-disconnected" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Environment disconnected"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已断开执行环境连接"
+          }
+        }
+      }
+    },
+    "activity.live.failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "执行失败"
+          }
+        }
+      }
+    },
+    "activity.live.file-completed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File edits applied"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件修改完成"
+          }
+        }
+      }
+    },
+    "activity.live.file-declined" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File edits declined"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件修改被拒绝"
+          }
+        }
+      }
+    },
+    "activity.live.file-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File edits failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件修改失败"
+          }
+        }
+      }
+    },
+    "activity.live.finding-web" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finding in page"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在网页查找内容"
+          }
+        }
+      }
+    },
+    "activity.live.generating-image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generating image"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在生成图片"
+          }
+        }
+      }
+    },
+    "activity.live.hook-blocked" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blocked by hook"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "操作被 Hook 拦截"
+          }
+        }
+      }
+    },
+    "activity.live.hook-completed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hook completed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hook 执行已完成"
+          }
+        }
+      }
+    },
+    "activity.live.hook-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hook failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hook 执行已失败"
+          }
+        }
+      }
+    },
+    "activity.live.hook-stopped" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hook stopped"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hook 执行已停止"
+          }
+        }
+      }
+    },
+    "activity.live.idle" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No tasks"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂无任务"
+          }
+        }
+      }
+    },
+    "activity.live.image-completed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image generated"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片生成完成"
+          }
+        }
+      }
+    },
+    "activity.live.image-declined" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image generation declined"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片生成被拒绝"
+          }
+        }
+      }
+    },
+    "activity.live.image-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image generation failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片生成失败"
+          }
+        }
+      }
+    },
+    "activity.live.interrupted" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Interrupted"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已中断"
+          }
+        }
+      }
+    },
+    "activity.live.model-changed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model switched"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型已切换"
+          }
+        }
+      }
+    },
+    "activity.live.model-changed-detail" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Model switched %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "模型已切换 %@"
+          }
+        }
+      }
+    },
+    "activity.live.named-tool-completed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ completed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 执行完成"
+          }
+        }
+      }
+    },
+    "activity.live.named-tool-declined" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ declined"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 调用被拒绝"
+          }
+        }
+      }
+    },
+    "activity.live.named-tool-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 执行失败"
+          }
+        }
+      }
+    },
+    "activity.live.opening-web" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening page"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在打开网页"
+          }
+        }
+      }
+    },
+    "activity.live.plan-progress" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Steps done"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已完成步骤"
+          }
+        }
+      }
+    },
+    "activity.live.plan-step-completed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plan step done"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计划步骤已完成"
+          }
+        }
+      }
+    },
+    "activity.live.plan-updated" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plan updated"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计划已更新"
+          }
+        }
+      }
+    },
+    "activity.live.planning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Planning"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在制定计划"
+          }
+        }
+      }
+    },
+    "activity.live.processing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Processing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在处理任务"
+          }
+        }
+      }
+    },
+    "activity.live.recent-event" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Latest event"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近事件"
+          }
+        }
+      }
+    },
+    "activity.live.reconnecting" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnecting to Codex"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在重新连接 Codex 服务"
+          }
+        }
+      }
+    },
+    "activity.live.recovering-auth" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recovering auth"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在恢复认证"
+          }
+        }
+      }
+    },
+    "activity.live.recovering-state" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Syncing task state"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在同步任务状态"
+          }
+        }
+      }
+    },
+    "activity.live.replying" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replying"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在回复"
+          }
+        }
+      }
+    },
+    "activity.live.request-ended" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Request ended"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "用户操作请求已结束"
+          }
+        }
+      }
+    },
+    "activity.live.retrying" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retrying"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在重试"
+          }
+        }
+      }
+    },
+    "activity.live.review-mode" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Code review"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代码审查模式"
+          }
+        }
+      }
+    },
+    "activity.live.running" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "运行中"
+          }
+        }
+      }
+    },
+    "activity.live.running-hook" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running hook"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在执行 Hook"
+          }
+        }
+      }
+    },
+    "activity.live.searching-web" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Searching web"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在搜索网页"
+          }
+        }
+      }
+    },
+    "activity.live.sleeping" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting for timer"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待计时结束"
+          }
+        }
+      }
+    },
+    "activity.live.subagent-count" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld subagents running"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个子 Agent 运行中"
+          }
+        }
+      }
+    },
+    "activity.live.thinking" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -337,66 +1921,242 @@
         }
       }
     },
-    "activity.event.tool-completed" : {
+    "activity.live.tool-completed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tool call completed"
+            "value" : "Tool call done"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "调用工具完成"
+            "value" : "工具执行完成"
           }
         }
       }
     },
-    "activity.event.using-named-tool" : {
+    "activity.live.tool-count" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Using %@"
+            "value" : "%lld active tool calls"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "调用工具 %@"
+            "value" : "%lld 个工具正在调用"
           }
         }
       }
     },
-    "activity.event.using-tool" : {
+    "activity.live.tool-declined" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Using tool"
+            "value" : "Tool call declined"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "调用工具"
+            "value" : "工具调用被拒绝"
           }
         }
       }
     },
-    "activity.event.waiting-next-action" : {
+    "activity.live.tool-failed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Waiting for the next action"
+            "value" : "Tool call failed"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "等待下一步操作"
+            "value" : "工具执行失败"
+          }
+        }
+      }
+    },
+    "activity.live.unavailable" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Task status unavailable"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂时无法获取任务状态"
+          }
+        }
+      }
+    },
+    "activity.live.using-web" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Using web tool"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在使用网页工具"
+          }
+        }
+      }
+    },
+    "activity.live.verification-needed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verification required"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要完成验证"
+          }
+        }
+      }
+    },
+    "activity.live.viewing-image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viewing image"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在查看图片"
+          }
+        }
+      }
+    },
+    "activity.live.waiting-approval" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting approval"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待用户审批"
+          }
+        }
+      }
+    },
+    "activity.live.waiting-external" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting external action"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待外部操作"
+          }
+        }
+      }
+    },
+    "activity.live.waiting-form" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting info"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待提供信息"
+          }
+        }
+      }
+    },
+    "activity.live.waiting-input" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting input"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待用户输入"
+          }
+        }
+      }
+    },
+    "activity.live.waiting-service" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting response"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待回应服务请求"
+          }
+        }
+      }
+    },
+    "activity.live.waiting-user" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting user action"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待用户操作"
+          }
+        }
+      }
+    },
+    "activity.live.waiting-verification" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting verification"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待用户验证"
           }
         }
       }
@@ -497,118 +2257,6 @@
         }
       }
     },
-    "activity.status.codex-completed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex task completed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex 任务已完成"
-          }
-        }
-      }
-    },
-    "activity.status.codex-just-completed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex just completed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex 刚刚完成"
-          }
-        }
-      }
-    },
-    "activity.status.codex-running" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex is running"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex 正在运行"
-          }
-        }
-      }
-    },
-    "activity.status.codex-stopped" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex task stopped"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex 任务已终止"
-          }
-        }
-      }
-    },
-    "activity.status.codex-waiting-for-approval" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex is waiting for approval"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex 等待批准"
-          }
-        }
-      }
-    },
-    "activity.status.running" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Running"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在运行"
-          }
-        }
-      }
-    },
-    "activity.status.waiting-for-approval" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Waiting for approval"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "等待批准"
-          }
-        }
-      }
-    },
     "activity.summary.other-task-count" : {
       "localizations" : {
         "en" : {
@@ -621,22 +2269,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "另有 %lld 个任务"
-          }
-        }
-      }
-    },
-    "activity.summary.subagent-count" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Subagents: %lld"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld 个子 Agent"
           }
         }
       }
@@ -961,22 +2593,6 @@
         }
       }
     },
-    "codex-status.account.unavailable" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex account unavailable"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex 账号异常"
-          }
-        }
-      }
-    },
     "codex-status.app-server.error.connection-closed" : {
       "localizations" : {
         "en" : {
@@ -1213,22 +2829,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "启动失败"
-          }
-        }
-      }
-    },
-    "codex.version.newer-installed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installed: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已安装 %@"
           }
         }
       }
@@ -1501,22 +3101,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "可用"
-          }
-        }
-      }
-    },
-    "common.status.completed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Completed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "完成"
           }
         }
       }
@@ -2097,22 +3681,6 @@
         }
       }
     },
-    "history.rebuild.error.token-history-already-running" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Session data is already being rebuilt"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "会话数据正在重建中"
-          }
-        }
-      }
-    },
     "history.rebuild.result.completed" : {
       "localizations" : {
         "en" : {
@@ -2609,22 +4177,6 @@
         }
       }
     },
-    "keep-alive.status.active" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "System sleep is currently prevented"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已防止系统睡眠"
-          }
-        }
-      }
-    },
     "keep-alive.status.disabled-by-other-source" : {
       "localizations" : {
         "en" : {
@@ -2705,70 +4257,6 @@
         }
       }
     },
-    "log.action.copy-full" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Copy Full %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "复制完整%@"
-          }
-        }
-      }
-    },
-    "log.action.preview-full" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Preview Full %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "预览完整%@"
-          }
-        }
-      }
-    },
-    "log.app-server.error.exit-timeout-killed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "app-server exit timed out; process killed"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "app-server 退出超时, 已强制结束"
-          }
-        }
-      }
-    },
-    "log.app-server.error.exit-timeout-running" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "app-server exit timed out; may still be running"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "app-server 退出超时, 可能仍在后台运行"
-          }
-        }
-      }
-    },
     "log.app-server.error.initialization-failed" : {
       "localizations" : {
         "en" : {
@@ -2785,70 +4273,6 @@
         }
       }
     },
-    "log.app-server.error.launch-failed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Failed to launch app-server: %@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "app-server 启动失败: %@"
-          }
-        }
-      }
-    },
-    "log.app-server.error.response-connection-closed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Connection closed while waiting for a response"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "连接已断开, 等待响应失败"
-          }
-        }
-      }
-    },
-    "log.app-server.error.response-timeout" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Response timed out"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "等待响应超时"
-          }
-        }
-      }
-    },
-    "log.app-server.error.write-connection-closed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Connection closed; the request could not be sent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "连接已断开, 无法发送请求"
-          }
-        }
-      }
-    },
     "log.app-server.window.title" : {
       "localizations" : {
         "en" : {
@@ -2861,38 +4285,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Codex app-server 日志"
-          }
-        }
-      }
-    },
-    "log.connection.account" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Account"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "账户"
-          }
-        }
-      }
-    },
-    "log.connection.activity" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Activity"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "活动"
           }
         }
       }
@@ -3101,22 +4493,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "上次运行结束时尚未收到响应"
-          }
-        }
-      }
-    },
-    "log.status.in-progress" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "In Progress"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "进行中"
           }
         }
       }
@@ -3590,13 +4966,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex is waiting for approval to use %@"
+            "value" : "Codex needs approval %@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 正在等待批准使用 %@"
+            "value" : "Codex 等待批准 %@"
           }
         }
       }
@@ -3606,13 +4982,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A task in \"%@\" is waiting for action approval"
+            "value" : "A task in \"%@\" is waiting for approval to continue"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」正在等待批准操作"
+            "value" : "「%@」正在等待批准下一步操作"
           }
         }
       }
@@ -3622,13 +4998,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A task in \"%1$@\" is waiting for approval to use %2$@"
+            "value" : "\"%1$@\" needs approval %2$@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%1$@」正在等待批准 %2$@ 操作"
+            "value" : "「%1$@」等待批准 %2$@"
           }
         }
       }
@@ -3725,22 +5101,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "积分: %@"
-          }
-        }
-      }
-    },
-    "quota.status.remaining" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@: %2$@ remaining"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@ 剩余 %2$@"
           }
         }
       }
@@ -4637,22 +5997,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "CodexBar 设置"
-          }
-        }
-      }
-    },
-    "status-item.activity-summary" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Waiting: %1$lld • Running: %2$lld"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "等待 %1$lld • 运行 %2$lld"
           }
         }
       }

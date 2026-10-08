@@ -1,5 +1,4 @@
 import AppKit
-import Darwin
 import SwiftUI
 
 // 测试时禁用应用入口

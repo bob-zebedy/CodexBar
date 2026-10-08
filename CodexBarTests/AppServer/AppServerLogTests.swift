@@ -1,8 +1,103 @@
+import Combine
 import Foundation
 import SQLite3
 import Testing
 
 struct AppServerLogTests {
+    @Test(arguments: [0, 5])
+    func unchangedRefreshDoesNotPublishOrChangePaging(entryCount: Int) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let storage = AppServerLogStore(directoryURL: directory.url)
+        for index in 0 ..< entryCount {
+            storage.recordFailure(message: "entry-\(index)")
+        }
+        let model = AppServerLogViewModel(storage: storage, pageSize: 2)
+        await model.refresh()
+        let entries = model.entries
+        let hasMore = model.hasMore
+        var publications = 0
+        let subscription = model.objectWillChange.sink { publications += 1 }
+        defer { subscription.cancel() }
+
+        for _ in 0 ..< 3 {
+            await model.refresh()
+        }
+        #expect(publications == 0)
+        #expect(model.entries == entries)
+        #expect(model.totalCount == entryCount)
+        #expect(model.hasMore == hasMore)
+        #expect(!model.isLoading)
+
+        let request = storage.beginRequest(method: "new", payload: "{}")
+        await model.refresh()
+        #expect(model.entries.first?.id == request)
+        storage.finishRequest(request, response: "response")
+        await model.refresh()
+        #expect(model.entries.first?.status == .success)
+        #expect(model.entries.first?.detail == "response")
+        #expect(publications > 0)
+    }
+
+    @Test func unchangedRevisionStillClearsRecoveredReadError() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let storage = AppServerLogStore(directoryURL: directory.url)
+        storage.recordFailure(message: "existing")
+        let model = AppServerLogViewModel(storage: storage)
+        await model.refresh()
+        let entries = model.entries
+        var database: OpaquePointer?
+        #expect(sqlite3_open(directory.url.appendingPathComponent(AppServerLogStore.databaseName).path, &database) == SQLITE_OK)
+        defer { sqlite3_close(database) }
+        #expect(sqlite3_exec(database, "ALTER TABLE metadata RENAME TO hidden_metadata", nil, nil, nil) == SQLITE_OK)
+        await model.refresh()
+        #expect(model.errorMessage != nil)
+        var publications = 0
+        let subscription = model.objectWillChange.sink { publications += 1 }
+        defer { subscription.cancel() }
+
+        await model.refresh()
+        #expect(publications == 0)
+        #expect(sqlite3_exec(database, "ALTER TABLE hidden_metadata RENAME TO metadata", nil, nil, nil) == SQLITE_OK)
+        await model.refresh()
+        #expect(model.errorMessage == nil)
+        #expect(model.entries == entries)
+        #expect(publications == 1)
+        await model.refresh()
+        #expect(publications == 1)
+    }
+
+    @Test func retentionChangeReloadsVisibleHistory() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let storage = AppServerLogStore(directoryURL: directory.url, limits: .init(entries: 4))
+        for index in 0 ..< 4 {
+            storage.recordFailure(message: "old-\(index)")
+        }
+        let model = AppServerLogViewModel(storage: storage, pageSize: 2)
+        await model.refresh()
+        await model.loadMore()
+        let previousIDs = Set(model.entries.map(\.id))
+        for index in 0 ..< 8 {
+            storage.recordFailure(message: "new-\(index)")
+        }
+        await model.refresh()
+        #expect(model.entries.count == 2)
+        #expect(model.entries.first?.detail == "new-7")
+        #expect(previousIDs.isDisjoint(with: model.entries.map(\.id)))
+        #expect(model.totalCount <= 4)
+        while model.hasMore {
+            await model.loadMore()
+        }
+        #expect(model.entries.count == model.totalCount)
+        await model.clear()
+        await model.refresh()
+        #expect(model.entries.isEmpty)
+        #expect(!model.hasMore)
+        #expect(model.totalCount == 0)
+    }
+
     @Test func corruptPendingRowPreservesPagingAppendAndClear() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
@@ -194,6 +289,39 @@ struct AppServerLogTests {
 }
 
 extension AppServerLogTests {
+    @Test(arguments: [65537, 131072, 131073])
+    func defaultBodyLimitPreservesLargePayloadsAndTruncatesOverflow(bodyBytes: Int) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let storage = AppServerLogStore(directoryURL: directory.url)
+        let payload = String(repeating: "a", count: bodyBytes - 4) + "🙂"
+        let id = storage.beginRequest(method: "large/request", payload: payload)
+        storage.finishRequest(id, response: payload)
+        storage.recordReceived(method: "large/event", payload: payload, connection: "activity")
+        try await storage.finish()
+
+        let reopened = AppServerLogStore(directoryURL: directory.url)
+        let page = try await reopened.page()
+        let request = try #require(page.entries.first { $0.id == id })
+        let event = try #require(page.entries.first { $0.method == "large/event" })
+        for (text, originalBytes) in [
+            (request.request, request.requestOriginalBytes),
+            (request.detail, request.detailOriginalBytes),
+            (event.detail, event.detailOriginalBytes)
+        ] {
+            let text = try #require(text)
+            if bodyBytes <= 128 * 1024 {
+                #expect(text == payload)
+                #expect(originalBytes == nil)
+            } else {
+                #expect(text.utf8.count <= 128 * 1024)
+                #expect(text.hasSuffix("[Truncated, original: \(bodyBytes) bytes]"))
+                #expect(!text.contains("�"))
+                #expect(originalBytes == bodyBytes)
+            }
+        }
+    }
+
     @Test func retentionPrunesOldPendingRequestsAndLateRepliesStayDeleted() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

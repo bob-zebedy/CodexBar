@@ -12,7 +12,6 @@ final class SyncScheduler {
     private let maintenance: (Bool, LogTrigger) async -> HistoryMaintenanceCounts?
     private let rebuild: ([String], Bool) async throws -> HistoryDataRebuildSummary
     private let syncActivation: () -> SyncActivation
-    private var isRunning = false
     private var runningTask: Task<Void, Never>?
     private var runningSynchronizes = false
     private var pendingRebuild: RebuildRequest?
@@ -105,7 +104,7 @@ final class SyncScheduler {
     }
 
     private func drain() {
-        guard !isRunning else {
+        guard runningTask == nil else {
             return
         }
 
@@ -141,7 +140,6 @@ final class SyncScheduler {
     private func startMaintenance(synchronize: Bool) {
         let trigger = (synchronize ? pendingSyncTrigger : pendingMaintenanceTrigger) ?? .auto
         let duration = LogDuration()
-        isRunning = true
         pendingMaintenanceTrigger = nil
 
         if synchronize {
@@ -177,7 +175,6 @@ final class SyncScheduler {
             duration: duration,
             counts: counts
         )
-        isRunning = false
         runningTask = nil
         runningSynchronizes = false
 
@@ -194,7 +191,6 @@ final class SyncScheduler {
     }
 
     private func startRebuild(_ request: RebuildRequest) {
-        isRunning = true
         pendingRebuild = nil
         let synchronize = syncActivation().isActive
 
@@ -219,7 +215,6 @@ final class SyncScheduler {
                 result = .failure(error)
             }
 
-            isRunning = false
             runningTask = nil
             runningSynchronizes = false
             if synchronize, !Task.isCancelled {

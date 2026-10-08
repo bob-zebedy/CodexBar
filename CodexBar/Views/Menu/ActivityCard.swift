@@ -32,15 +32,6 @@ struct ActivityCard: View {
         keepAliveController.isActivelyPreventingSleep && !showsUnavailableState
     }
 
-    private var keepAliveHelp: String {
-        switch keepAliveController.sleepPreventionSource {
-        case .external:
-            String(localized: "keep-alive.status.disabled-by-other-source")
-        case .codexBar, .none:
-            String(localized: "keep-alive.status.active")
-        }
-    }
-
     // MARK: - 卡片布局
 
     var body: some View {
@@ -63,7 +54,7 @@ struct ActivityCard: View {
         let content = content(at: now)
         return VStack(alignment: .leading, spacing: 0) {
             statusRow(content)
-                .frame(height: Metrics.height)
+                .frame(minHeight: content.detail == nil ? nil : Metrics.height)
                 .id(snapshot.hasTaskCenterContent)
                 .transition(.opacity)
             if let usage = content.tokenUsage {
@@ -80,7 +71,6 @@ struct ActivityCard: View {
         }
         .padding(.horizontal, MenuMetrics.panelPadding)
         .frame(maxWidth: .infinity)
-        .modifier(ActivityCardHeight(height: content.tokenUsage == nil ? Metrics.height : Metrics.usageHeight))
         .activityStatusParticles(cornerRadius: MenuMetrics.panelCornerRadius)
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
         .overlay {
@@ -96,38 +86,79 @@ struct ActivityCard: View {
         }
         .animation(Metrics.expansionAnimation, value: snapshot.hasTaskCenterContent)
         .animation(Metrics.expansionAnimation, value: content.tokenUsage != nil)
+        .animation(Metrics.expansionAnimation, value: content.detail == nil)
     }
 
     private func statusRow(_ content: ActivityCardContent) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: content.symbolName)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(content.tint)
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(content.title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.codexLabel)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                statusHeader(content)
 
                 if let detail = content.detail {
                     ActivityStatusText(
-                        text: detail,
-                        tint: content.tint,
-                        effect: statusTextEffect
+                        text: detail, tint: content.tint, effect: statusTextEffect,
+                        lineLimit: nil, supplement: content.detailSupplement
                     )
+                    .numericTransition(value: [detail, content.detailSupplement], enabled: allowsAnimations)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                if let recent = content.recent {
+                    Text(recent)
+                        .font(.caption2)
+                        .foregroundStyle(Color.codexSecondaryLabel)
+                        .numericTransition(value: recent, enabled: allowsAnimations)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.top, 12)
+        .padding(.bottom, content.detail == nil ? 8 : 12)
+        .animation(.codexStatus, value: showsKeepAliveBadge)
+        .animation(.codexStatus, value: content.isAnonymous)
+        // 徽标只占用标题行的宽度, 下方状态和附加信息可以使用完整文本区域
+        .animation(.codexStatus, value: content.otherTaskCount)
+    }
 
-            Spacer(minLength: 0)
+    private func statusHeader(_ content: ActivityCardContent) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(content.header.joined(separator: " • "))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.codexLabel)
+                .numericTransition(value: content.header, enabled: allowsAnimations)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if content.isAnonymous || content.otherTaskCount > 0 || showsKeepAliveBadge {
+                statusBadges(content)
+                    .fixedSize()
+            }
+        }
+    }
 
+    private func statusBadges(_ content: ActivityCardContent) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             if content.isAnonymous {
                 ActivityAnonymousIcon()
                     .transition(.opacity)
             }
 
+            if content.otherTaskCount > 0 {
+                Text(verbatim: "+\(content.otherTaskCount)")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    // 必须是具体 Color, 层级样式在 numericText 的过渡层里会被重新解析成别的层级
+                    .foregroundStyle(Color.codexSecondaryLabel)
+                    .numericTransition(value: content.otherTaskCount, comparison: Double(content.otherTaskCount), enabled: allowsAnimations)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(.secondary.opacity(0.12), in: Capsule())
+                    .transition(.opacity)
+                    .help(String(localized: "activity.summary.other-task-count", defaultValue: "\(content.otherTaskCount, specifier: "%lld")"))
+            }
             // 防睡眠只在任务运行期间生效, 所以状态挂在活动卡片上而不是单独占一行
             if showsKeepAliveBadge {
                 // 隐藏或关闭动画效果时移除整个旋转视图, 避免保留持续渲染调度
@@ -141,26 +172,8 @@ struct ActivityCard: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color.teal)
                 .transition(.opacity)
-                .help(keepAliveHelp)
-            }
-
-            if content.otherTaskCount > 0 {
-                Text(verbatim: "+\(content.otherTaskCount)")
-                    .font(.caption2.monospacedDigit().weight(.semibold))
-                    // 必须是具体 Color, 层级样式在 numericText 的过渡层里会被重新解析成别的层级
-                    .foregroundStyle(Color.codexSecondaryLabel)
-                    .contentTransition(.numericText(value: Double(content.otherTaskCount)))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(.secondary.opacity(0.12), in: Capsule())
-                    .transition(.opacity)
-                    .help(String(localized: "activity.summary.other-task-count", defaultValue: "\(content.otherTaskCount, specifier: "%lld")"))
             }
         }
-        .animation(.codexStatus, value: showsKeepAliveBadge)
-        .animation(.codexStatus, value: content.isAnonymous)
-        // 任务数变化会让 +N 增删, 防睡眠徽标跟着横移; 动画只作用于状态行
-        .animation(.codexStatus, value: content.otherTaskCount)
     }
 
     private func tokenUsageMetrics(_ usage: TokenUsage) -> some View {
@@ -178,13 +191,13 @@ struct ActivityCard: View {
                 Text(usage.cacheHitRate.map { $0.formatted(.percent.precision(.fractionLength(0 ... 1))) } ?? "—")
                     .font(.caption2.monospacedDigit().weight(.semibold))
                     .foregroundStyle(Color.codexLabel)
-                    .contentTransition(.numericText(value: usage.cacheHitRate ?? 0))
+                    .numericTransition(value: usage.cacheHitRate, comparison: usage.cacheHitRate ?? 0, enabled: allowsAnimations)
             }
             .frame(minWidth: 0, maxWidth: .infinity)
             tokenMetric("usage.tokens.reasoning-output", tokens: usage.reasoningOutputTokens)
         }
         .lineLimit(1)
-        .animation(.codexStatus, value: usage)
+        .animation(allowsAnimations ? .codexStatus : nil, value: usage)
     }
 
     private func tokenMetric(_ title: LocalizedStringKey, tokens: Int64) -> some View {
@@ -202,28 +215,20 @@ struct ActivityCard: View {
     // MARK: - 展示内容
 
     private func content(at now: Date) -> ActivityCardContent {
-        switch snapshot.primaryActivity {
+        switch snapshot.panelPrimaryActivity {
         case let .waiting(task):
             return activeContent(
                 for: task,
                 symbolName: "hand.raised.fill",
                 tint: .orange,
-                fallback: "activity.status.codex-waiting-for-approval",
-                detailComponents: ActivityDisplayFormat.waitingDetailComponents(
-                    for: task,
-                    now: now
-                )
+                waiting: true
             )
         case let .running(task):
             return activeContent(
                 for: task,
                 symbolName: "bolt.fill",
                 tint: .blue,
-                fallback: "common.codex",
-                detailComponents: ActivityDisplayFormat.runningDetailComponents(
-                    for: task,
-                    now: now
-                )
+                waiting: false
             )
         case let .completed(completion):
             let details = ActivityDisplayFormat.historyDetailComponents(
@@ -233,16 +238,14 @@ struct ActivityCard: View {
             return ActivityCardContent(
                 symbolName: "checkmark.circle.fill",
                 tint: .green,
-                title: activityTitle(
-                    modelName: completion.modelName,
-                    effort: completion.effort,
-                    projectName: completion.projectName,
-                    fallback: "activity.status.codex-completed"
-                ),
-                detail: details.joined(separator: " • "),
+                detail: nil,
                 otherTaskCount: 0,
                 isAnonymous: completion.isAnonymous,
-                tokenUsage: completion.tokenUsage
+                tokenUsage: completion.tokenUsage,
+                header: [
+                    completion.projectName ?? String(localized: "common.codex"),
+                    ActivityDisplayFormat.modelMetadata(modelName: completion.modelName, effort: completion.effort)
+                ].compactMap(\.self) + details
             )
         case let .terminated(termination):
             let details = ActivityDisplayFormat.historyDetailComponents(
@@ -252,27 +255,23 @@ struct ActivityCard: View {
             return ActivityCardContent(
                 symbolName: "xmark.circle.fill",
                 tint: .red,
-                title: activityTitle(
-                    modelName: termination.modelName,
-                    effort: termination.effort,
-                    projectName: termination.projectName,
-                    fallback: "activity.status.codex-stopped"
-                ),
-                detail: details.joined(separator: " • "),
+                detail: ActivityLiveLabel(termination.isFailure ? "failed" : "interrupted").text,
                 otherTaskCount: 0,
                 isAnonymous: termination.isAnonymous,
-                tokenUsage: termination.tokenUsage
+                tokenUsage: termination.tokenUsage,
+                header: [
+                    termination.projectName ?? String(localized: "common.codex"),
+                    ActivityDisplayFormat.modelMetadata(modelName: termination.modelName, effort: termination.effort)
+                ].compactMap(\.self) + details
             )
         case .idle:
             return ActivityCardContent(
                 symbolName: "moon.zzz.fill",
                 tint: .secondary,
-                title: showsUnavailableState
-                    ? String(localized: "common.empty.no-data")
-                    : String(localized: "activity.empty.no-activity"),
-                detail: nil,
+                detail: activityMonitor.sourcePresentation?.text ?? ActivityLiveLabel("idle").text,
                 otherTaskCount: 0,
-                isAnonymous: false
+                isAnonymous: false,
+                header: [String(localized: "common.codex")]
             )
         }
     }
@@ -281,53 +280,23 @@ struct ActivityCard: View {
         for task: ActivityTaskSnapshot,
         symbolName: String,
         tint: Color,
-        fallback: LocalizedStringResource,
-        detailComponents: [String]
+        waiting: Bool
     ) -> ActivityCardContent {
-        let details = activeDetailComponents(detailComponents, task: task)
+        let summary = ActivityDisplayFormat.liveSummaryComponents(for: task, now: timelineDate, waiting: waiting)
         return ActivityCardContent(
             symbolName: symbolName,
             tint: tint,
-            title: activityTitle(
-                modelName: task.modelName,
-                effort: task.effort,
-                projectName: task.projectName,
-                fallback: fallback
-            ),
-            detail: details.joined(separator: " • "),
+            detail: ActivityDisplayFormat.liveStatus(for: task, waiting: waiting),
             otherTaskCount: otherTaskCount,
             isAnonymous: task.isAnonymous,
-            tokenUsage: task.tokenUsage
+            tokenUsage: task.tokenUsage,
+            header: [
+                task.projectName ?? String(localized: "common.codex"),
+                ActivityDisplayFormat.modelMetadata(modelName: task.modelName, effort: task.effort)
+            ].compactMap(\.self) + summary.prefix(1),
+            recent: ActivityDisplayFormat.recentEvent(for: task),
+            detailSupplement: summary.dropFirst().first
         )
-    }
-
-    private func activityTitle(
-        modelName: String?,
-        effort: String?,
-        projectName: String?,
-        fallback: LocalizedStringResource
-    ) -> String {
-        [
-            ActivityDisplayFormat.modelMetadata(
-                modelName: modelName,
-                effort: effort
-            ),
-            projectName ?? String(localized: fallback)
-        ]
-        .compactMap(\.self)
-        .joined(separator: " • ")
-    }
-
-    private func activeDetailComponents(
-        _ components: [String],
-        task: ActivityTaskSnapshot
-    ) -> [String] {
-        guard let count = task.activeSubagentCount, count > 0 else {
-            return components
-        }
-        var result = components
-        result.insert(String(localized: "activity.summary.subagent-count", defaultValue: "\(count, specifier: "%lld")"), at: min(1, result.count))
-        return result
     }
 
     private var otherTaskCount: Int {
@@ -336,7 +305,7 @@ struct ActivityCard: View {
 
     private var statusTextEffect: ActivityStatusText.Effect {
         guard allowsAnimations else { return .none }
-        switch snapshot.primaryActivity {
+        switch snapshot.panelPrimaryActivity {
         case .running: return .shimmer
         case let .waiting(task): return .ionizing(taskID: task.id)
         case .completed, .terminated, .idle: return .none
@@ -351,22 +320,6 @@ struct ActivityCard: View {
 }
 
 // MARK: - 动画
-
-/// 逐帧更新布局高度, 让相邻区块和窗口同步调整
-private struct ActivityCardHeight: AnimatableModifier {
-    var height: CGFloat
-
-    var animatableData: CGFloat {
-        get { height }
-        set { height = newValue }
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .frame(height: height, alignment: .top)
-            .clipped()
-    }
-}
 
 /// 用展开进度控制显隐, 让动画中途反向时保持连贯
 private struct ActivityTokenReveal: AnimatableModifier {
@@ -407,11 +360,13 @@ private struct ActivityCardButtonStyle: ButtonStyle {
 private struct ActivityCardContent {
     let symbolName: String
     let tint: Color
-    let title: String
     let detail: String?
     let otherTaskCount: Int
     let isAnonymous: Bool
     var tokenUsage: TokenUsage?
+    let header: [String]
+    var recent: String?
+    var detailSupplement: String?
 }
 
 struct ActivityAnonymousIcon: View {

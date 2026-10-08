@@ -1,7 +1,5 @@
-import CryptoKit
 import Darwin
 import Foundation
-import os
 
 /// 活动统计文件路径, 保留期和跨进程 flock 都集中在这里
 nonisolated enum HistoryStorage {
@@ -43,31 +41,9 @@ nonisolated enum HistoryStorage {
         in root: URL = directoryURL(),
         _ work: () throws -> T
     ) throws -> T {
-        try FileManager.default.createDirectory(
-            at: lockURL(in: root).deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-
-        // 创建与打开必须是同一次调用: 分开做时两个进程可能各自创建,
-        // 后创建的会 unlink 掉前者正在锁的 inode, 于是双方都以为自己独占
-        let fileDescriptor = open(lockURL(in: root).path, O_RDWR | O_CREAT, 0o600)
-        guard fileDescriptor >= 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        defer {
-            close(fileDescriptor)
-        }
-
         // 采集与维护使用独立服务实例, 文件事务必须共享同一把锁
-        guard flock(fileDescriptor, LOCK_EX) == 0 else {
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-
-        defer {
-            flock(fileDescriptor, LOCK_UN)
-        }
-
-        return try work()
+        let url = lockURL(in: root)
+        return try JSONFileStorage.withLock(in: url.deletingLastPathComponent(), name: url.lastPathComponent, work)
     }
 
     static func loadMaintenanceState(in root: URL = directoryURL()) -> HistoryMaintenanceState {

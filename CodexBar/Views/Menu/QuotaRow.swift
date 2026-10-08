@@ -4,6 +4,7 @@ import SwiftUI
 struct QuotaRow: View {
     let window: QuotaWindow
     @Environment(\.mainPanelEntranceAnimationsEnabled) private var animatesEntrance
+    @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
     @State private var revealedPercent: Double = 0
 
     var body: some View {
@@ -31,7 +32,8 @@ struct QuotaRow: View {
 
             Text(resetText)
                 .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.codexSecondaryLabel)
+                .numericTransition(value: resetText, comparison: window.resetsAt?.timeIntervalSinceReferenceDate, enabled: allowsAnimations)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
                 .allowsTightening(true)

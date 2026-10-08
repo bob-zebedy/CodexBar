@@ -623,7 +623,7 @@ actor CodexStatusService {
     private static func openConnection(socketURL: URL) -> ConnectionResolution {
         do {
             let session = try AccountSession(socketURL: socketURL)
-            return initializeConnection(session: session, socketURL: socketURL, openedAt: Date())
+            return initializeConnection(session: session, socketURL: socketURL)
         } catch {
             AppServerLogStore.shared.recordFailure(message: error.localizedDescription)
             return .initializationFailed(message: String(localized: "codex-status.daemon.error.unavailable"))
@@ -632,15 +632,13 @@ actor CodexStatusService {
 
     private static func initializeConnection(
         session: AccountSession,
-        socketURL: URL,
-        openedAt: Date
+        socketURL: URL
     ) -> ConnectionResolution {
         do {
             let initialized = try session.initializeAccount()
             let connectionInfo = CodexServerConnectionInfo(
                 socketPath: socketURL.path,
-                version: initialized.version,
-                openedAt: openedAt
+                version: initialized.version
             )
 
             return .ready(
@@ -676,11 +674,6 @@ private final nonisolated class AppServerConnection {
     let session: AccountSession
     let connectionInfo: CodexServerConnectionInfo
     var accountResponse: AccountReadResponse
-    private var isClosed = false
-
-    var openedAt: Date {
-        connectionInfo.openedAt
-    }
 
     init(
         session: AccountSession,
@@ -697,11 +690,6 @@ private final nonisolated class AppServerConnection {
     }
 
     func close() {
-        guard !isClosed else {
-            return
-        }
-
-        isClosed = true
         session.close()
     }
 }
