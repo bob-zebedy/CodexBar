@@ -6,13 +6,17 @@ struct CodexVersionTests {
         ("0.150.0", false),
         ("0.156.0", false),
         ("0.157.0-alpha.2", false),
-        ("0.157.0", true),
-        ("0.160.0-alpha.2", true),
-        ("0.160.1", true)
+        ("0.157.0", false),
+        ("0.159.0", false),
+        ("0.160.0-alpha.2", false),
+        ("0.160.0", false),
+        ("0.161.0", false),
+        ("0.162.0-alpha.2", false),
+        ("0.162.0", true),
+        ("0.162.1", true)
     ])
-    func activityRequiresSharedServerProtocol(_ version: String, _ expected: Bool) {
-        #expect(CodexVersionReader.isVersion(version, atLeast: CodexMinimumVersion.activity) == expected)
-        #expect(CodexVersionReader.isVersion(version, atLeast: CodexMinimumVersion.account) == expected)
+    func appServerRequiresMinimumVersion(_ version: String, _ expected: Bool) {
+        #expect(CodexVersionReader.isVersion(version, atLeast: CodexVersionReader.minimumAppServerVersion) == expected)
     }
 
     @Test(arguments: [

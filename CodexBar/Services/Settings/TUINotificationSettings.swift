@@ -22,9 +22,9 @@ final class TUINotificationSettings: ObservableObject {
         }
 
         runLatestUpdate(operation: .read) { settings, generation in
-            let response = try await settings.codexStatusService.readCodexConfig()
+            let enabledOnServer = try await settings.codexStatusService.areTUINotificationsEnabled()
             try settings.ensureCurrentUpdate(generation)
-            return response.areTUINotificationsEnabled
+            return enabledOnServer
         }
     }
 
@@ -35,20 +35,12 @@ final class TUINotificationSettings: ObservableObject {
         }
 
         runLatestUpdate(operation: .write) { settings, generation in
-            _ = try await settings.codexStatusService.writeCodexConfigBatch(
-                edits: [
-                    .init(
-                        keyPath: Self.configKeyPath,
-                        value: enabled,
-                        mergeStrategy: Self.configMergeStrategy
-                    )
-                ]
-            )
+            try await settings.codexStatusService.setTUINotificationsEnabled(enabled)
             try settings.ensureCurrentUpdate(generation)
 
-            let response = try await settings.codexStatusService.readCodexConfig()
+            let enabledOnServer = try await settings.codexStatusService.areTUINotificationsEnabled()
             try settings.ensureCurrentUpdate(generation)
-            guard response.areTUINotificationsEnabled == enabled else {
+            guard enabledOnServer == enabled else {
                 throw SettingsError.verificationFailed
             }
             return enabled
@@ -128,7 +120,4 @@ final class TUINotificationSettings: ObservableObject {
             String(localized: "codex-tui-notifications.error.state-mismatch")
         }
     }
-
-    private static let configKeyPath = "tui.notifications"
-    private static let configMergeStrategy = "upsert"
 }

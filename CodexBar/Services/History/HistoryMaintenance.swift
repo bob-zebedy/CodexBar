@@ -9,7 +9,7 @@ nonisolated struct HistoryMaintenanceState: Codable, Equatable {
         case days
     }
 
-    /// 原始事件到每日聚合的算法版本, 变化时统一从原始 JSONL 重建
+    /// 维护状态的格式版本, 与每条聚合实际使用的算法版本独立
     static let currentVersion = 1
 
     var version: Int
@@ -31,8 +31,8 @@ nonisolated struct HistoryMaintenanceState: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        // 缺少版本只能说明来源更旧, 不能乐观视为当前算法
-        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 0
+        version = try container.decode(Int.self, forKey: .version)
+        try StorageVersion.require(version, current: Self.currentVersion, name: "AggregationState")
         pending = try Self.normalizedDates(container.decodeIfPresent([String].self, forKey: .pending) ?? [])
         dirty = try Self.normalizedDates(container.decodeIfPresent([String].self, forKey: .dirty) ?? [])
         days = try container.decodeIfPresent([String: HistoryDayMaintenanceState].self, forKey: .days) ?? [:]
@@ -86,42 +86,6 @@ nonisolated struct HistoryMaintenanceState: Codable, Equatable {
         days.removeValue(forKey: dateKey)
     }
 
-    @discardableResult
-    mutating func ensureGenerationID(
-        for dateKey: String,
-        fileIdentifier: UInt64?
-    ) -> Bool {
-        var day = days[dateKey] ?? HistoryDayMaintenanceState()
-        var changed = false
-
-        if day.generationID == nil {
-            day.generationID = Self.makeGenerationID()
-            day.generationStartedEmpty = false
-            changed = true
-        }
-        if day.fileIdentifier == nil, let fileIdentifier {
-            day.fileIdentifier = fileIdentifier
-            changed = true
-        }
-
-        days[dateKey] = day
-        return changed
-    }
-
-    mutating func startNewGeneration(
-        for dateKey: String,
-        startedEmpty: Bool,
-        fileIdentifier: UInt64?
-    ) {
-        days[dateKey] = HistoryDayMaintenanceState(
-            requiresCloudReplacement: days[dateKey]?.requiresCloudReplacement ?? false,
-            generationID: Self.makeGenerationID(),
-            generationStartedEmpty: startedEmpty,
-            fileIdentifier: fileIdentifier
-        )
-        markDirty(dateKey)
-    }
-
     mutating func normalize() -> Bool {
         let previousPending = pending
         let previousDirty = dirty
@@ -147,62 +111,43 @@ nonisolated struct HistoryMaintenanceState: Codable, Equatable {
     private static func normalizedDates(_ dates: [String]) -> [String] {
         Set(dates.filter(HistoryStorage.isValidDateKey)).sorted()
     }
-
-    private static func makeGenerationID() -> String {
-        UUID().uuidString.lowercased()
-    }
 }
 
 nonisolated struct HistoryDayMaintenanceState: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
-        case requiresCloudReplacement
         case offset
         case size
         case corrupt
         case generationID
-        case generationStartedEmpty
         case fileIdentifier
-        case boundaryHash
     }
 
-    var requiresCloudReplacement: Bool
     var offset: UInt64
     var size: UInt64
     var corrupt: Int
     var generationID: String?
-    var generationStartedEmpty: Bool
     var fileIdentifier: UInt64?
-    var boundaryHash: String?
 
     init(
-        requiresCloudReplacement: Bool = false,
         offset: UInt64 = 0,
         size: UInt64 = 0,
         corrupt: Int = 0,
         generationID: String? = nil,
-        generationStartedEmpty: Bool = false,
-        fileIdentifier: UInt64? = nil,
-        boundaryHash: String? = nil
+        fileIdentifier: UInt64? = nil
     ) {
-        self.requiresCloudReplacement = requiresCloudReplacement
         self.offset = offset
         self.size = size
         self.corrupt = corrupt
         self.generationID = generationID
-        self.generationStartedEmpty = generationStartedEmpty
         self.fileIdentifier = fileIdentifier
-        self.boundaryHash = boundaryHash
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        requiresCloudReplacement = try container.decodeIfPresent(Bool.self, forKey: .requiresCloudReplacement) ?? false
         offset = try container.decodeIfPresent(UInt64.self, forKey: .offset) ?? 0
         size = try container.decodeIfPresent(UInt64.self, forKey: .size) ?? 0
         corrupt = try container.decodeIfPresent(Int.self, forKey: .corrupt) ?? 0
         generationID = try container.decodeIfPresent(String.self, forKey: .generationID)
-        generationStartedEmpty = try container.decodeIfPresent(Bool.self, forKey: .generationStartedEmpty) ?? false
         fileIdentifier = try container.decodeIfPresent(UInt64.self, forKey: .fileIdentifier)
-        boundaryHash = try container.decodeIfPresent(String.self, forKey: .boundaryHash)
     }
 }

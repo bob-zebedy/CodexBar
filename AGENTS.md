@@ -54,9 +54,9 @@
 
 ## 项目结构与模块组织
 
-CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。工程只有 `CodexBar` scheme，包含主 App、`CodexBarHelper`、`CodexBarTests` 和 `CodexBarHelperTests` 四个 target。
+CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。工程只有 `CodexBar` scheme，包含主 App、`CodexBarHelperManager`、`CodexBarHelper`、`CodexBarTests` 和 `CodexBarHelperTests` 五个 target。
 
-`CodexBar/` 按 `App/` `Views/` `Controllers/` `Models/` `Services/` 和 `Resources/` 分层。root LaunchDaemon 位于 `CodexBarHelper/` 目录，跨 target XPC 接口位于 `Shared/` 目录。`Scripts/` 提供发布和 helper 清理工具，`Images/` 存放 README 资源。
+`CodexBar/` 按 `App/` `Views/` `Controllers/` `Models/` `Services/` 和 `Resources/` 分层。`CodexBarHelperManager/` 提供嵌入主 App 的 Helper 管理 App，拥有 root LaunchDaemon 的注册与授权归属。root LaunchDaemon 位于 `CodexBarHelper/` 目录，主 App 直接与其通信；跨 target 协议位于 `Shared/` 目录。`Scripts/` 提供发布和 helper 清理工具，`Images/` 存放 README 资源。
 
 ## 构建、测试与开发命令
 
@@ -129,14 +129,14 @@ CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, Swi
 - 自动重置只处理新鲜响应中明确可用且具备用量和有效期信息的凭证，重试必须有界
 - helper 只接受有限时间戳，维护单一的系统唤醒计划；目标变化、功能关闭、App 退出、对应连接断开或 helper 启动时必须收敛并清理计划
 - 修改唤醒事件的归属或类型时，必须考虑旧版本遗留事件的清理兼容性
-- 异常会话保护跟随防睡眠开关，只判定非匿名运行中任务，等待批准任务不参与判定
+- 异常会话保护跟随防睡眠开关，只判定运行中任务，等待批准任务不参与判定
 - 活动连接初始化、系统睡眠、唤醒恢复或数据源不可用期间暂停异常会话判定，数据恢复后执行无通知核对
 - 主动排空活动读取是屏障，每个调用方必须等待一轮在本次请求之后开始的读取；唤醒后只有该轮读取成功，才能执行生命周期核对并恢复保护判定
 - reader 更换时丢弃旧结果，数据源不可用或任务取消时不得使用旧快照继续判定
 
 ### 数据语义与兼容性
 
-- 缺少会话标识的任务按匿名任务处理，保留在实时快照和 UI 中，不发布任务通知或触觉反馈，不参与防睡眠和异常会话保护，不生成持久化保护标识
+- 实时任务必须具备会话标识和轮次标识，身份不完整的事件不创建任务；子任务归属未确认时等待关联，开始时间缺失时保留未知耗时
 - 异常会话保护记录只保存哈希任务标识和必要时间戳，保留时间必须有界；Debug 与 Release 共用的数据必须跨进程加锁，修改存储格式或身份计算属于兼容性问题
 - 聚合算法、输出字段、字段含义或去重规则变化，需要重新计算历史数据时，必须递增聚合 schema，从保留期内的原始事件完整重建，不新增字段级历史迁移
 - 活动计数字段缺失表示历史来源不可用，不能解释为明确的零值
@@ -171,8 +171,9 @@ Tag 名 `v{MARKETING_VERSION}` 里的版本号从 `Config/Version.xcconfig` 读�
 ## 代码修改原则
 
 - 优先结合现有文件结构和类型职责，不为小改动新建抽象
+- **内部逻辑与界面需求分开处理**：修复数据完整性、错误处理、重试或恢复等内部问题时，默认保持现有界面。内部区分成功、失败或部分恢复，不代表需要增加界面标注。未经用户明确要求或同意，不新增提示、标签、状态文案或其他展示内容；确需调整界面时，先说明必要性和具体改动，取得同意后再实施
 - 改 shared controller、shared service、模型解析或持久化 key 时，要考虑旧数据和降级路径；用户设置要保持默认值；持久化 key 和旧版本迁移兼容
-- **任何兼容性问题都必须主动询问用户，不要自行决定**；只要改动会影响新旧共存就适用，不限于旧数据迁移或丢弃、持久化 key 改名或改结构、老版本升上来的降级路径、最低系统版本与 API 可用性取舍、云端记录格式变更；先说清影响面和几种做法的代价，等用户选定再动手
+- **任何兼容性问题都必须主动询问用户，不要自行决定**；只要改动会影响新旧共存就适用，不限于旧数据迁移或丢弃、持久化 key 改名或改结构、老版本升上来的降级路径、最低系统版本与 API 可用性取舍、云端记录格式变更、内部版本变化；先说清影响面和几种做法的代价，等用户选定再动手
 - 处理窗口、菜单、快捷键、App 激活或事件监听时，特别注意 `LSUIElement` 应用特有的焦点行为
 - 不做辅助功能（Accessibility）适配，不新增辅助功能标签、特征或操作
 - 注释保持克制，只解释非显然的生命周期、焦点、actor 或系统 API 约束；现有注释多为解释为什么的类型，沿用同样风格

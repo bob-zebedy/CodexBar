@@ -7,7 +7,6 @@ struct UsageSummaryView: View {
     @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
     let usage: CodexUsageSnapshot?
     let isStale: Bool
-    let showsActivity: Bool
     let onHoverContextChange: (UsageHeatmapHoverContext?) -> Void
     private let days: [UsageHeatmapDay?]
     private let peakTokens: Int
@@ -17,19 +16,16 @@ struct UsageSummaryView: View {
     init(
         usage: CodexUsageSnapshot?,
         history: HistorySnapshot,
-        showsActivity: Bool,
         isStale: Bool = false,
         onHoverContextChange: @escaping (UsageHeatmapHoverContext?) -> Void = { _ in }
     ) {
         self.usage = usage
         self.isStale = isStale
-        self.showsActivity = showsActivity
         self.onHoverContextChange = onHoverContextChange
 
         let days = UsageHeatmapDay.grid(
             usage: usage,
             history: history,
-            showsActivity: showsActivity,
             columnCount: UsageHeatmap.Metrics.columnCount,
             today: Date()
         )
@@ -58,30 +54,17 @@ struct UsageSummaryView: View {
             .animation(allowsAnimations ? Metrics.statusAnimation : nil, value: days)
     }
 
-    @ViewBuilder
     private var content: some View {
-        if usage?.hasAppServerData == true || showsActivity {
-            VStack(alignment: .leading, spacing: 8) {
-                metricsGrid
-
-                if usage?.hasDailyUsageBuckets == true || showsActivity {
-                    UsageHeatmap(
-                        days: days,
-                        selection: $hoverSelection,
-                        peakTokens: peakTokens,
-                        onScreenFrameChange: { frame in
-                            heatmapScreenFrame = frame
-                        }
-                    )
-                } else {
-                    dailyUsageUnavailable
+        VStack(alignment: .leading, spacing: 8) {
+            metricsGrid
+            UsageHeatmap(
+                days: days,
+                selection: $hoverSelection,
+                peakTokens: peakTokens,
+                onScreenFrameChange: { frame in
+                    heatmapScreenFrame = frame
                 }
-            }
-        } else {
-            Text("common.empty.no-data")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.vertical, MenuMetrics.loadingVerticalPadding)
+            )
         }
     }
 
@@ -115,14 +98,6 @@ struct UsageSummaryView: View {
                     .font(.caption.monospacedDigit().weight(.semibold))
             }
         }
-    }
-
-    private var dailyUsageUnavailable: some View {
-        Text("usage.heatmap.no-data")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .frame(height: UsageHeatmap.Metrics.height)
     }
 
     private func textMetric(label: LocalizedStringResource, value: String) -> some View {
@@ -178,7 +153,7 @@ struct UsageSummaryView: View {
         hoverSelection.map {
             UsageHeatmapHoverContext(
                 day: $0.day,
-                showsActivity: showsActivity,
+                isStale: isStale,
                 alignmentScreenFrame: heatmapScreenFrame,
                 preferredSide: UsageHeatmap.Metrics.preferredDetailSide(for: $0.column),
                 peakTokens: peakTokens

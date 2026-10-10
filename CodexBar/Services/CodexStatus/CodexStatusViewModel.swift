@@ -49,7 +49,6 @@ final class CodexStatusViewModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var loadState: CodexLoadState = .loading
     @Published private(set) var codexConnectionInfo: CodexServerConnectionInfo?
-    @Published private(set) var connectionErrorMessage: String?
     @Published private(set) var autoRefreshCountdownStartedAt: Date?
     @Published private(set) var dataUpdateInterval: DataUpdateInterval
 
@@ -64,14 +63,21 @@ final class CodexStatusViewModel: ObservableObject {
 
     private static let dataUpdateIntervalKey = "DataUpdate.intervalSeconds"
 
+    private let fetchResults = CurrentValueSubject<CodexFetchOutcome?, Never>(nil)
+    var fetchOutcomes: AnyPublisher<CodexFetchOutcome, Never> {
+        fetchResults.compactMap(\.self).eraseToAnyPublisher()
+    }
+
     private let service: CodexStatusService
     private let defaults: UserDefaults
     private var autoRefreshTask: Task<Void, Never>?
     private var pendingRefreshTask: Task<Void, Never>?
+    private var accountNotificationTask: Task<Void, Never>?
+    private var notificationRefreshTask: Task<Void, Never>?
+    private var notificationSchedule = AccountNotificationSchedule()
     private var pendingForcedRefreshTrigger: LogTrigger?
     private let refreshCoordinator = RefreshTaskCoordinator()
     private var connectionInfoGeneration: UInt64 = 0
-    private var startupErrorMessage: String?
 
     init(service: CodexStatusService = CodexStatusService(), defaults: UserDefaults = .standard) {
         self.service = service
@@ -82,6 +88,8 @@ final class CodexStatusViewModel: ObservableObject {
 
     deinit {
         autoRefreshTask?.cancel()
+        accountNotificationTask?.cancel()
+        notificationRefreshTask?.cancel()
         pendingRefreshTask?.cancel()
         refreshCoordinator.cancel()
     }
@@ -94,12 +102,12 @@ final class CodexStatusViewModel: ObservableObject {
         refresh(trigger: trigger)
     }
 
-    func startAutoRefresh(startupError: String? = nil) {
+    func startAutoRefresh() {
         guard autoRefreshTask == nil else {
             return
         }
 
-        startupErrorMessage = startupError
+        startAccountNotifications()
         refreshAfterCurrent(trigger: .launch)
         scheduleAutoRefresh()
     }
@@ -139,6 +147,12 @@ final class CodexStatusViewModel: ObservableObject {
             return
         }
 
+        // 持续推送和慢查询不能挤占已到期的定时维护
+        let trigger = trigger == .accountNotification && autoRefreshTask != nil
+            && dataUpdateInterval.remainingTime(since: autoRefreshCountdownStartedAt, now: Date()) == 0 ? .auto : trigger
+        notificationRefreshTask?.cancel()
+        notificationRefreshTask = nil
+        notificationSchedule.didStartRefresh(at: .now)
         lastRefreshTrigger = trigger
         AppLog.app.notice("额度刷新开始: trigger=\(trigger.rawValue, privacy: .public)")
         let duration = LogDuration()
@@ -166,10 +180,12 @@ final class CodexStatusViewModel: ObservableObject {
                 case let .unsupportedVersion(minimum):
                     snapshot = nil
                     loadState = .unsupportedVersion(minimum: minimum)
-                case .initializationFailed:
+                case .authenticationRequired, .initializationFailed:
                     snapshot = nil
                     loadState = .initializationFailed
                 }
+
+                fetchResults.send(result.fetch.outcome)
 
                 // 只记各步结果分类, 额度与用量是用户数据, 不进系统日志
                 // RPC 层面的请求响应细节仍然只进日志窗口
@@ -179,13 +195,44 @@ final class CodexStatusViewModel: ObservableObject {
                     elapsed: duration.elapsed
                 )
                 codexConnectionInfo = result.connectionInfo
-                if loadState != .initializationFailed {
-                    startupErrorMessage = nil
+                // 推送只更新账户快照, 定时刷新继续驱动原有历史维护和同步周期
+                if trigger != .accountNotification {
+                    autoRefreshCountdownStartedAt = Date()
                 }
-                connectionErrorMessage = startupErrorMessage ?? result.fetch.outcome.connectionErrorMessage
-                autoRefreshCountdownStartedAt = Date()
             }
         )
+    }
+
+    private func startAccountNotifications() {
+        guard accountNotificationTask == nil else { return }
+        accountNotificationTask = Task { [weak self, service] in
+            while !Task.isCancelled, self != nil {
+                let generation = self?.connectionInfoGeneration
+                let change = await service.pollAccountChanges()
+                guard !Task.isCancelled else { return }
+                if generation == self?.connectionInfoGeneration, let change {
+                    self?.receiveAccountChange(change)
+                }
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            }
+        }
+    }
+
+    func receiveAccountChange(_ change: AccountChange) {
+        notificationSchedule.receive(change, at: .now)
+        scheduleNotificationRefresh()
+    }
+
+    private func scheduleNotificationRefresh() {
+        notificationRefreshTask?.cancel()
+        notificationRefreshTask = nil
+        guard !isRefreshing, !isReconnecting, let deadline = notificationSchedule.readyAt else { return }
+        notificationRefreshTask = Task { @MainActor [weak self] in
+            do { try await ContinuousClock().sleep(until: deadline) } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            notificationRefreshTask = nil
+            refresh(trigger: .accountNotification)
+        }
     }
 
     /// 自动消费完成后不能因为普通刷新正在运行而丢掉最终核对
@@ -200,7 +247,9 @@ final class CodexStatusViewModel: ObservableObject {
 
     private func setRefreshing(_ refreshing: Bool) {
         isRefreshing = refreshing
-        guard !refreshing, let trigger = pendingForcedRefreshTrigger else {
+        guard !refreshing else { return }
+        guard let trigger = pendingForcedRefreshTrigger else {
+            scheduleNotificationRefresh()
             return
         }
 
@@ -291,10 +340,12 @@ final class CodexStatusViewModel: ObservableObject {
         }
 
         isReconnecting = true
+        notificationRefreshTask?.cancel()
+        notificationRefreshTask = nil
+        notificationSchedule = AccountNotificationSchedule()
         codexConnectionInfo = nil
         snapshot = nil
         loadState = .loading
-        connectionErrorMessage = nil
         connectionInfoGeneration &+= 1
         var didReconnect = false
         defer {
@@ -303,12 +354,14 @@ final class CodexStatusViewModel: ObservableObject {
             pendingForcedRefreshTrigger = nil
             if didReconnect || trigger != nil {
                 refresh(trigger: trigger ?? .manual)
+            } else {
+                scheduleNotificationRefresh()
             }
         }
 
         do {
             codexConnectionInfo = try await service.reconnect(
-                minimumVersion: CodexMinimumVersion.activity
+                minimumVersion: CodexVersionReader.minimumAppServerVersion
             )
             didReconnect = true
         } catch {
@@ -317,7 +370,6 @@ final class CodexStatusViewModel: ObservableObject {
             case let CodexStatusError.unsupportedVersion(minimum): .unsupportedVersion(minimum: minimum)
             default: .initializationFailed
             }
-            connectionErrorMessage = error.localizedDescription
         }
     }
 
@@ -328,5 +380,28 @@ final class CodexStatusViewModel: ObservableObject {
 
         let remaining = dataUpdateInterval.remainingTime(since: autoRefreshCountdownStartedAt, now: Date())
         return max(1, remaining)
+    }
+}
+
+/// 首条通知固定合并截止时间, 后续通知不能无限延后刷新
+nonisolated struct AccountNotificationSchedule {
+    private(set) var readyAt: ContinuousClock.Instant?
+    private var pending: AccountChange?
+    private var lastRefreshStartedAt: ContinuousClock.Instant?
+
+    mutating func receive(_ change: AccountChange, at now: ContinuousClock.Instant) {
+        let deadline = now.advanced(by: .seconds(1))
+        if change == .account {
+            readyAt = min(readyAt ?? deadline, deadline)
+        } else if pending == nil {
+            readyAt = max(deadline, lastRefreshStartedAt?.advanced(by: .seconds(10)) ?? deadline)
+        }
+        pending = change.merging(pending)
+    }
+
+    mutating func didStartRefresh(at now: ContinuousClock.Instant) {
+        readyAt = nil
+        pending = nil
+        lastRefreshStartedAt = now
     }
 }

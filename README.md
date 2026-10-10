@@ -14,7 +14,7 @@
 [![Downloads](https://img.shields.io/github/downloads/bob-zebedy/CodexBar/total?color=2EA043)](https://github.com/bob-zebedy/CodexBar/releases)
 [![License](https://img.shields.io/github/license/bob-zebedy/CodexBar?color=8957E5)](LICENSE)
 
-[功能](#功能) | [安装](#安装) | [快速开始](#快速开始) | [隐私](#隐私) | [运行架构](https://codexbar.zabrian.app/architecture) | [性能报告](https://codexbar.zabrian.app/performance)
+[功能](#功能) | [安装](#安装) | [快速开始](#快速开始) | [隐私](#隐私) | [运行架构](https://codexbar.zabrian.app/architecture) | [性能报告](https://codexbar.zabrian.app/performance) | [协议](Protocol.md)
 
 <img src="Images/preview.gif" width="640" alt="CodexBar 预览">
 
@@ -56,11 +56,6 @@ CodexBar 是 macOS 的菜单栏 App，用于集中展示 Codex 账户、额度�
 - 可在等待审批时继续保持唤醒，或同时保持屏幕常亮
 - 支持防睡眠时限、低电量保护和异常会话保护
 
-### 按你的习惯使用
-
-- 自定义主面板区域的顺序、显隐和动画效果
-- 支持全局快捷键、开机启动和自动检查更新
-- 提供简体中文、英文界面，以及便于排查问题的日志查看功能
 
 ## 安装
 
@@ -78,8 +73,8 @@ brew install --cask bob-zebedy/tap/codexbar
 
 - macOS 15.0 或更高版本
 - 已安装并登录 [Codex CLI](https://github.com/openai/codex) 或安装了内置 Codex 的 ChatGPT App 或 Codex App
-- Codex 后台服务版本为 `0.157.0` 或更高版本
-- 使用跨设备同步时，Mac 需要登录可用的 iCloud 账户
+- Codex 后台服务版本为 `0.162.0` 或更高版本
+- 使用跨设备同步时，需要登录可用的 iCloud 账户
 
 ## 隐私
 

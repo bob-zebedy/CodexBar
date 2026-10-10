@@ -119,9 +119,6 @@ final class NotificationService: NSObject {
     // MARK: - 任务提醒
 
     private func handleActivityTransition(_ transition: ActivityTransition) {
-        guard !transition.isAnonymous else {
-            return
-        }
         performTaskHapticFeedbackIfEnabled()
 
         guard settings.canDeliver else {
@@ -137,7 +134,7 @@ final class NotificationService: NSObject {
             let identifier = Self.taskWaitingNotificationIdentifier(for: taskID)
             taskWaitingNotificationIdentifiers.insert(identifier)
             send(
-                .taskWaiting(project: task.projectName, toolName: task.toolDisplayName),
+                .taskWaiting(project: task.projectName, actionText: task.approvalActionText),
                 sound: settings.taskWaitingSound,
                 identifier: identifier,
                 isStillRelevant: { [weak self] in

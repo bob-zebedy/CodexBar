@@ -2,6 +2,194 @@ import Foundation
 import Testing
 
 struct ActivityTaskTests {
+    @Test(arguments: [ActivityEventKind.turnCompleted, .turnAborted])
+    func terminalSnapshotPreservesTaskIdentityAcrossTurns(terminal: ActivityEventKind) throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = ActivityMonitor(
+            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
+            protectionStore: ProtectionStore(directoryURL: directory.url), activityDirectoryURL: directory.url
+        )
+        defer { monitor.stop() }
+        monitor.isActivitySourceHealthy = true
+        let now = Date()
+        monitor.consume(.live([TestFixtures.event(at: now)]))
+        let firstID = try #require(monitor.tasks.values.first?.snapshot.id)
+        monitor.consume(.live([TestFixtures.event(terminal, at: now.addingTimeInterval(1))]))
+        if terminal == .turnCompleted {
+            let completion = try #require(monitor.completions.first)
+            #expect(completion.taskID == firstID)
+            #expect(completion.id != firstID)
+        } else {
+            let termination = try #require(monitor.terminations.first)
+            #expect(termination.taskID == firstID)
+            #expect(termination.id != firstID)
+        }
+        monitor.consume(.live([TestFixtures.event(at: now.addingTimeInterval(2), turn: "turn-b")]))
+        let nextID = try #require(monitor.tasks.values.first?.snapshot.id)
+        #expect(nextID != firstID)
+    }
+
+    @Test(arguments: ["thread", "turn", "both", "empty-thread", "empty-turn"], [false, true])
+    func incompleteIdentityCannotCreateOrChangeTasks(missing: String, snapshot: Bool) throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = ActivityMonitor(
+            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
+            protectionStore: ProtectionStore(directoryURL: directory.url), activityDirectoryURL: directory.url
+        )
+        defer { monitor.stop() }
+        monitor.isActivitySourceHealthy = true
+        let now = Date()
+        let thread: String? = switch missing {
+        case "thread", "both": nil
+        case "empty-thread": ""
+        default: "thread-a"
+        }
+        let turn: String? = switch missing {
+        case "turn", "both": nil
+        case "empty-turn": ""
+        default: "turn-a"
+        }
+        let events = ActivityEventKind.allCases.map {
+            TestFixtures.event($0, at: now.addingTimeInterval(1), thread: thread, turn: turn)
+        }
+        monitor.consume(snapshot ? .snapshotEvents(events) : .live(events))
+        #expect(monitor.tasks.isEmpty)
+        #expect(monitor.completions.isEmpty)
+        #expect(monitor.terminations.isEmpty)
+        monitor.consume(.live([TestFixtures.event(at: now)]))
+        let original = try #require(monitor.tasks.values.first?.snapshot)
+        monitor.consume(snapshot ? .snapshotEvents(events) : .live(events))
+        #expect(monitor.tasks.count == 1)
+        #expect(monitor.tasks.values.first?.snapshot == original)
+        #expect(monitor.completions.isEmpty)
+        #expect(monitor.terminations.isEmpty)
+        #expect(monitor.pendingTerminalTasks.isEmpty)
+        #expect(monitor.terminalTokenUsageRequests.isEmpty)
+    }
+
+    @Test func lateTerminalOnlyCompletesItsOwnTurnOnce() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = ActivityMonitor(
+            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
+            protectionStore: ProtectionStore(directoryURL: directory.url), activityDirectoryURL: directory.url
+        )
+        defer { monitor.stop() }
+        monitor.isActivitySourceHealthy = true
+        let now = Date()
+        monitor.consume(.live([TestFixtures.event(at: now)]))
+        monitor.consume(.live([TestFixtures.event(at: now.addingTimeInterval(1), turn: "turn-b")]))
+        let terminal = TestFixtures.event(.turnCompleted, at: now.addingTimeInterval(2))
+        monitor.consume(.live([terminal, terminal]))
+        #expect(Set(monitor.tasks.keys) == [.init(thread: "thread-a", turn: "turn-b")])
+        #expect(monitor.pendingTerminalTasks.isEmpty)
+        #expect(monitor.completions.count == 1)
+        #expect(monitor.terminations.isEmpty)
+    }
+
+    @Test func dailySnapshotDoesNotEnterConnectionRecovery() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = ActivityMonitor(
+            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
+            protectionStore: ProtectionStore(directoryURL: directory.url), activityDirectoryURL: directory.url
+        )
+        defer { monitor.stop() }
+        monitor.isActivitySourceHealthy = true
+        let presentation = monitor.sourcePresentation
+        monitor.consume(.snapshotEvents([TestFixtures.event(at: Date())]))
+        #expect(monitor.tasks.count == 1)
+        #expect(monitor.sourcePresentation == presentation)
+        #expect(!monitor.isBootstrapping)
+    }
+
+    @Test func guardianIsFilteredAtEntryAndAutoReviewedUserTaskRemainsVisible() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = ActivityMonitor(
+            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
+            protectionStore: ProtectionStore(directoryURL: directory.url), activityDirectoryURL: directory.url
+        )
+        defer { monitor.stop() }
+        monitor.isActivitySourceHealthy = true
+        let now = Date()
+        for kind in [ActivityEventKind.turnStarted, .toolStarted, .approvalRequested, .turnCompleted, .turnAborted] {
+            monitor.consume(.live([TestFixtures.event(kind, at: now, origin: .autoReview)]))
+        }
+        #expect(monitor.tasks.isEmpty)
+        #expect(monitor.pendingTerminalTasks.isEmpty)
+        #expect(monitor.completions.isEmpty)
+        #expect(monitor.terminations.isEmpty)
+        #expect(monitor.recentlyEndedTaskAt.isEmpty)
+        monitor.consume(.live([TestFixtures.event(at: now)]))
+        #expect(monitor.tasks.count == 1)
+    }
+
+    @Test func subagentLinkRetentionDoesNotDependOnIdentityOrRefreshTime() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = ActivityMonitor(
+            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
+            protectionStore: ProtectionStore(directoryURL: directory.url), activityDirectoryURL: directory.url
+        )
+        defer { monitor.stop() }
+        let root = ActivityTaskKey(thread: "root", turn: "root-turn")
+        let child = ActivityTurnReference(threadID: "child", turnID: "child-turn")
+        let expired = Date().addingTimeInterval(-ActivityRetention.window - 1)
+        monitor.subagentTurnLinks[child] = (root, expired)
+        var state = SessionLifecycleState(
+            requestedThreadID: "child", turnID: "child-turn", startedAt: nil,
+            effort: nil, lastProgressAt: nil, terminal: nil
+        )
+        state.rootThreadID = "root"
+        state.rootTurnID = "root-turn"
+        state.parentThreadID = "root"
+        _ = monitor.applySubagentLifecycle(state, terminalOnly: false)
+        #expect(monitor.subagentTurnLinks[child]?.retainedAt == expired)
+        _ = monitor.subagentLifecycleReferences()
+        #expect(monitor.subagentTurnLinks[child] == nil)
+    }
+
+    @Test func incompleteSubagentRootCannotBeGuessedFromQueuedEventsOrPreviousLink() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = ActivityMonitor(
+            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
+            protectionStore: ProtectionStore(directoryURL: directory.url), activityDirectoryURL: directory.url
+        )
+        defer { monitor.stop() }
+        let event = TestFixtures.event(.toolStarted, agent: "child", origin: .auxiliary)
+        #expect(monitor.deferUnassociatedSubagentEvent(event, source: .live))
+        var state = SessionLifecycleState(
+            requestedThreadID: "child", turnID: "turn-a", startedAt: TestFixtures.now,
+            effort: nil, lastProgressAt: nil, terminal: nil,
+            rootTurnID: "turn-a", parentThreadID: "thread-a"
+        )
+        let reference = ActivityTurnReference(threadID: "child", turnID: "turn-a")
+        #expect(!monitor.applySubagentLifecycle(state, terminalOnly: false))
+        #expect(monitor.subagentTurnLinks[reference] == nil)
+        monitor.subagentTurnLinks[reference] = (.init(thread: "thread-a", turn: "turn-a"), TestFixtures.now)
+        #expect(!monitor.applySubagentLifecycle(state, terminalOnly: false))
+        state.rootThreadID = "different-thread"
+        #expect(!monitor.applySubagentLifecycle(state, terminalOnly: false))
+    }
+
     @Test(arguments: [-172800.0, 0.5, 2.0])
     func lifecycleBackfillsMissingStartWithTimestampTolerance(offset: TimeInterval) {
         var task = makeTask()
@@ -17,49 +205,84 @@ struct ActivityTaskTests {
         }
     }
 
-    @Test func namelessToolAndApprovalDoNotReusePreviousToolName() {
+    @Test func onlyPendingApprovalExposesNotificationAction() {
         var task = makeTask(TestFixtures.event(.toolStarted))
-        #expect(task.snapshot.toolName == "exec_command")
+        #expect(task.snapshot.approvalActionText == nil)
         let event = ActivityRecord(
             timestamp: TestFixtures.now.addingTimeInterval(1), name: ActivityEventKind.toolStarted.rawValue,
-            origin: .main, cwd: nil, tool: nil, model: nil, effort: nil,
-            approvalReviewer: .user, sessionID: "session-a", turnID: "turn-a", agentID: nil
+            origin: .main, cwd: nil, toolName: nil, model: nil, effort: nil,
+            threadID: "thread-a", turnID: "turn-a", agentID: nil
         )
         var nameless = event
-        nameless.source = AppServerEventSource(method: "item/started", threadID: "session-a", itemType: "fileChange")
+        nameless.context = ActivityContext(method: "item/started", threadID: "thread-a", itemType: "fileChange")
         task.mergeMetadata(from: nameless)
-        #expect(task.snapshot.toolName == nil)
-        #expect(task.snapshot.toolDisplayName == String(localized: "activity.action.edit-files"))
+        #expect(task.snapshot.approvalActionText == nil)
 
         var approval = ActivityRecord(
             timestamp: TestFixtures.now.addingTimeInterval(2), name: ActivityEventKind.approvalRequested.rawValue,
-            origin: .main, cwd: nil, tool: nil, model: nil, effort: nil,
-            approvalReviewer: .user, sessionID: "session-a", turnID: "turn-a", agentID: nil
+            origin: .main, cwd: nil, toolName: nil, model: nil, effort: nil,
+            threadID: "thread-a", turnID: "turn-a", agentID: nil
         )
-        approval.source = AppServerEventSource(method: "item/commandExecution/requestApproval", threadID: "session-a", itemType: "commandExecution")
+        approval.context = ActivityContext(method: "item/commandExecution/requestApproval", threadID: "thread-a", itemType: "commandExecution")
         task.mergeMetadata(from: approval)
         let enteredWaiting = task.recordApprovalRequest(from: approval)
         #expect(enteredWaiting)
-        #expect(task.snapshot.toolName == nil)
-        #expect(task.snapshot.toolDisplayName == String(localized: "activity.action.command"))
+        #expect(task.snapshot.approvalActionText == String(localized: "activity.action.command"))
+        task.resumeExecution(from: TestFixtures.event(.toolStarted, at: TestFixtures.now.addingTimeInterval(3)))
+        #expect(task.snapshot.approvalActionText == String(localized: "activity.action.command"))
+        var lifecycle = healthyLifecycle(startedAt: TestFixtures.now)
+        lifecycle.isWaitingApproval = false
+        lifecycle.approvalChangedAt = TestFixtures.now.addingTimeInterval(4)
+        task.mergeExecutionLifecycle(lifecycle, owner: ActivityExecutionKey(agentID: nil, turnID: "turn-a"))
+        #expect(task.snapshot.approvalActionText == nil)
     }
 
-    @Test func anonymousTaskHasNoProtectionIdentityOrPreciseDuration() {
-        let task = makeTask(TestFixtures.event(session: nil))
-        #expect(task.key.isAnonymous)
-        #expect(task.key.protectionIdentifier == nil)
-        #expect(!task.snapshot.showsPreciseDuration)
-        #expect(task.preciseDuration(until: TestFixtures.now.addingTimeInterval(60)) == nil)
+    @Test(arguments: [nil, [], ["read"]] as [[String]?])
+    func approvalActionsDoNotFallBackToAnotherCommandsActions(_ actions: [String]?) {
+        var task = makeTask()
+        var earlier = TestFixtures.event(.toolStarted)
+        earlier.context = ActivityContext(method: "item/started", threadID: "thread-a", itemType: "commandExecution")
+        task.mergeMetadata(from: earlier)
+        var approval = ActivityRecord(
+            timestamp: TestFixtures.now.addingTimeInterval(1), name: ActivityEventKind.approvalRequested.rawValue,
+            origin: .main, cwd: nil, toolName: nil, commandActionTypes: actions, model: nil, effort: nil,
+            threadID: "thread-a", turnID: "turn-a", agentID: nil
+        )
+        approval.context = ActivityContext(method: "item/commandExecution/requestApproval", threadID: "thread-a", itemType: "commandExecution")
+        let enteredWaiting = task.recordApprovalRequest(from: approval)
+        #expect(enteredWaiting)
+        #expect(task.displayedApproval?.commandActionTypes == actions)
+        let expected = actions?.isEmpty == false
+            ? String(localized: "activity.live.actions-read")
+            : String(localized: "activity.action.command")
+        #expect(task.snapshot.approvalActionText == expected)
     }
 
-    @Test func taskIdentitySeparatesSessionsTurnsAndAnonymousProjects() {
-        #expect(ActivityTaskKey(event: TestFixtures.event()).sessionID == "session-a")
-        #expect(ActivityTaskKey(event: TestFixtures.event(turn: nil)).isSessionOnly)
-        let first = ActivityTaskKey.turn(session: "ab", turn: "c").protectionIdentifier
-        let second = ActivityTaskKey.turn(session: "a", turn: "bc").protectionIdentifier
+    @Test func unknownSourceCannotReuseAnotherEventsOrigin() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = ActivityMonitor(
+            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
+            protectionStore: ProtectionStore(directoryURL: directory.url), activityDirectoryURL: directory.url
+        )
+        defer { monitor.stop() }
+        monitor.isActivitySourceHealthy = true
+        monitor.consume(.live([TestFixtures.event(at: Date())]))
+        monitor.consume(.live([TestFixtures.event(.turnCompleted, at: Date(), origin: .unknown)]))
+        #expect(monitor.tasks.count == 1)
+        #expect(monitor.completions.isEmpty)
+    }
+
+    @Test func taskIdentityRequiresSessionAndTurnAndSeparatesTheirBoundaries() {
+        #expect(ActivityTaskKey(event: TestFixtures.event())?.threadID == "thread-a")
+        #expect(ActivityTaskKey(event: TestFixtures.event(turn: nil)) == nil)
+        #expect(ActivityTaskKey(event: TestFixtures.event(thread: nil)) == nil)
+        let first = ActivityTaskKey(thread: "ab", turn: "c").protectionIdentifier
+        let second = ActivityTaskKey(thread: "a", turn: "bc").protectionIdentifier
         #expect(first != second)
-        #expect(first?.count == 64)
-        #expect(first != ActivityTaskKey.session("ab").protectionIdentifier)
+        #expect(first.count == 64)
     }
 
     @Test func preciseDurationRequiresKnownStartAndNonnegativeInterval() {
@@ -87,8 +310,8 @@ struct ActivityTaskTests {
     @Test func executionProgressDoesNotMoveEventOrderingBarrier() {
         var task = makeTask()
         task.recordProgress(at: TestFixtures.now.addingTimeInterval(30))
-        task.recordEvent(at: TestFixtures.now.addingTimeInterval(10))
-        #expect(task.lastEventAt == TestFixtures.now.addingTimeInterval(10))
+        task.recordProgress(at: TestFixtures.now.addingTimeInterval(10))
+        #expect(task.acceptsExecutionEvent(TestFixtures.event(.toolCompleted, at: TestFixtures.now.addingTimeInterval(10))))
         #expect(task.lastProgressAt == TestFixtures.now.addingTimeInterval(30))
         #expect(task.progressGeneration == 3)
     }
@@ -117,13 +340,15 @@ struct ActivityTaskTests {
         #expect(task.protectionDeadline(at: now, inactivityDuration: 3600) == nil)
     }
 
-    @Test func unavailableSourceCannotResumeApprovalButCompleteProgressCan() {
+    @Test func onlyCompleteAuthoritativeStateCanResumeApproval() {
         var task = makeTask()
         _ = task.recordApprovalRequest(from: TestFixtures.event(.approvalRequested))
         let now = TestFixtures.now.addingTimeInterval(3600)
         var state = healthyLifecycle()
         state.readStatus = .unavailable
-        state.lastExecutionProgressAt = now
+        state.lastProgressAt = now
+        state.isWaitingApproval = false
+        state.approvalChangedAt = now
         let owner = ActivityExecutionKey(agentID: nil, turnID: "turn-a")
         task.recordLifecycleRead(state, at: now)
         task.mergeExecutionLifecycle(state, owner: owner)
@@ -139,7 +364,7 @@ struct ActivityTaskTests {
 
     private func healthyLifecycle(startedAt: Date? = nil) -> SessionLifecycleState {
         SessionLifecycleState(
-            requestedThreadID: "session-a", turnID: "turn-a", startedAt: startedAt, approvalReviewer: nil, effort: nil,
+            requestedThreadID: "thread-a", turnID: "turn-a", startedAt: startedAt, effort: nil,
             lastProgressAt: nil, terminal: nil, readStatus: .complete
         )
     }
@@ -199,7 +424,7 @@ struct ActivityTaskTests {
         let newDeadline = progressStoppedAt.addingTimeInterval(newDuration.timeInterval)
         var task = makeTask(TestFixtures.event(at: progressStoppedAt))
         let key = task.key
-        let identifier = try #require(key.protectionIdentifier)
+        let identifier = key.protectionIdentifier
         task.recordLifecycleRead(healthyLifecycle(), at: hiddenAt)
         monitor.tasks[key] = task
         monitor.protectionSettings.setInactivityDuration(previousDuration)
@@ -233,6 +458,7 @@ struct ActivityTaskTests {
             protectionSettings: ProtectionSettings(defaults: preferences.defaults),
             protectionStore: ProtectionStore(directoryURL: directory.url)
         )
+        monitor.protectionLoadState = .available
         monitor.isStarted = true
         monitor.isProtectionEnabled = true
         monitor.isActivitySourceHealthy = true
@@ -246,6 +472,8 @@ struct ActivityTaskTests {
 
     @Test func subagentCountDeduplicatesAndRejectsOlderEvents() {
         var task = makeTask()
+        #expect(task.snapshot.activeSubagentCount == nil)
+        task.hasCompleteSubagentCoverage = true
         #expect(task.snapshot.activeSubagentCount == 0)
         task.recordSubagentActivity(agentID: "agent", isStarting: true, at: TestFixtures.now)
         task.recordSubagentActivity(agentID: "agent", isStarting: true, at: TestFixtures.now)
@@ -257,35 +485,23 @@ struct ActivityTaskTests {
 
     @Test func missingSubagentIdentityAndUnmatchedStopMakeCountUnavailable() {
         var missing = makeTask()
+        missing.hasCompleteSubagentCoverage = true
         missing.recordSubagentActivity(agentID: nil, isStarting: true, at: TestFixtures.now)
         #expect(missing.snapshot.activeSubagentCount == nil)
         var unmatched = makeTask()
+        unmatched.hasCompleteSubagentCoverage = true
         unmatched.recordSubagentActivity(agentID: "unknown", isStarting: false, at: TestFixtures.now)
         #expect(unmatched.snapshot.activeSubagentCount == nil)
     }
 
-    @Test func onlyUserApprovalTransitionsToWaiting() {
-        for reviewer in [ApprovalReviewer.user, .autoReview, .guardianSubagent] {
-            var task = makeTask(TestFixtures.event(reviewer: reviewer))
-            let transitioned = task.recordApprovalRequest(from: TestFixtures.event(.approvalRequested, reviewer: reviewer))
-            #expect(transitioned == (reviewer == .user))
-            #expect(task.state == (reviewer == .user ? .waitingApproval : .running))
-        }
-    }
-
-    @Test func unknownApprovalWaitsForContextOfSameExecution() {
-        var task = makeTask(TestFixtures.event(reviewer: nil))
-        let requestedWaiting = task.recordApprovalRequest(from: TestFixtures.event(.approvalRequested, reviewer: nil))
-        #expect(!requestedWaiting)
-        let otherOwner = ActivityExecutionKey(agentID: "other", turnID: "turn-a")
-        task.mergeApprovalContext(reviewer: .user, observedAt: TestFixtures.now, owner: otherOwner)
-        let resolvedOtherExecution = task.resolvePendingApprovals()
-        #expect(!resolvedOtherExecution)
-        #expect(task.state == .running)
-        let owner = ActivityExecutionKey(agentID: nil, turnID: "turn-a")
-        task.mergeApprovalContext(reviewer: .user, observedAt: TestFixtures.now, owner: owner)
-        let resolvedOwner = task.resolvePendingApprovals()
-        #expect(resolvedOwner)
+    @Test func approvalRequestImmediatelyWaitsWithoutReviewerContext() {
+        var task = makeTask(TestFixtures.event())
+        let request = TestFixtures.event(.approvalRequested)
+        let enteredWaiting = task.recordApprovalRequest(from: request)
+        #expect(enteredWaiting)
+        #expect(task.state == .waitingApproval)
+        let repeated = task.recordApprovalRequest(from: request)
+        #expect(!repeated)
         #expect(task.state == .waitingApproval)
     }
 
@@ -297,6 +513,8 @@ struct ActivityTaskTests {
         task.resumeExecution(from: TestFixtures.event(.toolCompleted, at: TestFixtures.now.addingTimeInterval(1)))
         #expect(task.state == .waitingApproval)
         task.resumeExecution(from: TestFixtures.event(.toolCompleted, at: TestFixtures.now.addingTimeInterval(2), agent: "agent", origin: .auxiliary))
+        #expect(task.state == .waitingApproval)
+        task.finishExecution(ActivityExecutionKey(agentID: "agent", turnID: "turn-a"), at: TestFixtures.now.addingTimeInterval(3))
         #expect(task.state == .running)
     }
 
@@ -314,30 +532,29 @@ struct ActivityTaskTests {
         #expect(task.state == .running)
     }
 
-    @Test func lateApprovalDoesNotUndoConfirmedExecutionProgress() {
+    @Test func anotherToolsProgressDoesNotInvalidateAnApprovalRequest() {
         var task = makeTask()
         let progress = TestFixtures.now.addingTimeInterval(2)
         task.resumeExecution(from: TestFixtures.event(.toolCompleted, at: progress))
         let lateRequestChanged = task.recordApprovalRequest(from: TestFixtures.event(.approvalRequested))
-        #expect(!lateRequestChanged)
-        #expect(task.state == .running)
+        #expect(lateRequestChanged)
+        #expect(task.state == .waitingApproval)
         task.finishExecution(ActivityExecutionKey(agentID: nil, turnID: "turn-a"), at: progress)
         #expect(!task.acceptsExecutionEvent(TestFixtures.event(.toolStarted, at: progress.addingTimeInterval(1))))
     }
 
-    @Test func equalTimestampExecutionProgressDoesNotDismissApproval() {
+    @Test func executionProgressDoesNotDismissApproval() {
         var task = makeTask()
         _ = task.recordApprovalRequest(from: TestFixtures.event(.approvalRequested))
-        let owner = ActivityExecutionKey(agentID: nil, turnID: "turn-a")
-        task.mergeExecutionProgress(at: TestFixtures.now, owner: owner)
+        task.resumeExecution(from: TestFixtures.event(.toolCompleted))
         #expect(task.state == .waitingApproval)
-        task.mergeExecutionProgress(at: TestFixtures.now.addingTimeInterval(0.001), owner: owner)
-        #expect(task.state == .running)
+        task.resumeExecution(from: TestFixtures.event(.toolCompleted, at: TestFixtures.now.addingTimeInterval(0.001)))
+        #expect(task.state == .waitingApproval)
     }
 
     private func makeTask(_ event: ActivityRecord = TestFixtures.event()) -> ActivityTask {
         ActivityTask(
-            displayID: UUID(), key: ActivityTaskKey(event: event), event: event,
+            displayID: UUID(), key: ActivityTaskKey(event: event)!, event: event,
             state: .running, startedAt: event.timestamp, progressGeneration: 1
         )
     }

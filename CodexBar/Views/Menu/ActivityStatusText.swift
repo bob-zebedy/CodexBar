@@ -171,20 +171,37 @@ private struct ActivityStatusShimmer: View {
 /// 附加信息放不下时整体换行, 避免分隔点单独留在行首或行尾
 struct ActivitySummaryText: View {
     let components: [String]
+    var primaryLineLimit: Int?
+    var primaryTruncationMode: Text.TruncationMode = .tail
     var supplementaryLineLimit: Int?
+    var singleLineWidthReserve: CGFloat = 0
+    var wrappedLayout: Binding<Bool>?
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            Text(components.joined(separator: " • "))
-                .fixedSize()
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(Array(components.enumerated()), id: \.offset) { index, component in
-                    Text(component)
-                        .lineLimit(index == 0 ? nil : supplementaryLineLimit)
-                        .truncationMode(.tail)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+        if wrappedLayout?.wrappedValue == true {
+            wrappedContent
+        } else {
+            ViewThatFits(in: .horizontal) {
+                Text(components.joined(separator: " • "))
+                    .fixedSize()
+                    .padding(.trailing, singleLineWidthReserve)
+                wrappedContent
+                    // 只在换行布局被选中后锁定, 不让候选布局的预先测量改变状态
+                    .onAppear {
+                        wrappedLayout?.wrappedValue = true
+                    }
+            }
+        }
+    }
+
+    private var wrappedContent: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(components.enumerated()), id: \.offset) { index, component in
+                Text(component)
+                    .lineLimit(index == 0 ? primaryLineLimit : supplementaryLineLimit)
+                    .truncationMode(index == 0 ? primaryTruncationMode : .tail)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }

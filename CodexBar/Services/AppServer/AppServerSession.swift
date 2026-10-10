@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import os
 
 nonisolated struct AppServerConnectionError: LocalizedError {
     let code: Int32
@@ -19,6 +20,7 @@ final nonisolated class AppServerSession {
     private var descriptor: Int32 = -1
     private var nextID = 0
     private var notifications: [Data] = []
+    private var accountChange: AccountChange?
     private let logStorage: AppServerLogStore?
     private let socketPath: String
     private let connectionName: String
@@ -88,27 +90,52 @@ final nonisolated class AppServerSession {
         guard descriptor >= 0 else { return }
         Darwin.close(descriptor)
         descriptor = -1
+        accountChange = nil
+        notifications.removeAll()
         logStorage?.recordConnection(method: "connection/closed", detail: socketPath, connection: connectionName, status: .information)
     }
 
-    func initialize() throws {
+    @discardableResult
+    func initialize(clientName: String, minimumVersion: String, timeout: TimeInterval = 10, title: String? = nil) throws -> String {
+        var clientInfo = ["name": clientName, "version": Bundle.main.shortVersionString.flatMap { $0.isEmpty ? nil : $0 } ?? "1.0.0"]
+        clientInfo["title"] = title
         let result: Initialization = try request("initialize", params: [
-            "clientInfo": ["name": "codex_bar_activity", "version": Bundle.main.shortVersionString ?? "1.0.0"],
-            "capabilities": ["experimentalApi": true]
-        ])
-        let version = result.userAgent.split(separator: " ").first?.split(separator: "/").last.map(String.init)
-        guard let version,
-              CodexVersionReader.isVersion(version, atLeast: CodexMinimumVersion.activity) == true else {
-            throw CodexStatusError.unsupportedVersion(minimum: CodexMinimumVersion.activity)
+            "clientInfo": clientInfo,
+            "capabilities": ["experimentalApi": false]
+        ], timeout: timeout)
+        guard let firstToken = result.userAgent?.split(separator: " ").first,
+              let slash = firstToken.firstIndex(of: "/") else {
+            throw CodexStatusError.invalidServerResponse
         }
-        try send(["method": "initialized"])
+        let version = String(firstToken[firstToken.index(after: slash)...])
+        guard let supported = CodexVersionReader.isVersion(version, atLeast: minimumVersion) else {
+            throw CodexStatusError.invalidServerResponse
+        }
+        guard supported else {
+            let error = CodexStatusError.unsupportedVersion(minimum: minimumVersion)
+            if let logStorage {
+                let details = LogFields.joined("current=\(version)", "minimum=\(minimumVersion)")
+                AppLog.codex.notice("Codex 版本不支持: \(details, privacy: .public)")
+                logStorage.recordFailure(message: error.localizedDescription, connection: connectionName)
+            }
+            throw error
+        }
+        try notify("initialized")
+        return version
     }
 
-    func request<Response: Decodable>(_ method: String, params: [String: Any] = [:]) throws -> Response {
+    func request<Response: Decodable>(_ method: String, params: [String: Any]? = nil, timeout: TimeInterval = 10) throws -> Response {
+        try AppServerRequestBudget.checkCurrent()
         nextID += 1
-        let id = nextID
-        let payload = try AppServerRPC.encode(method: method, id: id, params: params)
-        return try AppServerRPC.decode(exchange(payload, id: id, timeout: 10), as: Response.self)
+        let payload = try AppServerRPC.encode(method: method, id: nextID, params: params)
+        do {
+            return try AppServerRPC.decode(exchange(payload, id: nextID, timeout: timeout), as: Response.self)
+        } catch {
+            if error is CancellationError || (error as? CodexStatusError)?.isTransportFailure == true {
+                close()
+            }
+            throw error
+        }
     }
 
     struct PendingRequest {
@@ -167,7 +194,7 @@ final nonisolated class AppServerSession {
     }
 
     /// 账户和活动连接共用帧协议与请求日志, 业务解码由调用方负责
-    func exchange(_ payload: Data, id: Int, timeout: TimeInterval) throws -> Data {
+    private func exchange(_ payload: Data, id: Int, timeout: TimeInterval) throws -> Data {
         try AppServerRequestBudget.checkCurrent()
         exchangeDeadline = ContinuousClock.now.advanced(by: .seconds(timeout))
         defer { exchangeDeadline = nil }
@@ -214,7 +241,11 @@ final nonisolated class AppServerSession {
         throw CodexStatusError.serverTimeout
     }
 
-    func notify(_ payload: Data) throws {
+    func notify(_ method: String, params: [String: Any]? = nil) throws {
+        try notify(AppServerRPC.encode(method: method, id: nil, params: params))
+    }
+
+    private func notify(_ payload: Data) throws {
         let object = try JSONSerialization.jsonObject(with: payload) as? [String: Any]
         let method = object?["method"] as? String ?? "unknown"
         let text = String(data: payload, encoding: .utf8) ?? ""
@@ -225,6 +256,11 @@ final nonisolated class AppServerSession {
             logStorage?.recordSent(method: method, payload: text, connection: connectionName, error: error.localizedDescription)
             throw error
         }
+    }
+
+    func takeAccountChange() -> AccountChange? {
+        defer { accountChange = nil }
+        return accountChange
     }
 
     func nextEvent() throws -> Data? {
@@ -265,10 +301,6 @@ final nonisolated class AppServerSession {
             }
             throw error
         }
-    }
-
-    private func send(_ object: [String: Any]) throws {
-        try notify(JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]))
     }
 
     private func sendFrame(_ payload: Data, opcode: UInt8) throws {
@@ -342,6 +374,11 @@ final nonisolated class AppServerSession {
             guard header[0] & 0x70 == 0, opcode == (fragmented ? 0 : 1) else { throw CodexStatusError.invalidServerResponse }
             message.append(payload)
             if header[0] & 128 != 0 {
+                if !retainsNotifications,
+                   let object = try? JSONSerialization.jsonObject(with: message) as? [String: Any],
+                   let method = object["method"] as? String, let change = AccountChange(method: method) {
+                    accountChange = change.merging(accountChange)
+                }
                 recordIncoming(message, matchingResponseID: matchingResponseID)
                 return message
             }
@@ -362,14 +399,14 @@ final nonisolated class AppServerSession {
         logStorage.recordReceived(method: method, payload: framePayload(data), connection: connectionName)
     }
 
-    /// 推送只记录活动采集使用的状态和展示事件, 跳过高频 delta, 保留错误和异常协议消息
+    /// 推送只记录已使用的账户和活动事件, 跳过高频 delta, 保留错误和异常协议消息
     /// 此判断不参与消息路由, 被过滤的消息仍交给业务消费
     private static func shouldRecordIncoming(_ object: [String: Any]?) -> Bool {
         guard let object, let method = object["method"] as? String else { return true }
-        if method == "error" || method == "warning" {
+        if method == "error" || method == "warning" || AccountChange(method: method) != nil {
             return true
         }
-        switch ActivityNotification.category(for: method) {
+        switch AppServerActivityProtocol.kind(for: method).category {
         case .progress, .ignored: return false
         case .state, .presentation: break
         }
@@ -377,9 +414,9 @@ final nonisolated class AppServerSession {
         case "item/started", "item/completed":
             guard let params = object["params"] as? [String: Any],
                   let item = params["item"] as? [String: Any], let type = item["type"] as? String else { return true }
-            return ActivityItem.isToolType(type) || [
-                "contextCompaction", "subAgentActivity", "agentMessage", "reasoning", "plan", "enteredReviewMode", "exitedReviewMode"
-            ].contains(type)
+            return AppServerActivityProtocol.observes(itemType: type)
+        case "mcpServer/elicitation/request":
+            return (object["params"] as? [String: Any])?["mode"] as? String != "openai/userVerification"
         default:
             return true
         }
@@ -449,5 +486,5 @@ final nonisolated class AppServerSession {
         }
     }
 
-    private struct Initialization: Decodable { let userAgent: String }
+    private struct Initialization: Decodable { let userAgent: String? }
 }

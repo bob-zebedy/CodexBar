@@ -1,98 +1,84 @@
 DEFINE SCHEMA
 
     RECORD TYPE Activity (
-        deviceID                 STRING QUERYABLE SORTABLE,
-        date                     STRING SORTABLE,
-        generationID             STRING,
-
-        eventCount               INT64,
-        sessionCount             INT64,
-        turnCount                INT64,
-
-        sessionStartedCount      INT64,
-        sessionEndedCount        INT64,
-        turnStartedCount         INT64,
-        turnCompletedCount       INT64,
-        turnAbortedCount         INT64,
-        toolStartedCount         INT64,
-        toolCompletedCount       INT64,
-        approvalRequestedCount   INT64,
-        subagentStartedCount     INT64,
-        subagentEndedCount       INT64,
-        compactionStartedCount   INT64,
-        compactionCompletedCount INT64,
-
-        modelCounts              BYTES,
-        projectCounts            BYTES,
-
-        updatedAt                TIMESTAMP,
-        version                  INT64,
-
-        "___recordID"            REFERENCE QUERYABLE,
         "___createTime"          TIMESTAMP,
         "___createdBy"           REFERENCE,
+        "___etag"                STRING,
         "___modTime"             TIMESTAMP,
         "___modifiedBy"          REFERENCE,
-        "___etag"                STRING,
-
+        "___recordID"            REFERENCE QUERYABLE,
+        aggregationVersion       INT64,
+        approvalRequestedCount   INT64,
+        compactionCompletedCount INT64,
+        compactionStartedCount   INT64,
+        date                     STRING SORTABLE,
+        deviceID                 STRING QUERYABLE SORTABLE,
+        eventCount               INT64,
+        generationID             STRING,
+        modelCounts              BYTES,
+        projectCounts            BYTES,
+        sourceCheckpoint         BYTES,
+        subagentEndedCount       INT64,
+        subagentStartedCount     INT64,
+        threadCount              INT64,
+        toolCompletedCount       INT64,
+        toolStartedCount         INT64,
+        turnAbortedCount         INT64,
+        turnCompletedCount       INT64,
+        turnCount                INT64,
+        turnStartedCount         INT64,
+        updatedAt                TIMESTAMP,
+        version                  INT64,
         GRANT WRITE TO "_creator",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );
 
     RECORD TYPE Metadata (
-        salt            BYTES QUERYABLE SORTABLE,
-        version         INT64 QUERYABLE SORTABLE,
-
-        "___recordID"   REFERENCE QUERYABLE,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
+        "___etag"       STRING,
         "___modTime"    TIMESTAMP,
         "___modifiedBy" REFERENCE,
-        "___etag"       STRING,
-
+        "___recordID"   REFERENCE QUERYABLE,
+        salt            BYTES QUERYABLE SORTABLE,
+        version         INT64 QUERYABLE SORTABLE,
         GRANT WRITE TO "_creator",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );
 
     RECORD TYPE Tokens (
-        rootID          STRING,
-        startedAt       TIMESTAMP,
-
-        generationID    STRING,
-        ancestorIDs     LIST<STRING>,
-        checkpoint      BYTES,
-        hasConflict     INT64,
-
-        usage           BYTES,
-
-        rebuiltAt       TIMESTAMP,
-        updatedAt       TIMESTAMP,
-        version         INT64,
-
-        "___recordID"   REFERENCE QUERYABLE,
-        "___createTime" TIMESTAMP,
-        "___createdBy"  REFERENCE,
-        "___modTime"    TIMESTAMP,
-        "___modifiedBy" REFERENCE,
-        "___etag"       STRING,
-
+        "___createTime"    TIMESTAMP,
+        "___createdBy"     REFERENCE,
+        "___etag"          STRING,
+        "___modTime"       TIMESTAMP,
+        "___modifiedBy"    REFERENCE,
+        "___recordID"      REFERENCE QUERYABLE,
+        aggregationVersion INT64,
+        ancestorIDs        LIST<STRING>,
+        checkpoint         BYTES,
+        generationID       STRING,
+        hasConflict        INT64,
+        rebuiltAt          TIMESTAMP,
+        rootID             STRING,
+        startedAt          TIMESTAMP,
+        updatedAt          TIMESTAMP,
+        usage              BYTES,
+        version            INT64,
         GRANT WRITE TO "_creator",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );
 
     RECORD TYPE Users (
-        roles           LIST<INT64>,
-
-        "___recordID"   REFERENCE,
         "___createTime" TIMESTAMP,
         "___createdBy"  REFERENCE,
+        "___etag"       STRING,
         "___modTime"    TIMESTAMP,
         "___modifiedBy" REFERENCE,
-        "___etag"       STRING,
-
+        "___recordID"   REFERENCE,
+        roles           LIST<INT64>,
         GRANT WRITE TO "_creator",
         GRANT READ TO "_world"
     );

@@ -4,8 +4,6 @@ struct TaskTokenRequest {
     let root: ActivityTurnReference
     let expectedAgentIDs: Set<String>
     var references: Set<ActivityTurnReference>
-    let deadline: Date
-    var nextReadAt = Date.distantPast
 
     func usage(from states: [SessionLifecycleState], requiresFinalUsage: Bool = true) -> TokenUsage? {
         let agentIDs = Set(references.filter { $0 != root }.map(\.threadID))
@@ -15,7 +13,7 @@ struct TaskTokenRequest {
             guard let state = states.first(where: { $0.requestedThreadID == reference.threadID && $0.turnID == reference.turnID }),
                   state.readStatus == .complete,
                   state.rootTurnID == root.turnID,
-                  (state.rootSessionID ?? state.requestedThreadID) == root.threadID,
+                  (state.rootThreadID ?? state.requestedThreadID) == root.threadID,
                   !requiresFinalUsage || reference == root || state.terminal != nil,
                   let usage = state.tokenUsage else {
                 if requiresFinalUsage {
@@ -36,38 +34,33 @@ struct TaskTokenRequest {
 
 extension ActivityMonitor {
     func registerTerminalTokenUsage(
-        id: UUID, key: ActivityTaskKey, task: ActivityTask?, endedAt: Date, now: Date = Date()
+        id: UUID, task: ActivityTask
     ) {
-        guard let session = key.sessionID, let turn = task?.associatedTurnID ?? key.turnID else { return }
         // 缺少子 Agent 身份时不能把主线程小计展示为整项任务总量
-        guard task?.executions.keys.contains(where: \.isUnattributed) != true else { return }
-        let root = ActivityTurnReference(threadID: session, turnID: turn, startedAt: task?.startedAt ?? endedAt)
-        terminalTokenUsageRequests[id] = tokenUsageRequest(root: root, task: task, deadline: now.addingTimeInterval(30))
+        guard !task.executions.keys.contains(where: \.isUnattributed) else { return }
+        terminalTokenUsageRequests[id] = tokenUsageRequest(for: task)
     }
 
     private func tokenUsageRequest(
-        root: ActivityTurnReference, task: ActivityTask?, deadline: Date
+        for task: ActivityTask
     ) -> TaskTokenRequest {
+        let root = task.turnReference
         var references: Set = [root]
-        let rootKey = ActivityTaskKey.turn(session: root.threadID, turn: root.turnID)
-        references.formUnion(subagentTurnLinks.filter { $0.value == rootKey }.map(\.key))
-        if let task {
-            for owner in task.executions.keys {
-                guard let agent = owner.agentID, let turn = owner.turnID else { continue }
-                references.insert(ActivityTurnReference(threadID: agent, turnID: turn, startedAt: root.startedAt))
-            }
+        references.formUnion(subagentTurnLinks.filter { $0.value.root == task.key }.map(\.key))
+        for owner in task.executions.keys {
+            guard let agent = owner.agentID, let turn = owner.turnID else { continue }
+            references.insert(ActivityTurnReference(threadID: agent, turnID: turn))
         }
         return TaskTokenRequest(
-            root: root, expectedAgentIDs: Set(task?.subagentsByID.keys.map(\.self) ?? []),
-            references: references, deadline: deadline
+            root: root, expectedAgentIDs: Set(task.subagentsByID.keys),
+            references: references
         )
     }
 
     func activeTokenUsageReferences() -> [ActivityTurnReference] {
         var references: Set<ActivityTurnReference> = []
         for task in tasks.values {
-            guard let root = task.turnReference else { continue }
-            references.formUnion(tokenUsageRequest(root: root, task: task, deadline: .distantFuture).references)
+            references.formUnion(tokenUsageRequest(for: task).references)
         }
         return Array(references)
     }
@@ -76,8 +69,7 @@ extension ActivityMonitor {
     func applyActiveTokenUsage(_ states: [SessionLifecycleState]) -> Bool {
         var changed = false
         for (key, var task) in tasks {
-            guard let root = task.turnReference else { continue }
-            let request = tokenUsageRequest(root: root, task: task, deadline: .distantFuture)
+            let request = tokenUsageRequest(for: task)
             // 运行中汇总已明确归属的累计用量, 尚未产生记录的线程不伪造零值
             let usage = request.usage(from: states, requiresFinalUsage: false)
             guard task.tokenUsage != usage else { continue }
@@ -88,16 +80,12 @@ extension ActivityMonitor {
         return changed
     }
 
-    /// 结束后有界重读, 轮次终态可能先于最后一条用量更新
-    func prepareTerminalTokenUsageReadBatch(now: Date) -> [ActivityTurnReference] {
-        terminalTokenUsageRequests = terminalTokenUsageRequests.filter { $0.value.deadline > now }
-        let due = terminalTokenUsageRequests.filter { $0.value.nextReadAt <= now }
-            .sorted { $0.value.nextReadAt < $1.value.nextReadAt }.prefix(16)
+    /// 完成卡片保留期间继续补齐用量, 轮次终态可能先于最后一条用量更新
+    func terminalTokenUsageReferences() -> [ActivityTurnReference] {
         var references: Set<ActivityTurnReference> = []
-        for (id, var request) in due {
-            let rootKey = ActivityTaskKey.turn(session: request.root.threadID, turn: request.root.turnID)
-            request.references.formUnion(subagentTurnLinks.filter { $0.value == rootKey }.map(\.key))
-            request.nextReadAt = now.addingTimeInterval(2)
+        for (id, var request) in terminalTokenUsageRequests {
+            let rootKey = ActivityTaskKey(thread: request.root.threadID, turn: request.root.turnID)
+            request.references.formUnion(subagentTurnLinks.filter { $0.value.root == rootKey }.map(\.key))
             terminalTokenUsageRequests[id] = request
             references.formUnion(request.references)
         }
@@ -109,8 +97,8 @@ extension ActivityMonitor {
         var changed = false
         for (id, var request) in terminalTokenUsageRequests {
             guard states.contains(where: { $0.requestedThreadID == request.root.threadID && $0.turnID == request.root.turnID }) else { continue }
-            let rootKey = ActivityTaskKey.turn(session: request.root.threadID, turn: request.root.turnID)
-            request.references.formUnion(subagentTurnLinks.filter { $0.value == rootKey }.map(\.key))
+            let rootKey = ActivityTaskKey(thread: request.root.threadID, turn: request.root.turnID)
+            request.references.formUnion(subagentTurnLinks.filter { $0.value.root == rootKey }.map(\.key))
             terminalTokenUsageRequests[id] = request
             // 仅汇总已确认属于本轮的线程, 临时读取不完整时保留上次结果
             guard let usage = request.usage(from: states) else { continue }

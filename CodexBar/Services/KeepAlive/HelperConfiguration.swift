@@ -48,33 +48,28 @@ enum HelperConfiguration {
         .seconds(1)
     ]
 
-    static var service: SMAppService {
-        SMAppService.daemon(plistName: CodexBarHelperIPC.daemonPlistName)
-    }
-
-    static var assetsArePresent: Bool {
-        FileManager.default.fileExists(atPath: daemonPlistURL.path)
-            && FileManager.default.isExecutableFile(atPath: helperExecutableURL.path)
-    }
-
     nonisolated static func validatePackage(appURL: URL, machServiceName: String) -> HelperPackageIssue? {
-        let helperURL = appURL.appending(path: "Contents/Resources/CodexBarHelper")
-        let plistURL = appURL.appending(path: "Contents/Library/LaunchDaemons/\(machServiceName).plist")
+        let managerURL = HelperManagement.bundleURL(in: appURL)
+        let helperURL = managerURL.appending(path: "Contents/Resources/CodexBarHelper")
+        let plistURL = managerURL.appending(path: "Contents/Library/LaunchDaemons/\(machServiceName).plist")
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: plistURL.path),
               fileManager.isExecutableFile(atPath: helperURL.path) else {
             return .missing
         }
-        guard let appIdentifier = Bundle(url: appURL)?.bundleIdentifier,
+        guard let manager = Bundle(url: managerURL),
+              manager.bundleIdentifier == HelperManagement.bundleIdentifier,
+              manager.executableURL.map({ fileManager.isExecutableFile(atPath: $0.path) }) == true,
               let plistData = try? Data(contentsOf: plistURL),
               let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
               plist["Label"] as? String == machServiceName,
               plist["BundleProgram"] as? String == "Contents/Resources/CodexBarHelper",
-              (plist["AssociatedBundleIdentifiers"] as? [String])?.contains(appIdentifier) == true,
+              plist["AssociatedBundleIdentifiers"] as? [String] == [HelperManagement.bundleIdentifier],
               (plist["MachServices"] as? [String: Any])?[machServiceName] as? Bool == true else {
             return .invalid
         }
-        guard helperSignatureIsValid(helperURL: helperURL, appURL: appURL, machServiceName: machServiceName) else {
+        guard helperSignatureIsValid(helperURL: managerURL, appURL: appURL, machServiceName: HelperManagement.bundleIdentifier),
+              helperSignatureIsValid(helperURL: helperURL, appURL: appURL, machServiceName: machServiceName) else {
             return .invalid
         }
         return nil
@@ -112,20 +107,15 @@ enum HelperConfiguration {
         return SecStaticCodeCheckValidity(helperCode, flags, requirement) == errSecSuccess
     }
 
-    static func registrationNeedsRefresh(defaults: UserDefaults) -> Bool {
-        guard let fingerprint else {
-            return false
-        }
-        return defaults.string(forKey: registrationFingerprintKey) != fingerprint
+    static func registrationNeedsRefresh(defaults: UserDefaults, fingerprint: String) -> Bool {
+        defaults.string(forKey: registrationFingerprintKey) != fingerprint
     }
 
     static func beginUpdate(
         defaults: UserDefaults,
-        requiresSleepReset: Bool
-    ) -> String? {
-        guard let fingerprint else {
-            return nil
-        }
+        requiresSleepReset: Bool,
+        fingerprint: String
+    ) -> String {
         // 待完成重置是跨 Helper 版本的欠账, 后续更新只能转交给新指纹, 不能清除
         let hasPendingSleepReset = defaults.string(forKey: pendingUpdateIdentifierKey) != nil
         if requiresSleepReset || hasPendingSleepReset {
@@ -136,9 +126,8 @@ enum HelperConfiguration {
         return fingerprint
     }
 
-    static func pendingUpdateIdentifier(defaults: UserDefaults) -> String? {
-        guard let fingerprint,
-              defaults.string(forKey: registrationFingerprintKey) == fingerprint,
+    static func pendingUpdateIdentifier(defaults: UserDefaults, fingerprint: String) -> String? {
+        guard defaults.string(forKey: registrationFingerprintKey) == fingerprint,
               defaults.string(forKey: pendingUpdateIdentifierKey) == fingerprint else {
             return nil
         }
@@ -157,9 +146,10 @@ enum HelperConfiguration {
 
     static func recordRegistration(
         defaults: UserDefaults,
-        status: KeepAliveController.HelperStatus
+        status: KeepAliveController.HelperStatus,
+        fingerprint: String
     ) {
-        guard status.isRegisteredOrAwaitingApproval, let fingerprint else {
+        guard status.isRegisteredOrAwaitingApproval else {
             return
         }
         defaults.set(fingerprint, forKey: registrationFingerprintKey)
@@ -171,19 +161,15 @@ enum HelperConfiguration {
             && error.code == operationNotPermittedErrorCode
     }
 
-    static func registerRefreshedHelper(_ service: SMAppService) async throws {
+    static func registerRefreshedHelper(_ service: HelperManagerClient) async throws {
         await Task.yield()
 
         var retryDelays = registrationRetryDelays.makeIterator()
         while true {
             do {
-                try service.register()
+                _ = try await service.perform(.register)
                 return
             } catch {
-                let status = KeepAliveController.HelperStatus(service.status)
-                if status.isRegisteredOrAwaitingApproval {
-                    return
-                }
                 guard isTransientRegistrationError(error),
                       let retryDelay = retryDelays.next() else {
                     throw error
@@ -197,74 +183,80 @@ enum HelperConfiguration {
     private static let pendingUpdateIdentifierKey = "KeepAlive.pendingHelperUpdateIdentifier"
     private static let operationNotPermittedErrorCode = 1
 
-    private static var fingerprint: String? {
-        guard let helperData = try? Data(contentsOf: helperExecutableURL, options: .mappedIfSafe),
+    nonisolated static func inspectPackage(appURL: URL, machServiceName: String) -> HelperPackageSnapshot {
+        if let issue = validatePackage(appURL: appURL, machServiceName: machServiceName) {
+            return HelperPackageSnapshot(issue: issue, fingerprint: nil)
+        }
+        let managerURL = HelperManagement.bundleURL(in: appURL)
+        let managerExecutableURL = managerURL.appending(path: "Contents/MacOS/\(HelperManagement.executableName)")
+        let helperExecutableURL = managerURL.appending(path: "Contents/Resources/CodexBarHelper")
+        let daemonPlistURL = managerURL.appending(path: "Contents/Library/LaunchDaemons/\(machServiceName).plist")
+        guard let managerData = try? Data(contentsOf: managerExecutableURL, options: .mappedIfSafe),
+              let managerInfo = try? Data(contentsOf: managerURL.appending(path: "Contents/Info.plist")),
+              let managerSeal = try? Data(contentsOf: managerURL.appending(path: "Contents/_CodeSignature/CodeResources")),
+              let helperData = try? Data(contentsOf: helperExecutableURL, options: .mappedIfSafe),
               let daemonPlistData = try? Data(contentsOf: daemonPlistURL, options: .mappedIfSafe) else {
-            return nil
+            return HelperPackageSnapshot(issue: .invalid, fingerprint: nil)
         }
 
         var hasher = SHA256()
         for (name, data) in [
+            (managerExecutableURL.lastPathComponent, managerData),
+            ("Info.plist", managerInfo),
+            ("CodeResources", managerSeal),
             (helperExecutableURL.lastPathComponent, helperData),
             (daemonPlistURL.lastPathComponent, daemonPlistData)
         ] {
             hasher.update(data: Data("\(name)\n\(data.count)\n".utf8))
             hasher.update(data: data)
         }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return HelperPackageSnapshot(issue: nil, fingerprint: hasher.finalize().map { String(format: "%02x", $0) }.joined())
     }
+}
 
-    private static var appContentsURL: URL {
-        Bundle.main.bundleURL.appending(path: "Contents", directoryHint: .isDirectory)
-    }
-
-    private static var helperExecutableURL: URL {
-        appContentsURL
-            .appending(path: "Resources", directoryHint: .isDirectory)
-            .appending(path: "CodexBarHelper")
-    }
-
-    private static var daemonPlistURL: URL {
-        appContentsURL
-            .appending(path: "Library/LaunchDaemons", directoryHint: .isDirectory)
-            .appending(path: CodexBarHelperIPC.daemonPlistName)
-    }
+nonisolated struct HelperPackageSnapshot {
+    let issue: HelperPackageIssue?
+    let fingerprint: String?
 }
 
 @MainActor
 final class HelperPackageValidation: ObservableObject {
-    /// 包校验与安装前检查共用组件异常, 不写入注册操作错误
+    /// 同一轮校验提供注册与就绪判断共用的指纹, 不在主 actor 读取包文件
     @Published private(set) var issue: HelperPackageIssue?
+    private(set) var fingerprint: String?
+    var onValidated: (() -> Void)?
+    private let inspect: @Sendable () async -> HelperPackageSnapshot
     private var task: Task<Void, Never>?
+
+    init(inspect: @escaping @Sendable () async -> HelperPackageSnapshot = {
+        let appURL = Bundle.main.bundleURL
+        let machServiceName = CodexBarHelperIPC.machServiceName
+        return await Task.detached(priority: .utility) {
+            HelperConfiguration.inspectPackage(appURL: appURL, machServiceName: machServiceName)
+        }.value
+    }) {
+        self.inspect = inspect
+    }
 
     func refresh() {
         guard task == nil else { return }
-        let appURL = Bundle.main.bundleURL
-        let machServiceName = CodexBarHelperIPC.machServiceName
+        fingerprint = nil
+        let inspect = inspect
         task = Task { [weak self] in
-            let worker = Task.detached(priority: .utility) {
-                HelperConfiguration.validatePackage(appURL: appURL, machServiceName: machServiceName)
-            }
-            let result = await worker.value
+            let result = await inspect()
             guard let self, !Task.isCancelled else { return }
             task = nil
-            if issue != result {
-                issue = result
+            fingerprint = result.issue == nil ? result.fingerprint : nil
+            if issue != result.issue {
+                issue = result.issue
             }
+            onValidated?()
         }
-    }
-
-    func reportMissingAssets() {
-        // 丢弃先前校验结果, 避免旧的正常结果覆盖刚确认的缺失
-        cancel()
-        if issue != .missing {
-            issue = .missing
-        }
-        refresh()
     }
 
     func cancel() {
         task?.cancel()
         task = nil
+        fingerprint = nil
     }
 }

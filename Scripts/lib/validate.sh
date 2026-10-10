@@ -1,12 +1,78 @@
 #!/usr/bin/env bash
 
+validate_helper_manager_distribution() {
+    local manager_path="$1"
+    local architectures="$2"
+    local architecture=""
+    local details=""
+    local authority=""
+    local timestamp=""
+    local entitlements=""
+    local debugger_entitlement=""
+
+    for architecture in ${architectures}; do
+        if ! details="$(codesign --display --verbose=4 --arch "${architecture}" "${manager_path}" 2>&1)"; then
+            validation_fail "Helper manager ${architecture} signature metadata" "codesign could not read the signature" "${details}"
+            return 1
+        fi
+        if ! printf '%s\n' "${details}" | grep -Eq '^CodeDirectory .*flags=.*\(runtime\)'; then
+            validation_fail "Helper manager ${architecture} Hardened Runtime" "The CodeDirectory does not contain the runtime flag"
+            return 1
+        fi
+        validation_pass "Helper manager ${architecture} Hardened Runtime"
+
+        if [[ "${CONFIGURATION}" != "Release" ]]; then
+            continue
+        fi
+
+        authority="$(printf '%s\n' "${details}" | awk '/^Authority=/ {sub(/^Authority=/, ""); print; exit}')"
+        timestamp="$(printf '%s\n' "${details}" | awk '/^Timestamp=/ {sub(/^Timestamp=/, ""); print; exit}')"
+        if [[ "${authority}" != "Developer ID Application: "* ]]; then
+            validation_fail "Helper manager ${architecture} Developer ID" "Expected Developer ID Application, got ${authority:-none}"
+            return 1
+        fi
+        if [[ -z "${timestamp}" || "${timestamp}" == "none" ]]; then
+            validation_fail "Helper manager ${architecture} secure timestamp" "The signature has no secure timestamp"
+            return 1
+        fi
+        validation_field "Helper manager ${architecture} authority" "${authority}"
+        validation_field "Helper manager ${architecture} timestamp" "${timestamp}"
+
+        entitlements="${TEMP_ROOT}/validation/manager-${architecture}-entitlements.plist"
+        : > "${entitlements}"
+        if ! codesign --display --arch "${architecture}" --entitlements="${entitlements}" --xml "${manager_path}" >/dev/null 2>&1; then
+            validation_fail "Helper manager ${architecture} entitlements" "codesign could not read the entitlements"
+            return 1
+        fi
+        # 没有 entitlements 的管理 App 同样符合发布要求
+        if [[ -s "${entitlements}" ]]; then
+            if ! plutil -lint "${entitlements}" >/dev/null 2>&1; then
+                validation_fail "Helper manager ${architecture} entitlements" "Invalid entitlements plist"
+                return 1
+            fi
+            debugger_entitlement="$(read_plist_value "${entitlements}" com.apple.security.get-task-allow)"
+            if [[ "${debugger_entitlement}" == "true" || "${debugger_entitlement}" == "1" ]]; then
+                validation_fail "Helper manager ${architecture} debugger attachment" "get-task-allow is enabled"
+                return 1
+            fi
+        fi
+        validation_pass "Helper manager ${architecture} distribution signature"
+    done
+}
+
 validate_final_app() {
     local app_path="$1"
     local contents_path="${app_path}/Contents"
     local info_plist="${contents_path}/Info.plist"
     local executable_path="${contents_path}/MacOS/${PRODUCT_NAME}"
-    local helper_path="${contents_path}/Resources/CodexBarHelper"
-    local launch_daemons_path="${contents_path}/Library/LaunchDaemons"
+    local manager_name="CodexBar Helper"
+    if [[ "${CONFIGURATION}" == "Debug" ]]; then
+        manager_name="CodexBar Helper Debug"
+    fi
+    local manager_path="${contents_path}/Library/LoginItems/${manager_name}.app"
+    local manager_executable="${manager_path}/Contents/MacOS/CodexBarHelperManager"
+    local helper_path="${manager_path}/Contents/Resources/CodexBarHelper"
+    local launch_daemons_path="${manager_path}/Contents/Library/LaunchDaemons"
     local embedded_profile="${contents_path}/embedded.provisionprofile"
     local validation_dir="${TEMP_ROOT}/validation"
     local main_entitlements="${validation_dir}/main-entitlements.plist"
@@ -19,6 +85,10 @@ validate_final_app() {
     local helper_signing_certificate_prefix="${validation_dir}/helper-signing-certificate"
     local helper_signing_certificate="${helper_signing_certificate_prefix}0"
     local bundle_identifier=""
+    local component_identifier_prefix=""
+    local component_identifier_suffix=""
+    local expected_helper_identifier=""
+    local expected_manager_identifier=""
     local display_name=""
     local short_version=""
     local build_version=""
@@ -91,10 +161,23 @@ validate_final_app() {
         return 1
     fi
     validation_pass "Embedded helper"
+    if [[ ! -x "${manager_executable}" ]]; then
+        validation_fail "Helper manager" "Executable not found at ${manager_executable}"
+        return 1
+    fi
+    local manager_identifier
+    manager_identifier="$(read_plist_value "${manager_path}/Contents/Info.plist" CFBundleIdentifier)"
 
     mkdir -p "${validation_dir}"
 
     bundle_identifier="$(read_plist_value "${info_plist}" CFBundleIdentifier)"
+    component_identifier_prefix="${bundle_identifier}"
+    if [[ "${CONFIGURATION}" == "Debug" ]]; then
+        component_identifier_prefix="${bundle_identifier%.debug}"
+        component_identifier_suffix=".debug"
+    fi
+    expected_helper_identifier="${component_identifier_prefix}.helper${component_identifier_suffix}"
+    expected_manager_identifier="${component_identifier_prefix}.helper-manager${component_identifier_suffix}"
     display_name="$(read_plist_value "${info_plist}" CFBundleDisplayName)"
     short_version="$(read_plist_value "${info_plist}" CFBundleShortVersionString)"
     build_version="$(read_plist_value "${info_plist}" CFBundleVersion)"
@@ -176,14 +259,31 @@ validate_final_app() {
     signing_cdhash="$(printf '%s\n' "${signature_details}" | awk -F= '/^CDHash=/ {print $2; exit}')"
 
     if [[ "${signature_identifier}" != "${bundle_identifier}" ||
-        "${helper_signature_identifier}" != "${bundle_identifier}.helper" ||
+        "${helper_signature_identifier}" != "${expected_helper_identifier}" ||
         -z "${signing_team}" || "${helper_signing_team}" != "${signing_team}" ]]; then
         validation_fail \
             "Code signature identifiers" \
-            "Expected app ${bundle_identifier}, helper ${bundle_identifier}.helper, and one shared team; got app ${signature_identifier}, helper ${helper_signature_identifier}, teams ${signing_team:-none}/${helper_signing_team:-none}"
+            "Expected app ${bundle_identifier}, helper ${expected_helper_identifier}, and one shared team; got app ${signature_identifier}, helper ${helper_signature_identifier}, teams ${signing_team:-none}/${helper_signing_team:-none}"
         return 1
     fi
     validation_pass "Code signature identifiers"
+    if [[ "${manager_identifier}" != "${expected_manager_identifier}" ]] ||
+        ! codesign --verify --strict --all-architectures \
+            -R="anchor apple generic and certificate leaf[subject.OU] = \"${signing_team}\" and identifier \"${manager_identifier}\"" \
+            "${manager_path}"; then
+        validation_fail "Helper manager signature" "Unexpected identifier, team, or invalid signature"
+        return 1
+    fi
+    local manager_architectures
+    manager_architectures="$(lipo -archs "${manager_executable}")"
+    if [[ "${manager_architectures}" != "${architectures}" ]]; then
+        validation_fail "Helper manager architectures" "Expected ${architectures}, got ${manager_architectures}"
+        return 1
+    fi
+    validation_pass "Helper manager signature and architectures"
+    if ! validate_helper_manager_distribution "${manager_path}" "${manager_architectures}"; then
+        return 1
+    fi
 
     if ! printf '%s\n' "${signature_details}" | grep -Eq '^CodeDirectory .*flags=.*\(runtime\)'; then
         validation_fail "App Hardened Runtime" "The app CodeDirectory does not contain the runtime flag"
@@ -281,10 +381,10 @@ validate_final_app() {
     fi
 
     if [[ "${main_application_identifier}" != "${signing_team}.${bundle_identifier}" ||
-        "${helper_application_identifier}" != "${signing_team}.${bundle_identifier}.helper" ]]; then
+        "${helper_application_identifier}" != "${signing_team}.${expected_helper_identifier}" ]]; then
         validation_fail \
             "Entitlement application identifiers" \
-            "Expected ${signing_team}.${bundle_identifier} and ${signing_team}.${bundle_identifier}.helper; got ${main_application_identifier:-none} and ${helper_application_identifier:-none}"
+            "Expected ${signing_team}.${bundle_identifier} and ${signing_team}.${expected_helper_identifier}; got ${main_application_identifier:-none} and ${helper_application_identifier:-none}"
         return 1
     fi
     validation_pass "Entitlement application identifiers"
@@ -338,12 +438,12 @@ validate_final_app() {
     launch_daemon_label="$(read_plist_value "${launch_daemon_plist}" Label)"
     launch_daemon_bundle_identifier="$(read_plist_value "${launch_daemon_plist}" AssociatedBundleIdentifiers:0)"
     launch_daemon_program="$(read_plist_value "${launch_daemon_plist}" BundleProgram)"
-    if [[ "${launch_daemon_label}" != "${bundle_identifier}.helper" ||
-        "${launch_daemon_bundle_identifier}" != "${bundle_identifier}" ||
+    if [[ "${launch_daemon_label}" != "${expected_helper_identifier}" ||
+        "${launch_daemon_bundle_identifier}" != "${manager_identifier}" ||
         "${launch_daemon_program}" != "Contents/Resources/CodexBarHelper" ]]; then
         validation_fail \
             "LaunchDaemon configuration" \
-            "Expected label ${bundle_identifier}.helper, bundle ${bundle_identifier}, and program Contents/Resources/CodexBarHelper; got ${launch_daemon_label:-none}, ${launch_daemon_bundle_identifier:-none}, ${launch_daemon_program:-none}"
+            "Expected label ${expected_helper_identifier}, bundle ${manager_identifier}, and program Contents/Resources/CodexBarHelper; got ${launch_daemon_label:-none}, ${launch_daemon_bundle_identifier:-none}, ${launch_daemon_program:-none}"
         return 1
     fi
     validation_pass "LaunchDaemon configuration"

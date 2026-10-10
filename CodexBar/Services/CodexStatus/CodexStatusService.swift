@@ -1,21 +1,13 @@
 import Foundation
 import os
 
-/// 刷新结果携带连接失败原因, 请求响应细节保留在交互日志中
+/// 额度刷新结果, 请求响应细节保留在交互日志中
 nonisolated enum CodexFetchOutcome {
     case data(CodexQuotaSnapshot)
     case notLoggedIn
+    case authenticationRequired
     case unsupportedVersion(minimum: String)
-    case initializationFailed(message: String)
-
-    var connectionErrorMessage: String? {
-        switch self {
-        case .data: nil
-        case .notLoggedIn: CodexStatusError.notLoggedIn.localizedDescription
-        case let .unsupportedVersion(minimum): CodexStatusError.unsupportedVersion(minimum: minimum).localizedDescription
-        case let .initializationFailed(message): message
-        }
-    }
+    case initializationFailed
 }
 
 /// 一次刷新里各步的结果分类, 只用于日志
@@ -57,9 +49,9 @@ nonisolated struct CodexFetchResult {
 
 private nonisolated enum ConnectionResolution {
     case ready(connection: AppServerConnection, reused: Bool)
-    case notLoggedIn
+    case authenticationRequired
     case unsupportedVersion(minimum: String)
-    case initializationFailed(message: String)
+    case initializationFailed
 }
 
 // 单接口读取结果按后续动作分类: 跳过, 刷新认证, 重建连接
@@ -71,12 +63,13 @@ private nonisolated enum ReadResult<Value> {
 }
 
 private nonisolated enum ReadSkipReason {
-    case requestFailed
+    case requestFailed(CodexStatusError)
     case methodUnsupported
 }
 
 private nonisolated enum FetchFailure: Error {
     case notLoggedIn
+    case authenticationRequired
     case needsRebuild
 }
 
@@ -128,7 +121,7 @@ private nonisolated extension ReadResult {
         case .value, .skipped:
             return self
         case .authRequired:
-            throw FetchFailure.notLoggedIn
+            throw FetchFailure.authenticationRequired
         case .broken:
             throw FetchFailure.needsRebuild
         }
@@ -140,17 +133,47 @@ actor CodexStatusService {
     private var connection: AppServerConnection?
     private var supplementalDataCache = SupplementalDataCache()
     private let socketURL: URL
+    private let logStorage: AppServerLogStore?
+    private let startup: AppServerStartup?
 
-    init(socketURL: URL = AppServerActivityReader.defaultSocketURL) {
+    init(socketURL: URL = AppServerActivityReader.defaultSocketURL, logStorage: AppServerLogStore? = .shared, startup: AppServerStartup? = nil) {
         self.socketURL = socketURL
+        self.logStorage = logStorage
+        self.startup = startup
     }
 
     // MARK: - 对外入口
 
     func fetchOutcome() async -> CodexFetchResult {
         var trace = CodexFetchTrace()
+        do {
+            try await startup?.ensureStarted()
+        } catch {
+            trace.failureStage = .connect
+            let outcome: CodexFetchOutcome = if case let CodexStatusError.unsupportedVersion(minimum) = error {
+                .unsupportedVersion(minimum: minimum)
+            } else {
+                .initializationFailed
+            }
+            return CodexFetchResult(outcome: outcome, trace: trace)
+        }
         let outcome = resolveOutcome(allowRebuild: true, trace: &trace)
         return CodexFetchResult(outcome: outcome, trace: trace)
+    }
+
+    func pollAccountChanges() -> AccountChange? {
+        guard let connection, connection.session.isOpen else { return nil }
+        do {
+            let change = try connection.session.pollChanges()
+            if change == .account {
+                supplementalDataCache = SupplementalDataCache()
+            }
+            return change
+        } catch {
+            teardownConnection()
+            // 一次断线触发一次有界重连, 失败后仍由定时刷新兜底
+            return .account
+        }
     }
 
     func currentConnectionInfo() async -> CodexServerConnectionInfo? {
@@ -162,9 +185,10 @@ actor CodexStatusService {
     }
 
     /// 只重建当前客户端连接, 不重启 Codex 后台服务
-    func reconnect(minimumVersion: String) throws -> CodexServerConnectionInfo {
+    func reconnect(minimumVersion: String) async throws -> CodexServerConnectionInfo {
         teardownConnection()
         supplementalDataCache = SupplementalDataCache()
+        try await startup?.ensureStarted(trigger: .manual)
         let candidate = try readyConnection()
         guard let version = candidate.connectionInfo.version,
               CodexVersionReader.isVersion(version, atLeast: minimumVersion) == true else {
@@ -174,29 +198,14 @@ actor CodexStatusService {
         return candidate.connectionInfo
     }
 
-    func readCodexConfig() async throws -> ConfigReadResponse {
-        let connection = try readyConnection()
-        return try connection.session.request(
-            "config/read",
-            params: ["includeLayers": false],
-            as: ConfigReadResponse.self
-        )
+    func areTUINotificationsEnabled() async throws -> Bool {
+        try readyConnection().session.perform(AccountRequests.configuration).areTUINotificationsEnabled
     }
 
-    /// 设置写入统一走批量接口, 让 Codex 负责刷新用户配置
-    func writeCodexConfigBatch(edits: [ConfigBatchEdit]) async throws -> ConfigWriteResponse {
-        let connection = try readyConnection()
-        return try connection.session.request(
-            "config/batchWrite",
-            params: [
-                "edits": edits.map(\.appServerObject),
-                "reloadUserConfig": true
-            ],
-            as: ConfigWriteResponse.self
-        )
+    func setTUINotificationsEnabled(_ enabled: Bool) async throws {
+        _ = try readyConnection().session.perform(AccountRequests.setTUINotifications(enabled))
     }
 
-    /// 自动重置前必须绕过补充数据缓存读取一份新凭证明细
     func readCreditsForAutoReset(budget: AppServerRequestBudget) throws -> AutoResetRead {
         try AppServerRequestBudget.$current.withValue(budget) {
             try withAutoResetConnection { connection in
@@ -225,11 +234,7 @@ actor CodexStatusService {
         expirationDate: Date
     ) throws -> ResetCreditConsumeResult {
         let response: ResetCreditConsumeResponse = try withAutoResetConnection { connection in
-            let accountResponse = try connection.session.request(
-                "account/read",
-                params: ["refreshToken": false],
-                as: AccountReadResponse.self
-            )
+            let accountResponse = try connection.session.perform(AccountRequests.account(refreshToken: false))
             guard let account = accountResponse.account else {
                 throw CodexStatusError.notLoggedIn
             }
@@ -243,14 +248,7 @@ actor CodexStatusService {
             guard Date() < AutoResetSchedule.cutoff(for: expirationDate) else {
                 throw AutoResetServiceError.deadlineReached
             }
-            return try connection.session.request(
-                "account/rateLimitResetCredit/consume",
-                params: [
-                    "creditId": creditID,
-                    "idempotencyKey": idempotencyKey
-                ],
-                as: ResetCreditConsumeResponse.self
-            )
+            return try connection.session.perform(AccountRequests.consumeCredit(id: creditID, idempotencyKey: idempotencyKey))
         }
 
         // 消费结果已经确定时刷新失败不能覆盖结果
@@ -269,15 +267,15 @@ actor CodexStatusService {
         trace: inout CodexFetchTrace
     ) -> CodexFetchOutcome {
         switch ensureConnection() {
-        case .notLoggedIn:
-            trace.failureStage = .connect
-            return .notLoggedIn
+        case .authenticationRequired:
+            trace.failureStage = .account
+            return .authenticationRequired
         case let .unsupportedVersion(minimum):
             trace.failureStage = .connect
             return .unsupportedVersion(minimum: minimum)
-        case let .initializationFailed(message):
+        case .initializationFailed:
             trace.failureStage = .connect
-            return .initializationFailed(message: message)
+            return .initializationFailed
         case let .ready(connection, reused):
             trace.connection = reused ? .reused : .new
             do {
@@ -289,18 +287,19 @@ actor CodexStatusService {
                 return .data(snapshot)
             } catch FetchFailure.notLoggedIn {
                 supplementalDataCache = SupplementalDataCache()
-                teardownConnection()
+                connection.accountResponse = AccountReadResponse(account: nil)
                 return .notLoggedIn
+            } catch FetchFailure.authenticationRequired {
+                return .authenticationRequired
             } catch FetchFailure.needsRebuild {
                 teardownConnection()
                 if reused, allowRebuild {
                     AppLog.app.notice("codex 连接已失效: reason=transportError")
                     return resolveOutcome(allowRebuild: false, trace: &trace)
                 }
-                return .initializationFailed(message: CodexStatusError.serverConnectionClosed.localizedDescription)
+                return .initializationFailed
             } catch {
-                teardownConnection()
-                return .initializationFailed(message: CodexStatusError.serverConnectionClosed.localizedDescription)
+                return .initializationFailed
             }
         }
     }
@@ -311,8 +310,8 @@ actor CodexStatusService {
         switch ensureConnection() {
         case let .ready(connection, _):
             return connection
-        case .notLoggedIn:
-            throw CodexStatusError.notLoggedIn
+        case .authenticationRequired:
+            throw CodexStatusError.authenticationRequired
         case let .unsupportedVersion(minimum):
             throw CodexStatusError.unsupportedVersion(minimum: minimum)
         case .initializationFailed:
@@ -351,11 +350,16 @@ actor CodexStatusService {
         do {
             return try operation(connection)
         } catch let error as CodexStatusError where error.isAuthenticationRequired {
+            if case .notLoggedIn = error {
+                throw error
+            }
             try AppServerRequestBudget.checkCurrent()
             do {
                 try Self.refreshAccount(using: connection)
             } catch FetchFailure.notLoggedIn {
                 throw CodexStatusError.notLoggedIn
+            } catch FetchFailure.authenticationRequired {
+                throw CodexStatusError.authenticationRequired
             } catch FetchFailure.needsRebuild {
                 throw CodexStatusError.serverConnectionClosed
             }
@@ -363,7 +367,10 @@ actor CodexStatusService {
             do {
                 return try operation(connection)
             } catch let error as CodexStatusError where error.isAuthenticationRequired {
-                throw CodexStatusError.notLoggedIn
+                if case .notLoggedIn = error {
+                    throw error
+                }
+                throw CodexStatusError.authenticationRequired
             }
         }
     }
@@ -373,7 +380,7 @@ actor CodexStatusService {
             return .ready(connection: connection, reused: true)
         }
         teardownConnection()
-        let resolution = Self.openConnection(socketURL: socketURL)
+        let resolution = Self.openConnection(socketURL: socketURL, logStorage: logStorage)
         if case let .ready(newConnection, _) = resolution {
             connection = newConnection
         }
@@ -390,11 +397,7 @@ actor CodexStatusService {
     private func readCreditsForAutoReset(
         using connection: AppServerConnection
     ) throws -> AutoResetRead {
-        let accountResponse = try connection.session.request(
-            "account/read",
-            params: ["refreshToken": false],
-            as: AccountReadResponse.self
-        )
+        let accountResponse = try connection.session.perform(AccountRequests.account(refreshToken: false))
         guard let account = accountResponse.account else {
             throw CodexStatusError.notLoggedIn
         }
@@ -404,10 +407,7 @@ actor CodexStatusService {
             AppLog.app.notice("额度缓存已丢弃: reason=accountChanged")
         }
 
-        let rateLimitsResponse = try connection.session.request(
-            "account/rateLimits/read",
-            as: AccountRateLimitsResponse.self
-        )
+        let rateLimitsResponse = try connection.session.perform(AccountRequests.rateLimits)
         supplementalDataCache.rateLimits = rateLimitsResponse
 
         let summary = rateLimitsResponse.rateLimitResetCredits
@@ -429,7 +429,7 @@ actor CodexStatusService {
         var didRefresh = false
 
         func refreshTokenIfNeeded() throws {
-            guard !didRefresh else { throw FetchFailure.notLoggedIn }
+            guard !didRefresh else { throw FetchFailure.authenticationRequired }
             didRefresh = true
             try Self.refreshAccount(using: connection)
         }
@@ -445,13 +445,12 @@ actor CodexStatusService {
         }
 
         func readSupplemental<Value: Decodable>(
-            _ method: String,
-            as type: Value.Type,
+            _ request: AppServerRequest<Value>,
             cache: inout Value?
         ) throws -> CachedSupplementalRead<Value> {
             try cachedRead(
                 readResultWithAuthRefresh {
-                    Self.read(method, using: connection, as: type)
+                    Self.read(request, using: connection)
                 },
                 cache: &cache
             )
@@ -463,12 +462,16 @@ actor CodexStatusService {
         trace.failureStage = .account
         if refreshAccountInfo {
             let accountResult: ReadResult<AccountReadResponse> = try readResultWithAuthRefresh {
-                Self.read("account/read", params: ["refreshToken": false], using: connection, as: AccountReadResponse.self)
+                Self.read(AccountRequests.account(refreshToken: false), using: connection)
             }
-            if let response = accountResult.value {
-                guard response.account != nil else { throw FetchFailure.notLoggedIn }
-                connection.accountResponse = response
+            guard let response = accountResult.value else {
+                if case let .skipped(.requestFailed(error)) = accountResult {
+                    throw error
+                }
+                throw CodexStatusError.unsupportedMethod
             }
+            guard response.account != nil else { throw FetchFailure.notLoggedIn }
+            connection.accountResponse = response
             trace.account = Self.accountStepResult(response: accountResult.value, didRefresh: didRefresh)
         } else {
             trace.account = .skipped
@@ -484,15 +487,13 @@ actor CodexStatusService {
         }
 
         let rateLimitsRead = try readSupplemental(
-            "account/rateLimits/read",
-            as: AccountRateLimitsResponse.self,
+            AccountRequests.rateLimits,
             cache: &supplementalDataCache.rateLimits
         )
         trace.rateLimits = rateLimitsRead.step
 
         let usageRead = try readSupplemental(
-            "account/usage/read",
-            as: AccountUsageResponse.self,
+            AccountRequests.usage,
             cache: &supplementalDataCache.usage
         )
         trace.usage = usageRead.step
@@ -573,13 +574,11 @@ actor CodexStatusService {
     }
 
     private static func read<Value: Decodable>(
-        _ method: String,
-        params: [String: Any]? = nil,
-        using connection: AppServerConnection,
-        as type: Value.Type
+        _ request: AppServerRequest<Value>,
+        using connection: AppServerConnection
     ) -> ReadResult<Value> {
         do {
-            return try .value(connection.session.request(method, params: params, as: type))
+            return try .value(connection.session.perform(request))
         } catch let error as CodexStatusError {
             return classify(error)
         } catch {
@@ -596,19 +595,21 @@ actor CodexStatusService {
         }
         // 重试后仍失败的非认证业务错误不阻断整轮刷新
 
-        return error.isTransportFailure ? .broken : .skipped(.requestFailed)
+        return error.isTransportFailure ? .broken : .skipped(.requestFailed(error))
     }
 
     private static func refreshAccount(using connection: AppServerConnection) throws {
         let response: AccountReadResponse
         do {
-            response = try connection.session.request(
-                "account/read",
-                params: ["refreshToken": true],
-                as: AccountReadResponse.self
-            )
+            response = try connection.session.perform(AccountRequests.account(refreshToken: true))
         } catch let error as CodexStatusError {
-            throw error.isTransportFailure ? FetchFailure.needsRebuild : FetchFailure.notLoggedIn
+            if error.isTransportFailure {
+                throw FetchFailure.needsRebuild
+            }
+            if error.isAuthenticationRequired {
+                throw FetchFailure.authenticationRequired
+            }
+            throw error
         } catch {
             throw FetchFailure.needsRebuild
         }
@@ -619,20 +620,21 @@ actor CodexStatusService {
         }
     }
 
-    /// 初始化失败与未登录在这里分流; 两者都关闭本次新建的连接
-    private static func openConnection(socketURL: URL) -> ConnectionResolution {
+    /// 握手和账户读取成功即可保留连接, 账户为空时继续监听登录变化
+    private static func openConnection(socketURL: URL, logStorage: AppServerLogStore?) -> ConnectionResolution {
         do {
-            let session = try AccountSession(socketURL: socketURL)
-            return initializeConnection(session: session, socketURL: socketURL)
+            let session = try AccountSession(socketURL: socketURL, logStorage: logStorage)
+            return initializeConnection(session: session, socketURL: socketURL, logStorage: logStorage)
         } catch {
-            AppServerLogStore.shared.recordFailure(message: error.localizedDescription)
-            return .initializationFailed(message: String(localized: "codex-status.daemon.error.unavailable"))
+            logStorage?.recordFailure(message: error.localizedDescription)
+            return .initializationFailed
         }
     }
 
     private static func initializeConnection(
         session: AccountSession,
-        socketURL: URL
+        socketURL: URL,
+        logStorage: AppServerLogStore?
     ) -> ConnectionResolution {
         do {
             let initialized = try session.initializeAccount()
@@ -649,22 +651,22 @@ actor CodexStatusService {
                 ),
                 reused: false
             )
-        } catch CodexStatusError.notLoggedIn {
+        } catch let error as CodexStatusError where error.isAuthenticationRequired {
             session.close()
-            return .notLoggedIn
+            return .authenticationRequired
         } catch let CodexStatusError.unsupportedVersion(minimum) {
             session.close()
             return .unsupportedVersion(minimum: minimum)
         } catch {
             // app-server 链路的细节按既有分工进日志窗口, 不重复写系统日志
-            AppServerLogStore.shared.recordFailure(
+            logStorage?.recordFailure(
                 message: String(
                     localized: "log.app-server.error.initialization-failed",
                     defaultValue: "\(error.localizedDescription)"
                 )
             )
             session.close()
-            return .initializationFailed(message: CodexStatusError.serverConnectionClosed.localizedDescription)
+            return .initializationFailed
         }
     }
 }

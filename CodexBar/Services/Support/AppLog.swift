@@ -50,6 +50,7 @@ nonisolated enum LogTrigger: String {
     case limitReached
     /// 电量或供电方式变化
     case battery
+    case accountNotification
     case statusRefresh
     case autoReset
 }

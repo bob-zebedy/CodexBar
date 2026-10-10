@@ -8,29 +8,23 @@ nonisolated enum ActivityRetention {
 /// 正在运行或等待批准的任务摘要, 不对 UI 暴露原始会话 ID
 nonisolated struct ActivityTaskSnapshot: Equatable, Identifiable {
     let id: UUID
-    let isAnonymous: Bool
     let projectName: String?
     let modelName: String?
     let effort: String?
-    let toolName: String?
     let startedAt: Date?
     let stateChangedAt: Date
-    let showsPreciseDuration: Bool
     /// nil 表示 活动字段不足, 无法可靠统计; 0 表示已确认当前没有活跃子 Agent
     let activeSubagentCount: Int?
     var tokenUsage: TokenUsage?
-    var itemType: String?
+    var approvalActionText: String?
     var presentation: ActivityLiveSummary?
-
-    var toolDisplayName: String? {
-        ActivityDisplayFormat.toolActionText(itemType: itemType, toolName: toolName)
-    }
 }
 
 /// 最近确认结束的任务; 完成只表示一轮任务结束, 不代表执行成功
 nonisolated struct ActivityCompletion: Equatable, Identifiable {
     let id: UUID
-    let isAnonymous: Bool
+    // 延续运行期间的 UI 状态, 终态记录仍使用独立的 id
+    var taskID: UUID?
     let projectName: String?
     let modelName: String?
     let effort: String?
@@ -67,7 +61,7 @@ nonisolated enum ActivityTerminalEvent: Equatable {
 /// 最近确认终止的任务; 中断和其他终止都不会触发完成提醒
 nonisolated struct ActivityTermination: Equatable, Identifiable {
     let id: UUID
-    let isAnonymous: Bool
+    var taskID: UUID?
     let projectName: String?
     let modelName: String?
     let effort: String?
@@ -212,13 +206,6 @@ nonisolated enum CodexPrimaryActivity: Equatable {
 nonisolated enum ActivityTransition: Equatable {
     case waitingApproval(ActivityTaskSnapshot)
     case completed(ActivityCompletion)
-
-    var isAnonymous: Bool {
-        switch self {
-        case let .waitingApproval(task): task.isAnonymous
-        case let .completed(completion): completion.isAnonymous
-        }
-    }
 }
 
 nonisolated enum CodexDurationFormat {

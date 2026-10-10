@@ -13,14 +13,6 @@ nonisolated struct UsageSummary: Decodable, Equatable {
     let longestRunningTurnSec: Int?
     let longestStreakDays: Int?
     let peakDailyTokens: Int?
-
-    var hasAvailableMetrics: Bool {
-        currentStreakDays != nil
-            || lifetimeTokens != nil
-            || longestRunningTurnSec != nil
-            || longestStreakDays != nil
-            || peakDailyTokens != nil
-    }
 }
 
 /// 单日 token bucket, startDate 使用 yyyy-MM-dd 作为稳定键
@@ -37,10 +29,6 @@ nonisolated struct CodexUsageSnapshot: Equatable {
 
     var hasDailyUsageBuckets: Bool {
         tokensByDate != nil
-    }
-
-    var hasAppServerData: Bool {
-        summary.hasAvailableMetrics || hasDailyUsageBuckets
     }
 
     init(summary: UsageSummary, dailyBuckets: [DailyUsageBucket]?) {

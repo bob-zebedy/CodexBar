@@ -264,7 +264,6 @@ struct ActivityCenterView: View {
             projectName: task.projectName,
             modelName: task.modelName,
             effort: task.effort,
-            isAnonymous: task.isAnonymous,
             detail: taskDetail(task, now: now, isWaiting: isWaiting),
             effect: isWaiting ? .ionizing(taskID: task.id) : .shimmer
         )
@@ -277,7 +276,6 @@ struct ActivityCenterView: View {
             projectName: completion.projectName,
             modelName: completion.modelName,
             effort: completion.effort,
-            isAnonymous: completion.isAnonymous,
             detail: historyDetail(
                 duration: completion.duration,
                 relativeText: ActivityDisplayFormat.completionRelativeText(
@@ -296,7 +294,6 @@ struct ActivityCenterView: View {
             projectName: termination.projectName,
             modelName: termination.modelName,
             effort: termination.effort,
-            isAnonymous: termination.isAnonymous,
             detail: historyDetail(
                 duration: termination.duration,
                 relativeText: ActivityDisplayFormat.terminationRelativeText(
@@ -314,21 +311,15 @@ struct ActivityCenterView: View {
         projectName: String?,
         modelName: String?,
         effort: String?,
-        isAnonymous: Bool,
         detail: String,
         tokenUsage: TokenUsage? = nil,
         effect: ActivityStatusText.Effect = .none
     ) -> some View {
         HStack(alignment: .top, spacing: 9) {
-            if isAnonymous {
-                ActivityAnonymousIcon()
-                    .frame(width: Metrics.symbolWidth, height: Metrics.titleLineHeight)
-            } else {
-                Image(systemName: symbolName)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .frame(width: Metrics.symbolWidth, height: Metrics.titleLineHeight)
-            }
+            Image(systemName: symbolName)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: Metrics.symbolWidth, height: Metrics.titleLineHeight)
 
             VStack(alignment: .leading, spacing: 3) {
                 titleLine(

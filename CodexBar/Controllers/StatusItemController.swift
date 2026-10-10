@@ -146,7 +146,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     func install() {
         configureStatusButton()
         configurePopover()
-        observeGlobalHotKeySettings()
+        configureGlobalHotKey()
         // 订阅时 CombineLatest 会同步发出当前值, 初始图标由订阅路径统一渲染
         observeViewModel()
         observeSyncState()
@@ -160,7 +160,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         statusIconHostingView = nil
         syncScheduler.cancel()
         setAuxiliaryWindowKeyFocus(true)
+        globalHotKeySettings.configureRegistration(nil)
         globalHotKeyController.uninstall()
+        registeredHotKeyShortcut = nil
         cancellables.removeAll()
         NSStatusBar.system.removeStatusItem(statusItem)
     }
@@ -317,15 +319,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
             .store(in: &cancellables)
 
-        hasTaskCenterContent
-            .sink { [weak self] isAvailable in
-                guard let self, !isAvailable else {
-                    return
-                }
-                activityCenterPanelController.hide(immediate: true)
-            }
-            .store(in: &cancellables)
-
         mainPanelSettings.$layout
             .sink { [weak self] layout in
                 guard let self else {
@@ -356,41 +349,28 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .store(in: &cancellables)
     }
 
-    private func observeGlobalHotKeySettings() {
-        globalHotKeySettings.$shortcut
-            .removeDuplicates()
-            .sink { [weak self] shortcut in
-                self?.applyGlobalHotKey(shortcut)
-            }
-            .store(in: &cancellables)
+    private func configureGlobalHotKey() {
+        globalHotKeySettings.configureRegistration { [weak self] shortcut in
+            self?.applyGlobalHotKey(shortcut)
+        }
     }
 
-    private func applyGlobalHotKey(_ shortcut: GlobalHotKeyShortcut?) {
+    private func applyGlobalHotKey(_ shortcut: GlobalHotKeyShortcut?) -> String? {
         guard shortcut != registeredHotKeyShortcut else {
-            return
+            return nil
         }
 
         guard let shortcut else {
             globalHotKeyController.uninstall()
             registeredHotKeyShortcut = nil
-            return
+            return nil
         }
 
-        if globalHotKeyController.install(shortcut: shortcut) {
-            registeredHotKeyShortcut = shortcut
-            globalHotKeySettings.clearError()
-            return
+        guard globalHotKeyController.install(shortcut: shortcut) else {
+            return hotKeyConflictMessage(for: shortcut)
         }
-
-        let message = hotKeyConflictMessage(for: shortcut)
-        guard let previousShortcut = registeredHotKeyShortcut else {
-            // 启动阶段冲突时还没有成功注册过任何快捷键
-            // 此时 restoreShortcut(nil) 会清空用户保存的配置, 只能提示冲突
-            globalHotKeySettings.setRegistrationError(message)
-            return
-        }
-
-        globalHotKeySettings.restoreShortcut(previousShortcut, message: message)
+        registeredHotKeyShortcut = shortcut
+        return nil
     }
 
     private func hotKeyConflictMessage(for shortcut: GlobalHotKeyShortcut) -> String {

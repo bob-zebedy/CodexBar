@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor
 final class HeatmapPanelController {
     private let contentHost = SidePanelContentHost<HeatmapDetailView>(
-        initialSize: HeatmapDetailView.panelSize(showsActivity: true),
+        initialSize: HeatmapDetailView.panelSize,
         ignoresMouseEvents: true,
         sizingOptions: [.preferredContentSize],
         cornerRadius: HeatmapDetailView.panelCornerRadius
@@ -112,7 +112,7 @@ final class HeatmapPanelController {
             attach(panel, to: menuSurfaceWindow)
         }
 
-        let panelSize = HeatmapDetailView.panelSize(showsActivity: context.showsActivity)
+        let panelSize = HeatmapDetailView.panelSize
         let position = panelPosition(
             for: panelSize,
             relativeTo: menuSurfaceWindow,
@@ -291,7 +291,7 @@ final class HeatmapPanelController {
     private func updateContent(_ context: UsageHeatmapHoverContext) {
         contentHost.updateContent(
             HeatmapDetailView(context: context),
-            size: HeatmapDetailView.panelSize(showsActivity: context.showsActivity)
+            size: HeatmapDetailView.panelSize
         )
     }
 

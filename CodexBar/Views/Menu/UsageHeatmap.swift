@@ -4,7 +4,7 @@ import SwiftUI
 /// hover 详情面板需要的完整上下文, 包括屏幕坐标和峰值 token
 nonisolated struct UsageHeatmapHoverContext: Equatable {
     let day: UsageHeatmapDay
-    let showsActivity: Bool
+    let isStale: Bool
     let alignmentScreenFrame: CGRect?
     let preferredSide: UsageHeatmapDetailSide
     let peakTokens: Int

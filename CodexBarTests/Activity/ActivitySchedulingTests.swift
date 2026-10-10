@@ -23,7 +23,7 @@ struct ActivitySchedulingTests {
             #expect(observed.wait(timeout: .now() + 2) == .success)
             try peer.reply(to: read, result: ["thread": Self.thread(timestamp, status: "idle")])
             let turns = try peer.readMessage()
-            try peer.reply(to: turns, result: ["data": [["id": "turn", "status": "inProgress", "startedAt": timestamp]]])
+            try peer.reply(to: turns, result: ["data": [["id": "turn", "rootTurnId": "turn", "status": "inProgress", "startedAt": timestamp]]])
             _ = release.wait(timeout: .now() + 5)
         }
         defer { server.close() }
@@ -46,8 +46,8 @@ struct ActivitySchedulingTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         #expect(ready)
-        #expect(await reader.drainNow() == .completed)
-        let reference = ActivityTurnReference(threadID: "thread", turnID: "turn", startedAt: Date(timeIntervalSince1970: timestamp))
+        #expect(await reader.drainNow() == .sourceUnavailable)
+        let reference = ActivityTurnReference(threadID: "thread", turnID: "turn")
         #expect(await lifecycle.lifecycleStates(for: [reference]).first?.isWaitingApproval == true)
         await reader.stop()
         release.signal()
@@ -160,7 +160,7 @@ struct ActivitySchedulingTests {
         #expect(discoveries.withLock { $0 } == 2)
         if ready, !disconnected {
             #expect(await reader.drainNow() == .completed)
-            let reference = ActivityTurnReference(threadID: "a-missing", turnID: "turn", startedAt: Date(timeIntervalSince1970: timestamp))
+            let reference = ActivityTurnReference(threadID: "a-missing", turnID: "turn")
             #expect(await lifecycle.lifecycleStates(for: [reference]).first?.readStatus == .complete)
             #expect(!disconnected)
         }
@@ -202,10 +202,10 @@ struct ActivitySchedulingTests {
         #expect(published == 1)
         #expect(failures == 0)
         try FileManager.default.removeItem(at: blocker)
-        for _ in 0 ..< 150 where HistoryStorage.loadMaintenanceState(in: directory.url).days.isEmpty {
+        for _ in 0 ..< 150 where try HistoryStorage.loadMaintenanceState(in: directory.url).days.isEmpty {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(!HistoryStorage.loadMaintenanceState(in: directory.url).days.isEmpty)
+        #expect(try !HistoryStorage.loadMaintenanceState(in: directory.url).days.isEmpty)
         #expect(failures == 0)
         #expect(published == 1)
         await reader.stop()
@@ -230,7 +230,7 @@ struct ActivitySchedulingTests {
         onDiscovery: @Sendable () -> Void
     ) throws {
         let initialize = try peer.readMessage()
-        try peer.reply(to: initialize, result: ["userAgent": "codex/0.160.0"])
+        try peer.reply(to: initialize, result: ["userAgent": "codex/0.162.0"])
         #expect(try peer.readMessage()["method"] as? String == "initialized")
         let loaded = try peer.readMessage()
         try peer.reply(to: loaded, result: ["data": ["a-missing", "thread"]])
@@ -252,7 +252,7 @@ struct ActivitySchedulingTests {
             try peer.reply(to: request, result: ["thread": Self.thread(timestamp)])
         }
         let turns = try peer.readMessage()
-        try peer.reply(to: turns, result: ["data": [["id": "turn", "status": "inProgress", "startedAt": timestamp]]])
+        try peer.reply(to: turns, result: ["data": [["id": "turn", "rootTurnId": "turn", "status": "inProgress", "startedAt": timestamp]]])
         try peer.send(["method": "item/started", "params": [
             "threadId": "thread", "turnId": "turn", "item": ["id": "tool", "type": "commandExecution"]
         ]])
@@ -279,7 +279,8 @@ struct ActivitySchedulingTests {
             }
             let request = try peer.readMessage()
             #expect(request["method"] as? String == "thread/turns/list")
-            try peer.reply(to: request, result: ["data": [["id": "turn", "status": "inProgress", "startedAt": timestamp]]])
+            #expect((request["params"] as? [String: Any])?["itemsView"] as? String == (id == "a-missing" ? "full" : "notLoaded"))
+            try peer.reply(to: request, result: ["data": [["id": "turn", "rootTurnId": "turn", "status": "inProgress", "startedAt": timestamp]]])
         }
         _ = release.wait(timeout: .now() + 5)
     }
@@ -290,7 +291,7 @@ struct ActivitySchedulingTests {
 
     private nonisolated static func bootstrap(_ peer: SharedServerFixture.Peer, timestamp: Double, idle: Bool = false) throws {
         let initialize = try peer.readMessage()
-        try peer.reply(to: initialize, result: ["userAgent": "codex/0.160.0"])
+        try peer.reply(to: initialize, result: ["userAgent": "codex/0.162.0"])
         _ = try peer.readMessage()
         let loaded = try peer.readMessage()
         try peer.reply(to: loaded, result: ["data": ["thread"]])
@@ -299,6 +300,123 @@ struct ActivitySchedulingTests {
             try peer.reply(to: request, result: ["thread": thread(timestamp, status: idle ? "idle" : "active")])
         }
         let turns = try peer.readMessage()
-        try peer.reply(to: turns, result: ["data": [["id": "turn", "status": idle ? "completed" : "inProgress", "startedAt": timestamp]]])
+        #expect(turns["method"] as? String == "thread/turns/list")
+        #expect((turns["params"] as? [String: Any])?["itemsView"] as? String == "full")
+        try peer.reply(to: turns, result: ["data": [["id": "turn", "rootTurnId": "turn", "status": idle ? "completed" : "inProgress", "startedAt": timestamp]]])
+    }
+}
+
+extension ActivitySchedulingTests {
+    @Test func turnPaginationResumesAndDoesNotVerifyOmittedTurn() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let timestamp = Date().addingTimeInterval(-60).timeIntervalSince1970
+        let server = try SharedServerFixture { peer in
+            try Self.bootstrap(peer, timestamp: timestamp)
+            for cycle in 0 ..< 2 {
+                let loaded = try peer.readMessage()
+                try peer.reply(to: loaded, result: ["data": ["thread"]])
+                let read = try peer.readMessage()
+                try peer.reply(to: read, result: ["thread": Self.thread(timestamp, status: "idle")])
+                let first = try peer.readMessage()
+                #expect((first["params"] as? [String: Any])?["cursor"] == nil)
+                let recent = (0 ..< 10).map { ["id": "recent-\($0)", "status": "completed"] }
+                try peer.reply(to: first, result: ["data": recent, "nextCursor": "page-1"])
+                if cycle == 0 {
+                    for page in 1 ... 8 {
+                        let request = try peer.readMessage()
+                        #expect((request["params"] as? [String: Any])?["cursor"] as? String == "page-\(page)")
+                        try peer.reply(to: request, result: ["data": [["id": "history-\(page)", "status": "completed"]], "nextCursor": "page-\(page + 1)"])
+                    }
+                } else {
+                    let request = try peer.readMessage()
+                    #expect((request["params"] as? [String: Any])?["cursor"] as? String == "page-9")
+                    try peer.reply(to: request, result: ["data": [["id": "turn", "rootTurnId": "turn", "status": "completed", "completedAt": timestamp + 30]]])
+                }
+            }
+            _ = release.wait(timeout: .now() + 5)
+        }
+        defer { server.close() }
+        let cache = SessionLifecycleCache()
+        var ready = false
+        let reader = AppServerActivityReader(
+            lifecycleCache: cache,
+            socketURL: server.url,
+            logStorage: nil,
+            tokenHistory: TokenHistoryStore(directoryURL: directory.url),
+            recorder: ActivityRecorder(directoryURL: directory.url)
+        ) {
+            if case .bootstrapEnd = $0 {
+                ready = true
+            }
+        }
+        await reader.start()
+        for _ in 0 ..< 200 where !ready {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(ready)
+        let reference = ActivityTurnReference(threadID: "thread", turnID: "turn")
+        #expect(await reader.drainNow() == .sourceUnavailable)
+        #expect(await cache.lifecycleStates(for: [reference]).first?.readStatus == .unavailable)
+        #expect(await reader.drainNow() == .completed)
+        let state = try #require(await cache.lifecycleStates(for: [reference]).first)
+        #expect(state.readStatus == .complete)
+        #expect(state.terminal != nil)
+        #expect(await reader.stop())
+        release.signal()
+        try server.finish()
+    }
+
+    @Test(arguments: [false, true])
+    func stopWaitsForPendingWritesAndReportsPersistenceFailure(failFirstStop: Bool) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let blocker = try directory.write("block maintenance directory", to: "State")
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let server = try SharedServerFixture { peer in
+            try Self.bootstrap(peer, timestamp: Date().addingTimeInterval(-60).timeIntervalSince1970)
+            try peer.send(["method": "item/started", "params": ["threadId": "thread", "turnId": "turn", "item": ["id": "tool", "type": "commandExecution"]]])
+            _ = release.wait(timeout: .now() + 5)
+        }
+        defer { server.close() }
+        var published = false
+        let reader = AppServerActivityReader(
+            lifecycleCache: SessionLifecycleCache(),
+            socketURL: server.url,
+            logStorage: nil,
+            tokenHistory: TokenHistoryStore(directoryURL: directory.url),
+            recorder: ActivityRecorder(directoryURL: directory.url)
+        ) {
+            if case let .live(events) = $0, !events.isEmpty {
+                published = true
+            }
+        }
+        await reader.start()
+        for _ in 0 ..< 200 where !published {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(published)
+        if failFirstStop {
+            #expect(await reader.stop() == false)
+        }
+        try FileManager.default.removeItem(at: blocker)
+        #expect(await reader.stop())
+        let dates = HistoryStorage.eventLogDateKeys(in: HistoryStorage.eventsDirectoryURL(in: directory.url))
+        var count = 0
+        for date in dates {
+            let url = HistoryStorage.eventLogURL(for: date, in: HistoryStorage.eventsDirectoryURL(in: directory.url))
+            try AppServerEventJournal.read(at: url) {
+                if $0.activity != nil {
+                    count += 1
+                }
+            }
+        }
+        #expect(count == 1)
+        #expect(try !HistoryStorage.loadMaintenanceState(in: directory.url).pending.isEmpty)
+        release.signal()
+        try server.finish()
     }
 }

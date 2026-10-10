@@ -52,6 +52,7 @@ nonisolated enum JSONLines {
     ) -> JSONLinesDecodeResult<T> {
         var values = [T]()
         var failedLineCount = 0
+        var compatibilityError: StorageCompatibilityError?
 
         // 逐行独立解码: 进程被杀或断电会留下截断的多字节序列
         // 整块处理时一处损坏会连带丢掉同一次读取里的所有完好事件, 且调用方仍会推进 offset
@@ -61,15 +62,18 @@ nonisolated enum JSONLines {
             guard !isBlankLine(line) else {
                 continue
             }
-            guard let value = try? decoder.decode(T.self, from: Data(line)) else {
+            do {
+                try values.append(decoder.decode(T.self, from: Data(line)))
+            } catch StorageCompatibilityError.incompleteSource {
                 failedLineCount += 1
-                continue
+            } catch let error as StorageCompatibilityError {
+                compatibilityError = error
+            } catch {
+                failedLineCount += 1
             }
-
-            values.append(value)
         }
 
-        return JSONLinesDecodeResult(values: values, failedLineCount: failedLineCount)
+        return JSONLinesDecodeResult(values: values, failedLineCount: failedLineCount, compatibilityError: compatibilityError)
     }
 }
 
@@ -77,4 +81,5 @@ nonisolated enum JSONLines {
 nonisolated struct JSONLinesDecodeResult<T> {
     let values: [T]
     let failedLineCount: Int
+    var compatibilityError: StorageCompatibilityError?
 }

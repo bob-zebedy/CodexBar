@@ -5,6 +5,7 @@ import Foundation
 
 nonisolated enum ActivityRecordCodec {
     static let version = 1
+    static let metadataVersion = 1
 
     enum RecordTypes {
         static let metadata = "Metadata"
@@ -14,12 +15,12 @@ nonisolated enum ActivityRecordCodec {
     enum FieldKeys {
         static let salt = "salt"
         static let version = "version"
+        static let aggregationVersion = "aggregationVersion"
+        static let sourceCheckpoint = "sourceCheckpoint"
         static let deviceID = "deviceID"
         static let date = "date"
         static let generationID = "generationID"
         static let eventCount = "eventCount"
-        static let sessionStartedCount = "sessionStartedCount"
-        static let sessionEndedCount = "sessionEndedCount"
         static let turnStartedCount = "turnStartedCount"
         static let turnCompletedCount = "turnCompletedCount"
         static let turnAbortedCount = "turnAbortedCount"
@@ -30,7 +31,7 @@ nonisolated enum ActivityRecordCodec {
         static let compactionCompletedCount = "compactionCompletedCount"
         static let subagentStartedCount = "subagentStartedCount"
         static let subagentEndedCount = "subagentEndedCount"
-        static let sessionCount = "sessionCount"
+        static let threadCount = "threadCount"
         static let turnCount = "turnCount"
         static let projectCounts = "projectCounts"
         static let modelCounts = "modelCounts"
@@ -43,12 +44,11 @@ nonisolated enum ActivityRecordCodec {
         to record: CKRecord
     ) {
         record[FieldKeys.version] = version as CKRecordValue
+        record[FieldKeys.aggregationVersion] = aggregate.aggregationVersion as CKRecordValue
         record[FieldKeys.deviceID] = deviceID as CKRecordValue
         record[FieldKeys.date] = aggregate.date as CKRecordValue
         record[FieldKeys.generationID] = aggregate.generationID as CKRecordValue?
         record[FieldKeys.eventCount] = aggregate.eventCount as CKRecordValue?
-        record[FieldKeys.sessionStartedCount] = aggregate.sessionStartedCount as CKRecordValue?
-        record[FieldKeys.sessionEndedCount] = aggregate.sessionEndedCount as CKRecordValue?
         record[FieldKeys.turnStartedCount] = aggregate.turnStartedCount as CKRecordValue?
         record[FieldKeys.turnCompletedCount] = aggregate.turnCompletedCount as CKRecordValue?
         record[FieldKeys.turnAbortedCount] = aggregate.turnAbortedCount as CKRecordValue?
@@ -59,27 +59,35 @@ nonisolated enum ActivityRecordCodec {
         record[FieldKeys.compactionCompletedCount] = aggregate.compactionCompletedCount as CKRecordValue?
         record[FieldKeys.subagentStartedCount] = aggregate.subagentStartedCount as CKRecordValue?
         record[FieldKeys.subagentEndedCount] = aggregate.subagentEndedCount as CKRecordValue?
-        record[FieldKeys.sessionCount] = aggregate.sessionCount as CKRecordValue?
+        record[FieldKeys.threadCount] = aggregate.threadCount as CKRecordValue?
         record[FieldKeys.turnCount] = aggregate.turnCount as CKRecordValue?
         record[FieldKeys.projectCounts] = countsData(aggregate.projectCounts) as CKRecordValue
         record[FieldKeys.modelCounts] = countsData(aggregate.modelCounts) as CKRecordValue
+        record[FieldKeys.sourceCheckpoint] = aggregate.sourceCheckpoint.flatMap { try? JSONLines.stableEncoder.encode($0) } as CKRecordValue?
         record[FieldKeys.updatedAt] = Date() as CKRecordValue
     }
 
     static func remoteDailyRecord(from record: CKRecord) throws -> ActivitySyncRecord? {
-        guard record.recordType == RecordTypes.activity,
-              let deviceID = record[FieldKeys.deviceID] as? String,
-              let date = record[FieldKeys.date] as? String,
-              HistoryStorage.isValidDateKey(date) else {
-            return nil
+        guard record.recordType == RecordTypes.activity else { return nil }
+        try StorageVersion.require(optionalIntValue(record[FieldKeys.version]) ?? -1, current: version, name: "CloudActivity")
+        try AggregationVersion.require(optionalIntValue(record[FieldKeys.aggregationVersion]) ?? -1, current: AggregationVersion.activity, name: "Activity")
+        guard
+            let deviceID = record[FieldKeys.deviceID] as? String,
+            let date = record[FieldKeys.date] as? String,
+            HistoryStorage.isValidDateKey(date) else {
+            throw ActivitySyncError.invalidRecordIdentity
         }
 
-        let aggregate = SyncedActivity(
+        guard let checkpointData = record[FieldKeys.sourceCheckpoint] as? Data else {
+            throw StorageCompatibilityError.incompleteSource
+        }
+        let checkpoint = try JSONDecoder().decode(ActivitySourceCheckpoint.self, from: checkpointData)
+        let aggregate = try SyncedActivity(
+            aggregationVersion: optionalIntValue(record[FieldKeys.aggregationVersion]) ?? -1,
+            sourceCheckpoint: checkpoint,
             date: date,
             generationID: record[FieldKeys.generationID] as? String,
             eventCount: optionalIntValue(record[FieldKeys.eventCount]),
-            sessionStartedCount: optionalIntValue(record[FieldKeys.sessionStartedCount]),
-            sessionEndedCount: optionalIntValue(record[FieldKeys.sessionEndedCount]),
             turnStartedCount: optionalIntValue(record[FieldKeys.turnStartedCount]),
             turnCompletedCount: optionalIntValue(record[FieldKeys.turnCompletedCount]),
             turnAbortedCount: optionalIntValue(record[FieldKeys.turnAbortedCount]),
@@ -90,7 +98,7 @@ nonisolated enum ActivityRecordCodec {
             compactionCompletedCount: optionalIntValue(record[FieldKeys.compactionCompletedCount]),
             subagentStartedCount: optionalIntValue(record[FieldKeys.subagentStartedCount]),
             subagentEndedCount: optionalIntValue(record[FieldKeys.subagentEndedCount]),
-            sessionCount: optionalIntValue(record[FieldKeys.sessionCount]),
+            threadCount: optionalIntValue(record[FieldKeys.threadCount]),
             turnCount: optionalIntValue(record[FieldKeys.turnCount]),
             projectCounts: counts(from: record[FieldKeys.projectCounts]),
             modelCounts: counts(from: record[FieldKeys.modelCounts])
@@ -114,11 +122,10 @@ nonisolated enum ActivityRecordCodec {
         return nil
     }
 
-    static func counts(from value: CKRecordValue?) -> [String: Int] {
-        guard let data = value as? Data,
-              let counts = try? JSONDecoder().decode([String: Int].self, from: data) else {
-            return [:]
-        }
+    static func counts(from value: CKRecordValue?) throws -> [String: Int] {
+        guard let data = value as? Data else { throw StorageCompatibilityError.incompleteSource }
+        let counts = try JSONDecoder().decode([String: Int].self, from: data)
+        guard counts.values.allSatisfy({ $0 >= 0 }) else { throw StorageCompatibilityError.incompleteSource }
         return counts
     }
 

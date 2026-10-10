@@ -109,6 +109,10 @@ final class KeepAliveController: ObservableObject {
     private var retryTask: Task<Void, Never>?
     private var requestTimeoutTask: Task<Void, Never>?
     private let helperStatusMonitor = HelperStatusMonitor()
+    private let helperManager = HelperManagerClient()
+    private var isHelperStatusAvailable = false
+    private var helperFailureTask: Task<Void, Never>?
+    private var helperLifecycleGeneration: UInt64 = 0
     private var retryAttempt = 0
     private var helperRegistrationTask: Task<Void, Never>?
     private let helperPackageValidation = HelperPackageValidation()
@@ -148,6 +152,10 @@ final class KeepAliveController: ObservableObject {
         // 默认关闭: 它会让人离开后机器一直停在解锁状态, 这个取舍只能由用户自己做
         keepsDisplayAwake = defaults.bool(forKey: Self.keepsDisplayAwakeKey)
         activityMonitor.setProtectionEnabled(isEnabled)
+        helperPackageValidation.onValidated = { [weak self] in
+            guard let self, isStarted else { return }
+            refreshRegistrationAndSleepState(refreshPackage: false)
+        }
         autoResetWakeScheduler.onErrorMessageChanged = { [weak self] message in
             self?.autoResetWakeScheduleErrorMessage = message
         }
@@ -251,23 +259,17 @@ final class KeepAliveController: ObservableObject {
         refreshRegistrationAndSleepState()
     }
 
-    private func refreshRegistrationAndSleepState() {
-        if isStarted {
+    private func refreshRegistrationAndSleepState(refreshPackage: Bool = true) {
+        if isStarted, refreshPackage {
             helperPackageValidation.refresh()
+            return
         }
         guard helperRegistrationTask == nil else {
             reconcileSleepState(trigger: .statusRefresh)
             return
         }
 
-        refreshHelperStatus()
-        if isEnabled
-            || isAutoResetRequested
-            || helperStatus.isRegisteredOrAwaitingApproval {
-            ensureHelperRegistration()
-        }
-        reconcileSleepState(trigger: .statusRefresh)
-        reconcileAutoResetWakeSchedule()
+        ensureHelperRegistration()
     }
 
     // MARK: - 设置入口
@@ -475,8 +477,8 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func handleActivitySnapshot(_ snapshot: ActivitySnapshot) {
-        let currentRunningTaskIDs = keepAliveTaskIDs(in: snapshot.runningTasks)
-        let currentWaitingTaskIDs = keepAliveTaskIDs(in: snapshot.waitingTasks)
+        let currentRunningTaskIDs = Set(snapshot.runningTasks.map(\.id))
+        let currentWaitingTaskIDs = Set(snapshot.waitingTasks.map(\.id))
         // 运行与等待互斥, 新任务和等待后恢复都表现为运行集合新增成员
         let hasEnteredRunning = !currentRunningTaskIDs.isSubset(of: runningTaskIDs)
         runningTaskIDs = currentRunningTaskIDs
@@ -490,10 +492,6 @@ final class KeepAliveController: ObservableObject {
         reconcileSleepState(trigger: .taskChanged)
     }
 
-    private func keepAliveTaskIDs(in tasks: [ActivityTaskSnapshot]) -> Set<UUID> {
-        Set(tasks.lazy.filter { !$0.isAnonymous }.map(\.id))
-    }
-
     /// 还没真正挡住睡眠时只清零不起表, 等禁用成功后由 begin 补上
     private func restartMaximumDurationPeriod() {
         guard isEnabled else {
@@ -505,78 +503,71 @@ final class KeepAliveController: ObservableObject {
 
     // MARK: - helper 注册
 
-    func openSystemSettings() {
-        SMAppService.openSystemSettingsLoginItems()
-    }
-
     private func ensureHelperRegistration() {
-        guard helperRegistrationTask == nil else {
-            return
-        }
-
-        let service = HelperConfiguration.service
-        refreshHelperStatus()
-
-        switch helperStatus {
-        case .enabled, .requiresApproval:
-            if HelperConfiguration.registrationNeedsRefresh(defaults: defaults) {
-                refreshRegisteredHelper()
-            } else if helperStatus == .enabled,
-                      let updateIdentifier = HelperConfiguration.pendingUpdateIdentifier(
-                          defaults: defaults
-                      ) {
-                completePendingHelperUpdate(updateIdentifier)
-            } else {
-                reconcileAutoResetWakeSchedule()
+        guard helperRegistrationTask == nil else { return }
+        guard let fingerprint = helperPackageValidation.fingerprint else {
+            if helperPackageValidation.issue == nil {
+                helperPackageValidation.refresh()
             }
             return
-        case .notRegistered, .notFound:
-            guard HelperConfiguration.assetsArePresent else {
-                helperPackageValidation.reportMissingAssets()
-                return
+        }
+        let lifecycleGeneration = helperLifecycleGeneration
+        helperRegistrationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if lifecycleGeneration == helperLifecycleGeneration {
+                    helperRegistrationTask = nil
+                }
             }
-        }
-
-        AppLog.keepAlive.notice("Helper 注册开始")
-        do {
-            try service.register()
-        } catch {
-            refreshHelperStatus()
-            if !helperStatus.isRegisteredOrAwaitingApproval {
-                AppLog.keepAlive.error(
-                    "Helper 注册失败: detail=\(error.localizedDescription, privacy: .public)"
-                )
-                registrationErrorMessage = KeepAliveLocalizedMessage.registrationFailed
+            guard await refreshHelperStatus(), isStarted, !Task.isCancelled else { return }
+            switch helperStatus {
+            case .enabled, .requiresApproval:
+                if HelperConfiguration.registrationNeedsRefresh(defaults: defaults, fingerprint: fingerprint) {
+                    await refreshRegisteredHelper()
+                } else if helperStatus == .enabled,
+                          let updateIdentifier = HelperConfiguration.pendingUpdateIdentifier(
+                              defaults: defaults, fingerprint: fingerprint
+                          ) {
+                    await completePendingHelperUpdate(updateIdentifier)
+                }
+            case .notRegistered, .notFound:
+                if isEnabled || isAutoResetRequested {
+                    AppLog.keepAlive.notice("Helper 注册开始")
+                    do {
+                        _ = try await helperManager.perform(.register)
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        AppLog.keepAlive.error("Helper 注册失败: detail=\(error.localizedDescription, privacy: .public)")
+                        registrationErrorMessage = KeepAliveLocalizedMessage.registrationFailed
+                    }
+                    guard await refreshHelperStatus(), !Task.isCancelled else { return }
+                    HelperConfiguration.recordRegistration(defaults: defaults, status: helperStatus, fingerprint: fingerprint)
+                    if helperStatus == .enabled,
+                       let updateIdentifier = HelperConfiguration.pendingUpdateIdentifier(defaults: defaults, fingerprint: fingerprint) {
+                        await completePendingHelperUpdate(updateIdentifier)
+                    }
+                }
             }
+            guard isStarted, !Task.isCancelled else { return }
+            reconcileSleepState(trigger: .statusRefresh)
+            reconcileAutoResetWakeSchedule()
         }
-
-        refreshHelperStatus()
-        HelperConfiguration.recordRegistration(defaults: defaults, status: helperStatus)
-        if helperStatus == .enabled,
-           let updateIdentifier = HelperConfiguration.pendingUpdateIdentifier(
-               defaults: defaults
-           ) {
-            completePendingHelperUpdate(updateIdentifier)
-        }
-        reconcileAutoResetWakeSchedule()
     }
 
-    private func refreshRegisteredHelper() {
+    private func refreshRegisteredHelper() async {
         let requiresSleepReset = helperStatus == .enabled
-        guard helperRegistrationTask == nil,
-              HelperConfiguration.assetsArePresent else {
+        guard let fingerprint = helperPackageValidation.fingerprint else {
             return
         }
         guard autoResetWakeScheduler.beginHelperInterruptionPreparation() else {
             return
         }
-        guard let updateIdentifier = HelperConfiguration.beginUpdate(
+        let updateIdentifier = HelperConfiguration.beginUpdate(
             defaults: defaults,
-            requiresSleepReset: requiresSleepReset
-        ) else {
-            autoResetWakeScheduler.resumeAfterHelperInterruption()
-            return
-        }
+            requiresSleepReset: requiresSleepReset,
+            fingerprint: fingerprint
+        )
 
         assign(true, to: \.isRefreshingHelper)
         cancelRetryTask()
@@ -586,17 +577,13 @@ final class KeepAliveController: ObservableObject {
         registrationErrorMessage = nil
         operationErrorMessage = nil
 
-        let service = HelperConfiguration.service
-        helperRegistrationTask = Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
+        do {
             defer {
                 autoResetWakeScheduler.resumeAfterHelperInterruption()
             }
             let updateError: Error?
             do {
-                try await replaceRegisteredHelper(service)
+                try await replaceRegisteredHelper()
                 updateError = nil
             } catch is CancellationError {
                 return
@@ -609,13 +596,14 @@ final class KeepAliveController: ObservableObject {
                 return
             }
 
-            refreshHelperStatus()
+            guard await refreshHelperStatus() else { return }
             var helperWasUpdated = false
             if updateError == nil,
                helperStatus.isRegisteredOrAwaitingApproval {
                 HelperConfiguration.recordRegistration(
                     defaults: defaults,
-                    status: helperStatus
+                    status: helperStatus,
+                    fingerprint: fingerprint
                 )
                 if !requiresSleepReset {
                     helperWasUpdated = true
@@ -636,7 +624,6 @@ final class KeepAliveController: ObservableObject {
             }
 
             assign(!helperWasUpdated && helperStatus == .enabled, to: \.isRefreshingHelper)
-            helperRegistrationTask = nil
             reconcileSleepState(trigger: .helperRegistered, force: true)
             reconcileAutoResetWakeSchedule()
         }
@@ -656,9 +643,27 @@ final class KeepAliveController: ObservableObject {
         self[keyPath: keyPath] = value
     }
 
-    private func refreshHelperStatus() {
+    @discardableResult
+    private func refreshHelperStatus() async -> Bool {
+        let status: SMAppService.Status
+        do {
+            status = try await helperManager.perform(.status)
+            try Task.checkCancellation()
+        } catch is CancellationError {
+            return false
+        } catch {
+            AppLog.keepAlive.error("Helper 注册状态查询失败: detail=\(error.localizedDescription, privacy: .public)")
+            registrationErrorMessage = KeepAliveLocalizedMessage.connectionFailed
+            isHelperStatusAvailable = false
+            cancelRetryTask()
+            invalidateConnection()
+            reconcileSleepState(trigger: .statusRefresh)
+            reconcileAutoResetWakeSchedule()
+            return false
+        }
+        isHelperStatusAvailable = true
         let previousStatus = helperStatus
-        assign(HelperStatus(HelperConfiguration.service.status), to: \.helperStatus)
+        assign(HelperStatus(status), to: \.helperStatus)
         // 每次 App 激活都会跑, 只记真正的迁移, 否则日志会被无变化的求值淹没
         // 取局部量再插值: Logger 的插值是 autoclosure, 直接写属性会被要求显式 self, 与 --self remove 冲突
         let currentStatus = helperStatus
@@ -684,6 +689,7 @@ final class KeepAliveController: ObservableObject {
             publishDerivedState(blockReason: sleepBlockReason)
             reconcileAutoResetWakeSchedule()
         }
+        return true
     }
 
     // MARK: - 决策与条件日志
@@ -1156,15 +1162,23 @@ final class KeepAliveController: ObservableObject {
     /// 断连和超时统一先复核授权, retrying 为 nil 时只收敛状态, 不重试租约
     private func handleHelperFailure(_ message: String?, retrying requested: Bool?) {
         invalidateConnection()
-        refreshHelperStatus()
-        guard helperStatus == .enabled else {
-            return
-        }
-        if let message {
-            operationErrorMessage = message
-        }
-        if let requested {
-            scheduleRetryIfNeeded(for: requested)
+        guard helperFailureTask == nil else { return }
+        let lifecycleGeneration = helperLifecycleGeneration
+        helperFailureTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if lifecycleGeneration == helperLifecycleGeneration {
+                    helperFailureTask = nil
+                }
+            }
+            guard await refreshHelperStatus(), isStarted, !Task.isCancelled,
+                  helperStatus == .enabled else { return }
+            if let message {
+                operationErrorMessage = message
+            }
+            if let requested {
+                scheduleRetryIfNeeded(for: requested)
+            }
         }
     }
 
@@ -1294,8 +1308,10 @@ final class KeepAliveController: ObservableObject {
     /// 让一个附加效果的失败显示成防睡眠本身出错
     private func reconcileDisplayAwake() {
         let shouldKeepAwake = keepsDisplayAwake && isActivelyPreventingSleep
-        guard shouldKeepAwake != systemSleepService.isPreventingDisplaySleep else {
-            return
+        if shouldKeepAwake {
+            guard !systemSleepService.isPreventingDisplaySleep else { return }
+        } else {
+            guard systemSleepService.hasDisplaySleepResources else { return }
         }
 
         guard shouldKeepAwake else {
@@ -1326,6 +1342,9 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func cancelHelperRegistrationTask() {
+        helperLifecycleGeneration &+= 1
+        helperFailureTask?.cancel()
+        helperFailureTask = nil
         helperRegistrationTask?.cancel()
         helperRegistrationTask = nil
         assign(false, to: \.isRefreshingHelper)
@@ -1334,7 +1353,6 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func scheduleRetryIfNeeded(for requested: Bool) {
-        refreshHelperStatus()
         guard isStarted,
               helperStatus == .enabled,
               requested == shouldDisableSleep,
@@ -1368,11 +1386,10 @@ final class KeepAliveController: ObservableObject {
             guard !Task.isCancelled, let self else {
                 return
             }
-            retryTask = nil
-            refreshHelperStatus()
-            guard helperStatus == .enabled else {
+            guard await refreshHelperStatus(), isStarted, !Task.isCancelled, helperStatus == .enabled else {
                 return
             }
+            retryTask = nil
             guard requested == shouldDisableSleep else {
                 reconcileSleepState(trigger: .retry)
                 return
@@ -1408,7 +1425,7 @@ final class KeepAliveController: ObservableObject {
             return .userOff
         }
         // 先检查依赖, 避免任务恢复前以 noTasks 提前放出未授权 Helper 的设置入口
-        if helperStatus != .enabled {
+        if !isHelperStatusAvailable || helperStatus != .enabled {
             return .helperUnavailable
         }
         if !hasKeepAliveTasks {
@@ -1437,17 +1454,17 @@ final class KeepAliveController: ObservableObject {
 }
 
 extension KeepAliveController {
-    private func replaceRegisteredHelper(_ service: SMAppService) async throws {
+    private func replaceRegisteredHelper() async throws {
         try Task.checkCancellation()
         guard await autoResetWakeScheduler.cancelBeforeHelperInterruption() else {
             throw KeepAliveError.wakeScheduleCancellationFailed
         }
         reconcileAutoResetWakeSchedule()
         try Task.checkCancellation()
-        try await service.unregister()
+        _ = try await helperManager.perform(.unregister)
         mayHaveHelperLease = false
         try Task.checkCancellation()
-        try await HelperConfiguration.registerRefreshedHelper(service)
+        try await HelperConfiguration.registerRefreshedHelper(helperManager)
     }
 
     func setAutoResetRequested(_ requested: Bool) {
@@ -1471,12 +1488,13 @@ extension KeepAliveController {
     }
 
     private var isHelperReadyForAutoResetWake: Bool {
-        guard helperStatus == .enabled,
+        guard isHelperStatusAvailable, helperStatus == .enabled,
               !isRefreshingHelper,
-              !HelperConfiguration.registrationNeedsRefresh(defaults: defaults) else {
+              let fingerprint = helperPackageValidation.fingerprint,
+              !HelperConfiguration.registrationNeedsRefresh(defaults: defaults, fingerprint: fingerprint) else {
             return false
         }
-        return HelperConfiguration.pendingUpdateIdentifier(defaults: defaults) == nil
+        return HelperConfiguration.pendingUpdateIdentifier(defaults: defaults, fingerprint: fingerprint) == nil
     }
 
     private func reconcileAutoResetWakeSchedule() {
@@ -1487,36 +1505,21 @@ extension KeepAliveController {
 }
 
 private extension KeepAliveController {
-    func completePendingHelperUpdate(_ updateIdentifier: String) {
-        guard helperRegistrationTask == nil else {
-            return
-        }
-
+    func completePendingHelperUpdate(_ updateIdentifier: String) async {
         assign(true, to: \.isRefreshingHelper)
         reconcileAutoResetWakeSchedule()
         cancelRetryTask()
         cancelExternalObservation()
         registrationErrorMessage = nil
         operationErrorMessage = nil
-
-        helperRegistrationTask = Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-
-            let succeeded = await completeHelperUpdate(updateIdentifier)
-            guard isStarted, !Task.isCancelled else {
-                return
-            }
-            if !succeeded {
-                registrationErrorMessage = KeepAliveLocalizedMessage.updateFailed
-            }
-
-            assign(!succeeded && helperStatus == .enabled, to: \.isRefreshingHelper)
-            helperRegistrationTask = nil
-            reconcileSleepState(trigger: .helperRegistered, force: true)
-            reconcileAutoResetWakeSchedule()
+        let succeeded = await completeHelperUpdate(updateIdentifier)
+        guard isStarted, !Task.isCancelled else { return }
+        if !succeeded {
+            registrationErrorMessage = KeepAliveLocalizedMessage.updateFailed
         }
+        assign(!succeeded && helperStatus == .enabled, to: \.isRefreshingHelper)
+        reconcileSleepState(trigger: .helperRegistered, force: true)
+        reconcileAutoResetWakeSchedule()
     }
 
     func completeHelperUpdate(_ updateIdentifier: String) async -> Bool {
@@ -1528,8 +1531,7 @@ private extension KeepAliveController {
                 return false
             }
 
-            refreshHelperStatus()
-            guard helperStatus == .enabled else {
+            guard await refreshHelperStatus(), helperStatus == .enabled else {
                 continue
             }
             if await resetSleepAfterHelperUpdate(updateIdentifier) {

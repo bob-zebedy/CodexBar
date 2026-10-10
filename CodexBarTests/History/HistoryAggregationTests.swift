@@ -51,18 +51,21 @@ struct HistoryAggregationTests {
     }
 
     @Test func identifierFieldsUseModelPropertyNames() throws {
-        let aggregate = try TestFixtures.decode(ActivityAggregate.self, #"{"date":"2026-09-15","sessionIDs":["session-a"],"turnIDs":["turn-a"]}"#)
-        #expect(aggregate.sessionIDs == ["session-a"])
+        let aggregate = try TestFixtures.decode(
+            ActivityAggregate.self,
+            #"{"version":1,"aggregationVersion":1,"date":"2026-09-15","threadIDs":["thread-a"],"turnIDs":["turn-a"]}"#
+        )
+        #expect(aggregate.threadIDs == ["thread-a"])
         #expect(aggregate.turnIDs == ["turn-a"])
         let encoded = try JSONEncoder().encode(aggregate)
         let fields = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        #expect(fields["sessionIDs"] as? [String] == ["session-a"])
+        #expect(fields["threadIDs"] as? [String] == ["thread-a"])
         #expect(fields["turnIDs"] as? [String] == ["turn-a"])
-        #expect(fields["sessionIds"] == nil)
+        #expect(fields["threadIds"] == nil)
         #expect(fields["turnIds"] == nil)
 
         let record = try TestFixtures.decode(ActivitySyncRecord.self, """
-        {"deviceID":"device-a","recordName":"device-a_2026-09-15_source","daily":{"date":"2026-09-15","generationID":"source"}}
+        {"deviceID":"device-a","recordName":"device-a_2026-09-15_source","daily":{"version":1,"aggregationVersion":1,"date":"2026-09-15","generationID":"source"}}
         """)
         #expect(record.deviceID == "device-a")
         let recordData = try JSONEncoder().encode(record)
@@ -72,7 +75,7 @@ struct HistoryAggregationTests {
     }
 
     @Test func missingEventCountsRemainUnavailableThroughBothStorageFormats() throws {
-        let aggregate = try TestFixtures.decode(ActivityAggregate.self, #"{"date":"2026-09-15","turnCompletedCount":0}"#)
+        let aggregate = try TestFixtures.decode(ActivityAggregate.self, #"{"version":1,"aggregationVersion":1,"date":"2026-09-15","turnCompletedCount":0}"#)
         #expect(aggregate.eventCount == nil)
         #expect(aggregate.turnAbortedCount == nil)
         #expect(aggregate.turnCompletedCount == 0)
@@ -83,37 +86,47 @@ struct HistoryAggregationTests {
         #expect(synced.turnCompletedCount == 0)
     }
 
+    @Test func completionEventsCannotStandInForUniqueTurnCounts() throws {
+        var aggregate = try TestFixtures.decode(ActivityAggregate.self, #"{"version":1,"aggregationVersion":1,"date":"2026-09-15","turnCompletedCount":9}"#)
+        aggregate.normalizeIdentifierStorage(retainsIdentifiers: false)
+        #expect(aggregate.turnCount == nil)
+        #expect(aggregate.metrics.turnCount == nil)
+        let synced = try JSONDecoder().decode(SyncedActivity.self, from: aggregate.syncedAggregate.jsonLineData())
+        #expect(synced.turnCount == nil)
+        #expect(synced.metrics.turnCount == nil)
+    }
+
     @Test func eventPairsAndIdentifiersAreCountedWithoutDoubleCounting() {
         var accumulator = makeAccumulator()
-        for name in [ActivityEventKind.sessionStarted, .turnStarted, .toolStarted, .toolCompleted, .compactionStarted, .compactionCompleted, .subagentStarted, .subagentEnded] {
+        for name in [ActivityEventKind.turnStarted, .toolStarted, .toolCompleted, .compactionStarted, .compactionCompleted, .subagentStarted, .subagentEnded] {
             accumulator.record(TestFixtures.event(name))
         }
-        accumulator.record(TestFixtures.event(.turnCompleted, session: "terminal-only", turn: "terminal-only"))
-        accumulator.record(TestFixtures.event(.turnAborted, session: "interrupt-only", turn: "interrupt-only"))
+        accumulator.record(TestFixtures.event(.turnCompleted, thread: "terminal-only", turn: "terminal-only"))
+        accumulator.record(TestFixtures.event(.turnAborted, thread: "interrupt-only", turn: "interrupt-only"))
         let retained = accumulator.finalized(identifierStorage: .retained)
         let compacted = accumulator.finalized(identifierStorage: .compacted)
-        #expect(retained.eventCount == 10)
-        #expect(retained.sessionIDs == ["interrupt-only", "session-a", "terminal-only"])
+        #expect(retained.eventCount == 9)
+        #expect(retained.threadIDs == ["interrupt-only", "terminal-only", "thread-a"])
         #expect(retained.turnIDs == ["turn-a"])
         #expect(retained.metrics.toolCallCount == 1)
         #expect(retained.metrics.contextCompactionCount == 1)
         #expect(retained.metrics.subagentCount == 1)
         #expect(retained.metrics.turnAbortedCount == 1)
         #expect(retained.metrics == compacted.metrics)
-        #expect(compacted.sessionIDs == nil)
+        #expect(compacted.threadIDs == nil)
         #expect(compacted.turnIDs == nil)
         #expect(!compacted.supportsIncrementalAggregation)
     }
 
     @Test func incrementalAggregationMatchesFullReplay() {
-        let firstEvents = [TestFixtures.event(.sessionStarted), TestFixtures.event()]
+        let firstEvents = [TestFixtures.event(), TestFixtures.event(.toolCompleted)]
         let laterEvents = [TestFixtures.event(.toolStarted), TestFixtures.event(turn: "turn-b")]
         var full = makeAccumulator()
         (firstEvents + laterEvents).forEach { full.record($0) }
         var initial = makeAccumulator()
         firstEvents.forEach { initial.record($0) }
         var incremental = ActivityAccumulator(
-            appending: initial.finalized(identifierStorage: .retained), generationID: "source", generationStartedEmpty: true
+            appending: initial.finalized(identifierStorage: .retained), generationID: "source"
         )
         laterEvents.forEach { incremental.record($0) }
         #expect(incremental.finalized(identifierStorage: .retained) == full.finalized(identifierStorage: .retained))
@@ -125,21 +138,22 @@ struct HistoryAggregationTests {
         #expect(accumulator.finalized(identifierStorage: .compacted).metrics.turnCount == 1)
     }
 
-    @Test func sessionEndAloneDoesNotCreateAnActiveSession() {
+    @Test func permissionRequestsCountEachRequest() {
         var accumulator = makeAccumulator()
-        accumulator.record(TestFixtures.event(.sessionEnded, turn: nil))
-        let aggregate = accumulator.finalized(identifierStorage: .compacted)
-        #expect(aggregate.sessionEndedCount == 1)
-        #expect(aggregate.metrics.sessionCount == 0)
-        #expect(aggregate.metrics.turnCount == 0)
+        for turn in ["a", "b", "c", "d"] {
+            accumulator.record(TestFixtures.event(.approvalRequested, turn: turn))
+        }
+        let aggregate = accumulator.finalized(identifierStorage: .retained)
+        #expect(aggregate.approvalRequestedCount == 4)
+        #expect(aggregate.eventCount == 4)
     }
 
-    @Test func unavailableInterruptCountPropagatesAcrossDeviceMetrics() {
+    @Test func missingHistoricalMetricContributesZeroToDisplay() {
         var known = TestFixtures.aggregate()
         known.turnAbortedCount = 3
         var unknown = TestFixtures.aggregate()
         unknown.turnAbortedCount = nil
-        #expect(known.metrics.adding(unknown.metrics).turnAbortedCount == nil)
+        #expect(known.metrics.adding(unknown.metrics).turnAbortedCount == 3)
         #expect(known.metrics.adding(known.metrics).turnAbortedCount == 6)
     }
 
@@ -153,12 +167,12 @@ struct HistoryAggregationTests {
 
     @Test func compactingLegacyIdentifiersPreservesUniqueCounts() throws {
         var aggregate = try TestFixtures.decode(ActivityAggregate.self, """
-        {"date":"2026-09-15","sessionCount":0,"sessionIDs":["a","a","b"],"turnIDs":["x","x"],"turnCompletedCount":9}
+        {"version":1,"aggregationVersion":1,"date":"2026-09-15","threadCount":0,"threadIDs":["a","a","b"],"turnIDs":["x","x"],"turnCompletedCount":9}
         """)
         aggregate.normalizeIdentifierStorage(retainsIdentifiers: false)
-        #expect(aggregate.sessionCount == 2)
+        #expect(aggregate.threadCount == 2)
         #expect(aggregate.turnCount == 1)
-        #expect(aggregate.sessionIDs == nil)
+        #expect(aggregate.threadIDs == nil)
     }
 
     @Test func syncExportContainsCountsWithoutRawTaskIdentifiers() throws {
@@ -166,21 +180,25 @@ struct HistoryAggregationTests {
         accumulator.record(TestFixtures.event())
         let data = try accumulator.finalized(identifierStorage: .retained).syncedAggregate.jsonLineData()
         let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(object["sessionIDs"] == nil)
+        #expect(object["threadIDs"] == nil)
         #expect(object["turnIDs"] == nil)
-        #expect(object["sessionCount"] as? Int == 1)
+        #expect(object["threadCount"] as? Int == 1)
         let text = try #require(String(data: data, encoding: .utf8))
-        #expect(!text.contains("session-a"))
+        #expect(!text.contains("thread-a"))
     }
 
     @Test func cloudDailyCountsRoundTripWithEventNames() throws {
         let counts = [
-            "sessionStartedCount": 1, "sessionEndedCount": 2, "turnStartedCount": 3,
+            "threadCount": 2, "turnCount": 3,
+            "turnStartedCount": 3,
             "turnCompletedCount": 4, "turnAbortedCount": 5, "toolStartedCount": 6,
             "toolCompletedCount": 7, "approvalRequestedCount": 8, "compactionStartedCount": 9,
             "compactionCompletedCount": 10, "subagentStartedCount": 11, "subagentEndedCount": 12
         ]
         var fields: [String: Any] = counts
+        fields["version"] = 1
+        fields["aggregationVersion"] = 1
+        fields["sourceCheckpoint"] = ["byteCount": 1, "digest": String(repeating: "a", count: 64)]
         fields["date"] = "2026-09-15"
         fields["generationID"] = "source"
         let aggregate = try JSONDecoder().decode(
@@ -189,7 +207,7 @@ struct HistoryAggregationTests {
         let record = CKRecord(recordType: "Activity", recordID: CKRecord.ID(recordName: "device-a_2026-09-15_source"))
         ActivityRecordCodec.apply(aggregate, deviceID: "device-a", to: record)
         #expect(Set(record.allKeys()) == Set(counts.keys).union([
-            "version", "deviceID", "date", "generationID", "projectCounts", "modelCounts", "updatedAt"
+            "version", "aggregationVersion", "sourceCheckpoint", "deviceID", "date", "generationID", "projectCounts", "modelCounts", "updatedAt"
         ]))
         for (name, count) in counts {
             #expect((record[name] as? NSNumber)?.intValue == count)
@@ -207,6 +225,11 @@ struct HistoryAggregationTests {
 
     @Test(arguments: [nil, "", "   "]) func cloudActivityRejectsMissingGeneration(generation: String?) {
         let record = CKRecord(recordType: "Activity", recordID: CKRecord.ID(recordName: "device_2026-09-15_source"))
+        record["version"] = 1 as CKRecordValue
+        record["aggregationVersion"] = 1 as CKRecordValue
+        record["sourceCheckpoint"] = try? JSONEncoder().encode(ActivitySourceCheckpoint(byteCount: 1, digest: String(repeating: "a", count: 64))) as CKRecordValue
+        record["projectCounts"] = Data("{}".utf8) as CKRecordValue
+        record["modelCounts"] = Data("{}".utf8) as CKRecordValue
         record["deviceID"] = "device" as CKRecordValue
         record["date"] = "2026-09-15" as CKRecordValue
         record["generationID"] = generation as CKRecordValue?
@@ -214,17 +237,26 @@ struct HistoryAggregationTests {
     }
 
     @Test func cloudAndCachedActivityRejectMismatchedIdentity() throws {
-        let daily = SyncedActivity(date: "2026-09-15", generationID: "source", projectCounts: [:], modelCounts: [:])
+        let daily = SyncedActivity(
+            sourceCheckpoint: ActivitySourceCheckpoint(byteCount: 1, digest: String(repeating: "a", count: 64)),
+            date: "2026-09-15",
+            generationID: "source",
+            projectCounts: [:],
+            modelCounts: [:]
+        )
         let record = CKRecord(recordType: "Activity", recordID: CKRecord.ID(recordName: "device_2026-09-15"))
         ActivityRecordCodec.apply(daily, deviceID: "device", to: record)
         #expect(throws: ActivitySyncError.self) { try ActivityRecordCodec.remoteDailyRecord(from: record) }
         #expect(throws: DecodingError.self) {
-            try TestFixtures.decode(ActivitySyncRecord.self, #"{"deviceID":"device","recordName":"device_2026-09-15","daily":{"date":"2026-09-15","generationID":"source"}}"#)
+            try TestFixtures.decode(
+                ActivitySyncRecord.self,
+                #"{"deviceID":"device","recordName":"device_2026-09-15","daily":{"version":1,"aggregationVersion":1,"date":"2026-09-15","generationID":"source"}}"#
+            )
         }
     }
 
     private func makeAccumulator() -> ActivityAccumulator {
-        ActivityAccumulator(rebuilding: "2026-09-15", generationID: "source", generationStartedEmpty: true, eventCountAvailability: .all)
+        ActivityAccumulator(rebuilding: "2026-09-15", generationID: "source", eventCountAvailability: .all)
     }
 }
 
@@ -237,13 +269,13 @@ struct HistoryMergeTests {
     }
 
     @Test func freshIndependentGenerationAddsToPreviousContribution() throws {
-        let local = TestFixtures.aggregate(generation: "new", fresh: true, turns: 2)
+        let local = TestFixtures.aggregate(generation: "new", turns: 2)
         #expect(try snapshot(local, [record(TestFixtures.aggregate(turns: 3))]).dailyMetrics.first?.turnCount == 5)
     }
 
-    @Test func unverifiedLocalGenerationDoesNotDoubleCountRemoteHistory() throws {
-        let local = TestFixtures.aggregate(generation: "unknown", fresh: false, turns: 2)
-        #expect(try snapshot(local, [record(TestFixtures.aggregate(turns: 3))]).dailyMetrics.first?.turnCount == 3)
+    @Test func independentSourceRemainsIndependentWithoutFreshnessFlag() throws {
+        let local = TestFixtures.aggregate(generation: "unknown", turns: 2)
+        #expect(try snapshot(local, [record(TestFixtures.aggregate(turns: 3))]).dailyMetrics.first?.turnCount == 5)
     }
 
     @Test func sameGenerationDeduplicatesAndOtherDevicesStillAdd() throws {

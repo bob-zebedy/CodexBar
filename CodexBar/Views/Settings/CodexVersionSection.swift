@@ -8,7 +8,6 @@ struct CodexVersionSection: View {
     let connectionInfo: CodexServerConnectionInfo?
     let isReconnecting: Bool
     let isBusy: Bool
-    let errorMessage: String?
     let onReconnect: () -> Void
     @State private var copiedPathResetTasks: [String: Task<Void, Never>] = [:]
 
@@ -34,13 +33,6 @@ struct CodexVersionSection: View {
                 }
             }
             .padding(.leading, Metrics.childIndent)
-
-            if let message = errorMessage {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
         }
         .onDisappear {
             copiedPathResetTasks.values.forEach { $0.cancel() }

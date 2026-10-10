@@ -34,22 +34,15 @@ actor ProtectionStore {
         lockURL = self.directoryURL.appendingPathComponent("state.lock", isDirectory: false)
     }
 
-    func load(now: Date = Date()) -> [String: ProtectionRecord] {
-        do {
-            return try withExclusiveLock {
-                var records = loadRecordsWithoutLock()
-                let originalCount = records.count
-                records = records.filter { $0.value.expiresAt > now }
-                if records.count != originalCount {
-                    try saveRecordsWithoutLock(records)
-                }
-                return records
+    func load(now: Date = Date()) throws -> [String: ProtectionRecord] {
+        try withExclusiveLock {
+            var records = try loadRecordsWithoutLock()
+            let originalCount = records.count
+            records = records.filter { $0.value.expiresAt > now }
+            if records.count != originalCount {
+                try saveRecordsWithoutLock(records)
             }
-        } catch {
-            AppLog.activity.error(
-                "异常任务状态读取失败: reason=\(error.localizedDescription, privacy: .public)"
-            )
-            return [:]
+            return records
         }
     }
 
@@ -59,7 +52,7 @@ actor ProtectionStore {
         now: Date = Date()
     ) throws {
         try withExclusiveLock {
-            var records = loadRecordsWithoutLock()
+            var records = try loadRecordsWithoutLock()
             records = records.filter { $0.value.expiresAt > now }
 
             for removal in removals {
@@ -123,16 +116,13 @@ actor ProtectionStore {
     private static let lockTimeout: TimeInterval = 2
     private static let lockRetryMicroseconds: useconds_t = 50000
 
-    private func loadRecordsWithoutLock() -> [String: ProtectionRecord] {
+    private func loadRecordsWithoutLock() throws -> [String: ProtectionRecord] {
         guard fileManager.fileExists(atPath: stateURL.path) else {
             return [:]
         }
-        guard let data = try? Data(contentsOf: stateURL), !data.isEmpty,
-              let state = try? JSONDecoder().decode(ProtectionState.self, from: data),
-              state.version == ProtectionState.currentVersion else {
-            AppLog.activity.error("异常任务状态已忽略: reason=invalidState")
-            return [:]
-        }
+        let data = try Data(contentsOf: stateURL)
+        try StorageVersion.validate(data, current: ProtectionState.currentVersion, name: "Protection")
+        let state = try JSONDecoder().decode(ProtectionState.self, from: data)
 
         return Dictionary(
             state.records.map { ($0.taskIdentifier, $0) },

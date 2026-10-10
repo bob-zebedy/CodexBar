@@ -43,17 +43,27 @@ nonisolated enum HistoryStorage {
     ) throws -> T {
         // 采集与维护使用独立服务实例, 文件事务必须共享同一把锁
         let url = lockURL(in: root)
-        return try JSONFileStorage.withLock(in: url.deletingLastPathComponent(), name: url.lastPathComponent, work)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while true {
+            try Task.checkCancellation()
+            if let descriptor = try JSONFileStorage.acquireLock(in: url.deletingLastPathComponent(), name: url.lastPathComponent, nonblocking: true) {
+                defer { JSONFileStorage.releaseLock(descriptor) }
+                return try work()
+            }
+            guard ContinuousClock.now < deadline else { throw POSIXError(.ETIMEDOUT) }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
     }
 
-    static func loadMaintenanceState(in root: URL = directoryURL()) -> HistoryMaintenanceState {
+    static func loadMaintenanceState(in root: URL = directoryURL()) throws -> HistoryMaintenanceState {
         let url = maintenanceURL(in: root)
-        guard let data = try? Data(contentsOf: url), !data.isEmpty,
-              let state = try? JSONLines.decoder.decode(HistoryMaintenanceState.self, from: data) else {
+        do {
+            let data = try Data(contentsOf: url)
+            try StorageVersion.validate(data, current: HistoryMaintenanceState.currentVersion, name: "AggregationState")
+            return try JSONLines.decoder.decode(HistoryMaintenanceState.self, from: data)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             return HistoryMaintenanceState()
         }
-
-        return state
     }
 
     static func saveMaintenanceState(_ state: HistoryMaintenanceState, in root: URL = directoryURL()) throws {
@@ -91,11 +101,16 @@ nonisolated enum HistoryStorage {
 
     /// 枚举目录中文件名为合法日期键的 .jsonl 事件日志, 返回升序日期键
     static func eventLogDateKeys(in directoryURL: URL = eventsDirectoryURL()) -> [String] {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else {
+        (try? readEventLogDateKeys(in: directoryURL)) ?? []
+    }
+
+    static func readEventLogDateKeys(in directoryURL: URL) throws -> [String] {
+        let contents: [URL]
+        do {
+            contents = try FileManager.default.contentsOfDirectory(
+                at: directoryURL, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            )
+        } catch CocoaError.fileReadNoSuchFile {
             return []
         }
 

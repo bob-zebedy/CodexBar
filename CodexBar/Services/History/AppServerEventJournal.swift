@@ -11,6 +11,13 @@ nonisolated struct AppServerEventJournal {
         let eventLogURL = HistoryStorage.eventLogURL(for: dateKey, in: eventsDirectory)
         let maintenanceURL = HistoryStorage.maintenanceURL(in: directoryURL)
         var maintenanceState = try JSONFileStorage.load(HistoryMaintenanceState.self, from: maintenanceURL) ?? HistoryMaintenanceState()
+        if !FileManager.default.fileExists(atPath: eventLogURL.path) {
+            let header = Header(version: Header.currentVersion, date: dateKey, generationID: UUID().uuidString.lowercased())
+            try FileManager.default.createDirectory(at: eventsDirectory, withIntermediateDirectories: true)
+            try (JSONLines.stableEncoder.encode(header) + Data([JSONLines.newlineByte])).write(to: eventLogURL, options: .atomic)
+        }
+        let header = try Self.header(at: eventLogURL)
+        guard header.date == dateKey else { throw StorageCompatibilityError.sourceConflict }
         let existingStat = HistoryStorage.fileStat(at: eventLogURL)
         var stateChanged = false
         if entry.deduplicationID != nil, sizes[dateKey] != existingStat?.size || inodes[dateKey] != existingStat?.identifier {
@@ -34,31 +41,11 @@ nonisolated struct AppServerEventJournal {
             return
         }
 
-        if let existingStat {
-            let day = maintenanceState.days[dateKey]
-            let identifierChanged = day?.fileIdentifier != nil
-                && day?.fileIdentifier != existingStat.identifier
-            let fileShrank = day.map { existingStat.size < $0.offset } ?? false
-
-            if identifierChanged || fileShrank {
-                maintenanceState.startNewGeneration(
-                    for: dateKey,
-                    startedEmpty: existingStat.size == 0,
-                    fileIdentifier: existingStat.identifier
-                )
-                stateChanged = true
-            } else {
-                stateChanged = maintenanceState.ensureGenerationID(
-                    for: dateKey,
-                    fileIdentifier: existingStat.identifier
-                )
-            }
-        } else {
-            maintenanceState.startNewGeneration(
-                for: dateKey,
-                startedEmpty: true,
-                fileIdentifier: nil
+        if maintenanceState.days[dateKey]?.generationID != header.generationID {
+            maintenanceState.days[dateKey] = HistoryDayMaintenanceState(
+                generationID: header.generationID, fileIdentifier: existingStat?.identifier
             )
+            maintenanceState.markDirty(dateKey)
             stateChanged = true
         }
 
@@ -88,21 +75,60 @@ nonisolated struct AppServerEventJournal {
     }
 
     /// 分块扫描并限制单行大小, 截断或损坏的行不影响其他完整记录
-    static func read(at url: URL, from offset: UInt64 = 0, onInvalidLine: (() -> Void)? = nil, consume: (AppServerEventRecord) throws -> Void) throws {
+    static func read(
+        at url: URL,
+        from offset: UInt64 = 0,
+        upTo endOffset: UInt64? = nil,
+        onInvalidLine: (() -> Void)? = nil,
+        consume: (AppServerEventRecord) throws -> Void
+    ) throws {
+        if let endOffset, endOffset <= offset {
+            return
+        }
+        let header = try Self.header(at: url)
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         try handle.seek(toOffset: offset)
+        var remaining = endOffset.map { $0 > offset ? $0 - offset : 0 } ?? UInt64.max
         var buffer = Data()
         var droppingLine = false
         let maximumLineSize = 1024 * 1024
-        while let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+        var firstLine = offset == 0
+        func consumeLine(_ data: Data) throws {
+            try Task.checkCancellation()
+            if firstLine {
+                firstLine = false
+                let decoded = try JSONLines.decoder.decode(Header.self, from: data)
+                guard decoded == header else { throw StorageCompatibilityError.sourceConflict }
+                return
+            }
+            if let text = String(bytes: data, encoding: .utf8), text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return
+            }
+            let entry: AppServerEventRecord
+            do {
+                try StorageVersion.validate(data, current: AppServerEventRecord.currentVersion, name: "Event")
+                entry = try AppServerEventRecord.decode(from: data)
+            } catch is DecodingError {
+                onInvalidLine?()
+                return
+            }
+            try consume(entry)
+        }
+        while remaining > 0 {
+            try Task.checkCancellation()
+            let readSize = Int(min(remaining, 64 * 1024))
+            guard let chunk = try handle.read(upToCount: readSize), !chunk.isEmpty else { break }
+            remaining -= UInt64(chunk.count)
             buffer.append(chunk)
             while let newline = buffer.firstIndex(of: JSONLines.newlineByte) {
                 let line = Data(buffer[..<newline])
-                if !droppingLine, line.count <= maximumLineSize, let entry = try? AppServerEventRecord.decode(from: line) {
-                    try consume(entry)
-                } else if !droppingLine, !line.isEmpty {
-                    onInvalidLine?()
+                if !droppingLine {
+                    if line.count <= maximumLineSize {
+                        try consumeLine(line)
+                    } else {
+                        onInvalidLine?()
+                    }
                 }
                 droppingLine = false
                 buffer.removeSubrange(...newline)
@@ -115,11 +141,31 @@ nonisolated struct AppServerEventJournal {
                 droppingLine = true
             }
         }
-        if !droppingLine, let entry = try? AppServerEventRecord.decode(from: buffer) {
-            try consume(entry)
-        } else if !droppingLine, !buffer.isEmpty {
-            onInvalidLine?()
+        if !droppingLine, !buffer.isEmpty {
+            try consumeLine(buffer)
         }
+    }
+
+    struct Header: Codable, Equatable {
+        static let currentVersion = 1
+        let version: Int
+        let date: String
+        let generationID: String
+    }
+
+    static func header(at url: URL) throws -> Header {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        guard let data = try handle.read(upToCount: 4096), let end = data.firstIndex(of: JSONLines.newlineByte) else {
+            throw StorageCompatibilityError.incompleteSource
+        }
+        let line = Data(data[..<end])
+        try StorageVersion.validate(line, current: Header.currentVersion, name: "EventJournal")
+        let header = try JSONLines.decoder.decode(Header.self, from: line)
+        guard HistoryStorage.isValidDateKey(header.date), !header.generationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw StorageCompatibilityError.sourceConflict
+        }
+        return header
     }
 
     private func append(_ data: Data, to url: URL) throws {

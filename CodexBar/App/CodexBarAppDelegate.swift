@@ -4,7 +4,7 @@ import os
 /// 应用级对象装配点, 持有服务和 ViewModel 生命周期
 @MainActor
 final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
-    private let codexStatusService = CodexStatusService()
+    private lazy var codexStatusService = CodexStatusService(startup: appServerStartup)
     private lazy var appServerStartup = AppServerStartup()
     lazy var viewModel = CodexStatusViewModel(service: codexStatusService)
     let historyViewModel = HistoryViewModel()
@@ -83,6 +83,9 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         keepAliveController.onKeepAliveLimitTriggered = { [weak notificationService] duration in
             await notificationService?.notifyKeepAliveLimitReached(durationText: duration.title) ?? false
         }
+        activityMonitor.onAccountChange = { [weak viewModel] change in
+            viewModel?.receiveAccountChange(change)
+        }
         activityMonitor.onProtectionTriggered = { [weak notificationService] notice in
             await notificationService?.notifyProtection(notice) ?? false
         }
@@ -98,19 +101,17 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         keepAliveController.start()
         logLaunchState()
         startupTask = Task { [weak self, startup = appServerStartup] in
-            var startupError: String?
             do {
                 try await startup.ensureStarted()
             } catch is CancellationError {
                 return
             } catch {
-                startupError = error.localizedDescription
                 AppLog.app.error("Codex 后台服务准备失败")
                 AppServerLogStore.shared.recordFailure(method: "daemon/start", message: error.localizedDescription)
             }
             guard let self, !Task.isCancelled else { return }
             startupTask = nil
-            viewModel.startAutoRefresh(startupError: startupError)
+            viewModel.startAutoRefresh()
             activityMonitor.start()
         }
     }
@@ -142,17 +143,23 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
                 NSApplication.shared.reply(toApplicationShouldTerminate: false)
                 return
             }
+            await startupTask?.value
             autoResetController?.prepareForTermination()
+            let activitySaved = await activityMonitor.prepareForTermination()
+            if !activitySaved {
+                AppLog.app.error("退出 App 前数据保存失败")
+            }
             let success = await keepAliveController.prepareForTermination()
             guard !Task.isCancelled else {
                 return
             }
             if success {
                 do { try await AppServerLogStore.shared.finish() } catch {
-                    AppLog.app.error("退出前请求日志写入失败")
+                    AppLog.app.error("退出 App 前日志写入失败")
                 }
             }
             if !success {
+                await activityMonitor.resumeAfterTerminationCancellation()
                 autoResetController?.resumeAfterTerminationCancellation()
             }
             terminationPreparationTask = nil

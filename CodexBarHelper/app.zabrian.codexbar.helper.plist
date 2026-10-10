@@ -4,7 +4,7 @@
 	<dict>
 		<key>AssociatedBundleIdentifiers</key>
 		<array>
-			<string>app.zabrian.codexbar</string>
+			<string>app.zabrian.codexbar.helper-manager</string>
 		</array>
 		<key>BundleProgram</key>
 		<string>Contents/Resources/CodexBarHelper</string>

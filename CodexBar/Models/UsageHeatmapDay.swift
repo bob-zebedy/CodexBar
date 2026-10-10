@@ -36,14 +36,11 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     static func grid(
         usage: CodexUsageSnapshot?,
         history: HistorySnapshot,
-        showsActivity: Bool,
         columnCount: Int,
         today: Date
     ) -> [UsageHeatmapDay?] {
         let todayTokenCount = usage?.tokenCount(on: today)
         let hasDailyUsageBuckets = usage?.hasDailyUsageBuckets == true
-        // 活动统计可见时包含今天, 仅展示 Token 时等待当天 bucket 返回
-        let endingDaysAgo = showsActivity || todayTokenCount != nil ? 0 : 1
         let historyByDate = history.dailyMetrics.reduce(into: [String: ActivityMetrics]()) { result, metrics in
             result[metrics.startDate] = metrics
         }
@@ -51,7 +48,6 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
 
         return CodexWeekGrid.dates(
             columnCount: columnCount,
-            endingDaysAgo: endingDaysAgo,
             today: today
         )
         .map { date -> UsageHeatmapDay? in
@@ -72,7 +68,8 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
             return UsageHeatmapDay(
                 startDate: startDate,
                 tokenState: tokenState,
-                history: historyByDate[startDate] ?? .empty(startDate: startDate),
+                history: history.unavailableActivityDates.contains(startDate) ? .unavailable(startDate: startDate)
+                    : historyByDate[startDate] ?? (history.isActivityComplete ? .empty(startDate: startDate) : .unavailable(startDate: startDate)),
                 tokenUsage: history.tokenUsageByDate[startDate]
             )
         }

@@ -10,6 +10,7 @@ struct ActivityCard: View {
     @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
     @State private var frameProvider = ScreenFrameProvider()
     @State private var isHovered = false
+    @State private var wrappedHeaderTaskIDs: Set<UUID> = []
 
     private var snapshot: ActivitySnapshot {
         activityMonitor.snapshot
@@ -27,7 +28,7 @@ struct ActivityCard: View {
         presentationState.isPresented
     }
 
-    /// 卡片显示"暂无数据"时一并隐藏防睡眠徽标, 保持状态一致
+    /// 活动源不可用时隐藏防睡眠徽标, 保持状态一致
     private var showsKeepAliveBadge: Bool {
         keepAliveController.isActivelyPreventingSleep && !showsUnavailableState
     }
@@ -35,7 +36,7 @@ struct ActivityCard: View {
     // MARK: - 卡片布局
 
     var body: some View {
-        // 保留同一张卡片的视图身份, 空闲时只禁用交互, 避免打断内容和高度过渡
+        // 连接状态提示沿用卡片容器, 无任务记录时禁止打开任务中心
         Button {
             onTaskCenterTap(frameProvider)
         } label: {
@@ -48,6 +49,9 @@ struct ActivityCard: View {
             ScreenFrameReader(provider: frameProvider)
         }
         .onHover { isHovered = $0 }
+        .onChange(of: retainedHeaderTaskIDs) { _, retainedIDs in
+            wrappedHeaderTaskIDs.formIntersection(retainedIDs)
+        }
     }
 
     private func card(now: Date) -> some View {
@@ -90,9 +94,10 @@ struct ActivityCard: View {
     }
 
     private func statusRow(_ content: ActivityCardContent) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: content.symbolName)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.caption.weight(.semibold))
+                .imageScale(.large)
                 .foregroundStyle(content.tint)
                 .frame(width: 20)
 
@@ -120,33 +125,55 @@ struct ActivityCard: View {
         .padding(.top, 12)
         .padding(.bottom, content.detail == nil ? 8 : 12)
         .animation(.codexStatus, value: showsKeepAliveBadge)
-        .animation(.codexStatus, value: content.isAnonymous)
         // 徽标只占用标题行的宽度, 下方状态和附加信息可以使用完整文本区域
         .animation(.codexStatus, value: content.otherTaskCount)
     }
 
     private func statusHeader(_ content: ActivityCardContent) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(content.header.joined(separator: " • "))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color.codexLabel)
-                .numericTransition(value: content.header, enabled: allowsAnimations)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if content.isAnonymous || content.otherTaskCount > 0 || showsKeepAliveBadge {
+            ActivitySummaryText(
+                components: content.headerLines,
+                primaryLineLimit: 1,
+                primaryTruncationMode: .middle,
+                supplementaryLineLimit: 1,
+                singleLineWidthReserve: Metrics.headerWidthReserve,
+                wrappedLayout: wrappedHeaderLayout(for: content.taskID)
+            )
+            // 换行锁定只属于当前任务, 新任务在首次布局时重新判断
+            .id(content.taskID)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(Color.codexLabel)
+            .numericTransition(value: content.header, enabled: allowsAnimations)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if content.otherTaskCount > 0 || showsKeepAliveBadge {
                 statusBadges(content)
                     .fixedSize()
             }
         }
     }
 
+    private var retainedHeaderTaskIDs: Set<UUID> {
+        Set(snapshot.waitingTasks.map(\.id)
+            + snapshot.runningTasks.map(\.id)
+            + snapshot.recentCompletions.map { $0.taskID ?? $0.id }
+            + snapshot.recentTerminations.map { $0.taskID ?? $0.id })
+    }
+
+    private func wrappedHeaderLayout(for taskID: UUID?) -> Binding<Bool>? {
+        guard let taskID else { return nil }
+        return Binding(
+            get: { wrappedHeaderTaskIDs.contains(taskID) },
+            set: { isWrapped in
+                if isWrapped {
+                    wrappedHeaderTaskIDs.insert(taskID)
+                }
+            }
+        )
+    }
+
     private func statusBadges(_ content: ActivityCardContent) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            if content.isAnonymous {
-                ActivityAnonymousIcon()
-                    .transition(.opacity)
-            }
-
             if content.otherTaskCount > 0 {
                 Text(verbatim: "+\(content.otherTaskCount)")
                     .font(.caption2.monospacedDigit().weight(.semibold))
@@ -236,11 +263,11 @@ struct ActivityCard: View {
                 relativeText: ActivityDisplayFormat.completionRelativeText(completion.completedAt, now: now)
             )
             return ActivityCardContent(
+                taskID: completion.taskID ?? completion.id,
                 symbolName: "checkmark.circle.fill",
                 tint: .green,
                 detail: nil,
                 otherTaskCount: 0,
-                isAnonymous: completion.isAnonymous,
                 tokenUsage: completion.tokenUsage,
                 header: [
                     completion.projectName ?? String(localized: "common.codex"),
@@ -253,11 +280,11 @@ struct ActivityCard: View {
                 relativeText: ActivityDisplayFormat.terminationRelativeText(termination.terminatedAt, now: now)
             )
             return ActivityCardContent(
+                taskID: termination.taskID ?? termination.id,
                 symbolName: "xmark.circle.fill",
                 tint: .red,
                 detail: ActivityLiveLabel(termination.isFailure ? "failed" : "interrupted").text,
                 otherTaskCount: 0,
-                isAnonymous: termination.isAnonymous,
                 tokenUsage: termination.tokenUsage,
                 header: [
                     termination.projectName ?? String(localized: "common.codex"),
@@ -268,9 +295,8 @@ struct ActivityCard: View {
             return ActivityCardContent(
                 symbolName: "moon.zzz.fill",
                 tint: .secondary,
-                detail: activityMonitor.sourcePresentation?.text ?? ActivityLiveLabel("idle").text,
+                detail: activityMonitor.sourcePresentation?.text,
                 otherTaskCount: 0,
-                isAnonymous: false,
                 header: [String(localized: "common.codex")]
             )
         }
@@ -284,11 +310,11 @@ struct ActivityCard: View {
     ) -> ActivityCardContent {
         let summary = ActivityDisplayFormat.liveSummaryComponents(for: task, now: timelineDate, waiting: waiting)
         return ActivityCardContent(
+            taskID: task.id,
             symbolName: symbolName,
             tint: tint,
             detail: ActivityDisplayFormat.liveStatus(for: task, waiting: waiting),
             otherTaskCount: otherTaskCount,
-            isAnonymous: task.isAnonymous,
             tokenUsage: task.tokenUsage,
             header: [
                 task.projectName ?? String(localized: "common.codex"),
@@ -313,6 +339,8 @@ struct ActivityCard: View {
     }
 
     private enum Metrics {
+        // 单行排版为时间文案增长预留宽度
+        static let headerWidthReserve: CGFloat = 32
         static let height: CGFloat = 58
         static let usageHeight: CGFloat = 108
         static let expansionAnimation = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.32)
@@ -358,23 +386,18 @@ private struct ActivityCardButtonStyle: ButtonStyle {
 }
 
 private struct ActivityCardContent {
+    var taskID: UUID?
     let symbolName: String
     let tint: Color
     let detail: String?
     let otherTaskCount: Int
-    let isAnonymous: Bool
     var tokenUsage: TokenUsage?
     let header: [String]
     var recent: String?
     var detailSupplement: String?
-}
 
-struct ActivityAnonymousIcon: View {
-    var body: some View {
-        Image(systemName: "person.crop.circle.dashed")
-            // 虚线圆形 symbol 留白较多, 适当放大以接近相邻状态图标的视觉面积
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Color.orange)
-            .help("activity.anonymous.keep-awake-exclusion")
+    var headerLines: [String] {
+        [header.first ?? "", header.dropFirst().joined(separator: " • ")]
+            .filter { !$0.isEmpty }
     }
 }

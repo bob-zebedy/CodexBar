@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import os
 
-/// 全局快捷键偏好设置, 负责持久化和注册失败后的 UI 回滚
+/// 全局快捷键偏好设置, 注册成功后发布并持久化
 @MainActor
 final class GlobalHotKeySettings: ObservableObject {
     @Published private(set) var shortcut: GlobalHotKeyShortcut?
@@ -10,6 +10,7 @@ final class GlobalHotKeySettings: ObservableObject {
 
     private let defaults: UserDefaults
     private let encoder = JSONEncoder()
+    private var registrationHandler: ((GlobalHotKeyShortcut?) -> String?)?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -22,6 +23,11 @@ final class GlobalHotKeySettings: ObservableObject {
             return
         }
 
+        if let message = registrationHandler?(shortcut) {
+            errorMessage = message
+            return
+        }
+
         AppLog.settings.notice("快捷键已设置")
         self.shortcut = shortcut
         saveShortcut(shortcut)
@@ -29,6 +35,10 @@ final class GlobalHotKeySettings: ObservableObject {
     }
 
     func clearShortcut() {
+        if let message = registrationHandler?(nil) {
+            errorMessage = message
+            return
+        }
         AppLog.settings.notice("快捷键已清除")
         shortcut = nil
         saveShortcut(nil)
@@ -40,19 +50,15 @@ final class GlobalHotKeySettings: ObservableObject {
     }
 
     /// 只设用户可见文案, 不记日志
-    /// 注册失败由 GlobalHotKeyController 记且带 code=, 这里再记一条会把一次冲突算成两次
-    /// 另一个调用方是录制时的按键解析失败, 那次根本没发起注册, 记成 stage=register 更是误导
+    /// 按键解析失败时尚未发起注册, 不记为注册失败
     func setRegistrationError(_ message: String) {
         errorMessage = message
     }
 
-    /// 参数不可为空: 传 nil 会经 saveShortcut 清空用户保存的配置
-    /// 没有可回退的快捷键时应改用 setRegistrationError
-    func restoreShortcut(_ shortcut: GlobalHotKeyShortcut, message: String) {
-        AppLog.settings.notice("快捷键已回退: reason=occupied")
-        self.shortcut = shortcut
-        saveShortcut(shortcut)
-        errorMessage = message
+    func configureRegistration(_ handler: ((GlobalHotKeyShortcut?) -> String?)?) {
+        registrationHandler = handler
+        // 启动注册失败只提示错误, 不覆盖用户保存的快捷键
+        errorMessage = handler?(shortcut)
     }
 
     func clearError() {

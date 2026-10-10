@@ -3,21 +3,25 @@ import Foundation
 nonisolated extension ActivityItem {
     var liveLabel: ActivityLiveLabel? {
         switch type {
-        case "reasoning": ActivityLiveLabel("thinking")
-        case "agentMessage":
+        case .reasoning: ActivityLiveLabel("thinking")
+        case .agentMessage:
             ActivityLiveLabel(phase == "final_answer" ? "answering" : phase == "commentary" ? "commentary" : "replying")
-        case "plan": ActivityLiveLabel("planning")
-        case "contextCompaction": ActivityLiveLabel("compacting")
-        case "commandExecution": commandLabel
-        case "fileChange": ActivityLiveLabel("editing")
-        case "webSearch": ActivityLiveLabel(webLabel)
-        case "imageView": ActivityLiveLabel("viewing-image")
-        case "imageGeneration": ActivityLiveLabel("generating-image")
-        case "sleep": ActivityLiveLabel("sleeping")
-        case "collabAgentToolCall": ActivityLiveLabel(ActivityDisplayFormat.agentAction(tool: tool).statusKey)
-        case "mcpToolCall", "dynamicToolCall": ActivityLiveLabel("calling-tool", detail: tool)
+        case .contextCompaction: ActivityLiveLabel("compacting")
+        case .commandExecution: commandLabel
+        case .fileChange: ActivityLiveLabel("editing")
+        case .webSearch: ActivityLiveLabel(webLabel)
+        case .imageView: ActivityLiveLabel("viewing-image")
+        case .imageGeneration: ActivityLiveLabel("generating-image")
+        case .sleep: ActivityLiveLabel("sleeping")
+        case .collabAgentToolCall: ActivityLiveLabel(ActivityDisplayFormat.agentAction(tool: tool).statusKey)
+        case .mcpToolCall, .dynamicToolCall: ActivityLiveLabel("calling-tool", detail: toolDisplayName)
         default: nil
         }
+    }
+
+    private var toolDisplayName: String? {
+        guard type == .mcpToolCall, let server, !server.isEmpty, let tool, !tool.isEmpty else { return tool }
+        return server + "." + tool
     }
 
     private var commandLabel: ActivityLiveLabel {
@@ -49,34 +53,34 @@ nonisolated extension ActivityItem {
     }
 
     var liveCompletionLabel: ActivityLiveLabel? {
-        if type == "subAgentActivity" {
+        if type == .subAgentActivity {
             return ["started": "agent-started", "completed": "agent-completed", "interrupted": "agent-interrupted"][kind ?? ""]
                 .map { ActivityLiveLabel($0) }
         }
-        if type == "contextCompaction" {
+        if type == .contextCompaction {
             return ActivityLiveLabel("compaction-completed")
         }
-        if type == "collabAgentToolCall", agentsStates?.values.contains(where: { $0.status == "errored" }) == true {
+        if type == .collabAgentToolCall, agentsStates?.values.contains(where: { $0.status == "errored" }) == true {
             return ActivityLiveLabel("agent-failed")
         }
         guard isToolCall else { return nil }
-        let prefix = type == "fileChange" ? "file" : type == "imageGeneration" ? "image" : "tool"
+        let prefix = type == .fileChange ? "file" : type == .imageGeneration ? "image" : "tool"
         let outcome: String
         if status == "declined" {
             outcome = "declined"
         } else if status == "failed" || success == false {
             outcome = "failed"
-        } else if status == "completed" || success == true || ["webSearch", "imageView", "sleep"].contains(type) {
+        } else if status == "completed" || success == true || [.webSearch, .imageView, .sleep].contains(type) {
             outcome = "completed"
         } else {
             return nil
         }
         let detail = switch type {
-        case "commandExecution": commandActionDetail
-        case "collabAgentToolCall": String(localized: ActivityDisplayFormat.agentAction(tool: tool).action)
+        case .commandExecution: commandActionDetail
+        case .collabAgentToolCall: String(localized: ActivityDisplayFormat.agentAction(tool: tool).action)
         default: toolDisplayName
         }
-        if detail != nil, type == "commandExecution" || type == "collabAgentToolCall" {
+        if detail != nil, type == .commandExecution || type == .collabAgentToolCall {
             return ActivityLiveLabel("action-" + outcome, detail: detail)
         }
         return ActivityLiveLabel(prefix + "-" + outcome, detail: prefix == "tool" ? detail : nil)
@@ -95,25 +99,29 @@ nonisolated extension ActivityDisplayFormat {
         return ActivityLiveLabel("actions-" + actions.joined(separator: "-")).text
     }
 
-    static func agentAction(tool: String?) -> (statusKey: String, action: LocalizedStringResource) {
+    /// 使用命名类型避免编译器遗漏 switch 元组分支中的本地化引用
+    nonisolated struct AgentAction {
+        let statusKey: String
+        let action: LocalizedStringResource
+    }
+
+    static func agentAction(tool: String?) -> AgentAction {
         switch tool {
-        case "spawnAgent": ("agent-starting", "activity.action.start-subagent")
-        case "sendInput", "followupTask": ("agent-assigning", "activity.action.assign-subagent")
-        case "sendMessage": ("agent-contacting", "activity.action.message-subagent")
-        case "resumeAgent": ("agent-resuming", "activity.action.resume-subagent")
-        case "wait": ("agent-waiting", "activity.action.wait-subagent")
-        case "interruptAgent": ("agent-interrupting", "activity.action.interrupt-subagent")
-        case "closeAgent": ("agent-closing", "activity.action.close-subagent")
-        case "listAgents": ("agent-querying", "activity.action.query-subagent")
-        default: ("agent-coordinating", "activity.action.coordinate-subagents")
+        case "spawnAgent": AgentAction(statusKey: "agent-starting", action: LocalizedStringResource("activity.action.start-subagent"))
+        case "sendInput", "followupTask": AgentAction(statusKey: "agent-assigning", action: LocalizedStringResource("activity.action.assign-subagent"))
+        case "sendMessage": AgentAction(statusKey: "agent-contacting", action: LocalizedStringResource("activity.action.message-subagent"))
+        case "resumeAgent": AgentAction(statusKey: "agent-resuming", action: LocalizedStringResource("activity.action.resume-subagent"))
+        case "wait": AgentAction(statusKey: "agent-waiting", action: LocalizedStringResource("activity.action.wait-subagent"))
+        case "interruptAgent": AgentAction(statusKey: "agent-interrupting", action: LocalizedStringResource("activity.action.interrupt-subagent"))
+        case "closeAgent": AgentAction(statusKey: "agent-closing", action: LocalizedStringResource("activity.action.close-subagent"))
+        case "listAgents": AgentAction(statusKey: "agent-querying", action: LocalizedStringResource("activity.action.query-subagent"))
+        default: AgentAction(statusKey: "agent-coordinating", action: LocalizedStringResource("activity.action.coordinate-subagents"))
         }
     }
 
-    static func toolActionText(itemType: String?, toolName: String?) -> String? {
+    static func toolActionText(itemType: String?, toolName: String?, commandActionTypes: [String]? = nil) -> String? {
         if itemType == "commandExecution" {
-            // 历史事件的 tool 字段保存分类组合, 仅在类型明确时按该格式读取
-            let actions = toolName?.split(separator: "/").map(String.init) ?? []
-            return commandActionText(actions) ?? String(localized: "activity.action.command")
+            return commandActionText(commandActionTypes ?? []) ?? String(localized: "activity.action.command")
         }
         if itemType == "collabAgentToolCall" {
             return String(localized: agentAction(tool: toolName).action)
@@ -134,7 +142,7 @@ nonisolated extension ActivityDisplayFormat {
 
     static func liveSummaryComponents(for task: ActivityTaskSnapshot, now: Date, waiting: Bool = false) -> [String] {
         let live = task.presentation
-        let running = if task.showsPreciseDuration, let started = task.startedAt {
+        let running = if let started = task.startedAt {
             ActivityLiveLabel("elapsed-running").text + " " + CodexDurationFormat.activityText(for: now.timeIntervalSince(started))
         } else {
             ActivityLiveLabel("running").text

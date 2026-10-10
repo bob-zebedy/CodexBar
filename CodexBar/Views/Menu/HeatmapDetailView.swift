@@ -5,9 +5,10 @@ struct HeatmapDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let panelSize = Self.panelSize(showsActivity: context.showsActivity)
+        let panelSize = Self.panelSize
 
-        detailContent
+        activityContent
+            .markStale(context.isStale)
             .padding(.horizontal, Metrics.horizontalPadding)
             .padding(.vertical, Metrics.verticalPadding)
             .frame(
@@ -23,20 +24,8 @@ struct HeatmapDetailView: View {
         Metrics.cornerRadius
     }
 
-    static func panelSize(showsActivity: Bool) -> CGSize {
-        CGSize(
-            width: showsActivity ? Metrics.activityPanelWidth : Metrics.panelWidth,
-            height: showsActivity ? Metrics.activityPanelHeight : Metrics.tokenPanelHeight
-        )
-    }
-
-    @ViewBuilder
-    private var detailContent: some View {
-        if context.showsActivity {
-            activityContent
-        } else {
-            tokenOnlyContent
-        }
+    static var panelSize: CGSize {
+        CGSize(width: Metrics.activityPanelWidth, height: Metrics.activityPanelHeight)
     }
 
     private var header: some View {
@@ -131,17 +120,6 @@ struct HeatmapDetailView: View {
         }
     }
 
-    private var tokenOnlyContent: some View {
-        VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
-            header
-
-            LiquidGlassDivider()
-                .opacity(0.62)
-
-            tokenIntensityMetricRow
-        }
-    }
-
     private var tokenIntensityMetricRow: some View {
         tokenIntensityStrip
             .frame(maxWidth: .infinity)
@@ -186,7 +164,7 @@ struct HeatmapDetailView: View {
         [
             ActivityMetricRow(
                 label: String(localized: "history.metric.sessions"),
-                value: context.day.history.sessionCount,
+                value: context.day.history.threadCount,
                 tint: .green
             ),
             ActivityMetricRow(
@@ -277,14 +255,15 @@ struct HeatmapDetailView: View {
     }
 
     private func metricRow(_ row: ActivityMetricRow) -> some View {
-        metricRowLayout {
+        let count = row.value ?? 0
+        return metricRowLayout {
             metricDot(tint: row.tint)
             Text(row.label)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(height: Metrics.metricRowHeight)
 
-            fittingMetricValue("\(row.value)", comparison: Double(row.value))
+            fittingMetricValue(String(count), comparison: Double(count))
         }
     }
 
@@ -325,7 +304,7 @@ struct HeatmapDetailView: View {
 
     private struct ActivityMetricRow: Identifiable {
         let label: String
-        let value: Int
+        let value: Int?
         let tint: Color
 
         var id: String {
@@ -334,12 +313,10 @@ struct HeatmapDetailView: View {
     }
 
     private enum Metrics {
-        static let panelWidth: CGFloat = 212
         static let activityPanelWidth: CGFloat = 360
         static let activityPanelHeight: CGFloat = 232
         static let columnSpacing: CGFloat = 12
         static let columnHeight: CGFloat = 150
-        static let tokenPanelHeight: CGFloat = 84
         static let sectionSpacing: CGFloat = 8
         static let horizontalPadding: CGFloat = 12
         static let verticalPadding: CGFloat = 10

@@ -70,7 +70,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Completed: %lld"
+            "value" : "Completed %lld"
           }
         },
         "zh-Hans" : {
@@ -86,7 +86,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Stopped: %lld"
+            "value" : "Stopped %lld"
           }
         },
         "zh-Hans" : {
@@ -102,7 +102,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Running: %lld"
+            "value" : "Running %lld"
           }
         },
         "zh-Hans" : {
@@ -118,7 +118,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Waiting: %lld"
+            "value" : "Waiting %lld"
           }
         },
         "zh-Hans" : {
@@ -397,22 +397,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "等待计时结束"
-          }
-        }
-      }
-    },
-    "activity.anonymous.keep-awake-exclusion" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Anonymous tasks do not prevent sleep"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "匿名任务不参与防睡眠"
           }
         }
       }
@@ -817,70 +801,6 @@
         }
       }
     },
-    "activity.live.approval-aborted" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto-approval aborted"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动审批已中止"
-          }
-        }
-      }
-    },
-    "activity.live.approval-approved" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto-approved"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动审批已通过"
-          }
-        }
-      }
-    },
-    "activity.live.approval-denied" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto-denied"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动审批未通过"
-          }
-        }
-      }
-    },
-    "activity.live.approval-timeout" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto-approval timed out"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动审批已超时"
-          }
-        }
-      }
-    },
     "activity.live.auth-recovery-ended" : {
       "localizations" : {
         "en" : {
@@ -893,22 +813,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "认证恢复流程已结束"
-          }
-        }
-      }
-    },
-    "activity.live.auto-approval" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reviewing"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在自动审批"
           }
         }
       }
@@ -1169,22 +1073,6 @@
         }
       }
     },
-    "activity.live.connecting-tool" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Starting MCP"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在启动 MCP 服务"
-          }
-        }
-      }
-    },
     "activity.live.diff-updated" : {
       "localizations" : {
         "en" : {
@@ -1196,7 +1084,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "改动详情已更新"
+            "value" : "变更详情已更新"
           }
         }
       }
@@ -1245,38 +1133,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已等待"
-          }
-        }
-      }
-    },
-    "activity.live.environment-connected" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Environment connected"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已连接执行环境"
-          }
-        }
-      }
-    },
-    "activity.live.environment-disconnected" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Environment disconnected"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已断开执行环境连接"
           }
         }
       }
@@ -1437,22 +1293,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Hook 执行已停止"
-          }
-        }
-      }
-    },
-    "activity.live.idle" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No tasks"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "暂无任务"
           }
         }
       }
@@ -1665,22 +1505,6 @@
         }
       }
     },
-    "activity.live.planning" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Planning"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在制定计划"
-          }
-        }
-      }
-    },
     "activity.live.processing" : {
       "localizations" : {
         "en" : {
@@ -1692,7 +1516,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在处理任务"
+            "value" : "正在处理"
           }
         }
       }
@@ -1772,7 +1596,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在回复"
+            "value" : "正在回答"
           }
         }
       }
@@ -2006,13 +1830,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Using web tool"
+            "value" : "Browsing the web"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在使用网页工具"
+            "value" : "正在浏览网页"
           }
         }
       }
@@ -2124,7 +1948,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "等待回应服务请求"
+            "value" : "等待回应请求"
           }
         }
       }
@@ -2141,22 +1965,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "等待用户操作"
-          }
-        }
-      }
-    },
-    "activity.live.waiting-verification" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Awaiting verification"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "等待用户验证"
           }
         }
       }
@@ -2653,22 +2461,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Codex app-server 不支持该接口"
-          }
-        }
-      }
-    },
-    "codex-status.daemon.error.unavailable" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex Daemon is unavailable"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Codex 后台服务不可用"
           }
         }
       }
@@ -3302,13 +3094,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Helper validation failed. Reinstall CodexBar"
+            "value" : "CodexBar Helper is invalid"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper 组件或配置异常, 请重新安装 CodexBar"
+            "value" : "CodexBar Helper 组件或配置异常"
           }
         }
       }
@@ -3318,13 +3110,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Helper incomplete. Reinstall CodexBar"
+            "value" : "CodexBar Helper is missing"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper 组件或配置丢失, 请重新安装 CodexBar"
+            "value" : "CodexBar Helper 组件或配置丢失"
           }
         }
       }
@@ -3430,13 +3222,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Allow CodexBar to run in the background"
+            "value" : "Allow CodexBar Helper to run in the background"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要授权允许 CodexBar 后台运行"
+            "value" : "需要授权允许 CodexBar Helper 后台运行"
           }
         }
       }
@@ -3500,7 +3292,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "权限请求"
+            "value" : "权限审批"
           }
         }
       }
@@ -5409,6 +5201,22 @@
         }
       }
     },
+    "settings.general.launch-at-login-authorization-required" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow CodexBar to run in the background"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要授权允许 CodexBar 后台运行"
+          }
+        }
+      }
+    },
     "settings.general.launch-at-login-failed" : {
       "localizations" : {
         "en" : {
@@ -6493,22 +6301,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "活动数据"
-          }
-        }
-      }
-    },
-    "usage.heatmap.no-data" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No daily usage data"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "暂无日用量数据"
           }
         }
       }

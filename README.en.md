@@ -14,7 +14,7 @@
 [![Downloads](https://img.shields.io/github/downloads/bob-zebedy/CodexBar/total?color=2EA043)](https://github.com/bob-zebedy/CodexBar/releases)
 [![License](https://img.shields.io/github/license/bob-zebedy/CodexBar?color=8957E5)](LICENSE)
 
-[Features](#features) | [Installation](#installation) | [Privacy](#privacy) | [Runtime Architecture](https://codexbar.zabrian.app/architecture) | [Performance Report](https://codexbar.zabrian.app/performance)
+[Features](#features) | [Installation](#installation) | [Privacy](#privacy) | [Runtime Architecture](https://codexbar.zabrian.app/architecture) | [Performance Report](https://codexbar.zabrian.app/performance) | [Protocol](Protocol.en.md)
 
 <img src="Images/preview.gif" width="640" alt="CodexBar preview">
 
@@ -56,11 +56,6 @@ CodexBar is a menu bar app for macOS that displays your Codex account informatio
 - Optionally stay awake while waiting for approval or keep the display on as well
 - Set a keep-awake time limit, low-battery protection, and stalled task protection
 
-### Make it your own
-
-- Customize main panel section order, visibility, and animations
-- Use a global keyboard shortcut, launch at login, and automatic update checks
-- Choose Simplified Chinese or English and browse logs for troubleshooting
 
 ## Installation
 
@@ -78,7 +73,7 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 
 - macOS 15.0 or later
 - [Codex CLI](https://github.com/openai/codex) installed and signed in, or ChatGPT App or Codex App with bundled Codex installed
-- Codex background service version `0.157.0` or later
+- Codex background service version `0.162.0` or later
 - Cross-device sync requires an available iCloud account on the Mac
 
 ## Privacy

@@ -44,12 +44,17 @@ nonisolated struct ActivitySyncStore {
         }
     }
 
-    func removeCursorIfPresent() throws {
-        try update { $0.cursor = nil }
-    }
-
     func reset(state: SyncState) throws {
         try update { $0 = ActivitySyncCache(state: state) }
+    }
+
+    func prune(now: Date) throws {
+        try JSONFileStorage.withLock(in: cacheDirectoryURL) {
+            var cache = try read()
+            if cache.prune(now: now) {
+                try JSONFileStorage.save(cache, to: cacheURL)
+            }
+        }
     }
 
     private func read() throws -> ActivitySyncCache {
@@ -79,6 +84,7 @@ nonisolated struct ActivitySyncStore {
         try JSONFileStorage.withLock(in: cacheDirectoryURL) {
             var cache = try read()
             try body(&cache)
+            cache.prune()
             try JSONFileStorage.save(cache, to: cacheURL)
         }
     }
@@ -96,6 +102,15 @@ nonisolated struct ActivitySyncCache: Codable, Equatable {
     var state = SyncState()
     var records: [ActivitySyncRecord] = []
     var cursor: Data?
+
+    @discardableResult
+    mutating func prune(now: Date = Date()) -> Bool {
+        let cutoff = HistoryStorage.dateKey(for: HistoryStorage.retentionCutoffDate(today: now))
+        let previousCount = records.count + state.hashByDate.count
+        records.removeAll { $0.date < cutoff }
+        state.hashByDate = state.hashByDate.filter { $0.key >= cutoff }
+        return previousCount != records.count + state.hashByDate.count
+    }
 }
 
 nonisolated struct SyncState: Codable, Equatable {

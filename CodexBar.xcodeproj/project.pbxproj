@@ -10,6 +10,7 @@
 		B10000000000000000000005 /* CodexBarHelper in Embed CodexBar Helper */ = {isa = PBXBuildFile; fileRef = B10000000000000000000014 /* CodexBarHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		C42A52F12FDACDEC004A2B53 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C42A52F02FDACDEC004A2B53 /* Sparkle */; };
 		D10000000000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C42A52F02FDACDEC004A2B53 /* Sparkle */; };
+		F10000000000000000000001 /* CodexBar Helper Debug.app in Embed Helper Manager */ = {isa = PBXBuildFile; fileRef = F10000000000000000000002 /* CodexBar Helper Debug.app */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -19,6 +20,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = B10000000000000000000031;
 			remoteInfo = CodexBarHelper;
+		};
+		F10000000000000000000007 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C4A0FD8D2FD9302E000263A7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F10000000000000000000010;
+			remoteInfo = CodexBarHelperManager;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -40,6 +48,15 @@
 			);
 			name = "Copy LaunchDaemons";
 		};
+		F10000000000000000000004 /* Embed Helper Manager */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = Contents/Library/LoginItems;
+			dstSubfolder = Wrapper;
+			files = (
+				F10000000000000000000001 /* CodexBar Helper Debug.app in Embed Helper Manager */,
+			);
+			name = "Embed Helper Manager";
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -48,6 +65,7 @@
 		C4A0FD952FD9302E000263A7 /* CodexBar Debug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "CodexBar Debug.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D10000000000000000000002 /* CodexBarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E10000000000000000000002 /* CodexBarHelperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarHelperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F10000000000000000000002 /* CodexBar Helper Debug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "CodexBar Helper Debug.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -76,7 +94,7 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-		C449FB4C302038A300ED2123 /* Exceptions for "CodexBarHelper" folder in "Copy LaunchDaemons" phase from "CodexBar" target */ = {
+		C449FB4C302038A300ED2123 /* Exceptions for "CodexBarHelper" folder in "Copy LaunchDaemons" phase from "CodexBarHelperManager" target */ = {
 			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
 			buildPhase = B10000000000000000000024 /* Copy LaunchDaemons */;
 			membershipExceptions = (
@@ -99,8 +117,8 @@
 		C449FB3A3020367500ED2123 /* CodexBarHelper */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
+				C449FB4C302038A300ED2123 /* Exceptions for "CodexBarHelper" folder in "Copy LaunchDaemons" phase from "CodexBarHelperManager" target */,
 				E10000000000000000000003 /* Exceptions for "CodexBarHelper" folder in "CodexBarHelperTests" target */,
-				C449FB4C302038A300ED2123 /* Exceptions for "CodexBarHelper" folder in "Copy LaunchDaemons" phase from "CodexBar" target */,
 			);
 			path = CodexBarHelper;
 			sourceTree = "<group>";
@@ -118,6 +136,11 @@
 		E10000000000000000000004 /* CodexBarHelperTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = CodexBarHelperTests;
+			sourceTree = "<group>";
+		};
+		F10000000000000000000003 /* CodexBarHelperManager */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CodexBarHelperManager;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -145,6 +168,11 @@
 			files = (
 			);
 		};
+		F10000000000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -160,6 +188,7 @@
 			isa = PBXGroup;
 			children = (
 				9E664A4C2FDD47530016B96E /* CodexBar */,
+				F10000000000000000000003 /* CodexBarHelperManager */,
 				D10000000000000000000004 /* CodexBarTests */,
 				E10000000000000000000004 /* CodexBarHelperTests */,
 				C449FB4E30203A1100ED2123 /* Shared */,
@@ -176,6 +205,7 @@
 				D10000000000000000000002 /* CodexBarTests.xctest */,
 				E10000000000000000000002 /* CodexBarHelperTests.xctest */,
 				B10000000000000000000014 /* CodexBarHelper */,
+				F10000000000000000000002 /* CodexBar Helper Debug.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -208,13 +238,12 @@
 				C4A0FD912FD9302E000263A7 /* Sources */,
 				C4A0FD922FD9302E000263A7 /* Frameworks */,
 				C4A0FD932FD9302E000263A7 /* Resources */,
-				B10000000000000000000023 /* Embed CodexBar Helper */,
-				B10000000000000000000024 /* Copy LaunchDaemons */,
+				F10000000000000000000004 /* Embed Helper Manager */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				B10000000000000000000051 /* PBXTargetDependency */,
+				F10000000000000000000008 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				9E664A4C2FDD47530016B96E /* CodexBar */,
@@ -270,6 +299,30 @@
 			productReference = E10000000000000000000002 /* CodexBarHelperTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		F10000000000000000000010 /* CodexBarHelperManager */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F10000000000000000000011 /* Build configuration list for PBXNativeTarget "CodexBarHelperManager" */;
+			buildPhases = (
+				F10000000000000000000005 /* Sources */,
+				F10000000000000000000006 /* Frameworks */,
+				F10000000000000000000009 /* Resources */,
+				B10000000000000000000023 /* Embed CodexBar Helper */,
+				B10000000000000000000024 /* Copy LaunchDaemons */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B10000000000000000000051 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				C449FB4E30203A1100ED2123 /* Shared */,
+				F10000000000000000000003 /* CodexBarHelperManager */,
+			);
+			name = CodexBarHelperManager;
+			productName = CodexBarHelperManager;
+			productReference = F10000000000000000000002 /* CodexBar Helper Debug.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -306,6 +359,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				F10000000000000000000010 /* CodexBarHelperManager */,
 				E10000000000000000000010 /* CodexBarHelperTests */,
 				D10000000000000000000010 /* CodexBarTests */,
 				C4A0FD942FD9302E000263A7 /* CodexBar */,
@@ -315,6 +369,11 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		F10000000000000000000009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
 		C4A0FD932FD9302E000263A7 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
@@ -348,6 +407,11 @@
 			files = (
 			);
 		};
+		F10000000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -355,6 +419,11 @@
 			isa = PBXTargetDependency;
 			target = B10000000000000000000031 /* CodexBarHelper */;
 			targetProxy = B10000000000000000000052 /* PBXContainerItemProxy */;
+		};
+		F10000000000000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F10000000000000000000010 /* CodexBarHelperManager */;
+			targetProxy = F10000000000000000000007 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -660,6 +729,46 @@
 			};
 			name = Release;
 		};
+		F10000000000000000000012 /* Debug configuration for PBXNativeTarget "CodexBarHelperManager" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				EXCLUDED_SOURCE_FILE_NAMES = app.zabrian.codexbar.helper.plist;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "CodexBar Helper Debug";
+				INFOPLIST_KEY_LSUIElement = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.zabrian.codexbar.helper-manager.debug";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				WRAPPER_NAME = "CodexBar Helper Debug.app";
+			};
+			name = Debug;
+		};
+		F10000000000000000000013 /* Release configuration for PBXNativeTarget "CodexBarHelperManager" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				EXCLUDED_SOURCE_FILE_NAMES = app.zabrian.codexbar.helper.debug.plist;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "CodexBar Helper";
+				INFOPLIST_KEY_LSUIElement = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "app.zabrian.codexbar.helper-manager";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				WRAPPER_NAME = "CodexBar Helper.app";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -700,6 +809,14 @@
 			buildConfigurations = (
 				E10000000000000000000012 /* Debug configuration for PBXNativeTarget "CodexBarHelperTests" */,
 				E10000000000000000000013 /* Release configuration for PBXNativeTarget "CodexBarHelperTests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		F10000000000000000000011 /* Build configuration list for PBXNativeTarget "CodexBarHelperManager" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F10000000000000000000012 /* Debug configuration for PBXNativeTarget "CodexBarHelperManager" */,
+				F10000000000000000000013 /* Release configuration for PBXNativeTarget "CodexBarHelperManager" */,
 			);
 			defaultConfigurationName = Release;
 		};

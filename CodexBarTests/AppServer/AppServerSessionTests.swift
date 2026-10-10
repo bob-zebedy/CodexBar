@@ -4,6 +4,68 @@ import Foundation
 import Testing
 
 struct AppServerSessionTests {
+    @Test(arguments: ["account", "activity"], [nil, "0.162.0", "codex/", "codex/invalid", "codex/0.159.0"] as [String?])
+    func connectionsShareHandshakeValidation(_ connection: String, userAgent: String?) throws {
+        let server = try SharedServerFixture { peer in
+            let request = try peer.readMessage()
+            var result: [String: Any] = [:]
+            result["userAgent"] = userAgent
+            try peer.reply(to: request, result: result)
+        }
+        defer { server.close() }
+        do {
+            if connection == "account" {
+                let session = try AccountSession(socketURL: server.url, logStorage: nil)
+                defer { session.close() }
+                _ = try session.initializeAccount()
+            } else {
+                let session = try AppServerSession(socketURL: server.url, logStorage: nil)
+                defer { session.close() }
+                try session.initialize(clientName: "codex_bar_activity", minimumVersion: CodexVersionReader.minimumAppServerVersion)
+            }
+            Issue.record("Expected handshake rejection")
+        } catch let error as CodexStatusError {
+            if userAgent == "codex/0.159.0" {
+                guard case .unsupportedVersion = error else { Issue.record("Wrong error: \(error)")
+                    return
+                }
+            } else {
+                guard case .invalidServerResponse = error else { Issue.record("Wrong error: \(error)")
+                    return
+                }
+            }
+        }
+        try server.finish()
+    }
+
+    @Test func accountRetriesUseNewIDsAndRememberUnsupportedMethods() throws {
+        let server = try SharedServerFixture { peer in
+            let first = try peer.readMessage()
+            #expect(first["method"] as? String == "account/read")
+            try peer.send(["id": #require(first["id"]), "error": ["code": -32000, "message": "temporary failure"]])
+            let retry = try peer.readMessage()
+            #expect(retry["id"] as? Int != first["id"] as? Int)
+            try peer.reply(to: retry, result: ["value": 7])
+            let unsupported = try peer.readMessage()
+            #expect(unsupported["id"] as? Int != retry["id"] as? Int)
+            try peer.send(["id": #require(unsupported["id"]), "error": ["code": -32601, "message": "unknown method"]])
+            let next = try peer.readMessage()
+            #expect(next["method"] as? String == "probe")
+            try peer.reply(to: next, result: ["value": 8])
+        }
+        defer { server.close() }
+        let session = try AccountSession(socketURL: server.url, logStorage: nil)
+        defer { session.close() }
+        let first = try session.request("account/read", as: Value.self)
+        #expect(first.value == 7)
+        for _ in 0 ..< 2 {
+            #expect(throws: CodexStatusError.self) { _ = try session.request("missing", as: Value.self) }
+        }
+        let next = try session.request("probe", as: Value.self)
+        #expect(next.value == 8)
+        try server.finish()
+    }
+
     @Test(arguments: [true, false])
     func activityReaderValidatesVersionAndReusesConnection(_ supported: Bool) async throws {
         let directory = try TestDirectory()
@@ -13,7 +75,7 @@ struct AppServerSessionTests {
         let server = try SharedServerFixture { peer in
             let initialize = try peer.readMessage()
             #expect(initialize["method"] as? String == "initialize")
-            try peer.reply(to: initialize, result: ["userAgent": supported ? "codex/0.157.0" : "codex/0.156.0"])
+            try peer.reply(to: initialize, result: ["userAgent": supported ? "codex/0.162.0" : "codex/0.159.0"])
             if supported {
                 #expect(try peer.readMessage()["method"] as? String == "initialized")
                 for _ in 0 ..< 4 {
@@ -136,11 +198,10 @@ struct AppServerSessionTests {
     private func logDeliveryMessages() throws -> (filtered: [Data], retained: [Data]) {
         var filtered = try unusedNotifications()
         var retained = try [
-            "thread/started", "thread/status/changed", "thread/settings/updated", "turn/started", "turn/completed",
-            "item/autoApprovalReview/started", "item/autoApprovalReview/completed", "serverRequest/resolved", "error", "warning",
-            "hook/started", "hook/completed", "mcpServer/startupStatus/updated", "model/rerouted", "model/verification",
-            "modelProvider/authRecoveryStarted", "modelProvider/authRecoveryCompleted", "model/safetyBuffering/updated",
-            "thread/environment/connected", "thread/environment/disconnected"
+            "thread/started", "thread/status/changed", "turn/started", "turn/completed",
+            "serverRequest/resolved", "account/updated", "account/rateLimits/updated", "error", "warning",
+            "hook/started", "hook/completed", "model/rerouted", "model/verification",
+            "modelProvider/authRecoveryStarted", "modelProvider/authRecoveryCompleted", "model/safetyBuffering/updated"
         ].map { try notification($0, params: ["marker": $0]) }
         try retained.append(notification("turn/diff/updated", params: ["diff": "original patch"]))
         try retained.append(notification("turn/plan/updated", params: ["plan": [["step": "original step", "status": "pending"]]]))
@@ -170,7 +231,6 @@ struct AppServerSessionTests {
             "subAgentActivity",
             "agentMessage",
             "reasoning",
-            "plan",
             "enteredReviewMode",
             "exitedReviewMode"
         ] {
@@ -180,7 +240,7 @@ struct AppServerSessionTests {
         }
         for method in [
             "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval",
-            "item/tool/requestUserInput", "mcpServer/elicitation/request"
+            "mcpServer/elicitation/request"
         ] {
             try retained.append(JSONSerialization.data(withJSONObject: [
                 "id": "approval", "method": method, "params": ["command": "original"]
@@ -197,7 +257,9 @@ struct AppServerSessionTests {
     private func unusedNotifications() throws -> [Data] {
         var messages: [Data] = []
         for method in [
-            "hook/futureEvent", "account/updated", "account/rateLimits/updated",
+            "thread/settings/updated", "thread/environment/connected", "thread/environment/disconnected",
+            "item/tool/requestUserInput", "item/autoApprovalReview/started", "item/autoApprovalReview/completed",
+            "hook/futureEvent",
             "remoteControl/status/changed", "thread/goal/cleared", "thread/name/updated", "future/tool/delta"
         ] {
             try messages.append(notification(method, params: ["marker": method]))
@@ -208,11 +270,15 @@ struct AppServerSessionTests {
         }
         try messages.append(notification("item/reasoning/summaryPartAdded", params: ["summaryIndex": 0]))
         try messages.append(notification("item/mcpToolCall/progress", params: ["message": "working"]))
-        for type in ["userMessage", "hookPrompt", "functionCallOutput", "futureItem"] {
+        try messages.append(notification("mcpServer/startupStatus/updated", params: [
+            "threadId": "thread", "name": "tripo_backend", "status": "starting"
+        ]))
+        for type in ["plan", "userMessage", "hookPrompt", "functionCallOutput", "futureItem"] {
             for method in ["item/started", "item/completed"] {
                 try messages.append(notification(method, params: ["item": ["id": type, "type": type, "text": "body"]]))
             }
         }
+        try messages.append(notification("mcpServer/elicitation/request", params: ["mode": "openai/userVerification"]))
         return messages
     }
 
@@ -220,8 +286,8 @@ struct AppServerSessionTests {
         let server = try SharedServerFixture { peer in
             let initialize = try peer.readMessage()
             #expect(initialize["method"] as? String == "initialize")
-            #expect((initialize["params"] as? [String: Any])?["capabilities"] as? [String: Bool] == ["experimentalApi": true])
-            try peer.reply(to: initialize, result: ["userAgent": "codex/0.157.0"])
+            #expect((initialize["params"] as? [String: Any])?["capabilities"] as? [String: Bool] == ["experimentalApi": false])
+            try peer.reply(to: initialize, result: ["userAgent": "codex/0.162.0"])
             #expect(try peer.readMessage()["method"] as? String == "initialized")
             let account = try peer.readMessage()
             #expect(account["method"] as? String == "account/read")
@@ -231,7 +297,7 @@ struct AppServerSessionTests {
         defer { server.close() }
         let session = try AccountSession(socketURL: server.url, logStorage: nil)
         let result = try session.initializeAccount()
-        #expect(result.version == "0.157.0")
+        #expect(result.version == "0.162.0")
         #expect(result.account.account != nil)
         session.close()
         #expect(!session.isOpen)

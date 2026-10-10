@@ -8,7 +8,7 @@ struct ActivityRecoveryTests {
         let now = Date()
         let store = TokenHistoryStore(directoryURL: directory.url)
         let id = TokenTurn.identifier(thread: "t", turn: "u")
-        let record = TokenTurn(id: id, rootID: id, startedAt: now, updatedAt: now, usage: .zero)
+        let record = TestFixtures.tokenTurn(id: id, rootID: id, startedAt: now, updatedAt: now, usage: .zero)
         try await directory.seedTokenSnapshots([record], now: now)
         let cache = try directory.write("broken", to: "Aggregates/tokens.json")
         var refreshFailed = false
@@ -31,7 +31,7 @@ struct ActivityRecoveryTests {
         let timestamp = Date().timeIntervalSince1970
         let server = try SharedServerFixture { peer in
             let initialize = try peer.readMessage()
-            try peer.reply(to: initialize, result: ["userAgent": "codex/0.160.0"])
+            try peer.reply(to: initialize, result: ["userAgent": "codex/0.162.0"])
             _ = try peer.readMessage()
             let loaded = try peer.readMessage()
             try peer.reply(to: loaded, result: ["data": ["thread"]])

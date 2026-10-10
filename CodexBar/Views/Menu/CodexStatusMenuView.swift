@@ -48,6 +48,13 @@ struct CodexStatusMenuView: View {
     let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
     let onActivityCenterTap: (ActivityCenterPanelContext) -> Void
     @EnvironmentObject private var appUpdater: AppUpdater
+    @State private var activitySectionVisibility: Bool?
+
+    private var showsActivitySection: Bool {
+        // 订阅建立前直接读取当前状态, 避免首次打开时先显示空卡片再收回
+        activitySectionVisibility
+            ?? (activityMonitor.snapshot.hasTaskCenterContent || !activityMonitor.isActivitySourceHealthy)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.verticalSpacing) {
@@ -68,6 +75,16 @@ struct CodexStatusMenuView: View {
         .animation(Metrics.statusAnimation, value: syncSettings.isEnabled)
         .animation(Metrics.statusAnimation, value: syncSettings.isSyncing)
         .animation(Metrics.statusAnimation, value: syncSettings.hasSyncFailure)
+        .animation(
+            mainPanelSettings.areAnimationsEnabled ? Metrics.activityExpansionAnimation : nil,
+            value: showsActivitySection
+        )
+        .onReceive(
+            activityMonitor.$snapshot
+                .combineLatest(activityMonitor.$isActivitySourceHealthy)
+                .map { snapshot, isHealthy in snapshot.hasTaskCenterContent || !isHealthy }
+                .removeDuplicates()
+        ) { activitySectionVisibility = $0 }
         .transaction { transaction in
             // 已关闭的 NSPopover 仍可能绘制数字过渡, 让字体缓存逐轮增长
             guard !animationState.allowsAnimations else {
@@ -85,15 +102,22 @@ private extension CodexStatusMenuView {
         static let surfaceCornerRadius: CGFloat = 14
         static let verticalSpacing: CGFloat = 10
         static let statusAnimation = Animation.codexStatus
+        static let activityExpansionAnimation = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.32)
     }
 
     @ViewBuilder
     var content: some View {
-        let visibleSections = mainPanelSettings.layout.visibleSections
+        let visibleSections = mainPanelSettings.layout.visibleSections.filter { section in
+            section != .activity || showsActivitySection
+        }
         let dataPlaceholderSection = dataPlaceholderSection(in: visibleSections)
 
         ForEach(visibleSections) { section in
             sectionView(section, dataPlaceholderSection: dataPlaceholderSection)
+                .transition(section == .activity ? .modifier(
+                    active: ActivitySectionReveal(progress: 0),
+                    identity: ActivitySectionReveal(progress: 1)
+                ) : .opacity)
         }
 
         if !hasRenderableContent(
@@ -182,7 +206,6 @@ private extension CodexStatusMenuView {
             UsageSummaryView(
                 usage: viewModel.snapshot?.usage,
                 history: historyViewModel.snapshot,
-                showsActivity: true,
                 isStale: viewModel.snapshot?.isUsageStale ?? false,
                 onHoverContextChange: onUsageHeatmapHoverChange
             )
@@ -255,6 +278,42 @@ private extension CodexStatusMenuView {
             ),
             updateMessage: appUpdater.panelUpdateMessage,
             startUpdate: appUpdater.startUpdate
+        )
+    }
+}
+
+private struct ActivitySectionReveal: AnimatableModifier {
+    var progress: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        ActivitySectionRevealLayout(progress: progress) {
+            content
+        }
+        // 完全展开后为玻璃表面的外投影留出空间, 不裁掉边缘高光和阴影
+        .clipShape(Rectangle().inset(by: progress < 1 ? 0 : -64))
+    }
+}
+
+private struct ActivitySectionRevealLayout: Layout {
+    var progress: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
+        guard let subview = subviews.first else { return .zero }
+        let size = subview.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: size.width, height: size.height * min(1, max(0, progress)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
+        // 保留内容的自然高度, 只改变裁剪区域, 避免展开和收回时压缩文字
+        subviews.first?.place(
+            at: bounds.origin,
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: nil)
         )
     }
 }

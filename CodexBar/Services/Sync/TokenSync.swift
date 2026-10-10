@@ -22,11 +22,12 @@ actor TokenSync {
         return TokenHistoryBaseline(salt: cache.salt, turns: cache.turns)
     }
 
-    func snapshot(local: [TokenTurn], accountScopedDeviceID: String?) -> [String: TokenUsage] {
-        guard let cache = try? load(), cache.accountScopedDeviceID == accountScopedDeviceID else {
+    func snapshot(local: [TokenTurn], accountScopedDeviceID: String?) throws -> [String: TokenUsage] {
+        guard let cache = try load(), cache.accountScopedDeviceID == accountScopedDeviceID else {
             return TokenTurn.dailyUsage(local)
         }
-        return TokenTurn.dailyUsage(TokenTurn.pseudonymized(local, salt: cache.salt) + Array(cache.turns.values))
+        let merged = try TokenTurn.merged(TokenTurn.pseudonymized(local, salt: cache.salt) + Array(cache.turns.values))
+        return TokenTurn.dailyUsage(Array(merged.values))
     }
 
     func hasPendingUpdates(local: [TokenTurn], accountScopedDeviceID: String?) -> Bool {
@@ -35,7 +36,7 @@ actor TokenSync {
         return records.contains { turn in
             let candidate = turn.pseudonymized(salt: cache.salt)
             guard let remote = cache.turns[candidate.id] else { return true }
-            return remote.merging(candidate) != remote
+            return (try? remote.merging(candidate)) != remote
         }
     }
 
@@ -46,6 +47,9 @@ actor TokenSync {
         }
         defer { JSONFileStorage.releaseLock(lock) }
         try JSONFileStorage.withLock(in: directoryURL) {
+            do { _ = try Self.loadCache(&fileCache) } catch is DecodingError {
+                // 已知格式损坏可清除, 未知版本继续向上抛出
+            }
             if FileManager.default.fileExists(atPath: fileCache.url.path) {
                 try FileManager.default.removeItem(at: fileCache.url)
             }
@@ -53,7 +57,7 @@ actor TokenSync {
         }
     }
 
-    func synchronize(local: [TokenTurn], accountScopedDeviceID: String, salt: Data, zoneID: CKRecordZone.ID) async throws {
+    func synchronize(local: [TokenTurn], recoveredIDs: Set<String> = [], accountScopedDeviceID: String, salt: Data, zoneID: CKRecordZone.ID) async throws {
         try SyncCancellation.check(isEnabled: isEnabled)
         // 整轮同步共用非阻塞锁, 防止另一个进程用较早的快照覆盖游标, 界面读取不等待网络
         guard let lock = try JSONFileStorage.acquireLock(in: directoryURL, name: "sync.lock", nonblocking: true) else { return }
@@ -76,7 +80,7 @@ actor TokenSync {
         }
         // 先落盘拉取结果, 上传失败时也能展示已经读取的其他设备贡献
         try save(cache)
-        try await upload(local: local, cache: &cache, zoneID: zoneID)
+        try await upload(local: local, recoveredIDs: recoveredIDs, cache: &cache, zoneID: zoneID)
         try await prune(cache: &cache, zoneID: zoneID)
         try save(cache)
     }
@@ -104,11 +108,18 @@ actor TokenSync {
         cache.cursor = try token.map { try NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: true) }
     }
 
-    private func upload(local: [TokenTurn], cache: inout TokenSyncCache, zoneID: CKRecordZone.ID) async throws {
-        let pending = TokenTurn.pseudonymized(TokenTurn.syncable(local), salt: cache.salt)
+    private func upload(local: [TokenTurn], recoveredIDs: Set<String>, cache: inout TokenSyncCache, zoneID: CKRecordZone.ID) async throws {
+        // 恢复结果先与本轮新鲜云端基线建立替换关系, 再执行普通条件写入
+        let baseline = TokenHistoryBaseline(salt: cache.salt, turns: cache.turns)
+        let candidates = local.compactMap { turn -> TokenTurn? in
+            guard recoveredIDs.contains(turn.id) else { return turn }
+            guard baseline.acceptsRecovery(turn) else { return nil }
+            return baseline.replacement(for: turn, recovering: true) ?? turn
+        }
+        let pending = try TokenTurn.pseudonymized(TokenTurn.syncable(candidates), salt: cache.salt)
             .filter { candidate in
                 guard let remote = cache.turns[candidate.id] else { return true }
-                return remote.merging(candidate) != remote
+                return try remote.merging(candidate) != remote
             }
             .sorted { $0.updatedAt > $1.updatedAt }
         let deadline = Date().addingTimeInterval(20)
@@ -124,8 +135,11 @@ actor TokenSync {
             for candidate in batch {
                 let id = Self.recordID(candidate.id, zoneID: zoneID)
                 let record: CKRecord
+                let remote: TokenTurn?
                 do {
-                    record = try fetchedRecord(existing[id]) ?? CKRecord(recordType: Self.recordType, recordID: id)
+                    let fetched = try fetchedRecord(existing[id])
+                    remote = try fetched.flatMap(Self.turn)
+                    record = fetched ?? CKRecord(recordType: Self.recordType, recordID: id)
                 } catch {
                     failures.record(error)
                     if failures.stopping != nil {
@@ -133,8 +147,7 @@ actor TokenSync {
                     }
                     continue
                 }
-                let remote = Self.turn(from: record)
-                let merged = remote?.merging(candidate) ?? candidate
+                let merged = try remote?.merging(candidate) ?? candidate
                 if remote == merged {
                     cache.turns[merged.id] = merged
                     continue
@@ -152,7 +165,7 @@ actor TokenSync {
             for record in saving {
                 switch result.saveResults[record.recordID] {
                 case let .success(saved):
-                    if let turn = Self.turn(from: saved) {
+                    if let turn = try Self.turn(from: saved) {
                         cache.turns[turn.id] = turn
                     }
                 case let .failure(error): failures.record(error)
@@ -193,17 +206,30 @@ actor TokenSync {
     }
 
     private func load() throws -> TokenSyncCache? {
-        try JSONFileStorage.withLock(in: directoryURL) {
-            try fileCache.load { data in
-                let header = try JSONLines.decoder.decode(TokenSyncCacheHeader.self, from: data)
-                guard header.version == TokenSyncCache.currentVersion else { throw SyncRecovery.Failure.unsupportedCacheVersion }
-            }
+        try JSONFileStorage.withLock(in: directoryURL) { try Self.loadCache(&fileCache) }
+    }
+
+    private nonisolated static func loadCache(_ fileCache: inout TokenFileCache<TokenSyncCache>) throws -> TokenSyncCache? {
+        try fileCache.load { data in
+            let header = try JSONLines.decoder.decode(TokenSyncCacheHeader.self, from: data)
+            guard header.version == TokenSyncCache.currentVersion else { throw SyncRecovery.Failure.unsupportedCacheVersion }
         }
     }
 
     private func save(_ cache: TokenSyncCache) throws {
         try JSONFileStorage.withLock(in: directoryURL) {
+            var cache = cache
+            cache.prune()
             try fileCache.save(cache)
+        }
+    }
+
+    nonisolated static func pruneLocalCache(in directoryURL: URL, now: Date) throws {
+        try JSONFileStorage.withLock(in: directoryURL) {
+            var fileCache = TokenFileCache<TokenSyncCache>(url: directoryURL.appendingPathComponent("cache.json"))
+            if var cache = try loadCache(&fileCache), cache.prune(now: now) {
+                try fileCache.save(cache)
+            }
         }
     }
 
@@ -213,6 +239,7 @@ actor TokenSync {
 
     static func apply(_ turn: TokenTurn, to record: CKRecord) {
         record["version"] = currentVersion as CKRecordValue
+        record["aggregationVersion"] = turn.aggregationVersion as CKRecordValue
         record["rootID"] = turn.rootID as CKRecordValue
         record["startedAt"] = turn.startedAt as CKRecordValue?
         record["updatedAt"] = turn.updatedAt as CKRecordValue
@@ -224,31 +251,37 @@ actor TokenSync {
         record["usage"] = turn.usage.flatMap { try? JSONLines.stableEncoder.encode($0) } as CKRecordValue?
     }
 
-    static func turn(from record: CKRecord) -> TokenTurn? {
-        guard record.recordType == recordType, (record["version"] as? NSNumber)?.intValue == currentVersion,
-              let rootID = record["rootID"] as? String,
-              let updatedAt = record["updatedAt"] as? Date,
-              let generationID = record["generationID"] as? String,
-              let ancestors = record["ancestorIDs"] as? [String],
-              let checkpointData = record["checkpoint"] as? Data,
-              let checkpoint = try? JSONDecoder().decode([String: TokenObservationCheckpoint].self, from: checkpointData),
-              checkpoint.values.allSatisfy({ $0.sequence > 0 && $0.usage.isValid }),
-              let hasConflict = record["hasConflict"] as? NSNumber else { return nil }
+    static func turn(from record: CKRecord) throws -> TokenTurn? {
+        guard record.recordType == recordType else { return nil }
+        try StorageVersion.require((record["version"] as? NSNumber)?.intValue ?? -1, current: currentVersion, name: "CloudTokens")
+        try AggregationVersion.require((record["aggregationVersion"] as? NSNumber)?.intValue ?? -1, current: AggregationVersion.tokens, name: "Tokens")
+        guard
+            let rootID = record["rootID"] as? String,
+            let updatedAt = record["updatedAt"] as? Date,
+            let generationID = record["generationID"] as? String,
+            let ancestors = record["ancestorIDs"] as? [String],
+            let checkpointData = record["checkpoint"] as? Data,
+            let checkpoint = try? JSONDecoder().decode([String: TokenObservationCheckpoint].self, from: checkpointData),
+            checkpoint.values.allSatisfy({ $0.sequence > 0 && $0.usage.isValid }),
+            let hasConflict = record["hasConflict"] as? NSNumber else { throw StorageCompatibilityError.incompleteSource }
         let id = record.recordID.recordName
-        guard isHash(id), isHash(rootID) else { return nil }
+        guard isHash(id), isHash(rootID) else { throw StorageCompatibilityError.incompleteSource }
         var usage: TokenUsage?
         if let value = record["usage"] {
-            guard let data = value as? Data, let decoded = try? JSONDecoder().decode(TokenUsage.self, from: data), decoded.isValid else { return nil }
+            guard let data = value as? Data, let decoded = try? JSONDecoder().decode(TokenUsage.self, from: data),
+                  decoded.isValid else { throw StorageCompatibilityError.incompleteSource }
             usage = decoded
         }
+        guard usage == nil || !checkpoint.isEmpty else { throw StorageCompatibilityError.incompleteSource }
         if let rebuiltAt = record["rebuiltAt"], !(rebuiltAt is Date) {
-            return nil
+            throw StorageCompatibilityError.incompleteSource
         }
         return TokenTurn(
             id: id, rootID: rootID, startedAt: record["startedAt"] as? Date, updatedAt: updatedAt,
             usage: usage, rebuiltAt: record["rebuiltAt"] as? Date,
             generationID: generationID, ancestorIDs: Set(ancestors),
-            checkpoint: checkpoint, hasConflict: hasConflict.boolValue
+            checkpoint: checkpoint, hasConflict: hasConflict.boolValue,
+            aggregationVersion: (record["aggregationVersion"] as? NSNumber)?.intValue ?? -1
         )
     }
 
@@ -266,6 +299,18 @@ private nonisolated struct TokenSyncCache: Codable, Equatable {
     let salt: Data
     var turns: [String: TokenTurn] = [:]
     var cursor: Data?
+
+    @discardableResult
+    mutating func prune(now: Date = Date()) -> Bool {
+        let cutoff = HistoryStorage.retentionCutoffDate(today: now)
+        let roots = Set(turns.values.filter { $0.updatedAt >= cutoff }.map(\.rootID))
+        let retained = turns.filter { $0.value.updatedAt >= cutoff || roots.contains($0.key) }
+        guard retained.count != turns.count else { return false }
+        turns = retained
+        // 本地先过期, 云端删除仍可能失败. 下次完整拉取让过期记录重新进入删除流程
+        cursor = nil
+        return true
+    }
 }
 
 private nonisolated enum TokenSyncError: Error {

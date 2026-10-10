@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 /// 设置窗口根视图, 按通用、高级和关于分页汇总设置与版本信息
@@ -83,6 +84,7 @@ struct AppSettingsView: View {
             refreshStatusRows()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            loginItemSettings.refresh()
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
             mainPanelSettings.refresh()
@@ -91,6 +93,7 @@ struct AppSettingsView: View {
             refreshStatusRows()
         }
         .onReceive(NotificationCenter.default.publisher(for: .settingsWindowDidOpen)) { _ in
+            loginItemSettings.refresh()
             selectedRebuildRange = nil
             isShowingRebuildConfirmation = false
             helperFeatureConfirmation = nil
@@ -255,27 +258,23 @@ private extension AppSettingsView {
     }
 
     var generalSettingsPage: some View {
-        VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
-            VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
-                mainPanelLayoutRow
-                LiquidGlassDivider()
-                notificationRow
-                LiquidGlassDivider()
-                MainPanelAnimationsSettingsRow(settings: mainPanelSettings)
-                LiquidGlassDivider()
-                launchAtLoginRow
-                LiquidGlassDivider()
-                automaticUpdateCheckRow
-                LiquidGlassDivider()
-                menuBarQuotaRow
-                LiquidGlassDivider()
-                hotKeyRow
-            }
-            .padding(Metrics.panelPadding)
-            .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
-
-            settingsErrorPanel
+        VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
+            mainPanelLayoutRow
+            LiquidGlassDivider()
+            notificationRow
+            LiquidGlassDivider()
+            MainPanelAnimationsSettingsRow(settings: mainPanelSettings)
+            LiquidGlassDivider()
+            launchAtLoginRow
+            LiquidGlassDivider()
+            automaticUpdateCheckRow
+            LiquidGlassDivider()
+            menuBarQuotaRow
+            LiquidGlassDivider()
+            hotKeyRow
         }
+        .padding(Metrics.panelPadding)
+        .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
     }
 
     var advancedSettingsPage: some View {
@@ -326,14 +325,25 @@ private extension AppSettingsView {
     // MARK: - 通用页各行
 
     var launchAtLoginRow: some View {
-        SettingsToggleRow(
-            icon: "power",
-            title: "settings.general.launch-at-login",
-            isOn: Binding(
-                get: { loginItemSettings.isEnabled },
-                set: { loginItemSettings.setEnabled($0) }
+        VStack(alignment: .leading, spacing: 4) {
+            SettingsToggleRow(
+                icon: "power",
+                title: "settings.general.launch-at-login",
+                isOn: Binding(
+                    get: { loginItemSettings.isEnabled },
+                    set: { loginItemSettings.setEnabled($0) }
+                )
             )
-        )
+
+            if loginItemSettings.requiresApproval {
+                settingsStatusCaptionRow(SettingsStatusCaption(
+                    message: String(localized: "settings.general.launch-at-login-authorization-required"),
+                    showsSystemSettingsButton: true
+                ))
+            } else if let message = loginItemSettings.errorMessage {
+                SettingsCaptionMessageRow(message: message)
+            }
+        }
     }
 
     var automaticUpdateCheckRow: some View {
@@ -577,7 +587,7 @@ private extension AppSettingsView {
 
                 if caption.showsSystemSettingsButton {
                     Button("common.action.open-system-settings") {
-                        keepAliveController.openSystemSettings()
+                        SMAppService.openSystemSettingsLoginItems()
                     }
                     .controlSize(.small)
                     .fixedSize()
@@ -830,7 +840,7 @@ private extension AppSettingsView {
         if !summary.failedRequestDateKeys.isEmpty {
             message += String(localized: "history.rebuild.summary.request-failed")
         }
-        if summary.isSyncReplacementPending {
+        if summary.isSyncPending {
             message += String(localized: "history.rebuild.summary.cloud-replacement-pending")
         }
 
@@ -929,7 +939,6 @@ private extension AppSettingsView {
             connectionInfo: statusViewModel.codexConnectionInfo,
             isReconnecting: statusViewModel.isReconnecting,
             isBusy: statusViewModel.isRefreshing || statusViewModel.isReconnecting || codexVersions.isRefreshing,
-            errorMessage: statusViewModel.connectionErrorMessage,
             onReconnect: {
                 Task { @MainActor in
                     await statusViewModel.reconnectCodex()
@@ -964,19 +973,6 @@ private extension AppSettingsView {
         // 版本检测较慢且内部会合并并发请求; 连接信息只是缓存读取
         codexVersions.refresh()
         statusViewModel.refreshCodexConnectionInfo()
-    }
-
-    @ViewBuilder
-    var settingsErrorPanel: some View {
-        if let message = loginItemSettings.errorMessage {
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.red)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(Metrics.panelPadding)
-                .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
-        }
     }
 
     var checkUpdateButton: some View {

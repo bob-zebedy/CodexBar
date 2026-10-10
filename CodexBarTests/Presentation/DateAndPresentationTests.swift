@@ -53,17 +53,15 @@ struct DateAndPresentationTests {
         let today = try #require(CodexDateFormat.dayDate(from: "2026-09-15"))
         let summary = try TestFixtures.decode(UsageSummary.self, "{}")
         let usage = CodexUsageSnapshot(summary: summary, dailyBuckets: [])
-        let grid = UsageHeatmapDay.grid(usage: usage, history: .empty, showsActivity: true, columnCount: 2, today: today).compactMap(\.self)
+        let grid = UsageHeatmapDay.grid(usage: usage, history: .empty, columnCount: 2, today: today).compactMap(\.self)
         #expect(grid.last?.tokenState == .pending)
         #expect(grid.first?.tokenState == .available(0))
-        let unavailable = UsageHeatmapDay.grid(usage: nil, history: .empty, showsActivity: true, columnCount: 2, today: today).compactMap(\.self)
+        let unavailable = UsageHeatmapDay.grid(usage: nil, history: .empty, columnCount: 2, today: today).compactMap(\.self)
         #expect(unavailable.allSatisfy { $0.tokenState == .unavailable })
-        let hiddenToday = UsageHeatmapDay.grid(usage: usage, history: .empty, showsActivity: false, columnCount: 2, today: today).compactMap(\.self)
-        #expect(!hiddenToday.contains { $0.startDate == "2026-09-15" })
     }
 
     @Test func statusItemTerminalExpiresAtTenSecondsWhileCardKeepsHistory() {
-        let completion = ActivityCompletion(id: UUID(), isAnonymous: false, projectName: nil, modelName: nil, effort: nil, completedAt: TestFixtures.now, duration: 30)
+        let completion = ActivityCompletion(id: UUID(), projectName: nil, modelName: nil, effort: nil, completedAt: TestFixtures.now, duration: 30)
         let snapshot = ActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])
         #expect(snapshot.statusItemActivity(at: TestFixtures.now.addingTimeInterval(9.999)) == .completed(completion))
         #expect(snapshot.statusItemActivity(at: TestFixtures.now.addingTimeInterval(10)) == .idle)
@@ -72,27 +70,27 @@ struct DateAndPresentationTests {
         #expect(!snapshot.hasActiveTasks)
     }
 
-    @Test func waitingTaskTakesPriorityAndAnonymousTasksRemainVisible() {
-        let waiting = task(isAnonymous: true)
-        let running = task(isAnonymous: false)
+    @Test func waitingTaskTakesPriorityOverRunningTask() {
+        let waiting = task()
+        let running = task()
         let snapshot = ActivitySnapshot(waitingTasks: [waiting], runningTasks: [running], recentCompletions: [], recentTerminations: [])
         #expect(snapshot.primaryActivity == .waiting(waiting))
         #expect(snapshot.activeCount == 2)
         #expect(snapshot.statusItemActivityExpiration == nil)
     }
 
-    private func task(isAnonymous: Bool) -> ActivityTaskSnapshot {
+    private func task() -> ActivityTaskSnapshot {
         ActivityTaskSnapshot(
-            id: UUID(), isAnonymous: isAnonymous,
-            projectName: nil, modelName: nil, effort: nil, toolName: nil,
+            id: UUID(),
+            projectName: nil, modelName: nil, effort: nil,
             startedAt: TestFixtures.now, stateChangedAt: TestFixtures.now,
-            showsPreciseDuration: !isAnonymous, activeSubagentCount: nil
+            activeSubagentCount: nil
         )
     }
 
     @Test(arguments: [false, true])
     func accountFailureKeepsLiveTaskIcon(waiting: Bool) {
-        let task = task(isAnonymous: false)
+        let task = task()
         let activity = ActivitySnapshot(
             waitingTasks: waiting ? [task] : [], runningTasks: waiting ? [] : [task],
             recentCompletions: [], recentTerminations: []

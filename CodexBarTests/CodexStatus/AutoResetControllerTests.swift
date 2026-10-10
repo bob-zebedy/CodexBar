@@ -11,12 +11,12 @@ struct AutoResetControllerTests {
         fixture.state.error = CodexStatusError.serverTimeout
         fixture.controller.start()
         // 首次读取尚无目标, 用快照发现凭证后再计入业务尝试
-        try fixture.snapshots.send(fixture.snapshot())
+        try fixture.outcomes.send(.data(fixture.snapshot()))
         for (index, offset) in [0.0, 15, 45, 105, 225].enumerated() {
             fixture.clock.advance(to: fixture.start.addingTimeInterval(offset))
             try await eventually { fixture.controller.scheduledDate != nil && fixture.state.readCount >= index + 1 }
             for _ in 0 ..< 10 {
-                try fixture.snapshots.send(fixture.snapshot())
+                try fixture.outcomes.send(.data(fixture.snapshot()))
             }
             if index < 4 {
                 #expect(fixture.controller.scheduledDate == fixture.start.addingTimeInterval([15, 45, 105, 225][index]))
@@ -87,7 +87,7 @@ struct AutoResetControllerTests {
         #expect(fixture.controller.scheduledDate == nil)
         #expect(fixture.controller.wakeDate == nil)
         for _ in 0 ..< 10 {
-            try fixture.snapshots.send(fixture.snapshot())
+            try fixture.outcomes.send(.data(fixture.snapshot()))
         }
         await settle()
         #expect(fixture.state.consumeCount == 2)
@@ -108,7 +108,7 @@ struct AutoResetControllerTests {
         defer { fixture.stop() }
         let gate = ResetGate<AutoResetRead>()
         fixture.state.readOverride = { await gate.wait() }
-        try fixture.snapshots.send(fixture.snapshot())
+        try fixture.outcomes.send(.data(fixture.snapshot()))
         fixture.controller.start()
         try await eventually { fixture.state.readCount == 1 }
         fixture.controller.handleSleep()
@@ -127,7 +127,7 @@ struct AutoResetControllerTests {
         try await eventually { fixture.controller.scheduledDate != nil }
         fixture.controller.prepareForTermination()
         fixture.clock.advance(to: fixture.start.addingTimeInterval(400))
-        try fixture.snapshots.send(fixture.snapshot())
+        try fixture.outcomes.send(.data(fixture.snapshot()))
         await settle()
         #expect(fixture.state.consumeCount == 1)
         #expect(fixture.controller.wakeDate == nil)
@@ -135,21 +135,79 @@ struct AutoResetControllerTests {
         try await eventually { fixture.state.consumeCount == 2 && fixture.state.activeAssertions.isEmpty }
     }
 
-    @Test func changedAccountRejectsLateOldRead() async throws {
+    @Test(arguments: [false, true])
+    func changedAccountRejectsLateOldRead(stale: Bool) async throws {
         let fixture = try ResetFixture()
         defer { fixture.stop() }
         let gate = ResetGate<AutoResetRead>()
         let old = fixture.state.read
-        try fixture.snapshots.send(fixture.snapshot())
+        try fixture.outcomes.send(.data(fixture.snapshot()))
         fixture.state.readOverride = { await gate.wait() }
         fixture.controller.start()
         try await eventually { fixture.state.readCount == 1 }
         fixture.state.account = CodexAccount(type: "chatgpt", email: "other@example.com", planType: "plus")
         fixture.state.readOverride = nil
-        try fixture.snapshots.send(fixture.snapshot())
+        try fixture.outcomes.send(.data(fixture.snapshot(isStale: stale)))
         gate.release(old)
         try await eventually { fixture.state.consumeCount == 1 && fixture.state.activeAssertions.isEmpty }
         #expect(fixture.state.consumedAccounts == [AutoResetIdentity.accountIdentity(for: fixture.state.account)])
+    }
+
+    @Test(arguments: [false, true])
+    func unavailableAccountClearsScheduleAndIgnoresLateRead(signedOut: Bool) async throws {
+        let fixture = try ResetFixture()
+        defer { fixture.stop() }
+        let gate = ResetGate<AutoResetRead>()
+        try fixture.outcomes.send(.data(fixture.snapshot()))
+        fixture.state.readOverride = { await gate.wait() }
+        fixture.controller.start()
+        try await eventually { fixture.state.readCount == 1 }
+        #expect(fixture.controller.wakeDate != nil)
+        fixture.outcomes.send(signedOut ? .notLoggedIn : .authenticationRequired)
+        #expect(fixture.controller.wakeDate == nil)
+        #expect(fixture.controller.scheduledDate == nil)
+        fixture.controller.handleWake()
+        gate.release(fixture.state.read)
+        try await eventually { fixture.state.activeAssertions.isEmpty }
+        #expect(fixture.state.consumeCount == 0)
+        #expect(fixture.controller.wakeDate == nil)
+        fixture.state.readOverride = nil
+        try fixture.outcomes.send(.data(fixture.snapshot()))
+        let retry = try #require(fixture.controller.scheduledDate)
+        fixture.clock.advance(to: retry)
+        try await eventually { fixture.state.consumeCount == 1 }
+    }
+
+    @Test func failedAccountReadPreservesExistingPlan() async throws {
+        let fixture = try ResetFixture()
+        defer { fixture.stop() }
+        fixture.controller.start()
+        try await eventually { fixture.controller.scheduledDate != nil }
+        let wake = fixture.controller.wakeDate
+        let scheduled = fixture.controller.scheduledDate
+        fixture.outcomes.send(.initializationFailed)
+        await settle()
+        #expect(fixture.controller.wakeDate == wake)
+        #expect(fixture.controller.scheduledDate == scheduled)
+    }
+
+    @Test func confirmedConsumptionAfterSignOutCannotRecreatePlanOrBeConsumedAgain() async throws {
+        let fixture = try ResetFixture()
+        defer { fixture.stop() }
+        let consume = ResetGate<ResetCreditConsumeResult>()
+        fixture.state.consumeOverride = { await consume.wait() }
+        fixture.controller.start()
+        try await eventually { fixture.state.consumeCount == 1 }
+        fixture.outcomes.send(.notLoggedIn)
+        consume.release(ResetCreditConsumeResult(outcome: .reset, refreshedRead: fixture.state.read))
+        try await eventually { fixture.state.activeAssertions.isEmpty }
+        #expect(fixture.state.successes == 1)
+        #expect(fixture.controller.wakeDate == nil)
+        fixture.state.consumeOverride = nil
+        try fixture.outcomes.send(.data(fixture.snapshot()))
+        fixture.controller.handleWake()
+        try await eventually { fixture.state.readCount >= 2 && fixture.state.activeAssertions.isEmpty }
+        #expect(fixture.state.consumeCount == 1)
     }
 }
 
@@ -255,7 +313,7 @@ private final class ResetFixture {
     let preferences: TestPreferences
     let settings: AutoResetSettings
     let controller: AutoResetController
-    let snapshots = CurrentValueSubject<CodexQuotaSnapshot?, Never>(nil)
+    let outcomes = CurrentValueSubject<CodexFetchOutcome, Never>(.initializationFailed)
     let start = Date(timeIntervalSince1970: 1800000000)
     let clock: ResetClock
     let state: ResetState
@@ -272,7 +330,7 @@ private final class ResetFixture {
         state = ResetState(expiration: start.addingTimeInterval(900))
         let state = state
         let clock = clock
-        controller = AutoResetController(settings: settings, snapshots: snapshots.eraseToAnyPublisher(), dependencies: .init(
+        controller = AutoResetController(settings: settings, outcomes: outcomes.eraseToAnyPublisher(), dependencies: .init(
             read: { _ in
                 state.readCount += 1
                 if let handler = state.readOverride {
@@ -297,13 +355,13 @@ private final class ResetFixture {
         ))
     }
 
-    func snapshot() throws -> CodexQuotaSnapshot {
+    func snapshot(isStale: Bool = false) throws -> CodexQuotaSnapshot {
         let response = try TestFixtures.decode(AccountRateLimitsResponse.self, """
         {"rateLimits":{},"rateLimitResetCredits":{"availableCount":1,"credits":[
           {"id":"test-credit","status":"available","resetType":"codexRateLimits","expiresAt":\(Int(expiration.timeIntervalSince1970))}
         ]}}
         """)
-        return try CodexQuotaSnapshot(accountResponse: AccountReadResponse(account: state.account), rateLimitsResponse: response)
+        return try CodexQuotaSnapshot(accountResponse: AccountReadResponse(account: state.account), rateLimitsResponse: response, isRateLimitsStale: isStale)
     }
 
     func stop() {

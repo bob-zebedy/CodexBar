@@ -93,22 +93,22 @@ nonisolated struct NotificationContent: Equatable {
         )
     }
 
-    static func taskWaiting(project: String?, toolName: String?) -> NotificationContent {
-        let body = switch (project, toolName) {
-        case let (project?, toolName?):
+    static func taskWaiting(project: String?, actionText: String?) -> NotificationContent {
+        let body = switch (project, actionText) {
+        case let (project?, actionText?):
             String(
                 localized: "notification.task-waiting.body.project-tool",
-                defaultValue: "\(project)\(toolName)"
+                defaultValue: "\(project)\(actionText)"
             )
         case let (project?, nil):
             String(
                 localized: "notification.task-waiting.body.project",
                 defaultValue: "\(project)"
             )
-        case let (nil, toolName?):
+        case let (nil, actionText?):
             String(
                 localized: "notification.task-waiting.body.codex-tool",
-                defaultValue: "\(toolName)"
+                defaultValue: "\(actionText)"
             )
         case (nil, nil):
             String(localized: "notification.task-waiting.body.codex")

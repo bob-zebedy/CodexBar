@@ -1,26 +1,5 @@
 import Foundation
 
-/// 白名单协议元数据, 原始线程身份与业务统计归属分开保存
-nonisolated struct AppServerEventSource: Codable, Equatable {
-    let method: String
-    let threadID: String
-    var turnID: String?
-    var parentThreadID: String?
-    var rootThreadID: String?
-    var rootTurnID: String?
-    var itemID: String?
-    var itemType: String?
-    var itemStatus: String?
-    var agentThreadID: String?
-    var itemKind: String?
-    var requestID: String?
-    var reviewID: String?
-    var turnStatus: String?
-    var turnStartedAt: Date?
-    var turnCompletedAt: Date?
-    var durationMs: Double?
-}
-
 /// 统一日志的版本与类型边界, Token 快照不会作为活动进入计数
 nonisolated struct AppServerEventRecord: Codable, Equatable {
     enum Kind: String, Codable { case activity, tokenSnapshot, tokenObservation }
@@ -29,7 +8,7 @@ nonisolated struct AppServerEventRecord: Codable, Equatable {
     let version: Int
     let kind: Kind
     let recordedAt: Date
-    let source: AppServerEventSource?
+    let context: ActivityContext?
     private let activityPayload: ActivityRecord?
     let token: TokenTurn?
     let observation: TokenObservation?
@@ -46,7 +25,7 @@ nonisolated struct AppServerEventRecord: Codable, Equatable {
 
     var activity: ActivityRecord? {
         guard var activity = activityPayload else { return nil }
-        activity.source = source
+        activity.context = context
         return activity
     }
 
@@ -54,19 +33,19 @@ nonisolated struct AppServerEventRecord: Codable, Equatable {
         version = Self.currentVersion
         kind = .activity
         self.recordedAt = recordedAt
-        source = activity.source
+        context = activity.context
         var payload = activity
-        payload.source = nil
+        payload.context = nil
         activityPayload = payload
         token = nil
         observation = nil
     }
 
-    init(token: TokenTurn, source: AppServerEventSource? = nil, recordedAt: Date) {
+    init(token: TokenTurn, context: ActivityContext? = nil, recordedAt: Date) {
         version = Self.currentVersion
         kind = .tokenSnapshot
         self.recordedAt = recordedAt
-        self.source = source
+        self.context = context
         activityPayload = nil
         self.token = token
         observation = nil
@@ -76,7 +55,7 @@ nonisolated struct AppServerEventRecord: Codable, Equatable {
         version = Self.currentVersion
         kind = .tokenObservation
         self.recordedAt = recordedAt
-        source = nil
+        context = nil
         activityPayload = nil
         token = nil
         self.observation = observation
@@ -90,7 +69,7 @@ nonisolated struct AppServerEventRecord: Codable, Equatable {
         }
         kind = try container.decode(Kind.self, forKey: .kind)
         recordedAt = try container.decode(Date.self, forKey: .recordedAt)
-        source = try container.decodeIfPresent(AppServerEventSource.self, forKey: .source)
+        context = try container.decodeIfPresent(ActivityContext.self, forKey: .context)
         observation = try container.decodeIfPresent(TokenObservation.self, forKey: .observation)
         switch kind {
         case .activity:
@@ -137,7 +116,7 @@ nonisolated struct AppServerEventRecord: Codable, Equatable {
         case version
         case kind
         case recordedAt
-        case source
+        case context
         case activityPayload
         case token
         case observation

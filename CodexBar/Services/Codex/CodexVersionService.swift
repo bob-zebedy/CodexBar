@@ -202,14 +202,10 @@ actor CodexVersionService {
     }
 }
 
-/// CodexBar 各能力依赖的 app-server 最低版本
-nonisolated enum CodexMinimumVersion {
-    static let account = "0.157.0"
-    static let activity = "0.157.0"
-}
-
 /// 从 ` codex --version` 的输出中提取用户可读版本号
 nonisolated enum CodexVersionReader {
+    static let minimumAppServerVersion = "0.162.0"
+
     static func displayVersion(from output: String) -> String {
         output
             .split(whereSeparator: \.isWhitespace)

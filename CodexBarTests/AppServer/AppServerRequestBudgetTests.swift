@@ -63,7 +63,7 @@ struct AppServerRequestBudgetTests {
     @Test func expiredCreditIsRejectedBeforeConsumeEvenWithRemainingRequestBudget() async throws {
         let server = try SharedServerFixture { peer in
             let initialize = try peer.readMessage()
-            try peer.reply(to: initialize, result: ["userAgent": "codex/0.157.0"])
+            try peer.reply(to: initialize, result: ["userAgent": "codex/0.162.0"])
             #expect(try peer.readMessage()["method"] as? String == "initialized")
             for _ in 0 ..< 2 {
                 let account = try peer.readMessage()

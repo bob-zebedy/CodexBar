@@ -7,6 +7,7 @@ extension ActivityMonitor {
     private var canEvaluateProtection: Bool {
         isStarted
             && isProtectionEnabled
+            && isProtectionStoreAvailable
             && activityReader != nil
             && !isBootstrapping
             && !isProtectionRecoveryInProgress
@@ -31,6 +32,7 @@ extension ActivityMonitor {
             refreshSnapshot(now: now)
             return
         }
+        loadProtectionState()
         reconcileProtection(now: now, sendsNotification: false)
     }
 
@@ -75,8 +77,7 @@ extension ActivityMonitor {
 
         for (key, var task) in tasks {
             guard task.hasFreshLifecycle(at: now),
-                  let identifier = key.protectionIdentifier,
-                  let record = protectionRecords[identifier] else {
+                  let record = protectionRecords[key.protectionIdentifier] else {
                 continue
             }
 
@@ -112,8 +113,7 @@ extension ActivityMonitor {
 
         let threshold = protectionSettings.inactivityDuration.timeInterval
         let restorableKeys = tasks.compactMap { key, task -> ActivityTaskKey? in
-            guard !key.isAnonymous,
-                  task.state == .suppressed,
+            guard task.state == .suppressed,
                   task.protectionReferenceAt.addingTimeInterval(threshold) > now else {
                 return nil
             }
@@ -124,8 +124,7 @@ extension ActivityMonitor {
         }
 
         let overdueKeys = tasks.compactMap { key, task -> ActivityTaskKey? in
-            guard !key.isAnonymous,
-                  task.state == .running,
+            guard task.state == .running,
                   let deadline = task.protectionDeadline(at: now, inactivityDuration: threshold),
                   deadline <= now else {
                 return nil
@@ -146,8 +145,7 @@ extension ActivityMonitor {
 
         let threshold = protectionSettings.inactivityDuration.timeInterval
         let nextDeadline = tasks.compactMap { key, task -> Date? in
-            guard !key.isAnonymous,
-                  task.state == .running,
+            guard task.state == .running,
                   protectionAttempts[key] == nil else {
                 return nil
             }
@@ -191,8 +189,7 @@ extension ActivityMonitor {
 
         let threshold = protectionSettings.inactivityDuration.timeInterval
         let candidates = tasks.compactMap { key, task -> ProtectionCandidate? in
-            guard !key.isAnonymous,
-                  task.state == .running,
+            guard task.state == .running,
                   protectionAttempts[key] == nil,
                   let deadline = task.protectionDeadline(at: now, inactivityDuration: threshold),
                   deadline <= now else {
@@ -313,8 +310,7 @@ extension ActivityMonitor {
         markedAt: Date
     ) {
         cancelProtectionAttempt(for: key)
-        guard !key.isAnonymous,
-              var task = tasks[key],
+        guard var task = tasks[key],
               task.state == .running else {
             return
         }
@@ -334,8 +330,7 @@ extension ActivityMonitor {
         _ key: ActivityTaskKey,
         now: Date
     ) {
-        guard !key.isAnonymous,
-              canEvaluateProtection,
+        guard canEvaluateProtection,
               let task = tasks[key],
               task.state == .running,
               let deadline = task.protectionDeadline(at: now, inactivityDuration: protectionSettings.inactivityDuration.timeInterval),
@@ -391,8 +386,7 @@ extension ActivityMonitor {
         _ candidate: ProtectionCandidate,
         now: Date
     ) -> Bool {
-        guard !candidate.key.isAnonymous,
-              canEvaluateProtection,
+        guard canEvaluateProtection,
               protectionSettings.inactivityDuration == candidate.inactivityDuration,
               let task = tasks[candidate.key],
               task.displayID == candidate.taskID,
@@ -423,8 +417,7 @@ extension ActivityMonitor {
         for key: ActivityTaskKey,
         progressAt: Date
     ) -> Bool {
-        guard let identifier = key.protectionIdentifier,
-              let record = protectionRecords[identifier] else {
+        guard let record = protectionRecords[key.protectionIdentifier] else {
             return true
         }
         return progressAt > record.lastProgressAt
@@ -436,11 +429,11 @@ extension ActivityMonitor {
         reason: ProtectionClearReason
     ) {
         cancelProtectionAttempt(for: key)
-        if let identifier = key.protectionIdentifier,
-           let record = protectionRecords.removeValue(forKey: identifier) {
+        let identifier = key.protectionIdentifier
+        if let record = protectionRecords.removeValue(forKey: identifier) {
             let matchingMarkedAt: Date? = switch reason {
             case .progress, .thresholdChange: record.markedAt
-            case .terminal, .retention: nil
+            case .terminal: nil
             }
             enqueueProtectionPersistence(
                 removals: [
@@ -486,8 +479,8 @@ extension ActivityMonitor {
         attempt.timeoutTask.cancel()
         protectionAttempts.removeValue(forKey: key)
 
-        if let identifier = key.protectionIdentifier,
-           let record = protectionRecords[identifier],
+        let identifier = key.protectionIdentifier
+        if let record = protectionRecords[identifier],
            record.markedAt == attempt.markedAt {
             protectionRecords.removeValue(forKey: identifier)
             enqueueProtectionPersistence(
@@ -534,14 +527,11 @@ extension ActivityMonitor {
         lastProgressAt: Date,
         markedAt: Date
     ) {
-        guard let taskIdentifier = key.protectionIdentifier else {
-            return
-        }
         let record = ProtectionRecord(
-            taskIdentifier: taskIdentifier,
+            taskIdentifier: key.protectionIdentifier,
             lastProgressAt: lastProgressAt,
             markedAt: markedAt,
-            expiresAt: lastProgressAt.addingTimeInterval(Self.activityRetention)
+            expiresAt: lastProgressAt.addingTimeInterval(ActivityRetention.window)
         )
         protectionRecords[record.taskIdentifier] = record
         enqueueProtectionPersistence(upserts: [record])

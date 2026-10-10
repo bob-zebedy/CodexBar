@@ -16,14 +16,14 @@ struct ActivityTokenUsageTests {
     }
 
     @Test(arguments: [true, false])
-    func rootAndMultipleChildTurnsAreSummedOnce(explicitRootSession: Bool) throws {
-        let root = reference("session-a", "turn-a")
+    func rootAndMultipleChildTurnsAreSummedOnce(explicitRootThread: Bool) throws {
+        let root = reference("thread-a", "turn-a")
         let first = reference("child-a", "child-turn-a")
         let second = reference("child-a", "child-turn-b")
         let third = reference("child-b", "child-turn-c")
         let request = request(root: root, children: [first, second, third, first])
         var rootState = state(root, input: 100)
-        rootState.rootSessionID = explicitRootSession ? root.threadID : nil
+        rootState.rootThreadID = explicitRootThread ? root.threadID : nil
         let states = [rootState, state(first, input: 200), state(second, input: 300), state(third, input: 400)]
         let usage = try #require(request.usage(from: states))
         #expect(usage.inputTokens == 1000)
@@ -34,14 +34,14 @@ struct ActivityTokenUsageTests {
 
     @Test(arguments: ["missing", "unavailable", "other-root", "other-session", "running-child", "missing-usage"])
     func incompleteOrUnrelatedChildPreventsPartialTotal(scenario: String) {
-        let root = reference("session-a", "turn-a")
+        let root = reference("thread-a", "turn-a")
         let child = reference("child-a", "child-turn")
         let request = request(root: root, children: [child])
         var childState = state(child)
         switch scenario {
         case "unavailable": childState.readStatus = .unavailable
         case "other-root": childState.rootTurnID = "other-root"
-        case "other-session": childState.rootSessionID = "other-session"
+        case "other-session": childState.rootThreadID = "other-session"
         case "missing-usage": childState.tokenUsage = nil
         case "running-child": childState = state(child, terminal: nil)
         default: break
@@ -51,15 +51,15 @@ struct ActivityTokenUsageTests {
     }
 
     @Test func knownAgentWithoutResolvedTurnPreventsPartialTotal() {
-        let root = reference("session-a", "turn-a")
+        let root = reference("thread-a", "turn-a")
         let request = TaskTokenRequest(
-            root: root, expectedAgentIDs: ["unknown-child"], references: [root], deadline: TestFixtures.now
+            root: root, expectedAgentIDs: ["unknown-child"], references: [root]
         )
         #expect(request.usage(from: [state(root)]) == nil)
     }
 
     @Test func inProgressUsageIncludesAvailableRunningAndCompletedChildren() throws {
-        let root = reference("session-a", "turn-a")
+        let root = reference("thread-a", "turn-a")
         let running = reference("child-a", "child-turn-a")
         let completed = reference("child-a", "child-turn-b")
         let unknown = reference("child-b", "child-turn-c")
@@ -74,13 +74,13 @@ struct ActivityTokenUsageTests {
 
     @Test(arguments: ["other-root", "other-session", "other-thread", "unavailable", "missing-usage"])
     func inProgressUsageDoesNotIncludeUnverifiedChildren(scenario: String) {
-        let root = reference("session-a", "turn-a")
+        let root = reference("thread-a", "turn-a")
         let child = reference("child-a", "child-turn")
         let request = request(root: root, children: [child])
         var childState = state(child, terminal: nil)
         switch scenario {
         case "other-root": childState.rootTurnID = "other-root"
-        case "other-session": childState.rootSessionID = "other-session"
+        case "other-session": childState.rootThreadID = "other-session"
         case "other-thread": childState = state(reference("other-thread", child.turnID), terminal: nil)
         case "unavailable": childState.readStatus = .unavailable
         default: childState.tokenUsage = nil
@@ -96,14 +96,14 @@ struct ActivityTokenUsageTests {
         defer { preferences.remove() }
         let monitor = try makeMonitor(directory: directory, preferences: preferences)
         let event = TestFixtures.event()
-        let key = ActivityTaskKey(event: event)
+        let key = try #require(ActivityTaskKey(event: event))
         monitor.tasks[key] = ActivityTask(
             displayID: UUID(), key: key, event: event, state: .running,
             startedAt: TestFixtures.now, progressGeneration: 1
         )
-        let root = reference("session-a", "turn-a")
+        let root = reference("thread-a", "turn-a")
         let child = reference("child-a", "child-turn")
-        monitor.subagentTurnLinks[child] = key
+        monitor.subagentTurnLinks[child] = (key, TestFixtures.now)
         #expect(Set(monitor.activeTokenUsageReferences()) == [root, child])
         #expect(monitor.tasks[key]?.snapshot.tokenUsage == nil)
         let initial = [state(root, terminal: nil)]
@@ -138,14 +138,14 @@ struct ActivityTokenUsageTests {
         defer { preferences.remove() }
         let monitor = try makeMonitor(directory: directory, preferences: preferences)
         let event = TestFixtures.event(turn: "turn-b")
-        let key = ActivityTaskKey(event: event)
+        let key = try #require(ActivityTaskKey(event: event))
         monitor.tasks[key] = ActivityTask(
             displayID: UUID(), key: key, event: event, state: .running,
             startedAt: TestFixtures.now, progressGeneration: 1
         )
-        #expect(!monitor.applyActiveTokenUsage([state(reference("session-a", "turn-a"))]))
+        #expect(!monitor.applyActiveTokenUsage([state(reference("thread-a", "turn-a"))]))
         #expect(monitor.tasks[key]?.tokenUsage == nil)
-        var current = state(reference("session-a", "turn-b"), terminal: nil)
+        var current = state(reference("thread-a", "turn-b"), terminal: nil)
         current.rootTurnID = "turn-b"
         #expect(monitor.applyActiveTokenUsage([current]))
         #expect(monitor.tasks[key]?.tokenUsage?.totalTokens == 110)
@@ -176,7 +176,7 @@ struct ActivityTokenUsageTests {
         defer { preferences.remove() }
         let monitor = try makeMonitor(directory: directory, preferences: preferences)
         let event = TestFixtures.event()
-        let key = ActivityTaskKey(event: event)
+        let key = try #require(ActivityTaskKey(event: event))
         let task = ActivityTask(
             displayID: UUID(), key: key, event: event, state: .running,
             startedAt: TestFixtures.now, progressGeneration: 1
@@ -187,19 +187,19 @@ struct ActivityTokenUsageTests {
             abortFallback: TestFixtures.now, into: &transitions
         )
         let completedID = try #require(monitor.completions.first?.id)
-        let otherEvent = TestFixtures.event(turn: "turn-b")
-        let otherKey = ActivityTaskKey(event: otherEvent)
+        let otherEvent = TestFixtures.event(.turnAborted, turn: "turn-b")
+        let otherKey = try #require(ActivityTaskKey(event: otherEvent))
         monitor.tasks[otherKey] = ActivityTask(
             displayID: UUID(), key: otherKey, event: otherEvent, state: .running,
             startedAt: TestFixtures.now, progressGeneration: 1
         )
-        monitor.interruptTask(from: otherEvent, source: .bootstrap)
+        monitor.finishTask(from: otherEvent, source: .bootstrap, into: &transitions)
         #expect(monitor.completions.first?.tokenUsage == nil)
         #expect(monitor.terminations.first?.tokenUsage == nil)
 
-        var stopped = state(reference("session-a", "turn-b"), input: 200, terminal: nil)
+        var stopped = state(reference("thread-a", "turn-b"), input: 200, terminal: nil)
         stopped.rootTurnID = "turn-b"
-        let states = [state(reference("session-a", "turn-a")), stopped]
+        let states = [state(reference("thread-a", "turn-a")), stopped]
         #expect(monitor.applyTerminalTokenUsage(states))
         #expect(monitor.completions.first?.tokenUsage?.totalTokens == 110)
         #expect(monitor.terminations.first?.tokenUsage?.totalTokens == 210)
@@ -209,12 +209,11 @@ struct ActivityTokenUsageTests {
         stopped.readStatus = .unavailable
         #expect(!monitor.applyTerminalTokenUsage([stopped]))
         #expect(monitor.terminations.first?.tokenUsage?.totalTokens == 210)
-        let queryTime = Date()
-        let terminalReferences = monitor.prepareTerminalTokenUsageReadBatch(now: queryTime)
+        let terminalReferences = monitor.terminalTokenUsageReferences()
         #expect(terminalReferences.count == 2)
-        #expect(monitor.prepareTerminalTokenUsageReadBatch(now: queryTime.addingTimeInterval(1)).isEmpty)
-        _ = monitor.prepareTerminalTokenUsageReadBatch(now: Date().addingTimeInterval(31))
-        #expect(monitor.terminalTokenUsageRequests.isEmpty)
+        let laterReferences = monitor.terminalTokenUsageReferences()
+        #expect(Set(laterReferences) == Set(terminalReferences))
+        #expect(monitor.terminalTokenUsageRequests.count == 2)
         #expect(monitor.completions.first?.tokenUsage?.totalTokens == 110)
         monitor.clearCollectedActivityState()
         #expect(monitor.completions.isEmpty)
@@ -227,18 +226,18 @@ struct ActivityTokenUsageTests {
         defer { preferences.remove() }
         let monitor = try makeMonitor(directory: directory, preferences: preferences)
         let first = TestFixtures.event()
-        let firstKey = ActivityTaskKey(event: first)
+        let firstKey = try #require(ActivityTaskKey(event: first))
         let task = ActivityTask(
             displayID: UUID(), key: firstKey, event: first, state: .running,
             startedAt: TestFixtures.now, progressGeneration: 1
         )
         var transitions: [ActivityTransition] = []
         monitor.resolveTerminal(.completed(at: TestFixtures.now, duration: 1), task: task, key: firstKey, abortFallback: TestFixtures.now, into: &transitions)
-        let firstState = state(reference("session-a", "turn-a"))
+        let firstState = state(reference("thread-a", "turn-a"))
         _ = monitor.applyTerminalTokenUsage([firstState])
         #expect(monitor.completions.first?.tokenUsage?.totalTokens == 110)
         let second = TestFixtures.event(at: TestFixtures.now.addingTimeInterval(2), turn: "turn-b")
-        let secondKey = ActivityTaskKey(event: second)
+        let secondKey = try #require(ActivityTaskKey(event: second))
         monitor.tasks[secondKey] = ActivityTask(
             displayID: UUID(), key: secondKey, event: second, state: .running,
             startedAt: second.timestamp, progressGeneration: 2
@@ -248,7 +247,7 @@ struct ActivityTokenUsageTests {
         _ = monitor.applyTerminalTokenUsage([firstState])
         #expect(monitor.completions.first?.tokenUsage?.totalTokens == 110)
         let lateChild = reference("child-a", "child-turn-a")
-        monitor.subagentTurnLinks[lateChild] = firstKey
+        monitor.subagentTurnLinks[lateChild] = (firstKey, TestFixtures.now)
         #expect(!monitor.applyTerminalTokenUsage([firstState]))
         #expect(monitor.completions.first?.tokenUsage?.totalTokens == 110)
         #expect(monitor.applyTerminalTokenUsage([firstState, state(lateChild, input: 200)]))
@@ -256,7 +255,7 @@ struct ActivityTokenUsageTests {
         var unavailable = firstState
         unavailable.readStatus = .unavailable
         #expect(!monitor.applyTerminalTokenUsage([unavailable]))
-        _ = monitor.prepareTerminalTokenUsageReadBatch(now: Date().addingTimeInterval(31))
+        _ = monitor.terminalTokenUsageReferences()
         #expect(monitor.completions.first?.tokenUsage?.totalTokens == 320)
     }
 
@@ -275,14 +274,14 @@ struct ActivityTokenUsageTests {
         #expect(monitor.canPublishActivityTransitions)
         for publishesEvents in [false, true] {
             let event = TestFixtures.event(at: now, turn: publishesEvents ? "live-turn" : "historical-turn")
-            let key = ActivityTaskKey(event: event)
+            let key = try #require(ActivityTaskKey(event: event))
             let task = ActivityTask(
                 displayID: UUID(), key: key, event: event, state: .running,
                 startedAt: now, progressGeneration: 1
             )
             var transitions: [ActivityTransition] = []
             monitor.resolveTerminal(
-                aborted ? .aborted(at: now) : .completed(at: now, duration: 1),
+                aborted ? .aborted(at: now, duration: nil) : .completed(at: now, duration: 1),
                 task: task, key: key, abortFallback: now, publishesEvents: publishesEvents, into: &transitions
             )
             #expect(transitions.isEmpty == (aborted || !publishesEvents))
@@ -290,7 +289,7 @@ struct ActivityTokenUsageTests {
             #expect(monitor.recentEndedDate(for: key, now: now) != nil)
             let presentationCount = monitor.pendingTerminalPresentationEvents.count
             monitor.resolveTerminal(
-                aborted ? .aborted(at: now) : .completed(at: now, duration: 1),
+                aborted ? .aborted(at: now, duration: nil) : .completed(at: now, duration: 1),
                 task: task, key: key, abortFallback: now, publishesEvents: true, into: &transitions
             )
             #expect(monitor.pendingTerminalPresentationEvents.count == presentationCount)
@@ -299,8 +298,8 @@ struct ActivityTokenUsageTests {
         #expect(monitor.terminalTokenUsageRequests.count == 2)
     }
 
-    @Test(arguments: [false, true], [false, true])
-    func liveTerminalPresentationPreservesAnonymousAndInterruptBehavior(interrupted: Bool, anonymous: Bool) throws {
+    @Test(arguments: [false, true])
+    func liveTerminalPresentationPreservesInterruptBehavior(interrupted: Bool) throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let preferences = try TestPreferences()
@@ -311,8 +310,8 @@ struct ActivityTokenUsageTests {
         let now = Date()
         monitor.sessionTransitionNotBefore = now.addingTimeInterval(-1)
         monitor.terminalPresentationNotBefore = now.addingTimeInterval(-1)
-        let event = TestFixtures.event(.turnAborted, at: now, session: anonymous ? nil : "session-a")
-        let key = ActivityTaskKey(event: event)
+        let event = TestFixtures.event(.turnAborted, at: now)
+        let key = try #require(ActivityTaskKey(event: event))
         let task = ActivityTask(
             displayID: UUID(), key: key, event: event, state: .running,
             startedAt: now, progressGeneration: 1
@@ -320,31 +319,80 @@ struct ActivityTokenUsageTests {
         var transitions: [ActivityTransition] = []
         if interrupted {
             monitor.tasks[key] = task
-            monitor.interruptTask(from: event, source: .live)
-            monitor.interruptTask(from: event, source: .live)
+            monitor.finishTask(from: event, source: .live, into: &transitions)
+            monitor.finishTask(from: event, source: .live, into: &transitions)
             #expect(monitor.tasks.isEmpty)
             #expect(monitor.terminations.count == 1)
-            #expect(monitor.terminations.first?.isAnonymous == anonymous)
         } else {
             monitor.resolveTerminal(
                 .completed(at: now, duration: 1), task: task, key: key,
                 abortFallback: now, into: &transitions
             )
             #expect(monitor.completions.count == 1)
-            #expect(monitor.completions.first?.isAnonymous == anonymous)
         }
-        #expect(transitions.count == (interrupted || anonymous ? 0 : 1))
+        #expect(transitions.count == (interrupted ? 0 : 1))
         #expect(monitor.pendingTerminalPresentationEvents.count == 1)
-        #expect(monitor.terminalTokenUsageRequests.count == (anonymous ? 0 : 1))
+        #expect(monitor.terminalTokenUsageRequests.count == 1)
+    }
+
+    @Test(arguments: [ActivityTaskState.running, .waitingApproval])
+    func tasksDoNotExpireWithoutProgress(state: ActivityTaskState) throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = try makeMonitor(directory: directory, preferences: preferences)
+        let now = Date()
+        let old = now.addingTimeInterval(-ActivityRetention.window - 1)
+        let event = TestFixtures.event(at: old)
+        let key = try #require(ActivityTaskKey(event: event))
+        monitor.tasks[key] = ActivityTask(
+            displayID: UUID(), key: key, event: event, state: state,
+            startedAt: old, progressGeneration: 1
+        )
+        monitor.refreshSnapshot(now: now)
+        #expect(monitor.tasks.count == 1)
+        #expect(monitor.snapshot.activeCount == 1)
+    }
+
+    @Test(arguments: [false, true])
+    func terminalUsageContinuesUntilCardIsRemoved(clearExplicitly: Bool) throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = try makeMonitor(directory: directory, preferences: preferences)
+        let now = Date()
+        let event = TestFixtures.event(at: now)
+        let key = try #require(ActivityTaskKey(event: event))
+        let task = ActivityTask(
+            displayID: UUID(), key: key, event: event, state: .running,
+            startedAt: now, progressGeneration: 1
+        )
+        var transitions: [ActivityTransition] = []
+        monitor.resolveTerminal(.completed(at: now, duration: 1), task: task, key: key, abortFallback: now, into: &transitions)
+        let root = reference("thread-a", "turn-a")
+        #expect(monitor.terminalTokenUsageReferences().contains(root))
+        #expect(monitor.terminalTokenUsageReferences().contains(root))
+        #expect(monitor.applyTerminalTokenUsage([state(root, input: 500)]))
+        #expect(monitor.completions.first?.tokenUsage?.totalTokens == 510)
+        if clearExplicitly {
+            monitor.clearCollectedActivityState()
+        } else {
+            monitor.refreshSnapshot(now: now.addingTimeInterval(601))
+        }
+        #expect(monitor.completions.isEmpty)
+        #expect(monitor.terminalTokenUsageRequests.isEmpty)
+        #expect(monitor.terminalTokenUsageReferences().isEmpty)
     }
 
     private func reference(_ thread: String, _ turn: String) -> ActivityTurnReference {
-        ActivityTurnReference(threadID: thread, turnID: turn, startedAt: TestFixtures.now)
+        ActivityTurnReference(threadID: thread, turnID: turn)
     }
 
     private func request(root: ActivityTurnReference, children: [ActivityTurnReference]) -> TaskTokenRequest {
         TaskTokenRequest(
-            root: root, expectedAgentIDs: Set(children.map(\.threadID)), references: Set([root] + children), deadline: TestFixtures.now
+            root: root, expectedAgentIDs: Set(children.map(\.threadID)), references: Set([root] + children)
         )
     }
 
@@ -354,8 +402,8 @@ struct ActivityTokenUsageTests {
     ) -> SessionLifecycleState {
         SessionLifecycleState(
             requestedThreadID: reference.threadID, turnID: reference.turnID, startedAt: TestFixtures.now,
-            approvalReviewer: nil, effort: nil, lastProgressAt: TestFixtures.now, terminal: terminal,
-            rootTurnID: "turn-a", rootSessionID: "session-a",
+            effort: nil, lastProgressAt: TestFixtures.now, terminal: terminal,
+            rootTurnID: "turn-a", rootThreadID: "thread-a",
             tokenUsage: TokenUsage(
                 inputTokens: input, cachedInputTokens: 20, cacheWriteInputTokens: 0,
                 outputTokens: 10, reasoningOutputTokens: 2, totalTokens: input + 10
@@ -364,7 +412,7 @@ struct ActivityTokenUsageTests {
     }
 
     private func makeMonitor(directory: TestDirectory, preferences: TestPreferences) throws -> ActivityMonitor {
-        try ActivityMonitor(
+        ActivityMonitor(
             protectionSettings: ProtectionSettings(defaults: preferences.defaults),
             protectionStore: ProtectionStore(directoryURL: directory.url)
         )
@@ -384,7 +432,7 @@ extension ActivityTokenUsageTests {
         let monitor = try makeMonitor(directory: directory, preferences: preferences)
         let now = Date()
         let event = TestFixtures.event(at: now.addingTimeInterval(-60))
-        let key = ActivityTaskKey(event: event)
+        let key = try #require(ActivityTaskKey(event: event))
         let task = ActivityTask(
             displayID: UUID(),
             key: key,

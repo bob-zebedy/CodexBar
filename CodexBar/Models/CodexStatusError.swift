@@ -10,6 +10,7 @@ nonisolated enum CodexStatusError: LocalizedError {
     case unsupportedMethod
     case unsupportedVersion(minimum: String)
     case notLoggedIn
+    case authenticationRequired
 
     var errorDescription: String? {
         switch self {
@@ -25,6 +26,8 @@ nonisolated enum CodexStatusError: LocalizedError {
             String(localized: "codex-status.app-server.error.unsupported-method")
         case let .unsupportedVersion(minimum):
             String(localized: "codex-version.requirement", defaultValue: "\(minimum)")
+        case .authenticationRequired:
+            "Codex account authentication required"
         case .notLoggedIn:
             String(localized: "codex-status.account.error.not-logged-in")
         }
@@ -33,7 +36,7 @@ nonisolated enum CodexStatusError: LocalizedError {
     /// codex app-server 未登录
     var isAuthenticationRequired: Bool {
         switch self {
-        case .notLoggedIn:
+        case .notLoggedIn, .authenticationRequired:
             true
         default:
             serverErrorMessageContains("codex account authentication required")

@@ -72,18 +72,8 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.agent-waiting")
         case "answering":
             String(localized: "activity.live.answering")
-        case "approval-aborted":
-            String(localized: "activity.live.approval-aborted")
-        case "approval-approved":
-            String(localized: "activity.live.approval-approved")
-        case "approval-denied":
-            String(localized: "activity.live.approval-denied")
-        case "approval-timeout":
-            String(localized: "activity.live.approval-timeout")
         case "auth-recovery-ended":
             String(localized: "activity.live.auth-recovery-ended")
-        case "auto-approval":
-            String(localized: "activity.live.auto-approval")
         case "buffering":
             String(localized: "activity.live.buffering")
         case "calling-tool":
@@ -112,8 +102,6 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.compaction-completed")
         case "connecting":
             String(localized: "activity.live.connecting")
-        case "connecting-tool":
-            String(localized: "activity.live.connecting-tool")
         case "diff-updated":
             String(localized: "activity.live.diff-updated")
         case "editing":
@@ -122,10 +110,6 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.elapsed-running")
         case "elapsed-waiting":
             String(localized: "activity.live.elapsed-waiting")
-        case "environment-connected":
-            String(localized: "activity.live.environment-connected")
-        case "environment-disconnected":
-            String(localized: "activity.live.environment-disconnected")
         case "failed":
             String(localized: "activity.live.failed")
         case "file-completed":
@@ -146,8 +130,6 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.hook-failed")
         case "hook-stopped":
             String(localized: "activity.live.hook-stopped")
-        case "idle":
-            String(localized: "activity.live.idle")
         case "image-completed":
             String(localized: "activity.live.image-completed")
         case "image-declined":
@@ -166,8 +148,6 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.plan-step-completed")
         case "plan-updated":
             String(localized: "activity.live.plan-updated")
-        case "planning":
-            String(localized: "activity.live.planning")
         case "processing":
             String(localized: "activity.live.processing")
         case "recent-event":
@@ -222,8 +202,6 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.waiting-service")
         case "waiting-user":
             String(localized: "activity.live.waiting-user")
-        case "waiting-verification":
-            String(localized: "activity.live.waiting-verification")
         default:
             String(localized: "activity.live.processing")
         }

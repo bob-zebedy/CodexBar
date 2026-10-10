@@ -1,13 +1,14 @@
 import Foundation
 import os
 
-/// 仅保存订阅期间取得的轮次累计快照, 不扫描 Codex 会话文件
+/// 保存订阅期间的原始 Token 观测, 聚合缓存可独立重建
 actor TokenHistoryStore {
     private let directoryURL: URL
     private var recordingLease: Int32?
     private var journal = AppServerEventJournal()
     private var journalFiles: [String: TokenJournalCheckpoint] = [:]
     private var scannedFiles: [String: HistoryFileStat] = [:]
+    private var recoveredTurnIDs = Set<String>()
 
     init(directoryURL: URL = HistoryStorage.directoryURL()) {
         self.directoryURL = directoryURL
@@ -35,31 +36,10 @@ actor TokenHistoryStore {
         recordingLease = nil
     }
 
-    func recordObservations(_ observations: [TokenObservation], now: Date = Date()) throws -> [TokenTurn] {
+    /// 原始记录不依赖聚合缓存可读, 聚合失败后仍可按日志检查点恢复
+    func appendObservation(_ observation: TokenObservation, now: Date = Date()) throws {
         try HistoryStorage.withExclusiveLock(in: directoryURL) {
-            var records = try load(now: now)
-            for observation in observations {
-                let existing = records[observation.turn.id]
-                let updated = try observation.applying(to: existing)
-                // 原始观测先落盘, 快照失败后按同一检查点重放, 重试不会重复累计
-                try journal.append(AppServerEventRecord(observation: observation, recordedAt: now), in: directoryURL)
-                records[updated.id] = updated
-                Self.ensureRoot(for: observation, in: &records)
-            }
-            try save(records)
-            return Array(records.values)
-        }
-    }
-
-    private static func ensureRoot(for observation: TokenObservation, in records: inout [String: TokenTurn]) {
-        let turn = observation.turn
-        if turn.rootID != turn.id, records[turn.rootID] == nil {
-            records[turn.rootID] = TokenTurn(
-                id: turn.rootID,
-                rootID: turn.rootID,
-                startedAt: observation.rootStartedAt,
-                updatedAt: turn.updatedAt
-            )
+            try journal.append(AppServerEventRecord(observation: observation, recordedAt: now), in: directoryURL)
         }
     }
 
@@ -69,11 +49,14 @@ actor TokenHistoryStore {
             var replacements: [TokenTurn] = []
             if let baseline {
                 for (id, turn) in records {
-                    if let replacement = baseline.replacement(for: turn) {
+                    if let replacement = baseline.replacement(for: turn, recovering: recoveredTurnIDs.contains(id), now: now) {
                         records[id] = replacement
                         if replacement != turn {
                             replacements.append(replacement)
                         }
+                    }
+                    if baseline.contains(turn), baseline.acceptsRecovery(turn) {
+                        recoveredTurnIDs.remove(id)
                     }
                 }
             }
@@ -87,6 +70,16 @@ actor TokenHistoryStore {
 
     func currentTurns(now: Date = Date()) throws -> [TokenTurn] {
         try HistoryStorage.withExclusiveLock(in: directoryURL) { try Array(load(now: now).values) }
+    }
+
+    func pendingRecoveryIDs() -> Set<String> {
+        recoveredTurnIDs
+    }
+
+    func persistedTurns(now: Date = Date()) throws -> [TokenTurn] {
+        try HistoryStorage.withExclusiveLock(in: directoryURL) {
+            try Array(retained(readCache()?.turns ?? [:], now: now).values)
+        }
     }
 
     func rebuildableDateKeys(now: Date = Date()) throws -> [String] {
@@ -136,14 +129,14 @@ actor TokenHistoryStore {
     }
 
     private func saveObservedTurns(_ records: [TokenTurn], now: Date) throws {
-        for record in TokenTurn.merged(records).values.sorted(by: { $0.id < $1.id }) {
+        for record in try TokenTurn.merged(records).values.sorted(by: { $0.id < $1.id }) {
             try journal.append(AppServerEventRecord(token: record, recordedAt: now), in: directoryURL)
         }
     }
 
     private func journalTurns(now: Date, baseline: [String: TokenTurn]) throws -> TokenJournalReplay {
         var replay = try TokenJournalReplay(baseline: baseline, replayingFromEmpty: true)
-        for date in journalDates(now: now) {
+        for date in try journalDates(now: now) {
             let url = HistoryStorage.eventLogURL(for: date, in: HistoryStorage.eventsDirectoryURL(in: directoryURL))
             var invalid = false
             try AppServerEventJournal.read(at: url, onInvalidLine: { invalid = true }, consume: { entry in
@@ -156,10 +149,10 @@ actor TokenHistoryStore {
         return replay
     }
 
-    private func journalDates(now: Date) -> [String] {
+    private func journalDates(now: Date) throws -> [String] {
         let directory = HistoryStorage.eventsDirectoryURL(in: directoryURL)
         let cutoff = HistoryStorage.dateKey(for: HistoryStorage.retentionCutoffDate(today: now))
-        return HistoryStorage.eventLogDateKeys(in: directory).filter { $0 >= cutoff }
+        return try HistoryStorage.readEventLogDateKeys(in: directory).filter { $0 >= cutoff }
     }
 
     private var ledgerURL: URL {
@@ -180,26 +173,31 @@ actor TokenHistoryStore {
         } catch is DecodingError {
             AppLog.history.error("Token 缓存损坏, 从原始事件恢复")
             cache = nil
+        } catch StorageCompatibilityError.incompleteSource {
+            AppLog.history.error("Token 缓存检查点损坏, 从原始事件恢复")
+            cache = nil
         }
         return cache
     }
 
     private func load(now: Date) throws -> [String: TokenTurn] {
         let cache = try readCache()
+        recoveredTurnIDs = Set(cache?.recoveredTurnIDs ?? [])
         if cache == nil {
             journalFiles.removeAll()
             scannedFiles.removeAll()
         }
-        let baseline = cache?.turns ?? [:]
+        var baseline = cache?.turns ?? [:]
         var replay = try TokenJournalReplay(baseline: baseline)
         journalFiles = cache?.files ?? [:]
         let directory = HistoryStorage.eventsDirectoryURL(in: directoryURL)
-        let dates = journalDates(now: now)
+        let dates = try journalDates(now: now)
         let previousFiles = journalFiles
         var rootsByFile: [String: Set<String>] = [:]
         journalFiles = journalFiles.filter { dates.contains($0.key) }
         scannedFiles = scannedFiles.filter { dates.contains($0.key) }
         for date in dates {
+            try Task.checkCancellation()
             let url = HistoryStorage.eventLogURL(for: date, in: directory)
             guard let stat = HistoryStorage.fileStat(at: url) else { throw TokenCacheError.incompleteJournal }
             let previous = journalFiles[date]
@@ -213,7 +211,7 @@ actor TokenHistoryStore {
                 if let root = entry.observation?.turn.rootID ?? entry.token?.rootID {
                     rootsByFile[date, default: []].insert(root)
                 }
-                try replay.consume(entry, includesSnapshots: true)
+                try replay.consume(entry, includesSnapshots: true, rebuildingCache: cache == nil)
             })
             if invalid {
                 guard cache != nil else { throw TokenCacheError.incompleteJournal }
@@ -224,6 +222,13 @@ actor TokenHistoryStore {
             journalFiles[date] = TokenJournalCheckpoint(size: stat.size, identifier: stat.identifier, modificationTime: stat.modificationTime)
             scannedFiles[date] = stat
         }
+        if cache == nil {
+            let replacements = replay.recoverSnapshots(now: now)
+            // 原始观测不足时只沿用可信旧快照, 不把它标记为重算结果
+            let conflictedRoots = Set(replay.snapshots.values.filter(\.hasConflict).map(\.rootID))
+            baseline = replay.snapshots.filter { !conflictedRoots.contains($0.value.rootID) }
+            try saveObservedTurns(replacements, now: now)
+        }
         // 回滚失败根轮次在本轮的所有改动, 涉及的文件保留原游标以便下次重试
         for (date, roots) in rootsByFile where !roots.isDisjoint(with: replay.failedRoots) {
             journalFiles[date] = previousFiles[date]
@@ -233,12 +238,15 @@ actor TokenHistoryStore {
         for (id, turn) in baseline where replay.failedRoots.contains(turn.rootID) {
             records[id] = turn
         }
+        if cache == nil {
+            recoveredTurnIDs.formUnion(replay.records.values.filter { !replay.failedRoots.contains($0.rootID) }.map(\.id))
+        }
         return retained(records, now: now)
     }
 
     private func save(_ records: [String: TokenTurn]) throws {
         // 日志与缓存共用时间编码, 避免 epoch 换算精度差异影响重建标记比较
-        let data = try AppServerEventRecord.encode(TokenAggregateCache(turns: records, files: journalFiles))
+        let data = try AppServerEventRecord.encode(TokenAggregateCache(turns: records, files: journalFiles, recoveredTurnIDs: recoveredTurnIDs.intersection(records.keys).sorted()))
         guard (try? Data(contentsOf: ledgerURL)) != data else { return }
         try FileManager.default.createDirectory(at: ledgerURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: ledgerURL, options: .atomic)
@@ -257,6 +265,7 @@ private nonisolated struct TokenJournalReplay {
     var failedRoots = Set<String>()
     private var rootByTurn: [String: String] = [:]
     private var startsByRoot: [String: Date] = [:]
+    var snapshots: [String: TokenTurn] = [:]
 
     init(baseline: [String: TokenTurn], replayingFromEmpty: Bool = false) throws {
         records = replayingFromEmpty ? [:] : baseline
@@ -265,10 +274,10 @@ private nonisolated struct TokenJournalReplay {
         }
     }
 
-    mutating func consume(_ entry: AppServerEventRecord, includesSnapshots: Bool) throws {
+    mutating func consume(_ entry: AppServerEventRecord, includesSnapshots: Bool, rebuildingCache: Bool = false) throws {
         if let observation = entry.observation {
             let turn = observation.turn
-            try register(turn, rootStartedAt: observation.rootStartedAt)
+            try register(turn.emptyTurn, rootStartedAt: observation.rootStartedAt)
             guard !failedRoots.contains(turn.rootID) else { return }
             do {
                 records[turn.id] = try observation.applying(to: records[turn.id])
@@ -286,10 +295,46 @@ private nonisolated struct TokenJournalReplay {
             }
         } else if let turn = entry.token {
             try register(turn, rootStartedAt: nil)
-            if includesSnapshots, !failedRoots.contains(turn.rootID) {
-                records[turn.id] = records[turn.id]?.merging(turn) ?? turn
+            if rebuildingCache {
+                snapshots[turn.id] = try snapshots[turn.id]?.merging(turn) ?? turn
+            } else if includesSnapshots, !failedRoots.contains(turn.rootID) {
+                records[turn.id] = try records[turn.id]?.merging(turn) ?? turn
             }
         }
+    }
+
+    /// 重算值只来自原始观测, 快照用于校验覆盖范围与继承替换关系
+    mutating func recoverSnapshots(now: Date) -> [TokenTurn] {
+        var replacements: [TokenTurn] = []
+        for (root, previousTurns) in Dictionary(grouping: snapshots.values, by: \.rootID) {
+            let coversPrevious = previousTurns.allSatisfy { previous in
+                guard let candidate = records[previous.id] else { return false }
+                return candidate.covers(previous.checkpoint)
+                    && (previous.usage == nil || candidate.usage != nil)
+            }
+            guard !failedRoots.contains(root), coversPrevious else {
+                failedRoots.insert(root)
+                continue
+            }
+            // 主轮次与子 Agent 全部通过检查后再生成替换, 不提交半个任务
+            for previous in previousTurns {
+                guard var candidate = records[previous.id] else { continue }
+                candidate.startedAt = candidate.startedAt ?? previous.startedAt
+                candidate.updatedAt = max(candidate.updatedAt, previous.updatedAt)
+                candidate.generationID = previous.generationID
+                candidate.ancestorIDs = previous.ancestorIDs
+                candidate.rebuiltAt = previous.rebuiltAt
+                if previous.hasConflict || candidate.usage != previous.usage
+                    || candidate.aggregationVersion != previous.aggregationVersion || candidate.checkpoint != previous.checkpoint {
+                    candidate.startNewGeneration(at: now)
+                }
+                records[candidate.id] = candidate
+                if candidate != previous {
+                    replacements.append(candidate)
+                }
+            }
+        }
+        return replacements
     }
 
     func selectedRoots(in dates: Set<String>) throws -> [String: String] {
@@ -325,6 +370,7 @@ private nonisolated struct TokenAggregateCache: Codable {
     var version = Self.currentVersion
     var turns: [String: TokenTurn]
     var files: [String: TokenJournalCheckpoint]
+    var recoveredTurnIDs: [String]?
 }
 
 private nonisolated struct TokenJournalCheckpoint: Codable {
@@ -381,4 +427,4 @@ nonisolated struct TokenFileCache<Value: Codable & Equatable> {
     }
 }
 
-nonisolated enum TokenCacheError: Error { case unsupportedVersion(Int), incompleteJournal }
+nonisolated enum TokenCacheError: Error { case unsupportedVersion(Int), incompleteJournal, rootIdentityConflict }

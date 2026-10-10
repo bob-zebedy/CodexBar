@@ -2,7 +2,7 @@ import Foundation
 
 nonisolated enum ActivityEventBatch {
     case bootstrapStart
-    case bootstrapEvents([ActivityRecord])
+    case snapshotEvents([ActivityRecord])
     case bootstrapEnd
     case live([ActivityRecord])
     case sourceUnavailable
@@ -22,55 +22,82 @@ actor AppServerActivityReader {
     }
 
     private let lifecycleCache: SessionLifecycleCache
+    private let onAccountChange: @MainActor @Sendable (AccountChange) -> Void
+    private var pendingAccountChange: AccountChange?
     private let onBatch: @MainActor @Sendable (ActivityEventBatch) -> Void
     private let socketURL: URL
+    private let logStorage: AppServerLogStore?
     private let tokenHistory: TokenHistoryStore
     private let recorder: ActivityRecorder
     private var session: AppServerSession?
     private var reducer = AppServerActivityReducer()
     private var subscribed = Set<String>()
     private var loop: Task<Void, Never>?
+    private var storageTask: Task<Void, Never>?
+    private var tokenRefreshTask: Task<[TokenTurn], Error>?
     private var generation = 0
     private var connectedAt = Date.distantFuture
     private var reconciledAt = Date.distantPast
     private var lastTokenRefresh = Date.distantPast
     private var isRunning = false
     private var isStopping = false
-    private var stopWaiters: [CheckedContinuation<Void, Never>] = []
+    private var stopWaiters: [CheckedContinuation<Bool, Never>] = []
     private var stateChanged = false
     private var lastPublished = Date.distantPast
     private var isTokenWriter = false
+    private var writerRetryAfter = Date.distantPast
     private var drainWaiters: [CheckedContinuation<ActivityEventDrainResult, Never>] = []
-    private var pendingEvents: [ActivityRecord] = []
+    private var pendingEvents: [(event: ActivityRecord, bytes: Int)] = []
     private var pendingPublication: [ActivityRecord] = []
-    private var pendingObservations: [TokenObservation] = []
-    private var deferredNotifications: [ActivityNotification] = []
-    private var verifiedThreads: [String: Date] = [:]
+    private var pendingObservations: [(observation: TokenObservation, bytes: Int)] = []
+    private var pendingStorageBytes = 0
+    private var deferredNotifications: [ActivityInput] = []
+    private var verifiedTurns: [ActivityTurnReference: Date] = [:]
+    private var turnCursors: [String: String] = [:]
+
+    private struct TurnReadResult {
+        var turns: [ActivityTurn]
+        var remaining: Set<String>
+        var cursor: String?
+    }
+
     private var checkedThreads: [String: Date] = [:]
     private var revisions: [String: Int] = [:]
     private var preparingThread: String?
     private var invalidThreads = Set<String>()
     private var storageRetryAfter = Date.distantPast
     private var storageFailed = false
-    private var storagePaused = false
+    private var isHistoryRecordingPaused = false
+    private var tokenRefreshFailed = false
+    private var tokenRetryAfter = Date.distantPast
     private let maximumPendingEvents: Int
     private let maximumPendingBytes: Int
+    private let maximumLoadedPages: Int
+    private let reconciliationTimeout: TimeInterval
 
     init(
         lifecycleCache: SessionLifecycleCache,
         socketURL: URL = AppServerActivityReader.defaultSocketURL,
+        logStorage: AppServerLogStore? = .shared,
         tokenHistory: TokenHistoryStore = TokenHistoryStore(),
         recorder: ActivityRecorder = ActivityRecorder(),
         maximumPendingEvents: Int = 4096,
         maximumPendingBytes: Int = 8 * 1024 * 1024,
+        maximumLoadedPages: Int = 100,
+        reconciliationTimeout: TimeInterval = 30,
+        onAccountChange: @escaping @MainActor @Sendable (AccountChange) -> Void = { _ in },
         onBatch: @escaping @MainActor @Sendable (ActivityEventBatch) -> Void
     ) {
         self.lifecycleCache = lifecycleCache
         self.socketURL = socketURL
+        self.logStorage = logStorage
         self.tokenHistory = tokenHistory
         self.recorder = recorder
         self.maximumPendingEvents = maximumPendingEvents
         self.maximumPendingBytes = maximumPendingBytes
+        self.maximumLoadedPages = maximumLoadedPages
+        self.reconciliationTimeout = reconciliationTimeout
+        self.onAccountChange = onAccountChange
         self.onBatch = onBatch
     }
 
@@ -79,25 +106,28 @@ actor AppServerActivityReader {
         isRunning = true
         generation += 1
         let current = generation
+        startStorageWorker()
         loop = Task { [weak self] in await self?.run(generation: current) }
     }
 
-    func stop() async {
+    @discardableResult
+    func stop() async -> Bool {
         if isStopping {
-            await withCheckedContinuation { stopWaiters.append($0) }
-            return
+            return await withCheckedContinuation { stopWaiters.append($0) }
         }
         isStopping = true
+        var saved = false
         defer {
             isStopping = false
             let waiters = stopWaiters
             stopWaiters.removeAll()
             for waiter in waiters {
-                waiter.resume()
+                waiter.resume(returning: saved)
             }
         }
         isRunning = false
         generation += 1
+        tokenRefreshTask?.cancel()
         let previous = loop
         previous?.cancel()
         loop = nil
@@ -105,11 +135,26 @@ actor AppServerActivityReader {
         session = nil
         subscribed.removeAll()
         await previous?.value
-        try? await persistPending()
+        pendingAccountChange = nil
+        pendingPublication.removeAll()
+        deferredNotifications.removeAll()
+        verifiedTurns.removeAll()
+        turnCursors.removeAll()
+        checkedThreads.removeAll()
+        invalidThreads.removeAll()
+        if storageTask == nil, !pendingEvents.isEmpty || !pendingObservations.isEmpty {
+            startStorageWorker()
+        }
+        // 退出只给已接收记录有限的排空时间, 慢文件操作不能卡住 App 退出
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while storageTask != nil, ContinuousClock.now < deadline, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        saved = storageTask == nil && pendingEvents.isEmpty && pendingObservations.isEmpty
+        storageTask?.cancel()
         completeDrains(.cancelled)
-        isTokenWriter = false
-        await tokenHistory.releaseRecordingLease()
         await lifecycleCache.invalidate()
+        return saved
     }
 
     /// 每次调用执行本次请求之后的查询, 不复用正在进行的旧快照
@@ -122,25 +167,18 @@ actor AppServerActivityReader {
     private func run(generation current: Int) async {
         while isRunning, generation == current, !Task.isCancelled {
             do {
-                if storagePaused {
-                    guard await retryStorage() else {
-                        try await Task.sleep(for: .milliseconds(100))
-                        continue
-                    }
-                    storagePaused = false
-                }
                 if session == nil {
                     try await connect(generation: current)
                 }
-                try await acquireTokenWriter(generation: current)
                 try await consumeAvailable(generation: current)
                 if !drainWaiters.isEmpty || Date().timeIntervalSince(reconciledAt) >= 2 {
                     let waiters = drainWaiters
                     drainWaiters.removeAll()
                     do {
-                        try await reconcile(bootstrap: false, forced: !waiters.isEmpty, generation: current)
+                        let covered = try await reconcile(bootstrap: false, forced: !waiters.isEmpty, generation: current)
                         try await consumeAvailable(generation: current)
-                        let result: ActivityEventDrainResult = isRunning && generation == current && !Task.isCancelled ? .completed : .cancelled
+                        let result: ActivityEventDrainResult = isRunning && generation == current && !Task
+                            .isCancelled ? (covered ? .completed : .sourceUnavailable) : .cancelled
                         for waiter in waiters {
                             waiter.resume(returning: result)
                         }
@@ -163,50 +201,49 @@ actor AppServerActivityReader {
     }
 
     private func connect(generation current: Int) async throws {
-        // 存储未准备好时不创建连接, 避免本地故障触发重复初始化
-        isTokenWriter = try await tokenHistory.acquireRecordingLease()
-        try await persistPending()
-        let persistedTokens = try await tokenHistory.refresh()
+        reducer.reconnect()
+        reducer.setTokenRecordingEnabled(isTokenWriter && !isHistoryRecordingPaused)
         try checkGeneration(current)
         await onBatch(.bootstrapStart)
         try checkGeneration(current)
-        let connection = try AppServerSession(socketURL: socketURL)
+        let connection = try AppServerSession(socketURL: socketURL, logStorage: logStorage)
         do {
-            try connection.initialize()
+            try connection.initialize(clientName: "codex_bar_activity", minimumVersion: CodexVersionReader.minimumAppServerVersion)
         } catch {
             connection.close()
             throw error
         }
         session = connection
         connectedAt = Date()
-        reducer.reconnect()
-        reducer.restoreTokenTurns(persistedTokens)
-        try await reconcile(bootstrap: true, forced: true, generation: current)
+        _ = try await reconcile(bootstrap: true, forced: true, generation: current)
         try checkGeneration(current)
         await onBatch(.bootstrapEnd)
     }
 
     private func acquireTokenWriter(generation current: Int) async throws {
-        guard !isTokenWriter, Date() >= storageRetryAfter else { return }
+        guard !isTokenWriter, Date() >= writerRetryAfter else { return }
         do {
             if try await tokenHistory.acquireRecordingLease() {
-                try await persistPending()
-                let persistedTokens = try await tokenHistory.refresh()
                 try checkGeneration(current)
-                reducer.restoreTokenTurns(persistedTokens)
                 isTokenWriter = true
+                writerRetryAfter = .distantPast
+                reducer.setTokenRecordingEnabled(!isHistoryRecordingPaused)
+            } else {
+                writerRetryAfter = Date().addingTimeInterval(1)
             }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            recordStorageFailure(error)
+            if writerRetryAfter == .distantPast {
+                logStorage?.recordFailure(method: "activity/storage", message: error.localizedDescription, connection: "activity")
+            }
+            writerRetryAfter = Date().addingTimeInterval(1)
         }
     }
 
     private func recover(from error: Error, generation current: Int) async {
         guard generation == current, isRunning else { return }
-        let method = error is StorageBacklogFull || session == nil && !(error is CodexStatusError) ? "activity/storage" : "activity/connection"
-        AppServerLogStore.shared.recordFailure(method: method, message: error.localizedDescription, connection: "activity")
+        logStorage?.recordFailure(method: "activity/connection", message: error.localizedDescription, connection: "activity")
         // 后续协议错误不能丢掉前面已取得的有效结果, 存储失败时保留队列供下一轮重试
         try? await flushPending(generation: current)
         guard generation == current, isRunning else { return }
@@ -227,59 +264,91 @@ actor AppServerActivityReader {
         session = nil
         subscribed.removeAll()
         deferredNotifications.removeAll()
-        verifiedThreads.removeAll()
+        pendingAccountChange = nil
+        verifiedTurns.removeAll()
+        turnCursors.removeAll()
         invalidThreads.removeAll()
         checkedThreads.removeAll()
-        isTokenWriter = false
-        await tokenHistory.releaseRecordingLease()
         await lifecycleCache.invalidate()
         await onBatch(.sourceUnavailable)
     }
 
-    private func reconcile(bootstrap: Bool, forced: Bool, generation current: Int) async throws {
+    private func reconcile(bootstrap: Bool, forced: Bool, generation current: Int) async throws -> Bool {
+        let budget = AppServerRequestBudget(deadline: Date().addingTimeInterval(reconciliationTimeout))
+        return try await AppServerRequestBudget.$current.withValue(budget) {
+            try await reconcileWithinBudget(bootstrap: bootstrap, forced: forced, generation: current)
+        }
+    }
+
+    private func loadThreads(generation current: Int) async throws -> Set<String> {
         var loaded = Set<String>()
         var cursor: String?
-        repeat {
-            var params: [String: Any] = ["limit": 100]
-            if let cursor {
-                params["cursor"] = cursor
-            }
-            let page: ActivityLoadedPage = try await request("thread/loaded/list", params: params, generation: current)
+        var cursors = Set<String>()
+        for _ in 0 ..< maximumLoadedPages {
+            let page = try await request(ActivityRequests.loadedThreads(cursor: cursor), generation: current)
             loaded.formUnion(page.data)
-            cursor = page.nextCursor
-        } while cursor != nil && loaded.count < 10000
+            guard loaded.count <= 10000 else { throw CodexStatusError.invalidServerResponse }
+            guard let next = page.nextCursor else { return loaded }
+            guard cursors.insert(next).inserted else { throw CodexStatusError.invalidServerResponse }
+            cursor = next
+        }
+        // 不发布截断列表, 否则未读取的线程会被错误地当作已经卸载
+        throw CodexStatusError.invalidServerResponse
+    }
+
+    private func reconcileWithinBudget(bootstrap: Bool, forced: Bool, generation current: Int) async throws -> Bool {
+        let loaded = try await loadThreads(generation: current)
         let knownActive = Set(reducer.states.keys.filter {
-            reducer.states[$0]?.terminal == nil && reducer.threads[$0.threadID]?.status?.type != "notLoaded"
+            reducer.states[$0]?.terminal == nil && reducer.threads[$0.threadID]?.status?.type != .notLoaded
         }.map(\.threadID))
         let now = Date()
-        let candidates = loaded.union(knownActive).filter { id in
-            let interval: TimeInterval = invalidThreads.contains(id) || knownActive.contains(id) || reducer.threads[id]?.status?.type == "active" ? 5 : 60
+        let dependencies = Set(reducer.missingRootTurns(liveOnly: forced).keys)
+            .union(reducer.missingSubagentParents(liveOnly: forced))
+        let required = loaded.union(knownActive).union(reducer.missingRootTurns(liveOnly: true).keys)
+            .union(reducer.missingSubagentParents(liveOnly: true))
+        let candidates = loaded.union(knownActive).union(dependencies).filter { id in
+            let interval: TimeInterval = invalidThreads.contains(id) || knownActive.contains(id)
+                || dependencies.contains(id) || reducer.threads[id]?.status?.type == .active ? 5 : 60
             return forced || now.timeIntervalSince(checkedThreads[id] ?? .distantPast) >= interval
-        }.sorted { (checkedThreads[$0] ?? .distantPast, $0) < (checkedThreads[$1] ?? .distantPast, $1) }
+        }.sorted {
+            if required.contains($0) != required.contains($1) {
+                return required.contains($0)
+            }
+            return (checkedThreads[$0] ?? .distantPast, $0) < (checkedThreads[$1] ?? .distantPast, $1)
+        }
         let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        var covered = true
         for id in candidates {
             try checkGeneration(current)
-            try await reconcileThread(id, loaded: loaded, bootstrap: bootstrap, generation: current)
+            let verified = try await reconcileThread(id, loaded: loaded, bootstrap: bootstrap, forced: forced, generation: current)
+            if loaded.contains(id) || knownActive.contains(id) {
+                covered = covered && verified
+            }
             // 日常核对分轮执行, 强制排空则等待本轮完整覆盖
             if !forced, ContinuousClock.now >= deadline {
                 break
             }
         }
+        reducer.maintain(loadedThreads: loaded, now: Date())
         subscribed.formIntersection(loaded)
-        let retained = loaded.union(knownActive)
+        let retained = loaded.union(knownActive).union(dependencies)
         checkedThreads = checkedThreads.filter { retained.contains($0.key) }
         revisions = revisions.filter { retained.contains($0.key) }
-        verifiedThreads = verifiedThreads.filter { retained.contains($0.key) }
+        verifiedTurns = verifiedTurns.filter { reducer.states[$0.key] != nil && retained.contains($0.key.threadID) }
+        turnCursors = turnCursors.filter { retained.contains($0.key) }
         invalidThreads.formIntersection(retained)
         reconciledAt = Date()
-        await lifecycleCache.replace(reducer.states, verifiedThreads: verifiedThreads)
+        await lifecycleCache.replace(reducer.states, verifiedTurns: verifiedTurns)
         try checkGeneration(current)
         if !bootstrap {
             await onBatch(.lifecycleChanged)
         }
+        return covered && !reducer.states.values.contains {
+            $0.terminal == nil && ($0.rootThreadID == nil || $0.rootTurnID == nil)
+        }
     }
 
-    private func reconcileThread(_ id: String, loaded: Set<String>, bootstrap: Bool, generation current: Int) async throws {
+    private func reconcileThread(_ id: String, loaded: Set<String>, bootstrap: Bool, forced: Bool, generation current: Int) async throws -> Bool {
         let started = Date()
         let revision = revisions[id, default: 0]
         let newSubscription = !subscribed.contains(id)
@@ -287,40 +356,49 @@ actor AppServerActivityReader {
             preparingThread = id
         }
         defer { preparingThread = nil }
+        var covered = false
         do {
-            let read: ActivityThreadRead = try await request("thread/read", params: ["threadId": id, "includeTurns": false], generation: current)
+            let read: ActivityThreadRead = try await request(ActivityRequests.thread(id), generation: current)
             var thread = read.thread
-            var reviewer: ApprovalReviewer?
-            if loaded.contains(id), newSubscription, thread.status?.type != "notLoaded" {
+            if loaded.contains(id), newSubscription, thread.status?.type != .notLoaded {
                 let joined: ActivityThreadResume = try await request(
-                    "thread/resume", params: ["threadId": id, "excludeTurns": true], generation: current
+                    ActivityRequests.subscribe(id), generation: current
                 )
                 thread = joined.thread
-                thread.model = joined.model ?? thread.model
-                thread.reasoningEffort = joined.reasoningEffort ?? thread.reasoningEffort
-                reviewer = joined.approvalsReviewer?.value
                 subscribed.insert(id)
             }
             if newSubscription {
                 reducer.threads[id] = thread
             }
-            let turns: ActivityTurnsPage = try await request(
-                "thread/turns/list", params: ["threadId": id, "limit": 10, "itemsView": "summary"], generation: current
+            let includesItems = newSubscription || !reducer.missingSubagentContexts(in: id, liveOnly: forced).isEmpty
+            let first: ActivityTurnsPage = try await request(
+                ActivityRequests.turns(id, limit: 10, includesItems: includesItems), generation: current
             )
-            if newSubscription, turns.data.count <= 1, turns.data.allSatisfy({ $0.status == "inProgress" }),
-               let created = thread.createdAt, created >= connectedAt.timeIntervalSince1970 {
+            if newSubscription, first.nextCursor == nil, first.data.count <= 1,
+               first.data.allSatisfy({ $0.status == .running }),
+               let created = thread.createdAt, created >= connectedAt {
                 reducer.markNewThread(id)
             }
-            // 查询期间收到的新状态优先, 不用旧响应倒退实时状态
+            let result = try await readRemainingTurns(id, first: first, includesItems: includesItems, forced: forced, generation: current)
+            // 查询期间收到的新状态优先, 不用旧响应倒退实时状态或刷新其验证时间
             if revision == revisions[id, default: 0] {
-                let events = reducer.reconcile(thread: thread, turns: turns.data, reviewer: reviewer, now: Date(), bootstrap: bootstrap || newSubscription)
-                if !events.isEmpty {
-                    await onBatch(.bootstrapEvents(events))
+                let events = reducer.reconcile(thread: thread, turns: result.turns, now: Date(), bootstrap: bootstrap || newSubscription)
+                for turn in result.turns {
+                    verifiedTurns[ActivityTurnReference(threadID: id, turnID: turn.id)] = started
                 }
-            }
-            if !invalidThreads.contains(id) || revision == revisions[id, default: 0] {
+                for turnID in result.remaining {
+                    let key = ActivityTurnReference(threadID: id, turnID: turnID)
+                    verifiedTurns[key] = nil
+                    reducer.states[key]?.readStatus = result.cursor == nil ? .notFound : .unavailable
+                }
+                let observations = reducer.takeTokenObservations()
+                enqueueHistory(events: [], observations: observations)
+                turnCursors[id] = result.cursor
                 invalidThreads.remove(id)
-                verifiedThreads[id] = started
+                covered = result.remaining.isEmpty && thread.status?.type != .notLoaded
+                if !events.isEmpty {
+                    await onBatch(.snapshotEvents(events))
+                }
             }
             preparingThread = nil
             consumeDeferred(for: id)
@@ -334,7 +412,8 @@ actor AppServerActivityReader {
         } catch let error as CodexStatusError where error.isMissingRollout(for: id)
             || (!error.isTransportFailure && !error.isProtocolOrParameterFailure) {
             reducer.invalidateThread(id)
-            verifiedThreads[id] = nil
+            verifiedTurns = verifiedTurns.filter { $0.key.threadID != id }
+            turnCursors[id] = nil
             subscribed.remove(id)
             consumeDeferred(for: id)
         } catch {
@@ -342,6 +421,49 @@ actor AppServerActivityReader {
             throw error
         }
         checkedThreads[id] = started
+        return covered
+    }
+
+    private func readRemainingTurns(
+        _ id: String, first: ActivityTurnsPage, includesItems: Bool, forced: Bool, generation current: Int
+    ) async throws -> TurnReadResult {
+        var turns = first.data
+        let activeTurns = reducer.states.keys.filter {
+            $0.threadID == id && reducer.states[$0]?.terminal == nil
+        }.map(\.turnID)
+        var remaining = Set(activeTurns)
+        remaining.formUnion(reducer.missingRootTurns(liveOnly: forced)[id] ?? [])
+        remaining.subtract(first.data.map(\.id))
+        var missingAgents = reducer.missingSubagentContexts(in: id, liveOnly: forced)
+        func foundAgents(in turns: [ActivityTurn]) -> Set<String> {
+            var agents = Set<String>()
+            for turn in turns {
+                for item in turn.items ?? [] where item.type == .subAgentActivity && item.kind == "started" {
+                    if let agent = item.agentThreadId {
+                        agents.insert(agent)
+                    }
+                }
+            }
+            return agents
+        }
+        missingAgents.subtract(foundAgents(in: first.data))
+        var cursor = turnCursors[id] ?? first.nextCursor
+        // 每轮重读最新页, 深页沿上次游标继续, 避免旧轮次一直被新轮次挤出查询窗口
+        for _ in 0 ..< (forced ? 8 : 1) {
+            guard !remaining.isEmpty || !missingAgents.isEmpty, let next = cursor else { break }
+            let page: ActivityTurnsPage = try await request(
+                ActivityRequests.turns(id, limit: 100, includesItems: includesItems, cursor: next), generation: current
+            )
+            guard page.nextCursor != next else { throw CodexStatusError.invalidServerResponse }
+            turns += page.data
+            remaining.subtract(page.data.map(\.id))
+            missingAgents.subtract(foundAgents(in: page.data))
+            cursor = page.nextCursor
+        }
+        return TurnReadResult(
+            turns: turns, remaining: remaining.intersection(activeTurns),
+            cursor: remaining.isEmpty && missingAgents.isEmpty ? nil : cursor
+        )
     }
 
     private func consumeDeferred(for id: String) {
@@ -353,10 +475,10 @@ actor AppServerActivityReader {
         }
     }
 
-    private func request<Response: Decodable>(_ method: String, params: [String: Any], generation current: Int) async throws -> Response {
+    private func request<Response>(_ request: AppServerRequest<Response>, generation current: Int) async throws -> Response {
         try checkGeneration(current)
         guard let connection = session else { throw CodexStatusError.serverConnectionClosed }
-        let pending = try connection.beginRequest(method, params: params)
+        let pending = try connection.beginRequest(request.method, params: request.params ?? [:])
         var received = false
         do {
             while true {
@@ -382,23 +504,28 @@ actor AppServerActivityReader {
     }
 
     private func checkGeneration(_ current: Int) throws {
-        try Task.checkCancellation()
+        try AppServerRequestBudget.checkCurrent()
         guard generation == current, isRunning else { throw CancellationError() }
     }
 
     private func consume(_ data: Data) throws {
         let method = try JSONDecoder().decode(MethodEnvelope.self, from: data).method
-        guard ActivityNotification.category(for: method) != .ignored else { return }
-        let notification: ActivityNotification
+        if let change = AccountChange(method: method) {
+            pendingAccountChange = change.merging(pendingAccountChange)
+            return
+        }
+        guard AppServerActivityProtocol.kind(for: method).category != .ignored else { return }
+        let notification: ActivityInput
         do {
-            notification = try JSONDecoder().decode(ActivityNotification.self, from: data)
+            notification = try JSONDecoder().decode(ActivityInput.self, from: data)
         } catch is DecodingError {
-            guard let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let params = envelope["params"] as? [String: Any],
-                  let threadID = params["threadId"] as? String ?? (params["thread"] as? [String: Any])?["id"] as? String,
-                  !threadID.isEmpty else { throw CodexStatusError.invalidServerResponse }
+            guard let threadID = AppServerActivityProtocol.recoveryThreadID(from: data) else { throw CodexStatusError.invalidServerResponse }
             // 用量或轮次边界缺失时不能把跨轮次消耗归到下一条通知
-            invalidateThread(threadID, method: method, resetTokenBaseline: ["thread/tokenUsage/updated", "turn/started", "turn/completed"].contains(method))
+            invalidateThread(
+                threadID,
+                method: method,
+                resetTokenBaseline: [ActivityInput.Kind.usageUpdated, .turnStarted, .turnFinished].contains(AppServerActivityProtocol.kind(for: method))
+            )
             return
         }
         let id = notification.params.threadId ?? notification.params.thread?.id
@@ -410,22 +537,19 @@ actor AppServerActivityReader {
         consume(notification)
     }
 
-    private func consume(_ notification: ActivityNotification) {
+    private func consume(_ notification: ActivityInput) {
         stateChanged = true
         if let id = notification.params.threadId ?? notification.params.thread?.id,
-           ActivityNotification.category(for: notification.method) != .progress {
+           notification.kind.category != .progress {
             revisions[id, default: 0] += 1
         }
         let events = reducer.consume(notification, now: Date())
-        pendingEvents += events
         pendingPublication += events
         if let id = notification.params.threadId ?? notification.params.thread?.id, invalidThreads.contains(id) {
             reducer.invalidateThread(id)
         }
         let observations = reducer.takeTokenObservations()
-        if isTokenWriter {
-            pendingObservations += observations
-        }
+        enqueueHistory(events: events, observations: observations)
     }
 
     private func consumeAvailable(generation current: Int) async throws {
@@ -443,52 +567,158 @@ actor AppServerActivityReader {
         try await flushPending(generation: current)
     }
 
-    private func persistPending() async throws {
-        while let event = pendingEvents.first {
-            try await recorder.record(event: event)
-            pendingEvents.removeFirst()
+    private func startStorageWorker() {
+        guard storageTask == nil else { return }
+        let current = generation
+        storageTask = Task { [weak self] in await self?.runStorage(generation: current) }
+    }
+
+    private func runStorage(generation current: Int) async {
+        while isRunning, generation == current, !Task.isCancelled {
+            do {
+                try await acquireTokenWriter(generation: current)
+                _ = await retryStorage()
+                try checkGeneration(current)
+                await refreshTokenHistory(generation: current)
+                try await Task.sleep(for: .milliseconds(100))
+            } catch {
+                break
+            }
         }
-        if isTokenWriter, !pendingObservations.isEmpty || Date().timeIntervalSince(lastTokenRefresh) >= 1 {
-            let batch = pendingObservations
-            let committed = try await tokenHistory.recordObservations(batch)
-            pendingObservations.removeFirst(batch.count)
-            reducer.acceptTokenTurns(committed)
+        var failures = 0
+        while !Task.isCancelled, failures < 3, !pendingEvents.isEmpty || !pendingObservations.isEmpty {
+            do {
+                try await persistPending()
+            } catch {
+                failures += 1
+                recordStorageFailure(error)
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        await tokenHistory.releaseRecordingLease()
+        isTokenWriter = false
+        reducer.setTokenRecordingEnabled(false)
+        storageTask = nil
+        // 上一次排空尚未结束时重新启用, 必须等旧写入确认后再启动下一轮
+        if isRunning {
+            startStorageWorker()
+        }
+    }
+
+    private func persistPending() async throws {
+        var failure: Error?
+        do {
+            for pending in pendingEvents.prefix(64) {
+                try Task.checkCancellation()
+                try await recorder.record(event: pending.event)
+                pendingEvents.removeFirst()
+                pendingStorageBytes -= pending.bytes
+            }
+        } catch {
+            failure = error
+        }
+        do {
+            for pending in pendingObservations.prefix(64) {
+                try Task.checkCancellation()
+                try await tokenHistory.appendObservation(pending.observation)
+                pendingObservations.removeFirst()
+                pendingStorageBytes -= pending.bytes
+            }
+        } catch {
+            failure = failure ?? error
+        }
+        if let failure {
+            throw failure
+        }
+    }
+
+    private func refreshTokenHistory(generation current: Int) async {
+        guard isTokenWriter, pendingObservations.isEmpty, Date() >= tokenRetryAfter,
+              Date().timeIntervalSince(lastTokenRefresh) >= 1 else { return }
+        let refresh = Task { try await tokenHistory.refresh() }
+        tokenRefreshTask = refresh
+        defer { tokenRefreshTask = nil }
+        do {
+            let committed = try await refresh.value
+            guard generation == current, isRunning, !Task.isCancelled else { return }
+            // 此循环刷新期间不写队列, 新观测全部在队列中, 按检查点重放后再发布
+            try reducer.acceptTokenTurns(committed, replaying: pendingObservations.map(\.observation))
+            stateChanged = true
+            tokenRefreshFailed = false
+            tokenRetryAfter = .distantPast
             lastTokenRefresh = Date()
+        } catch is CancellationError {
+            return
+        } catch {
+            guard generation == current, isRunning else { return }
+            if !tokenRefreshFailed {
+                logStorage?.recordFailure(method: "activity/storage", message: error.localizedDescription, connection: "activity")
+            }
+            tokenRefreshFailed = true
+            tokenRetryAfter = Date().addingTimeInterval(1)
         }
     }
 
     private func flushPending(generation current: Int, force: Bool = true) async throws {
         try checkGeneration(current)
-        guard stateChanged || !pendingEvents.isEmpty || !pendingObservations.isEmpty || !pendingPublication.isEmpty else { return }
-        if !force, pendingEvents.isEmpty, pendingObservations.isEmpty, Date().timeIntervalSince(lastPublished) < 0.1 {
+        if let change = pendingAccountChange {
+            pendingAccountChange = nil
+            await onAccountChange(change)
+            try checkGeneration(current)
+        }
+        guard stateChanged || !pendingPublication.isEmpty else { return }
+        if !force, pendingPublication.isEmpty, Date().timeIntervalSince(lastPublished) < 0.1 {
             return
         }
-        _ = await retryStorage()
-        try checkGeneration(current)
-        await lifecycleCache.replace(reducer.states, verifiedThreads: verifiedThreads)
+        await lifecycleCache.replace(reducer.states, verifiedTurns: verifiedTurns)
         try checkGeneration(current)
         stateChanged = false
         lastPublished = Date()
         let events = pendingPublication
         pendingPublication.removeAll()
-        let visible = events.filter { event in
-            guard [.subagentStarted, .subagentEnded].contains(event.eventKind),
-                  let agent = event.agentID, let turn = event.turnID else { return true }
-            return reducer.states[ActivityTurnReference(threadID: agent, turnID: turn, startedAt: event.timestamp)] != nil
-        }
-        if !visible.isEmpty {
-            await onBatch(.live(visible))
+        if !events.isEmpty {
+            await onBatch(.live(events))
         }
         await onBatch(.lifecycleChanged)
-        if storageFailed, try pendingStorageExceedsLimit() {
-            storagePaused = true
-            throw StorageBacklogFull()
+    }
+
+    private func enqueueHistory(events: [ActivityRecord], observations: [TokenObservation]) {
+        do {
+            for event in events {
+                guard !isHistoryRecordingPaused else { return }
+                let bytes = try AppServerEventRecord(activity: event).jsonLineData().count
+                pendingEvents.append((event, bytes))
+                pendingStorageBytes += bytes
+                enforceStorageLimit()
+            }
+            for observation in observations where isTokenWriter {
+                guard !isHistoryRecordingPaused else { return }
+                let bytes = try JSONLines.stableEncoder.encode(observation).count
+                pendingObservations.append((observation, bytes))
+                pendingStorageBytes += bytes
+                enforceStorageLimit()
+            }
+        } catch {
+            recordStorageFailure(error)
+            pauseHistoryRecording()
         }
+    }
+
+    private func enforceStorageLimit() {
+        if pendingEvents.count + pendingObservations.count >= maximumPendingEvents || pendingStorageBytes >= maximumPendingBytes {
+            pauseHistoryRecording()
+        }
+    }
+
+    private func pauseHistoryRecording() {
+        isHistoryRecordingPaused = true
+        reducer.setTokenRecordingEnabled(false)
     }
 
     private func invalidateThread(_ id: String, method: String, resetTokenBaseline: Bool) {
         let firstFailure = invalidThreads.insert(id).inserted
-        verifiedThreads[id] = nil
+        verifiedTurns = verifiedTurns.filter { $0.key.threadID != id }
+        turnCursors[id] = nil
         revisions[id, default: 0] += 1
         stateChanged = true
         reducer.invalidateThread(id)
@@ -496,7 +726,7 @@ actor AppServerActivityReader {
             reducer.invalidateTokenBaseline(id)
         }
         if firstFailure {
-            AppServerLogStore.shared.recordFailure(method: method, message: "Invalid payload for thread \(id)", connection: "activity")
+            logStorage?.recordFailure(method: method, message: "Invalid payload for thread \(id)", connection: "activity")
         }
     }
 
@@ -506,6 +736,10 @@ actor AppServerActivityReader {
             try await persistPending()
             storageFailed = false
             storageRetryAfter = .distantPast
+            if isHistoryRecordingPaused, pendingEvents.isEmpty, pendingObservations.isEmpty, isRunning, !Task.isCancelled {
+                isHistoryRecordingPaused = false
+                reducer.setTokenRecordingEnabled(isTokenWriter)
+            }
             return true
         } catch {
             recordStorageFailure(error)
@@ -515,31 +749,10 @@ actor AppServerActivityReader {
 
     private func recordStorageFailure(_ error: Error) {
         if !storageFailed {
-            AppServerLogStore.shared.recordFailure(method: "activity/storage", message: error.localizedDescription, connection: "activity")
+            logStorage?.recordFailure(method: "activity/storage", message: error.localizedDescription, connection: "activity")
         }
         storageFailed = true
         storageRetryAfter = Date().addingTimeInterval(1)
-    }
-
-    private func pendingStorageExceedsLimit() throws -> Bool {
-        if pendingEvents.count + pendingObservations.count >= maximumPendingEvents {
-            return true
-        }
-        var bytes = 0
-        for event in pendingEvents {
-            bytes += try AppServerEventRecord(activity: event).jsonLineData().count
-            if bytes >= maximumPendingBytes {
-                return true
-            }
-        }
-        bytes += try JSONLines.stableEncoder.encode(pendingObservations).count
-        return bytes >= maximumPendingBytes
-    }
-
-    private struct StorageBacklogFull: LocalizedError {
-        var errorDescription: String? {
-            "Activity persistence buffer is full; collection is paused until pending data is saved"
-        }
     }
 
     private struct MethodEnvelope: Decodable { let method: String }

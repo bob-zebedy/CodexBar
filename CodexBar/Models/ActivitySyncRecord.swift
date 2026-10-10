@@ -1,11 +1,14 @@
 import Foundation
 
 nonisolated struct SyncedActivity: Codable, Equatable {
+    static let currentVersion = 1
+    var version = Self.currentVersion
+    var aggregationVersion = AggregationVersion.activity
+    var sourceCheckpoint: ActivitySourceCheckpoint?
+
     let date: String
     var generationID: String?
     var eventCount: Int?
-    var sessionStartedCount: Int?
-    var sessionEndedCount: Int?
     var turnStartedCount: Int?
     var turnCompletedCount: Int?
     var turnAbortedCount: Int?
@@ -16,7 +19,7 @@ nonisolated struct SyncedActivity: Codable, Equatable {
     var compactionCompletedCount: Int?
     var subagentStartedCount: Int?
     var subagentEndedCount: Int?
-    var sessionCount: Int?
+    var threadCount: Int?
     var turnCount: Int?
     var projectCounts: [String: Int]
     var modelCounts: [String: Int]
@@ -24,14 +27,8 @@ nonisolated struct SyncedActivity: Codable, Equatable {
     var metrics: ActivityMetrics {
         ActivityMetrics(
             startDate: date,
-            sessionCount: CountResolution.resolvedCount(
-                compactedCount: sessionCount,
-                fallback: sessionStartedCount ?? 0
-            ),
-            turnCount: CountResolution.resolvedCount(
-                compactedCount: turnCount,
-                fallback: turnCompletedCount ?? 0
-            ),
+            threadCount: threadCount,
+            turnCount: turnCount,
             toolStartedCount: toolStartedCount ?? 0,
             toolCompletedCount: toolCompletedCount ?? 0,
             approvalRequestedCount: approvalRequestedCount ?? 0,
@@ -40,7 +37,7 @@ nonisolated struct SyncedActivity: Codable, Equatable {
             subagentStartedCount: subagentStartedCount ?? 0,
             subagentEndedCount: subagentEndedCount ?? 0,
             modelCounts: modelCounts,
-            turnAbortedCount: turnAbortedCount
+            turnAbortedCount: turnAbortedCount ?? 0
         )
     }
 
@@ -60,11 +57,10 @@ nonisolated struct SyncedActivity: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case version, aggregationVersion, sourceCheckpoint
         case date
         case generationID
         case eventCount
-        case sessionStartedCount
-        case sessionEndedCount
         case turnStartedCount
         case turnCompletedCount
         case turnAbortedCount
@@ -75,7 +71,7 @@ nonisolated struct SyncedActivity: Codable, Equatable {
         case compactionCompletedCount
         case subagentStartedCount
         case subagentEndedCount
-        case sessionCount
+        case threadCount
         case turnCount
         case projectCounts
         case modelCounts
@@ -85,11 +81,14 @@ nonisolated struct SyncedActivity: Codable, Equatable {
 extension SyncedActivity {
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        try StorageVersion.require(version, current: Self.currentVersion, name: "ActivityAggregate")
+        sourceCheckpoint = try container.decodeIfPresent(ActivitySourceCheckpoint.self, forKey: .sourceCheckpoint)
+        aggregationVersion = try container.decode(Int.self, forKey: .aggregationVersion)
+        try AggregationVersion.require(aggregationVersion, current: AggregationVersion.activity, name: "Activity")
         date = try container.decode(String.self, forKey: .date)
         generationID = try container.decodeIfPresent(String.self, forKey: .generationID)
         eventCount = try container.decodeIfPresent(Int.self, forKey: .eventCount)
-        sessionStartedCount = try container.decodeIfPresent(Int.self, forKey: .sessionStartedCount)
-        sessionEndedCount = try container.decodeIfPresent(Int.self, forKey: .sessionEndedCount)
         turnStartedCount = try container.decodeIfPresent(Int.self, forKey: .turnStartedCount)
         turnCompletedCount = try container.decodeIfPresent(Int.self, forKey: .turnCompletedCount)
         turnAbortedCount = try container.decodeIfPresent(Int.self, forKey: .turnAbortedCount)
@@ -100,7 +99,7 @@ extension SyncedActivity {
         compactionCompletedCount = try container.decodeIfPresent(Int.self, forKey: .compactionCompletedCount)
         subagentStartedCount = try container.decodeIfPresent(Int.self, forKey: .subagentStartedCount)
         subagentEndedCount = try container.decodeIfPresent(Int.self, forKey: .subagentEndedCount)
-        sessionCount = try container.decodeIfPresent(Int.self, forKey: .sessionCount)
+        threadCount = try container.decodeIfPresent(Int.self, forKey: .threadCount)
         turnCount = try container.decodeIfPresent(Int.self, forKey: .turnCount)
         projectCounts = try container.decodeIfPresent([String: Int].self, forKey: .projectCounts) ?? [:]
         modelCounts = try container.decodeIfPresent([String: Int].self, forKey: .modelCounts) ?? [:]

@@ -1,12 +1,27 @@
 import Foundation
-import os
+
+/// 账户通知只触发重新读取, 不将不完整的推送载荷合并进账户快照
+nonisolated enum AccountChange: Sendable {
+    case account
+    case rateLimits
+
+    init?(method: String) {
+        switch method {
+        case "account/updated": self = .account
+        case "account/rateLimits/updated": self = .rateLimits
+        default: return nil
+        }
+    }
+
+    func merging(_ other: Self?) -> Self {
+        self == .account || other == .account ? .account : .rateLimits
+    }
+}
 
 /// 账户连接负责业务解码与重试, 传输和请求日志复用共享 WebSocket
 final nonisolated class AccountSession {
     private let transport: AppServerSession
     private let timeout: TimeInterval
-    private let logStorage: AppServerLogStore?
-    private var nextID = 1
     private var unsupportedMethods: Set<String> = []
 
     var isOpen: Bool {
@@ -16,60 +31,31 @@ final nonisolated class AccountSession {
     init(socketURL: URL, timeout: TimeInterval = 20, logStorage: AppServerLogStore? = .shared) throws {
         transport = try AppServerSession(socketURL: socketURL, retainsNotifications: false, logStorage: logStorage, connectionName: "account")
         self.timeout = timeout
-        self.logStorage = logStorage
     }
 
     func initializeAccount() throws -> (version: String, account: AccountReadResponse) {
-        let result = try request(
-            "initialize",
-            params: ["clientInfo": [
-                "name": "codex_bar",
-                "title": "Codex Bar",
-                "version": Self.clientVersion()
-            ], "capabilities": ["experimentalApi": true]],
-            as: InitializeResult.self
+        let version = try transport.initialize(
+            clientName: "codex_bar_account", minimumVersion: CodexVersionReader.minimumAppServerVersion, timeout: timeout, title: "Codex Bar"
         )
-        let version = Self.serverVersion(fromUserAgent: result.userAgent)
-        let minimum = CodexMinimumVersion.account
-        // 版本未知不能作为明确的低版本结论
-        guard let version, let isSupported = CodexVersionReader.isVersion(version, atLeast: minimum) else {
-            throw CodexStatusError.invalidServerResponse
-        }
-        guard isSupported else {
-            let error = CodexStatusError.unsupportedVersion(minimum: minimum)
-            if let logStorage {
-                let details = LogFields.joined("current=\(version)", "minimum=\(minimum)")
-                AppLog.codex.notice("Codex 版本不支持: \(details, privacy: .public)")
-                logStorage.recordFailure(message: error.localizedDescription)
-            }
-            throw error
-        }
-        try notify("initialized")
-        let account = try request("account/read", params: ["refreshToken": false], as: AccountReadResponse.self)
-        guard account.account != nil else { throw CodexStatusError.notLoggedIn }
+        let account = try perform(AccountRequests.account(refreshToken: false))
         return (version, account)
     }
 
-    private static func clientVersion() -> String {
-        guard let version = Bundle.main.shortVersionString, !version.isEmpty else { return "1.0.0" }
-        return version
-    }
-
-    /// userAgent 首个 token 中 "/" 之后的部分才是实际运行版本
-    private static func serverVersion(fromUserAgent userAgent: String?) -> String? {
-        guard let firstToken = userAgent?.split(separator: " ").first,
-              let slashIndex = firstToken.firstIndex(of: "/") else { return nil }
-        let version = firstToken[firstToken.index(after: slashIndex)...]
-        return version.isEmpty ? nil : String(version)
+    /// 与请求共用所属 actor, 空闲读取不会与响应读取并发
+    func pollChanges() throws -> AccountChange? {
+        let deadline = ContinuousClock.now.advanced(by: .milliseconds(50))
+        for _ in 0 ..< 32 {
+            guard ContinuousClock.now < deadline, try transport.nextEvent() != nil else { break }
+        }
+        return transport.takeAccountChange()
     }
 
     func close() {
         transport.close()
     }
 
-    func notify(_ method: String, params: [String: Any]? = nil) throws {
-        let data = try AppServerRPC.encode(method: method, id: nil, params: params)
-        try transport.notify(data)
+    func perform<Response>(_ request: AppServerRequest<Response>) throws -> Response {
+        try self.request(request.method, params: request.params, as: Response.self)
     }
 
     func request<Response: Decodable>(
@@ -92,10 +78,10 @@ final nonisolated class AccountSession {
     private func performRequestRememberingUnsupported<Response: Decodable>(
         _ method: String,
         params: [String: Any]? = nil,
-        as type: Response.Type
+        as _: Response.Type
     ) throws -> Response {
         do {
-            return try performRequest(method, params: params, as: type)
+            return try transport.request(method, params: params, timeout: timeout)
         } catch let error as CodexStatusError {
             if error.isUnsupportedMethod {
                 unsupportedMethods.insert(method)
@@ -103,28 +89,4 @@ final nonisolated class AccountSession {
             throw error
         }
     }
-
-    private func performRequest<Response: Decodable>(
-        _ method: String,
-        params: [String: Any]? = nil,
-        as type: Response.Type
-    ) throws -> Response {
-        try AppServerRequestBudget.checkCurrent()
-        let id = nextID
-        nextID += 1
-        let payload = try AppServerRPC.encode(method: method, id: id, params: params)
-        do {
-            let data = try transport.exchange(payload, id: id, timeout: timeout)
-            return try AppServerRPC.decode(data, as: type)
-        } catch {
-            if error is CancellationError || (error as? CodexStatusError)?.isTransportFailure == true {
-                close()
-            }
-            throw error
-        }
-    }
-}
-
-private nonisolated struct InitializeResult: Decodable {
-    let userAgent: String?
 }

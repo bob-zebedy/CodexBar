@@ -31,12 +31,12 @@ struct JSONLinesAndActivityTests {
 
     @Test func eventDecodingToleratesMissingMetadataAndUnknownOrigins() throws {
         let event = try TestFixtures.decode(ActivityRecord.self, """
-        {"timestamp":0,"name":"turnStarted","origin":"future","sessionID":"  ","tool":123}
+        {"timestamp":0,"name":"turnStarted","origin":"future","threadID":"  ","toolName":123}
         """)
         #expect(event.eventKind == .turnStarted)
         #expect(event.origin == .unknown)
-        #expect(event.sessionID == nil)
-        #expect(event.tool == nil)
+        #expect(event.threadID == nil)
+        #expect(event.toolName == nil)
     }
 
     @Test(arguments: [#"{"name":"turnCompleted"}"#, #"{"timestamp":"invalid","name":"turnCompleted"}"#, #"{"timestamp":0,"name":" "}"#])
@@ -49,19 +49,18 @@ struct JSONLinesAndActivityTests {
     @Test func eventSerializationRoundTripsEscapedMetadata() throws {
         let event = ActivityRecord(
             timestamp: TestFixtures.now, name: "toolStarted", origin: .main,
-            cwd: "/projects/a\"b", tool: "line\nbreak", model: nil,
-            effort: nil, approvalReviewer: nil,
-            sessionID: "session", turnID: "turn", agentID: "agent"
+            cwd: "/projects/a\"b", toolName: "line\nbreak", model: nil,
+            effort: nil, threadID: "session", turnID: "turn", agentID: "agent"
         )
         let data = try JSONLines.stableEncoder.encode(event)
         #expect(!data.contains(JSONLines.newlineByte))
         #expect(try JSONLines.decoder.decode(ActivityRecord.self, from: data) == event)
     }
 
-    @Test func guardianModelOnlyFillsUnknownOrigin() throws {
+    @Test func modelNameDoesNotClassifyTaskOrigin() throws {
         let unknown = try TestFixtures.decode(ActivityRecord.self, #"{"timestamp":0,"name":"turnCompleted","model":"codex-auto-review"}"#)
         let explicit = try TestFixtures.decode(ActivityRecord.self, #"{"timestamp":0,"name":"turnCompleted","model":"codex-auto-review","origin":"main"}"#)
-        #expect(unknown.origin == .autoReview)
+        #expect(unknown.origin == .unknown)
         #expect(explicit.origin == .main)
     }
 }

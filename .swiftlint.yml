@@ -2,6 +2,8 @@ included:
     - CodexBar
     - CodexBarTests
     - CodexBarHelperTests
+    - CodexBarHelperManager
+    - Shared
 
 line_length:
     warning: 180

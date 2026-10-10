@@ -137,8 +137,8 @@ struct CodexQuotaAndIdentityTests {
         let date = try #require(CodexDateFormat.dayDate(from: "2026-09-15"))
         let usage = CodexUsageSnapshot(summary: summary, dailyBuckets: [DailyUsageBucket(startDate: "2026-09-15", tokens: 2), DailyUsageBucket(startDate: "2026-09-15", tokens: 3)])
         #expect(usage.tokenCount(on: date) == 5)
-        #expect(!CodexUsageSnapshot(summary: summary, dailyBuckets: nil).hasAppServerData)
-        #expect(CodexUsageSnapshot(summary: summary, dailyBuckets: []).hasAppServerData)
+        #expect(!CodexUsageSnapshot(summary: summary, dailyBuckets: nil).hasDailyUsageBuckets)
+        #expect(CodexUsageSnapshot(summary: summary, dailyBuckets: []).hasDailyUsageBuckets)
     }
 
     @Test func autoResetUUIDMatchesIndependentUUIDv5Vector() {

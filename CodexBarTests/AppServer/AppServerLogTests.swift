@@ -4,6 +4,22 @@ import SQLite3
 import Testing
 
 struct AppServerLogTests {
+    @Test func unsupportedDatabaseVersionRejectsWritesAndClear() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let url = directory.url.appendingPathComponent(AppServerLogStore.databaseName)
+        var database: OpaquePointer?
+        #expect(sqlite3_open(url.path, &database) == SQLITE_OK)
+        #expect(sqlite3_exec(database, "PRAGMA user_version = 999; CREATE TABLE future_data (value TEXT); INSERT INTO future_data VALUES ('keep');", nil, nil, nil) == SQLITE_OK)
+        sqlite3_close(database)
+        let before = try Data(contentsOf: url)
+        let store = AppServerLogStore(directoryURL: directory.url)
+        store.recordFailure(message: "must not be written")
+        await #expect(throws: (any Error).self) { try await store.page() }
+        await #expect(throws: (any Error).self) { try await store.clear() }
+        #expect(try Data(contentsOf: url) == before)
+    }
+
     @Test(arguments: [0, 5])
     func unchangedRefreshDoesNotPublishOrChangePaging(entryCount: Int) async throws {
         let directory = try TestDirectory()

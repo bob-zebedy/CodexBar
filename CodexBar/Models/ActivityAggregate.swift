@@ -12,43 +12,42 @@ nonisolated enum ActivityIdentifiers {
 /// 全量和增量路径都收集 ID, 只有 finalize 时才按保留策略决定是否落盘
 nonisolated struct ActivityAccumulator {
     private var aggregate: ActivityAggregate
-    private var sessionIDs: Set<String> = []
+    private var threadIDs: Set<String> = []
     private var turnIDs: Set<String> = []
+    private var baseThreadCount = 0
+    private var baseTurnCount = 0
+    private var restoresCompactedIdentity = false
 
     init(
         rebuilding date: String,
         generationID: String?,
-        generationStartedEmpty: Bool,
         eventCountAvailability: ActivityCountAvailability
     ) {
         aggregate = ActivityAggregate(
             date: date,
             generationID: generationID,
-            generationStartedEmpty: generationStartedEmpty,
             eventCountAvailability: eventCountAvailability
         )
     }
 
     init(
         appending aggregate: ActivityAggregate,
-        generationID: String?,
-        generationStartedEmpty: Bool
+        generationID: String?
     ) {
         var aggregate = aggregate
         aggregate.generationID = generationID
-        aggregate.generationStartedEmpty = generationStartedEmpty
         self.aggregate = aggregate
-        sessionIDs = Set(aggregate.sessionIDs ?? [])
+        threadIDs = Set(aggregate.threadIDs ?? [])
         turnIDs = Set(aggregate.turnIDs ?? [])
+        baseThreadCount = aggregate.threadCount ?? 0
+        baseTurnCount = aggregate.turnCount ?? 0
+        restoresCompactedIdentity = !aggregate.supportsIncrementalAggregation
     }
 
     mutating func record(_ event: ActivityRecord) {
-        // origin 只控制实时活动过滤, 历史统计按全部业务事件事实保持原口径
         Self.increment(&aggregate.eventCount)
 
         switch event.eventKind {
-        case .sessionStarted: Self.increment(&aggregate.sessionStartedCount)
-        case .sessionEnded: Self.increment(&aggregate.sessionEndedCount)
         case .turnStarted: Self.increment(&aggregate.turnStartedCount)
         case .turnCompleted: Self.increment(&aggregate.turnCompletedCount)
         case .turnAborted: Self.increment(&aggregate.turnAbortedCount)
@@ -63,11 +62,12 @@ nonisolated struct ActivityAccumulator {
         }
 
         // 终态事件不单独构成对应的当日活跃轮次
-        if event.eventKind != .sessionEnded, let sessionID = event.sessionID {
-            sessionIDs.insert(sessionID)
+        if let threadID = event.threadID, threadIDs.insert(threadID).inserted, restoresCompactedIdentity {
+            baseThreadCount += 1
         }
-        if event.eventKind != .turnCompleted, event.eventKind != .turnAborted, let turnID = event.turnID {
-            turnIDs.insert(turnID)
+        if event.eventKind != .turnCompleted, event.eventKind != .turnAborted,
+           let turnID = event.turnID, turnIDs.insert(turnID).inserted, restoresCompactedIdentity {
+            baseTurnCount += 1
         }
 
         if let projectDisplayName = event.projectDisplayName {
@@ -78,18 +78,27 @@ nonisolated struct ActivityAccumulator {
         }
     }
 
+    mutating func restoreIdentity(from event: ActivityRecord) {
+        if let threadID = event.threadID {
+            threadIDs.insert(threadID)
+        }
+        if event.eventKind != .turnCompleted, event.eventKind != .turnAborted, let turnID = event.turnID {
+            turnIDs.insert(turnID)
+        }
+    }
+
     func finalized(identifierStorage: ActivityIdentifiers) -> ActivityAggregate {
         var aggregate = aggregate
         switch identifierStorage {
         case .retained:
-            aggregate.sessionCount = nil
+            aggregate.threadCount = nil
             aggregate.turnCount = nil
-            aggregate.sessionIDs = Self.normalizedIdentifiers(sessionIDs)
+            aggregate.threadIDs = Self.normalizedIdentifiers(threadIDs)
             aggregate.turnIDs = Self.normalizedIdentifiers(turnIDs)
         case .compacted:
-            aggregate.sessionCount = sessionIDs.count
-            aggregate.turnCount = turnIDs.count
-            aggregate.sessionIDs = nil
+            aggregate.threadCount = restoresCompactedIdentity ? baseThreadCount : threadIDs.count
+            aggregate.turnCount = restoresCompactedIdentity ? baseTurnCount : turnIDs.count
+            aggregate.threadIDs = nil
             aggregate.turnIDs = nil
         }
         return aggregate
@@ -109,11 +118,6 @@ nonisolated struct ActivityCountAvailability {
     static let all = ActivityCountAvailability(
         includesEventCount: true,
         events: Set(ActivityEventKind.allCases)
-    )
-
-    static let legacy = ActivityCountAvailability(
-        includesEventCount: true,
-        events: Set(ActivityEventKind.allCases.filter { $0 != .turnAborted })
     )
 
     private let includesEventCount: Bool
@@ -140,12 +144,14 @@ nonisolated struct ActivityCountAvailability {
 
 /// Aggregates/activity.jsonl 中的持久化聚合行, 同时兼容保留 ID 和只保留计数两种形态
 nonisolated struct ActivityAggregate: Codable, Equatable {
+    static let currentVersion = 1
+    var version = Self.currentVersion
+    var aggregationVersion = AggregationVersion.activity
+    var sourceCheckpoint: ActivitySourceCheckpoint?
+
     let date: String
     var generationID: String?
-    var generationStartedEmpty: Bool
     var eventCount: Int?
-    var sessionStartedCount: Int?
-    var sessionEndedCount: Int?
     var turnStartedCount: Int?
     var turnCompletedCount: Int?
     var turnAbortedCount: Int?
@@ -156,30 +162,26 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
     var compactionCompletedCount: Int?
     var subagentStartedCount: Int?
     var subagentEndedCount: Int?
-    var sessionCount: Int?
+    var threadCount: Int?
     var turnCount: Int?
     var projectCounts: [String: Int]
     var modelCounts: [String: Int]
-    var sessionIDs: [String]?
+    var threadIDs: [String]?
     var turnIDs: [String]?
 
     /// 增量路径只有在完整 ID 集合仍然存在时才能继续安全去重
     var supportsIncrementalAggregation: Bool {
-        sessionCount == nil && turnCount == nil
+        threadCount == nil && turnCount == nil
     }
 
     init(
         date: String,
         generationID: String? = nil,
-        generationStartedEmpty: Bool = false,
         eventCountAvailability: ActivityCountAvailability = .all
     ) {
         self.date = date
         self.generationID = generationID
-        self.generationStartedEmpty = generationStartedEmpty
         eventCount = eventCountAvailability.initialEventCount
-        sessionStartedCount = eventCountAvailability.initialCount(for: .sessionStarted)
-        sessionEndedCount = eventCountAvailability.initialCount(for: .sessionEnded)
         turnStartedCount = eventCountAvailability.initialCount(for: .turnStarted)
         turnCompletedCount = eventCountAvailability.initialCount(for: .turnCompleted)
         turnAbortedCount = eventCountAvailability.initialCount(for: .turnAborted)
@@ -190,22 +192,24 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
         compactionCompletedCount = eventCountAvailability.initialCount(for: .compactionCompleted)
         subagentStartedCount = eventCountAvailability.initialCount(for: .subagentStarted)
         subagentEndedCount = eventCountAvailability.initialCount(for: .subagentEnded)
-        sessionCount = nil
+        threadCount = nil
         turnCount = nil
         projectCounts = [:]
         modelCounts = [:]
-        sessionIDs = []
+        threadIDs = []
         turnIDs = []
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        try StorageVersion.require(version, current: Self.currentVersion, name: "ActivityAggregate")
+        sourceCheckpoint = try container.decodeIfPresent(ActivitySourceCheckpoint.self, forKey: .sourceCheckpoint)
+        aggregationVersion = try container.decode(Int.self, forKey: .aggregationVersion)
+        try AggregationVersion.require(aggregationVersion, current: AggregationVersion.activity, name: "Activity")
         date = try container.decode(String.self, forKey: .date)
         generationID = try container.decodeIfPresent(String.self, forKey: .generationID)
-        generationStartedEmpty = try container.decodeIfPresent(Bool.self, forKey: .generationStartedEmpty) ?? false
         eventCount = try container.decodeIfPresent(Int.self, forKey: .eventCount)
-        sessionStartedCount = try container.decodeIfPresent(Int.self, forKey: .sessionStartedCount)
-        sessionEndedCount = try container.decodeIfPresent(Int.self, forKey: .sessionEndedCount)
         turnStartedCount = try container.decodeIfPresent(Int.self, forKey: .turnStartedCount)
         turnCompletedCount = try container.decodeIfPresent(Int.self, forKey: .turnCompletedCount)
         turnAbortedCount = try container.decodeIfPresent(Int.self, forKey: .turnAbortedCount)
@@ -216,30 +220,30 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
         compactionCompletedCount = try container.decodeIfPresent(Int.self, forKey: .compactionCompletedCount)
         subagentStartedCount = try container.decodeIfPresent(Int.self, forKey: .subagentStartedCount)
         subagentEndedCount = try container.decodeIfPresent(Int.self, forKey: .subagentEndedCount)
-        sessionCount = try container.decodeIfPresent(Int.self, forKey: .sessionCount)
+        threadCount = try container.decodeIfPresent(Int.self, forKey: .threadCount)
         turnCount = try container.decodeIfPresent(Int.self, forKey: .turnCount)
         projectCounts = try container.decodeIfPresent([String: Int].self, forKey: .projectCounts) ?? [:]
         modelCounts = try container.decodeIfPresent([String: Int].self, forKey: .modelCounts) ?? [:]
-        sessionIDs = try container.decodeIfPresent([String].self, forKey: .sessionIDs)
+        threadIDs = try container.decodeIfPresent([String].self, forKey: .threadIDs)
         turnIDs = try container.decodeIfPresent([String].self, forKey: .turnIDs)
     }
 
     mutating func normalizeIdentifierStorage(retainsIdentifiers: Bool) {
         guard !retainsIdentifiers else {
-            sessionIDs = Self.normalizedIdentifiers(sessionIDs)
+            threadIDs = Self.normalizedIdentifiers(threadIDs)
             turnIDs = Self.normalizedIdentifiers(turnIDs)
             return
         }
 
-        sessionCount = CountResolution.preferredCount(
-            compactedCount: sessionCount,
-            identifiers: sessionIDs
-        ) ?? sessionStartedCount
+        threadCount = CountResolution.preferredCount(
+            compactedCount: threadCount,
+            identifiers: threadIDs
+        )
         turnCount = CountResolution.preferredCount(
             compactedCount: turnCount,
             identifiers: turnIDs
-        ) ?? turnCompletedCount
-        sessionIDs = nil
+        )
+        threadIDs = nil
         turnIDs = nil
     }
 
@@ -285,8 +289,6 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
 
     func eventCount(for event: ActivityEventKind) -> Int? {
         switch event {
-        case .sessionStarted: sessionStartedCount
-        case .sessionEnded: sessionEndedCount
         case .turnStarted: turnStartedCount
         case .turnCompleted: turnCompletedCount
         case .turnAborted: turnAbortedCount
@@ -302,11 +304,11 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
 
     var syncedAggregate: SyncedActivity {
         SyncedActivity(
+            aggregationVersion: aggregationVersion,
+            sourceCheckpoint: sourceCheckpoint,
             date: date,
             generationID: generationID,
             eventCount: eventCount,
-            sessionStartedCount: sessionStartedCount,
-            sessionEndedCount: sessionEndedCount,
             turnStartedCount: turnStartedCount,
             turnCompletedCount: turnCompletedCount,
             turnAbortedCount: turnAbortedCount,
@@ -317,17 +319,17 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
             compactionCompletedCount: compactionCompletedCount,
             subagentStartedCount: subagentStartedCount,
             subagentEndedCount: subagentEndedCount,
-            sessionCount: syncedSessionCount,
+            threadCount: syncedThreadCount,
             turnCount: syncedTurnCount,
             projectCounts: projectCounts,
             modelCounts: modelCounts
         )
     }
 
-    private var syncedSessionCount: Int? {
+    private var syncedThreadCount: Int? {
         CountResolution.preferredCount(
-            compactedCount: sessionCount,
-            identifiers: sessionIDs
+            compactedCount: threadCount,
+            identifiers: threadIDs
         )
     }
 
@@ -347,12 +349,10 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case version, aggregationVersion, sourceCheckpoint
         case date
         case generationID
-        case generationStartedEmpty
         case eventCount
-        case sessionStartedCount
-        case sessionEndedCount
         case turnStartedCount
         case turnCompletedCount
         case turnAbortedCount
@@ -363,13 +363,11 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
         case compactionCompletedCount
         case subagentStartedCount
         case subagentEndedCount
-        case sessionCount
+        case threadCount
         case turnCount
         case projectCounts
         case modelCounts
-        case sessionIDs
+        case threadIDs
         case turnIDs
     }
 }
-
-// 同步用的每日聚合行, 保留 Aggregates/activity.jsonl 中的计数, 不包含 sessionIds 和 turnIds

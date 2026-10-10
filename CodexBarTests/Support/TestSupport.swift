@@ -11,31 +11,45 @@ nonisolated enum TestFixtures {
     static func event(
         _ name: ActivityEventKind = .turnStarted,
         at timestamp: Date = now,
-        session: String? = "session-a",
+        thread: String? = "thread-a",
         turn: String? = "turn-a",
         agent: String? = nil,
-        origin: ActivityOrigin = .main,
-        reviewer: ApprovalReviewer? = .user
+        origin: ActivityOrigin = .main
     ) -> ActivityRecord {
-        ActivityRecord(
+        var event = ActivityRecord(
             timestamp: timestamp, name: name.rawValue, origin: origin,
-            cwd: "/projects/example", tool: "exec_command", model: "gpt-5",
-            effort: "high", approvalReviewer: reviewer,
-            sessionID: session, turnID: turn, agentID: agent
+            cwd: "/projects/example", toolName: "exec_command", model: "gpt-5",
+            effort: "high",
+            threadID: thread, turnID: turn, agentID: agent
+        )
+        if name == .turnStarted, let thread {
+            event.context = ActivityContext(
+                method: "turn/started", threadID: agent ?? thread, turnID: turn, turnStartedAt: timestamp
+            )
+        }
+        return event
+    }
+
+    static func tokenTurn(
+        id: String, rootID: String, startedAt: Date? = nil, updatedAt: Date, usage: TokenUsage? = nil
+    ) -> TokenTurn {
+        TokenTurn(
+            id: id, rootID: rootID, startedAt: startedAt, updatedAt: updatedAt, usage: usage,
+            checkpoint: usage.map { ["test-stream": TokenObservationCheckpoint(sequence: 1, usage: $0)] } ?? [:]
         )
     }
 
     static func aggregate(
         generation: String? = "generation-a",
-        fresh: Bool = false,
         events: Int = 2,
         turns: Int = 1
     ) -> ActivityAggregate {
-        var aggregate = ActivityAggregate(date: "2026-09-15", generationID: generation, generationStartedEmpty: fresh)
+        var aggregate = ActivityAggregate(date: "2026-09-15", generationID: generation)
+        aggregate.sourceCheckpoint = ActivitySourceCheckpoint(byteCount: UInt64(events + 1), digest: String(repeating: "a", count: 64))
         aggregate.eventCount = events
         aggregate.turnCount = turns
-        aggregate.sessionCount = 1
-        aggregate.sessionIDs = nil
+        aggregate.threadCount = 1
+        aggregate.threadIDs = nil
         aggregate.turnIDs = nil
         return aggregate
     }
@@ -100,5 +114,39 @@ struct TestPreferences {
 
     func remove() {
         defaults.removePersistentDomain(forName: suite)
+    }
+}
+
+nonisolated extension TestDirectory {
+    @discardableResult
+    func writeJournal(_ records: Data, to relativePath: String, generation: String? = nil) throws -> URL {
+        let url = url.appendingPathComponent(relativePath)
+        let date = url.deletingPathExtension().lastPathComponent
+        let source = generation ?? (try? AppServerEventJournal.header(at: url).generationID) ?? UUID().uuidString.lowercased()
+        let header = AppServerEventJournal.Header(version: 1, date: date, generationID: source)
+        return try write(JSONLines.stableEncoder.encode(header) + Data([10]) + records, to: relativePath)
+    }
+
+    func activityAggregate(date: String, generation: String = "source", events: Int = 1) throws -> ActivityAggregate {
+        let path = "Events/\(date).jsonl"
+        let url = url.appendingPathComponent(path)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try writeJournal(Data(), to: path, generation: generation)
+        }
+        var aggregate = ActivityAggregate(date: date, generationID: generation)
+        aggregate.eventCount = events
+        aggregate.sourceCheckpoint = try ActivitySourceCheckpoint.read(at: url, byteCount: HistoryStorage.fileSize(at: url))
+        return aggregate
+    }
+}
+
+/// 测试夹具按采集器的原始记录与缓存聚合两个步骤写入
+extension TokenHistoryStore {
+    func recordObservations(_ observations: [TokenObservation], now: Date = Date()) throws -> [TokenTurn] {
+        _ = try refresh(now: now)
+        for observation in observations {
+            try appendObservation(observation, now: now)
+        }
+        return try refresh(now: now)
     }
 }

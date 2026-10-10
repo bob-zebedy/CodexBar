@@ -3,6 +3,7 @@ import Foundation
 
 /// 一条线程轮次的累计快照, 身份只保存哈希, 不保存对话正文或原始 ID
 nonisolated struct TokenTurn: Codable, Equatable, Identifiable {
+    var aggregationVersion = AggregationVersion.tokens
     let id: String
     var rootID: String
     var startedAt: Date?
@@ -24,8 +25,10 @@ nonisolated struct TokenTurn: Codable, Equatable, Identifiable {
         generationID: String = "initial",
         ancestorIDs: Set<String> = [],
         checkpoint: [String: TokenObservationCheckpoint] = [:],
-        hasConflict: Bool = false
+        hasConflict: Bool = false,
+        aggregationVersion: Int = AggregationVersion.tokens
     ) {
+        self.aggregationVersion = aggregationVersion
         self.id = id
         self.rootID = rootID
         self.startedAt = startedAt.map(JSONLines.storageDate)
@@ -39,12 +42,32 @@ nonisolated struct TokenTurn: Codable, Equatable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, rootID, startedAt, updatedAt, usage, rebuiltAt
+        case id, rootID, startedAt, updatedAt, usage, rebuiltAt, aggregationVersion
         case generationID, ancestorIDs, checkpoint, hasConflict
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        aggregationVersion = try container.decode(Int.self, forKey: .aggregationVersion)
+        try AggregationVersion.require(aggregationVersion, current: AggregationVersion.tokens, name: "Tokens")
+        id = try container.decode(String.self, forKey: .id)
+        rootID = try container.decode(String.self, forKey: .rootID)
+        startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        usage = try container.decodeIfPresent(TokenUsage.self, forKey: .usage)
+        rebuiltAt = try container.decodeIfPresent(Date.self, forKey: .rebuiltAt)
+        generationID = try container.decode(String.self, forKey: .generationID)
+        ancestorIDs = try container.decode(Set<String>.self, forKey: .ancestorIDs)
+        checkpoint = try container.decode([String: TokenObservationCheckpoint].self, forKey: .checkpoint)
+        hasConflict = try container.decode(Bool.self, forKey: .hasConflict)
+        guard usage == nil || !checkpoint.isEmpty else {
+            throw DecodingError.dataCorruptedError(forKey: .checkpoint, in: container, debugDescription: "Token usage requires an observation checkpoint")
+        }
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(aggregationVersion, forKey: .aggregationVersion)
         try container.encode(id, forKey: .id)
         try container.encode(rootID, forKey: .rootID)
         try container.encodeIfPresent(startedAt, forKey: .startedAt)
@@ -74,8 +97,11 @@ nonisolated struct TokenTurn: Codable, Equatable, Identifiable {
         return String(bytes: result, encoding: .utf8) ?? ""
     }
 
-    func merging(_ other: Self) -> Self {
+    func merging(_ other: Self) throws -> Self {
         precondition(id == other.id)
+        try AggregationVersion.require(aggregationVersion, current: AggregationVersion.tokens, name: "Tokens")
+        try AggregationVersion.require(other.aggregationVersion, current: AggregationVersion.tokens, name: "Tokens")
+        guard rootID == other.rootID else { throw TokenCacheError.rootIdentityConflict }
         if generationID != other.generationID {
             if ancestorIDs.contains(other.generationID) {
                 return incorporatingUncoveredObservations(from: other)
@@ -102,23 +128,11 @@ nonisolated struct TokenTurn: Codable, Equatable, Identifiable {
             }
         }
         var result = self
-        if rootID == id {
-            result.rootID = other.rootID
-        }
+        result.aggregationVersion = max(aggregationVersion, other.aggregationVersion)
         if let date = other.startedAt {
             result.startedAt = min(startedAt ?? date, date)
         }
         result.updatedAt = max(updatedAt, other.updatedAt)
-        if let candidate = other.usage, candidate.isValid {
-            if let current = usage {
-                // 同一累计快照的副本和较短扫描都不能重复累加或覆盖更完整的数据
-                if Self.usageOrder(candidate).lexicographicallyPrecedes(Self.usageOrder(current)) == false {
-                    result.usage = candidate
-                }
-            } else {
-                result.usage = candidate
-            }
-        }
         return result
     }
 
@@ -133,6 +147,7 @@ nonisolated struct TokenTurn: Codable, Equatable, Identifiable {
         ancestorIDs.insert(generationID)
         generationID = UUID().uuidString.lowercased()
         rebuiltAt = JSONLines.storageDate(date)
+        aggregationVersion = AggregationVersion.tokens
     }
 
     private func incorporatingUncoveredObservations(from old: Self) -> Self {
@@ -148,6 +163,7 @@ nonisolated struct TokenTurn: Codable, Equatable, Identifiable {
                   let usage = result.usage?.adding(delta), usage.isValid else { return conflicting(with: old) }
             result.usage = usage
             result.checkpoint[stream] = incoming
+            result.aggregationVersion = max(result.aggregationVersion, old.aggregationVersion)
             result.updatedAt = max(result.updatedAt, old.updatedAt)
         }
         return result
@@ -184,14 +200,15 @@ nonisolated struct TokenTurn: Codable, Equatable, Identifiable {
         return result
     }
 
-    static func merged(_ records: [Self]) -> [String: Self] {
-        records.reduce(into: [:]) { result, record in
-            result[record.id] = result[record.id]?.merging(record) ?? record
+    static func merged(_ records: [Self]) throws -> [String: Self] {
+        try records.reduce(into: [:]) { result, record in
+            result[record.id] = try result[record.id]?.merging(record) ?? record
         }
     }
 
     static func dailyUsage(_ records: [Self], now: Date = Date()) -> [String: TokenUsage] {
-        let byID = merged(records)
+        // 根身份矛盾时无法证明日期归属, 不展示不完整合计
+        guard let byID = try? merged(records) else { return [:] }
         let cutoff = HistoryStorage.retentionCutoffDate(today: now)
         var result: [String: TokenUsage] = [:]
         var invalidDates: Set<String> = []
@@ -246,7 +263,7 @@ nonisolated struct TokenTurn: Codable, Equatable, Identifiable {
             id: exportedID, rootID: rootID == id ? exportedID : hash(rootID),
             startedAt: startedAt, updatedAt: updatedAt, usage: usage, rebuiltAt: rebuiltAt,
             generationID: generationID, ancestorIDs: ancestorIDs,
-            checkpoint: checkpoint, hasConflict: hasConflict
+            checkpoint: checkpoint, hasConflict: hasConflict, aggregationVersion: aggregationVersion
         )
     }
 
@@ -276,16 +293,38 @@ nonisolated struct TokenHistoryBaseline {
         self.turns = turns
     }
 
-    func replacement(for local: TokenTurn) -> TokenTurn? {
+    func contains(_ local: TokenTurn) -> Bool {
         let exported = local.pseudonymized(salt: salt)
-        guard var remote = turns[exported.id], remote.rootID == exported.rootID else { return nil }
-        remote = exported.merging(remote)
-        guard remote != exported else { return nil }
+        return turns[exported.id]?.rootID == exported.rootID
+    }
+
+    func acceptsRecovery(_ local: TokenTurn) -> Bool {
+        let exported = local.pseudonymized(salt: salt)
+        guard let remote = turns[exported.id] else { return true }
+        return remote.rootID == exported.rootID && !local.hasConflict && !remote.hasConflict
+            && exported.covers(remote.checkpoint) && (remote.usage == nil || local.usage != nil)
+    }
+
+    func replacement(for local: TokenTurn, recovering: Bool = false, now: Date = Date()) -> TokenTurn? {
+        guard !recovering || acceptsRecovery(local) else { return nil }
+        let exported = local.pseudonymized(salt: salt)
+        guard let remote = turns[exported.id], remote.rootID == exported.rootID else { return nil }
+        if recovering, !local.hasConflict, !remote.hasConflict,
+           exported.covers(remote.checkpoint), remote.usage == nil || local.usage != nil,
+           !local.ancestorIDs.contains(remote.generationID),
+           local.aggregationVersion != remote.aggregationVersion || local.usage != remote.usage {
+            var corrected = local
+            corrected.generationID = remote.generationID
+            corrected.ancestorIDs.formUnion(remote.ancestorIDs)
+            corrected.startNewGeneration(at: now)
+            return corrected
+        }
+        guard let merged = try? exported.merging(remote), merged != exported else { return nil }
         return TokenTurn(
-            id: local.id, rootID: local.rootID, startedAt: remote.startedAt ?? local.startedAt,
-            updatedAt: remote.updatedAt, usage: remote.usage, rebuiltAt: remote.rebuiltAt,
-            generationID: remote.generationID, ancestorIDs: remote.ancestorIDs,
-            checkpoint: remote.checkpoint, hasConflict: remote.hasConflict
+            id: local.id, rootID: local.rootID, startedAt: merged.startedAt ?? local.startedAt,
+            updatedAt: merged.updatedAt, usage: merged.usage, rebuiltAt: merged.rebuiltAt,
+            generationID: merged.generationID, ancestorIDs: merged.ancestorIDs,
+            checkpoint: merged.checkpoint, hasConflict: merged.hasConflict, aggregationVersion: merged.aggregationVersion
         )
     }
 }
@@ -293,19 +332,67 @@ nonisolated struct TokenHistoryBaseline {
 nonisolated struct TokenObservationCheckpoint: Codable, Equatable {
     var sequence: Int64
     var usage: TokenUsage
+    var aggregationRanges: [AggregationRange] = []
+
+    private enum CodingKeys: String, CodingKey { case sequence, usage, aggregationRanges }
+
+    init(sequence: Int64, usage: TokenUsage, aggregationRanges: [AggregationRange] = []) {
+        self.sequence = sequence
+        self.usage = usage
+        self.aggregationRanges = aggregationRanges
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        sequence = try values.decode(Int64.self, forKey: .sequence)
+        usage = try values.decode(TokenUsage.self, forKey: .usage)
+        aggregationRanges = try values.decodeIfPresent([AggregationRange].self, forKey: .aggregationRanges) ?? []
+        guard sequence > 0, usage.isValid else { throw StorageCompatibilityError.incompleteSource }
+        try AggregationRange.validate(aggregationRanges, end: UInt64(sequence), current: AggregationVersion.tokens)
+    }
+}
+
+/// 原始身份与时间不依赖聚合结果, 算法升级后仍可独立重放
+nonisolated struct TokenObservationIdentity: Codable, Equatable {
+    let id: String
+    let rootID: String
+    let startedAt: Date?
+    let updatedAt: Date
+
+    init(_ turn: TokenTurn) {
+        id = turn.id
+        rootID = turn.rootID
+        startedAt = turn.startedAt
+        updatedAt = turn.updatedAt
+    }
+
+    var emptyTurn: TokenTurn {
+        TokenTurn(id: id, rootID: rootID, startedAt: startedAt, updatedAt: updatedAt)
+    }
 }
 
 /// streamID 是每次采集连续区间生成的随机身份, 不包含设备或原始线程信息
 nonisolated struct TokenObservation: Codable, Equatable {
-    let turn: TokenTurn
+    let turn: TokenObservationIdentity
     let rootStartedAt: Date?
     let streamID: String
     let sequence: Int64
     let previous: TokenUsage
     let current: TokenUsage
 
+    init(turn: TokenTurn, rootStartedAt: Date?, streamID: String, sequence: Int64, previous: TokenUsage, current: TokenUsage) {
+        self.turn = TokenObservationIdentity(turn)
+        self.rootStartedAt = rootStartedAt
+        self.streamID = streamID
+        self.sequence = sequence
+        self.previous = previous
+        self.current = current
+    }
+
     func applying(to existing: TokenTurn?) throws -> TokenTurn {
-        var result = existing ?? turn
+        var result = existing ?? turn.emptyTurn
+        guard result.id == turn.id, result.rootID == turn.rootID else { throw TokenCacheError.rootIdentityConflict }
+        try AggregationVersion.require(result.aggregationVersion, current: AggregationVersion.tokens, name: "Tokens")
         let boundary = result.checkpoint[streamID]
         if let boundary, boundary.sequence >= sequence {
             return result
@@ -321,7 +408,16 @@ nonisolated struct TokenObservation: Codable, Equatable {
             }
             result.usage = usage
         }
-        result.checkpoint[streamID] = TokenObservationCheckpoint(sequence: sequence, usage: observed)
+        let previousRanges = boundary.map {
+            $0.aggregationRanges.isEmpty
+                ? [AggregationRange(version: result.aggregationVersion, end: UInt64($0.sequence))]
+                : $0.aggregationRanges
+        } ?? []
+        result.checkpoint[streamID] = TokenObservationCheckpoint(
+            sequence: sequence, usage: observed,
+            aggregationRanges: AggregationRange.appending(to: previousRanges, version: AggregationVersion.tokens, end: UInt64(sequence))
+        )
+        result.aggregationVersion = AggregationVersion.tokens
         result.updatedAt = max(result.updatedAt, turn.updatedAt)
         return result
     }

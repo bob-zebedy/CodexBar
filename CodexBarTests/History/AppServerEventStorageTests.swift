@@ -5,11 +5,13 @@ import Testing
 struct AppServerEventStorageTests {
     private let now = TestFixtures.now
 
-    private func token(id: String = "root", root: String = "root", at date: Date? = nil, input: Int64 = 100) -> TokenTurn {
-        TokenTurn(id: id, rootID: root, startedAt: date ?? now, updatedAt: date ?? now, usage: TokenUsage(
+    private func token(id: String = "root", root: String = "root", at date: Date? = nil, input: Int64 = 100, sequence: Int64 = 1) -> TokenTurn {
+        var value = TestFixtures.tokenTurn(id: id, rootID: root, startedAt: date ?? now, updatedAt: date ?? now, usage: TokenUsage(
             inputTokens: input, cachedInputTokens: 20, cacheWriteInputTokens: 5,
             outputTokens: 10, reasoningOutputTokens: 2, totalTokens: input + 10
         ))
+        value.checkpoint["test-stream"]?.sequence = sequence
+        return value
     }
 
     private func events(in directory: URL, date: Date? = nil) throws -> [AppServerEventRecord] {
@@ -20,34 +22,109 @@ struct AppServerEventStorageTests {
     }
 
     @Test func mixedJournalPreservesEveryActivityMetricAndSkipsTokensWithoutCorruption() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let path = "Events/\(HistoryStorage.dateKey(for: now)).jsonl"
         let activity = ActivityEventKind.allCases.map { TestFixtures.event($0) }
-        var before = ActivityAccumulator(rebuilding: HistoryStorage.dateKey(for: now), generationID: nil, generationStartedEmpty: true, eventCountAvailability: .all)
+        var before = ActivityAccumulator(rebuilding: HistoryStorage.dateKey(for: now), generationID: nil, eventCountAvailability: .all)
         var after = before
-        var corrupt = 0
+        var data = Data()
         for event in activity {
             before.record(event)
-            let record = AppServerEventRecord(activity: event, recordedAt: now)
-            corrupt += try HistoryService.decode(record.jsonLineData()) { after.record($0) }
-            let token = AppServerEventRecord(token: token(), recordedAt: now)
-            corrupt += try HistoryService.decode(token.jsonLineData()) { after.record($0) }
+            try data.append(AppServerEventRecord(activity: event, recordedAt: now).jsonLineData())
+            try data.append(AppServerEventRecord(token: token(), recordedAt: now).jsonLineData())
         }
+        let url = try directory.writeJournal(data, to: path)
+        var corrupt = 0
+        try AppServerEventJournal.read(at: url, onInvalidLine: { corrupt += 1 }, consume: { entry in
+            if let event = entry.activity {
+                after.record(event)
+            }
+        })
         let expected = before.finalized(identifierStorage: .retained)
         let actual = after.finalized(identifierStorage: .retained)
         #expect(corrupt == 0)
         #expect(actual == expected)
     }
 
+    @Test func boundedReadExcludesLaterRecordsAndResumesAtBoundary() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let first = TestFixtures.event(.turnStarted)
+        let second = TestFixtures.event(.turnCompleted)
+        let firstData = try AppServerEventRecord(activity: first, recordedAt: now).jsonLineData()
+        let secondData = try AppServerEventRecord(activity: second, recordedAt: now).jsonLineData()
+        let url = try directory.writeJournal(firstData + secondData, to: "Events/\(HistoryStorage.dateKey(for: now)).jsonl")
+        let boundary = HistoryStorage.fileSize(at: url) - UInt64(secondData.count)
+        var records: [ActivityRecord] = []
+        try AppServerEventJournal.read(at: url, upTo: boundary) { entry in
+            if let event = entry.activity {
+                records.append(event)
+            }
+        }
+        #expect(records == [first])
+        try AppServerEventJournal.read(at: url, from: boundary) { entry in
+            if let event = entry.activity {
+                records.append(event)
+            }
+        }
+        #expect(records == [first, second])
+    }
+
+    @Test func cancelledJournalScanStopsBetweenRecordsAndCanBeReadAgain() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let line = try AppServerEventRecord(activity: TestFixtures.event(), recordedAt: now).jsonLineData()
+        let url = try directory.writeJournal(line + line, to: "Events/\(HistoryStorage.dateKey(for: now)).jsonl")
+        let scan = Task.detached {
+            var count = 0
+            do {
+                try AppServerEventJournal.read(at: url) { _ in
+                    count += 1
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+                return false
+            } catch is CancellationError {
+                return count == 1
+            }
+        }
+        #expect(try await scan.value)
+        var count = 0
+        try AppServerEventJournal.read(at: url) { _ in count += 1 }
+        #expect(count == 2)
+    }
+
+    @Test func oversizedAndPartialLinesDoNotHideFollowingValidRecords() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let event = TestFixtures.event()
+        var data = Data(repeating: 120, count: 1024 * 1024 + 100)
+        data.append(Data("\n \t\r\n".utf8))
+        try data.append(AppServerEventRecord(activity: event, recordedAt: now).jsonLineData())
+        data.append(Data("{broken".utf8))
+        let url = try directory.writeJournal(data, to: "Events/\(HistoryStorage.dateKey(for: now)).jsonl")
+        var corrupt = 0
+        var records: [ActivityRecord] = []
+        try AppServerEventJournal.read(at: url, upTo: HistoryStorage.fileSize(at: url), onInvalidLine: { corrupt += 1 }, consume: { entry in
+            if let event = entry.activity {
+                records.append(event)
+            }
+        })
+        #expect(corrupt == 2)
+        #expect(records == [event])
+    }
+
     @Test func nativeMetadataRoundTripsWithoutChangingBusinessIdentity() throws {
-        var event = TestFixtures.event(.toolStarted, session: "root", turn: "child-turn", agent: "child", origin: .auxiliary)
-        event.source = AppServerEventSource(
+        var event = TestFixtures.event(.toolStarted, thread: "root", turn: "child-turn", agent: "child", origin: .auxiliary)
+        event.context = ActivityContext(
             method: "item/started", threadID: "child", turnID: "child-turn", parentThreadID: "parent",
             rootThreadID: "root", rootTurnID: "root-turn", itemID: "item", itemType: "commandExecution", itemStatus: "inProgress"
         )
         let record = AppServerEventRecord(activity: event, recordedAt: now)
         let decoded = try AppServerEventRecord.decode(from: record.jsonLineData())
         #expect(decoded.activity == event)
-        #expect(decoded.source?.threadID == "child")
-        #expect(decoded.activity?.sessionID == "root")
+        #expect(decoded.context?.threadID == "child")
+        #expect(decoded.activity?.threadID == "root")
         let text = try #require(String(bytes: record.jsonLineData(), encoding: .utf8))
         #expect(text.contains("toolStarted"))
         #expect(!text.contains("PreToolUse"))
@@ -55,30 +132,30 @@ struct AppServerEventStorageTests {
     }
 
     @Test func activityStorageSeparatesProtocolContextFromBusinessFields() throws {
-        var event = TestFixtures.event(.approvalRequested, agent: "child", reviewer: .user)
-        event.source = AppServerEventSource(
+        var event = TestFixtures.event(.approvalRequested, agent: "child")
+        event.context = ActivityContext(
             method: "item/commandExecution/requestApproval", threadID: "child", turnID: "child-turn",
             parentThreadID: "parent", rootThreadID: "root", rootTurnID: "root-turn", itemID: "item",
             itemType: "commandExecution", itemStatus: "inProgress", agentThreadID: "child",
-            itemKind: "started", requestID: "request", reviewID: "review", turnStatus: "inProgress",
-            turnStartedAt: now, turnCompletedAt: now.addingTimeInterval(1), durationMs: 1000
+            itemKind: "started", requestID: "request", turnStatus: .running,
+            turnStartedAt: now, turnCompletedAt: now.addingTimeInterval(1), duration: 1
         )
         let data = try AppServerEventRecord(activity: event, recordedAt: now).jsonLineData()
         let record = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(Set(record.keys) == ["version", "kind", "recordedAt", "source", "activityPayload"])
-        let context = try #require(record["source"] as? [String: Any])
+        #expect(Set(record.keys) == ["version", "kind", "recordedAt", "context", "activityPayload"])
+        let context = try #require(record["context"] as? [String: Any])
         #expect(Set(context.keys) == [
             "method", "threadID", "turnID", "parentThreadID", "rootThreadID",
             "rootTurnID", "itemID", "itemType", "itemStatus", "agentThreadID",
-            "itemKind", "requestID", "reviewID", "turnStatus", "turnStartedAt", "turnCompletedAt", "durationMs"
+            "itemKind", "requestID", "turnStatus", "turnStartedAt", "turnCompletedAt", "duration"
         ])
         #expect(context["itemKind"] as? String == "started")
-        #expect(context["durationMs"] as? Double == 1000)
+        #expect(context["duration"] as? Double == 1)
         #expect(context["turnStartedAt"] as? Double == now.timeIntervalSince1970 * 1000)
         let payload = try #require(record["activityPayload"] as? [String: Any])
         #expect(Set(payload.keys) == [
-            "timestamp", "name", "origin", "cwd", "tool", "model", "effort",
-            "approvalReviewer", "sessionID", "turnID", "agentID"
+            "timestamp", "name", "origin", "cwd", "toolName", "model", "effort",
+            "threadID", "turnID", "agentID"
         ])
         #expect(try AppServerEventRecord.decode(from: data).activity == event)
     }
@@ -94,14 +171,26 @@ struct AppServerEventStorageTests {
         let record = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(Set(record.keys) == ["version", "kind", "recordedAt", "token"])
         let snapshot = try #require(record["token"] as? [String: Any])
-        #expect(Set(snapshot.keys) == ["id", "rootID", "startedAt", "updatedAt", "rebuiltAt", "usage", "generationID", "ancestorIDs", "checkpoint", "hasConflict"])
+        #expect(Set(snapshot.keys) == [
+            "aggregationVersion",
+            "id",
+            "rootID",
+            "startedAt",
+            "updatedAt",
+            "rebuiltAt",
+            "usage",
+            "generationID",
+            "ancestorIDs",
+            "checkpoint",
+            "hasConflict"
+        ])
         let counts = try #require(snapshot["usage"] as? [String: Int64])
         #expect(counts == ["inputTokens": 100, "cachedInputTokens": 20, "cacheWriteInputTokens": 5, "outputTokens": 10, "reasoningOutputTokens": 2, "totalTokens": 110])
         #expect(try AppServerEventRecord.decode(from: data).token == turn)
         _ = try await store.refresh(now: now)
         let cacheData = try Data(contentsOf: directory.url.appendingPathComponent("Aggregates/tokens.json"))
         let cache = try #require(JSONSerialization.jsonObject(with: cacheData) as? [String: Any])
-        #expect(Set(cache.keys) == ["version", "turns", "files"])
+        #expect(Set(cache.keys) == ["version", "turns", "files", "recoveredTurnIDs"])
         let checkpoints = try #require(cache["files"] as? [String: [String: Any]])
         let checkpoint = try #require(checkpoints[HistoryStorage.dateKey(for: now)])
         #expect(Set(checkpoint.keys) == ["size", "identifier", "modificationTime"])
@@ -125,7 +214,7 @@ struct AppServerEventStorageTests {
         try await directory.seedTokenSnapshots([token()], now: now)
         #expect(try events(in: directory.url).count == 2)
         #expect(try await first.refresh(now: now) == [token()])
-        let update = token(at: now.addingTimeInterval(1), input: 200)
+        let update = token(at: now.addingTimeInterval(1), input: 200, sequence: 2)
         try await directory.seedTokenSnapshots([update], now: now)
         #expect(try await first.refresh(now: now).first?.usage == update.usage)
         try FileManager.default.removeItem(at: directory.url.appendingPathComponent("Aggregates/tokens.json"))
@@ -153,9 +242,9 @@ struct AppServerEventStorageTests {
         let timestamp = now.addingTimeInterval(0.1234567)
         let expected = Int64(now.timeIntervalSince1970 * 1000) + 123
         var event = TestFixtures.event(.turnStarted)
-        event.source = AppServerEventSource(
+        event.context = ActivityContext(
             method: "turn/started", threadID: "thread", turnStartedAt: timestamp,
-            turnCompletedAt: timestamp, durationMs: 0.4567
+            turnCompletedAt: timestamp, duration: 0.4567
         )
         let data = try AppServerEventRecord(activity: event, recordedAt: timestamp).jsonLineData()
         let text = try #require(String(data: data, encoding: .utf8))
@@ -163,7 +252,7 @@ struct AppServerEventStorageTests {
         #expect(text.contains("\"turnStartedAt\":\(expected)}"))
         let decoded = try AppServerEventRecord.decode(from: data)
         #expect(decoded.recordedAt == Date(timeIntervalSince1970: Double(expected) / 1000))
-        #expect(decoded.source?.durationMs == 0.4567)
+        #expect(decoded.context?.duration == 0.4567)
 
         let directory = try TestDirectory()
         defer { try? directory.remove() }
@@ -198,9 +287,12 @@ struct AppServerEventStorageTests {
         #expect(utimensat(AT_FDCWD, url.path, firstTimes, 0) == 0)
         _ = try await store.refresh(now: now)
         let before = try #require(HistoryStorage.fileStat(at: url))
-        let replacement = try AppServerEventRecord(token: token(input: 200), recordedAt: now).jsonLineData()
-        #expect(UInt64(replacement.count) == before.size)
+        let replacement = try AppServerEventRecord(token: token(input: 200, sequence: 2), recordedAt: now).jsonLineData()
+        #expect(UInt64(replacement.count) < before.size)
+        let headerSize = try UInt64(#require(Data(contentsOf: url).firstIndex(of: 10)) + 1)
+        #expect(UInt64(replacement.count) + headerSize == before.size)
         let handle = try FileHandle(forWritingTo: url)
+        try handle.seek(toOffset: headerSize)
         try handle.write(contentsOf: replacement)
         try handle.close()
         let secondTimes = [timespec(tv_sec: seconds, tv_nsec: 1000900), timespec(tv_sec: seconds, tv_nsec: 1000900)]
@@ -256,8 +348,8 @@ struct AppServerEventStorageTests {
         let store = TokenHistoryStore(directoryURL: directory.url)
         let event = ActivityRecord(
             timestamp: now, name: ActivityEventKind.toolStarted.rawValue, origin: .main,
-            cwd: nil, tool: "Bash", model: "model", effort: nil,
-            approvalReviewer: nil, sessionID: "thread", turnID: "turn", agentID: nil, id: "tool"
+            cwd: nil, toolName: "Bash", model: "model", effort: nil,
+            threadID: "thread", turnID: "turn", agentID: nil, id: "tool"
         )
         try await recorder.record(event: event)
         try await directory.seedTokenSnapshots([token()], now: now)
@@ -266,7 +358,7 @@ struct AppServerEventStorageTests {
         try handle.seekToEnd()
         try handle.write(contentsOf: Data("{\"partial\":".utf8))
         try handle.close()
-        let updated = token(at: now.addingTimeInterval(1), input: 300)
+        let updated = token(at: now.addingTimeInterval(1), input: 300, sequence: 2)
         try await directory.seedTokenSnapshots([updated], now: now)
         try await recorder.record(event: event)
         let entries = try events(in: directory.url)

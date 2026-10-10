@@ -4,18 +4,18 @@ import Testing
 struct ActivityLivePresentationTests {
     private let now = TestFixtures.now
 
-    private func message(_ method: String, _ fields: String = "", id: Int? = nil, turn: Bool = true) throws -> ActivityNotification {
+    private func message(_ method: String, _ fields: String = "", id: Int? = nil, turn: Bool = true) throws -> ActivityInput {
         let identity = id.map { "\"id\":\($0)," } ?? ""
         let turnField = turn ? #", "turnId":"turn-a""# : ""
-        return try TestFixtures.decode(ActivityNotification.self, """
-        {\(identity)"method":"\(method)","params":{"threadId":"session-a"\(turnField)\(fields.isEmpty ? "" : "," + fields)}}
+        return try TestFixtures.decode(ActivityInput.self, """
+        {\(identity)"method":"\(method)","params":{"threadId":"thread-a"\(turnField)\(fields.isEmpty ? "" : "," + fields)}}
         """)
     }
 
     private func prepared() throws -> AppServerActivityReducer {
         var reducer = AppServerActivityReducer()
-        let thread = ActivityThread(id: "session-a", status: ActivityThreadStatus(type: "active", activeFlags: []))
-        _ = reducer.reconcile(thread: thread, turns: [ActivityTurn(id: "turn-a", status: "inProgress")], reviewer: .user, now: now)
+        let thread = ActivityThread(id: "thread-a", status: ActivityThreadStatus(type: .active, activeFlags: []))
+        _ = reducer.reconcile(thread: thread, turns: [ActivityTurn(id: "turn-a", status: .running)], now: now)
         _ = try reducer.consume(message("turn/started", #""turn":{"id":"turn-a","status":"inProgress"}"#), now: now)
         return reducer
     }
@@ -57,12 +57,12 @@ struct ActivityLivePresentationTests {
         #expect(live.summary.toolCount == 0)
     }
 
-    @Test(arguments: [("commandExecution", "command"), ("fileChange", "editing")])
+    @Test(arguments: [("commandExecution", "command")])
     func outputAfterReconnectRestoresToolPhaseWithoutInventingInventory(type: String, key: String) throws {
         var reducer = try prepared()
         reducer.reconnect(now: now)
-        let thread = ActivityThread(id: "session-a", status: ActivityThreadStatus(type: "active", activeFlags: []))
-        _ = reducer.reconcile(thread: thread, turns: [ActivityTurn(id: "turn-a", status: "inProgress")], reviewer: .user, now: now)
+        let thread = ActivityThread(id: "thread-a", status: ActivityThreadStatus(type: .active, activeFlags: []))
+        _ = reducer.reconcile(thread: thread, turns: [ActivityTurn(id: "turn-a", status: .running)], now: now)
         let output = try message("item/\(type)/outputDelta", #""itemId":"tool","delta":"output""#)
         #expect(reducer.consume(output, now: now.addingTimeInterval(1)).isEmpty)
         #expect(try summary(reducer).current.key == key)
@@ -82,8 +82,10 @@ struct ActivityLivePresentationTests {
         try live.consume(message("item/started", #""item":{"id":"cmd","type":"commandExecution","commandActions":[{"type":"read"}]}"#), at: now)
         try live.consume(message("item/commandExecution/outputDelta", #""itemId":"cmd""#), at: now.addingTimeInterval(1))
         #expect(live.summary.current.key == "command-read")
-        try live.consume(message("item/fileChange/outputDelta", #""itemId":"edit""#), at: now.addingTimeInterval(2))
-        try live.consume(message("item/fileChange/outputDelta", #""itemId":"edit""#), at: now.addingTimeInterval(3))
+        try live.consume(message("item/started", #""item":{"id":"edit","type":"fileChange"}"#), at: now.addingTimeInterval(2))
+        let beforeDeprecatedMessage = live.summary
+        try live.consume(message("item/fileChange/outputDelta", #""itemId":"unknown""#), at: now.addingTimeInterval(3))
+        #expect(live.summary == beforeDeprecatedMessage)
         #expect(live.summary.toolCount == 2)
         try live.consume(message("item/completed", #""item":{"id":"cmd","type":"commandExecution","status":"completed"}"#), at: now.addingTimeInterval(4))
         #expect(live.summary.current.key == "editing")
@@ -96,11 +98,11 @@ struct ActivityLivePresentationTests {
 
     @Test func recoveredToolOutputDoesNotClearUserWait() throws {
         var live = ActivityLivePresentation()
-        try live.consume(message("item/tool/requestUserInput", #""isBlocking":true"#, id: 1), at: now)
+        try live.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":["waitingOnUserInput"]}"#, turn: false), at: now)
         try live.consume(message("item/commandExecution/outputDelta", #""itemId":"cmd""#), at: now.addingTimeInterval(1))
         #expect(live.summary.current.key == "waiting-input")
         #expect(live.summary.waiting?.since == now)
-        try live.consume(message("serverRequest/resolved", #""requestId":1"#, turn: false), at: now.addingTimeInterval(2))
+        try live.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":[]}"#, turn: false), at: now.addingTimeInterval(2))
         #expect(live.summary.current.key == "command")
     }
 
@@ -111,7 +113,7 @@ struct ActivityLivePresentationTests {
         (["read", "unknown"], "command"), (["future"], "command"), ([], "command")
     ])
     func commandActionsUseServerClassification(actions: [String], key: String) {
-        let item = ActivityItem(id: "cmd", type: "commandExecution", commandActions: actions.map { .init(type: $0) })
+        let item = ActivityItem(id: "cmd", type: .commandExecution, commandActions: actions.map { .init(type: $0) })
         #expect(item.liveLabel?.key == key)
         if actions.contains("read"), actions.contains("unknown") {
             #expect(item.liveLabel?.detail != nil)
@@ -127,7 +129,7 @@ struct ActivityLivePresentationTests {
     ] as [([String], String?)])
     func commandCompletionLocalizesAndOrdersKnownActions(actions: [String], detailKey: String?) {
         let item = ActivityItem(
-            id: "cmd", type: "commandExecution", status: "failed",
+            id: "cmd", type: .commandExecution, status: "failed",
             commandActions: actions.map { .init(type: $0) }
         )
         #expect(item.liveCompletionLabel?.key == (detailKey == nil ? "tool-failed" : "action-failed"))
@@ -153,24 +155,31 @@ struct ActivityLivePresentationTests {
         #expect(!recent.label.text.contains(" • "))
     }
 
-    @Test(arguments: ["mcpToolCall", "dynamicToolCall"])
-    func completionPreservesActualToolNames(type: String) {
+    @Test(arguments: ["mcpToolCall", "dynamicToolCall"], [nil, "server"] as [String?])
+    func completionPreservesActualToolNames(type: String, server: String?) {
         let item = ActivityItem(
-            id: "tool", type: type, status: "failed", tool: "search/read",
+            id: "tool", type: ActivityItem.ItemType(rawValue: type) ?? .unknown, status: "failed", tool: "search/read", server: server,
             commandActions: [.init(type: "read")]
         )
         #expect(item.liveCompletionLabel?.key == "tool-failed")
-        #expect(item.liveCompletionLabel?.detail == "search/read")
-        let name = "search/read"
+        let name = type == "mcpToolCall" ? server.map { $0 + ".search/read" } ?? "search/read" : "search/read"
+        #expect(item.liveCompletionLabel?.detail == name)
         #expect(item.liveCompletionLabel?.text == String(localized: "activity.live.named-tool-failed", defaultValue: "\(name)"))
     }
 
     @Test func currentToolDetailsUseLocalizedTemplates() throws {
-        let name = "web.search"
-        let tool = ActivityItem(id: "tool", type: "mcpToolCall", tool: name)
-        #expect(tool.liveLabel?.text == String(localized: "activity.live.calling-named-tool", defaultValue: "\(name)"))
+        let name = "server.tools"
+        var reducer = try prepared()
+        _ = try reducer.consume(message("item/started", """
+        "item":{"id":"tool","type":"mcpToolCall","server":"server","tool":"tools","status":"inProgress","arguments":{"limit":1}}
+        """), now: now)
+        #expect(try summary(reducer).current.text == String(localized: "activity.live.calling-named-tool", defaultValue: "\(name)"))
+        _ = try reducer.consume(message("item/completed", """
+        "item":{"id":"tool","type":"mcpToolCall","server":"server","tool":"tools","status":"completed"}
+        """), now: now.addingTimeInterval(1))
+        #expect(try summary(reducer).recent?.label.detail == name)
         let command = ActivityItem(
-            id: "cmd", type: "commandExecution", commandActions: ["search", "unknown", "read"].map { .init(type: $0) }
+            id: "cmd", type: .commandExecution, commandActions: ["search", "unknown", "read"].map { .init(type: $0) }
         )
         let label = try #require(command.liveLabel)
         let detail = try #require(label.detail)
@@ -210,13 +219,13 @@ struct ActivityLivePresentationTests {
         operation: (tool: String, expected: (statusKey: String, action: LocalizedStringResource)), status: String
     ) {
         let item = ActivityItem(
-            id: "agent", type: "collabAgentToolCall", status: status, tool: operation.tool,
+            id: "agent", type: .collabAgentToolCall, status: status, tool: operation.tool,
             agentsStates: ["child": .init(status: "running")]
         )
         #expect(item.liveLabel?.key == operation.expected.statusKey)
         #expect(item.liveCompletionLabel?.key == "action-" + status)
         #expect(item.liveCompletionLabel?.detail == String(localized: operation.expected.action))
-        #expect(ActivityDisplayFormat.toolActionText(itemType: item.type, toolName: operation.tool) == item.liveCompletionLabel?.detail)
+        #expect(ActivityDisplayFormat.toolActionText(itemType: item.type.rawValue, toolName: operation.tool) == item.liveCompletionLabel?.detail)
     }
 
     @Test(arguments: [
@@ -243,7 +252,7 @@ struct ActivityLivePresentationTests {
 
     @Test(arguments: [
         ("form", "waiting-form"), ("openai/form", "waiting-form"), ("openaiForm", "waiting-form"),
-        ("url", "waiting-external"), ("openai/userVerification", "waiting-verification"), ("future", "waiting-service")
+        ("url", "waiting-external"), ("future", "waiting-service")
     ])
     func elicitationWaitsAreSpecificAndEndByRequestID(mode: String, key: String) throws {
         var reducer = try prepared()
@@ -258,7 +267,7 @@ struct ActivityLivePresentationTests {
 
     @Test func unrelatedOutputAndResolvedRequestDoNotClearConcurrentWait() throws {
         var live = ActivityLivePresentation()
-        try live.consume(message("item/tool/requestUserInput", #""isBlocking":true"#, id: 1), at: now)
+        try live.consume(message("mcpServer/elicitation/request", #""mode":"form""#, id: 1), at: now)
         try live.consume(message("mcpServer/elicitation/request", #""mode":"url""#, id: 2), at: now.addingTimeInterval(1))
         try live.consume(message("item/agentMessage/delta", #""itemId":"answer""#), at: now.addingTimeInterval(2))
         try live.consume(message("serverRequest/resolved", #""requestId":1"#, turn: false), at: now.addingTimeInterval(3))
@@ -277,26 +286,29 @@ struct ActivityLivePresentationTests {
 
     @Test func reconnectDropsUnverifiablePhasesAndWaitingDuration() throws {
         var reducer = try prepared()
-        _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":true"#, id: 1), now: now)
+        _ = try reducer.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":["waitingOnUserInput"]}"#, turn: false), now: now)
         reducer.reconnect(now: now.addingTimeInterval(10))
         #expect(reducer.states.values.first?.presentation == nil)
-        let thread = ActivityThread(id: "session-a", status: ActivityThreadStatus(type: "active", activeFlags: ["waitingOnUserInput"]))
-        _ = reducer.reconcile(thread: thread, turns: [ActivityTurn(id: "turn-a", status: "inProgress")], reviewer: .user, now: now.addingTimeInterval(12))
+        let thread = ActivityThread(id: "thread-a", status: ActivityThreadStatus(type: .active, activeFlags: [.waitingOnUserInput]))
+        _ = reducer.reconcile(thread: thread, turns: [ActivityTurn(id: "turn-a", status: .running)], now: now.addingTimeInterval(12))
         #expect(try summary(reducer).waiting?.label.key == "waiting-input")
         #expect(try summary(reducer).waiting?.since == nil)
         #expect(try summary(reducer).toolCount == nil)
     }
 
     @Test(arguments: ["approved", "denied", "timedOut", "aborted"])
-    func automaticReviewIsNotUserWaitingAndCompletes(status: String) throws {
+    func automaticReviewHasNoPresentationOrHistory(status: String) throws {
         var reducer = try prepared()
         _ = try reducer.consume(message("item/autoApprovalReview/started", #""reviewId":"review","review":{"status":"inProgress"}"#), now: now)
-        #expect(try summary(reducer).current.key == "auto-approval")
+        #expect(try summary(reducer).current.key == "processing")
         #expect(try summary(reducer).waiting == nil)
-        let events = try reducer.consume(message("item/autoApprovalReview/completed", "\"reviewId\":\"review\",\"review\":{\"status\":\"\(status)\"}"), now: now.addingTimeInterval(1))
+        let events = try reducer.consume(
+            message("item/autoApprovalReview/completed", "\"reviewId\":\"review\",\"review\":{\"status\":\"\(status)\"}"),
+            now: now.addingTimeInterval(1)
+        )
         #expect(events.isEmpty)
         #expect(try summary(reducer).current.key == "processing")
-        #expect(try summary(reducer).recent?.label.key.hasPrefix("approval-") == true)
+        #expect(try summary(reducer).recent == nil)
     }
 
     @Test func presentationEventsNeverProduceHistoricalRecords() throws {
@@ -304,7 +316,6 @@ struct ActivityLivePresentationTests {
         let messages = try [
             message("turn/plan/updated", #""plan":[{"step":"private","status":"completed"}]"#),
             message("turn/diff/updated", #""diff":"private diff""#),
-            message("mcpServer/startupStatus/updated", #""name":"test","status":"starting""#),
             message("model/rerouted", #""fromModel":"old","toModel":"new""#),
             message("modelProvider/authRecoveryStarted"),
             message("modelProvider/authRecoveryCompleted"),
@@ -312,7 +323,7 @@ struct ActivityLivePresentationTests {
             message("hook/started", #""run":{"id":"hook","status":"running","executionMode":"sync"}"#)
         ]
         for notification in messages {
-            #expect(ActivityNotification.category(for: notification.method) == .presentation)
+            #expect(notification.kind.category == .presentation)
             #expect(reducer.consume(notification, now: now).isEmpty)
         }
         #expect(try summary(reducer).planCompleted == 1)
@@ -323,22 +334,22 @@ struct ActivityLivePresentationTests {
 
     @Test(arguments: ["completed", "failed", "declined", "unknown"])
     func toolOutcomeDoesNotAssumeSuccess(status: String) {
-        let item = ActivityItem(id: "image", type: "imageGeneration", status: status)
+        let item = ActivityItem(id: "image", type: .imageGeneration, status: status)
         #expect(item.liveCompletionLabel?.key == (status == "unknown" ? nil : "image-" + status))
     }
 
     @Test func displayWaitingDoesNotChangeApprovalOrProtectionState() throws {
         let event = TestFixtures.event()
-        var task = ActivityTask(
+        var task = try ActivityTask(
             displayID: UUID(),
-            key: ActivityTaskKey(event: event),
+            key: #require(ActivityTaskKey(event: event)),
             event: event,
             state: .running,
             startedAt: now,
             progressGeneration: 0
         )
         var reducer = try prepared()
-        _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":true"#, id: 1), now: now)
+        _ = try reducer.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":["waitingOnUserInput"]}"#, turn: false), now: now)
         let state = try #require(reducer.states.values.first)
         task.mergeExecutionLifecycle(state, owner: ActivityExecutionKey(agentID: nil, turnID: "turn-a"))
         let snapshot = ActivitySnapshot(waitingTasks: [], runningTasks: [task.snapshot], recentCompletions: [], recentTerminations: [])
@@ -357,7 +368,7 @@ struct ActivityLivePresentationTests {
     @Test func authoritativeIdleClearsRequestsWithoutInventingApproval() throws {
         var live = ActivityLivePresentation()
         try live.consume(message("mcpServer/elicitation/request", #""mode":"form""#, id: 1), at: now)
-        live.reconcile(status: ActivityThreadStatus(type: "idle"))
+        live.reconcile(status: ActivityThreadStatus(type: .idle))
         #expect(live.summary.waiting == nil)
         #expect(live.summary.recent == nil)
     }
@@ -377,9 +388,9 @@ struct ActivityLivePresentationTests {
 
     @Test func childWaitSurvivesRootOutputUntilChildLifecycleResolvesIt() throws {
         let event = TestFixtures.event()
-        var task = ActivityTask(
+        var task = try ActivityTask(
             displayID: UUID(),
-            key: ActivityTaskKey(event: event),
+            key: #require(ActivityTaskKey(event: event)),
             event: event,
             state: .running,
             startedAt: now,
@@ -388,13 +399,13 @@ struct ActivityLivePresentationTests {
         var root = ActivityLivePresentation()
         try root.consume(message("item/agentMessage/delta", #""itemId":"answer""#), at: now.addingTimeInterval(4))
         var child = ActivityLivePresentation()
-        try child.consume(message("item/tool/requestUserInput", #""isBlocking":true"#, id: 1), at: now)
+        try child.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":["waitingOnUserInput"]}"#, turn: false), at: now)
         task.executions[ActivityExecutionKey(agentID: nil, turnID: "turn-a")] = ActivityExecution(presentation: root)
         let childOwner = ActivityExecutionKey(agentID: "child", turnID: "child-turn")
         task.executions[childOwner] = ActivityExecution(presentation: child)
         #expect(task.snapshot.presentation?.waiting?.since == now)
         #expect(task.snapshot.presentation?.current.key == "waiting-input")
-        try child.consume(message("serverRequest/resolved", #""requestId":1"#, turn: false), at: now.addingTimeInterval(5))
+        try child.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":[]}"#, turn: false), at: now.addingTimeInterval(5))
         task.executions[childOwner]?.presentation = child
         #expect(task.snapshot.presentation?.waiting == nil)
         #expect(task.snapshot.presentation?.current.key == "replying")
@@ -404,14 +415,14 @@ struct ActivityLivePresentationTests {
         var reducer = try prepared()
         let events = try reducer.consume(message("turn/completed", #""turn":{"id":"turn-a","status":"failed"}"#), now: now)
         let state = try #require(reducer.states.values.first)
-        #expect(state.turnStatus == "failed")
+        #expect(state.turnStatus == .failed)
         #expect(state.presentation == nil)
         #expect(events.first?.eventKind == .turnAborted)
-        #expect(events.first?.source?.turnStatus == "failed")
+        #expect(events.first?.context?.turnStatus == .failed)
         let event = TestFixtures.event()
-        var task = ActivityTask(
+        var task = try ActivityTask(
             displayID: UUID(),
-            key: ActivityTaskKey(event: event),
+            key: #require(ActivityTaskKey(event: event)),
             event: event,
             state: .running,
             startedAt: now,
@@ -423,12 +434,41 @@ struct ActivityLivePresentationTests {
 
     @Test func mixedCommandActionsResolveTheExplicitLocalizedKey() {
         let item = ActivityItem(
-            id: "cmd", type: "commandExecution",
+            id: "cmd", type: .commandExecution,
             commandActions: ["search", "unknown", "read", "read"].map { .init(type: $0) }
         )
         #expect(item.liveLabel?.key == "command")
         #expect(item.liveLabel?.detail == String(localized: "activity.live.actions-read-search"))
         let actions = String(localized: "activity.live.actions-read-search")
         #expect(item.liveLabel?.text == String(localized: "activity.live.command-with-actions", defaultValue: "\(actions)"))
+    }
+
+    @Test func resolvedRequestDoesNotClearThreadInputWait() throws {
+        var live = ActivityLivePresentation()
+        try live.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":["waitingOnUserInput"]}"#, turn: false), at: now)
+        try live.consume(message("mcpServer/elicitation/request", #""mode":"form""#, id: 1), at: now)
+        try live.consume(message("serverRequest/resolved", #""requestId":1"#, turn: false), at: now.addingTimeInterval(2))
+        #expect(live.summary.waiting?.label.key == "waiting-input")
+        #expect(live.summary.waiting?.since == now)
+        try live.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":[]}"#, turn: false), at: now.addingTimeInterval(3))
+        #expect(live.summary.waiting == nil)
+    }
+
+    @Test func verificationRequestDoesNotCreateWaitingOrRecentEvent() throws {
+        var reducer = try prepared()
+        let before = try summary(reducer)
+        #expect(try reducer.consume(message("mcpServer/elicitation/request", #""mode":"openai/userVerification""#, id: 1), now: now).isEmpty)
+        _ = try reducer.consume(message("serverRequest/resolved", #""requestId":1"#, turn: false), now: now)
+        #expect(try summary(reducer) == before)
+    }
+
+    @Test(arguments: ["item/started", "item/completed"])
+    func planItemsDoNotChangePresentationOrProgress(method: String) throws {
+        var reducer = try prepared()
+        let before = try summary(reducer)
+        let progress = reducer.states.values.first?.lastProgressAt
+        #expect(try reducer.consume(message(method, #""item":{"id":"plan","type":"plan"}"#), now: now.addingTimeInterval(10)).isEmpty)
+        #expect(try summary(reducer) == before)
+        #expect(reducer.states.values.first?.lastProgressAt == progress)
     }
 }

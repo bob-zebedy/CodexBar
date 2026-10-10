@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 import os
 
@@ -43,7 +42,7 @@ actor HistoryService {
     /// 上一条维护日志之后连续空转的轮数, 记出去就清零
     private var idleMaintenanceRounds = 0
     private var verifiedBoundaries: [String: HistoryBoundaryVerification] = [:]
-    private static let eventReadChunkSize = 64 * 1024
+    private var lastRetentionCutoff: Date?
 
     init(
         directoryURL: URL = HistoryStorage.directoryURL(),
@@ -63,20 +62,26 @@ actor HistoryService {
         synchronize: Bool = false,
         trigger: LogTrigger = .auto
     ) async -> HistorySnapshot {
-        await makeSnapshot(
-            localAggregates: loadDailyAggregates() ?? [],
+        let decoded = try? loadDailyAggregatesWithFailures()
+        var snapshot = await makeSnapshot(
+            localAggregates: decoded?.compatibilityError == nil ? ActivityAggregate.normalized(aggregates: decoded?.values ?? []) : [],
             synchronize: synchronize,
             trigger: trigger
         )
+        snapshot.isActivityComplete = snapshot.isActivityComplete && decoded != nil
+            && decoded?.compatibilityError == nil && decoded?.failedLineCount == 0
+        return snapshot
     }
 
     /// 先跑一轮维护再取快照
     /// counts 为 nil 表示这一轮空转, 由调用方决定记不记日志
     func loadSnapshotWithMaintenance(
         synchronize: Bool,
-        trigger: LogTrigger
+        trigger: LogTrigger,
+        now: Date = Date()
     ) async -> (snapshot: HistorySnapshot, counts: HistoryMaintenanceCounts?) {
-        let counts = performMaintenanceIfNeeded()
+        await syncService.pruneLocalCaches(now: now)
+        let counts = performMaintenanceIfNeeded(now: now)
         let snapshot = await loadSnapshot(synchronize: synchronize, trigger: trigger)
         return (snapshot, counts)
     }
@@ -87,9 +92,6 @@ actor HistoryService {
         trigger: LogTrigger,
         localTokenTurns: [TokenTurn]? = nil
     ) async -> HistorySnapshot {
-        let replacements = readyReplacements()
-        // 零值替换仍需同步, 展示和普通上传不生成 Token-only 日期的活动贡献
-        let localAggregates = localAggregates.filter { $0.eventCount != 0 }
         let tokenTurns: [TokenTurn]
         if let localTokenTurns {
             tokenTurns = localTokenTurns
@@ -100,27 +102,38 @@ actor HistoryService {
             } catch {
                 let error = error as NSError
                 AppLog.history.error("Token 历史读取失败: domain=\(error.domain, privacy: .public) code=\(error.code)")
-                tokenTurns = []
+                tokenTurns = await (try? tokenHistory.persistedTurns()) ?? []
             }
+        }
+        let maintenance = try? HistoryStorage.loadMaintenanceState(in: directoryURL)
+        let uploadable = localAggregates.filter { aggregate in
+            guard let state = maintenance, !state.dirty.contains(aggregate.date),
+                  let day = state.days[aggregate.date] else { return false }
+            return day.generationID == aggregate.generationID && day.offset == aggregate.sourceCheckpoint?.byteCount
         }
         let syncSnapshot: SyncSnapshot = if synchronize {
             await syncService.synchronizeIfEnabled(
-                localAggregates: localAggregates, localTokenTurns: tokenTurns, replacements: replacements, trigger: trigger
+                localAggregates: uploadable, localTokenTurns: tokenTurns,
+                recoveredTokenIDs: tokenHistory.pendingRecoveryIDs(), trigger: trigger
             )
         } else {
-            await syncService.snapshotFromCacheIfEnabled(localTokenTurns: tokenTurns, replacements: replacements)
+            await syncService.snapshotFromCacheIfEnabled(localTokenTurns: tokenTurns)
         }
-        acknowledgeReplacements(syncSnapshot.completedReplacements)
         var snapshot = HistorySnapshot(
             localAggregates: localAggregates,
-            syncedRecords: syncSnapshot.records.filter { $0.daily.eventCount != 0 },
+            syncedRecords: syncSnapshot.records,
             currentDeviceID: syncSnapshot.currentDeviceID
         )
         snapshot.tokenUsageByDate = syncSnapshot.tokenUsageByDate ?? TokenTurn.dailyUsage(tokenTurns)
+        snapshot.isActivityComplete = snapshot.isActivityComplete && syncSnapshot.isActivityComplete && maintenance != nil
+        let knownDates = Set(localAggregates.map(\.date)).union(
+            syncSnapshot.records.filter { $0.deviceID == syncSnapshot.currentDeviceID }.map(\.date)
+        )
+        snapshot.unavailableActivityDates.formUnion(Set(maintenance?.dirty ?? []).subtracting(knownDates))
         return snapshot
     }
 
-    /// 以指定日期范围内的本机原始事件为权威来源重建, 并安排替换当前设备的同日云端贡献
+    /// 从指定日期的原始事件重建, 同一来源继续使用同一云端记录
     func rebuildData(
         for dateKeys: [String],
         synchronize: Bool
@@ -190,12 +203,13 @@ actor HistoryService {
             localTokenTurns: localTurns
         )
         let tokenSyncPending = await syncService.hasPendingTokenUpdates(local: localTurns)
+        let activitySyncPending = await syncService.hasPendingActivityUpdates(local: loadDailyAggregates() ?? [])
         let tokenFailures = didFailTokenRebuild ? normalizedDateKeys : tokenResult.failedDateKeys
         let summary = HistoryDataRebuildSummary(
             rebuiltDateCount: Set(rebuildResults.map(\.dateKey)).union(tokenResult.dateKeys)
                 .subtracting(failedDateKeys).subtracting(tokenFailures).count,
             eventCount: rebuildResults.reduce(0) { $0 + ($1.aggregate.eventCount ?? 0) },
-            isSyncReplacementPending: hasPendingReplacement(for: eventDateKeysWithData) || tokenSyncPending,
+            isSyncPending: activitySyncPending || tokenSyncPending,
             failedDateKeys: failedDateKeys,
             failedRequestDateKeys: failedRequestDateKeys,
             failedTokenDateKeys: tokenFailures,
@@ -214,54 +228,9 @@ actor HistoryService {
         return HistoryDataRebuildOutcome(snapshot: snapshot, summary: summary)
     }
 
-    func hasPendingReplacement(for dates: [String]) -> Bool {
-        let state = HistoryStorage.loadMaintenanceState(in: directoryURL)
-        return dates.contains { state.days[$0]?.requiresCloudReplacement == true }
-    }
-
-    /// 只从同一锁内读取的聚合和提交状态形成替换授权, dirty 状态不允许覆盖云端
-    private func readyReplacements() -> [ActivityAggregate] {
-        (try? HistoryStorage.withExclusiveLock(in: directoryURL) {
-            let state = HistoryStorage.loadMaintenanceState(in: directoryURL)
-            return (loadDailyAggregates() ?? []).filter { aggregate in
-                guard let day = state.days[aggregate.date], day.requiresCloudReplacement,
-                      !state.dirty.contains(aggregate.date), day.corrupt == 0, day.offset == day.size, day.offset > 0,
-                      let generation = day.generationID, aggregate.generationID == generation,
-                      aggregate.eventCount != nil,
-                      let stat = HistoryStorage.fileStat(at: eventLogURL(for: aggregate.date)),
-                      stat.identifier == day.fileIdentifier, stat.size >= day.offset else { return false }
-                return !hasBoundaryChanged(dateKey: aggregate.date, day: day, stat: stat)
-            }
-        }) ?? []
-    }
-
-    func acknowledgeReplacements(_ completed: [String: String]) {
-        guard !completed.isEmpty else { return }
-        do {
-            try HistoryStorage.withExclusiveLock(in: directoryURL) {
-                var state = HistoryStorage.loadMaintenanceState(in: directoryURL)
-                for (date, generation) in completed where state.days[date]?.generationID == generation
-                    && !state.dirty.contains(date) {
-                    state.days[date]?.requiresCloudReplacement = false
-                }
-                try HistoryStorage.saveMaintenanceState(state, in: directoryURL)
-            }
-        } catch {
-            AppLog.history.error("云端替换确认保存失败: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
     private func loadDailyAggregates() -> [ActivityAggregate]? {
-        guard let data = try? Data(contentsOf: dailyLogURL), !data.isEmpty else {
-            return nil
-        }
-
-        let aggregates: [ActivityAggregate] = JSONLines.decode(from: data)
-        guard !aggregates.isEmpty else {
-            return nil
-        }
-
-        return ActivityAggregate.normalized(aggregates: aggregates)
+        guard let decoded = try? loadDailyAggregatesWithFailures(), decoded.compatibilityError == nil else { return nil }
+        return ActivityAggregate.normalized(aggregates: decoded.values)
     }
 
     // MARK: - 重建与维护调度
@@ -270,7 +239,7 @@ actor HistoryService {
         var aggregates = loadDailyAggregates() ?? []
         let eventCountAvailability = aggregates
             .first(where: { $0.date == dateKey })?
-            .eventCountAvailability ?? .legacy
+            .eventCountAvailability ?? .all
         let task = try prepareRebuildTask(
             for: dateKey,
             eventCountAvailability: eventCountAvailability
@@ -305,9 +274,13 @@ actor HistoryService {
                 throw HistoryDataRebuildError.sourceUnavailable
             }
 
-            var state = HistoryStorage.loadMaintenanceState(in: directoryURL)
-            state.startNewGeneration(for: dateKey, startedEmpty: false, fileIdentifier: stat.identifier)
-            state.days[dateKey]?.requiresCloudReplacement = true
+            var state = try HistoryStorage.loadMaintenanceState(in: directoryURL)
+            let header = try AppServerEventJournal.header(at: eventLogURL(for: dateKey))
+            guard header.date == dateKey else { throw StorageCompatibilityError.sourceConflict }
+            if state.days[dateKey]?.generationID != header.generationID {
+                state.days[dateKey] = HistoryDayMaintenanceState(generationID: header.generationID, fileIdentifier: stat.identifier)
+            }
+            state.markDirty(dateKey)
             try HistoryStorage.saveMaintenanceState(state, in: directoryURL)
             guard let day = state.days[dateKey] else { throw HistoryDataRebuildError.sourceUnavailable }
             return dirtyTask(for: dateKey, day: day, size: stat.size, eventCountAvailability: eventCountAvailability)
@@ -323,7 +296,7 @@ actor HistoryService {
         }
 
         return (try? HistoryStorage.withExclusiveLock(in: directoryURL) {
-            guard let day = HistoryStorage.loadMaintenanceState(in: directoryURL).days[result.dateKey] else {
+            guard let day = try HistoryStorage.loadMaintenanceState(in: directoryURL).days[result.dateKey] else {
                 return false
             }
             return day.generationID == result.aggregate.generationID
@@ -334,11 +307,14 @@ actor HistoryService {
     /// 空转的一轮返回 nil
     /// 维护跟随额度刷新执行, 只记录有实际工作的轮次, 避免空闲时持续产生重复日志
     /// 收尾日志由 SyncScheduler 统一记, 这里只负责判断有没有值得记的东西
-    private func performMaintenanceIfNeeded() -> HistoryMaintenanceCounts? {
+    private func performMaintenanceIfNeeded(now: Date) -> HistoryMaintenanceCounts? {
         let duration = LogDuration()
         var counts = HistoryMaintenanceCounts()
         var stage = MaintenanceStage.prepare
         do {
+            stage = .prune
+            counts.pruned = try pruneExpiredEventFiles(now: now)
+            stage = .prepare
             let tasks = try prepareMaintenanceTasks()
             stage = .write
             let didCommitDailyLog = perform(tasks, counts: &counts)
@@ -346,8 +322,6 @@ actor HistoryService {
             if !didCommitDailyLog {
                 try normalizeDailyAggregatesIfNeeded()
             }
-            stage = .prune
-            counts.pruned = try pruneExpiredEventFiles()
         } catch {
             let elapsed = duration.elapsed
             let details = LogFields.joined(
@@ -407,10 +381,12 @@ actor HistoryService {
                     "stage=daily",
                     "date=\(task.dateKey)",
                     "detail=\(error.localizedDescription)",
-                    "action=markDirty"
+                    "action=retry"
                 )
                 AppLog.history.error("事件汇总失败: \(details, privacy: .public)")
-                markDirty(task.dateKey)
+                if case .rebuild = task.mode {
+                    markDirty(task.dateKey)
+                }
             }
         }
 
@@ -418,11 +394,14 @@ actor HistoryService {
     }
 
     private func prepareMaintenanceTasks() throws -> [HistoryMaintenanceTask] {
-        let eventDateKeys = eventDateKeys()
-        let dailyDecodeResult = loadDailyAggregatesWithFailures()
+        let eventDateKeys = try eventDateKeys()
+        let dailyDecodeResult = try loadDailyAggregatesWithFailures()
+        if let error = dailyDecodeResult.compatibilityError {
+            throw error
+        }
 
         return try HistoryStorage.withExclusiveLock(in: directoryURL) {
-            var state = HistoryStorage.loadMaintenanceState(in: directoryURL)
+            var state = try HistoryStorage.loadMaintenanceState(in: directoryURL)
             var changedState = state.normalize()
             let dailyByDate = dailyDecodeResult.values.reduce(into: [String: ActivityAggregate]()) { result, aggregate in
                 result[aggregate.date] = aggregate
@@ -430,11 +409,10 @@ actor HistoryService {
 
             let changedByRebuild = markRebuildDates(
                 eventDateKeys: eventDateKeys,
-                dailyDecodeResult: dailyDecodeResult,
                 dailyByDate: dailyByDate,
                 state: &state
             )
-            let changedByReconcile = reconcileEventFiles(eventDateKeys: eventDateKeys, state: &state)
+            let changedByReconcile = try reconcileEventFiles(eventDateKeys: eventDateKeys, dailyByDate: dailyByDate, state: &state)
             changedState = changedState || changedByRebuild || changedByReconcile
 
             let tasks = makeMaintenanceTasks(
@@ -453,21 +431,10 @@ actor HistoryService {
 
     private func markRebuildDates(
         eventDateKeys: [String],
-        dailyDecodeResult: JSONLinesDecodeResult<ActivityAggregate>,
         dailyByDate: [String: ActivityAggregate],
         state: inout HistoryMaintenanceState
     ) -> Bool {
         var changed = false
-
-        if state.version != HistoryMaintenanceState.currentVersion {
-            changed = state.markDirty(contentsOf: eventDateKeys) || changed
-            state.version = HistoryMaintenanceState.currentVersion
-            changed = true
-        }
-
-        if dailyDecodeResult.failedLineCount > 0 || (dailyDecodeResult.values.isEmpty && !eventDateKeys.isEmpty) {
-            changed = state.markDirty(contentsOf: eventDateKeys) || changed
-        }
 
         changed = state.markDirty(contentsOf: eventDateKeys.filter { dailyByDate[$0] == nil }) || changed
         changed = state.markDirty(contentsOf: state.pending.filter { dailyByDate[$0] == nil }) || changed
@@ -477,34 +444,47 @@ actor HistoryService {
 
     private func reconcileEventFiles(
         eventDateKeys: [String],
+        dailyByDate: [String: ActivityAggregate],
         state: inout HistoryMaintenanceState
-    ) -> Bool {
+    ) throws -> Bool {
         verifiedBoundaries = verifiedBoundaries.filter { state.days[$0.key] != nil }
-        var changed = state.markDirty(contentsOf: eventDateKeys.filter { state.days[$0] == nil })
+        var changed = false
 
         for dateKey in eventDateKeys {
             guard let stat = HistoryStorage.fileStat(at: eventLogURL(for: dateKey)) else {
                 continue
             }
 
-            changed = state.ensureGenerationID(
-                for: dateKey,
-                fileIdentifier: stat.identifier
-            ) || changed
+            let header: AppServerEventJournal.Header
+            do {
+                header = try AppServerEventJournal.header(at: eventLogURL(for: dateKey))
+                guard header.date == dateKey else { throw StorageCompatibilityError.sourceConflict }
+            } catch {
+                changed = state.markDirty(dateKey) || changed
+                continue
+            }
+            if state.days[dateKey] == nil, let aggregate = dailyByDate[dateKey],
+               aggregate.generationID == header.generationID, let checkpoint = aggregate.sourceCheckpoint,
+               !hasBoundaryChanged(dateKey: dateKey, checkpoint: checkpoint, stat: stat) {
+                state.days[dateKey] = HistoryDayMaintenanceState(
+                    offset: checkpoint.byteCount, size: checkpoint.byteCount,
+                    generationID: header.generationID, fileIdentifier: stat.identifier
+                )
+                changed = true
+            } else if state.days[dateKey]?.generationID != header.generationID {
+                state.days[dateKey] = HistoryDayMaintenanceState(generationID: header.generationID, fileIdentifier: stat.identifier)
+                changed = state.markDirty(dateKey) || changed
+            }
             guard let day = state.days[dateKey] else {
                 continue
             }
 
             let identifierChanged = day.fileIdentifier != nil
                 && day.fileIdentifier != stat.identifier
-            let boundaryChanged = hasBoundaryChanged(dateKey: dateKey, day: day, stat: stat)
+            let boundaryChanged = hasBoundaryChanged(dateKey: dateKey, checkpoint: dailyByDate[dateKey]?.sourceCheckpoint, stat: stat)
 
             if identifierChanged || stat.size < day.offset || boundaryChanged {
-                state.startNewGeneration(
-                    for: dateKey,
-                    startedEmpty: stat.size == 0,
-                    fileIdentifier: stat.identifier
-                )
+                state.markDirty(dateKey)
                 changed = true
             } else if day.offset != day.size {
                 state.markDirty(dateKey)
@@ -520,29 +500,18 @@ actor HistoryService {
         return changed
     }
 
-    /// boundaryHash 覆盖 offset 之前的边界片段, 追加只写在 offset 之后
-    /// 文件未修改时复用已有哈希, 减少持锁时间和采集器的等待
-    private func hasBoundaryChanged(
-        dateKey: String,
-        day: HistoryDayMaintenanceState,
-        stat: HistoryFileStat
-    ) -> Bool {
-        guard let recordedHash = day.boundaryHash else {
-            return false
-        }
-
-        // 只有完整 stat 可以跳过校验, 毫秒精度不能区分同毫秒内的改写
+    /// 完整前缀校验避免日志中部改写被误认成普通追加, 文件未变时复用校验结果
+    private func hasBoundaryChanged(dateKey: String, checkpoint: ActivitySourceCheckpoint?, stat: HistoryFileStat) -> Bool {
+        guard let checkpoint else { return true }
         if let verified = verifiedBoundaries[dateKey],
-           verified.offset == day.offset, verified.digest == recordedHash, verified.stat == stat {
+           verified.offset == checkpoint.byteCount, verified.digest == checkpoint.digest, verified.stat == stat {
             return false
         }
-
-        guard (try? eventLogBoundaryHash(for: dateKey, endingAt: day.offset)) == recordedHash else {
+        guard checkpoint.matchesSource(try? ActivitySourceCheckpoint.read(at: eventLogURL(for: dateKey), byteCount: checkpoint.byteCount)) else {
             verifiedBoundaries.removeValue(forKey: dateKey)
             return true
         }
-
-        verifiedBoundaries[dateKey] = HistoryBoundaryVerification(offset: day.offset, digest: recordedHash, stat: stat)
+        verifiedBoundaries[dateKey] = HistoryBoundaryVerification(offset: checkpoint.byteCount, digest: checkpoint.digest, stat: stat)
         return false
     }
 
@@ -551,8 +520,9 @@ actor HistoryService {
         dailyByDate: [String: ActivityAggregate],
         changedState: inout Bool
     ) -> [HistoryMaintenanceTask] {
-        let dirty = Set(state.dirty)
-        var tasks: [HistoryMaintenanceTask] = state.dirty.compactMap { dateKey in
+        let cutoff = HistoryStorage.dateKey(for: HistoryStorage.retentionCutoffDate())
+        let dirty = Set(state.dirty.filter { $0 >= cutoff })
+        var tasks: [HistoryMaintenanceTask] = state.dirty.filter { $0 >= cutoff }.compactMap { dateKey in
             guard let day = state.days[dateKey] else {
                 return nil
             }
@@ -560,11 +530,11 @@ actor HistoryService {
                 for: dateKey,
                 day: day,
                 eventCountAvailability: dailyByDate[dateKey]?
-                    .eventCountAvailability ?? .legacy
+                    .eventCountAvailability ?? .all
             )
         }
 
-        for dateKey in state.pending where !dirty.contains(dateKey) {
+        for dateKey in state.pending where dateKey >= cutoff && !dirty.contains(dateKey) {
             let day = state.days[dateKey] ?? HistoryDayMaintenanceState()
             let size = eventLogSize(for: dateKey)
             guard size > day.offset else {
@@ -575,7 +545,8 @@ actor HistoryService {
 
             let existingAggregate = dailyByDate[dateKey]
             guard let baseAggregate = existingAggregate,
-                  baseAggregate.generationID == day.generationID else {
+                  baseAggregate.generationID == day.generationID,
+                  baseAggregate.sourceCheckpoint?.byteCount == day.offset else {
                 state.markDirty(dateKey)
                 changedState = true
                 tasks.append(dirtyTask(
@@ -583,22 +554,7 @@ actor HistoryService {
                     day: day,
                     size: size,
                     eventCountAvailability: existingAggregate?
-                        .eventCountAvailability ?? .legacy
-                ))
-                continue
-            }
-
-            // ID 已压缩的聚合无法判断追加事件是否属于已有 session 或 turn
-            // 任何不能证明与全量结果等价的增量任务都降级为完整重建
-            guard retainsIdentifiers(for: dateKey),
-                  baseAggregate.supportsIncrementalAggregation else {
-                state.markDirty(dateKey)
-                changedState = true
-                tasks.append(dirtyTask(
-                    for: dateKey,
-                    day: day,
-                    size: size,
-                    eventCountAvailability: baseAggregate.eventCountAvailability
+                        .eventCountAvailability ?? .all
                 ))
                 continue
             }
@@ -620,7 +576,7 @@ actor HistoryService {
         for dateKey: String,
         day: HistoryDayMaintenanceState,
         size: UInt64? = nil,
-        eventCountAvailability: ActivityCountAvailability = .legacy
+        eventCountAvailability: ActivityCountAvailability = .all
     ) -> HistoryMaintenanceTask {
         let stat = HistoryStorage.fileStat(at: eventLogURL(for: dateKey))
         return HistoryMaintenanceTask(
@@ -630,7 +586,6 @@ actor HistoryService {
             mode: .rebuild(eventCountAvailability),
             existingCorrupt: 0,
             generationID: day.generationID,
-            generationStartedEmpty: day.generationStartedEmpty,
             fileIdentifier: stat?.identifier
         )
     }
@@ -648,7 +603,6 @@ actor HistoryService {
             mode: .append(baseAggregate),
             existingCorrupt: day.corrupt,
             generationID: day.generationID,
-            generationStartedEmpty: day.generationStartedEmpty,
             fileIdentifier: day.fileIdentifier
         )
     }
@@ -663,41 +617,17 @@ actor HistoryService {
         HistoryStorage.fileSize(at: eventLogURL(for: dateKey))
     }
 
-    private func eventLogBoundaryHash(
-        for dateKey: String,
-        endingAt offset: UInt64
-    ) throws -> String? {
-        guard offset > 0 else {
-            return nil
-        }
-
-        let length = min(offset, 4 * 1024)
-        let handle = try FileHandle(forReadingFrom: eventLogURL(for: dateKey))
-        defer {
-            try? handle.close()
-        }
-
-        try handle.seek(toOffset: offset - length)
-        guard let data = try handle.read(upToCount: Int(length)),
-              data.count == Int(length) else {
-            throw CocoaError(.fileReadUnknown)
-        }
-
-        return SHA256.hash(data: data)
-            .map { String(format: "%02x", $0) }
-            .joined()
-    }
-
-    private func loadDailyAggregatesWithFailures() -> JSONLinesDecodeResult<ActivityAggregate> {
-        guard let data = try? Data(contentsOf: dailyLogURL), !data.isEmpty else {
+    private func loadDailyAggregatesWithFailures() throws -> JSONLinesDecodeResult<ActivityAggregate> {
+        do {
+            return try JSONLines.decodeWithFailures(from: Data(contentsOf: dailyLogURL))
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             return JSONLinesDecodeResult(values: [], failedLineCount: 0)
         }
-
-        return JSONLines.decodeWithFailures(from: data)
     }
 
-    private func eventDateKeys() -> [String] {
-        HistoryStorage.eventLogDateKeys(in: eventsDirectoryURL)
+    private func eventDateKeys() throws -> [String] {
+        let cutoff = HistoryStorage.dateKey(for: HistoryStorage.retentionCutoffDate())
+        return try HistoryStorage.readEventLogDateKeys(in: eventsDirectoryURL).filter { $0 >= cutoff }
     }
 
     private func buildDailyAggregate(
@@ -708,17 +638,22 @@ actor HistoryService {
             ActivityAccumulator(
                 rebuilding: task.dateKey,
                 generationID: task.generationID,
-                generationStartedEmpty: task.generationStartedEmpty,
+
                 eventCountAvailability: eventCountAvailability
             )
         case let .append(baseAggregate):
             ActivityAccumulator(
                 appending: baseAggregate,
-                generationID: task.generationID,
-                generationStartedEmpty: task.generationStartedEmpty
+                generationID: task.generationID
             )
         }
         var corrupt = task.existingCorrupt
+        if case let .append(base) = task.mode, !base.supportsIncrementalAggregation {
+            // 恢复去重身份不重新计算旧计数, 追加到压缩日期也不会改变历史口径
+            corrupt += try readEvents(at: eventLogURL(for: task.dateKey), from: 0, upTo: task.startOffset) {
+                accumulator.restoreIdentity(from: $0)
+            }
+        }
 
         corrupt += try readEvents(
             at: eventLogURL(for: task.dateKey),
@@ -731,14 +666,25 @@ actor HistoryService {
         let identifierStorage: ActivityIdentifiers = retainsIdentifiers(for: task.dateKey)
             ? .retained
             : .compacted
-        let aggregate = accumulator.finalized(identifierStorage: identifierStorage)
-        return try HistoryMaintenanceResult(
+        var aggregate = accumulator.finalized(identifierStorage: identifierStorage)
+        var checkpoint = try ActivitySourceCheckpoint.read(at: eventLogURL(for: task.dateKey), byteCount: task.size)
+        let ranges: [AggregationRange] = switch task.mode {
+        case .rebuild:
+            []
+        case let .append(base):
+            base.sourceCheckpoint?.aggregationRanges.isEmpty == false
+                ? base.sourceCheckpoint?.aggregationRanges ?? []
+                : [AggregationRange(version: base.aggregationVersion, end: task.startOffset)]
+        }
+        checkpoint.aggregationRanges = AggregationRange.appending(to: ranges, version: AggregationVersion.activity, end: task.size)
+        aggregate.aggregationVersion = AggregationVersion.activity
+        aggregate.sourceCheckpoint = checkpoint
+        return HistoryMaintenanceResult(
             dateKey: task.dateKey,
             aggregate: aggregate,
             size: task.size,
             corrupt: corrupt,
-            fileIdentifier: task.fileIdentifier,
-            boundaryHash: eventLogBoundaryHash(for: task.dateKey, endingAt: task.size)
+            fileIdentifier: task.fileIdentifier
         )
     }
 
@@ -748,67 +694,13 @@ actor HistoryService {
         upTo size: UInt64,
         record: (ActivityRecord) -> Void
     ) throws -> Int {
-        guard size > startOffset else {
-            return 0
-        }
-
-        let fileHandle = try FileHandle(forReadingFrom: url)
-        defer {
-            try? fileHandle.close()
-        }
-
-        try fileHandle.seek(toOffset: startOffset)
-
-        var remainingBytes = size - startOffset
-        var buffer = Data()
         var corrupt = 0
-
-        // 分块读取防止大日志一次性进内存, 但仍按完整 JSONL 行解码
-        while remainingBytes > 0 {
-            let readSize = min(Int(remainingBytes), Self.eventReadChunkSize)
-            guard let chunk = try fileHandle.read(upToCount: readSize), !chunk.isEmpty else {
-                break
+        try AppServerEventJournal.read(at: url, from: startOffset, upTo: size, onInvalidLine: { corrupt += 1 }, consume: { entry in
+            if let event = entry.activity {
+                record(event)
             }
-
-            remainingBytes -= UInt64(chunk.count)
-            buffer.append(chunk)
-
-            while let newlineIndex = buffer.firstIndex(of: JSONLines.newlineByte) {
-                let lineData = buffer[..<newlineIndex]
-                corrupt += Self.decode(lineData, record: record)
-                buffer.removeSubrange(...newlineIndex)
-            }
-        }
-
-        if !buffer.isEmpty {
-            corrupt += Self.decode(buffer, record: record)
-        }
-
+        })
         return corrupt
-    }
-
-    nonisolated static func decode(
-        _ lineData: Data.SubSequence,
-        record: (ActivityRecord) -> Void
-    ) -> Int {
-        guard let line = String(bytes: lineData, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) else {
-            return 1
-        }
-
-        guard !line.isEmpty else {
-            return 0
-        }
-
-        guard let data = line.data(using: .utf8),
-              let entry = try? AppServerEventRecord.decode(from: data) else {
-            return 1
-        }
-
-        if let event = entry.activity {
-            record(event)
-        }
-        return 0
     }
 
     // MARK: - 落盘与状态提交
@@ -819,9 +711,9 @@ actor HistoryService {
         aggregates: inout [ActivityAggregate]
     ) throws -> Bool {
         try HistoryStorage.withExclusiveLock(in: directoryURL) {
-            var state = HistoryStorage.loadMaintenanceState(in: directoryURL)
+            var state = try HistoryStorage.loadMaintenanceState(in: directoryURL)
             guard let currentSize = try validatedEventLogSize(for: result, state: &state) else { return false }
-            if state.days[result.dateKey]?.requiresCloudReplacement == true, result.corrupt > 0 {
+            if result.corrupt > 0 {
                 throw HistoryDataRebuildError.incompleteSource
             }
             // 两个文件提交前先标脏, 中途退出会从事件重建, 不沿旧偏移重复追加
@@ -830,11 +722,9 @@ actor HistoryService {
             aggregates = loadDailyAggregates() ?? []
             try writeDailyAggregate(result.aggregate, into: &aggregates)
             state.days[result.dateKey] = HistoryDayMaintenanceState(
-                requiresCloudReplacement: state.days[result.dateKey]?.requiresCloudReplacement ?? false,
                 offset: result.size, size: result.size, corrupt: result.corrupt,
                 generationID: result.aggregate.generationID,
-                generationStartedEmpty: result.aggregate.generationStartedEmpty,
-                fileIdentifier: result.fileIdentifier, boundaryHash: result.boundaryHash
+                fileIdentifier: result.fileIdentifier
             )
             state.removeDirty(result.dateKey)
             if currentSize == result.size {
@@ -847,7 +737,7 @@ actor HistoryService {
         }
     }
 
-    /// 锁内确认读取期间仍是同一份追加源; 断代时换 generation 并等待重建
+    /// 锁内确认读取期间仍是同一份追加源, 发生改写则等待重建
     private func validatedEventLogSize(
         for result: HistoryMaintenanceResult,
         state: inout HistoryMaintenanceState
@@ -859,20 +749,15 @@ actor HistoryService {
         let stat = HistoryStorage.fileStat(at: eventLogURL(for: result.dateKey))
         let identifierMatches = result.fileIdentifier == nil
             || result.fileIdentifier == stat?.identifier
-        let boundaryMatches = (try? eventLogBoundaryHash(
-            for: result.dateKey,
-            endingAt: result.size
-        )) == result.boundaryHash
+        let boundaryMatches = result.aggregate.sourceCheckpoint?.matchesSource(try? ActivitySourceCheckpoint.read(
+            at: eventLogURL(for: result.dateKey), byteCount: result.size
+        )) == true
 
         guard let stat,
               stat.size >= result.size,
               identifierMatches,
               boundaryMatches else {
-            state.startNewGeneration(
-                for: result.dateKey,
-                startedEmpty: stat?.size == 0,
-                fileIdentifier: stat?.identifier
-            )
+            state.markDirty(result.dateKey)
             try HistoryStorage.saveMaintenanceState(state, in: directoryURL)
             return nil
         }
@@ -884,6 +769,9 @@ actor HistoryService {
         _ aggregate: ActivityAggregate,
         into aggregates: inout [ActivityAggregate]
     ) throws {
+        if let error = try loadDailyAggregatesWithFailures().compatibilityError {
+            throw error
+        }
         try FileManager.default.createDirectory(
             at: dailyLogURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -895,42 +783,47 @@ actor HistoryService {
         try data.write(to: dailyLogURL, options: .atomic)
     }
 
-    private func normalizeDailyAggregatesIfNeeded() throws {
-        guard let stat = HistoryStorage.fileStat(at: dailyLogURL), stat.size > 0 else {
-            return
-        }
+    func normalizeDailyAggregatesIfNeeded() throws {
+        try HistoryStorage.withExclusiveLock(in: directoryURL) {
+            guard let stat = HistoryStorage.fileStat(at: dailyLogURL), stat.size > 0 else {
+                return
+            }
 
-        // 稳态下文件与日期都没变, 跳过全量解码与重编码比对
-        let dayKey = HistoryStorage.dateKey(for: Date())
-        if lastNormalizedDailyLog == HistoryDailyLogStamp(size: stat.size, identifier: stat.identifier, dayKey: dayKey) {
-            return
-        }
+            // 稳态下文件与日期都没变, 跳过全量解码与重编码比对
+            let dayKey = HistoryStorage.dateKey(for: Date())
+            if lastNormalizedDailyLog == HistoryDailyLogStamp(size: stat.size, identifier: stat.identifier, dayKey: dayKey) {
+                return
+            }
 
-        guard let data = try? Data(contentsOf: dailyLogURL), !data.isEmpty else {
-            return
-        }
+            guard let data = try? Data(contentsOf: dailyLogURL), !data.isEmpty else {
+                return
+            }
 
-        let decodeResult = JSONLines.decodeWithFailures(ActivityAggregate.self, from: data)
-        guard decodeResult.failedLineCount == 0 else {
-            return
-        }
+            let decodeResult = JSONLines.decodeWithFailures(ActivityAggregate.self, from: data)
+            if let error = decodeResult.compatibilityError {
+                throw error
+            }
+            guard decodeResult.failedLineCount == 0 else {
+                return
+            }
 
-        let normalizedAggregates = ActivityAggregate.normalized(aggregates: decodeResult.values)
-        let normalizedData = try ActivityAggregate.encodeJSONLines(normalizedAggregates)
-        if normalizedData != data {
-            try FileManager.default.createDirectory(
-                at: dailyLogURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try normalizedData.write(to: dailyLogURL, options: .atomic)
-        }
+            let normalizedAggregates = ActivityAggregate.normalized(aggregates: decodeResult.values)
+            let normalizedData = try ActivityAggregate.encodeJSONLines(normalizedAggregates)
+            if normalizedData != data {
+                try FileManager.default.createDirectory(
+                    at: dailyLogURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try normalizedData.write(to: dailyLogURL, options: .atomic)
+            }
 
-        if let latestStat = HistoryStorage.fileStat(at: dailyLogURL) {
-            lastNormalizedDailyLog = HistoryDailyLogStamp(
-                size: latestStat.size,
-                identifier: latestStat.identifier,
-                dayKey: dayKey
-            )
+            if let latestStat = HistoryStorage.fileStat(at: dailyLogURL) {
+                lastNormalizedDailyLog = HistoryDailyLogStamp(
+                    size: latestStat.size,
+                    identifier: latestStat.identifier,
+                    dayKey: dayKey
+                )
+            }
         }
     }
 
@@ -945,7 +838,7 @@ actor HistoryService {
     private func markDirty(_ dateKey: String) {
         do {
             try HistoryStorage.withExclusiveLock(in: directoryURL) {
-                var state = HistoryStorage.loadMaintenanceState(in: directoryURL)
+                var state = try HistoryStorage.loadMaintenanceState(in: directoryURL)
                 state.markDirty(dateKey)
                 try HistoryStorage.saveMaintenanceState(state, in: directoryURL)
             }
@@ -963,29 +856,40 @@ actor HistoryService {
     // MARK: - 保留期清理
 
     @discardableResult
-    private func pruneExpiredEventFiles() throws -> Int {
-        let cutoffDate = HistoryStorage.retentionCutoffDate()
-        let expiredDateKeys = eventDateKeys().filter { dateKey in
-            guard let date = CodexDateFormat.dayDate(from: dateKey) else {
-                return false
+    private func pruneExpiredEventFiles(now: Date) throws -> Int {
+        let cutoffDate = HistoryStorage.retentionCutoffDate(today: now)
+        guard lastRetentionCutoff != cutoffDate else { return 0 }
+        let expiredDateKeys = try HistoryStorage.withExclusiveLock(in: directoryURL) {
+            let expiredDateKeys = try HistoryStorage.readEventLogDateKeys(in: eventsDirectoryURL).filter { dateKey in
+                dateKey < HistoryStorage.dateKey(for: cutoffDate)
             }
-
-            return date < cutoffDate
-        }
-
-        guard !expiredDateKeys.isEmpty else {
-            return 0
-        }
-
-        try HistoryStorage.withExclusiveLock(in: directoryURL) {
-            var state = HistoryStorage.loadMaintenanceState(in: directoryURL)
+            var state = try HistoryStorage.loadMaintenanceState(in: directoryURL)
+            var failedDates = Set<String>()
             for dateKey in expiredDateKeys {
-                try? FileManager.default.removeItem(at: eventLogURL(for: dateKey))
+                do {
+                    try AppServerEventJournal.read(at: eventLogURL(for: dateKey)) { _ in }
+                    try FileManager.default.removeItem(at: eventLogURL(for: dateKey))
+                } catch CocoaError.fileNoSuchFile {
+                    continue
+                } catch {
+                    failedDates.insert(dateKey)
+                    AppLog.history.error("过期事件清理失败: date=\(dateKey, privacy: .public) detail=\(error.localizedDescription, privacy: .public)")
+                }
+            }
+            let cutoffKey = HistoryStorage.dateKey(for: cutoffDate)
+            let expiredStateKeys = Set(state.days.keys).union(state.pending).union(state.dirty)
+                .filter { $0 < cutoffKey && !failedDates.contains($0) }
+            for dateKey in expiredStateKeys {
                 state.remove(dateKey)
             }
-
-            try HistoryStorage.saveMaintenanceState(state, in: directoryURL)
+            if !expiredStateKeys.isEmpty {
+                try HistoryStorage.saveMaintenanceState(state, in: directoryURL)
+            }
+            return expiredDateKeys.filter { !failedDates.contains($0) }
         }
+        // 单文件失败留待下一天或重启后重试, 避免刷新时反复扫描同一异常文件
+        lastRetentionCutoff = cutoffDate
+        guard !expiredDateKeys.isEmpty else { return 0 }
         // 保留期到点会真的删掉原始事件文件, 数据对不上时要能查到哪些日期被清掉了
         let details = LogFields.joined(
             "dates=\(expiredDateKeys.count)",
@@ -1032,7 +936,6 @@ private nonisolated struct HistoryMaintenanceTask {
     let mode: HistoryMaintenanceMode
     let existingCorrupt: Int
     let generationID: String?
-    let generationStartedEmpty: Bool
     let fileIdentifier: UInt64?
 
     var baseEventCount: Int {
@@ -1052,13 +955,12 @@ private nonisolated struct HistoryMaintenanceResult {
     let size: UInt64
     let corrupt: Int
     let fileIdentifier: UInt64?
-    let boundaryHash: String?
 }
 
 nonisolated struct HistoryDataRebuildSummary: Equatable, Sendable {
     let rebuiltDateCount: Int
     let eventCount: Int
-    let isSyncReplacementPending: Bool
+    let isSyncPending: Bool
     let failedDateKeys: [String]
     let failedRequestDateKeys: [String]
     let failedTokenDateKeys: [String]

@@ -57,7 +57,7 @@ final class AutoResetController {
     }
 
     private let settings: AutoResetSettings
-    private let snapshots: AnyPublisher<CodexQuotaSnapshot?, Never>
+    private let outcomes: AnyPublisher<CodexFetchOutcome, Never>
     private let dependencies: Dependencies
     private var cancellables = Set<AnyCancellable>()
     private var scheduledTask: Task<Void, Never>?
@@ -70,6 +70,7 @@ final class AutoResetController {
     private var records: [String: Record] = [:]
     private var isStarted = false
     private var isSleeping = false
+    private var isAccountBlocked = false
     private var isPreparingForTermination = false
     private(set) var scheduledDate: Date?
     private(set) var wakeDate: Date?
@@ -81,7 +82,7 @@ final class AutoResetController {
         notificationService: NotificationService,
         keepAliveController: KeepAliveController
     ) {
-        self.init(settings: settings, snapshots: statusViewModel.$snapshot.eraseToAnyPublisher(), dependencies: Dependencies(
+        self.init(settings: settings, outcomes: statusViewModel.fetchOutcomes, dependencies: Dependencies(
             read: { try await service.readCreditsForAutoReset(budget: $0) },
             consume: { candidate, account, budget in
                 try await service.consumeResetCredit(
@@ -100,9 +101,9 @@ final class AutoResetController {
         ))
     }
 
-    init(settings: AutoResetSettings, snapshots: AnyPublisher<CodexQuotaSnapshot?, Never>, dependencies: Dependencies) {
+    init(settings: AutoResetSettings, outcomes: AnyPublisher<CodexFetchOutcome, Never>, dependencies: Dependencies) {
         self.settings = settings
-        self.snapshots = snapshots
+        self.outcomes = outcomes
         self.dependencies = dependencies
     }
 
@@ -116,7 +117,7 @@ final class AutoResetController {
         guard !isStarted else { return }
         isStarted = true
         dependencies.setRequested(settings.isEnabled)
-        snapshots.sink { [weak self] in self?.handleSnapshot($0) }.store(in: &cancellables)
+        outcomes.sink { [weak self] in self?.handleOutcome($0) }.store(in: &cancellables)
         settings.$isEnabled.dropFirst().sink { [weak self] in self?.handleEnabledChange($0) }.store(in: &cancellables)
         settings.$leadTime.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             guard let self, settings.isEnabled else { return }
@@ -175,7 +176,7 @@ final class AutoResetController {
     }
 
     private var canEvaluate: Bool {
-        isEnabled && !isSleeping
+        isEnabled && !isSleeping && !isAccountBlocked
     }
 
     private func handleEnabledChange(_ enabled: Bool) {
@@ -195,19 +196,48 @@ final class AutoResetController {
         }
     }
 
-    private func handleSnapshot(_ snapshot: CodexQuotaSnapshot?) {
-        guard isEnabled, let snapshot, !snapshot.isRateLimitsStale else { return }
-        let previousKey = target?.key
-        let previousExpiration = target?.candidate.expirationDate
-        let identity = AutoResetIdentity.accountIdentity(for: snapshot.account)
-        if let accountIdentity, accountIdentity != identity {
-            invalidateEvaluation()
+    private func handleOutcome(_ outcome: CodexFetchOutcome) {
+        guard isStarted, !isPreparingForTermination else { return }
+        switch outcome {
+        case .notLoggedIn:
+            blockAccount(signedOut: true)
+        case .authenticationRequired:
+            blockAccount(signedOut: false)
+        case .initializationFailed, .unsupportedVersion:
+            break
+        case let .data(snapshot):
+            let identity = AutoResetIdentity.accountIdentity(for: snapshot.account)
+            let changedAccount = accountIdentity != identity
+            let wasBlocked = isAccountBlocked
+            if changedAccount {
+                cancelWork()
+                target = nil
+                accountIdentity = identity
+            }
+            isAccountBlocked = false
+            guard !snapshot.isRateLimitsStale else {
+                if changedAccount || wasBlocked {
+                    requestEvaluation(trigger: .statusRefresh)
+                }
+                return
+            }
+            let previousKey = target?.key
+            let previousExpiration = target?.candidate.expirationDate
+            reconcile(AutoResetRead(accountIdentity: identity, availableCount: snapshot.resetCreditsAvailableCount, candidates: snapshot.autoResetCandidates))
+            if let previousKey, previousKey != target?.key || previousExpiration != target?.candidate.expirationDate {
+                invalidateEvaluation()
+            }
+            refreshSchedule()
         }
-        reconcile(AutoResetRead(accountIdentity: identity, availableCount: snapshot.resetCreditsAvailableCount, candidates: snapshot.autoResetCandidates))
-        if let previousKey, previousKey != target?.key || previousExpiration != target?.candidate.expirationDate {
-            invalidateEvaluation()
+    }
+
+    private func blockAccount(signedOut: Bool) {
+        isAccountBlocked = true
+        cancelWork()
+        target = nil
+        if signedOut {
+            accountIdentity = nil
         }
-        refreshSchedule()
     }
 
     private func requestEvaluation(trigger: LogTrigger) {
@@ -350,13 +380,23 @@ final class AutoResetController {
         if error is CancellationError || error is AutoResetServiceError {
             return
         }
-        guard let key = evaluation?.target.key ?? target?.key else { return }
-        if let error = error as? CodexStatusError {
-            if error.isAuthenticationRequired {
+        let key = evaluation?.target.key ?? target?.key
+        if let error = error as? CodexStatusError, error.isAuthenticationRequired {
+            if let key {
                 records[key]?.block = .authentication
                 dependencies.failed(.authentication, key)
-                dependencies.refresh()
-            } else if error.isProtocolOrParameterFailure {
+            }
+            if case .notLoggedIn = error {
+                blockAccount(signedOut: true)
+            } else {
+                blockAccount(signedOut: false)
+            }
+            dependencies.refresh()
+            return
+        }
+        guard let key else { return }
+        if let error = error as? CodexStatusError {
+            if error.isProtocolOrParameterFailure {
                 records[key]?.block = .permanent
                 dependencies.failed(.permanent, key)
             }

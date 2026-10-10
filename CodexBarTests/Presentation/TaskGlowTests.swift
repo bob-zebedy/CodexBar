@@ -202,9 +202,9 @@ struct TaskGlowTests {
     @Test func concurrentTaskCompletionStillShowsBrieflyThenRestoresRunning() throws {
         var presentation = TaskGlowPresentationState()
         let running = ActivityTaskSnapshot(
-            id: UUID(), isAnonymous: false, projectName: nil,
-            modelName: nil, effort: nil, toolName: nil, startedAt: TestFixtures.now,
-            stateChangedAt: TestFixtures.now, showsPreciseDuration: true, activeSubagentCount: nil
+            id: UUID(), projectName: nil,
+            modelName: nil, effort: nil, startedAt: TestFixtures.now,
+            stateChangedAt: TestFixtures.now, activeSubagentCount: nil
         )
         let snapshot = ActivitySnapshot(
             waitingTasks: [], runningTasks: [running],
@@ -224,7 +224,7 @@ struct TaskGlowTests {
 
     private func completedSnapshot() -> ActivitySnapshot {
         let completion = ActivityCompletion(
-            id: UUID(), isAnonymous: false, projectName: nil, modelName: nil,
+            id: UUID(), projectName: nil, modelName: nil,
             effort: nil, completedAt: TestFixtures.now, duration: 60
         )
         return ActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])

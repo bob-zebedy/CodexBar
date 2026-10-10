@@ -16,6 +16,7 @@ final class ActivityMonitor: ObservableObject {
         presentationSubject.eraseToAnyPublisher()
     }
 
+    var onAccountChange: ((AccountChange) -> Void)?
     var onProtectionTriggered: ((ProtectionNotice) async -> Bool)?
     var onProtectionInvalidated: ((UUID, UUID) -> Void)?
 
@@ -28,15 +29,13 @@ final class ActivityMonitor: ObservableObject {
     var pendingTerminalPresentationEvents: [ActivityTerminalEvent] = []
     var terminalPresentationNotBefore = Date()
     var tasks: [ActivityTaskKey: ActivityTask] = [:]
-    var subagentTurnLinks: [ActivityTurnReference: ActivityTaskKey] = [:]
+    var subagentTurnLinks: [ActivityTurnReference: (root: ActivityTaskKey, retainedAt: Date)] = [:]
     var pendingSubagentEvents: [PendingSubagentEvent] = []
     var pendingTerminalTasks: [ActivityTaskKey: PendingTerminalTask] = [:]
     var completions: [ActivityCompletion] = []
     var terminations: [ActivityTermination] = []
     var recentlyEndedTaskAt: [ActivityTaskKey: Date] = [:]
-    var terminalTaskKeyByID: [UUID: ActivityTaskKey] = [:]
     var terminalTokenUsageRequests: [UUID: TaskTokenRequest] = [:]
-    var activityTaskOrigins: [ActivityTaskKey: (origin: ActivityOrigin, observedAt: Date)] = [:]
     var activityReader: AppServerActivityReader?
     private var activityReaderControlTask: Task<Void, Never>?
     private var activityReaderGeneration: UInt64 = 0
@@ -54,8 +53,14 @@ final class ActivityMonitor: ObservableObject {
     var protectionRecords: [String: ProtectionRecord] = [:]
     private var protectionStateLoadTask: Task<Void, Never>?
     var protectionPersistenceTask: Task<Void, Never>?
-    private var isProtectionStateLoaded = false
+    enum ProtectionLoadState { case idle, loading, available, retryableFailure, blocked }
+    var protectionLoadState = ProtectionLoadState.idle
+    private var protectionLoadGeneration: UInt64 = 0
     var isProtectionEnabled = false
+    var isProtectionStoreAvailable: Bool {
+        protectionLoadState == .available
+    }
+
     @Published var isActivitySourceHealthy = false
     @Published private(set) var sourcePresentation: ActivityLiveLabel? = ActivityLiveLabel("unavailable")
     private var hasConnectedActivitySource = false
@@ -63,6 +68,7 @@ final class ActivityMonitor: ObservableObject {
     var isProtectionRecoveryInProgress = false
     var protectionRecoveryGeneration: UInt64 = 0
     private var cancellables = Set<AnyCancellable>()
+    private var isPreparingForTermination = false
     var isStarted = false
     var isBootstrapping = false
     /// 初始快照跨多个批次到达, 事件数累加到 bootstrapEnd 才一次记完
@@ -144,34 +150,85 @@ final class ActivityMonitor: ObservableObject {
         }
         isStarted = false
         cancellables.removeAll()
-        protectionStateLoadTask?.cancel()
-        protectionStateLoadTask = nil
+        cancelProtectionStateLoad()
         stopReaderAndClearState()
     }
 
-    private func loadProtectionState() {
-        guard !isProtectionStateLoaded,
-              protectionStateLoadTask == nil else {
-            return
-        }
+    func prepareForTermination() async -> Bool {
+        isPreparingForTermination = true
+        cancelProtectionStateLoad()
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        resetProtectionRecovery()
+        cancelInactivityCheck()
+        sessionLifecyclePollTask?.cancel()
+        sessionLifecyclePollTask = nil
+        activityReaderControlTask?.cancel()
+        activityReaderControlTask = nil
+        isActivitySourceHealthy = false
+        guard let reader = activityReader else { return true }
+        return await reader.stop()
+    }
 
-        protectionStateLoadTask = Task { @MainActor [weak self] in
-            guard let self else {
-                return
-            }
-            let records = await protectionStore.load()
-            guard isStarted, !Task.isCancelled else {
-                return
-            }
-            protectionRecords = records
-            isProtectionStateLoaded = true
-            protectionStateLoadTask = nil
+    func resumeAfterTerminationCancellation() async {
+        isPreparingForTermination = false
+        loadProtectionState()
+        if let reader = activityReader {
+            await reader.start()
+            startSessionLifecyclePolling(generation: activityReaderGeneration)
+        } else {
             startReaderIfReady()
         }
     }
 
+    func loadProtectionState() {
+        guard isStarted, !isPreparingForTermination,
+              protectionLoadState != .available, protectionStateLoadTask == nil else { return }
+        protectionLoadGeneration &+= 1
+        let generation = protectionLoadGeneration
+        protectionLoadState = .loading
+        protectionStateLoadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if generation == protectionLoadGeneration {
+                    protectionStateLoadTask = nil
+                }
+            }
+            for attempt in 0 ..< 3 {
+                do {
+                    let records = try await protectionStore.load()
+                    guard isStarted, !Task.isCancelled, generation == protectionLoadGeneration else { return }
+                    protectionRecords = records
+                    protectionLoadState = .available
+                    // 成功重读后必须经过活动读取屏障, 才能重新判定任务
+                    beginProtectionRecovery()
+                    startReaderIfReady()
+                    requestActivityRecovery()
+                    return
+                } catch {
+                    guard isStarted, !Task.isCancelled, generation == protectionLoadGeneration else { return }
+                    let isBlocked = error is StorageCompatibilityError || error is DecodingError
+                    protectionLoadState = isBlocked ? .blocked : .retryableFailure
+                    AppLog.activity.error("异常任务存储不可用, 暂停保护判定: \(error.localizedDescription, privacy: .public)")
+                    startReaderIfReady()
+                    guard !isBlocked, attempt < 2 else { return }
+                    do { try await Task.sleep(for: .seconds(attempt == 0 ? 1 : 3)) } catch { return }
+                }
+            }
+        }
+    }
+
+    private func cancelProtectionStateLoad() {
+        protectionLoadGeneration &+= 1
+        protectionStateLoadTask?.cancel()
+        protectionStateLoadTask = nil
+        if protectionLoadState == .loading {
+            protectionLoadState = .idle
+        }
+    }
+
     private func startReaderIfReady() {
-        guard isStarted, isProtectionStateLoaded, activityReader == nil else { return }
+        guard isStarted, !isPreparingForTermination, protectionLoadState != .idle, protectionLoadState != .loading, activityReader == nil else { return }
         AppLog.activity.notice("任务监控已启动: reason=appLaunch")
 
         activityReaderGeneration &+= 1
@@ -181,6 +238,10 @@ final class ActivityMonitor: ObservableObject {
             lifecycleCache: lifecycleCache,
             tokenHistory: TokenHistoryStore(directoryURL: activityDirectoryURL),
             recorder: ActivityRecorder(directoryURL: activityDirectoryURL),
+            onAccountChange: { [weak self] change in
+                guard let self, activityReaderGeneration == generation else { return }
+                onAccountChange?(change)
+            },
             onBatch: { [weak self] batch in
                 guard let self, activityReaderGeneration == generation else {
                     return
@@ -279,9 +340,7 @@ final class ActivityMonitor: ObservableObject {
         into transitions: inout [ActivityTransition]
     ) -> Bool {
         guard !terminalOnly || (state.readStatus == .complete && state.terminal != nil) else { return false }
-        let exact = ActivityTaskKey.turn(session: state.requestedThreadID, turn: state.turnID)
-        let key = tasks.first(where: { $0.value.resolvedTurnKey == exact })?.key
-            ?? pendingTerminalTasks.first(where: { $0.value.task.resolvedTurnKey == exact })?.key ?? exact
+        let key = ActivityTaskKey(thread: state.requestedThreadID, turn: state.turnID)
         if var pending = pendingTerminalTasks[key] {
             let pendingDidChange = Self.mergeLifecycleBackfill(
                 from: state,
@@ -340,20 +399,10 @@ final class ActivityMonitor: ObservableObject {
             return true
         }
 
+        let wasSuppressed = task.state == .suppressed
         task.mergeExecutionLifecycle(state, owner: ActivityExecutionKey(agentID: nil, turnID: state.turnID))
-
-        let wasSuppressedBeforeApproval = task.state == .suppressed
-        if resolvePendingApprovalIfPossible(
-            for: &task,
-            into: &transitions
-        ) {
-            if wasSuppressedBeforeApproval, task.state == .waitingApproval {
-                clearProtection(
-                    for: key,
-                    taskID: task.displayID,
-                    reason: .progress
-                )
-            }
+        if wasSuppressed, task.state == .waitingApproval {
+            clearProtection(for: key, taskID: task.displayID, reason: .progress)
         }
 
         tasks[key] = task
@@ -424,20 +473,12 @@ final class ActivityMonitor: ObservableObject {
         }
     }
 
-    private func lifecycleReferences(now: Date, includeAll: Bool) -> [ActivityTurnReference] {
+    func lifecycleReferences() -> [ActivityTurnReference] {
         var references = activeTokenUsageReferences()
         references.append(contentsOf: subagentLifecycleReferences())
-        references.append(contentsOf: prepareTerminalTokenUsageReadBatch(now: now))
-        let due = pendingTerminalTasks.filter { includeAll || $0.value.nextPollAt <= now }
-            .sorted { $0.value.nextPollAt < $1.value.nextPollAt }
-        for (key, var pending) in due.prefix(16) {
-            if let reference = pending.task.turnReference {
-                references.append(reference)
-            }
-            pending.nextPollAt = now.addingTimeInterval(now < pending.deadline ? 1 : 30)
-            pendingTerminalTasks[key] = pending
-        }
-        return references
+        references.append(contentsOf: terminalTokenUsageReferences())
+        references.append(contentsOf: pendingTerminalTasks.values.map(\.task.turnReference))
+        return Array(Set(references))
     }
 
     @discardableResult
@@ -454,24 +495,25 @@ final class ActivityMonitor: ObservableObject {
         defer { isReconcilingLifecycles = false }
         let bootstrapGeneration = bootstrapCompletionGeneration
         let recoveryGeneration = protectionRecoveryGeneration
-        let references = lifecycleReferences(now: Date(), includeAll: recovering)
+        let references = lifecycleReferences()
         let states = await lifecycleCache.lifecycleStates(for: references)
         guard !Task.isCancelled, generation == activityReaderGeneration,
               bootstrapGeneration == bootstrapCompletionGeneration,
               recoveryGeneration == protectionRecoveryGeneration,
               activityReader != nil, !isBootstrapping, terminalOnly || isActivitySourceHealthy,
               !isSystemSleeping else { return false }
-        let unavailable = Set(states.filter { $0.readStatus != .complete }.map { ActivityTaskKey.turn(session: $0.requestedThreadID, turn: $0.turnID) })
+        let unavailable = Set(states.filter { $0.readStatus != .complete }.map { ActivityTaskKey(thread: $0.requestedThreadID, turn: $0.turnID) })
         let availabilityChanged = unavailableTurns != unavailable
         unavailableTurns = unavailable
         var didChange = availabilityChanged
         var transitions: [ActivityTransition] = []
         for state in states {
-            didChange = applySubagentLifecycle(state, terminalOnly: terminalOnly, into: &transitions) || didChange
+            didChange = applySubagentLifecycle(state, terminalOnly: terminalOnly) || didChange
             didChange = applyLifecycleState(state, terminalOnly: terminalOnly, into: &transitions) || didChange
         }
         if !terminalOnly {
             didChange = replayAssociatedSubagentEvents(into: &transitions) || didChange
+            didChange = reconcileSubagentCounts(states) || didChange
         }
         if !terminalOnly {
             didChange = applyActiveTokenUsage(states) || didChange
@@ -499,6 +541,7 @@ final class ActivityMonitor: ObservableObject {
     // MARK: - 活动事件消费
 
     func consume(_ batch: ActivityEventBatch) {
+        guard !isPreparingForTermination else { return }
         switch batch {
         case .lifecycleChanged:
             refreshSessionLifecycleNow()
@@ -518,11 +561,14 @@ final class ActivityMonitor: ObservableObject {
             cancelInactivityCheck()
             clearCollectedActivityState()
             publishSnapshot(.empty)
-        case let .bootstrapEvents(events):
-            sourcePresentation = ActivityLiveLabel("recovering-state")
-            bootstrapEventCount += events.count
+        case let .snapshotEvents(events):
+            if isBootstrapping {
+                sourcePresentation = ActivityLiveLabel("recovering-state")
+                bootstrapEventCount += events.count
+            }
+            var transitions: [ActivityTransition] = []
             for event in events {
-                _ = apply(event, source: .bootstrap)
+                _ = apply(event, source: .bootstrap, into: &transitions)
             }
         case .bootstrapEnd:
             sourcePresentation = ActivityLiveLabel("recovering-state")
@@ -538,8 +584,9 @@ final class ActivityMonitor: ObservableObject {
         case let .live(events):
             let activeCountBefore = snapshot.activeCount
             var waitingTaskKeys: [ActivityTaskKey] = []
+            var transitions: [ActivityTransition] = []
             for event in events {
-                if let key = apply(event, source: .live) {
+                if let key = apply(event, source: .live, into: &transitions) {
                     waitingTaskKeys.append(key)
                 }
             }
@@ -556,11 +603,12 @@ final class ActivityMonitor: ObservableObject {
                 )
                 AppLog.activity.notice("任务数变化: \(details, privacy: .public)")
             }
+            for transition in transitions {
+                transitionSubject.send(transition)
+            }
             publishWaitingApprovalTransitions(waitingTaskKeys)
             if !pendingTerminalTasks.isEmpty {
                 // 新进入终态确认窗口的任务立即查询, 不等待下次周期核对
-                refreshSessionLifecycleNow()
-            } else if events.contains(where: { $0.eventKind == .turnCompleted }) {
                 refreshSessionLifecycleNow()
             }
         case .sourceUnavailable:
@@ -584,8 +632,7 @@ final class ActivityMonitor: ObservableObject {
         completionGeneration: UInt64
     ) async {
         let recoveryGeneration = protectionRecoveryGeneration
-        let references = tasks.values.compactMap(\.turnReference)
-            + pendingTerminalTasks.values.compactMap(\.task.turnReference)
+        let references = lifecycleReferences()
         if !references.isEmpty {
             let states = await lifecycleCache.lifecycleStates(for: references)
             guard !Task.isCancelled, completionGeneration == bootstrapCompletionGeneration,
@@ -595,8 +642,11 @@ final class ActivityMonitor: ObservableObject {
             var ignoredTransitions: [ActivityTransition] = []
             if recoveryGeneration == protectionRecoveryGeneration, isActivitySourceHealthy, !isSystemSleeping {
                 for state in states {
+                    _ = applySubagentLifecycle(state, terminalOnly: false)
                     _ = applyLifecycleState(state, into: &ignoredTransitions)
                 }
+                _ = replayAssociatedSubagentEvents(into: &ignoredTransitions)
+                _ = reconcileSubagentCounts(states)
             }
         }
 
@@ -632,9 +682,10 @@ final class ActivityMonitor: ObservableObject {
 
     func apply(
         _ event: ActivityRecord,
-        source: ActivityEventSource
+        source: ActivityEventSource,
+        into transitions: inout [ActivityTransition]
     ) -> ActivityTaskKey? {
-        guard let event = activityEvent(from: event, source: source) else {
+        guard event.origin == .main || event.origin == .auxiliary else {
             return nil
         }
 
@@ -659,20 +710,10 @@ final class ActivityMonitor: ObservableObject {
             updateSubagentActivity(from: event, isStarting: false, source: source)
         case .approvalRequested:
             return waitForApproval(from: event, source: source)
-        case .turnCompleted:
-            guard isTopLevelEvent else {
-                return nil
-            }
-            observeStop(from: event, source: source)
-        case .turnAborted:
-            guard isTopLevelEvent else {
-                return nil
-            }
-            interruptTask(from: event, source: source)
-        case .sessionEnded:
+        case .turnCompleted, .turnAborted:
             guard isTopLevelEvent else { return nil }
-            terminateSession(from: event)
-        case .sessionStarted, .none:
+            finishTask(from: event, source: source, into: &transitions)
+        case .none:
             break
         }
         return nil
@@ -684,57 +725,31 @@ final class ActivityMonitor: ObservableObject {
         from event: ActivityRecord,
         source: ActivityEventSource
     ) {
-        let key = ActivityTaskKey(event: event)
-        guard !updateAliasedPrompt(from: event, key: key) else { return }
-        preserveSupersededSessionTask(from: event, key: key)
-        if let pending = pendingTerminalTasks[key] {
-            guard key.turnID == nil, event.timestamp > pending.supersededAt else { return }
-            pendingTerminalTasks.removeValue(forKey: key)
-            if let resolved = pending.task.resolvedTurnKey {
-                pendingTerminalTasks[resolved] = pending
-            }
-        }
-        if pendingTerminalTasks.values.contains(where: { $0.task.resolvedTurnKey == key }) {
-            return
-        }
+        guard let key = ActivityTaskKey(event: event) else { return }
+        guard pendingTerminalTasks[key] == nil else { return }
         let existingTask = tasks[key]
         let displayID = existingTask?.displayID ?? UUID()
-        if let endedAt = recentEndedDate(for: key) {
-            if case .turn = key {
-                return
-            }
-            if event.timestamp <= endedAt {
-                return
-            }
-        }
-        if let existing = tasks[key], event.timestamp < existing.lastMainEventAt {
+        guard recentEndedDate(for: key) == nil else { return }
+        if let existing = existingTask, event.timestamp < existing.lastMainEventAt {
             return
         }
 
-        if let sessionID = key.sessionID {
-            // 同一 session 的 turn 按顺序执行. 新 prompt 让旧 turn 立即退出活动列表
-            // 但保留短暂终态确认窗口, 避免把迟到的正常完成误记为终止
-            guard !tasks.values.contains(where: {
-                $0.key.sessionID == sessionID && $0.lastMainEventAt > event.timestamp
-            }) else {
-                return
-            }
-            let supersededTasks = tasks.values.filter {
-                $0.key != key && $0.key.sessionID == sessionID
-            }
-            for task in supersededTasks {
-                clearProtection(for: task.key, taskID: task.displayID, reason: .terminal)
-                pendingTerminalTasks[task.key] = PendingTerminalTask(
-                    task: task,
-                    supersededAt: event.timestamp,
-                    deadline: Date().addingTimeInterval(Self.supersededTerminalGracePeriod)
-                )
-            }
-            tasks = tasks.filter { taskKey, _ in
-                taskKey == key || taskKey.sessionID != sessionID
-            }
+        let threadID = key.threadID
+        // 当前轮次由 app-server 确认, 旧轮次的毫秒级活动时间不能否定秒级起点
+        // 旧任务退出活动列表后继续等待明确终态
+        let supersededTasks = tasks.values.filter {
+            $0.key != key && $0.key.threadID == threadID
         }
-
+        for task in supersededTasks {
+            clearProtection(for: task.key, taskID: task.displayID, reason: .terminal)
+            pendingTerminalTasks[task.key] = PendingTerminalTask(
+                task: task,
+                supersededAt: event.timestamp
+            )
+        }
+        tasks = tasks.filter { taskKey, _ in
+            taskKey == key || taskKey.threadID != threadID
+        }
         if source == .live {
             clearProtection(
                 for: key,
@@ -743,26 +758,23 @@ final class ActivityMonitor: ObservableObject {
             )
         }
 
-        recentlyEndedTaskAt.removeValue(forKey: key)
-        if let sessionID = key.sessionID {
-            // 缺少 turn 的事件复用 session 键; 新 turn 开始后清除上一轮的终态记忆
-            recentlyEndedTaskAt.removeValue(forKey: .session(sessionID))
-        }
-
-        if resumePromptInSameTurn(from: event, existing: existingTask) {
+        if var task = existingTask {
+            task.resumeExecution(from: event)
+            task.mergeMetadata(from: event)
+            task.recordProgress(at: event.timestamp)
+            task.startedAt = task.startedAt ?? event.context?.turnStartedAt
+            tasks[key] = task
             return
         }
 
-        var task = ActivityTask(
+        tasks[key] = ActivityTask(
             displayID: displayID,
             key: key,
             event: event,
             state: .running,
-            startedAt: event.timestamp,
-            progressGeneration: (existingTask?.progressGeneration ?? 0) &+ 1
+            startedAt: event.context?.turnStartedAt,
+            progressGeneration: 1
         )
-        task.lastProgressAt = max(task.lastProgressAt, existingTask?.lastProgressAt ?? .distantPast)
-        tasks[key] = task
     }
 
     private func resumeTask(
@@ -770,9 +782,9 @@ final class ActivityMonitor: ObservableObject {
         allowsRecovery: Bool,
         source: ActivityEventSource
     ) {
-        let eventKey = ActivityTaskKey(event: event)
+        guard let eventKey = ActivityTaskKey(event: event) else { return }
         let matchedKey = event.agentID == nil
-            ? matchingActiveTaskKey(for: event)
+            ? eventKey
             : matchingSubagentParentTaskKey(for: event)
 
         if let key = matchedKey, var task = tasks[key] {
@@ -787,7 +799,7 @@ final class ActivityMonitor: ObservableObject {
             let wasSuppressed = task.state == .suppressed
             task.resumeExecution(from: event)
             task.mergeMetadata(from: event)
-            task.recordEvent(at: event.timestamp)
+            task.recordProgress(at: event.timestamp)
             tasks[key] = task
             if wasSuppressed || source == .live {
                 clearProtection(
@@ -801,8 +813,7 @@ final class ActivityMonitor: ObservableObject {
 
         guard allowsRecovery,
               recentEndedDate(for: eventKey) == nil,
-              pendingTerminalTasks[eventKey] == nil,
-              !pendingTerminalTasks.values.contains(where: { $0.task.resolvedTurnKey == eventKey }) else {
+              pendingTerminalTasks[eventKey] == nil else {
             return
         }
 
@@ -829,33 +840,27 @@ final class ActivityMonitor: ObservableObject {
         isStarting: Bool,
         source: ActivityEventSource
     ) {
-        guard let key = matchingSubagentParentTaskKey(for: event),
-              recentEndedDate(for: key) == nil,
-              pendingTerminalTasks[key] == nil,
-              var task = tasks[key] else {
-            return
-        }
-
-        // 归属已精确关联, 仍拒绝早于根任务起点的事件
+        guard let agentID = event.agentID, let rootThread = event.context?.rootThreadID, let rootTurn = event.context?.rootTurnID else { return }
+        let key = ActivityTaskKey(thread: rootThread, turn: rootTurn)
+        guard recentEndedDate(for: key) == nil, pendingTerminalTasks[key] == nil, var task = tasks[key] else { return }
         if let startedAt = task.startedAt, event.timestamp < startedAt {
             return
         }
-
+        // 创建活动标识子线程, 不能拿发出通知的父轮次伪造子执行
+        let executions = task.executions.filter { $0.key.agentID == agentID }
         task.recordSubagentActivity(
-            agentID: event.agentID,
-            isStarting: isStarting,
-            hasEnded: task.executions[task.executionKey(for: event)]?.isTerminal == true,
-            at: event.timestamp
+            agentID: event.agentID, isStarting: isStarting,
+            hasEnded: !executions.isEmpty && executions.values.allSatisfy(\.isTerminal), at: event.timestamp
         )
-
-        if task.acceptsExecutionEvent(event) {
-            let wasSuppressed = task.state == .suppressed
-            task.resumeExecution(from: event)
-            task.mergeMetadata(from: event)
-            task.recordEvent(at: event.timestamp)
-            if wasSuppressed || source == .live {
-                clearProtection(for: key, taskID: task.displayID, reason: .progress)
-            }
+        task.mergeMetadata(from: event)
+        task.recordProgress(at: event.timestamp)
+        let wasSuppressed = task.state == .suppressed
+        if wasSuppressed {
+            task.state = .running
+            task.stateChangedAt = event.timestamp
+        }
+        if wasSuppressed || source == .live {
+            clearProtection(for: key, taskID: task.displayID, reason: .progress)
         }
         tasks[key] = task
     }
@@ -864,9 +869,9 @@ final class ActivityMonitor: ObservableObject {
         from event: ActivityRecord,
         source: ActivityEventSource
     ) -> ActivityTaskKey? {
-        let eventKey = ActivityTaskKey(event: event)
+        guard let eventKey = ActivityTaskKey(event: event) else { return nil }
         let matchedKey = event.agentID == nil
-            ? matchingActiveTaskKey(for: event)
+            ? eventKey
             : matchingSubagentParentTaskKey(for: event)
 
         if let key = matchedKey, var task = tasks[key] {
@@ -880,10 +885,7 @@ final class ActivityMonitor: ObservableObject {
 
             let wasSuppressed = task.state == .suppressed
             task.mergeMetadata(from: event)
-            // 权限事件描述当前请求; 缺失工具名时不能沿用上一条工具事件
-            task.toolName = event.tool
-            task.itemType = event.source?.itemType
-            task.recordEvent(at: event.timestamp)
+            task.recordProgress(at: event.timestamp)
             let enteredWaiting = task.recordApprovalRequest(from: event)
             tasks[key] = task
             if wasSuppressed || source == .live {
@@ -898,8 +900,7 @@ final class ActivityMonitor: ObservableObject {
 
         guard event.agentID == nil,
               recentEndedDate(for: eventKey) == nil,
-              pendingTerminalTasks[eventKey] == nil,
-              !pendingTerminalTasks.values.contains(where: { $0.task.resolvedTurnKey == eventKey }) else {
+              pendingTerminalTasks[eventKey] == nil else {
             return nil
         }
 
@@ -923,36 +924,6 @@ final class ActivityMonitor: ObservableObject {
         return enteredWaiting ? eventKey : nil
     }
 
-    /// 结束提示与生命周期分开处理, 完成分类由服务端轮次终态确认
-    private func observeStop(from event: ActivityRecord, source: ActivityEventSource) {
-        let eventKey = ActivityTaskKey(event: event)
-        guard recentEndedDate(for: eventKey) == nil else {
-            discardStaleTerminalTask(for: eventKey)
-            return
-        }
-
-        let match = matchingTerminalTask(for: event, allowsAnonymousFallback: event.sessionID == nil)
-        switch match {
-        case .ambiguous:
-            AppLog.activity.error("任务终态已延后: reason=ambiguousStop")
-        case let .pending(key):
-            guard var pending = pendingTerminalTasks[key],
-                  event.timestamp >= pending.task.lastMainEventAt else {
-                return
-            }
-            // 新 turn 或 SessionEnd 已确定旧任务退出活动列表, Stop 不恢复它或重置 grace
-            pending.task.mergeMetadata(from: event)
-            pending.task.recordEvent(at: event.timestamp)
-            pendingTerminalTasks[key] = pending
-        case .active, .none:
-            resumeTask(
-                from: event,
-                allowsRecovery: true,
-                source: source
-            )
-        }
-    }
-
     func discardStaleTerminalTask(for key: ActivityTaskKey) {
         if let task = tasks.removeValue(forKey: key) {
             clearProtection(
@@ -968,131 +939,6 @@ final class ActivityMonitor: ObservableObject {
                 reason: .terminal
             )
         }
-    }
-
-    /// SessionEnd 没有 turn_id, 以 session 为边界把活跃任务移入终态确认窗口
-    /// 任务立即退出活跃列表, 后续继续从 app-server 确认完成或终止分类
-    private func terminateSession(from event: ActivityRecord) {
-        guard let sessionID = event.sessionID else {
-            return
-        }
-
-        let deadline = Date().addingTimeInterval(Self.supersededTerminalGracePeriod)
-        let matchingPendingTasks = pendingTerminalTasks.filter { key, pending in
-            key.sessionID == sessionID && pending.task.lastMainEventAt <= event.timestamp
-        }
-        for (key, pending) in matchingPendingTasks {
-            pendingTerminalTasks[key] = PendingTerminalTask(
-                task: pending.task,
-                supersededAt: max(pending.supersededAt, event.timestamp),
-                deadline: min(pending.deadline, deadline)
-            )
-        }
-
-        let matchingActiveTasks = tasks.filter { key, task in
-            key.sessionID == sessionID && task.lastMainEventAt <= event.timestamp
-        }
-        for (key, task) in matchingActiveTasks {
-            tasks.removeValue(forKey: key)
-            clearProtection(for: key, taskID: task.displayID, reason: .terminal)
-            pendingTerminalTasks[key] = PendingTerminalTask(
-                task: task,
-                supersededAt: event.timestamp,
-                deadline: deadline
-            )
-        }
-    }
-
-    /// 精确 turn 失败后只接受同 session 唯一活动任务, 有待确认旧 turn 时不猜测
-    private func matchingActiveTaskKey(for event: ActivityRecord) -> ActivityTaskKey? {
-        let exactKey = ActivityTaskKey(event: event)
-        if let key = tasks.first(where: { $0.value.resolvedTurnKey == exactKey })?.key {
-            return key
-        }
-        if tasks[exactKey] != nil {
-            return exactKey
-        }
-
-        if let sessionID = event.sessionID {
-            guard !pendingTerminalTasks.values.contains(where: {
-                $0.task.key.sessionID == sessionID
-            }) else {
-                return nil
-            }
-            let candidates = tasks.values.filter { task in
-                task.key.sessionID == sessionID
-                    && (event.turnID == nil || task.associatedTurnID == nil)
-            }
-            guard candidates.count == 1 else {
-                return nil
-            }
-            return candidates[0].key
-        }
-
-        let anonymousKey = ActivityTaskKey.anonymous(
-            project: ActivityTaskKey.projectIdentifier(event.projectDisplayName)
-        )
-        return tasks[anonymousKey] == nil ? nil : anonymousKey
-    }
-
-    func matchingTerminalTask(
-        for event: ActivityRecord,
-        allowsAnonymousFallback: Bool = true
-    ) -> TerminalTaskMatch {
-        let exactKey = ActivityTaskKey(event: event)
-        if let key = pendingTerminalTasks.first(where: { $0.value.task.resolvedTurnKey == exactKey })?.key {
-            return .pending(key)
-        }
-        if let key = tasks.first(where: { $0.value.resolvedTurnKey == exactKey })?.key {
-            return .active(key)
-        }
-        if pendingTerminalTasks[exactKey] != nil {
-            return .pending(exactKey)
-        }
-        if tasks[exactKey] != nil,
-           event.turnID != nil || event.sessionID == nil {
-            return .active(exactKey)
-        }
-
-        if let sessionID = event.sessionID {
-            let pendingCandidates = pendingTerminalTasks.filter {
-                $0.value.task.key.sessionID == sessionID
-                    && $0.value.task.lastMainEventAt <= event.timestamp
-                    && (event.turnID == nil || $0.value.task.associatedTurnID == nil)
-            }
-            if pendingCandidates.count == 1, let key = pendingCandidates.keys.first {
-                return .pending(key)
-            }
-            if pendingCandidates.count > 1 {
-                return .ambiguous
-            }
-
-            let activeCandidates = tasks.values.filter {
-                $0.key.sessionID == sessionID
-                    && $0.lastMainEventAt <= event.timestamp
-                    && (event.turnID == nil || $0.associatedTurnID == nil)
-            }
-            if activeCandidates.count == 1 {
-                return .active(activeCandidates[0].key)
-            }
-            if activeCandidates.count > 1 {
-                return .ambiguous
-            }
-        }
-
-        guard allowsAnonymousFallback else {
-            return .none
-        }
-        let anonymousKey = ActivityTaskKey.anonymous(
-            project: ActivityTaskKey.projectIdentifier(event.projectDisplayName)
-        )
-        if tasks[anonymousKey] != nil {
-            return .active(anonymousKey)
-        }
-        if pendingTerminalTasks[anonymousKey] != nil {
-            return .pending(anonymousKey)
-        }
-        return .none
     }
 
     // MARK: - 快照与过期清理
@@ -1112,7 +958,8 @@ final class ActivityMonitor: ObservableObject {
             recentCompletions: recentCompletions,
             recentTerminations: recentTerminations
         )
-        let events = pendingTerminalPresentationEvents.filter { terminalTaskKeyByID[$0.id] != nil }
+        let retainedTerminalIDs = Set(completions.map(\.id)).union(terminations.map(\.id))
+        let events = pendingTerminalPresentationEvents.filter { retainedTerminalIDs.contains($0.id) }
         pendingTerminalPresentationEvents.removeAll()
         publishSnapshot(newSnapshot, terminalEvents: events)
 
@@ -1132,7 +979,7 @@ final class ActivityMonitor: ObservableObject {
 
     private func sortedTasks(in state: ActivityTaskState) -> [ActivityTask] {
         tasks.values
-            .filter { $0.state == state && !unavailableTurns.contains($0.resolvedTurnKey ?? $0.key) }
+            .filter { $0.state == state && !unavailableTurns.contains($0.key) }
             .sorted(by: Self.recentFirst(\.lastActivityAt, \.displayID))
     }
 
@@ -1152,53 +999,30 @@ final class ActivityMonitor: ObservableObject {
     private func pruneExpiredState(now: Date) {
         finalizeExpiredPendingTerminalTasks(now: now)
 
-        let activityCutoff = now.addingTimeInterval(-Self.activityRetention)
-        let expiredTasks = tasks.filter { $0.value.lastActivityAt <= activityCutoff }
-        for (key, task) in expiredTasks {
-            clearProtection(
-                for: key,
-                taskID: task.displayID,
-                reason: .retention
-            )
-        }
-        tasks = tasks.filter { $0.value.lastActivityAt > activityCutoff }
-
         removeExpiredProtectionRecords(now: now)
 
         let historyCutoff = now.addingTimeInterval(-Self.recentHistoryRetention)
         completions.removeAll { $0.completedAt <= historyCutoff }
         terminations.removeAll { $0.terminatedAt <= historyCutoff }
         let retainedTerminalIDs = Set(completions.map(\.id)).union(terminations.map(\.id))
-        terminalTaskKeyByID = terminalTaskKeyByID.filter {
-            retainedTerminalIDs.contains($0.key)
-        }
         terminalTokenUsageRequests = terminalTokenUsageRequests.filter { retainedTerminalIDs.contains($0.key) }
 
         let endedTaskCutoff = now.addingTimeInterval(-Self.endedTaskRetention)
         recentlyEndedTaskAt = recentlyEndedTaskAt.filter {
             $0.value > endedTaskCutoff
         }
-        activityTaskOrigins = activityTaskOrigins.filter {
-            $0.value.observedAt > activityCutoff
-        }
     }
 
     private func scheduleNextCleanup(now: Date) {
-        var deadlines = tasks.values.map {
-            $0.lastActivityAt.addingTimeInterval(Self.activityRetention)
-        }
-        deadlines.append(contentsOf: completions.map {
+        var deadlines = completions.map {
             $0.completedAt.addingTimeInterval(Self.recentHistoryRetention)
-        })
+        }
         deadlines.append(contentsOf: terminations.map {
             $0.terminatedAt.addingTimeInterval(Self.recentHistoryRetention)
         })
         deadlines.append(contentsOf: pendingTerminalTasks.values.map(\.expiresAt))
         deadlines.append(contentsOf: recentlyEndedTaskAt.values.map {
             $0.addingTimeInterval(Self.endedTaskRetention)
-        })
-        deadlines.append(contentsOf: activityTaskOrigins.values.map {
-            $0.observedAt.addingTimeInterval(Self.activityRetention)
         })
         deadlines.append(contentsOf: protectionRecords.values.map(\.expiresAt))
 
@@ -1227,45 +1051,6 @@ final class ActivityMonitor: ObservableObject {
 
     private static let recentHistoryRetention: TimeInterval = 10 * 60
     static let endedTaskRetention: TimeInterval = 24 * 60 * 60
-    static let activityRetention = ActivityRetention.window
     static let protectionNotificationSubmissionGrace: Duration = .seconds(3)
-    private static let supersededTerminalGracePeriod: TimeInterval = 5
     private static let sessionLifecyclePollInterval: TimeInterval = 1
-}
-
-private extension ActivityMonitor {
-    func resumePromptInSameTurn(from event: ActivityRecord, existing: ActivityTask?) -> Bool {
-        guard var task = existing, let turnID = event.turnID, task.associatedTurnID == turnID else { return false }
-        task.resumeExecution(from: event)
-        task.mergeMetadata(from: event)
-        task.recordEvent(at: event.timestamp)
-        task.startedAt = task.startedAt ?? event.timestamp
-        tasks[task.key] = task
-        return true
-    }
-
-    func preserveSupersededSessionTask(from event: ActivityRecord, key: ActivityTaskKey) {
-        if let existing = tasks[key], key.isSessionOnly,
-           let resolved = existing.resolvedTurnKey,
-           event.timestamp > (existing.startedAt ?? existing.lastEventAt) {
-            pendingTerminalTasks[resolved] = PendingTerminalTask(
-                task: existing,
-                supersededAt: event.timestamp,
-                deadline: Date().addingTimeInterval(Self.supersededTerminalGracePeriod)
-            )
-        }
-    }
-
-    func updateAliasedPrompt(from event: ActivityRecord, key: ActivityTaskKey) -> Bool {
-        guard let existing = tasks.values.first(where: { $0.resolvedTurnKey == key && $0.key != key }) else {
-            return false
-        }
-        guard event.timestamp >= existing.lastMainEventAt else { return true }
-        var task = existing
-        task.mergeMetadata(from: event)
-        task.recordExecutionEvent(event)
-        task.recordEvent(at: event.timestamp)
-        tasks[existing.key] = task
-        return true
-    }
 }

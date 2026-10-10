@@ -23,6 +23,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
     }
 
     static let databaseName = "logs.sqlite"
+    private static let schemaVersion = 1
 
     struct Limits: Sendable {
         var entries = 10000
@@ -32,6 +33,8 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
     }
 
     private let limits: Limits
+    private let now: @Sendable () -> Date
+    private var lastRetentionCutoff: Date?
     private var storedBytes = 0
     private var storedCount = 0
     private var needsCheckpoint = false
@@ -45,9 +48,10 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
     private var isFinished = false
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-    init(directoryURL: URL, limits: Limits = Limits()) {
+    init(directoryURL: URL, limits: Limits = Limits(), now: @escaping @Sendable () -> Date = { Date() }) {
         self.limits = limits
         self.directoryURL = directoryURL
+        self.now = now
     }
 
     deinit {
@@ -233,11 +237,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
             do {
                 try open()
                 try operation(self)
-                if needsCheckpoint {
-                    try execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                    try execute("PRAGMA incremental_vacuum(256)")
-                    needsCheckpoint = false
-                }
+                try reclaimSpaceIfNeeded()
                 writeError = nil
             } catch {
                 writeError = String(localized: "log.persistence.error.write")
@@ -252,6 +252,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
             queue.async { [self] in
                 do {
                     try open()
+                    try transaction { try pruneIfNeeded() }
                     admissionLock.lock()
                     let dropped = droppedEntries
                     droppedEntries = 0
@@ -268,6 +269,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
                         try transaction { try save(entry, inserting: true) }
                     }
                     let result = try operation(self)
+                    try reclaimSpaceIfNeeded()
                     if let writeError {
                         throw StorageError(message: writeError)
                     }
@@ -292,6 +294,12 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
         }
         database = opened
         do {
+            let version = try scalar("PRAGMA user_version")
+            if version != 0 {
+                try StorageVersion.require(version, current: Self.schemaVersion, name: "Logs")
+            } else if try scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'entries'") != 0 {
+                throw StorageCompatibilityError.unsupportedFormat("Logs", version)
+            }
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
             sqlite3_busy_timeout(database, 3000)
             if try scalar("PRAGMA auto_vacuum") != 2 {
@@ -303,6 +311,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
             try execute("PRAGMA wal_autocheckpoint = 256")
             try execute("PRAGMA synchronous = NORMAL")
             try execute("PRAGMA secure_delete = ON")
+            try execute("BEGIN IMMEDIATE")
             try execute("CREATE TABLE IF NOT EXISTS metadata (revision INTEGER NOT NULL, generation INTEGER NOT NULL, total INTEGER NOT NULL)")
             try execute("INSERT INTO metadata SELECT 0, 0, 0 WHERE NOT EXISTS (SELECT 1 FROM metadata)")
             try execute("""
@@ -313,6 +322,8 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
             """)
             try execute("CREATE INDEX IF NOT EXISTS entries_revision ON entries(revision)")
             try execute("CREATE INDEX IF NOT EXISTS entries_state ON entries(state)")
+            try execute("PRAGMA user_version = \(Self.schemaVersion)")
+            try execute("COMMIT")
             storedCount = try scalar("SELECT COUNT(*) FROM entries")
             storedBytes = try scalar("SELECT COALESCE(SUM(length(payload)), 0) FROM entries")
             try transaction { try pruneIfNeeded() }
@@ -353,6 +364,18 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
     }
 
     private func pruneIfNeeded() throws {
+        let cutoff = HistoryStorage.retentionCutoffDate(today: now())
+        if lastRetentionCutoff != cutoff {
+            // 复用正文中的时间, 保持现有数据库结构; 损坏正文仍由条数和容量限制兜底
+            try execute("""
+            DELETE FROM entries WHERE CASE WHEN json_valid(CAST(payload AS TEXT))
+                THEN json_extract(CAST(payload AS TEXT), '$.requestedAt') END < \(cutoff.timeIntervalSinceReferenceDate)
+            """)
+            if sqlite3_changes(database) > 0 {
+                try didPrune()
+            }
+            lastRetentionCutoff = cutoff
+        }
         guard storedCount > limits.entries || storedBytes > limits.bytes else { return }
         let count = max(1, limits.entries * 9 / 10)
         let bytes = max(1, limits.bytes * 9 / 10)
@@ -364,10 +387,21 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
             ) WHERE n > \(count) OR bytes > \(bytes)
         )
         """)
+        try didPrune()
+    }
+
+    private func didPrune() throws {
         storedCount = try scalar("SELECT COUNT(*) FROM entries")
         storedBytes = try scalar("SELECT COALESCE(SUM(length(payload)), 0) FROM entries")
         try execute("UPDATE metadata SET total = \(storedCount), revision = revision + 1, generation = generation + 1")
         needsCheckpoint = true
+    }
+
+    private func reclaimSpaceIfNeeded() throws {
+        guard needsCheckpoint else { return }
+        try execute("PRAGMA incremental_vacuum")
+        try execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        needsCheckpoint = false
     }
 
     private func scalar(_ sql: String) throws -> Int {

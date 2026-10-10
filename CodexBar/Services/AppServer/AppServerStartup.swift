@@ -1,14 +1,21 @@
 import Foundation
 import os
 
-/// App 启动入口的一次性准备, 只请求官方启动命令, 不接管 Codex 后台服务生命周期
+/// 启动与连接恢复共用的有界准备, 只启动明确缺失的 Codex 后台服务
 actor AppServerStartup {
     private let environment: [String: String]
     private let installations: CodexInstallations?
     private let probeConnection: @Sendable () throws -> Void
     private let commandTimeout: TimeInterval
     private let readinessAttempts: Int
-    private var isStarting = false
+    enum Trigger { case automatic, manual }
+
+    private let now: @Sendable () -> ContinuousClock.Instant
+    private var lastFailure: String?
+    private var automaticAttempts = 0
+    private var retryAfter: ContinuousClock.Instant?
+    private var inFlight: (id: UUID, task: Task<Void, any Error>)?
+    private var waiters = Set<UUID>()
     private var unfinishedProcess: Process?
 
     init(
@@ -17,8 +24,10 @@ actor AppServerStartup {
         installations: CodexInstallations? = nil,
         commandTimeout: TimeInterval = 15,
         readinessAttempts: Int = 10,
-        probeConnection: (@Sendable () throws -> Void)? = nil
+        probeConnection: (@Sendable () throws -> Void)? = nil,
+        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
     ) {
+        self.now = now
         self.environment = environment
         self.installations = installations
         self.commandTimeout = commandTimeout
@@ -29,26 +38,92 @@ actor AppServerStartup {
         }
     }
 
-    func ensureStarted() async throws {
-        try Task.checkCancellation()
-        // 异步命令执行期间允许 actor 重入, 但不能重叠启动命令
-        guard !isStarting, unfinishedProcess?.isRunning != true else { throw StartupError.notReady }
-        unfinishedProcess = nil
-        isStarting = true
-        defer { isStarting = false }
+    func ensureStarted(trigger: Trigger = .automatic) async throws {
         do {
-            try probeConnection()
-            AppLog.codex.notice("Codex 后台服务已就绪: source=existing")
+            try await waitForAttempt(trigger: trigger)
+        } catch let error as StartupError where trigger == .manual {
+            switch error {
+            case .retryDeferred, .retryExhausted:
+                // 手动请求若赶上自动额度检查, 清理完成后仍允许独立尝试一次
+                try await waitForAttempt(trigger: .manual)
+            default: throw error
+            }
+        }
+    }
+
+    private func waitForAttempt(trigger: Trigger) async throws {
+        try Task.checkCancellation()
+        let operation: (id: UUID, task: Task<Void, any Error>)
+        if let inFlight {
+            operation = inFlight
+        } else {
+            operation = (UUID(), Task { try await self.startIfAbsent(trigger: trigger) })
+            inFlight = operation
+        }
+        let waiter = UUID()
+        waiters.insert(waiter)
+        defer {
+            if inFlight?.id == operation.id {
+                inFlight = nil
+                waiters.removeAll()
+            }
+        }
+        do {
+            try await withTaskCancellationHandler {
+                try await operation.task.value
+                try Task.checkCancellation()
+            } onCancel: {
+                Task { await self.cancelWaiter(waiter, operationID: operation.id) }
+            }
+        } catch {
+            if inFlight?.id == operation.id {
+                switch error {
+                case is CancellationError, StartupError.retryDeferred, StartupError.retryExhausted: break
+                default: lastFailure = error.localizedDescription
+                }
+            }
+            throw error
+        }
+    }
+
+    private func cancelWaiter(_ waiter: UUID, operationID: UUID) {
+        guard inFlight?.id == operationID else { return }
+        waiters.remove(waiter)
+        // 一个调用方取消不影响其他等待者, 最后一个离开后才取消命令
+        if waiters.isEmpty {
+            inFlight?.task.cancel()
+        }
+    }
+
+    private func connectionIsReady() throws {
+        try probeConnection()
+        automaticAttempts = 0
+        retryAfter = nil
+        lastFailure = nil
+    }
+
+    private func startIfAbsent(trigger: Trigger) async throws {
+        try Task.checkCancellation()
+        do {
+            try connectionIsReady()
             return
         } catch let error as AppServerConnectionError where error.serverIsAbsent {
             // 只有明确缺少监听者才启动, 权限或协议错误不改变服务状态
         }
 
+        guard unfinishedProcess?.isRunning != true else { throw StartupError.notReady }
+        unfinishedProcess = nil
+        if trigger == .automatic {
+            guard automaticAttempts < 3 else { throw StartupError.retryExhausted(lastFailure ?? "") }
+            guard retryAfter.map({ now() >= $0 }) ?? true else { throw StartupError.retryDeferred(lastFailure ?? "") }
+            automaticAttempts += 1
+        }
+        retryAfter = now().advanced(by: .seconds(60))
         let executable = try await supportedExecutable()
         try Task.checkCancellation()
         // 能力检测期间其他客户端可能已经启动服务
         do {
-            try probeConnection()
+            try connectionIsReady()
             return
         } catch let error as AppServerConnectionError where error.serverIsAbsent {}
 
@@ -64,7 +139,7 @@ actor AppServerStartup {
         // 命令失败也探测一次, 允许与其他客户端并发启动后复用已就绪的服务
         for attempt in 0 ..< readinessAttempts {
             do {
-                try probeConnection()
+                try connectionIsReady()
                 AppLog.codex.notice("Codex 后台服务已就绪: source=daemonStart")
                 return
             } catch let error as AppServerConnectionError where error.serverIsAbsent {
@@ -83,9 +158,19 @@ actor AppServerStartup {
         let paths = [installations.globalPath, installations.bundledPath].compactMap(\.self)
         guard !paths.isEmpty else { throw StartupError.notInstalled }
         var checked = Set<String>()
+        var hasSupportedVersion = false
         for path in paths where checked.insert(CodexPaths.canonicalPath(path)).inserted {
             try Task.checkCancellation()
             let executable = URL(fileURLWithPath: path)
+            let version = await BoundedProcess.runAsync(
+                executable: executable, arguments: ["--version"], timeout: 2.5, environment: environment
+            )
+            unfinishedProcess = version.runningProcess
+            try Task.checkCancellation()
+            guard version.runningProcess == nil else { throw StartupError.notReady }
+            guard version.exitCode == 0,
+                  CodexVersionReader.isVersion(version.output, atLeast: CodexVersionReader.minimumAppServerVersion) == true else { continue }
+            hasSupportedVersion = true
             let result = await BoundedProcess.runAsync(
                 executable: executable,
                 arguments: ["app-server", "daemon", "start", "--help"],
@@ -99,6 +184,7 @@ actor AppServerStartup {
                 return executable
             }
         }
+        guard hasSupportedVersion else { throw CodexStatusError.unsupportedVersion(minimum: CodexVersionReader.minimumAppServerVersion) }
         throw StartupError.unsupportedCommand
     }
 
@@ -108,6 +194,8 @@ actor AppServerStartup {
         case timeout
         case commandFailed(Int32)
         case notReady
+        case retryDeferred(String)
+        case retryExhausted(String)
 
         var errorDescription: String? {
             switch self {
@@ -121,6 +209,8 @@ actor AppServerStartup {
                 String(localized: "codex.daemon.command-failed", defaultValue: "\(code)")
             case .notReady:
                 String(localized: "codex.daemon.not-ready")
+            case let .retryDeferred(reason), let .retryExhausted(reason):
+                reason
             }
         }
     }
