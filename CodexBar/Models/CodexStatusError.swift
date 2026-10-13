@@ -5,6 +5,7 @@ nonisolated enum CodexStatusError: LocalizedError {
     case serverTimeout
     case serverConnectionClosed
     case invalidServerResponse
+    case messageTooLarge(bytes: UInt64, limit: Int)
     case invalidResponsePayload
     case serverError(AppServerRPCError)
     case unsupportedMethod
@@ -20,6 +21,8 @@ nonisolated enum CodexStatusError: LocalizedError {
             String(localized: "codex-status.app-server.error.connection-closed")
         case .invalidServerResponse, .invalidResponsePayload:
             String(localized: "codex-status.app-server.error.invalid-response")
+        case let .messageTooLarge(bytes, limit):
+            "Codex app-server message too large: \(bytes) bytes, limit \(limit) bytes"
         case let .serverError(error):
             error.message
         case .unsupportedMethod:
@@ -61,7 +64,7 @@ nonisolated enum CodexStatusError: LocalizedError {
         return !isAuthenticationRequired && !isUnsupportedMethod && !isProtocolOrParameterFailure
     }
 
-    /// 服务端也用 -32600 表示线程历史不可用, 仅匹配当前线程的已知错误
+    /// 服务端也用 -32600 表示会话历史不可用, 仅匹配当前会话的已知错误
     func isMissingRollout(for threadID: String) -> Bool {
         guard case let .serverError(error) = self else { return false }
         return error.code == -32600 && error.message == "no rollout found for thread id \(threadID)"
@@ -86,7 +89,7 @@ nonisolated enum CodexStatusError: LocalizedError {
     /// 连接断开, 超时或 JSON-RPC 信封无效时需要重建 app-server 会话
     var isTransportFailure: Bool {
         switch self {
-        case .serverConnectionClosed, .serverTimeout, .invalidServerResponse:
+        case .serverConnectionClosed, .serverTimeout, .invalidServerResponse, .messageTooLarge:
             true
         default:
             false

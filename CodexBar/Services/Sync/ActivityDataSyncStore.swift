@@ -1,51 +1,51 @@
 import CloudKit
 import Foundation
 
-nonisolated struct ActivitySyncStore {
+nonisolated struct ActivityDataSyncStore {
     let directoryURL: URL
 
     private var cacheDirectoryURL: URL {
-        directoryURL.appendingPathComponent("Activity", isDirectory: true)
+        directoryURL.appendingPathComponent("activityData", isDirectory: true)
     }
 
     private var cacheURL: URL {
         cacheDirectoryURL.appendingPathComponent("cache.json", isDirectory: false)
     }
 
-    func load() throws -> ActivitySyncCache {
+    func load() throws -> ActivityDataSyncCache {
         try JSONFileStorage.withLock(in: cacheDirectoryURL) { try read() }
     }
 
-    func loadState() -> SyncState {
-        (try? load().state) ?? SyncState()
+    func loadState() -> ActivityDataSyncState {
+        (try? load().state) ?? ActivityDataSyncState()
     }
 
-    func saveState(_ state: SyncState) throws {
+    func saveState(_ state: ActivityDataSyncState) throws {
         try update { $0.state = state }
     }
 
-    func loadCachedRecords() -> [ActivitySyncRecord] {
-        (try? load().records) ?? []
-    }
-
-    func saveCachedRecords(_ records: [ActivitySyncRecord], state: SyncState) throws {
-        try update {
-            $0.records = Self.sorted(records)
-            $0.state = state
+    func saveConfirmedRecords(_ records: [ActivityDataSyncRecord], lastUploadAt: Date?) throws {
+        try update { cache in
+            for record in records {
+                cache.records[record.id] = record
+            }
+            if let lastUploadAt {
+                cache.state.lastUploadAt = lastUploadAt
+            }
         }
     }
 
     /// 数据和对应游标必须一起提交, 不能让新游标指向尚未保存的数据
-    func saveFetchedRecords(_ records: [ActivitySyncRecord], cursor: CKServerChangeToken?) throws {
+    func saveFetchedRecords(_ activityData: [String: ActivityDataSyncRecord], cursor: CKServerChangeToken?) throws {
         let data = try cursor.map { try NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: true) }
         try update {
-            $0.records = Self.sorted(records)
+            $0.records = activityData
             $0.cursor = data
         }
     }
 
-    func reset(state: SyncState) throws {
-        try update { $0 = ActivitySyncCache(state: state) }
+    func reset(state: ActivityDataSyncState) throws {
+        try update { $0 = ActivityDataSyncCache(state: state) }
     }
 
     func prune(now: Date) throws {
@@ -57,18 +57,16 @@ nonisolated struct ActivitySyncStore {
         }
     }
 
-    private func read() throws -> ActivitySyncCache {
-        let cache: ActivitySyncCache
+    private func read() throws -> ActivityDataSyncCache {
+        let cache: ActivityDataSyncCache
         do {
-            guard let data = try readData() else { return ActivitySyncCache() }
-            let header = try JSONLines.decoder.decode(ActivitySyncCacheHeader.self, from: data)
-            guard header.version == ActivitySyncCache.currentVersion else { throw SyncRecovery.Failure.unsupportedCacheVersion }
-            cache = try JSONLines.decoder.decode(ActivitySyncCache.self, from: data)
+            guard let data = try readData() else { return ActivityDataSyncCache(state: ActivityDataSyncState()) }
+            cache = try JSONLines.decoder.decode(ActivityDataSyncCache.self, from: data)
         } catch is DecodingError {
-            // 损坏时整体失效, 不保留脱离缓存数据的游标或上传摘要
-            return ActivitySyncCache()
+            // 损坏时整体失效, 不保留脱离缓存数据的游标
+            return ActivityDataSyncCache(state: ActivityDataSyncState())
         }
-        guard cache.state.containerIdentifier == SyncCloudKit.containerIdentifier else { return ActivitySyncCache() }
+        guard cache.state.containerIdentifier == SyncCloudKit.containerIdentifier else { return ActivityDataSyncCache(state: ActivityDataSyncState()) }
         return cache
     }
 
@@ -80,7 +78,7 @@ nonisolated struct ActivitySyncStore {
         }
     }
 
-    private func update(_ body: (inout ActivitySyncCache) throws -> Void) throws {
+    private func update(_ body: (inout ActivityDataSyncCache) throws -> Void) throws {
         try JSONFileStorage.withLock(in: cacheDirectoryURL) {
             var cache = try read()
             try body(&cache)
@@ -88,48 +86,34 @@ nonisolated struct ActivitySyncStore {
             try JSONFileStorage.save(cache, to: cacheURL)
         }
     }
-
-    private static func sorted(_ records: [ActivitySyncRecord]) -> [ActivitySyncRecord] {
-        records.sorted { ($0.deviceID, $0.date, $0.id) < ($1.deviceID, $1.date, $1.id) }
-    }
 }
 
-private nonisolated struct ActivitySyncCacheHeader: Decodable { let version: Int }
+typealias ActivityDataSyncCache = SyncCache<ActivityDataSyncRecord, ActivityDataSyncState>
 
-nonisolated struct ActivitySyncCache: Codable, Equatable {
-    static let currentVersion = 1
-    var version = currentVersion
-    var state = SyncState()
-    var records: [ActivitySyncRecord] = []
-    var cursor: Data?
-
+nonisolated extension SyncCache where Record == ActivityDataSyncRecord, State == ActivityDataSyncState {
     @discardableResult
     mutating func prune(now: Date = Date()) -> Bool {
         let cutoff = HistoryStorage.dateKey(for: HistoryStorage.retentionCutoffDate(today: now))
-        let previousCount = records.count + state.hashByDate.count
-        records.removeAll { $0.date < cutoff }
-        state.hashByDate = state.hashByDate.filter { $0.key >= cutoff }
-        return previousCount != records.count + state.hashByDate.count
+        let previousCount = records.count
+        records = records.filter { $0.value.date >= cutoff }
+        return previousCount != records.count
     }
 }
 
-nonisolated struct SyncState: Codable, Equatable {
+nonisolated struct ActivityDataSyncState: Codable, Equatable {
     var containerIdentifier: String?
     var deviceID: String?
-    var hashByDate: [String: String]
     var lastUploadAt: Date?
     var lastPrunedDate: String?
 
     init(
         containerIdentifier: String? = SyncCloudKit.containerIdentifier,
         deviceID: String? = nil,
-        hashByDate: [String: String] = [:],
         lastUploadAt: Date? = nil,
         lastPrunedDate: String? = nil
     ) {
         self.containerIdentifier = containerIdentifier
         self.deviceID = deviceID
-        self.hashByDate = hashByDate
         self.lastUploadAt = lastUploadAt
         self.lastPrunedDate = lastPrunedDate
     }
@@ -139,8 +123,6 @@ nonisolated struct SyncState: Codable, Equatable {
 
         containerIdentifier = try container.decodeIfPresent(String.self, forKey: .containerIdentifier)
         deviceID = try container.decodeIfPresent(String.self, forKey: .deviceID)
-        hashByDate = try container.decodeIfPresent([String: String].self, forKey: .hashByDate)
-            ?? [:]
         lastUploadAt = try container.decodeIfPresent(Date.self, forKey: .lastUploadAt)
         lastPrunedDate = try container.decodeIfPresent(String.self, forKey: .lastPrunedDate)
     }
@@ -148,7 +130,6 @@ nonisolated struct SyncState: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case containerIdentifier
         case deviceID
-        case hashByDate
         case lastUploadAt
         case lastPrunedDate
     }

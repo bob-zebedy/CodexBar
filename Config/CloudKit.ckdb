@@ -1,6 +1,6 @@
 DEFINE SCHEMA
 
-    RECORD TYPE Activity (
+    RECORD TYPE ActivityData (
         "___createTime"          TIMESTAMP,
         "___createdBy"           REFERENCE,
         "___etag"                STRING,
@@ -8,27 +8,11 @@ DEFINE SCHEMA
         "___modifiedBy"          REFERENCE,
         "___recordID"            REFERENCE QUERYABLE,
         aggregationVersion       INT64,
-        approvalRequestedCount   INT64,
-        compactionCompletedCount INT64,
-        compactionStartedCount   INT64,
+        activityData             BYTES,
         date                     STRING SORTABLE,
         deviceID                 STRING QUERYABLE SORTABLE,
-        eventCount               INT64,
-        generationID             STRING,
-        modelCounts              BYTES,
-        projectCounts            BYTES,
-        sourceCheckpoint         BYTES,
-        subagentEndedCount       INT64,
-        subagentStartedCount     INT64,
-        threadCount              INT64,
-        toolCompletedCount       INT64,
-        toolStartedCount         INT64,
-        turnAbortedCount         INT64,
-        turnCompletedCount       INT64,
-        turnCount                INT64,
-        turnStartedCount         INT64,
+        schemaVersion            INT64,
         updatedAt                TIMESTAMP,
-        version                  INT64,
         GRANT WRITE TO "_creator",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
@@ -42,13 +26,13 @@ DEFINE SCHEMA
         "___modifiedBy" REFERENCE,
         "___recordID"   REFERENCE QUERYABLE,
         salt            BYTES QUERYABLE SORTABLE,
-        version         INT64 QUERYABLE SORTABLE,
+        schemaVersion   INT64 QUERYABLE SORTABLE,
         GRANT WRITE TO "_creator",
         GRANT CREATE TO "_icloud",
         GRANT READ TO "_world"
     );
 
-    RECORD TYPE Tokens (
+    RECORD TYPE TokenUsage (
         "___createTime"    TIMESTAMP,
         "___createdBy"     REFERENCE,
         "___etag"          STRING,
@@ -56,29 +40,12 @@ DEFINE SCHEMA
         "___modifiedBy"    REFERENCE,
         "___recordID"      REFERENCE QUERYABLE,
         aggregationVersion INT64,
-        ancestorIDs        LIST<STRING>,
-        checkpoint         BYTES,
-        generationID       STRING,
-        hasConflict        INT64,
-        rebuiltAt          TIMESTAMP,
-        rootID             STRING,
-        startedAt          TIMESTAMP,
+        tokenUsage         BYTES,
+        date               STRING SORTABLE,
+        deviceID           STRING QUERYABLE SORTABLE,
+        schemaVersion      INT64,
         updatedAt          TIMESTAMP,
-        usage              BYTES,
-        version            INT64,
         GRANT WRITE TO "_creator",
         GRANT CREATE TO "_icloud",
-        GRANT READ TO "_world"
-    );
-
-    RECORD TYPE Users (
-        "___createTime" TIMESTAMP,
-        "___createdBy"  REFERENCE,
-        "___etag"       STRING,
-        "___modTime"    TIMESTAMP,
-        "___modifiedBy" REFERENCE,
-        "___recordID"   REFERENCE,
-        roles           LIST<INT64>,
-        GRANT WRITE TO "_creator",
         GRANT READ TO "_world"
     );

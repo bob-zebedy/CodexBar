@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-struct ActivityTaskKey: Hashable {
+nonisolated struct ActivityTaskKey: Hashable {
     let threadID: String
     let turnID: String
 
@@ -10,7 +10,7 @@ struct ActivityTaskKey: Hashable {
         turnID = turn
     }
 
-    init?(event: ActivityRecord) {
+    init?(event: ActivityDataRecord) {
         guard let threadID = event.threadID, !threadID.isEmpty,
               let turnID = event.turnID, !turnID.isEmpty else { return nil }
         self.init(thread: threadID, turn: turnID)
@@ -26,12 +26,12 @@ struct ActivityTaskKey: Hashable {
     }
 }
 
-enum ActivityEventSource {
+nonisolated enum ActivityEventSource {
     case bootstrap
     case live
 }
 
-enum ProtectionClearReason {
+nonisolated enum ProtectionClearReason {
     case progress
     case thresholdChange
     case terminal
@@ -53,13 +53,12 @@ struct ProtectionAttempt {
     let timeoutTask: Task<Void, Never>
 }
 
-enum ActivityTaskState: Equatable {
+nonisolated enum ActivityTaskState: Equatable {
     case running
     case waitingApproval
-    case suppressed
 }
 
-struct PendingTerminalTask {
+nonisolated struct PendingTerminalTask {
     var task: ActivityTask
     let supersededAt: Date
     var expiresAt: Date {
@@ -67,7 +66,7 @@ struct PendingTerminalTask {
     }
 }
 
-struct ActivityTask {
+nonisolated struct ActivityTask {
     let displayID: UUID
     let key: ActivityTaskKey
     var lifecycleCoverageCheckedAt: Date?
@@ -81,14 +80,14 @@ struct ActivityTask {
     var lastProgressAt: Date
     var progressGeneration: UInt64
     var executions: [ActivityExecutionKey: ActivityExecution] = [:]
-    var subagentsByID: [String: SubagentObservation]
+    var subagentsByThreadID: [String: SubagentObservation]
     var hasCompleteSubagentCoverage = false
     var tokenUsage: TokenUsage?
 
     init(
         displayID: UUID,
         key: ActivityTaskKey,
-        event: ActivityRecord,
+        event: ActivityDataRecord,
         state: ActivityTaskState,
         startedAt: Date?,
         progressGeneration: UInt64
@@ -103,7 +102,7 @@ struct ActivityTask {
         stateChangedAt = event.timestamp
         lastProgressAt = event.timestamp
         self.progressGeneration = progressGeneration
-        subagentsByID = [:]
+        subagentsByThreadID = [:]
         recordExecutionEvent(event)
     }
 
@@ -136,7 +135,7 @@ struct ActivityTask {
         }
         guard !live.isEmpty else { return nil }
         let waiting = live.filter { $0.1.waiting != nil }.min { ($0.1.waiting?.since ?? .distantFuture) < ($1.1.waiting?.since ?? .distantFuture) }
-        let root = live.first { $0.0.agentID == nil }
+        let root = live.first { $0.0.agentThreadID == nil }
         var result = (waiting ?? root ?? live.max { $0.1.updatedAt < $1.1.updatedAt })!.1
         result.recent = live.compactMap(\.1.recent).max { $0.at < $1.at }
         result.toolCount = live.allSatisfy { $0.1.toolCount != nil } ? live.reduce(0) { $0 + ($1.1.toolCount ?? 0) } : nil
@@ -158,8 +157,8 @@ struct ActivityTask {
         lifecycleCoverageCheckedAt.map { now.timeIntervalSince($0) < 5 } == true
     }
 
-    mutating func recordLifecycleRead(_ state: SessionLifecycleState, at now: Date) {
-        lifecycleCoverageCheckedAt = state.readStatus == .complete ? now : nil
+    mutating func recordLifecycleRead(_ state: TurnLifecycleState, at now: Date) {
+        lifecycleCoverageCheckedAt = state.readStatus == .complete ? (state.verifiedAt ?? now) : nil
     }
 
     /// 阈值调整与隐藏共用计时起点, 恢复不要求读取结果仍在有效期内
@@ -173,54 +172,55 @@ struct ActivityTask {
         return protectionReferenceAt.addingTimeInterval(inactivityDuration)
     }
 
-    mutating func mergeMetadata(from event: ActivityRecord) {
-        if event.agentID == nil {
+    mutating func mergeMetadata(from event: ActivityDataRecord) {
+        if event.agentThreadID == nil {
             projectName = event.projectDisplayName ?? projectName
             modelName = event.model ?? modelName
         }
-        _ = mergeEffort(event.effort)
-    }
-
-    mutating func recordProgress(at timestamp: Date) {
-        lastProgressAt = max(lastProgressAt, timestamp)
-        progressGeneration &+= 1
+        mergeEffort(event.effort)
     }
 
     @discardableResult
-    mutating func mergeEffort(_ incomingEffort: String?) -> Bool {
-        guard let incomingEffort = Self.normalizedEffort(incomingEffort) else {
-            return false
-        }
-        guard let effort else {
-            effort = incomingEffort
-            return true
-        }
-        guard effort != incomingEffort, effort != "mixed" else {
-            return false
-        }
-        self.effort = "mixed"
+    mutating func recordProgress(at timestamp: Date) -> Bool {
+        guard timestamp > lastProgressAt else { return false }
+        lastProgressAt = timestamp
+        progressGeneration &+= 1
         return true
     }
 
+    mutating func mergeEffort(_ incomingEffort: String?) {
+        guard let incomingEffort = Self.normalizedEffort(incomingEffort) else {
+            return
+        }
+        guard let effort else {
+            effort = incomingEffort
+            return
+        }
+        guard effort != incomingEffort, effort != "mixed" else {
+            return
+        }
+        self.effort = "mixed"
+    }
+
     mutating func recordSubagentActivity(
-        agentID: String?,
+        agentThreadID: String?,
         isStarting: Bool,
         hasEnded: Bool = false,
         at timestamp: Date
     ) {
-        guard let agentID else {
+        guard let agentThreadID else {
             hasCompleteSubagentCoverage = false
             return
         }
 
-        let previous = subagentsByID[agentID]
+        let previous = subagentsByThreadID[agentThreadID]
         if let previous, timestamp < previous.timestamp {
             return
         }
         if !isStarting, previous == nil {
             hasCompleteSubagentCoverage = false
         }
-        subagentsByID[agentID] = SubagentObservation(
+        subagentsByThreadID[agentThreadID] = SubagentObservation(
             isRunning: isStarting && !hasEnded,
             timestamp: timestamp
         )
@@ -230,7 +230,7 @@ struct ActivityTask {
         guard hasCompleteSubagentCoverage else {
             return nil
         }
-        return subagentsByID.values.reduce(into: 0) { count, observation in
+        return subagentsByThreadID.values.reduce(into: 0) { count, observation in
             if observation.isRunning {
                 count += 1
             }
@@ -254,37 +254,37 @@ struct ActivityTask {
         }
     }
 
-    func executionKey(for event: ActivityRecord) -> ActivityExecutionKey {
+    func executionKey(for event: ActivityDataRecord) -> ActivityExecutionKey {
         ActivityExecutionKey(
-            agentID: event.agentID,
+            agentThreadID: event.agentThreadID,
             turnID: event.turnID,
-            isUnattributed: event.agentID == nil && event.origin != .main
+            isUnattributed: event.agentThreadID == nil && event.origin != .main
         )
     }
 
     var lastMainEventAt: Date {
-        executions.filter { $0.key.agentID == nil && !$0.key.isUnattributed }
+        executions.filter { $0.key.agentThreadID == nil && !$0.key.isUnattributed }
             .values.map(\.lastEventAt).max() ?? startedAt ?? .distantPast
     }
 
-    func acceptsExecutionEvent(_ event: ActivityRecord) -> Bool {
+    func acceptsExecutionEvent(_ event: ActivityDataRecord) -> Bool {
         let execution = executions[executionKey(for: event)]
         return execution?.isTerminal != true && event.timestamp >= (execution?.lastEventAt ?? .distantPast)
     }
 
-    mutating func recordExecutionEvent(_ event: ActivityRecord) {
+    mutating func recordExecutionEvent(_ event: ActivityDataRecord) {
         let owner = executionKey(for: event)
         var execution = executions[owner] ?? ActivityExecution()
         execution.lastEventAt = max(execution.lastEventAt, event.timestamp)
         executions[owner] = execution
     }
 
-    mutating func resumeExecution(from event: ActivityRecord) {
+    mutating func resumeExecution(from event: ActivityDataRecord) {
         recordExecutionEvent(event)
         refreshApprovalState(at: event.timestamp, restoresRunning: true)
     }
 
-    mutating func recordApprovalRequest(from event: ActivityRecord) -> Bool {
+    mutating func recordApprovalRequest(from event: ActivityDataRecord) -> Bool {
         let wasWaiting = state == .waitingApproval
         let owner = executionKey(for: event)
         recordExecutionEvent(event)
@@ -298,7 +298,7 @@ struct ActivityTask {
         return !wasWaiting && state == .waitingApproval
     }
 
-    mutating func mergeExecutionLifecycle(_ lifecycle: SessionLifecycleState, owner: ActivityExecutionKey) {
+    mutating func mergeExecutionLifecycle(_ lifecycle: TurnLifecycleState, owner: ActivityExecutionKey) {
         guard lifecycle.readStatus == .complete else { return }
         var execution = executions[owner] ?? ActivityExecution()
         execution.presentation = lifecycle.presentation
@@ -351,8 +351,8 @@ struct ActivityTask {
     }
 }
 
-struct ActivityExecutionKey: Hashable {
-    let agentID: String?
+nonisolated struct ActivityExecutionKey: Hashable {
+    let agentThreadID: String?
     let turnID: String?
     var isUnattributed = false
 }
@@ -369,14 +369,14 @@ nonisolated struct ActivityApproval {
     }
 }
 
-struct ActivityExecution {
+nonisolated struct ActivityExecution {
     var lastEventAt: Date = .distantPast
     var approval: ActivityApproval?
     var isTerminal = false
     var presentation: ActivityLivePresentation?
 }
 
-struct SubagentObservation {
+nonisolated struct SubagentObservation {
     let isRunning: Bool
     let timestamp: Date
 }

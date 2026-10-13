@@ -119,16 +119,22 @@ struct StatusAccountCard: View {
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
     }
 
-    private var statusDisplay: (text: LocalizedStringResource?, color: Color) {
+    /// 使用命名类型避免编译器遗漏 switch 元组分支中的本地化引用
+    private struct StatusDisplay {
+        let text: LocalizedStringResource?
+        let color: Color
+    }
+
+    private var statusDisplay: StatusDisplay {
         switch loadState {
         case .notLoggedIn:
-            ("codex-status.account.not-signed-in", .orange)
+            StatusDisplay(text: LocalizedStringResource("codex-status.account.not-signed-in"), color: .orange)
         case let .unsupportedVersion(minimum):
-            (LocalizedStringResource("codex-version.requirement", defaultValue: "\(minimum)"), .red)
+            StatusDisplay(text: LocalizedStringResource("codex-version.requirement", defaultValue: "\(minimum)"), color: .red)
         case .initializationFailed:
-            ("初始化失败", .red)
+            StatusDisplay(text: LocalizedStringResource("codex-status.account.initialization-failed"), color: .red)
         case .loading, .loaded:
-            (nil, .accentColor)
+            StatusDisplay(text: nil, color: .accentColor)
         }
     }
 }

@@ -13,12 +13,4 @@ nonisolated enum CountResolution {
 
         return compactedCount == 0 ? 0 : nil
     }
-
-    static func resolvedCount(
-        compactedCount: Int?,
-        identifiers: [String]? = nil,
-        fallback: Int
-    ) -> Int {
-        preferredCount(compactedCount: compactedCount, identifiers: identifiers) ?? fallback
-    }
 }

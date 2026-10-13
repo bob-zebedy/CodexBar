@@ -61,10 +61,10 @@ struct ActivityCard: View {
                 .frame(minHeight: content.detail == nil ? nil : Metrics.height)
                 .id(snapshot.hasTaskCenterContent)
                 .transition(.opacity)
-            if let usage = content.tokenUsage {
+            if let tokenUsage = content.tokenUsage {
                 VStack(spacing: 8) {
                     LiquidGlassDivider()
-                    tokenUsageMetrics(usage)
+                    tokenUsageMetrics(tokenUsage)
                 }
                 .frame(height: Metrics.usageHeight - Metrics.height, alignment: .top)
                 .transition(.modifier(
@@ -203,28 +203,28 @@ struct ActivityCard: View {
         }
     }
 
-    private func tokenUsageMetrics(_ usage: TokenUsage) -> some View {
+    private func tokenUsageMetrics(_ tokenUsage: TokenUsage) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            tokenMetric("usage.tokens.total", tokens: usage.totalTokens)
-            tokenMetric("usage.tokens.input", tokens: usage.inputTokens)
-            tokenMetric("usage.tokens.output", tokens: usage.outputTokens)
-            tokenMetric("usage.tokens.cached-input", tokens: usage.cachedInputTokens)
-            tokenMetric("usage.tokens.cache-write-input", tokens: usage.cacheWriteInputTokens)
+            tokenMetric("usage.token-usage.total", tokens: tokenUsage.totalTokens)
+            tokenMetric("usage.token-usage.input", tokens: tokenUsage.inputTokens)
+            tokenMetric("usage.token-usage.output", tokens: tokenUsage.outputTokens)
+            tokenMetric("usage.token-usage.cached-input", tokens: tokenUsage.cachedInputTokens)
+            tokenMetric("usage.token-usage.cache-write-input", tokens: tokenUsage.cacheWriteInputTokens)
             VStack(spacing: 3) {
-                Text("usage.tokens.cache-hit-rate")
+                Text("usage.token-usage.cache-hit-rate")
                     .font(.caption2)
                     .foregroundStyle(Color.codexSecondaryLabel)
                     .minimumScaleFactor(0.65)
-                Text(usage.cacheHitRate.map { $0.formatted(.percent.precision(.fractionLength(0 ... 1))) } ?? "—")
+                Text(tokenUsage.cacheHitRate.map { $0.formatted(.percent.precision(.fractionLength(0 ... 1))) } ?? "—")
                     .font(.caption2.monospacedDigit().weight(.semibold))
                     .foregroundStyle(Color.codexLabel)
-                    .numericTransition(value: usage.cacheHitRate, comparison: usage.cacheHitRate ?? 0, enabled: allowsAnimations)
+                    .numericTransition(value: tokenUsage.cacheHitRate, comparison: tokenUsage.cacheHitRate ?? 0, enabled: allowsAnimations)
             }
             .frame(minWidth: 0, maxWidth: .infinity)
-            tokenMetric("usage.tokens.reasoning-output", tokens: usage.reasoningOutputTokens)
+            tokenMetric("usage.token-usage.reasoning-output", tokens: tokenUsage.reasoningOutputTokens)
         }
         .lineLimit(1)
-        .animation(allowsAnimations ? .codexStatus : nil, value: usage)
+        .animation(allowsAnimations ? .codexStatus : nil, value: tokenUsage)
     }
 
     private func tokenMetric(_ title: LocalizedStringKey, tokens: Int64) -> some View {
@@ -350,7 +350,7 @@ struct ActivityCard: View {
 // MARK: - 动画
 
 /// 用展开进度控制显隐, 让动画中途反向时保持连贯
-private struct ActivityTokenReveal: AnimatableModifier {
+private struct ActivityTokenReveal: ViewModifier, Animatable {
     var progress: CGFloat
 
     var animatableData: CGFloat {

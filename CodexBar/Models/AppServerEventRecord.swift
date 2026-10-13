@@ -1,95 +1,66 @@
 import Foundation
 
-/// 统一日志的版本与类型边界, Token 快照不会作为活动进入计数
+/// 数据库仅保存活动事实和 Token 原始观测, 派生快照不能作为重建来源
 nonisolated struct AppServerEventRecord: Codable, Equatable {
-    enum Kind: String, Codable { case activity, tokenSnapshot, tokenObservation }
+    enum Kind: String, Codable { case activityData, tokenUsage }
 
-    static let currentVersion = 1
-    let version: Int
-    let kind: Kind
+    static let schemaVersion = 1
+    let schemaVersion: Int
     let recordedAt: Date
-    let context: ActivityContext?
-    private let activityPayload: ActivityRecord?
-    let token: TokenTurn?
-    let observation: TokenObservation?
+    let context: ActivityDataContext?
+    private let storedActivityData: ActivityDataRecord?
+    let tokenUsage: TokenUsageObservation?
+
+    var kind: Kind {
+        storedActivityData == nil ? .tokenUsage : .activityData
+    }
 
     var deduplicationID: String? {
-        if let id = activityPayload?.id {
-            return "activity:" + id
+        if let id = storedActivityData?.id {
+            return "activityData:" + id
         }
-        if let observation {
-            return "token:\(observation.turn.id):\(observation.streamID):\(observation.sequence)"
+        if let tokenUsage {
+            return "tokenUsage:" + tokenUsage.id
         }
         return nil
     }
 
-    var activity: ActivityRecord? {
-        guard var activity = activityPayload else { return nil }
-        activity.context = context
-        return activity
+    var activityData: ActivityDataRecord? {
+        guard var activityData = storedActivityData else { return nil }
+        activityData.context = context
+        return activityData
     }
 
-    init(activity: ActivityRecord, recordedAt: Date = Date()) {
-        version = Self.currentVersion
-        kind = .activity
+    init(activityData: ActivityDataRecord, recordedAt: Date = Date()) {
+        schemaVersion = Self.schemaVersion
         self.recordedAt = recordedAt
-        context = activity.context
-        var payload = activity
+        context = activityData.context
+        var payload = activityData
         payload.context = nil
-        activityPayload = payload
-        token = nil
-        observation = nil
+        storedActivityData = payload
+        tokenUsage = nil
     }
 
-    init(token: TokenTurn, context: ActivityContext? = nil, recordedAt: Date) {
-        version = Self.currentVersion
-        kind = .tokenSnapshot
-        self.recordedAt = recordedAt
-        self.context = context
-        activityPayload = nil
-        self.token = token
-        observation = nil
-    }
-
-    init(observation: TokenObservation, recordedAt: Date) {
-        version = Self.currentVersion
-        kind = .tokenObservation
+    init(tokenUsage: TokenUsageObservation, recordedAt: Date) {
+        schemaVersion = Self.schemaVersion
         self.recordedAt = recordedAt
         context = nil
-        activityPayload = nil
-        token = nil
-        self.observation = observation
+        storedActivityData = nil
+        self.tokenUsage = tokenUsage
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        version = try container.decode(Int.self, forKey: .version)
-        guard version == Self.currentVersion else {
-            throw DecodingError.dataCorruptedError(forKey: .version, in: container, debugDescription: "Unsupported event version")
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        guard schemaVersion == Self.schemaVersion else {
+            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: container, debugDescription: "Unsupported event schema version")
         }
-        kind = try container.decode(Kind.self, forKey: .kind)
         recordedAt = try container.decode(Date.self, forKey: .recordedAt)
-        context = try container.decodeIfPresent(ActivityContext.self, forKey: .context)
-        observation = try container.decodeIfPresent(TokenObservation.self, forKey: .observation)
-        switch kind {
-        case .activity:
-            activityPayload = try container.decode(ActivityRecord.self, forKey: .activityPayload)
-            token = nil
-            guard !container.contains(.token), observation == nil else {
-                throw DecodingError.dataCorruptedError(forKey: .token, in: container, debugDescription: "Activity cannot contain tokens")
-            }
-        case .tokenObservation:
-            activityPayload = nil
-            token = nil
-            guard observation != nil, !container.contains(.token), !container.contains(.activityPayload) else {
-                throw DecodingError.dataCorruptedError(forKey: .observation, in: container, debugDescription: "Missing observation")
-            }
-        case .tokenSnapshot:
-            token = try container.decode(TokenTurn.self, forKey: .token)
-            activityPayload = nil
-            guard !container.contains(.activityPayload), observation == nil, token?.usage?.isValid != false else {
-                throw DecodingError.dataCorruptedError(forKey: .token, in: container, debugDescription: "Invalid token snapshot")
-            }
+        context = try container.decodeIfPresent(ActivityDataContext.self, forKey: .context)
+        tokenUsage = try container.decodeIfPresent(TokenUsageObservation.self, forKey: .tokenUsage)
+        storedActivityData = try container.decodeIfPresent(ActivityDataRecord.self, forKey: .storedActivityData)
+        guard (storedActivityData != nil) != (tokenUsage != nil) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Expected exactly one event payload"))
         }
     }
 
@@ -113,12 +84,10 @@ nonisolated struct AppServerEventRecord: Codable, Equatable {
     private static let decoder = JSONLines.decoder
 
     private enum CodingKeys: String, CodingKey {
-        case version
-        case kind
+        case schemaVersion
         case recordedAt
         case context
-        case activityPayload
-        case token
-        case observation
+        case storedActivityData = "activityData"
+        case tokenUsage
     }
 }

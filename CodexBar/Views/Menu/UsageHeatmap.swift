@@ -17,9 +17,13 @@ nonisolated enum UsageHeatmapDetailSide: Equatable {
 
 /// hover 单元格在热力图中的列/行位置, 用于吸附和详情定位
 nonisolated struct UsageHeatmapSelection: Equatable {
-    let day: UsageHeatmapDay
+    let dateID: String
     let column: Int
     let row: Int
+
+    func day(in days: [UsageHeatmapDay?]) -> UsageHeatmapDay? {
+        days.lazy.compactMap(\.self).first { $0.id == dateID }
+    }
 }
 
 // MARK: - 热力图与 hover 吸附
@@ -94,7 +98,7 @@ struct UsageHeatmap: View {
                                 UsageHeatmapSquare(
                                     day: day,
                                     percent: Double(day.tokensForHeatmap) / Double(peakTokens),
-                                    isHovered: snapSelection?.day.id == day.id
+                                    isHovered: snapSelection?.dateID == day.id
                                 )
                                 .opacity(showsSquares ? 1 : 0)
                                 .scaleEffect(showsSquares ? 1 : Metrics.entranceScale)
@@ -237,7 +241,7 @@ struct UsageHeatmap: View {
             return nil
         }
 
-        return UsageHeatmapSelection(day: day, column: column, row: row)
+        return UsageHeatmapSelection(dateID: day.id, column: column, row: row)
     }
 
     private func activate(_ target: UsageHeatmapSelection) {
@@ -267,7 +271,7 @@ struct UsageHeatmap: View {
     }
 
     private func matches(_ lhs: UsageHeatmapSelection?, _ rhs: UsageHeatmapSelection) -> Bool {
-        lhs?.day.id == rhs.day.id && lhs?.column == rhs.column && lhs?.row == rhs.row
+        lhs?.dateID == rhs.dateID && lhs?.column == rhs.column && lhs?.row == rhs.row
     }
 }
 

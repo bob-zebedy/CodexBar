@@ -3,6 +3,61 @@ import Synchronization
 import Testing
 
 struct ActivityIsolationTests {
+    @Test func cumulativeTokenNotificationsReachLogsStorageAndLiveTasks() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let now = Date().addingTimeInterval(-60)
+        let server = try SharedServerFixture { peer in
+            try peer.reply(to: peer.readMessage(), result: ["userAgent": "codex/0.162.1"])
+            _ = try peer.readMessage()
+            var emitted = false
+            while let request = try? peer.readMessage() {
+                switch request["method"] as? String {
+                case "thread/loaded/list": try peer.reply(to: request, result: ["data": ["healthy"]])
+                case "thread/read", "thread/resume":
+                    try peer.reply(to: request, result: ["thread": Self.thread("healthy", now: now)])
+                case "thread/turns/list":
+                    try peer.reply(to: request, result: ["data": [["id": "turn", "rootTurnId": "turn", "status": "inProgress", "startedAt": now.timeIntervalSince1970]]])
+                    if !emitted {
+                        emitted = true
+                        for total in [100, 100, 120, 120, 150] {
+                            let tokenUsage = ["inputTokens": total, "cachedInputTokens": 0, "outputTokens": 0, "reasoningOutputTokens": 0, "totalTokens": total]
+                            try peer.send(["method": "thread/tokenUsage/updated", "params": [
+                                "threadId": "healthy", "turnId": "turn", "tokenUsage": ["total": tokenUsage, "last": tokenUsage]
+                            ]])
+                        }
+                        try peer.send(Self.tool(thread: "healthy", id: "received"))
+                    }
+                default: Issue.record("Unexpected request")
+                }
+            }
+        }
+        defer { server.close() }
+        let store = TokenUsageHistoryStore(directoryURL: directory.url)
+        let logs = AppServerLogStore(directoryURL: directory.url.appendingPathComponent("Logs"))
+        var received = false
+        var liveUsage: Int64?
+        let reader = AppServerActivityReader(
+            socketURL: server.url, logStorage: logs, tokenUsageHistory: store,
+            activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url)
+        ) { update in
+            if update.phase == .live, !update.graph.tasks.isEmpty {
+                received = true
+            }
+            liveUsage = update.graph.tasks[.init(thread: "healthy", turn: "turn")]?.tokenUsage?.totalTokens
+        }
+        await reader.start()
+        for _ in 0 ..< 200 where !received || liveUsage != 50 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(received)
+        #expect(await reader.stop())
+        #expect(liveUsage == 50)
+        #expect(try await store.refresh().first?.tokenUsage.totalTokens == 50)
+        #expect(try await logs.page(limit: 100).entries.filter { $0.method == "thread/tokenUsage/updated" }.count == 5)
+        try server.finish()
+    }
+
     @Test(arguments: [false, true])
     func brokenThreadDoesNotStopHealthyThreadAndCanRecover(brokenQuery: Bool) async throws {
         let directory = try TestDirectory()
@@ -45,17 +100,17 @@ struct ActivityIsolationTests {
             }
         }
         defer { server.close() }
-        let lifecycle = SessionLifecycleCache()
+        let lifecycle = ActivityReaderProbe()
         var observed = false
         var disconnected = false
         let reader = AppServerActivityReader(
-            lifecycleCache: lifecycle, socketURL: server.url,
-            tokenHistory: TokenHistoryStore(directoryURL: directory.url), recorder: ActivityRecorder(directoryURL: directory.url)
+            probe: lifecycle, socketURL: server.url,
+            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url), activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url)
         ) { batch in
-            if case .sourceUnavailable = batch {
+            if case .sourceUnavailable = batch.phase {
                 disconnected = true
             }
-            if case let .live(events) = batch, events.contains(where: { $0.threadID == "healthy" }) {
+            if batch.phase == .live, batch.graph.tasks.keys.contains(where: { $0.threadID == "healthy" }) {
                 observed = true
             }
         }
@@ -64,13 +119,13 @@ struct ActivityIsolationTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(observed && !disconnected)
-        let references = ["a-broken", "healthy"].map { ActivityTurnReference(threadID: $0, turnID: "turn") }
-        let states = await lifecycle.lifecycleStates(for: references)
-        #expect(states.first { $0.requestedThreadID == "healthy" }?.readStatus == .complete)
-        #expect(states.first { $0.requestedThreadID == "a-broken" }?.readStatus == .unavailable)
+        let keys = ["a-broken", "healthy"].map { ActivityTaskKey(thread: $0, turn: "turn") }
+        #expect(lifecycle.graph.tasks[keys[1]]?.lifecycleCoverageCheckedAt != nil)
+        #expect(lifecycle.graph.tasks[keys[0]]?.lifecycleCoverageCheckedAt == nil)
         repaired.withLock { $0 = true }
-        #expect(await reader.drainNow() == .completed)
-        #expect(await lifecycle.lifecycleStates(for: references).allSatisfy { $0.readStatus == .complete })
+        #expect(await reader.drainNow().status == .completed)
+        #expect(keys.allSatisfy { lifecycle.graph.tasks[$0]?.lifecycleCoverageCheckedAt != nil })
+        #expect(lifecycle.graph.unavailableTurns.isDisjoint(with: keys))
         #expect(!disconnected)
         await reader.stop()
         release.signal()
@@ -81,7 +136,7 @@ struct ActivityIsolationTests {
     func fullStorageBufferKeepsLiveReadingAndRetainsAcceptedEvents(byteLimit: Bool) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let blocker = try directory.write("blocked", to: "State")
+        let blocker = try directory.write("blocked", to: HistoryDatabase.filename)
         let now = Date().addingTimeInterval(-60)
         let server = try SharedServerFixture { peer in
             let initialize = try peer.readMessage()
@@ -109,15 +164,15 @@ struct ActivityIsolationTests {
         var failures = 0
         var observed = 0
         let reader = AppServerActivityReader(
-            lifecycleCache: SessionLifecycleCache(), socketURL: server.url,
-            tokenHistory: TokenHistoryStore(directoryURL: directory.url), recorder: ActivityRecorder(directoryURL: directory.url),
+            probe: ActivityReaderProbe(), socketURL: server.url,
+            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url), activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url),
             maximumPendingEvents: byteLimit ? 4096 : 2, maximumPendingBytes: byteLimit ? 1 : 8 * 1024 * 1024
         ) { batch in
-            if case .sourceUnavailable = batch {
+            if case .sourceUnavailable = batch.phase {
                 failures += 1
             }
-            if case let .live(events) = batch {
-                observed += events.count
+            if batch.phase == .live {
+                observed += 1
             }
         }
         await reader.start()
@@ -126,18 +181,10 @@ struct ActivityIsolationTests {
         }
         #expect(failures == 0)
         #expect(observed == 3)
-        #expect(await reader.drainNow() == .completed)
+        #expect(await reader.drainNow().status == .completed)
         try FileManager.default.removeItem(at: blocker)
         await reader.stop()
-        var recorded = 0
-        let files = try FileManager.default.contentsOfDirectory(at: directory.url.appendingPathComponent("Events"), includingPropertiesForKeys: nil)
-        for file in files {
-            try AppServerEventJournal.read(at: file) {
-                if $0.activity != nil {
-                    recorded += 1
-                }
-            }
-        }
+        let recorded = try directory.historyRecords().filter { $0.activityData != nil }.count
         #expect(recorded == (byteLimit ? 1 : 2))
         try server.finish()
     }
@@ -155,27 +202,23 @@ extension ActivityIsolationTests {
     @Test func busyHistoryLockDoesNotDelayLiveTasksOrDrain() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let lockURL = HistoryStorage.lockURL(in: directory.url)
-        var descriptor = try JSONFileStorage.acquireLock(in: lockURL.deletingLastPathComponent(), name: lockURL.lastPathComponent, nonblocking: true)
-        defer {
-            if let descriptor {
-                JSONFileStorage.releaseLock(descriptor)
-            }
-        }
+        let database = try HistoryDatabase(directoryURL: directory.url)
+        try database.execute("BEGIN IMMEDIATE")
+        defer { try? database.execute("ROLLBACK") }
         let phase = Mutex(0)
         let server = try Self.tokenServer(now: Date().addingTimeInterval(-60), phase: { phase.withLock { $0 } })
         defer { server.close() }
-        let store = TokenHistoryStore(directoryURL: directory.url)
+        let store = TokenUsageHistoryStore(directoryURL: directory.url)
         var observed = 0
         var disconnected = false
         let reader = AppServerActivityReader(
-            lifecycleCache: SessionLifecycleCache(), socketURL: server.url, logStorage: nil,
-            tokenHistory: store, recorder: ActivityRecorder(directoryURL: directory.url)
+            probe: ActivityReaderProbe(), socketURL: server.url, logStorage: nil,
+            tokenUsageHistory: store, activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url)
         ) { batch in
-            if case let .live(events) = batch {
-                observed += events.count
+            if batch.phase == .live {
+                observed += 1
             }
-            if case .sourceUnavailable = batch {
+            if case .sourceUnavailable = batch.phase {
                 disconnected = true
             }
         }
@@ -186,23 +229,22 @@ extension ActivityIsolationTests {
         #expect(observed == 1)
         phase.withLock { $0 = 1 }
         let started = ContinuousClock.now
-        #expect(await reader.drainNow() == .completed)
+        #expect(await reader.drainNow().status == .completed)
         #expect(ContinuousClock.now - started < .seconds(1))
         #expect(observed == 2 && !disconnected)
-        try JSONFileStorage.releaseLock(#require(descriptor))
-        descriptor = nil
+        try database.execute("COMMIT")
         #expect(await reader.stop())
         let observations = try Self.observations(in: directory.url)
-        #expect(observations.map(\.current.totalTokens) == [120, 150])
-        #expect(try await store.refresh().first?.usage?.totalTokens == 50)
-        #expect(try await store.refresh().first?.usage?.totalTokens == 50)
+        #expect(observations.map { $0.delta?.totalTokens } == [0, 20, 30])
+        #expect(try await store.refresh().first?.tokenUsage.totalTokens == 50)
+        #expect(try await store.refresh().first?.tokenUsage.totalTokens == 50)
         try server.finish()
     }
 
     @Test func stopDoesNotWaitIndefinitelyForBusyStorageOrPublishLateResults() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let store = TokenHistoryStore(directoryURL: directory.url)
+        let store = TokenUsageHistoryStore(directoryURL: directory.url)
         let entered = Mutex(false)
         let release = DispatchSemaphore(value: 0)
         defer { release.signal() }
@@ -216,12 +258,12 @@ extension ActivityIsolationTests {
         var observed = 0
         var batches = 0
         let reader = AppServerActivityReader(
-            lifecycleCache: SessionLifecycleCache(), socketURL: server.url, logStorage: nil,
-            tokenHistory: store, recorder: ActivityRecorder(directoryURL: directory.url)
+            probe: ActivityReaderProbe(), socketURL: server.url, logStorage: nil,
+            tokenUsageHistory: store, activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url)
         ) { batch in
             batches += 1
-            if case let .live(events) = batch {
-                observed += events.count
+            if batch.phase == .live {
+                observed += 1
             }
         }
         await reader.start()
@@ -238,8 +280,8 @@ extension ActivityIsolationTests {
         // 再次停止等待旧工作循环释放资源, 不能发布已停止连接的状态
         _ = await reader.stop()
         #expect(batches == countAtStop)
-        #expect(try await store.acquireRecordingLease())
-        await store.releaseRecordingLease()
+        #expect(try store.acquireRecordingLease())
+        store.releaseRecordingLease()
         try server.finish()
     }
 
@@ -249,30 +291,30 @@ extension ActivityIsolationTests {
         defer { try? directory.remove() }
         let now = Date().addingTimeInterval(-60)
         let phase = Mutex(0)
-        let store = TokenHistoryStore(directoryURL: directory.url)
+        let store = TokenUsageHistoryStore(directoryURL: directory.url)
         let oldDate = HistoryStorage.dateKey(for: now.addingTimeInterval(-86400))
-        func corruptHistory() throws -> URL {
-            _ = try directory.write("broken cache", to: "Aggregates/tokens.json")
-            return try directory.writeJournal(Data("broken event\n".utf8), to: "Events/\(oldDate).jsonl")
+        func corruptHistory() throws {
+            let database = try HistoryDatabase(directoryURL: directory.url)
+            try database.execute("INSERT OR IGNORE INTO days(date) VALUES (?)", [.text(oldDate)])
+            try database.execute("INSERT INTO events(date, kind, payload) VALUES (?, 'tokenUsage', ?)", [.text(oldDate), .data(Data("broken".utf8))])
         }
-        var brokenJournal: URL?
         if !corruptWhileRunning {
-            brokenJournal = try corruptHistory()
+            try corruptHistory()
         }
         let server = try Self.tokenServer(now: now, phase: { phase.withLock { $0 } })
         defer { server.close() }
         var observed = 0
         var disconnected = false
-        let lifecycle = SessionLifecycleCache()
+        let lifecycle = ActivityReaderProbe()
         let reader = AppServerActivityReader(
-            lifecycleCache: lifecycle, socketURL: server.url, logStorage: nil,
-            tokenHistory: store, recorder: ActivityRecorder(directoryURL: directory.url)
+            probe: lifecycle, socketURL: server.url, logStorage: nil,
+            tokenUsageHistory: store, activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url)
         ) { batch in
-            if case .sourceUnavailable = batch {
+            if case .sourceUnavailable = batch.phase {
                 disconnected = true
             }
-            if case let .live(events) = batch {
-                observed += events.count
+            if batch.phase == .live {
+                observed += 1
             }
         }
         await reader.start()
@@ -281,25 +323,26 @@ extension ActivityIsolationTests {
         }
         #expect(observed == 1)
         if corruptWhileRunning {
-            brokenJournal = try corruptHistory()
+            try corruptHistory()
         }
         phase.withLock { $0 = 1 }
-        #expect(await reader.drainNow() == .completed)
+        #expect(await reader.drainNow().status == .completed)
         #expect(observed == 2)
         // 给周期缓存刷新一次触发机会, 失败不能使实时连接失效
         try await Task.sleep(for: .milliseconds(1200))
-        #expect(await reader.drainNow() == .completed)
+        #expect(await reader.drainNow().status == .completed)
         #expect(!disconnected)
-        let states = await lifecycle.lifecycleStates(for: [.init(threadID: "healthy", turnID: "turn")])
-        #expect(states.first?.readStatus == .complete)
-        await #expect(throws: TokenCacheError.self) { try await store.refresh() }
-        #expect(try String(contentsOf: directory.url.appendingPathComponent("Aggregates/tokens.json"), encoding: .utf8) == "broken cache")
+        let key = ActivityTaskKey(thread: "healthy", turn: "turn")
+        #expect(lifecycle.graph.tasks[key]?.lifecycleCoverageCheckedAt != nil)
+        #expect(!lifecycle.graph.unavailableTurns.contains(key))
+        #expect(try await store.refresh().first?.tokenUsage.totalTokens == 50)
+        #expect(try await store.loadSnapshot().coverage == .partial)
         let observations = try Self.observations(in: directory.url)
-        #expect(observations.map(\.sequence) == [1, 2])
-        #expect(observations.map(\.current.totalTokens) == [120, 150])
-        try FileManager.default.removeItem(at: #require(brokenJournal))
+        #expect(Set(observations.map(\.id)).count == 3)
+        #expect(observations.map { $0.delta?.totalTokens } == [0, 20, 30])
+        try HistoryDatabase(directoryURL: directory.url).execute("DELETE FROM days WHERE date = ?", [.text(oldDate)])
         let recovered = try await store.refresh()
-        #expect(recovered.first?.usage?.totalTokens == 50)
+        #expect(recovered.first?.tokenUsage.totalTokens == 50)
         #expect(try await store.refresh() == recovered)
         #expect(await reader.stop())
         try server.finish()
@@ -318,8 +361,9 @@ extension ActivityIsolationTests {
                     let nextPhase = phase()
                     if nextPhase > emittedPhase {
                         emittedPhase = nextPhase
-                        for total in nextPhase == 1 ? [150] : [200, 250] {
-                            try peer.send(Self.usage(total))
+                        try peer.send(Self.tokenUsage(nextPhase == 1 ? 50 : 80))
+                        if nextPhase == 2 {
+                            try peer.send(Self.tokenUsage(130))
                         }
                         try peer.send(Self.tool(thread: "healthy", id: "phase-\(nextPhase)"))
                     }
@@ -330,8 +374,8 @@ extension ActivityIsolationTests {
                     try peer.reply(to: request, result: ["data": [["id": "turn", "rootTurnId": "turn", "status": "inProgress", "startedAt": now.timeIntervalSince1970]]])
                     if !emitted {
                         emitted = true
-                        try peer.send(Self.usage(100))
-                        try peer.send(Self.usage(120))
+                        try peer.send(Self.tokenUsage(0))
+                        try peer.send(Self.tokenUsage(20))
                         try peer.send(Self.tool(thread: "healthy", id: "first"))
                     }
                 default: Issue.record("Unexpected request")
@@ -340,18 +384,17 @@ extension ActivityIsolationTests {
         }
     }
 
-    private nonisolated static func observations(in directory: URL) throws -> [TokenObservation] {
-        let url = HistoryStorage.eventLogURL(for: HistoryStorage.dateKey(for: Date()), in: directory.appendingPathComponent("Events"))
-        var observations: [TokenObservation] = []
-        try AppServerEventJournal.read(at: url) {
-            if let observation = $0.observation {
+    private nonisolated static func observations(in directory: URL) throws -> [TokenUsageObservation] {
+        var observations: [TokenUsageObservation] = []
+        try HistoryDatabase(directoryURL: directory).entries(date: HistoryStorage.dateKey(for: Date())) {
+            if let observation = $0.record.tokenUsage {
                 observations.append(observation)
             }
         }
         return observations
     }
 
-    private nonisolated static func usage(_ total: Int) -> [String: Any] {
+    private nonisolated static func tokenUsage(_ total: Int) -> [String: Any] {
         let counts = ["inputTokens": total, "cachedInputTokens": 0, "outputTokens": 0, "reasoningOutputTokens": 0, "totalTokens": total]
         return ["method": "thread/tokenUsage/updated", "params": [
             "threadId": "healthy", "turnId": "turn", "tokenUsage": ["total": counts, "last": counts]
@@ -359,7 +402,7 @@ extension ActivityIsolationTests {
     }
 }
 
-private extension TokenHistoryStore {
+private extension TokenUsageHistoryStore {
     func holdForReaderTest(entered: @Sendable () -> Void, release: DispatchSemaphore) {
         entered()
         _ = release.wait(timeout: .now() + 10)
@@ -367,25 +410,25 @@ private extension TokenHistoryStore {
 }
 
 extension ActivityIsolationTests {
-    @Test func fullObservationQueueResumesWithNewBaselineAfterStorageRecovery() async throws {
+    @Test func fullObservationQueueContinuesBaselineAfterStorageRecovery() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let blocker = try directory.write("blocked", to: "State")
+        let blocker = try directory.write("blocked", to: HistoryDatabase.filename)
         let phase = Mutex(0)
         let server = try Self.tokenServer(now: Date().addingTimeInterval(-60), phase: { phase.withLock { $0 } })
         defer { server.close() }
-        let store = TokenHistoryStore(directoryURL: directory.url)
+        let store = TokenUsageHistoryStore(directoryURL: directory.url)
         var observed = 0
         var disconnected = false
         let reader = AppServerActivityReader(
-            lifecycleCache: SessionLifecycleCache(), socketURL: server.url, logStorage: nil,
-            tokenHistory: store, recorder: ActivityRecorder(directoryURL: directory.url), maximumPendingEvents: 1
+            probe: ActivityReaderProbe(), socketURL: server.url, logStorage: nil,
+            tokenUsageHistory: store, activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url), maximumPendingEvents: 1
         ) { batch in
-            if case .sourceUnavailable = batch {
+            if case .sourceUnavailable = batch.phase {
                 disconnected = true
             }
-            if case let .live(events) = batch {
-                observed += events.count
+            if batch.phase == .live {
+                observed += 1
             }
         }
         await reader.start()
@@ -394,23 +437,23 @@ extension ActivityIsolationTests {
         }
         #expect(observed == 1)
         phase.withLock { $0 = 1 }
-        #expect(await reader.drainNow() == .completed)
+        #expect(await reader.drainNow().status == .completed)
         #expect(observed == 2)
         try FileManager.default.removeItem(at: blocker)
-        for _ in 0 ..< 200 where !FileManager.default.fileExists(atPath: HistoryStorage.maintenanceURL(in: directory.url).path) {
+        for _ in 0 ..< 200 where !FileManager.default.fileExists(atPath: directory.url.appendingPathComponent(HistoryDatabase.filename).path) {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(await reader.drainNow() == .completed)
+        #expect(await reader.drainNow().status == .completed)
         phase.withLock { $0 = 2 }
-        #expect(await reader.drainNow() == .completed)
+        #expect(await reader.drainNow().status == .completed)
         #expect(observed == 3)
         #expect(!disconnected)
         #expect(await reader.stop())
         let observations = try Self.observations(in: directory.url)
-        #expect(observations.map(\.sequence) == [1, 1])
-        #expect(Set(observations.map(\.streamID)).count == 2)
+        #expect(observations.map { $0.delta?.totalTokens } == [0, 80])
+        #expect(Set(observations.map(\.id)).count == 2)
         let restored = try await store.refresh()
-        #expect(restored.first?.usage?.totalTokens == 70)
+        #expect(restored.first?.tokenUsage.totalTokens == 80)
         #expect(try await store.refresh() == restored)
         try server.finish()
     }

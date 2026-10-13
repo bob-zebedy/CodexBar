@@ -4,6 +4,69 @@ import Foundation
 import Testing
 
 struct AppServerSessionTests {
+    @Test func acceptsResponseLargerThanSixteenMiB() throws {
+        let server = try SharedServerFixture { peer in
+            let request = try peer.readMessage()
+            try peer.reply(to: request, result: ["value": 7, "output": String(repeating: "a", count: 17 * 1024 * 1024)])
+        }
+        defer { server.close() }
+        let session = try AppServerSession(socketURL: server.url, logStorage: nil)
+        defer { session.close() }
+        let result: Value = try session.request("probe")
+        #expect(result.value == 7)
+        try server.finish()
+    }
+
+    @Test(arguments: [false, true])
+    func oversizedMessageClosesSocketBeforeReadingBody(fragmented: Bool) throws {
+        let limit = fragmented ? 1024 : 64 * 1024 * 1024
+        let server = try SharedServerFixture { peer in
+            _ = try peer.readMessage()
+            if fragmented {
+                try peer.sendRaw(Data(repeating: 32, count: 512), final: false)
+                try peer.sendHeader(length: 513, opcode: 0)
+            } else {
+                try peer.sendHeader(length: UInt64(limit + 1))
+            }
+        }
+        defer { server.close() }
+        let session = try AppServerSession(socketURL: server.url, logStorage: nil, maximumMessageSize: limit)
+        do {
+            let _: Value = try session.request("probe")
+            Issue.record("Expected oversized message")
+        } catch let error as CodexStatusError {
+            guard case let .messageTooLarge(bytes, maximum) = error else {
+                Issue.record("Wrong error: \(error)")
+                return
+            }
+            #expect(bytes == UInt64(limit + 1))
+            #expect(maximum == limit)
+            #expect(error.isTransportFailure)
+        }
+        #expect(!session.isOpen)
+        try server.finish()
+    }
+
+    @Test func invalidControlFrameIsNotClassifiedAsOversizedHistory() throws {
+        let server = try SharedServerFixture { peer in
+            _ = try peer.readMessage()
+            try peer.sendHeader(length: 64 * 1024 * 1024 + 1, opcode: 9)
+        }
+        defer { server.close() }
+        let session = try AppServerSession(socketURL: server.url, logStorage: nil)
+        do {
+            let _: Value = try session.request("probe")
+            Issue.record("Expected invalid control frame")
+        } catch let error as CodexStatusError {
+            guard case .invalidServerResponse = error else {
+                Issue.record("Wrong error: \(error)")
+                return
+            }
+        }
+        #expect(!session.isOpen)
+        try server.finish()
+    }
+
     @Test(arguments: ["account", "activity"], [nil, "0.162.0", "codex/", "codex/invalid", "codex/0.159.0"] as [String?])
     func connectionsShareHandshakeValidation(_ connection: String, userAgent: String?) throws {
         let server = try SharedServerFixture { peer in
@@ -94,11 +157,11 @@ struct AppServerSessionTests {
         var disconnected = false
         var bootstrapped = false
         let reader = AppServerActivityReader(
-            lifecycleCache: SessionLifecycleCache(), socketURL: server.url,
-            tokenHistory: TokenHistoryStore(directoryURL: directory.url),
-            recorder: ActivityRecorder(directoryURL: directory.url)
+            probe: ActivityReaderProbe(), socketURL: server.url,
+            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url),
+            activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url)
         ) { batch in
-            switch batch {
+            switch batch.phase {
             case .sourceUnavailable:
                 disconnected = true
             case .bootstrapEnd:
@@ -118,7 +181,7 @@ struct AppServerSessionTests {
         if supported {
             #expect(bootstrapped)
             for _ in 0 ..< 3 {
-                #expect(await reader.drainNow() == .completed)
+                #expect(await reader.drainNow().status == .completed)
             }
             #expect(!disconnected)
         } else {

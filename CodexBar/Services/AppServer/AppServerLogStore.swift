@@ -22,7 +22,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
         AppStorage.directoryURL().appendingPathComponent("Logs", isDirectory: true)
     }
 
-    static let databaseName = "logs.sqlite"
+    static let databaseName = "app.db"
     private static let schemaVersion = 1
 
     struct Limits: Sendable {
@@ -144,7 +144,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
             let stats = try storage.stats()
             let entries = try storage.read(
                 "SELECT position, payload, id FROM entries WHERE position < ? ORDER BY position DESC LIMIT ?",
-                values: [position ?? Int64.max, Int64(max(1, limit) + 1)]
+                values: [position ?? Int64.max, Int64(limit + 1)]
             )
             return AppServerLogPage(
                 entries: Array(entries.prefix(max(1, limit))), revision: stats.revision,
@@ -294,11 +294,11 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
         }
         database = opened
         do {
-            let version = try scalar("PRAGMA user_version")
-            if version != 0 {
-                try StorageVersion.require(version, current: Self.schemaVersion, name: "Logs")
+            let schemaVersion = try scalar("PRAGMA user_version")
+            if schemaVersion != 0 {
+                try StorageVersion.require(schemaVersion, current: Self.schemaVersion, name: "Logs")
             } else if try scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'entries'") != 0 {
-                throw StorageCompatibilityError.unsupportedFormat("Logs", version)
+                throw StorageCompatibilityError.unsupportedFormat("Logs", schemaVersion)
             }
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
             sqlite3_busy_timeout(database, 3000)

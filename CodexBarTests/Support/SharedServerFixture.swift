@@ -11,7 +11,7 @@ final nonisolated class SharedServerFixture: @unchecked Sendable {
     private let lock = NSLock()
     private var failure: (any Error)?
 
-    init(connections: Int = 1, handler: @escaping @Sendable (Peer) throws -> Void) throws {
+    init(connections: Int = 1, concurrentConnections: Bool = false, handler: @escaping @Sendable (Peer) throws -> Void) throws {
         descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw FixtureError.io }
         var address = sockaddr_un()
@@ -24,27 +24,46 @@ final nonisolated class SharedServerFixture: @unchecked Sendable {
                 Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        guard bound == 0, listen(descriptor, 1) == 0 else {
+        guard bound == 0, listen(descriptor, Int32(max(1, connections))) == 0 else {
             Darwin.close(descriptor)
             throw FixtureError.io
         }
         DispatchQueue.global().async { [self] in
-            defer { completed.signal() }
+            let clients = DispatchGroup()
+            defer {
+                clients.wait()
+                completed.signal()
+            }
             do {
                 for _ in 0 ..< connections {
                     var poller = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
                     guard poll(&poller, 1, 5000) > 0 else { throw FixtureError.io }
                     let client = accept(descriptor, nil, nil)
                     guard client >= 0 else { throw FixtureError.io }
-                    defer { Darwin.close(client) }
                     var timeout = timeval(tv_sec: 5, tv_usec: 0)
                     _ = setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
                     _ = setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
                     var enabled: Int32 = 1
                     _ = setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout<Int32>.size))
-                    let peer = Peer(descriptor: client)
-                    try peer.handshake()
-                    try handler(peer)
+                    let serve: @Sendable () -> Void = { [self] in
+                        defer { Darwin.close(client) }
+                        do {
+                            let peer = Peer(descriptor: client)
+                            try peer.handshake()
+                            try handler(peer)
+                        } catch {
+                            lock.withLock { failure = error }
+                        }
+                    }
+                    if concurrentConnections {
+                        clients.enter()
+                        DispatchQueue.global().async {
+                            serve()
+                            clients.leave()
+                        }
+                    } else {
+                        serve()
+                    }
                 }
             } catch {
                 lock.withLock { failure = error }
@@ -104,15 +123,26 @@ final nonisolated class SharedServerFixture: @unchecked Sendable {
             try sendRaw(JSONSerialization.data(withJSONObject: object))
         }
 
-        func sendRaw(_ payload: Data, opcode: UInt8 = 1) throws {
-            var frame = Data([0x80 | opcode])
-            if payload.count < 126 {
-                frame.append(UInt8(payload.count))
+        func sendRaw(_ payload: Data, opcode: UInt8 = 1, final: Bool = true) throws {
+            try sendHeader(length: UInt64(payload.count), opcode: opcode, final: final)
+            try sendBytes(payload)
+        }
+
+        func sendHeader(length: UInt64, opcode: UInt8 = 1, final: Bool = true) throws {
+            var frame = Data([(final ? 0x80 : 0) | opcode])
+            if length < 126 {
+                frame.append(UInt8(length))
+            } else if length <= UInt16.max {
+                frame.append(contentsOf: [126, UInt8(length >> 8), UInt8(length & 255)])
             } else {
-                frame.append(contentsOf: [126, UInt8(payload.count >> 8), UInt8(payload.count & 255)])
+                frame.append(127)
+                frame.append(contentsOf: (0 ..< 8).reversed().map { UInt8((length >> ($0 * 8)) & 255) })
             }
-            frame.append(payload)
             try write(frame)
+        }
+
+        func sendBytes(_ data: Data) throws {
+            try write(data)
         }
 
         private func read(_ count: Int) throws -> Data {

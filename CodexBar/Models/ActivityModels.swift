@@ -71,7 +71,7 @@ nonisolated struct ActivityTermination: Equatable, Identifiable {
     var isFailure = false
 }
 
-/// 实时越过静默阈值时交给通知服务的最小信息, 不包含原始 session 或 turn ID
+/// 实时越过静默阈值时交给通知服务的最小信息, 不包含原始 thread 或 turn ID
 nonisolated struct ProtectionNotice: Equatable, Sendable {
     let taskID: UUID
     let attemptID: UUID
@@ -202,7 +202,7 @@ nonisolated enum CodexPrimaryActivity: Equatable {
     case idle
 }
 
-/// 只有 live 事件 或 session 生命周期会发布 transition, bootstrap 永远不会触发历史通知
+/// 只有 live 事件 或 turn 生命周期会发布 transition, bootstrap 永远不会触发历史通知
 nonisolated enum ActivityTransition: Equatable {
     case waitingApproval(ActivityTaskSnapshot)
     case completed(ActivityCompletion)

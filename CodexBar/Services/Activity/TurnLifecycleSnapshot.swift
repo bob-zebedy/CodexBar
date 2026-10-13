@@ -6,30 +6,22 @@ nonisolated struct ActivityTurnReference: Hashable {
 }
 
 /// 运行状态按轮次验证有效期, 已确认终态不随连接或刷新期限失效
-actor SessionLifecycleCache {
-    private var states: [ActivityTurnReference: SessionLifecycleState] = [:]
-    private var verifiedTurns: [ActivityTurnReference: Date] = [:]
+nonisolated struct TurnLifecycleSnapshot {
+    let states: [ActivityTurnReference: TurnLifecycleState]
+    let verifiedTurns: [ActivityTurnReference: Date]
 
-    func replace(_ states: [ActivityTurnReference: SessionLifecycleState], verifiedTurns: [ActivityTurnReference: Date]) {
-        self.states = states
-        self.verifiedTurns = verifiedTurns
-    }
-
-    func invalidate() {
-        verifiedTurns.removeAll()
-    }
-
-    func lifecycleStates(for references: [ActivityTurnReference], now: Date = Date()) -> [SessionLifecycleState] {
+    func lifecycleStates(for references: [ActivityTurnReference], now: Date = Date()) -> [TurnLifecycleState] {
         let requested = Set(references)
-        let childReferences = SessionLifecycleState.subagentStates(for: requested, in: Array(states.values)).map {
+        let childReferences = TurnLifecycleState.subagentStates(for: requested, in: Array(states.values)).map {
             ActivityTurnReference(threadID: $0.requestedThreadID, turnID: $0.turnID)
         }
         var result = Array(requested.union(childReferences)).map { reference in
-            var state = states[reference] ?? SessionLifecycleState(
+            var state = states[reference] ?? TurnLifecycleState(
                 requestedThreadID: reference.threadID, turnID: reference.turnID, startedAt: nil,
                 effort: nil, lastProgressAt: nil, terminal: nil, readStatus: .notFound
             )
             let verified = verifiedTurns[reference] ?? .distantPast
+            state.verifiedAt = verifiedTurns[reference]
             // 已确认终态是事实, 不依赖运行状态的刷新期限
             if state.terminal == nil, now.timeIntervalSince(verified) > 15 {
                 state.readStatus = .unavailable
@@ -57,14 +49,14 @@ actor SessionLifecycleCache {
     }
 }
 
-nonisolated struct SessionLifecycleState {
+nonisolated struct TurnLifecycleState {
     let requestedThreadID: String
     let turnID: String
-    let startedAt: Date?
+    var startedAt: Date?
     var effort: String?
     var lastProgressAt: Date?
-    let terminal: SessionTerminalState?
-    var readStatus: SessionReadStatus = .complete
+    let terminal: TurnTerminalState?
+    var readStatus: TurnReadStatus = .complete
     var contextObservedAt: Date?
     var rootTurnID: String?
     var rootThreadID: String?
@@ -77,8 +69,9 @@ nonisolated struct SessionLifecycleState {
     var terminalObservedAt: Date?
     var presentation: ActivityLivePresentation?
     var turnStatus: ActivityTurnStatus?
+    var verifiedAt: Date?
 
-    /// 保留父线程已知但根轮次尚未确定的子任务, 不能把这部分缺口当成零
+    /// 保留父会话已知但根轮次尚未确定的子任务, 不能把这部分缺口当成零
     static func subagentStates(for roots: Set<ActivityTurnReference>, in states: [Self]) -> [Self] {
         var result: [ActivityTurnReference: Self] = [:]
         for root in roots {
@@ -109,13 +102,19 @@ nonisolated struct SessionLifecycleState {
     }
 }
 
-nonisolated enum SessionReadStatus {
+nonisolated enum TurnReadStatus {
     case complete
     case unavailable
     case notFound
 }
 
-nonisolated enum SessionTerminalState {
+nonisolated enum TurnTerminalState {
     case completed(at: Date?, duration: TimeInterval?)
     case aborted(at: Date?, duration: TimeInterval?)
+
+    var timestamp: Date? {
+        switch self {
+        case let .completed(at, _), let .aborted(at, _): at
+        }
+    }
 }

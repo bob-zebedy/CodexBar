@@ -11,7 +11,7 @@ struct ActivityPresentationTests {
         defer { preferences.remove() }
         let monitor = ActivityMonitor(
             protectionSettings: ProtectionSettings(defaults: preferences.defaults),
-            protectionStore: ProtectionStore(directoryURL: directory.url), activityDirectoryURL: directory.url
+            protectionStore: ProtectionStore(directoryURL: directory.url), activityDataDirectoryURL: directory.url
         )
         defer { monitor.stop() }
         let now = Date()
@@ -30,7 +30,7 @@ struct ActivityPresentationTests {
             task.recordProgress(at: progress.timestamp)
         }
         monitor.isActivitySourceHealthy = true
-        monitor.sessionTransitionNotBefore = startedAt
+        monitor.turnTransitionNotBefore = startedAt
         monitor.terminalPresentationNotBefore = startedAt
         monitor.isProtectionRecoveryInProgress = scenario == "recovering"
         var notices = 0
@@ -46,17 +46,17 @@ struct ActivityPresentationTests {
         let presentation = monitor.presentationPublisher.sink { presentations.append($0) }
         defer { presentation.cancel() }
         if scenario == "pending" || scenario == "superseded" {
-            monitor.pendingTerminalTasks[key] = PendingTerminalTask(task: task, supersededAt: now)
+            monitor.graph.pendingTerminalTasks[key] = PendingTerminalTask(task: task, supersededAt: now)
         } else if scenario != "missing" {
-            monitor.tasks[key] = task
+            monitor.graph.tasks[key] = task
         }
         let next = TestFixtures.event(at: now, turn: "next")
         if scenario == "superseded" {
             let nextKey = try #require(ActivityTaskKey(event: next))
-            monitor.tasks[nextKey] = ActivityTask(displayID: UUID(), key: nextKey, event: next, state: .running, startedAt: now, progressGeneration: 0)
+            monitor.graph.tasks[nextKey] = ActivityTask(displayID: UUID(), key: nextKey, event: next, state: .running, startedAt: now, progressGeneration: 0)
         }
         var end = TestFixtures.event(.turnCompleted, at: endedAt, thread: start.threadID, turn: start.turnID)
-        end.context = ActivityContext(
+        end.context = ActivityDataContext(
             method: "turn/completed", threadID: "thread-a", turnID: "turn-a", turnStatus: .completed,
             turnStartedAt: startedAt, turnCompletedAt: scenario == "missing-time" ? nil : endedAt, duration: scenario == "missing-time" ? nil : 2
         )
@@ -65,24 +65,24 @@ struct ActivityPresentationTests {
         } else {
             monitor.consume(.live([end, end]))
         }
-        #expect(monitor.tasks[key] == nil)
-        #expect(monitor.pendingTerminalTasks[key] == nil)
+        #expect(monitor.graph.tasks[key] == nil)
+        #expect(monitor.graph.pendingTerminalTasks[key] == nil)
         #expect(monitor.completions.count == 1)
         #expect(monitor.completions.first?.duration == (scenario == "missing-time" ? nil : 2))
-        #expect(monitor.terminalTokenUsageRequests.count == 1)
+        #expect(monitor.graph.terminalTokenUsageRequests.count == 1)
         let audible = ["active", "missing", "pending", "superseded", "rounded", "missing-time"].contains(scenario)
         #expect(notices == (audible ? 1 : 0))
+        #expect(presentations.flatMap(\.terminalEvents).count == (audible ? 1 : 0))
         if scenario == "superseded" {
-            #expect(try monitor.tasks[#require(ActivityTaskKey(event: next))] != nil)
-        }
-        if ["bootstrap", "recovering", "old"].contains(scenario) {
-            let hasNoTerminalEvents = presentations.allSatisfy(\.terminalEvents.isEmpty)
-            #expect(hasNoTerminalEvents)
+            #expect(try monitor.graph.tasks[#require(ActivityTaskKey(event: next))] != nil)
         }
         var repeated: [ActivityTransition] = []
         monitor.resolveTerminal(.completed(at: endedAt, duration: 2), task: task, key: key, abortFallback: endedAt, into: &repeated)
+        monitor.consume(.lifecycleChanged)
+        monitor.refreshSnapshot(now: now)
         #expect(repeated.isEmpty)
         #expect(monitor.completions.count == 1)
+        #expect(presentations.flatMap(\.terminalEvents).count == (audible ? 1 : 0))
     }
 
     @Test(arguments: [
@@ -123,7 +123,7 @@ struct ActivityPresentationTests {
         let monitor = ActivityMonitor(
             protectionSettings: ProtectionSettings(defaults: preferences.defaults),
             protectionStore: ProtectionStore(directoryURL: directory.url),
-            activityDirectoryURL: directory.url
+            activityDataDirectoryURL: directory.url
         )
         monitor.protectionLoadState = .available
         monitor.isStarted = true

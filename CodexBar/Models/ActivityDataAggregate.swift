@@ -3,39 +3,26 @@ import Foundation
 // MARK: - 每日事件聚合
 
 /// ID 保留期限只决定最终存储形态, 不能影响聚合结果
-nonisolated enum ActivityIdentifiers {
+nonisolated enum ActivityDataIdentifiers {
     case retained
     case compacted
 }
 
 /// 从原始事件生成每日聚合的纯内存累加器
 /// 全量和增量路径都收集 ID, 只有 finalize 时才按保留策略决定是否落盘
-nonisolated struct ActivityAccumulator {
-    private var aggregate: ActivityAggregate
+nonisolated struct ActivityDataAccumulator {
+    private var aggregate: ActivityDataAggregate
     private var threadIDs: Set<String> = []
     private var turnIDs: Set<String> = []
     private var baseThreadCount = 0
     private var baseTurnCount = 0
     private var restoresCompactedIdentity = false
 
-    init(
-        rebuilding date: String,
-        generationID: String?,
-        eventCountAvailability: ActivityCountAvailability
-    ) {
-        aggregate = ActivityAggregate(
-            date: date,
-            generationID: generationID,
-            eventCountAvailability: eventCountAvailability
-        )
+    init(rebuilding date: String) {
+        aggregate = ActivityDataAggregate(date: date)
     }
 
-    init(
-        appending aggregate: ActivityAggregate,
-        generationID: String?
-    ) {
-        var aggregate = aggregate
-        aggregate.generationID = generationID
+    init(appending aggregate: ActivityDataAggregate) {
         self.aggregate = aggregate
         threadIDs = Set(aggregate.threadIDs ?? [])
         turnIDs = Set(aggregate.turnIDs ?? [])
@@ -44,15 +31,17 @@ nonisolated struct ActivityAccumulator {
         restoresCompactedIdentity = !aggregate.supportsIncrementalAggregation
     }
 
-    mutating func record(_ event: ActivityRecord) {
+    mutating func record(_ event: ActivityDataRecord) {
         Self.increment(&aggregate.eventCount)
+        // 一个命令 item 可包含多个动作, 重复类型仍表示独立操作
+        let toolCallCount = max(1, event.commandActionTypes?.count ?? 0)
 
         switch event.eventKind {
         case .turnStarted: Self.increment(&aggregate.turnStartedCount)
         case .turnCompleted: Self.increment(&aggregate.turnCompletedCount)
         case .turnAborted: Self.increment(&aggregate.turnAbortedCount)
-        case .toolStarted: Self.increment(&aggregate.toolStartedCount)
-        case .toolCompleted: Self.increment(&aggregate.toolCompletedCount)
+        case .toolStarted: Self.increment(&aggregate.toolStartedCount, by: toolCallCount)
+        case .toolCompleted: Self.increment(&aggregate.toolCompletedCount, by: toolCallCount)
         case .approvalRequested: Self.increment(&aggregate.approvalRequestedCount)
         case .compactionStarted: Self.increment(&aggregate.compactionStartedCount)
         case .compactionCompleted: Self.increment(&aggregate.compactionCompletedCount)
@@ -78,7 +67,7 @@ nonisolated struct ActivityAccumulator {
         }
     }
 
-    mutating func restoreIdentity(from event: ActivityRecord) {
+    mutating func restoreIdentity(from event: ActivityDataRecord) {
         if let threadID = event.threadID {
             threadIDs.insert(threadID)
         }
@@ -87,7 +76,7 @@ nonisolated struct ActivityAccumulator {
         }
     }
 
-    func finalized(identifierStorage: ActivityIdentifiers) -> ActivityAggregate {
+    func finalized(identifierStorage: ActivityDataIdentifiers) -> ActivityDataAggregate {
         var aggregate = aggregate
         switch identifierStorage {
         case .retained:
@@ -104,8 +93,8 @@ nonisolated struct ActivityAccumulator {
         return aggregate
     }
 
-    private static func increment(_ count: inout Int?) {
-        count = (count ?? 0) + 1
+    private static func increment(_ count: inout Int?, by amount: Int = 1) {
+        count = (count ?? 0) + amount
     }
 
     private static func normalizedIdentifiers(_ identifiers: Set<String>) -> [String] {
@@ -113,44 +102,14 @@ nonisolated struct ActivityAccumulator {
     }
 }
 
-/// 全量重放时保留每个活动计数字段原有的可用性
-nonisolated struct ActivityCountAvailability {
-    static let all = ActivityCountAvailability(
-        includesEventCount: true,
-        events: Set(ActivityEventKind.allCases)
-    )
-
-    private let includesEventCount: Bool
-    private let events: Set<ActivityEventKind>
-
-    init(aggregate: ActivityAggregate) {
-        includesEventCount = aggregate.eventCount != nil
-        events = Set(ActivityEventKind.allCases.filter { aggregate.eventCount(for: $0) != nil })
-    }
-
-    private init(includesEventCount: Bool, events: Set<ActivityEventKind>) {
-        self.includesEventCount = includesEventCount
-        self.events = events
-    }
-
-    var initialEventCount: Int? {
-        includesEventCount ? 0 : nil
-    }
-
-    func initialCount(for event: ActivityEventKind) -> Int? {
-        events.contains(event) ? 0 : nil
-    }
-}
-
-/// Aggregates/activity.jsonl 中的持久化聚合行, 同时兼容保留 ID 和只保留计数两种形态
-nonisolated struct ActivityAggregate: Codable, Equatable {
-    static let currentVersion = 1
-    var version = Self.currentVersion
-    var aggregationVersion = AggregationVersion.activity
-    var sourceCheckpoint: ActivitySourceCheckpoint?
+/// 每日聚合按保留期压缩去重身份, 不改变计数含义
+nonisolated struct ActivityDataAggregate: Codable, Equatable {
+    static let schemaVersion = 1
+    var schemaVersion = Self.schemaVersion
+    var aggregationVersion = AggregationVersion.activityData
+    var position: Int64 = 0
 
     let date: String
-    var generationID: String?
     var eventCount: Int?
     var turnStartedCount: Int?
     var turnCompletedCount: Int?
@@ -174,24 +133,19 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
         threadCount == nil && turnCount == nil
     }
 
-    init(
-        date: String,
-        generationID: String? = nil,
-        eventCountAvailability: ActivityCountAvailability = .all
-    ) {
+    init(date: String) {
         self.date = date
-        self.generationID = generationID
-        eventCount = eventCountAvailability.initialEventCount
-        turnStartedCount = eventCountAvailability.initialCount(for: .turnStarted)
-        turnCompletedCount = eventCountAvailability.initialCount(for: .turnCompleted)
-        turnAbortedCount = eventCountAvailability.initialCount(for: .turnAborted)
-        toolStartedCount = eventCountAvailability.initialCount(for: .toolStarted)
-        toolCompletedCount = eventCountAvailability.initialCount(for: .toolCompleted)
-        approvalRequestedCount = eventCountAvailability.initialCount(for: .approvalRequested)
-        compactionStartedCount = eventCountAvailability.initialCount(for: .compactionStarted)
-        compactionCompletedCount = eventCountAvailability.initialCount(for: .compactionCompleted)
-        subagentStartedCount = eventCountAvailability.initialCount(for: .subagentStarted)
-        subagentEndedCount = eventCountAvailability.initialCount(for: .subagentEnded)
+        eventCount = 0
+        turnStartedCount = 0
+        turnCompletedCount = 0
+        turnAbortedCount = 0
+        toolStartedCount = 0
+        toolCompletedCount = 0
+        approvalRequestedCount = 0
+        compactionStartedCount = 0
+        compactionCompletedCount = 0
+        subagentStartedCount = 0
+        subagentEndedCount = 0
         threadCount = nil
         turnCount = nil
         projectCounts = [:]
@@ -202,13 +156,15 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        version = try container.decode(Int.self, forKey: .version)
-        try StorageVersion.require(version, current: Self.currentVersion, name: "ActivityAggregate")
-        sourceCheckpoint = try container.decodeIfPresent(ActivitySourceCheckpoint.self, forKey: .sourceCheckpoint)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        try StorageVersion.require(schemaVersion, current: Self.schemaVersion, name: "ActivityDataAggregate")
         aggregationVersion = try container.decode(Int.self, forKey: .aggregationVersion)
-        try AggregationVersion.require(aggregationVersion, current: AggregationVersion.activity, name: "Activity")
+        try AggregationVersion.require(aggregationVersion, current: AggregationVersion.activityData, name: "activityData")
+        position = try container.decode(Int64.self, forKey: .position)
+        guard position >= 0 else {
+            throw DecodingError.dataCorruptedError(forKey: .position, in: container, debugDescription: "Invalid aggregate position")
+        }
         date = try container.decode(String.self, forKey: .date)
-        generationID = try container.decodeIfPresent(String.self, forKey: .generationID)
         eventCount = try container.decodeIfPresent(Int.self, forKey: .eventCount)
         turnStartedCount = try container.decodeIfPresent(Int.self, forKey: .turnStartedCount)
         turnCompletedCount = try container.decodeIfPresent(Int.self, forKey: .turnCompletedCount)
@@ -247,15 +203,15 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
         turnIDs = nil
     }
 
-    var metrics: ActivityMetrics {
+    var metrics: ActivityDataMetrics {
         syncedAggregate.metrics
     }
 
     static func normalized(
-        aggregates: [ActivityAggregate],
+        aggregates: [ActivityDataAggregate],
         today: Date = Date(),
         calendar: Calendar = .current
-    ) -> [ActivityAggregate] {
+    ) -> [ActivityDataAggregate] {
         let retentionCutoffDate = HistoryStorage.retentionCutoffDate(today: today, calendar: calendar)
         let identifierCutoffDate = HistoryStorage.identifierRetentionCutoffDate(today: today, calendar: calendar)
 
@@ -273,41 +229,10 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
         .sorted { $0.date < $1.date }
     }
 
-    static func encodeJSONLines(_ aggregates: [ActivityAggregate]) throws -> Data {
-        try aggregates.reduce(into: Data()) { result, aggregate in
-            try result.append(aggregate.jsonLineData())
-        }
-    }
-
-    func jsonLineData() throws -> Data {
-        try JSONLines.stableEncoder.encode(self) + Data([JSONLines.newlineByte])
-    }
-
-    var eventCountAvailability: ActivityCountAvailability {
-        ActivityCountAvailability(aggregate: self)
-    }
-
-    func eventCount(for event: ActivityEventKind) -> Int? {
-        switch event {
-        case .turnStarted: turnStartedCount
-        case .turnCompleted: turnCompletedCount
-        case .turnAborted: turnAbortedCount
-        case .toolStarted: toolStartedCount
-        case .toolCompleted: toolCompletedCount
-        case .approvalRequested: approvalRequestedCount
-        case .compactionStarted: compactionStartedCount
-        case .compactionCompleted: compactionCompletedCount
-        case .subagentStarted: subagentStartedCount
-        case .subagentEnded: subagentEndedCount
-        }
-    }
-
-    var syncedAggregate: SyncedActivity {
-        SyncedActivity(
+    var syncedAggregate: SyncedActivityData {
+        SyncedActivityData(
             aggregationVersion: aggregationVersion,
-            sourceCheckpoint: sourceCheckpoint,
             date: date,
-            generationID: generationID,
             eventCount: eventCount,
             turnStartedCount: turnStartedCount,
             turnCompletedCount: turnCompletedCount,
@@ -349,9 +274,8 @@ nonisolated struct ActivityAggregate: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, aggregationVersion, sourceCheckpoint
+        case schemaVersion, aggregationVersion, position
         case date
-        case generationID
         case eventCount
         case turnStartedCount
         case turnCompletedCount

@@ -3,58 +3,34 @@ import Foundation
 /// 将协议事件映射为既有业务阶段, 快照核对与实时统计分别处理
 nonisolated struct AppServerActivityReducer {
     var threads: [String: ActivityThread] = [:]
-    var states: [ActivityTurnReference: SessionLifecycleState] = [:]
+    var states: [ActivityTurnReference: TurnLifecycleState] = [:]
     private struct SubagentContext {
-        let parent: ActivityTurnReference
+        let parentTurn: ActivityTurnReference
         let model: String?
         let effort: String?
     }
 
     private var subagentContexts: [String: SubagentContext] = [:]
-    private struct PendingUsage {
-        var usage: TokenUsage
-        var updatedAt: Date
-    }
-
-    private var pendingUsage: [ActivityTurnReference: PendingUsage] = [:]
-    private var threadTotals: [String: TokenUsage] = [:]
-    /// 淘汰内存序列后重新观察时使用新流身份, 防止与磁盘检查点冲突
-    private struct TokenStream {
-        let id = UUID().uuidString.lowercased()
-        var sequence: Int64 = 0
-    }
-
-    private var tokenStreams: [String: TokenStream] = [:]
+    private var tokenUsagePositions: [String: Int64] = [:]
     private var threadLastObserved: [String: Date] = [:]
     private var loadedThreads = Set<String>()
-    private var lastHistoryCutoff: Date?
     private var lastTransientPrune = Date.distantPast
-    private(set) var tokenObservations: [TokenObservation] = []
+    private(set) var tokenUsageSamples: [TokenUsageSample] = []
     private var seenEvents: [String: Date] = [:]
     private var approvals: [String: ActivityTurnReference] = [:]
     private var waitingSince: [String: Date] = [:]
-    private var observingSince = Date.distantPast
-    private(set) var tokenTurns: [String: TokenTurn] = [:]
-    private var isTokenRecordingEnabled = true
+    private(set) var tokenUsageTurns: [ActivityTurnReference: TokenUsage] = [:]
+    private var isTokenUsageRecordingEnabled = true
 
-    mutating func setTokenRecordingEnabled(_ enabled: Bool) {
-        guard enabled != isTokenRecordingEnabled else { return }
-        isTokenRecordingEnabled = enabled
-        // 丢弃采集中断前的累计基线与待关联增量, 新观测使用独立流身份
-        threadTotals.removeAll()
-        tokenStreams.removeAll()
-        pendingUsage.removeAll()
-        tokenObservations.removeAll()
+    mutating func setTokenUsageRecordingEnabled(_ enabled: Bool) {
+        guard enabled != isTokenUsageRecordingEnabled else { return }
+        isTokenUsageRecordingEnabled = enabled
+        tokenUsageSamples.removeAll()
     }
 
-    mutating func reconnect(now: Date = Date()) {
-        // 断线期间的累计变化没有完整轮次归属, 重新建立基线, 不归入重连后的轮次
-        threadTotals.removeAll()
-        tokenStreams.removeAll()
-        pendingUsage.removeAll()
+    mutating func reconnect() {
         approvals.removeAll()
         waitingSince.removeAll()
-        observingSince = now
         for key in states.keys {
             states[key]?.presentation = nil
             states[key]?.pendingApprovals.removeAll()
@@ -69,63 +45,62 @@ nonisolated struct AppServerActivityReducer {
         }
     }
 
-    mutating func invalidateTokenBaseline(_ id: String) {
-        threadTotals.removeValue(forKey: id)
+    mutating func takeTokenUsageSamples() -> [TokenUsageSample] {
+        defer { tokenUsageSamples.removeAll(keepingCapacity: true) }
+        return tokenUsageSamples
     }
 
-    mutating func markNewThread(_ id: String) {
-        if isTokenRecordingEnabled, threadTotals[id] == nil {
-            threadTotals[id] = .zero
+    mutating func applyTokenUsage(_ snapshot: TokenUsageThreadSnapshot) {
+        guard snapshot.position >= tokenUsagePositions[snapshot.threadID, default: 0] else { return }
+        tokenUsagePositions[snapshot.threadID] = snapshot.position
+        for (turnID, usage) in snapshot.turns {
+            let key = reference(snapshot.threadID, turnID)
+            tokenUsageTurns[key] = usage
+            states[key]?.tokenUsage = usage
         }
     }
 
-    mutating func takeTokenObservations() -> [TokenObservation] {
-        defer { tokenObservations.removeAll(keepingCapacity: true) }
-        return tokenObservations
-    }
-
-    mutating func acceptTokenTurns(_ turns: [TokenTurn], replaying observations: [TokenObservation] = []) throws {
-        var records = Dictionary(uniqueKeysWithValues: turns.map { ($0.id, $0) })
-        for observation in observations {
-            let turn = observation.turn
-            records[turn.id] = try observation.applying(to: records[turn.id])
-            if turn.rootID != turn.id, records[turn.rootID] == nil {
-                records[turn.rootID] = TokenTurn(id: turn.rootID, rootID: turn.rootID, startedAt: observation.rootStartedAt, updatedAt: turn.updatedAt)
-            }
+    mutating func reconcile(
+        thread: ActivityThread, turns: [ActivityTurn], now: Date, bootstrap: Bool = false,
+        preservingThreadState: Bool = false, preservingTurns: Set<String> = []
+    ) -> [ActivityDataRecord] {
+        if preservingThreadState, var current = threads[thread.id] {
+            current.cwd = current.cwd ?? thread.cwd
+            current.model = current.model ?? thread.model
+            current.reasoningEffort = current.reasoningEffort ?? thread.reasoningEffort
+            current.parentThreadID = current.parentThreadID ?? thread.parentThreadID
+            current.createdAt = current.createdAt ?? thread.createdAt
+            threads[thread.id] = current
+        } else {
+            threads[thread.id] = thread
         }
-        tokenTurns = records
-        lastHistoryCutoff = nil
-        for key in states.keys {
-            states[key]?.tokenUsage = records[TokenTurn.identifier(thread: key.threadID, turn: key.turnID)]?.usage
-        }
-    }
-
-    mutating func reconcile(thread: ActivityThread, turns: [ActivityTurn], now: Date, bootstrap: Bool = false) -> [ActivityRecord] {
-        threads[thread.id] = thread
         threadLastObserved[thread.id] = now
         let previousReferences = Set(states.keys)
         for turn in turns {
-            for item in turn.items ?? [] {
-                recordSubagentContext(item, threadID: thread.id, turnID: turn.id)
+            if preservingTurns.contains(turn.id) {
+                mergeTurnMetadata(turn, threadID: thread.id)
+            } else {
+                updateTurn(turn, threadID: thread.id, now: now, historical: true)
             }
-            updateTurn(turn, threadID: thread.id, now: now, historical: true)
         }
-        resolveRoots()
-        var events: [ActivityRecord] = []
-        for turn in turns where turn.status == .running && thread.status?.type == .active {
+        mergeSubagentContexts(threadID: thread.id, turns: turns, now: now)
+        var events: [ActivityDataRecord] = []
+        for turn in turns where turn.status == .running && threads[thread.id]?.status?.type == .active && !preservingTurns.contains(turn.id) {
             let key = reference(thread.id, turn.id)
             guard !previousReferences.contains(key) || bootstrap else { continue }
             let state = states[key]
             var value = event(.turnStarted, threadID: thread.id, turnID: turn.id, at: state?.startedAt ?? now)
-            value.context = ActivityContext(
+            value.context = ActivityDataContext(
                 method: "thread/turns/list", threadID: thread.id, turnID: turn.id,
-                parentThreadID: thread.parentID, rootThreadID: state?.rootThreadID,
+                parentThreadID: thread.parentThreadID, rootThreadID: state?.rootThreadID,
                 rootTurnID: state?.rootTurnID, turnStartedAt: state?.startedAt
             )
             events.append(value)
         }
-        updateWaiting(threadID: thread.id, status: thread.status, now: now)
-        if let key = activeReference(thread.id) {
+        if !preservingThreadState {
+            updateWaiting(threadID: thread.id, status: thread.status, now: now)
+        }
+        if !preservingThreadState, let key = activeReference(thread.id) {
             var live = states[key]?.presentation ?? ActivityLivePresentation()
             live.reconcile(status: thread.status)
             states[key]?.presentation = live
@@ -133,12 +108,31 @@ nonisolated struct AppServerActivityReducer {
         return events
     }
 
-    mutating func consume(_ notification: ActivityInput, now: Date) -> [ActivityRecord] {
+    /// 补查只填缺失资料, 不刷新生命周期验证时间或制造进展事件
+    mutating func mergeSubagentContexts(threadID: String, turns: [ActivityTurn], now: Date) {
+        for turn in turns {
+            mergeTurnMetadata(turn, threadID: threadID)
+            for item in turn.items ?? [] where item.agentThreadId.map({ subagentContexts[$0] == nil }) == true {
+                recordSubagentContext(item, threadID: threadID, turnID: turn.id)
+            }
+        }
+        resolveRoots(now: now)
+    }
+
+    private mutating func mergeTurnMetadata(_ turn: ActivityTurn, threadID: String) {
+        let key = reference(threadID, turn.id)
+        guard var state = states[key] else { return }
+        state.startedAt = state.startedAt ?? turn.startedAt
+        state.rootTurnID = state.rootTurnID ?? turn.rootTurnId.flatMap { $0.isEmpty ? nil : $0 }
+        state.parentThreadID = state.parentThreadID ?? threads[threadID]?.parentThreadID
+        states[key] = state
+    }
+
+    mutating func consume(_ notification: ActivityInput, now: Date) -> [ActivityDataRecord] {
         let category = notification.kind.category
         guard category != .ignored else { return [] }
         let params = notification.params
         guard let threadID = params.threadId ?? params.thread?.id else { return [] }
-        let wasKnown = threads[threadID] != nil
         if let thread = params.thread {
             threads[threadID] = thread
         }
@@ -146,12 +140,10 @@ nonisolated struct AppServerActivityReducer {
         threadLastObserved[threadID] = now
         let date = (params.completedAt ?? params.startedAt) ?? now
         let turnID = params.turnId ?? params.turn?.id
-        var events: [ActivityRecord] = []
+        var events: [ActivityDataRecord] = []
         switch notification.kind {
         case .threadDiscovered:
-            if !wasKnown, let created = params.thread?.createdAt, created >= Date(timeIntervalSince1970: floor(observingSince.timeIntervalSince1970)) {
-                markNewThread(threadID)
-            }
+            break
         case .threadStatusChanged:
             threads[threadID]?.status = params.status
             updateWaiting(threadID: threadID, status: params.status, now: now)
@@ -193,8 +185,8 @@ nonisolated struct AppServerActivityReducer {
                 states[reference]?.approvalChangedAt = now
             }
         case .usageUpdated:
-            if let turnID, let usage = params.tokenUsage {
-                updateUsage(threadID: threadID, turnID: turnID, update: usage, now: now)
+            if let tokenUsage = params.tokenUsage, isTokenUsageRecordingEnabled {
+                recordTokenUsage(threadID: threadID, turnID: turnID, update: tokenUsage, now: now)
             }
         default:
             if category == .progress, let turnID {
@@ -203,7 +195,7 @@ nonisolated struct AppServerActivityReducer {
         }
         updatePresentation(notification, threadID: threadID, turnID: turnID, at: date)
         if params.thread != nil || params.item?.type == .subAgentActivity {
-            resolveRoots()
+            resolveRoots(now: now)
         }
         prune(now: now)
         return finish(events, notification: notification, threadID: threadID, turnID: turnID, now: now)
@@ -229,9 +221,9 @@ nonisolated struct AppServerActivityReducer {
     }
 
     private mutating func finish(
-        _ events: [ActivityRecord], notification: ActivityInput,
+        _ events: [ActivityDataRecord], notification: ActivityInput,
         threadID: String, turnID: String?, now: Date
-    ) -> [ActivityRecord] {
+    ) -> [ActivityDataRecord] {
         let context = context(notification, threadID: threadID, turnID: turnID)
         return events.map { value in
             var value = value
@@ -245,13 +237,13 @@ nonisolated struct AppServerActivityReducer {
         }
     }
 
-    private func context(_ notification: ActivityInput, threadID: String, turnID: String?) -> ActivityContext {
+    private func context(_ notification: ActivityInput, threadID: String, turnID: String?) -> ActivityDataContext {
         let params = notification.params
         let state = turnID.flatMap { states[reference(threadID, $0)] }
         let item = params.item ?? approvalItem(notification)
-        return ActivityContext(
+        return ActivityDataContext(
             method: notification.provenanceMethod, threadID: threadID, turnID: turnID,
-            parentThreadID: threads[threadID]?.parentID,
+            parentThreadID: threads[threadID]?.parentThreadID,
             rootThreadID: state?.rootThreadID, rootTurnID: state?.rootTurnID,
             itemID: params.item?.id ?? params.itemId,
             itemType: item?.type.rawValue, itemStatus: params.item?.status,
@@ -264,14 +256,10 @@ nonisolated struct AppServerActivityReducer {
         )
     }
 
-    private mutating func turnEvent(_ turn: ActivityTurn, threadID: String, now: Date) -> ActivityRecord {
+    private mutating func turnEvent(_ turn: ActivityTurn, threadID: String, now: Date) -> ActivityDataRecord {
         updateTurn(turn, threadID: threadID, now: now, historical: false)
-        resolveRoots()
-        if turn.status != .running, threadTotals[threadID] == .zero {
-            // 未观察到本轮用量就已结束, 零基线不能把漏掉的消耗算到下一轮
-            threadTotals.removeValue(forKey: threadID)
-        }
-        let phase: ActivityEventKind = turn.status == .running ? .turnStarted : turn.status == .completed ? .turnCompleted : .turnAborted
+        resolveRoots(now: now)
+        let phase: ActivityDataEventKind = turn.status == .running ? .turnStarted : turn.status == .completed ? .turnCompleted : .turnAborted
         let timestamp = (turn.status == .running ? turn.startedAt : turn.completedAt) ?? now
         return event(phase, threadID: threadID, turnID: turn.id, at: timestamp)
     }
@@ -282,12 +270,6 @@ nonisolated struct AppServerActivityReducer {
     }
 
     private mutating func prune(now: Date) {
-        let retainedDate = HistoryStorage.retentionCutoffDate(today: now)
-        if lastHistoryCutoff != retainedDate {
-            let retainedRoots = Set(tokenTurns.values.filter { $0.updatedAt >= retainedDate }.map(\.rootID))
-            tokenTurns = tokenTurns.filter { $0.value.updatedAt >= retainedDate || retainedRoots.contains($0.key) }
-            lastHistoryCutoff = retainedDate
-        }
         guard now.timeIntervalSince(lastTransientPrune) >= 60 else { return }
         lastTransientPrune = now
         let cutoff = now.addingTimeInterval(-ActivityRetention.window)
@@ -297,7 +279,7 @@ nonisolated struct AppServerActivityReducer {
             return (state.lastProgressAt ?? .distantPast) > cutoff
                 || (state.terminal == nil && state.readStatus != .notFound && (loadedThreads.contains(key.threadID) || state.readStatus == .complete))
         })
-        // 子线程仍在使用的祖先状态必须保留, 否则迟到用量会失去根轮次归属
+        // 子会话仍在使用的祖先状态必须保留, 否则迟到用量会失去根轮次归属
         var changed = true
         while changed {
             let previous = retained
@@ -306,25 +288,22 @@ nonisolated struct AppServerActivityReducer {
                 if let root = state.rootThreadID, let turn = state.rootTurnID {
                     retained.insert(reference(root, turn))
                 }
-                if let parent = subagentContexts[key.threadID]?.parent {
-                    retained.insert(parent)
+                if let parentTurn = subagentContexts[key.threadID]?.parentTurn {
+                    retained.insert(parentTurn)
                 }
             }
             changed = previous != retained
         }
         states = states.filter { retained.contains($0.key) }
-        pendingUsage = pendingUsage.filter { retained.contains($0.key) }
         let retainedThreads = loadedThreads.union(retained.flatMap { ancestorThreads(of: $0.threadID) })
             .union(threadLastObserved.filter { $0.value > cutoff }.keys)
         threads = threads.filter { retainedThreads.contains($0.key) }
         threadLastObserved = threadLastObserved.filter { retainedThreads.contains($0.key) }
-        subagentContexts = subagentContexts.filter { retainedThreads.contains($0.key) || retained.contains($0.value.parent) }
-        threadTotals = threadTotals.filter { retainedThreads.contains($0.key) }
+        subagentContexts = subagentContexts.filter { retainedThreads.contains($0.key) || retained.contains($0.value.parentTurn) }
+        tokenUsagePositions = tokenUsagePositions.filter { retainedThreads.contains($0.key) }
+        tokenUsageTurns = tokenUsageTurns.filter { retained.contains($0.key) }
         waitingSince = waitingSince.filter { retainedThreads.contains($0.key) }
         approvals = approvals.filter { states[$0.value]?.terminal == nil && states[$0.value] != nil }
-        let retainedTokens = Set(retained.map { TokenTurn.identifier(thread: $0.threadID, turn: $0.turnID) })
-            .union(tokenObservations.map(\.turn.id))
-        tokenStreams = tokenStreams.filter { retainedTokens.contains($0.key) }
     }
 
     private func approvalIdentity(_ notification: ActivityInput) -> String? {
@@ -334,11 +313,14 @@ nonisolated struct AppServerActivityReducer {
         return [notification.kind.rawValue, item, callback].joined(separator: ":")
     }
 
-    private mutating func itemEvents(_ item: ActivityItem, method: ActivityInput.Kind, threadID: String, turnID: String, at date: Date) -> [ActivityRecord] {
-        var events: [ActivityRecord] = []
+    private mutating func itemEvents(_ item: ActivityItem, method: ActivityInput.Kind, threadID: String, turnID: String, at date: Date) -> [ActivityDataRecord] {
         recordSubagentContext(item, threadID: threadID, turnID: turnID)
         progress(threadID, turnID, at: date)
-        let starting = method == .itemStarted
+        return itemFacts(item, starting: method == .itemStarted, threadID: threadID, turnID: turnID, at: date)
+    }
+
+    private func itemFacts(_ item: ActivityItem, starting: Bool, threadID: String, turnID: String, at date: Date) -> [ActivityDataRecord] {
+        var events: [ActivityDataRecord] = []
         if item.isToolCall {
             events.append(event(starting ? .toolStarted : .toolCompleted, threadID: threadID, turnID: turnID, at: date, item: item))
         } else if item.type == .contextCompaction {
@@ -354,6 +336,56 @@ nonisolated struct AppServerActivityReducer {
             ))
         }
         return events
+    }
+
+    mutating func historicalEvents(_ entries: [ActivityItemEntry], reference: ActivityTurnReference, now: Date) -> [ActivityDataRecord] {
+        let threadID = reference.threadID
+        let turnID = reference.turnID
+        let turn = ActivityTurn(id: turnID, status: .unknown, items: entries.map(\.item))
+        mergeSubagentContexts(threadID: threadID, turns: [turn], now: now)
+        let state = states[reference]
+        return entries.flatMap { entry -> [ActivityDataRecord] in
+            let started = entry.startedAt ?? state?.startedAt ?? now
+            let completed = entry.completedAt ?? state?.terminal?.timestamp ?? started
+            let item = entry.item
+            var events = itemFacts(item, starting: true, threadID: threadID, turnID: turnID, at: started)
+            let isCompleted = entry.completedAt != nil || ["completed", "failed", "declined", "interrupted"].contains(item.status ?? "")
+                || (item.type == .subAgentActivity && ["started", "completed", "interrupted"].contains(item.kind ?? ""))
+            if isCompleted {
+                events += itemFacts(item, starting: false, threadID: threadID, turnID: turnID, at: completed)
+            }
+            return events.map { event in
+                var event = event
+                event.context = ActivityDataContext(
+                    method: "thread/items/list", threadID: threadID, turnID: turnID,
+                    parentThreadID: threads[threadID]?.parentThreadID, rootThreadID: state?.rootThreadID, rootTurnID: state?.rootTurnID,
+                    itemID: item.id, itemType: item.type.rawValue, itemStatus: item.status,
+                    agentThreadID: item.agentThreadId, itemKind: item.kind, turnStartedAt: state?.startedAt
+                )
+                return event
+            }
+        }
+    }
+
+    func historicalTurnEvents(_ reference: ActivityTurnReference) -> [ActivityDataRecord] {
+        guard let state = states[reference] else { return [] }
+        var phases: [(ActivityDataEventKind, Date)] = []
+        if let started = state.startedAt {
+            phases.append((.turnStarted, started))
+        }
+        if let terminal = state.terminal, let completed = terminal.timestamp {
+            phases.append((state.turnStatus == .completed ? .turnCompleted : .turnAborted, completed))
+        }
+        return phases.map { phase, date in
+            var value = event(phase, threadID: reference.threadID, turnID: reference.turnID, at: date)
+            value.context = ActivityDataContext(
+                method: "thread/turns/list", threadID: reference.threadID, turnID: reference.turnID,
+                parentThreadID: threads[reference.threadID]?.parentThreadID,
+                rootThreadID: state.rootThreadID, rootTurnID: state.rootTurnID, turnStatus: state.turnStatus,
+                turnStartedAt: state.startedAt
+            )
+            return value
+        }
     }
 
     private func approvalItem(_ notification: ActivityInput) -> ActivityItem? {
@@ -372,7 +404,7 @@ nonisolated struct AppServerActivityReducer {
         let start = turn.startedAt
         let reference = reference(threadID, turn.id)
         let previous = states[reference]
-        let terminal: SessionTerminalState?
+        let terminal: TurnTerminalState?
         let isTerminal = turn.status.isTerminal
         let isLoaded = [.active, .idle].contains(threads[threadID]?.status?.type ?? .unknown)
         if isTerminal, turn.completedAt != nil || !historical || isLoaded {
@@ -397,14 +429,14 @@ nonisolated struct AppServerActivityReducer {
         } else {
             terminal = previous?.terminal
         }
-        var state = SessionLifecycleState(
+        var state = TurnLifecycleState(
             requestedThreadID: threadID, turnID: turn.id, startedAt: start ?? previous?.startedAt,
             effort: threads[threadID]?.reasoningEffort, lastProgressAt: previous?.lastProgressAt ?? start,
             terminal: terminal, readStatus: terminal == nil && (!isLoaded || turn.status != .running) ? .unavailable : .complete,
             contextObservedAt: now, rootTurnID: turn.rootTurnId.flatMap { $0.isEmpty ? nil : $0 } ?? previous?.rootTurnID,
             rootThreadID: nil,
-            parentThreadID: threads[threadID]?.parentID,
-            tokenUsage: previous?.tokenUsage ?? tokenTurns[TokenTurn.identifier(thread: threadID, turn: turn.id)]?.usage,
+            parentThreadID: threads[threadID]?.parentThreadID,
+            tokenUsage: previous?.tokenUsage ?? tokenUsageTurns[reference],
             isHistoricalTerminal: previous?.terminal == nil ? historical : previous?.isHistoricalTerminal ?? historical,
             isWaitingApproval: previous?.isWaitingApproval, approvalChangedAt: previous?.approvalChangedAt
         )
@@ -450,8 +482,8 @@ nonisolated struct AppServerActivityReducer {
         states[key]?.lastProgressAt = max(lastProgress, date)
     }
 
-    /// 只匹配服务端给出的根轮次, 不根据创建时间或父线程当前轮次推断
-    private mutating func resolveRoots() {
+    /// 只匹配服务端给出的根轮次, 不根据创建时间或父会话当前轮次推断
+    private mutating func resolveRoots(now _: Date) {
         let byTurn = Dictionary(grouping: states.keys, by: \.turnID)
         for key in states.keys {
             guard let root = states[key]?.rootTurnID else { continue }
@@ -465,17 +497,13 @@ nonisolated struct AppServerActivityReducer {
             let resolvedEffort = effort(for: key)
             states[key]?.effort = resolvedEffort
         }
-        for (key, pending) in pendingUsage where states[key]?.rootThreadID != nil {
-            recordUsage(key, previous: .zero, current: pending.usage, now: pending.updatedAt)
-            pendingUsage.removeValue(forKey: key)
-        }
     }
 
     private func ancestorThreads(of id: String) -> Set<String> {
         var result = Set<String>()
         var current: String? = id
         while let thread = current, result.insert(thread).inserted {
-            current = threads[thread]?.parentID ?? subagentContexts[thread]?.parent.threadID
+            current = threads[thread]?.parentThreadID ?? subagentContexts[thread]?.parentTurn.threadID
         }
         return result
     }
@@ -492,32 +520,25 @@ nonisolated struct AppServerActivityReducer {
         return result
     }
 
-    func missingSubagentContexts(in threadID: String, liveOnly: Bool = false) -> Set<String> {
-        let liveThreads = Set(states.values.filter { $0.terminal == nil }.map(\.requestedThreadID))
-        return Set(threads.values.filter {
-            $0.parentID == threadID && subagentContexts[$0.id] == nil && (!liveOnly || liveThreads.contains($0.id))
-        }.map(\.id))
-    }
-
     func missingSubagentParents(liveOnly: Bool = false) -> Set<String> {
         let liveThreads = Set(states.values.filter { $0.terminal == nil }.map(\.requestedThreadID))
         return Set(threads.values.filter {
             subagentContexts[$0.id] == nil && (!liveOnly || liveThreads.contains($0.id))
-        }.compactMap(\.parentID))
+        }.compactMap(\.parentThreadID))
     }
 
     private mutating func recordSubagentContext(_ item: ActivityItem, threadID: String, turnID: String) {
-        guard item.type == .subAgentActivity, item.kind == "started", let agent = item.agentThreadId else { return }
-        subagentContexts[agent] = SubagentContext(
-            parent: reference(threadID, turnID), model: item.model, effort: item.reasoningEffort
+        guard item.type == .subAgentActivity, item.kind == "started", let agentThreadID = item.agentThreadId else { return }
+        subagentContexts[agentThreadID] = SubagentContext(
+            parentTurn: reference(threadID, turnID), model: item.model, effort: item.reasoningEffort
         )
     }
 
     private func effort(for key: ActivityTurnReference) -> String? {
         let current = threads[key.threadID]?.reasoningEffort
-        // 创建参数只属于创建时的根工作, 子线程参与其他根轮次时不能继续带入
+        // 创建参数只属于创建时的根工作, 子会话参与其他根轮次时不能继续带入
         guard let context = subagentContexts[key.threadID], let root = states[key]?.rootTurnID,
-              states[context.parent]?.rootTurnID == root else { return current }
+              states[context.parentTurn]?.rootTurnID == root else { return current }
         if let created = context.effort, let current, created != current {
             return "mixed"
         }
@@ -535,74 +556,34 @@ nonisolated struct AppServerActivityReducer {
     }
 
     private func event(
-        _ phase: ActivityEventKind, threadID: String, turnID: String, at date: Date,
+        _ phase: ActivityDataEventKind, threadID: String, turnID: String, at date: Date,
         item: ActivityItem? = nil, identity: String? = nil
-    ) -> ActivityRecord {
+    ) -> ActivityDataRecord {
         let thread = threads[threadID]
         let state = states[reference(threadID, turnID)]
-        let isChild = thread?.parentID != nil
-        let agentID = item?.agentThreadId ?? (isChild ? threadID : nil)
+        let isChild = thread?.parentThreadID != nil
+        let agentThreadID = item?.agentThreadId ?? (isChild ? threadID : nil)
         let isAgentActivity = item?.type == .subAgentActivity
-        let agentThread = agentID.flatMap { threads[$0] }
-        let context = agentID.flatMap { subagentContexts[$0] }
+        let agentThread = agentThreadID.flatMap { threads[$0] }
+        let context = agentThreadID.flatMap { subagentContexts[$0] }
         let agentModel = item?.kind == "started" ? item?.model : agentThread?.model ?? context?.model
         let agentEffort = item?.kind == "started" ? item?.reasoningEffort : agentThread?.reasoningEffort ?? context?.effort
-        return ActivityRecord(
+        return ActivityDataRecord(
             timestamp: date, name: phase.rawValue, origin: thread?.origin ?? .unknown,
             cwd: thread?.cwd, toolName: item?.type == .commandExecution ? nil : item?.tool,
             commandActionTypes: item?.type == .commandExecution ? item?.commandActions?.map(\.type) : nil,
             model: isAgentActivity ? agentModel : thread?.model,
             effort: isAgentActivity ? agentEffort : thread?.reasoningEffort,
-            threadID: isChild ? state?.rootThreadID : threadID, turnID: isAgentActivity ? nil : turnID, agentID: agentID,
+            threadID: isChild ? state?.rootThreadID : threadID, turnID: isAgentActivity ? nil : turnID, agentThreadID: agentThreadID,
             id: [threadID, turnID, identity ?? item?.id ?? "turn", phase.rawValue].joined(separator: ":")
         )
     }
 
-    private mutating func updateUsage(threadID: String, turnID: String, update: ActivityTokenUpdate, now: Date) {
-        guard isTokenRecordingEnabled else { return }
-        let total = update.total
-        guard total.isValid else { return }
-        defer { threadTotals[threadID] = total }
-        guard let previous = threadTotals[threadID], let delta = total.subtracting(previous), delta != .zero else { return }
-        let key = reference(threadID, turnID)
-        guard let state = states[key] else { return }
-        guard state.rootThreadID != nil, state.rootTurnID != nil else {
-            if let usage = (pendingUsage[key]?.usage ?? .zero).adding(delta), usage.isValid {
-                pendingUsage[key] = PendingUsage(usage: usage, updatedAt: now)
-            }
-            return
-        }
-        recordUsage(key, previous: previous, current: total, now: now)
-    }
-
-    private mutating func recordUsage(_ key: ActivityTurnReference, previous: TokenUsage, current: TokenUsage, now: Date) {
-        guard let state = states[key], let rootThread = state.rootThreadID, let rootTurn = state.rootTurnID else { return }
-        let id = TokenTurn.identifier(thread: key.threadID, turn: key.turnID)
-        let existing = tokenTurns[id]
-        var stream = tokenStreams[id] ?? TokenStream()
-        stream.sequence += 1
-        tokenStreams[id] = stream
-        let rootKey = reference(rootThread, rootTurn)
-        let metadata = TokenTurn(
-            id: id,
-            rootID: TokenTurn.identifier(thread: rootThread, turn: rootTurn),
-            startedAt: state.startedAt,
-            updatedAt: now
-        )
-        let observation = TokenObservation(
-            turn: metadata,
-            rootStartedAt: states[rootKey]?.startedAt,
-            streamID: stream.id,
-            sequence: stream.sequence,
-            previous: previous,
-            current: current
-        )
-        tokenObservations.append(observation)
-        guard let record = try? observation.applying(to: existing) else { return }
-        states[key]?.tokenUsage = record.usage
-        tokenTurns[id] = record
-        if record.rootID != id, tokenTurns[record.rootID] == nil, let root = states[rootKey] {
-            tokenTurns[record.rootID] = TokenTurn(id: record.rootID, rootID: record.rootID, startedAt: root.startedAt, updatedAt: now, usage: nil)
-        }
+    private mutating func recordTokenUsage(threadID: String, turnID: String?, update: TokenUsageUpdate, now: Date) {
+        guard let turnID else { return }
+        tokenUsageSamples.append(TokenUsageSample(
+            observedAt: now, threadID: threadID, turnID: turnID,
+            turnStartedAt: states[reference(threadID, turnID)]?.startedAt, current: update
+        ))
     }
 }

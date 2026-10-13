@@ -337,7 +337,7 @@ struct ActivityCenterView: View {
                     .numericTransition(value: detail, enabled: allowsAnimations)
                     if let tokenUsage {
                         Spacer(minLength: 0)
-                        TokenUsageText(usage: tokenUsage)
+                        TokenUsageText(tokenUsage: tokenUsage)
                     }
                 }
             }

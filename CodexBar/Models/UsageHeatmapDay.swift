@@ -18,7 +18,7 @@ nonisolated enum UsageHeatmapTokenState: Equatable {
 nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     let startDate: String
     let tokenState: UsageHeatmapTokenState
-    let history: ActivityMetrics
+    let activityData: ActivityDataMetrics
     var tokenUsage: TokenUsage?
 
     var id: String {
@@ -41,7 +41,7 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     ) -> [UsageHeatmapDay?] {
         let todayTokenCount = usage?.tokenCount(on: today)
         let hasDailyUsageBuckets = usage?.hasDailyUsageBuckets == true
-        let historyByDate = history.dailyMetrics.reduce(into: [String: ActivityMetrics]()) { result, metrics in
+        let historyByDate = history.activityData.reduce(into: [String: ActivityDataMetrics]()) { result, metrics in
             result[metrics.startDate] = metrics
         }
         let todayString = CodexDateFormat.dayString(from: today)
@@ -68,8 +68,8 @@ nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
             return UsageHeatmapDay(
                 startDate: startDate,
                 tokenState: tokenState,
-                history: history.unavailableActivityDates.contains(startDate) ? .unavailable(startDate: startDate)
-                    : historyByDate[startDate] ?? (history.isActivityComplete ? .empty(startDate: startDate) : .unavailable(startDate: startDate)),
+                activityData: history.unavailableActivityDataDates.contains(startDate) ? .unavailable(startDate: startDate)
+                    : historyByDate[startDate] ?? (history.isActivityDataComplete ? .empty(startDate: startDate) : .unavailable(startDate: startDate)),
                 tokenUsage: history.tokenUsageByDate[startDate]
             )
         }

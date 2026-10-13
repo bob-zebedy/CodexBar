@@ -150,13 +150,27 @@ struct AppSettingsView: View {
         } message: { result in
             Text(verbatim: result.message)
         }
-        .alert(item: $helperFeatureConfirmation) { feature in
-            feature.alert(helperStatus: keepAliveController.helperStatus) {
+        .alert(
+            helperFeatureConfirmation?.title ?? Text(verbatim: ""),
+            isPresented: Binding(
+                get: { helperFeatureConfirmation != nil },
+                set: {
+                    if !$0 {
+                        helperFeatureConfirmation = nil
+                    }
+                }
+            ),
+            presenting: helperFeatureConfirmation
+        ) { feature in
+            Button("common.action.enable", role: .destructive) {
                 switch feature {
                 case .autoReset: autoResetSettings.setEnabled(true)
                 case .keepAlive: keepAliveController.setEnabled(true)
                 }
             }
+            Button("common.action.cancel", role: .cancel) {}
+        } message: { feature in
+            Text(verbatim: feature.message(helperStatus: keepAliveController.helperStatus))
         }
     }
 }
@@ -763,9 +777,7 @@ private extension AppSettingsView {
     func refreshRebuildableDates() {
         Task {
             let dates = await Task.detached(priority: .utility) {
-                let eventDates = HistoryStorage.rebuildableEventDateKeys()
-                let tokenDates = await (try? TokenHistoryStore().rebuildableDateKeys()) ?? []
-                return Set(eventDates + tokenDates).sorted()
+                HistoryStorage.rebuildableEventDateKeys()
             }.value
             rebuildableDates = dates
         }
@@ -821,12 +833,12 @@ private extension AppSettingsView {
             localized: "history.rebuild.summary.completed",
             defaultValue: "\(summary.rebuiltDateCount, specifier: "%lld")\(summary.eventCount, specifier: "%lld")"
         )
-        message += String(localized: "history.rebuild.summary.token-record-count", defaultValue: "\(summary.tokenTurnCount, specifier: "%lld")")
-        if summary.didFailTokenRebuild {
-            message += String(localized: "history.rebuild.summary.token-history-incomplete")
+        message += String(localized: "history.rebuild.summary.token-usage-record-count", defaultValue: "\(summary.tokenUsageEventCount, specifier: "%lld")")
+        if summary.didFailTokenUsageRebuild {
+            message += String(localized: "history.rebuild.summary.token-usage-history-incomplete")
         }
 
-        let retryDates = summary.failedDateKeys.filter { !summary.failedRequestDateKeys.contains($0) }
+        let retryDates = summary.failedDateKeys
         if !retryDates.isEmpty {
             let listed = retryDates.prefix(rebuildFailedDateListLimit)
             var dates = listed.joined(separator: ", ")
@@ -837,9 +849,6 @@ private extension AppSettingsView {
             message += String(localized: "history.rebuild.summary.retry-later")
         }
 
-        if !summary.failedRequestDateKeys.isEmpty {
-            message += String(localized: "history.rebuild.summary.request-failed")
-        }
         if summary.isSyncPending {
             message += String(localized: "history.rebuild.summary.cloud-replacement-pending")
         }

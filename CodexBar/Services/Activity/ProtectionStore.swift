@@ -121,7 +121,7 @@ actor ProtectionStore {
             return [:]
         }
         let data = try Data(contentsOf: stateURL)
-        try StorageVersion.validate(data, current: ProtectionState.currentVersion, name: "Protection")
+        try StorageVersion.validate(data, current: ProtectionState.schemaVersion, name: "Protection")
         let state = try JSONDecoder().decode(ProtectionState.self, from: data)
 
         return Dictionary(
@@ -136,7 +136,7 @@ actor ProtectionStore {
         _ records: [String: ProtectionRecord]
     ) throws {
         let state = ProtectionState(
-            version: ProtectionState.currentVersion,
+            schemaVersion: ProtectionState.schemaVersion,
             records: records.values.sorted {
                 $0.taskIdentifier < $1.taskIdentifier
             }
@@ -150,8 +150,8 @@ actor ProtectionStore {
 }
 
 private nonisolated struct ProtectionState: Codable {
-    static let currentVersion = 1
+    static let schemaVersion = 1
 
-    let version: Int
+    let schemaVersion: Int
     let records: [ProtectionRecord]
 }

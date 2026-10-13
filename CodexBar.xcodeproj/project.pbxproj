@@ -369,17 +369,17 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		F10000000000000000000009 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			files = (
-			);
-		};
 		C4A0FD932FD9302E000263A7 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
 			);
 		};
 		D10000000000000000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		F10000000000000000000009 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
 			);

@@ -30,13 +30,21 @@ final nonisolated class AppServerSession {
         descriptor >= 0
     }
 
-    private static let maximumMessageSize = 16 * 1024 * 1024
+    static let defaultMaximumMessageSize = 64 * 1024 * 1024
+    private let maximumMessageSize: Int
 
-    init(socketURL: URL, retainsNotifications: Bool = true, logStorage: AppServerLogStore? = .shared, connectionName: String = "activity") throws {
+    init(
+        socketURL: URL,
+        retainsNotifications: Bool = true,
+        logStorage: AppServerLogStore? = .shared,
+        connectionName: String = "activity",
+        maximumMessageSize: Int = AppServerSession.defaultMaximumMessageSize
+    ) throws {
         socketPath = socketURL.path
         self.logStorage = logStorage
         self.connectionName = connectionName
         self.retainsNotifications = retainsNotifications
+        self.maximumMessageSize = maximumMessageSize
         let connectionLogID = logStorage?.recordConnection(method: "connection/open", detail: socketPath, connection: connectionName, status: .pending)
         do {
             descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -347,8 +355,15 @@ final nonisolated class AppServerSession {
             if length == 126 || length == 127 {
                 length = try read(length == 126 ? 2 : 8, before: frameDeadline).reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
             }
-            guard length <= Self.maximumMessageSize, message.count + Int(length) <= Self.maximumMessageSize,
-                  header[1] & 128 == 0 else { throw CodexStatusError.invalidServerResponse }
+            guard header[1] & 128 == 0, header[0] & 0x70 == 0, length <= UInt64(Int64.max),
+                  opcode >= 8 ? ([8, 9, 10].contains(opcode) && header[0] & 128 != 0 && length <= 125)
+                  : opcode == (fragmented ? 0 : 1) else { throw CodexStatusError.invalidServerResponse }
+            let messageBytes = UInt64(message.count) + length
+            guard opcode >= 8 || messageBytes <= maximumMessageSize else {
+                // 正文尚未读取, 必须关闭连接, 不能把残留正文当作下一条消息
+                close()
+                throw CodexStatusError.messageTooLarge(bytes: messageBytes, limit: maximumMessageSize)
+            }
             let payload = try read(Int(length), before: frameDeadline)
             if opcode >= 8 {
                 logStorage?.recordReceived(method: controlMethod(opcode), payload: framePayload(payload), connection: connectionName)
@@ -357,7 +372,6 @@ final nonisolated class AppServerSession {
                 throw CodexStatusError.serverConnectionClosed
             }
             if opcode == 9 {
-                guard header[0] & 128 != 0, length <= 125 else { throw CodexStatusError.invalidServerResponse }
                 try sendFrame(payload, opcode: 10)
                 if !fragmented, try !ready(Int16(POLLIN), before: deadline) {
                     return nil
@@ -365,13 +379,11 @@ final nonisolated class AppServerSession {
                 continue
             }
             if opcode == 10 {
-                guard header[0] & 128 != 0, length <= 125 else { throw CodexStatusError.invalidServerResponse }
                 if !fragmented, try !ready(Int16(POLLIN), before: deadline) {
                     return nil
                 }
                 continue
             }
-            guard header[0] & 0x70 == 0, opcode == (fragmented ? 0 : 1) else { throw CodexStatusError.invalidServerResponse }
             message.append(payload)
             if header[0] & 128 != 0 {
                 if !retainsNotifications,
@@ -403,7 +415,7 @@ final nonisolated class AppServerSession {
     /// 此判断不参与消息路由, 被过滤的消息仍交给业务消费
     private static func shouldRecordIncoming(_ object: [String: Any]?) -> Bool {
         guard let object, let method = object["method"] as? String else { return true }
-        if method == "error" || method == "warning" || AccountChange(method: method) != nil {
+        if method == "error" || method == "warning" || method == "thread/tokenUsage/updated" || AccountChange(method: method) != nil {
             return true
         }
         switch AppServerActivityProtocol.kind(for: method).category {

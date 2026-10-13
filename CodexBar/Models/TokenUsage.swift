@@ -34,6 +34,12 @@ nonisolated struct TokenUsage: Codable, Equatable {
 
     func subtracting(_ other: Self) -> Self? {
         guard isValid, other.isValid else { return nil }
+        return subtractingCounters(other)
+    }
+
+    /// 上下文上限可能给累计 totalTokens 留下偏移, 只接受各计数器差值一致的真实增量
+    func subtractingCounters(_ other: Self) -> Self? {
+        guard values.allSatisfy({ $0 >= 0 }), other.values.allSatisfy({ $0 >= 0 }) else { return nil }
         let differences = zip(values, other.values).map { $0.subtractingReportingOverflow($1) }
         guard !differences.contains(where: { $0.overflow || $0.partialValue < 0 }) else { return nil }
         let result = Self(

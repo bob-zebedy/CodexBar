@@ -28,7 +28,7 @@ nonisolated extension ActivityItem {
         let types = Set((commandActions ?? []).map(\.type))
         let actions = orderedCommandActions
         guard !actions.isEmpty else { return ActivityLiveLabel("command") }
-        let key = "command-" + actions.joined(separator: "-")
+        let key = "command-" + actions.map { $0.lowercased() }.joined(separator: "-")
         if types.isSubset(of: Set(actions)) {
             return ActivityLiveLabel(key)
         }
@@ -96,7 +96,8 @@ nonisolated extension ActivityDisplayFormat {
     static func commandActionText(_ types: [String]) -> String? {
         let actions = orderedCommandActions(types)
         guard !actions.isEmpty else { return nil }
-        return ActivityLiveLabel("actions-" + actions.joined(separator: "-")).text
+        let key = "actions-" + actions.map { $0.lowercased() }.joined(separator: "-")
+        return ActivityLiveLabel(key).text
     }
 
     /// 使用命名类型避免编译器遗漏 switch 元组分支中的本地化引用

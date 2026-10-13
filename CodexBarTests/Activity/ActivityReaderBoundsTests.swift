@@ -21,14 +21,14 @@ struct ActivityReaderBoundsTests {
         var failed = false
         var ready = false
         let reader = AppServerActivityReader(
-            lifecycleCache: SessionLifecycleCache(), socketURL: server.url, logStorage: nil,
-            tokenHistory: TokenHistoryStore(directoryURL: directory.url),
-            recorder: ActivityRecorder(directoryURL: directory.url), maximumLoadedPages: 3
+            probe: ActivityReaderProbe(), socketURL: server.url, logStorage: nil,
+            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url),
+            activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url), maximumLoadedPages: 3
         ) { batch in
-            if case .sourceUnavailable = batch {
+            if case .sourceUnavailable = batch.phase {
                 failed = true
             }
-            if case .bootstrapEnd = batch {
+            if case .bootstrapEnd = batch.phase {
                 ready = true
             }
         }
@@ -68,11 +68,11 @@ struct ActivityReaderBoundsTests {
         defer { server.close() }
         var ready = false
         let reader = AppServerActivityReader(
-            lifecycleCache: SessionLifecycleCache(), socketURL: server.url, logStorage: nil,
-            tokenHistory: TokenHistoryStore(directoryURL: directory.url),
-            recorder: ActivityRecorder(directoryURL: directory.url), reconciliationTimeout: 0.5
+            probe: ActivityReaderProbe(), socketURL: server.url, logStorage: nil,
+            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url),
+            activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url), reconciliationTimeout: 0.5
         ) { batch in
-            if case .bootstrapEnd = batch {
+            if case .bootstrapEnd = batch.phase {
                 ready = true
             }
         }
@@ -82,7 +82,7 @@ struct ActivityReaderBoundsTests {
         }
         #expect(ready)
         let start = Date()
-        #expect(await reader.drainNow() == .sourceUnavailable)
+        #expect(await reader.drainNow().status == .sourceUnavailable)
         #expect(Date().timeIntervalSince(start) < 2)
         await reader.stop()
         release.signal()
@@ -93,7 +93,7 @@ struct ActivityReaderBoundsTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let now = Date().addingTimeInterval(-60)
-        let server = try SharedServerFixture { peer in
+        let server = try SharedServerFixture(connections: 3, concurrentConnections: true) { peer in
             try Self.initialize(peer)
             while let request = try? peer.readMessage() {
                 let params = request["params"] as? [String: Any] ?? [:]
@@ -116,34 +116,37 @@ struct ActivityReaderBoundsTests {
                             "id": "child-turn", "rootTurnId": "root-turn", "status": "inProgress", "startedAt": now.timeIntervalSince1970 + 1
                         ]]])
                     } else if params["cursor"] == nil {
-                        #expect(params["itemsView"] as? String == "full")
+                        #expect(params["itemsView"] as? String == "notLoaded")
                         try peer.reply(to: request, result: ["data": [], "nextCursor": "older"])
                     } else {
                         #expect(params["cursor"] as? String == "older")
-                        #expect(params["itemsView"] as? String == "full")
-                        let item: [String: Any] = [
-                            "id": "spawn", "type": "subAgentActivity", "kind": "started",
-                            "agentThreadId": "child", "model": "child-model", "reasoningEffort": "low"
-                        ]
+                        #expect(params["itemsView"] as? String == "notLoaded")
                         let turn: [String: Any] = [
                             "id": "root-turn", "rootTurnId": "root-turn", "status": "completed",
-                            "startedAt": now.timeIntervalSince1970, "completedAt": now.timeIntervalSince1970 + 2, "items": [item]
+                            "startedAt": now.timeIntervalSince1970, "completedAt": now.timeIntervalSince1970 + 2,
+                            "items": []
                         ]
                         try peer.reply(to: request, result: ["data": [turn]])
                     }
+                case "thread/items/list":
+                    let data: [[String: Any]] = id == "parent" ? [["turnId": "root-turn", "item": [
+                        "id": "spawn", "type": "subAgentActivity", "kind": "started",
+                        "agentThreadId": "child", "model": "child-model", "reasoningEffort": "low"
+                    ]]] : []
+                    try peer.reply(to: request, result: ["data": data])
                 default:
                     Issue.record("Unexpected request")
                 }
             }
         }
         defer { server.close() }
-        let lifecycle = SessionLifecycleCache()
+        let lifecycle = ActivityReaderProbe()
         var ready = false
         let reader = AppServerActivityReader(
-            lifecycleCache: lifecycle, socketURL: server.url, logStorage: nil,
-            tokenHistory: TokenHistoryStore(directoryURL: directory.url), recorder: ActivityRecorder(directoryURL: directory.url)
+            probe: lifecycle, socketURL: server.url, logStorage: nil,
+            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url), activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url)
         ) { batch in
-            if case .bootstrapEnd = batch {
+            if case .bootstrapEnd = batch.phase {
                 ready = true
             }
         }
@@ -152,8 +155,15 @@ struct ActivityReaderBoundsTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         #expect(ready)
-        #expect(await reader.drainNow() == .completed)
-        let states = await lifecycle.lifecycleStates(for: [.init(threadID: "child", turnID: "child-turn")])
+        #expect(await reader.drainNow().status == .completed)
+        for _ in 0 ..< 200 {
+            let current = await reader.lifecycleStatesForTesting(for: [.init(threadID: "child", turnID: "child-turn")])
+            if current.first?.effort == "low" {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let states = await reader.lifecycleStatesForTesting(for: [.init(threadID: "child", turnID: "child-turn")])
         let child = try #require(states.first)
         #expect(child.rootThreadID == "parent")
         #expect(child.rootTurnID == "root-turn")
@@ -208,13 +218,13 @@ extension ActivityReaderBoundsTests {
             }
         }
         defer { server.close() }
-        let lifecycle = SessionLifecycleCache()
+        let lifecycle = ActivityReaderProbe()
         var ready = false
         let reader = AppServerActivityReader(
-            lifecycleCache: lifecycle, socketURL: server.url, logStorage: nil,
-            tokenHistory: TokenHistoryStore(directoryURL: directory.url), recorder: ActivityRecorder(directoryURL: directory.url)
+            probe: lifecycle, socketURL: server.url, logStorage: nil,
+            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url), activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url)
         ) { batch in
-            if case .bootstrapEnd = batch {
+            if case .bootstrapEnd = batch.phase {
                 ready = true
             }
         }
@@ -224,9 +234,10 @@ extension ActivityReaderBoundsTests {
         }
         #expect(ready)
         let result = await reader.drainNow()
-        let states = await lifecycle.lifecycleStates(for: [.init(threadID: "healthy", turnID: "healthy-turn")])
-        #expect(states.first?.readStatus == .complete)
-        #expect(result == (running ? .sourceUnavailable : .completed))
+        let key = ActivityTaskKey(thread: "healthy", turn: "healthy-turn")
+        #expect(lifecycle.graph.tasks[key]?.lifecycleCoverageCheckedAt != nil)
+        #expect(!lifecycle.graph.unavailableTurns.contains(key))
+        #expect(result.status == (running ? .partial : .completed))
         await reader.stop()
         try server.finish()
     }

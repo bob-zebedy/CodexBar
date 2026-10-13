@@ -97,7 +97,7 @@ struct CodexVersionSection: View {
                             .padding(.vertical, 2)
                             .liquidGlassCapsule(tint: .green)
 
-                        Text(info.version ?? String(localized: "codex.version.unknown"))
+                        Text(info.version)
                             .monospacedDigit()
                             .foregroundStyle(Color.codexSecondaryLabel)
                             .numericTransition(value: info.version, enabled: animationState.allowsAnimations)

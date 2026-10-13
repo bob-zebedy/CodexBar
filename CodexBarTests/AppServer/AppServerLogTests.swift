@@ -1,9 +1,101 @@
 import Combine
 import Foundation
+import os
 import SQLite3
 import Testing
 
 struct AppServerLogTests {
+    @Test(arguments: [false, true])
+    func stoppingDuringFirstReadDiscardsResultsAndAllowsReopening(reopenImmediately: Bool) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let writer = AppServerLogStore(directoryURL: directory.url)
+        writer.recordFailure(message: "saved log")
+        _ = try await writer.page()
+
+        let reads = OSAllocatedUnfairLock(initialState: 0)
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let storage = AppServerLogStore(directoryURL: directory.url, now: {
+            let firstRead = reads.withLock { count in
+                count += 1
+                return count == 1
+            }
+            if firstRead {
+                // 仅暂停存储队列, 让主 actor 能在读取完成前关闭窗口
+                #expect(release.wait(timeout: .now() + 5) == .success)
+            }
+            return Date()
+        })
+        let model = AppServerLogViewModel(storage: storage)
+        defer { model.stop() }
+        let firstRead = Task { await model.refresh() }
+        defer { firstRead.cancel() }
+        for _ in 0 ..< 200 where reads.withLock({ $0 }) == 0 {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(reads.withLock { $0 } > 0)
+        #expect(model.isLoading)
+
+        model.stop()
+        #expect(!model.isLoading)
+        #expect(model.entries.isEmpty)
+        if reopenImmediately {
+            model.start()
+        }
+        release.signal()
+        await firstRead.value
+        if !reopenImmediately {
+            #expect(!model.isLoading)
+            #expect(model.entries.isEmpty)
+            #expect(model.totalCount == 0)
+            model.start()
+        }
+
+        for _ in 0 ..< 200 where model.entries.isEmpty || model.isLoading {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(!model.isLoading)
+        #expect(model.totalCount == 1)
+        #expect(model.entries.first?.detail == "saved log")
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test func startingObservationDuringFirstReadCompletesLoading() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let storage = AppServerLogStore(directoryURL: directory.url)
+        storage.recordFailure(message: "startup log")
+        let model = AppServerLogViewModel(storage: storage)
+        defer { model.stop() }
+
+        // 确定性复现视图先读取, 窗口随后开始观察的调用顺序
+        var didStart = false
+        let subscription = model.$isLoading.sink { isLoading in
+            guard isLoading, !didStart else { return }
+            didStart = true
+            model.start()
+        }
+        defer { subscription.cancel() }
+
+        await model.refresh()
+        #expect(didStart)
+        #expect(!model.isLoading)
+        #expect(model.totalCount == 1)
+        #expect(model.entries.first?.detail == "startup log")
+        #expect(model.errorMessage == nil)
+        #expect(try await storage.page().total == 1)
+
+        await model.refresh()
+        #expect(!model.isLoading)
+        #expect(model.entries.count == 1)
+
+        model.stop()
+        await model.refresh()
+        #expect(!model.isLoading)
+        #expect(model.entries.first?.detail == "startup log")
+    }
+
     @Test func unsupportedDatabaseVersionRejectsWritesAndClear() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

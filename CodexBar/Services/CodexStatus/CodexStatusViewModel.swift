@@ -360,9 +360,7 @@ final class CodexStatusViewModel: ObservableObject {
         }
 
         do {
-            codexConnectionInfo = try await service.reconnect(
-                minimumVersion: CodexVersionReader.minimumAppServerVersion
-            )
+            codexConnectionInfo = try await service.reconnect()
             didReconnect = true
         } catch {
             loadState = switch error {

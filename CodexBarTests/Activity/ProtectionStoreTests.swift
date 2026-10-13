@@ -39,7 +39,7 @@ struct ProtectionStoreTests {
         #expect(try await Set(first.load(now: TestFixtures.now).keys) == ["first", "second"])
     }
 
-    @Test(arguments: ["not-json", #"{"version":999,"records":[]}"#])
+    @Test(arguments: ["not-json", #"{"schemaVersion":999,"records":[]}"#])
     func invalidStateIsPreservedAndRejectsWrites(_ content: String) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
@@ -57,10 +57,13 @@ struct ProtectionStoreTests {
         let older = makeRecord("task", markedAfter: 0)
         let newer = makeRecord("task", markedAfter: 5)
         let records = try #require(String(data: JSONEncoder().encode([newer, older]), encoding: .utf8))
-        let url = try directory.write("{\"version\":1,\"records\":\(records)}", to: "state.json")
+        let url = try directory.write("{\"schemaVersion\":1,\"records\":\(records)}", to: "state.json")
         let store = ProtectionStore(directoryURL: directory.url)
         #expect(try await store.load(now: TestFixtures.now)["task"] == newer)
         try await store.apply(now: TestFixtures.now)
+        let stored = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        #expect(Set(stored.keys) == ["schemaVersion", "records"])
+        #expect(stored["schemaVersion"] as? Int == 1)
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
     }

@@ -45,7 +45,7 @@ struct UsageSummaryView: View {
                 clearHover()
             }
             .onChange(of: days) { _, newDays in
-                refreshHoveredDay(from: newDays)
+                clearMissingHoverSelection(in: newDays)
             }
             .onChange(of: hoverContext) { _, context in
                 onHoverContextChange(context)
@@ -81,7 +81,7 @@ struct UsageSummaryView: View {
                 value: Self.dayText(usage?.summary.longestStreakDays)
             )
             textMetric(
-                label: "usage.summary.longest-chat",
+                label: "usage.summary.longest-turn",
                 value: Self.durationText(seconds: usage?.summary.longestRunningTurnSec)
             )
         }
@@ -150,39 +150,20 @@ struct UsageSummaryView: View {
 
     private var hoverContext: UsageHeatmapHoverContext? {
         // 详情面板由控制器显示, SwiftUI 这里只负责传递屏幕坐标和数据
-        hoverSelection.map {
-            UsageHeatmapHoverContext(
-                day: $0.day,
-                isStale: isStale,
-                alignmentScreenFrame: heatmapScreenFrame,
-                preferredSide: UsageHeatmap.Metrics.preferredDetailSide(for: $0.column),
-                peakTokens: peakTokens
-            )
-        }
+        guard let hoverSelection, let day = hoverSelection.day(in: days) else { return nil }
+        return UsageHeatmapHoverContext(
+            day: day,
+            isStale: isStale,
+            alignmentScreenFrame: heatmapScreenFrame,
+            preferredSide: UsageHeatmap.Metrics.preferredDetailSide(for: hoverSelection.column),
+            peakTokens: peakTokens
+        )
     }
 
-    private func refreshHoveredDay(from days: [UsageHeatmapDay?]) {
-        guard let hoverSelection else {
-            return
-        }
-
-        guard let updatedDay = days.compactMap(\.self).first(where: { $0.id == hoverSelection.day.id }) else {
-            withAnimation(Metrics.statusAnimation) {
-                self.hoverSelection = nil
-            }
-            return
-        }
-
-        guard updatedDay != hoverSelection.day else {
-            return
-        }
-
+    private func clearMissingHoverSelection(in days: [UsageHeatmapDay?]) {
+        guard let hoverSelection, hoverSelection.day(in: days) == nil else { return }
         withAnimation(Metrics.statusAnimation) {
-            self.hoverSelection = UsageHeatmapSelection(
-                day: updatedDay,
-                column: hoverSelection.column,
-                row: hoverSelection.row
-            )
+            self.hoverSelection = nil
         }
     }
 

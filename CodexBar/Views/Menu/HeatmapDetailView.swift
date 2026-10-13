@@ -52,7 +52,7 @@ struct HeatmapDetailView: View {
 
             HStack(alignment: .top, spacing: Metrics.columnSpacing) {
                 VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
-                    columnTitle("usage.heatmap.activity-metrics")
+                    columnTitle("usage.heatmap.activity-data-metrics")
                     Grid(alignment: .leading, horizontalSpacing: Metrics.metricRowSpacing, verticalSpacing: Metrics.metricSpacing) {
                         mostUsedModelMetricRow
                         ForEach(activityMetricRows) { row in
@@ -67,8 +67,8 @@ struct HeatmapDetailView: View {
                     .frame(width: 1)
 
                 VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
-                    columnTitle("usage.heatmap.token-metrics")
-                    dailyTokenMetrics
+                    columnTitle("usage.heatmap.token-usage-metrics")
+                    dailyTokenUsageMetrics
                 }
                 .frame(minWidth: 0, maxWidth: .infinity)
             }
@@ -83,18 +83,18 @@ struct HeatmapDetailView: View {
             .frame(height: Metrics.metricRowHeight)
     }
 
-    private var dailyTokenMetrics: some View {
-        let usage = context.day.tokenUsage
-        let cacheHitRate = usage?.cacheHitRate ?? 0
+    private var dailyTokenUsageMetrics: some View {
+        let tokenUsage = context.day.tokenUsage
+        let cacheHitRate = tokenUsage?.cacheHitRate ?? 0
         return Grid(alignment: .leading, horizontalSpacing: Metrics.metricRowSpacing, verticalSpacing: Metrics.metricSpacing) {
-            dailyTokenRow("usage.tokens.total", tokens: usage?.totalTokens, tint: .blue)
-            dailyTokenRow("usage.tokens.input", tokens: usage?.inputTokens, tint: .indigo)
-            dailyTokenRow("usage.tokens.output", tokens: usage?.outputTokens, tint: .orange)
-            dailyTokenRow("usage.tokens.cached-input", tokens: usage?.cachedInputTokens, tint: .green)
-            dailyTokenRow("usage.tokens.cache-write-input", tokens: usage?.cacheWriteInputTokens, tint: .purple)
+            dailyTokenUsageRow("usage.token-usage.total", tokens: tokenUsage?.totalTokens, tint: .blue)
+            dailyTokenUsageRow("usage.token-usage.input", tokens: tokenUsage?.inputTokens, tint: .indigo)
+            dailyTokenUsageRow("usage.token-usage.output", tokens: tokenUsage?.outputTokens, tint: .orange)
+            dailyTokenUsageRow("usage.token-usage.cached-input", tokens: tokenUsage?.cachedInputTokens, tint: .green)
+            dailyTokenUsageRow("usage.token-usage.cache-write-input", tokens: tokenUsage?.cacheWriteInputTokens, tint: .purple)
             metricRowLayout {
                 metricDot(tint: .teal)
-                Text("usage.tokens.cache-hit-rate")
+                Text("usage.token-usage.cache-hit-rate")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: true, vertical: false)
                     .frame(height: Metrics.metricRowHeight)
@@ -103,11 +103,11 @@ struct HeatmapDetailView: View {
                     comparison: cacheHitRate
                 )
             }
-            dailyTokenRow("usage.tokens.reasoning-output", tokens: usage?.reasoningOutputTokens, tint: .cyan)
+            dailyTokenUsageRow("usage.token-usage.reasoning-output", tokens: tokenUsage?.reasoningOutputTokens, tint: .cyan)
         }
     }
 
-    private func dailyTokenRow(_ title: LocalizedStringKey, tokens: Int64?, tint: Color) -> some View {
+    private func dailyTokenUsageRow(_ title: LocalizedStringKey, tokens: Int64?, tint: Color) -> some View {
         let count = tokens ?? 0
         return metricRowLayout {
             metricDot(tint: tint)
@@ -134,7 +134,7 @@ struct HeatmapDetailView: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(height: Metrics.metricRowHeight)
 
-            fittingModelValue(context.day.history.mostUsedModel ?? "--")
+            fittingModelValue(context.day.activityData.mostUsedModel ?? "--")
         }
     }
 
@@ -163,33 +163,33 @@ struct HeatmapDetailView: View {
     private var activityMetricRows: [ActivityMetricRow] {
         [
             ActivityMetricRow(
-                label: String(localized: "history.metric.sessions"),
-                value: context.day.history.threadCount,
+                label: String(localized: "history.activity-data.threads"),
+                value: context.day.activityData.threadCount,
                 tint: .green
             ),
             ActivityMetricRow(
-                label: String(localized: "history.metric.turns"),
-                value: context.day.history.turnCount,
+                label: String(localized: "history.activity-data.turns"),
+                value: context.day.activityData.turnCount,
                 tint: .teal
             ),
             ActivityMetricRow(
-                label: String(localized: "history.metric.subagents"),
-                value: context.day.history.subagentCount,
+                label: String(localized: "history.activity-data.subagents"),
+                value: context.day.activityData.subagentCount,
                 tint: .indigo
             ),
             ActivityMetricRow(
-                label: String(localized: "history.metric.tool-calls"),
-                value: context.day.history.toolCallCount,
+                label: String(localized: "history.activity-data.tool-calls"),
+                value: context.day.activityData.toolCallCount,
                 tint: .orange
             ),
             ActivityMetricRow(
-                label: String(localized: "history.metric.approvals"),
-                value: context.day.history.approvalRequestedCount,
+                label: String(localized: "history.activity-data.approvals"),
+                value: context.day.activityData.approvalRequestedCount,
                 tint: .red
             ),
             ActivityMetricRow(
-                label: String(localized: "history.metric.compactions"),
-                value: context.day.history.contextCompactionCount,
+                label: String(localized: "history.activity-data.compactions"),
+                value: context.day.activityData.contextCompactionCount,
                 tint: .purple
             )
         ]

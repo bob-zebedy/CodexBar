@@ -10,12 +10,12 @@ private nonisolated struct WireActivityThread: Decodable {
     var parentThreadId: String?
     var createdAt: Double?
 
-    var origin: ActivityOrigin {
+    var origin: ActivityDataOrigin {
         source?.origin ?? .unknown
     }
 
-    var parentID: String? {
-        parentThreadId ?? source?.parentID
+    var parentThreadID: String? {
+        parentThreadId ?? source?.parentThreadID
     }
 }
 
@@ -28,21 +28,21 @@ private nonisolated struct WireActivityThreadStatus: Decodable {
 }
 
 private nonisolated struct WireActivityThreadSource: Decodable {
-    let origin: ActivityOrigin
-    let parentID: String?
+    let origin: ActivityDataOrigin
+    let parentThreadID: String?
 
     init(from decoder: Decoder) throws {
         let value = try ActivityJSONValue(from: decoder)
         if let name = value.string {
             origin = ["cli", "vscode", "exec", "appServer"].contains(name) ? .main : .unknown
-            parentID = nil
+            parentThreadID = nil
         } else if let subagent = value["subAgent"] ?? value["subagent"] {
             let other = subagent["other"]?.string
             origin = other == "guardian" ? .autoReview : .auxiliary
-            parentID = (subagent["thread_spawn"] ?? subagent["threadSpawn"])?["parent_thread_id"]?.string
+            parentThreadID = (subagent["thread_spawn"] ?? subagent["threadSpawn"])?["parent_thread_id"]?.string
         } else {
             origin = value["custom"] == nil ? .unknown : .main
-            parentID = nil
+            parentThreadID = nil
         }
     }
 }
@@ -139,7 +139,7 @@ private nonisolated struct WireActivityItem: Decodable {
     struct AgentState: Decodable { var status: String? }
 }
 
-private nonisolated struct WireActivityTokenBreakdown: Decodable {
+private nonisolated struct WireTokenUsageBreakdown: Decodable {
     let inputTokens: Int64
     let cachedInputTokens: Int64
     var cacheWriteInputTokens: Int64?
@@ -147,7 +147,7 @@ private nonisolated struct WireActivityTokenBreakdown: Decodable {
     let reasoningOutputTokens: Int64
     let totalTokens: Int64
 
-    var usage: TokenUsage {
+    var tokenUsage: TokenUsage {
         TokenUsage(
             inputTokens: inputTokens, cachedInputTokens: cachedInputTokens, cacheWriteInputTokens: cacheWriteInputTokens ?? 0,
             outputTokens: outputTokens, reasoningOutputTokens: reasoningOutputTokens, totalTokens: totalTokens
@@ -155,9 +155,10 @@ private nonisolated struct WireActivityTokenBreakdown: Decodable {
     }
 }
 
-private nonisolated struct WireActivityTokenUpdate: Decodable {
-    let total: WireActivityTokenBreakdown
-    let last: WireActivityTokenBreakdown
+private nonisolated struct WireTokenUsageUpdate: Decodable {
+    let total: WireTokenUsageBreakdown
+    let last: WireTokenUsageBreakdown
+    var modelContextWindow: Int64?
 }
 
 private nonisolated struct WireActivityInput: Decodable {
@@ -173,7 +174,7 @@ private nonisolated struct WireActivityInput: Decodable {
         var status: WireActivityThreadStatus?
         var startedAtMs: Double?
         var completedAtMs: Double?
-        var tokenUsage: WireActivityTokenUpdate?
+        var tokenUsage: WireTokenUsageUpdate?
         var commandActions: [WireActivityItem.CommandAction]?
     }
 
@@ -191,7 +192,7 @@ private nonisolated struct WireActivityInput: Decodable {
         provenanceMethod = try container.decode(String.self, forKey: .method)
         kind = AppServerActivityProtocol.kind(for: provenanceMethod)
         live = try container.decode(WireActivityLivePayload.self, forKey: .params)
-        // 展示通知有不同的 status 类型, 不交给线程生命周期解码器解释
+        // 展示通知有不同的 status 类型, 不交给会话生命周期解码器解释
         if kind.category == .presentation {
             params = Params(threadId: live.threadId, turnId: live.turnId)
         } else {
@@ -204,6 +205,10 @@ private nonisolated struct WireActivityInput: Decodable {
                     throw DecodingError.dataCorruptedError(forKey: .params, in: container, debugDescription: "Missing turn identity")
                 }
             default: break
+            }
+            if kind == .usageUpdated,
+               params.tokenUsage == nil || params.threadId?.isEmpty != false {
+                throw DecodingError.dataCorruptedError(forKey: .params, in: container, debugDescription: "Missing token tokenUsage or thread identity")
             }
             if [.commandApprovalRequested, .fileApprovalRequested, .permissionsRequested].contains(kind),
                params.itemId == nil || params.startedAtMs == nil {
@@ -220,6 +225,32 @@ nonisolated struct ActivityLoadedPage: Decodable { let data: [String]
 
 nonisolated struct ActivityTurnsPage: Decodable { let data: [ActivityTurn]
     var nextCursor: String?
+}
+
+nonisolated struct ActivityItemsPage: Decodable {
+    let data: [ActivityItemEntry]
+    var nextCursor: String?
+}
+
+nonisolated struct ActivityItemEntry: Decodable {
+    let turnId: String
+    let item: ActivityItem
+    var startedAtMs: Double?
+    var completedAtMs: Double?
+
+    var startedAt: Date? {
+        startedAtMs.map { Date(timeIntervalSince1970: $0 / 1000) }
+    }
+
+    var completedAt: Date? {
+        completedAtMs.map { Date(timeIntervalSince1970: $0 / 1000) }
+    }
+}
+
+nonisolated extension ActivityItem: Decodable {
+    init(from decoder: Decoder) throws {
+        self = try WireActivityItem(from: decoder).normalized
+    }
 }
 
 nonisolated struct ActivityThreadResume: Decodable {
@@ -266,23 +297,28 @@ nonisolated enum AppServerActivityProtocol {
 
 nonisolated extension ActivityThread: Decodable {
     init(from decoder: Decoder) throws {
-        let wire = try WireActivityThread(from: decoder)
-        self.init(
-            id: wire.id,
-            cwd: wire.cwd,
-            model: wire.model,
-            reasoningEffort: wire.reasoningEffort,
-            status: wire.status.map(Self.status),
-            origin: wire.origin,
-            parentID: wire.parentID,
-            createdAt: wire.createdAt.map(Date.init(timeIntervalSince1970:))
-        )
+        self = try WireActivityThread(from: decoder).normalized
     }
 
     fileprivate static func status(_ value: WireActivityThreadStatus) -> ActivityThreadStatus {
         ActivityThreadStatus(
             type: .init(rawValue: value.type) ?? .unknown,
             activeFlags: value.activeFlags?.map { .init(rawValue: $0) ?? .unknown }
+        )
+    }
+}
+
+private nonisolated extension WireActivityThread {
+    var normalized: ActivityThread {
+        ActivityThread(
+            id: id,
+            cwd: cwd,
+            model: model,
+            reasoningEffort: reasoningEffort,
+            status: status.map(ActivityThread.status),
+            origin: origin,
+            parentThreadID: parentThreadID,
+            createdAt: createdAt.map(Date.init(timeIntervalSince1970:))
         )
     }
 }
@@ -332,18 +368,6 @@ nonisolated extension ActivityInput: Decodable {
     init(from decoder: Decoder) throws {
         let wire = try WireActivityInput(from: decoder)
         let raw = wire.params
-        let thread = raw.thread.map { value in
-            ActivityThread(
-                id: value.id,
-                cwd: value.cwd,
-                model: value.model,
-                reasoningEffort: value.reasoningEffort,
-                status: value.status.map(ActivityThread.status),
-                origin: value.origin,
-                parentID: value.parentID,
-                createdAt: value.createdAt.map(Date.init(timeIntervalSince1970:))
-            )
-        }
         self.init(
             id: wire.id?.identifier,
             kind: wire.kind,
@@ -354,13 +378,15 @@ nonisolated extension ActivityInput: Decodable {
                 itemId: raw.itemId,
                 approvalId: raw.approvalId,
                 requestId: raw.requestId?.identifier,
-                thread: thread,
+                thread: raw.thread?.normalized,
                 turn: raw.turn?.normalized,
                 item: raw.item?.normalized,
                 status: raw.status.map(ActivityThread.status),
                 startedAt: raw.startedAtMs.map { Date(timeIntervalSince1970: $0 / 1000) },
                 completedAt: raw.completedAtMs.map { Date(timeIntervalSince1970: $0 / 1000) },
-                tokenUsage: raw.tokenUsage.map { ActivityTokenUpdate(total: $0.total.usage, last: $0.last.usage) },
+                tokenUsage: raw.tokenUsage.map {
+                    TokenUsageUpdate(total: $0.total.tokenUsage, last: $0.last.tokenUsage, modelContextWindow: $0.modelContextWindow)
+                },
                 commandActions: raw.commandActions?.map { .init(type: $0.type) }
             ),
             live: wire.live.normalized

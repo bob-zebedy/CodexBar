@@ -9,43 +9,40 @@ nonisolated enum TestFixtures {
     }
 
     static func event(
-        _ name: ActivityEventKind = .turnStarted,
+        _ name: ActivityDataEventKind = .turnStarted,
         at timestamp: Date = now,
         thread: String? = "thread-a",
         turn: String? = "turn-a",
-        agent: String? = nil,
-        origin: ActivityOrigin = .main
-    ) -> ActivityRecord {
-        var event = ActivityRecord(
+        agentThreadID: String? = nil,
+        origin: ActivityDataOrigin = .main
+    ) -> ActivityDataRecord {
+        var event = ActivityDataRecord(
             timestamp: timestamp, name: name.rawValue, origin: origin,
             cwd: "/projects/example", toolName: "exec_command", model: "gpt-5",
             effort: "high",
-            threadID: thread, turnID: turn, agentID: agent
+            threadID: thread, turnID: turn, agentThreadID: agentThreadID
         )
         if name == .turnStarted, let thread {
-            event.context = ActivityContext(
-                method: "turn/started", threadID: agent ?? thread, turnID: turn, turnStartedAt: timestamp
+            event.context = ActivityDataContext(
+                method: "turn/started", threadID: agentThreadID ?? thread, turnID: turn, turnStartedAt: timestamp
             )
         }
         return event
     }
 
-    static func tokenTurn(
-        id: String, rootID: String, startedAt: Date? = nil, updatedAt: Date, usage: TokenUsage? = nil
-    ) -> TokenTurn {
-        TokenTurn(
-            id: id, rootID: rootID, startedAt: startedAt, updatedAt: updatedAt, usage: usage,
-            checkpoint: usage.map { ["test-stream": TokenObservationCheckpoint(sequence: 1, usage: $0)] } ?? [:]
-        )
+    static func tokenUsageAggregate(at date: Date = now, tokenUsage: TokenUsage = .zero, eventCount: Int = 1) -> TokenUsageAggregate {
+        TokenUsageAggregate(date: HistoryStorage.dateKey(for: date), tokenUsage: tokenUsage, eventCount: eventCount)
+    }
+
+    static func tokenUsageObservation(id: String = UUID().uuidString, at date: Date = now, tokenUsage: TokenUsage, previous: TokenUsage = .zero) -> TokenUsageObservation {
+        TokenUsageObservation(id: id, observedAt: date, previous: previous, current: TokenUsageUpdate(total: previous.adding(tokenUsage)!, last: tokenUsage))
     }
 
     static func aggregate(
-        generation: String? = "generation-a",
         events: Int = 2,
         turns: Int = 1
-    ) -> ActivityAggregate {
-        var aggregate = ActivityAggregate(date: "2026-09-15", generationID: generation)
-        aggregate.sourceCheckpoint = ActivitySourceCheckpoint(byteCount: UInt64(events + 1), digest: String(repeating: "a", count: 64))
+    ) -> ActivityDataAggregate {
+        var aggregate = ActivityDataAggregate(date: "2026-09-15")
         aggregate.eventCount = events
         aggregate.turnCount = turns
         aggregate.threadCount = 1
@@ -74,14 +71,31 @@ nonisolated struct TestDirectory {
         try write(Data(text.utf8), to: relativePath)
     }
 
-    func seedTokenSnapshots(_ turns: [TokenTurn], now: Date) async throws {
-        try HistoryStorage.withExclusiveLock(in: url) {
-            var journal = AppServerEventJournal()
-            for turn in turns {
-                try journal.append(AppServerEventRecord(token: turn, recordedAt: now), in: url)
-            }
+    func seedTokenUsageAggregates(_ aggregates: [TokenUsageAggregate], now _: Date) async throws {
+        let database = try HistoryDatabase(directoryURL: url)
+        for var aggregate in aggregates {
+            aggregate.position = 0
+            try database.entries(date: aggregate.date, kind: .tokenUsage) { aggregate.position = $0.position }
+            try database.execute("INSERT OR IGNORE INTO days(date) VALUES (?)", [.text(aggregate.date)])
+            try database.execute("""
+            INSERT INTO aggregates(date, tokenUsage) VALUES (?, ?)
+            ON CONFLICT(date) DO UPDATE SET tokenUsage = excluded.tokenUsage
+            """, [.text(aggregate.date), .data(JSONLines.stableEncoder.encode(aggregate))])
         }
-        _ = try await TokenHistoryStore(directoryURL: url).refresh(now: now)
+    }
+
+    func historyRecords() throws -> [AppServerEventRecord] {
+        var records: [AppServerEventRecord] = []
+        try HistoryDatabase(directoryURL: url).entries { records.append($0.record) }
+        return records
+    }
+
+    func replaceHistory(_ data: Data, date: String) throws {
+        let database = try HistoryDatabase(directoryURL: url)
+        try database.execute("DELETE FROM events WHERE date = ?", [.text(date)])
+        for line in data.split(separator: JSONLines.newlineByte) {
+            try database.append(AppServerEventRecord.decode(from: Data(line)))
+        }
     }
 
     func remove() throws {
@@ -118,31 +132,36 @@ struct TestPreferences {
 }
 
 nonisolated extension TestDirectory {
-    @discardableResult
-    func writeJournal(_ records: Data, to relativePath: String, generation: String? = nil) throws -> URL {
-        let url = url.appendingPathComponent(relativePath)
-        let date = url.deletingPathExtension().lastPathComponent
-        let source = generation ?? (try? AppServerEventJournal.header(at: url).generationID) ?? UUID().uuidString.lowercased()
-        let header = AppServerEventJournal.Header(version: 1, date: date, generationID: source)
-        return try write(JSONLines.stableEncoder.encode(header) + Data([10]) + records, to: relativePath)
-    }
-
-    func activityAggregate(date: String, generation: String = "source", events: Int = 1) throws -> ActivityAggregate {
-        let path = "Events/\(date).jsonl"
-        let url = url.appendingPathComponent(path)
-        if !FileManager.default.fileExists(atPath: url.path) {
-            try writeJournal(Data(), to: path, generation: generation)
-        }
-        var aggregate = ActivityAggregate(date: date, generationID: generation)
+    func activityDataAggregate(date: String, events: Int = 1) throws -> ActivityDataAggregate {
+        var aggregate = ActivityDataAggregate(date: date)
         aggregate.eventCount = events
-        aggregate.sourceCheckpoint = try ActivitySourceCheckpoint.read(at: url, byteCount: HistoryStorage.fileSize(at: url))
         return aggregate
     }
 }
 
+nonisolated extension HistoryDatabase {
+    func exportJSONLines(date: String) throws -> Data {
+        var result = Data()
+        try entries(date: date) { try result.append($0.record.jsonLineData()) }
+        return result
+    }
+}
+
+nonisolated extension ActivityDataAggregate {
+    func jsonLineData() throws -> Data {
+        try JSONLines.stableEncoder.encode(self) + Data([JSONLines.newlineByte])
+    }
+}
+
+nonisolated extension SyncedActivityData {
+    func jsonLineData() throws -> Data {
+        try JSONLines.stableEncoder.encode(self) + Data([JSONLines.newlineByte])
+    }
+}
+
 /// 测试夹具按采集器的原始记录与缓存聚合两个步骤写入
-extension TokenHistoryStore {
-    func recordObservations(_ observations: [TokenObservation], now: Date = Date()) throws -> [TokenTurn] {
+extension TokenUsageHistoryStore {
+    func recordObservations(_ observations: [TokenUsageObservation], now: Date = Date()) throws -> [TokenUsageAggregate] {
         _ = try refresh(now: now)
         for observation in observations {
             try appendObservation(observation, now: now)

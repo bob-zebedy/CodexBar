@@ -63,9 +63,15 @@ nonisolated struct ActivityInput {
         var status: ActivityThreadStatus?
         var startedAt: Date?
         var completedAt: Date?
-        var tokenUsage: ActivityTokenUpdate?
+        var tokenUsage: TokenUsageUpdate?
         var commandActions: [ActivityItem.CommandAction]?
     }
+}
+
+nonisolated struct TokenUsageUpdate: Codable, Equatable {
+    let total: TokenUsage
+    let last: TokenUsage
+    var modelContextWindow: Int64?
 }
 
 nonisolated enum ActivityTurnStatus: String, Codable {
@@ -81,8 +87,8 @@ nonisolated struct ActivityThread {
     var model: String?
     var reasoningEffort: String?
     var status: ActivityThreadStatus?
-    var origin: ActivityOrigin = .unknown
-    var parentID: String?
+    var origin: ActivityDataOrigin = .unknown
+    var parentThreadID: String?
     var createdAt: Date?
 }
 
@@ -141,11 +147,6 @@ nonisolated struct ActivityItem {
         default: false
         }
     }
-}
-
-nonisolated struct ActivityTokenUpdate {
-    let total: TokenUsage
-    let last: TokenUsage
 }
 
 nonisolated struct ActivityLiveContext {

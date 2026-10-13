@@ -60,7 +60,7 @@ struct ActivityLivePresentationTests {
     @Test(arguments: [("commandExecution", "command")])
     func outputAfterReconnectRestoresToolPhaseWithoutInventingInventory(type: String, key: String) throws {
         var reducer = try prepared()
-        reducer.reconnect(now: now)
+        reducer.reconnect()
         let thread = ActivityThread(id: "thread-a", status: ActivityThreadStatus(type: .active, activeFlags: []))
         _ = reducer.reconcile(thread: thread, turns: [ActivityTurn(id: "turn-a", status: .running)], now: now)
         let output = try message("item/\(type)/outputDelta", #""itemId":"tool","delta":"output""#)
@@ -107,9 +107,9 @@ struct ActivityLivePresentationTests {
     }
 
     @Test(arguments: [
-        (["read"], "command-read"), (["listFiles"], "command-listFiles"), (["search"], "command-search"),
-        (["search", "read", "read"], "command-read-search"), (["search", "listFiles"], "command-listFiles-search"),
-        (["listFiles", "read"], "command-read-listFiles"), (["search", "listFiles", "read"], "command-read-listFiles-search"),
+        (["read"], "command-read"), (["listFiles"], "command-listfiles"), (["search"], "command-search"),
+        (["search", "read", "read"], "command-read-search"), (["search", "listFiles"], "command-listfiles-search"),
+        (["listFiles", "read"], "command-read-listfiles"), (["search", "listFiles", "read"], "command-read-listfiles-search"),
         (["read", "unknown"], "command"), (["future"], "command"), ([], "command")
     ])
     func commandActionsUseServerClassification(actions: [String], key: String) {
@@ -124,7 +124,7 @@ struct ActivityLivePresentationTests {
         (["search", "read"], "actions-read-search"),
         (["read", "search"], "actions-read-search"),
         (["search", "unknown", "read", "read"], "actions-read-search"),
-        (["search", "listFiles", "read", "listFiles"], "actions-read-listFiles-search"),
+        (["search", "listFiles", "read", "listFiles"], "actions-read-listfiles-search"),
         ([], nil), (["unknown", "future"], nil)
     ] as [([String], String?)])
     func commandCompletionLocalizesAndOrdersKnownActions(actions: [String], detailKey: String?) {
@@ -287,7 +287,7 @@ struct ActivityLivePresentationTests {
     @Test func reconnectDropsUnverifiablePhasesAndWaitingDuration() throws {
         var reducer = try prepared()
         _ = try reducer.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":["waitingOnUserInput"]}"#, turn: false), now: now)
-        reducer.reconnect(now: now.addingTimeInterval(10))
+        reducer.reconnect()
         #expect(reducer.states.values.first?.presentation == nil)
         let thread = ActivityThread(id: "thread-a", status: ActivityThreadStatus(type: .active, activeFlags: [.waitingOnUserInput]))
         _ = reducer.reconcile(thread: thread, turns: [ActivityTurn(id: "turn-a", status: .running)], now: now.addingTimeInterval(12))
@@ -329,7 +329,7 @@ struct ActivityLivePresentationTests {
         #expect(try summary(reducer).planCompleted == 1)
         #expect(try summary(reducer).planTotal == 1)
         #expect(try summary(reducer).waiting == nil)
-        #expect(reducer.tokenTurns.isEmpty)
+        #expect(reducer.tokenUsageTurns.isEmpty)
     }
 
     @Test(arguments: ["completed", "failed", "declined", "unknown"])
@@ -351,7 +351,7 @@ struct ActivityLivePresentationTests {
         var reducer = try prepared()
         _ = try reducer.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":["waitingOnUserInput"]}"#, turn: false), now: now)
         let state = try #require(reducer.states.values.first)
-        task.mergeExecutionLifecycle(state, owner: ActivityExecutionKey(agentID: nil, turnID: "turn-a"))
+        task.mergeExecutionLifecycle(state, owner: ActivityExecutionKey(agentThreadID: nil, turnID: "turn-a"))
         let snapshot = ActivitySnapshot(waitingTasks: [], runningTasks: [task.snapshot], recentCompletions: [], recentTerminations: [])
         #expect(task.state == .running)
         #expect(snapshot.waitingCount == 0)
@@ -400,8 +400,8 @@ struct ActivityLivePresentationTests {
         try root.consume(message("item/agentMessage/delta", #""itemId":"answer""#), at: now.addingTimeInterval(4))
         var child = ActivityLivePresentation()
         try child.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":["waitingOnUserInput"]}"#, turn: false), at: now)
-        task.executions[ActivityExecutionKey(agentID: nil, turnID: "turn-a")] = ActivityExecution(presentation: root)
-        let childOwner = ActivityExecutionKey(agentID: "child", turnID: "child-turn")
+        task.executions[ActivityExecutionKey(agentThreadID: nil, turnID: "turn-a")] = ActivityExecution(presentation: root)
+        let childOwner = ActivityExecutionKey(agentThreadID: "child", turnID: "child-turn")
         task.executions[childOwner] = ActivityExecution(presentation: child)
         #expect(task.snapshot.presentation?.waiting?.since == now)
         #expect(task.snapshot.presentation?.current.key == "waiting-input")
@@ -428,7 +428,7 @@ struct ActivityLivePresentationTests {
             startedAt: now,
             progressGeneration: 0
         )
-        _ = ActivityMonitor.mergeLifecycleBackfill(from: state, into: &task)
+        ActivityTaskGraph.mergeLifecycleBackfill(from: state, into: &task)
         #expect(task.terminalFailed)
     }
 

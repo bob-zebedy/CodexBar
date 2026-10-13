@@ -37,11 +37,11 @@ struct TokenCountText: View {
 }
 
 struct TokenUsageText: View {
-    let usage: TokenUsage
+    let tokenUsage: TokenUsage
 
     var body: some View {
         HStack(spacing: 3) {
-            TokenCountText(tokens: Int(usage.totalTokens), font: .caption2.monospacedDigit())
+            TokenCountText(tokens: Int(tokenUsage.totalTokens), font: .caption2.monospacedDigit())
             Text(verbatim: "tokens")
                 .font(.caption2)
         }

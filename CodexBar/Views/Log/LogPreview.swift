@@ -1,17 +1,21 @@
 import AppKit
+import Observation
 import SwiftUI
 
 // MARK: - JSON 预览与高亮
 
 /// 日志预览文本, JSON 时会带基础语法高亮
-struct LogCodePreview {
+private nonisolated struct LogCodePreview {
     let attributedText: NSAttributedString
     let language: String?
 }
 
 /// 将 JSON 格式化并做轻量 token 高亮, 非 JSON 保持纯文本
-enum LogCodePreviewFormatter {
-    private static let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+private nonisolated enum LogCodePreviewFormatter {
+    private static var font: NSFont {
+        NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    }
+
     private static var baseAttributes: [NSAttributedString.Key: Any] {
         [
             .font: font,
@@ -30,9 +34,10 @@ enum LogCodePreviewFormatter {
         pattern: #""(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b(?:true|false|null)\b|[{}\[\]:,]"#
     )
 
-    static func preview(for text: String) -> LogCodePreview {
+    static func preview(for text: String) throws -> LogCodePreview {
+        try Task.checkCancellation()
         if let formattedJSON = formattedJSON(text) {
-            return LogCodePreview(
+            return try LogCodePreview(
                 attributedText: highlightedJSON(formattedJSON),
                 language: "JSON"
             )
@@ -64,7 +69,8 @@ enum LogCodePreviewFormatter {
         )
     }
 
-    private static func highlightedJSON(_ text: String) -> NSAttributedString {
+    private static func highlightedJSON(_ text: String) throws -> NSAttributedString {
+        try Task.checkCancellation()
         let attributedText = NSMutableAttributedString(
             string: text,
             attributes: baseAttributes
@@ -76,7 +82,11 @@ enum LogCodePreviewFormatter {
 
         let nsText = text as NSString
         let fullRange = NSRange(location: 0, length: nsText.length)
-        tokenRegex.enumerateMatches(in: text, range: fullRange) { match, _, _ in
+        tokenRegex.enumerateMatches(in: text, range: fullRange) { match, _, stop in
+            guard !Task.isCancelled else {
+                stop.pointee = true
+                return
+            }
             guard let range = match?.range else {
                 return
             }
@@ -89,6 +99,7 @@ enum LogCodePreviewFormatter {
             )
         }
 
+        try Task.checkCancellation()
         return attributedText
     }
 
@@ -130,67 +141,210 @@ enum LogCodePreviewFormatter {
     }
 }
 
-/// AppKit 文本视图承载完整日志, 支持横向滚动
-struct LogCodePreviewView: NSViewRepresentable {
-    let attributedText: NSAttributedString
+// MARK: - 后台预处理
 
-    func makeNSView(context _: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
-        scrollView.autohidesScrollers = false
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = .textBackgroundColor
+/// 排版期间仅由后台 actor 使用, 完成后整体转交主 actor
+nonisolated struct LogPreviewDocument {
+    let storage: NSTextStorage
+    let container: NSTextContainer
+    let contentSize: NSSize
+    let language: String?
+    let characterCount: Int
+}
 
-        let textView = NSTextView()
+nonisolated struct LogInlinePreviewInput: Equatable, Sendable {
+    let request: String?
+    let detail: String?
+    let needsSummary: Bool
+}
+
+nonisolated struct LogInlinePreview: Sendable {
+    struct Payload: Sendable {
+        let text: String
+        let hasText: Bool
+    }
+
+    let input: LogInlinePreviewInput
+    let request: Payload?
+    let detail: Payload?
+    let summary: String?
+}
+
+actor LogPreviewPreparer {
+    static let shared = LogPreviewPreparer()
+
+    func document(for text: String) throws -> sending LogPreviewDocument {
+        try Task.checkCancellation()
+        let preview = try LogCodePreviewFormatter.preview(for: text)
+        try Task.checkCancellation()
+
+        let storage = NSTextStorage(attributedString: preview.attributedText)
+        let manager = NSLayoutManager()
+        // 排版图不连接视图, 禁止 AppKit 自行调度后台排版
+        manager.backgroundLayoutEnabled = false
+        let container = NSTextContainer(containerSize: NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
+        container.widthTracksTextView = false
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        try Task.checkCancellation()
+        manager.ensureLayout(for: container)
+        let usedRect = manager.usedRect(for: container)
+        try Task.checkCancellation()
+        return LogPreviewDocument(
+            storage: storage,
+            container: container,
+            contentSize: NSSize(width: ceil(usedRect.maxX), height: ceil(usedRect.maxY)),
+            language: preview.language,
+            characterCount: text.count
+        )
+    }
+
+    func inlinePreview(for input: LogInlinePreviewInput) throws -> LogInlinePreview {
+        try Task.checkCancellation()
+        let request = input.request.map(inlinePayload)
+        try Task.checkCancellation()
+        let detail = input.detail.map(inlinePayload)
+        let summary = input.needsSummary ? input.detail.map {
+            AppServerLogEntry.singleLinePreview($0, limit: AppServerLogEntry.summaryPreviewLength)
+        } : nil
+        try Task.checkCancellation()
+        return LogInlinePreview(input: input, request: request, detail: detail, summary: summary)
+    }
+
+    private func inlinePayload(_ text: String) -> LogInlinePreview.Payload {
+        LogInlinePreview.Payload(
+            text: AppServerLogEntry.singleLinePreview(text, limit: AppServerLogEntry.expandedInlinePreviewLength),
+            hasText: !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        )
+    }
+}
+
+// MARK: - 预览生命周期
+
+@Observable
+final class LogPreviewPresentation {
+    struct Request: Identifiable {
+        let id = UUID()
+        let entryID: UUID
+        let title: String
+        let text: String
+    }
+
+    struct Item: Identifiable {
+        let request: Request
+        let document: LogPreviewDocument
+        var id: UUID {
+            request.id
+        }
+    }
+
+    private(set) var request: Request?
+    var item: Item?
+
+    func show(entryID: UUID, title: String, text: String) {
+        request = Request(entryID: entryID, title: title, text: text)
+        item = nil
+    }
+
+    func prepare(_ request: Request) async {
+        guard self.request?.id == request.id else { return }
+        do {
+            let document = try await LogPreviewPreparer.shared.document(for: request.text)
+            try Task.checkCancellation()
+            guard self.request?.id == request.id else { return }
+            item = Item(request: request, document: document)
+        } catch is CancellationError {
+            // 关闭窗口或选择其他日志后, 丢弃尚未展示的结果
+        } catch {
+            assertionFailure("Unexpected log preview error: \(error)")
+        }
+    }
+
+    func dismiss(_ item: Item) {
+        guard request?.id == item.id else { return }
+        cancel()
+    }
+
+    func cancel(for entryID: UUID) {
+        guard request?.entryID == entryID else { return }
+        cancel()
+    }
+
+    func cancel() {
+        request = nil
+        item = nil
+    }
+}
+
+// MARK: - 原生文本视图
+
+/// 保留后台生成的文本存储和排版缓存, 窗口缩放只调整可滚动区域
+final class LogPreviewScrollView: NSScrollView {
+    private var previewDocument: LogPreviewDocument?
+    private static let textInset = NSSize(width: 12, height: 12)
+
+    init(document: LogPreviewDocument) {
+        super.init(frame: .zero)
+        hasVerticalScroller = true
+        hasHorizontalScroller = true
+        autohidesScrollers = false
+        drawsBackground = true
+        backgroundColor = .textBackgroundColor
+        display(document)
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) is unavailable")
+    }
+
+    func display(_ document: LogPreviewDocument) {
+        guard previewDocument?.storage !== document.storage else { return }
+        previewDocument = document
+        let size = fittedSize(for: document)
+        let textView = NSTextView(frame: NSRect(origin: .zero, size: size), textContainer: document.container)
         textView.isEditable = false
         textView.isSelectable = true
         textView.isRichText = true
         textView.drawsBackground = true
         textView.backgroundColor = .textBackgroundColor
-        textView.textContainerInset = NSSize(width: 12, height: 12)
-        textView.minSize = NSSize(width: 0, height: scrollView.contentSize.height)
-        textView.maxSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
+        textView.textContainerInset = Self.textInset
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
         textView.autoresizingMask = []
-        textView.textContainer?.containerSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.textContainer?.widthTracksTextView = false
-
-        scrollView.documentView = textView
-        return scrollView
+        documentView = textView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context _: Context) {
-        guard let textView = scrollView.documentView as? NSTextView else {
-            return
+    override func layout() {
+        super.layout()
+        guard let previewDocument, let documentView else { return }
+        let size = fittedSize(for: previewDocument)
+        if documentView.frame.size != size {
+            documentView.setFrameSize(size)
         }
-
-        textView.textStorage?.setAttributedString(attributedText)
-        updateDocumentSize(for: textView, in: scrollView)
     }
 
-    private func updateDocumentSize(for textView: NSTextView, in scrollView: NSScrollView) {
-        guard let layoutManager = textView.layoutManager,
-              let textContainer = textView.textContainer else {
-            return
-        }
-
-        layoutManager.ensureLayout(for: textContainer)
-        let usedRect = layoutManager.usedRect(for: textContainer)
-        let inset = textView.textContainerInset
-        let minimumSize = scrollView.contentSize
-        let fittedSize = NSSize(
-            width: max(ceil(usedRect.maxX + inset.width * 2), minimumSize.width),
-            height: max(ceil(usedRect.maxY + inset.height * 2), minimumSize.height)
+    private func fittedSize(for document: LogPreviewDocument) -> NSSize {
+        NSSize(
+            width: max(document.contentSize.width + Self.textInset.width * 2, contentSize.width),
+            height: max(document.contentSize.height + Self.textInset.height * 2, contentSize.height)
         )
+    }
+}
 
-        textView.setFrameSize(fittedSize)
+struct LogCodePreviewView: NSViewRepresentable {
+    let document: LogPreviewDocument
+
+    func makeNSView(context _: Context) -> LogPreviewScrollView {
+        LogPreviewScrollView(document: document)
+    }
+
+    func updateNSView(_ scrollView: LogPreviewScrollView, context _: Context) {
+        scrollView.display(document)
     }
 }

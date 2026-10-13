@@ -4,6 +4,7 @@ import SwiftUI
 /// app-server 交互日志窗口根视图
 struct LogView: View {
     @ObservedObject var store: AppServerLogViewModel
+    @State private var preview = LogPreviewPresentation()
 
     var body: some View {
         // 每轮渲染只取一次发布快照复用
@@ -28,6 +29,16 @@ struct LogView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 480)
+        .task(id: preview.request?.id) {
+            if let request = preview.request {
+                await preview.prepare(request)
+            }
+        }
+        .sheet(item: $preview.item) { item in
+            FullLogTextView(item: item)
+                .onDisappear { preview.dismiss(item) }
+        }
+        .onDisappear { preview.cancel() }
     }
 
     private var header: some View {
@@ -44,7 +55,9 @@ struct LogView: View {
                 .numericTransition(value: store.totalCount, comparison: Double(store.totalCount))
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
-                .background(Capsule().fill(.quaternary))
+                .background {
+                    Capsule().fill(.quaternary)
+                }
 
             Spacer()
 
@@ -76,7 +89,7 @@ struct LogView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(entries) { entry in
-                    LogRow(entry: entry)
+                    LogRow(entry: entry, preview: preview)
                     Divider()
                 }
                 if store.hasMore {
@@ -97,7 +110,8 @@ struct LogView: View {
 private struct LogRow: View {
     let entry: AppServerLogEntry
     @State private var isExpanded = false
-    @State private var fullTextItem: FullLogTextItem?
+    let preview: LogPreviewPresentation
+    @State private var inlinePreview: LogInlinePreview?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -117,6 +131,7 @@ private struct LogRow: View {
                             caption: "log.payload.request",
                             time: entry.requestedAt,
                             text: request,
+                            inline: currentInlinePreview?.request,
                             color: .primary
                         )
                     }
@@ -126,6 +141,7 @@ private struct LogRow: View {
                             caption: detailCaption,
                             time: entry.respondedAt,
                             text: detail,
+                            inline: currentInlinePreview?.detail,
                             color: entry.status == .failure ? .red : .primary
                         )
                     } else if entry.status == .pending {
@@ -141,9 +157,28 @@ private struct LogRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .sheet(item: $fullTextItem) { item in
-            FullLogTextView(item: item)
+        .task(id: inlineInput) {
+            let input = inlineInput
+            guard inlinePreview?.input != input else { return }
+            do {
+                let result = try await LogPreviewPreparer.shared.inlinePreview(for: input)
+                try Task.checkCancellation()
+                inlinePreview = result
+            } catch is CancellationError {
+                // 行离开列表或正文更新后, 由下一次任务生成摘要
+            } catch {
+                assertionFailure("Unexpected inline preview error: \(error)")
+            }
         }
+        .onDisappear { preview.cancel(for: entry.id) }
+    }
+
+    private var inlineInput: LogInlinePreviewInput {
+        LogInlinePreviewInput(request: entry.request, detail: entry.detail, needsSummary: entry.method == nil)
+    }
+
+    private var currentInlinePreview: LogInlinePreview? {
+        inlinePreview?.input == inlineInput ? inlinePreview : nil
     }
 
     private var summary: some View {
@@ -163,19 +198,19 @@ private struct LogRow: View {
                 .foregroundStyle(entry.status.tint)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1)
-                .background(
+                .background {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .fill(entry.status.tint.opacity(0.14))
-                )
+                }
 
             if let method = entry.method {
                 Text(method)
                     .font(.caption.weight(.medium).monospaced())
                     .foregroundStyle(.primary)
-            } else if let detail = entry.detail {
+            } else if entry.detail != nil {
                 // 无方法名的记录 (信息/进程级错误) 直接预览正文
                 // 避免标签后留空
-                Text(AppServerLogEntry.singleLinePreview(detail, limit: AppServerLogEntry.summaryPreviewLength))
+                Text(verbatim: currentInlinePreview?.summary ?? "")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -191,14 +226,10 @@ private struct LogRow: View {
         caption: LocalizedStringResource,
         time: Date?,
         text: String,
+        inline: LogInlinePreview.Payload?,
         color: Color
     ) -> some View {
         let caption = String(localized: caption)
-        let hasText = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let displayText = AppServerLogEntry.singleLinePreview(
-            text,
-            limit: AppServerLogEntry.expandedInlinePreviewLength
-        )
 
         return VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
@@ -212,9 +243,9 @@ private struct LogRow: View {
                         .foregroundStyle(.tertiary)
                 }
 
-                if hasText {
+                if inline?.hasText == true {
                     Button {
-                        fullTextItem = FullLogTextItem(title: caption, text: text)
+                        preview.show(entryID: entry.id, title: caption, text: text)
                     } label: {
                         Label("common.action.preview", systemImage: "doc.text.magnifyingglass")
                     }
@@ -230,7 +261,7 @@ private struct LogRow: View {
             .controlSize(.small)
             .font(.caption)
 
-            Text(verbatim: displayText)
+            Text(verbatim: inline?.text ?? "")
                 .font(.caption.monospaced())
                 .foregroundStyle(color)
                 .lineLimit(1)
@@ -262,50 +293,37 @@ private struct LogRow: View {
 
 // MARK: - 全文查看
 
-/// 预览弹窗数据源
-private struct FullLogTextItem: Identifiable {
-    let id = UUID()
-    let title: String
-    let text: String
-}
-
 /// 完整请求/响应预览弹窗
 private struct FullLogTextView: View {
-    let item: FullLogTextItem
+    let item: LogPreviewPresentation.Item
     @Environment(\.dismiss) private var dismiss
-    private let preview: LogCodePreview
-
-    init(item: FullLogTextItem) {
-        self.item = item
-        preview = LogCodePreviewFormatter.preview(for: item.text)
-    }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Text(item.title)
+                Text(item.request.title)
                     .font(.headline)
 
-                Text(verbatim: "\(item.text.count)")
+                Text(verbatim: "\(item.document.characterCount)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
 
-                if let language = preview.language {
+                if let language = item.document.language {
                     Text(language)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(
+                        .background {
                             RoundedRectangle(cornerRadius: 4, style: .continuous)
                                 .fill(.quaternary)
-                        )
+                        }
                 }
 
                 Spacer()
 
                 Button {
-                    PasteboardWriter.copy(item.text)
+                    PasteboardWriter.copy(item.request.text)
                 } label: {
                     Label("common.action.copy", systemImage: "doc.on.doc")
                 }
@@ -323,7 +341,8 @@ private struct FullLogTextView: View {
 
             Divider()
 
-            LogCodePreviewView(attributedText: preview.attributedText)
+            LogCodePreviewView(document: item.document)
+                .id(item.id)
                 .frame(minWidth: 860, minHeight: 600)
         }
     }

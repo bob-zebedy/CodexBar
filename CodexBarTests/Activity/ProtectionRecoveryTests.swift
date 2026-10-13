@@ -47,13 +47,13 @@ struct ProtectionRecoveryTests {
         let monitor = ActivityMonitor(
             protectionSettings: ProtectionSettings(defaults: preferences.defaults),
             protectionStore: ProtectionStore(directoryURL: directory.url),
-            activityDirectoryURL: directory.url
+            activityDataDirectoryURL: directory.url
         )
         // 注入未启动的 reader, 避免状态恢复测试连接真实 Codex
         monitor.activityReader = AppServerActivityReader(
-            lifecycleCache: SessionLifecycleCache(), socketURL: directory.url.appendingPathComponent("absent.sock"),
-            tokenHistory: TokenHistoryStore(directoryURL: directory.url),
-            recorder: ActivityRecorder(directoryURL: directory.url)
+            probe: ActivityReaderProbe(), socketURL: directory.url.appendingPathComponent("absent.sock"),
+            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url),
+            activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url)
         ) { _ in }
         monitor.isBootstrapping = true
         return monitor

@@ -30,7 +30,6 @@ final class AppServerLogViewModel: ObservableObject {
 
     func start() {
         guard observation == nil else { return }
-        observationGeneration += 1
         observation = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
@@ -41,6 +40,7 @@ final class AppServerLogViewModel: ObservableObject {
     }
 
     func stop() {
+        // 只在停止观察时使在途读取失效, 启动轮询继续复用当前读取
         observationGeneration += 1
         observation?.cancel()
         observation = nil

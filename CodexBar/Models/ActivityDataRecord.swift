@@ -3,7 +3,7 @@ import Foundation
 // MARK: - 归一化活动事件
 
 /// 事件来源的本地归一化分类, 不保留原始 context 内容
-nonisolated enum ActivityOrigin: String, Codable, Sendable {
+nonisolated enum ActivityDataOrigin: String, Codable, Sendable {
     case main
     case autoReview
     case auxiliary
@@ -17,11 +17,11 @@ nonisolated enum ActivityOrigin: String, Codable, Sendable {
 }
 
 /// app-server 的最小统计事件, 在边界归一化来源与可选元数据
-nonisolated struct ActivityRecord: Codable, Equatable {
+nonisolated struct ActivityDataRecord: Codable, Equatable {
     let id: String?
     let timestamp: Date
     let name: String
-    let origin: ActivityOrigin
+    let origin: ActivityDataOrigin
     let cwd: String?
     let toolName: String?
     let commandActionTypes: [String]?
@@ -29,13 +29,13 @@ nonisolated struct ActivityRecord: Codable, Equatable {
     let effort: String?
     let threadID: String?
     let turnID: String?
-    let agentID: String?
-    var context: ActivityContext?
+    let agentThreadID: String?
+    var context: ActivityDataContext?
 
     init(
         timestamp: Date,
         name: String,
-        origin: ActivityOrigin,
+        origin: ActivityDataOrigin,
         cwd: String?,
         toolName: String?,
         commandActionTypes: [String]? = nil,
@@ -43,7 +43,7 @@ nonisolated struct ActivityRecord: Codable, Equatable {
         effort: String?,
         threadID: String?,
         turnID: String?,
-        agentID: String?,
+        agentThreadID: String?,
         id: String? = nil
     ) {
         self.id = id
@@ -57,21 +57,21 @@ nonisolated struct ActivityRecord: Codable, Equatable {
         self.effort = effort
         self.threadID = threadID
         self.turnID = turnID
-        self.agentID = agentID
+        self.agentThreadID = agentThreadID
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let timestamp = try container.decode(Date.self, forKey: .timestamp)
         let phase = try container.decode(String.self, forKey: .name)
-        guard let event = ActivityEventKind(rawValue: phase) else {
+        guard let event = ActivityDataEventKind(rawValue: phase) else {
             throw DecodingError.dataCorruptedError(forKey: .name, in: container, debugDescription: "Unknown activity phase")
         }
         let name = event.rawValue
-        context = try container.decodeIfPresent(ActivityContext.self, forKey: .context)
+        context = try container.decodeIfPresent(ActivityDataContext.self, forKey: .context)
 
         id = try container.decodeIfPresent(String.self, forKey: .id)
-        let decodedOrigin = (try? container.decode(ActivityOrigin.self, forKey: .origin)) ?? .unknown
+        let decodedOrigin = (try? container.decode(ActivityDataOrigin.self, forKey: .origin)) ?? .unknown
         let decodedModel = Self.string(from: container, key: .model)
 
         self.timestamp = timestamp
@@ -84,11 +84,11 @@ nonisolated struct ActivityRecord: Codable, Equatable {
         effort = Self.string(from: container, key: .effort)
         threadID = Self.string(from: container, key: .threadID)
         turnID = Self.string(from: container, key: .turnID)
-        agentID = Self.string(from: container, key: .agentID)
+        agentThreadID = Self.string(from: container, key: .agentThreadID)
     }
 
-    var eventKind: ActivityEventKind? {
-        ActivityEventKind(eventName: name)
+    var eventKind: ActivityDataEventKind? {
+        ActivityDataEventKind(eventName: name)
     }
 
     var projectDisplayName: String? {
@@ -129,7 +129,7 @@ nonisolated struct ActivityRecord: Codable, Equatable {
         try container.encodeIfPresent(effort, forKey: .effort)
         try container.encodeIfPresent(threadID, forKey: .threadID)
         try container.encodeIfPresent(turnID, forKey: .turnID)
-        try container.encodeIfPresent(agentID, forKey: .agentID)
+        try container.encodeIfPresent(agentThreadID, forKey: .agentThreadID)
         try container.encodeIfPresent(context, forKey: .context)
     }
 
@@ -145,13 +145,13 @@ nonisolated struct ActivityRecord: Codable, Equatable {
         case effort
         case threadID
         case turnID
-        case agentID
+        case agentThreadID
         case context
     }
 }
 
 /// 任务归属与生命周期事实, 时间统一为 Date 和秒, method 仅用于来源诊断
-nonisolated struct ActivityContext: Codable, Equatable {
+nonisolated struct ActivityDataContext: Codable, Equatable {
     let method: String
     let threadID: String
     var turnID: String?

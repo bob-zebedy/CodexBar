@@ -15,10 +15,11 @@
 | `account/rateLimitResetCredit/consume` | 消费额度重置凭证 |
 | `config/read` | 读取 Codex TUI 通知配置 |
 | `config/batchWrite` | 修改 Codex TUI 通知配置 |
-| `thread/loaded/list` | 获取已加载线程列表 |
-| `thread/read` | 读取线程信息和状态 |
-| `thread/resume` | 订阅已加载线程的消息 |
-| `thread/turns/list` | 获取线程的轮次列表、状态、根轮次标识和子 Agent 创建信息 |
+| `thread/loaded/list` | 获取已加载会话列表 |
+| `thread/read` | 读取会话信息和状态 |
+| `thread/resume` | 订阅已加载会话的消息 |
+| `thread/turns/list` | 获取会话的轮次列表、状态和根轮次标识 |
+| `thread/items/list` | 分页读取目标轮次的执行项，补齐历史活动和子 Agent 创建信息 |
 
 ### 通知
 
@@ -35,13 +36,13 @@
 | `account/updated` | 接收账户变化通知 |
 | `account/rateLimits/updated` | 接收额度变化通知 |
 
-### 线程、轮次和 item 通知
+### 会话、轮次和 item 通知
 
 | 接口 | 作用 |
 | --- | --- |
-| `thread/started` | 接收线程启动通知 |
-| `thread/status/changed` | 接收线程状态变化 |
-| `thread/tokenUsage/updated` | 接收线程 Token 用量更新 |
+| `thread/started` | 接收会话启动通知 |
+| `thread/status/changed` | 接收会话状态变化 |
+| `thread/tokenUsage/updated` | 接收会话 Token 用量更新 |
 | `turn/started` | 接收轮次开始通知 |
 | `turn/completed` | 接收轮次结束通知 |
 | `item/started` | 接收执行项开始通知 |
@@ -86,7 +87,7 @@
 
 | 接口 | 字段 | 作用 |
 | --- | --- | --- |
-| `thread/turns/list` | 请求参数 `itemsView` | 使用 `notLoaded` 读取轮次信息，使用 `full` 读取包含子 Agent 创建信息的执行项 |
+| `thread/turns/list` | 请求参数 `itemsView` | 使用 `notLoaded` 读取轮次信息，不加载执行项正文 |
 | `thread/turns/list`、`turn/started`、`turn/completed` | `Turn.rootTurnId` | 获取当前轮次所属工作链的根轮次 ID |
-| `thread/turns/list`、`item/started`、`item/completed` | `subAgentActivity.model` | 获取 `kind` 为 `started` 时子 Agent 创建所用的实际模型 |
-| `thread/turns/list`、`item/started`、`item/completed` | `subAgentActivity.reasoningEffort` | 获取 `kind` 为 `started` 时子 Agent 创建所用的实际推理强度 |
+| `thread/items/list`、`item/started`、`item/completed` | `subAgentActivity.model` | 获取 `kind` 为 `started` 时子 Agent 创建所用的实际模型 |
+| `thread/items/list`、`item/started`、`item/completed` | `subAgentActivity.reasoningEffort` | 获取 `kind` 为 `started` 时子 Agent 创建所用的实际推理强度 |

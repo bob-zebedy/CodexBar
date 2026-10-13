@@ -1,7 +1,7 @@
 // MARK: - 每日聚合指标
 
 /// 热力图详情面板直接消费的每日统计
-nonisolated struct ActivityMetrics: Equatable {
+nonisolated struct ActivityDataMetrics: Equatable {
     let startDate: String
     let threadCount: Int?
     let turnCount: Int?
@@ -43,8 +43,8 @@ nonisolated struct ActivityMetrics: Equatable {
         self.turnAbortedCount = turnAbortedCount
     }
 
-    static func unavailable(startDate: String) -> ActivityMetrics {
-        ActivityMetrics(
+    static func unavailable(startDate: String) -> ActivityDataMetrics {
+        ActivityDataMetrics(
             startDate: startDate,
             threadCount: nil,
             turnCount: nil,
@@ -55,8 +55,8 @@ nonisolated struct ActivityMetrics: Equatable {
         )
     }
 
-    static func empty(startDate: String) -> ActivityMetrics {
-        ActivityMetrics(
+    static func empty(startDate: String) -> ActivityDataMetrics {
+        ActivityDataMetrics(
             startDate: startDate,
             threadCount: 0,
             turnCount: 0,
@@ -92,8 +92,8 @@ nonisolated struct ActivityMetrics: Equatable {
         self.turnAbortedCount = turnAbortedCount
     }
 
-    func adding(_ other: ActivityMetrics) -> ActivityMetrics {
-        ActivityMetrics(
+    func adding(_ other: ActivityDataMetrics) -> ActivityDataMetrics {
+        ActivityDataMetrics(
             startDate: startDate,
             threadCount: threadCount.flatMap { lhs in other.threadCount.map { lhs + $0 } },
             turnCount: turnCount.flatMap { lhs in other.turnCount.map { lhs + $0 } },
@@ -120,84 +120,41 @@ nonisolated struct ActivityMetrics: Equatable {
 
 /// HistoryService 发布给 UI 的近端快照
 nonisolated struct HistorySnapshot: Equatable {
-    let dailyMetrics: [ActivityMetrics]
+    let activityData: [ActivityDataMetrics]
     var tokenUsageByDate: [String: TokenUsage] = [:]
-    var unavailableActivityDates = Set<String>()
-    var isActivityComplete = true
+    var unavailableActivityDataDates = Set<String>()
+    var isActivityDataComplete = true
 
-    static let empty = HistorySnapshot(dailyMetrics: [])
+    static let empty = HistorySnapshot(activityData: [])
 
-    init(dailyMetrics: [ActivityMetrics]) {
-        self.dailyMetrics = dailyMetrics
+    init(activityData: [ActivityDataMetrics]) {
+        self.activityData = activityData
     }
 
-    /// 同 generation 只采用一份数据; 确认独立的新 generation 与历史贡献累加
+    /// 本机日期使用本地汇总, 其他设备的同日数量相加
     init(
-        localAggregates: [ActivityAggregate],
-        syncedRecords: [ActivitySyncRecord],
+        localActivityDataAggregates: [ActivityDataAggregate],
+        syncedActivityDataRecords: [ActivityDataSyncRecord],
         currentDeviceID: String?
     ) {
-        var metricsByDate = [String: ActivityMetrics]()
+        var metricsByDate = [String: ActivityDataMetrics]()
 
-        let localByDate = Dictionary(localAggregates.map { ($0.date, $0) }, uniquingKeysWith: { _, newer in newer })
-        unavailableActivityDates = Set(Dictionary(grouping: localAggregates, by: \.date).filter { $0.value.count > 1 }.keys)
-        let currentDeviceRecords = syncedRecords.filter { $0.deviceID == currentDeviceID }
-        let otherDeviceRecords = syncedRecords.filter { $0.deviceID != currentDeviceID }
-
-        Self.merge(otherDeviceRecords, into: &metricsByDate)
-
-        let remoteByDate = Dictionary(grouping: currentDeviceRecords, by: \.date)
-        let currentDeviceDates = Set(localByDate.keys).union(remoteByDate.keys)
-        for date in currentDeviceDates {
-            Self.mergeCurrentDeviceDate(
-                local: localByDate[date],
-                remoteRecords: remoteByDate[date] ?? [],
-                into: &metricsByDate
-            )
+        let localByDate = Dictionary(localActivityDataAggregates.map { ($0.date, $0) }, uniquingKeysWith: { _, newer in newer })
+        unavailableActivityDataDates = Set(Dictionary(grouping: localActivityDataAggregates, by: \.date).filter { $0.value.count > 1 }.keys)
+        let remoteByID = Dictionary(syncedActivityDataRecords.map { ($0.id, $0) }, uniquingKeysWith: { _, newer in newer })
+        for record in remoteByID.values where record.deviceID != currentDeviceID || localByDate[record.date] == nil {
+            Self.merge(record.activityData.metrics, into: &metricsByDate)
+        }
+        for local in localByDate.values {
+            Self.merge(local.metrics, into: &metricsByDate)
         }
 
-        dailyMetrics = metricsByDate.values.sorted { $0.startDate < $1.startDate }
-    }
-
-    private static func mergeCurrentDeviceDate(
-        local: ActivityAggregate?,
-        remoteRecords: [ActivitySyncRecord],
-        into metricsByDate: inout [String: ActivityMetrics]
-    ) {
-        guard let local else {
-            merge(remoteRecords, into: &metricsByDate)
-            return
-        }
-
-        let matchingIndex = remoteRecords.firstIndex {
-            local.syncedAggregate.matchesRemoteSource($0.daily)
-        }
-
-        for (index, record) in remoteRecords.enumerated() where index != matchingIndex {
-            merge(record.daily.metrics, into: &metricsByDate)
-        }
-
-        if let matchingIndex,
-           remoteRecords[matchingIndex].daily.aggregationVersion > local.aggregationVersion
-           || (remoteRecords[matchingIndex].daily.sourceCheckpoint?.byteCount ?? 0) > (local.sourceCheckpoint?.byteCount ?? 0) {
-            merge(remoteRecords[matchingIndex].daily.metrics, into: &metricsByDate)
-        } else {
-            merge(local.metrics, into: &metricsByDate)
-        }
+        activityData = metricsByDate.values.sorted { $0.startDate < $1.startDate }
     }
 
     private static func merge(
-        _ records: [ActivitySyncRecord],
-        into metricsByDate: inout [String: ActivityMetrics]
-    ) {
-        for record in records {
-            merge(record.daily.metrics, into: &metricsByDate)
-        }
-    }
-
-    private static func merge(
-        _ metrics: ActivityMetrics,
-        into metricsByDate: inout [String: ActivityMetrics]
+        _ metrics: ActivityDataMetrics,
+        into metricsByDate: inout [String: ActivityDataMetrics]
     ) {
         if let existing = metricsByDate[metrics.startDate] {
             metricsByDate[metrics.startDate] = existing.adding(metrics)

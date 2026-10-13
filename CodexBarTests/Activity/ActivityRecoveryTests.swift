@@ -6,18 +6,20 @@ struct ActivityRecoveryTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let now = Date()
-        let store = TokenHistoryStore(directoryURL: directory.url)
-        let id = TokenTurn.identifier(thread: "t", turn: "u")
-        let record = TestFixtures.tokenTurn(id: id, rootID: id, startedAt: now, updatedAt: now, usage: .zero)
-        try await directory.seedTokenSnapshots([record], now: now)
-        let cache = try directory.write("broken", to: "Aggregates/tokens.json")
+        let store = TokenUsageHistoryStore(directoryURL: directory.url)
+        try await store.appendObservation(TestFixtures.tokenUsageObservation(at: now, tokenUsage: .zero), now: now)
+        _ = try await store.refresh(now: now)
+        let database = try HistoryDatabase(directoryURL: directory.url)
+        try database.execute("UPDATE aggregates SET tokenUsage = ?", [.data(Data("broken".utf8))])
         var refreshFailed = false
         var rebuildFailed = false
         do { _ = try await store.refresh(now: now) } catch { refreshFailed = true }
-        try Data("broken".utf8).write(to: cache)
-        do { _ = try await store.rebuild(for: [CodexDateFormat.dayString(from: now)], now: now) } catch { rebuildFailed = true }
+        try database.execute("UPDATE aggregates SET tokenUsage = ?", [.data(Data("broken".utf8))])
+        do { _ = try await store.rebuild(for: [CodexDateFormat.dayString(from: now)]) } catch { rebuildFailed = true }
         #expect(!refreshFailed && !rebuildFailed)
-        try FileManager.default.removeItem(at: cache)
+        try database.execute("""
+        UPDATE aggregates SET tokenUsage = NULL
+        """)
         let recovered = try await store.refresh(now: now)
         #expect(recovered.count == 1)
     }
@@ -52,14 +54,14 @@ struct ActivityRecoveryTests {
         var failed = false
         var live = 0
         let reader = AppServerActivityReader(
-            lifecycleCache: SessionLifecycleCache(),
+            probe: ActivityReaderProbe(),
             socketURL: server.url,
-            tokenHistory: TokenHistoryStore(directoryURL: directory.url),
-            recorder: ActivityRecorder(directoryURL: directory.url)
+            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url),
+            activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url)
         ) { batch in
-            switch batch {
+            switch batch.phase {
             case .sourceUnavailable: failed = true
-            case let .live(events): live += events.count
+            case .live: live += batch.graph.tasks.count
             default: break
             }
         }
@@ -73,17 +75,7 @@ struct ActivityRecoveryTests {
         await reader.stop()
         release.signal()
         try server.finish()
-        var recorded = 0
-        let events = directory.url.appendingPathComponent("Events")
-        if FileManager.default.fileExists(atPath: events.path) {
-            for file in try FileManager.default.contentsOfDirectory(at: events, includingPropertiesForKeys: nil) {
-                try AppServerEventJournal.read(at: file) {
-                    if $0.activity != nil {
-                        recorded += 1
-                    }
-                }
-            }
-        }
+        let recorded = try directory.historyRecords().filter { $0.activityData != nil }.count
         #expect(recorded == 1)
         #expect(live == 1)
         #expect(!failed)

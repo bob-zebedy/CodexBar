@@ -101,5 +101,3 @@ nonisolated struct AppServerLogEntry: Identifiable, Equatable, Codable, Sendable
         return String(data: data, encoding: .utf8)
     }
 }
-
-// 窗口只加载已浏览的历史, 新增记录和响应更新按数据库 revision 增量合并

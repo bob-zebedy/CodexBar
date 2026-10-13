@@ -30,16 +30,16 @@ nonisolated extension ActivityLiveLabel {
     /// 完整键名保留为字面量, 供 Xcode 提取和校验本地化文案
     var localizedText: String {
         switch key {
-        case "actions-listFiles":
-            String(localized: "activity.live.actions-listFiles")
-        case "actions-listFiles-search":
-            String(localized: "activity.live.actions-listFiles-search")
+        case "actions-listfiles":
+            String(localized: "activity.live.actions-listfiles")
+        case "actions-listfiles-search":
+            String(localized: "activity.live.actions-listfiles-search")
         case "actions-read":
             String(localized: "activity.live.actions-read")
-        case "actions-read-listFiles":
-            String(localized: "activity.live.actions-read-listFiles")
-        case "actions-read-listFiles-search":
-            String(localized: "activity.live.actions-read-listFiles-search")
+        case "actions-read-listfiles":
+            String(localized: "activity.live.actions-read-listfiles")
+        case "actions-read-listfiles-search":
+            String(localized: "activity.live.actions-read-listfiles-search")
         case "actions-read-search":
             String(localized: "activity.live.actions-read-search")
         case "actions-search":
@@ -80,16 +80,16 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.calling-tool")
         case "command":
             String(localized: "activity.live.command")
-        case "command-listFiles":
-            String(localized: "activity.live.command-listFiles")
-        case "command-listFiles-search":
-            String(localized: "activity.live.command-listFiles-search")
+        case "command-listfiles":
+            String(localized: "activity.live.command-listfiles")
+        case "command-listfiles-search":
+            String(localized: "activity.live.command-listfiles-search")
         case "command-read":
             String(localized: "activity.live.command-read")
-        case "command-read-listFiles":
-            String(localized: "activity.live.command-read-listFiles")
-        case "command-read-listFiles-search":
-            String(localized: "activity.live.command-read-listFiles-search")
+        case "command-read-listfiles":
+            String(localized: "activity.live.command-read-listfiles")
+        case "command-read-listfiles-search":
+            String(localized: "activity.live.command-read-listfiles-search")
         case "command-read-search":
             String(localized: "activity.live.command-read-search")
         case "command-search":

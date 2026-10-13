@@ -60,6 +60,21 @@ struct DateAndPresentationTests {
         #expect(unavailable.allSatisfy { $0.tokenState == .unavailable })
     }
 
+    @Test func heatmapSelectionReadsLatestDayDataAndKeepsItsPosition() {
+        let date = "2026-09-15"
+        let selection = UsageHeatmapSelection(dateID: date, column: 8, row: 2)
+        let initial = UsageHeatmapDay(startDate: date, tokenState: .pending, activityData: .empty(startDate: date))
+        let updated = UsageHeatmapDay(
+            startDate: date, tokenState: .available(120), activityData: .unavailable(startDate: date), tokenUsage: .zero
+        )
+        let unrelated = UsageHeatmapDay(startDate: "2026-09-14", tokenState: .available(5), activityData: .empty(startDate: "2026-09-14"))
+        #expect(selection.day(in: [initial, unrelated]) == initial)
+        #expect(selection.day(in: [nil, unrelated, updated]) == updated)
+        #expect(selection.column == 8 && selection.row == 2)
+        #expect(selection.day(in: [nil, unrelated]) == nil)
+        #expect(selection.day(in: []) == nil)
+    }
+
     @Test func statusItemTerminalExpiresAtTenSecondsWhileCardKeepsHistory() {
         let completion = ActivityCompletion(id: UUID(), projectName: nil, modelName: nil, effort: nil, completedAt: TestFixtures.now, duration: 30)
         let snapshot = ActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])

@@ -50,11 +50,19 @@ nonisolated enum ActivityRequests {
         AppServerRequest(method: "thread/resume", params: ["threadId": id, "excludeTurns": true])
     }
 
-    static func turns(_ id: String, limit: Int, includesItems: Bool, cursor: String? = nil) -> AppServerRequest<ActivityTurnsPage> {
-        var params: [String: Any] = ["threadId": id, "limit": limit, "itemsView": includesItems ? "full" : "notLoaded"]
+    static func turns(_ id: String, limit: Int, cursor: String? = nil) -> AppServerRequest<ActivityTurnsPage> {
+        var params: [String: Any] = ["threadId": id, "limit": limit, "itemsView": "notLoaded"]
         if let cursor {
             params["cursor"] = cursor
         }
         return AppServerRequest(method: "thread/turns/list", params: params)
+    }
+
+    static func items(_ reference: ActivityTurnReference, limit: Int, cursor: String?) -> AppServerRequest<ActivityItemsPage> {
+        var params: [String: Any] = ["threadId": reference.threadID, "turnId": reference.turnID, "limit": limit, "sortDirection": "desc"]
+        if let cursor {
+            params["cursor"] = cursor
+        }
+        return AppServerRequest(method: "thread/items/list", params: params)
     }
 }

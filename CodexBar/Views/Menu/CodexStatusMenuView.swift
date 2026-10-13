@@ -242,7 +242,7 @@ private extension CodexStatusMenuView {
         case .quota:
             viewModel.snapshot?.limits.isEmpty == false
         case .usage:
-            viewModel.snapshot != nil || !historyViewModel.snapshot.dailyMetrics.isEmpty
+            viewModel.snapshot != nil || !historyViewModel.snapshot.activityData.isEmpty
                 || !historyViewModel.snapshot.tokenUsageByDate.isEmpty
         case .account, .activity, .status:
             false
@@ -282,7 +282,7 @@ private extension CodexStatusMenuView {
     }
 }
 
-private struct ActivitySectionReveal: AnimatableModifier {
+private struct ActivitySectionReveal: ViewModifier, Animatable {
     var progress: CGFloat
 
     var animatableData: CGFloat {

@@ -399,7 +399,7 @@ struct AppServerStartupTests {
         }
         _ = try directory.write("allow", to: "allow")
         if manual {
-            #expect(try await service.reconnect(minimumVersion: "0.162.0").version == "0.162.0")
+            #expect(try await service.reconnect().version == "0.162.0")
         } else {
             clock.withLock { $0 = $0.advanced(by: .seconds(60)) }
             let recovered = await service.fetchOutcome()
@@ -412,7 +412,8 @@ struct AppServerStartupTests {
         try server.finish()
     }
 
-    @Test func existingOldDaemonIsRejectedWithoutStartingAnother() async throws {
+    @Test(arguments: [false, true])
+    func existingOldDaemonIsRejectedWithoutStartingAnother(manual: Bool) async throws {
         let server = try SharedServerFixture { peer in
             let initialize = try peer.readMessage()
             try peer.reply(to: initialize, result: ["userAgent": "codex/0.161.0"])
@@ -420,11 +421,39 @@ struct AppServerStartupTests {
         defer { server.close() }
         let startup = AppServerStartup(environment: [:], installations: .init(globalPath: nil, bundledPath: nil), probeConnection: {})
         let service = CodexStatusService(socketURL: server.url, logStorage: nil, startup: startup)
-        let result = await service.fetchOutcome()
-        guard case let .unsupportedVersion(minimum) = result.outcome else { Issue.record("Expected actual server version check")
-            return
+        if manual {
+            do {
+                _ = try await service.reconnect()
+                Issue.record("Expected actual server version check")
+            } catch let error as CodexStatusError {
+                guard case let .unsupportedVersion(minimum) = error else { throw error }
+                #expect(minimum == "0.162.0")
+            }
+        } else {
+            let result = await service.fetchOutcome()
+            guard case let .unsupportedVersion(minimum) = result.outcome else { Issue.record("Expected actual server version check")
+                return
+            }
+            #expect(minimum == "0.162.0")
         }
-        #expect(minimum == "0.162.0")
+        #expect(await service.currentConnectionInfo() == nil)
+        try server.finish()
+    }
+
+    @Test func manualReconnectRejectsInvalidHandshakeVersion() async throws {
+        let server = try SharedServerFixture { peer in
+            let initialize = try peer.readMessage()
+            try peer.reply(to: initialize, result: ["userAgent": "codex/invalid"])
+        }
+        defer { server.close() }
+        let service = CodexStatusService(socketURL: server.url, logStorage: nil)
+        do {
+            _ = try await service.reconnect()
+            Issue.record("Expected invalid version rejection")
+        } catch let error as CodexStatusError {
+            guard case .serverConnectionClosed = error else { throw error }
+        }
+        #expect(await service.currentConnectionInfo() == nil)
         try server.finish()
     }
 

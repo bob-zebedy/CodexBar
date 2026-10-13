@@ -465,7 +465,7 @@
         }
       }
     },
-    "activity.live.actions-listFiles" : {
+    "activity.live.actions-listfiles" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -481,7 +481,7 @@
         }
       }
     },
-    "activity.live.actions-listFiles-search" : {
+    "activity.live.actions-listfiles-search" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -513,7 +513,7 @@
         }
       }
     },
-    "activity.live.actions-read-listFiles" : {
+    "activity.live.actions-read-listfiles" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -529,7 +529,7 @@
         }
       }
     },
-    "activity.live.actions-read-listFiles-search" : {
+    "activity.live.actions-read-listfiles-search" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -881,7 +881,7 @@
         }
       }
     },
-    "activity.live.command-listFiles" : {
+    "activity.live.command-listfiles" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -897,7 +897,7 @@
         }
       }
     },
-    "activity.live.command-listFiles-search" : {
+    "activity.live.command-listfiles-search" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -929,7 +929,7 @@
         }
       }
     },
-    "activity.live.command-read-listFiles" : {
+    "activity.live.command-read-listfiles" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -945,7 +945,7 @@
         }
       }
     },
-    "activity.live.command-read-listFiles-search" : {
+    "activity.live.command-read-listfiles-search" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2385,6 +2385,22 @@
         }
       }
     },
+    "codex-status.account.initialization-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Initialization failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "初始化失败"
+          }
+        }
+      }
+    },
     "codex-status.account.not-signed-in" : {
       "localizations" : {
         "en" : {
@@ -3281,7 +3297,7 @@
         }
       }
     },
-    "history.metric.approvals" : {
+    "history.activity-data.approvals" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3297,7 +3313,7 @@
         }
       }
     },
-    "history.metric.compactions" : {
+    "history.activity-data.compactions" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3313,23 +3329,7 @@
         }
       }
     },
-    "history.metric.sessions" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sessions"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "会话总数"
-          }
-        }
-      }
-    },
-    "history.metric.subagents" : {
+    "history.activity-data.subagents" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3345,7 +3345,23 @@
         }
       }
     },
-    "history.metric.tool-calls" : {
+    "history.activity-data.threads" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Threads"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话总数"
+          }
+        }
+      }
+    },
+    "history.activity-data.tool-calls" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3361,7 +3377,7 @@
         }
       }
     },
-    "history.metric.turns" : {
+    "history.activity-data.turns" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3398,7 +3414,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Recalculate activity data and session data for %@ from locally collected app-server events\nAfter syncing, local data will be replaced and cloud data updated"
+            "value" : "Recalculate activity data and thread data for %@ from locally collected app-server events\nAfter syncing, local data will be replaced and cloud data updated"
           }
         },
         "zh-Hans" : {
@@ -3421,38 +3437,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "批量重建 %lld 天的数据?"
-          }
-        }
-      }
-    },
-    "history.rebuild.error.incomplete-source" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The original event data contains unreadable records. Please fix them and retry."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "原始事件包含无法读取的记录, 请修复后重试"
-          }
-        }
-      }
-    },
-    "history.rebuild.error.source-changed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Local data changed; try again"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本地数据发生变化, 请重试"
           }
         }
       }
@@ -3569,22 +3553,6 @@
         }
       }
     },
-    "history.rebuild.summary.request-failed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "; rebuild could not start, please retry"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "; 部分重建未能开始, 请重新尝试"
-          }
-        }
-      }
-    },
     "history.rebuild.summary.retry-later" : {
       "localizations" : {
         "en" : {
@@ -3601,12 +3569,12 @@
         }
       }
     },
-    "history.rebuild.summary.token-history-incomplete" : {
+    "history.rebuild.summary.token-usage-history-incomplete" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; session data rebuild incomplete, please retry"
+            "value" : "; thread data rebuild incomplete, please retry"
           }
         },
         "zh-Hans" : {
@@ -3617,12 +3585,12 @@
         }
       }
     },
-    "history.rebuild.summary.token-record-count" : {
+    "history.rebuild.summary.token-usage-record-count" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "; %lld session data records"
+            "value" : "; %lld thread data records"
           }
         },
         "zh-Hans" : {
@@ -4876,7 +4844,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "异常会话保护"
+            "value" : "异常任务保护"
           }
         }
       }
@@ -5809,23 +5777,7 @@
         }
       }
     },
-    "sync.error.activity-generation" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Activity history for %@ is missing required information and cannot be synced"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 的活动历史信息不完整, 无法同步"
-          }
-        }
-      }
-    },
-    "sync.error.activity-identity" : {
+    "sync.error.activity-data-identity" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6289,7 +6241,7 @@
         }
       }
     },
-    "usage.heatmap.activity-metrics" : {
+    "usage.heatmap.activity-data-metrics" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6321,12 +6273,12 @@
         }
       }
     },
-    "usage.heatmap.token-metrics" : {
+    "usage.heatmap.token-usage-metrics" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Session data"
+            "value" : "Thread data"
           }
         },
         "zh-Hans" : {
@@ -6401,22 +6353,6 @@
         }
       }
     },
-    "usage.summary.longest-chat" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Longest Task"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最长任务"
-          }
-        }
-      }
-    },
     "usage.summary.longest-streak" : {
       "localizations" : {
         "en" : {
@@ -6429,6 +6365,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最长连胜"
+          }
+        }
+      }
+    },
+    "usage.summary.longest-turn" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Longest Turn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最长任务"
           }
         }
       }
@@ -6449,7 +6401,7 @@
         }
       }
     },
-    "usage.tokens.cache-hit-rate" : {
+    "usage.token-usage.cache-hit-rate" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6465,7 +6417,7 @@
         }
       }
     },
-    "usage.tokens.cache-write-input" : {
+    "usage.token-usage.cache-write-input" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6481,7 +6433,7 @@
         }
       }
     },
-    "usage.tokens.cached-input" : {
+    "usage.token-usage.cached-input" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6497,7 +6449,7 @@
         }
       }
     },
-    "usage.tokens.input" : {
+    "usage.token-usage.input" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6513,7 +6465,7 @@
         }
       }
     },
-    "usage.tokens.output" : {
+    "usage.token-usage.output" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6529,7 +6481,7 @@
         }
       }
     },
-    "usage.tokens.reasoning-output" : {
+    "usage.token-usage.reasoning-output" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6545,7 +6497,7 @@
         }
       }
     },
-    "usage.tokens.total" : {
+    "usage.token-usage.total" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {

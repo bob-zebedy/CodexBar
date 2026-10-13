@@ -45,8 +45,8 @@ extension ActivityMonitor {
     func beginProtectionRecovery() -> UInt64 {
         protectionRecoveryGeneration &+= 1
         isProtectionRecoveryInProgress = true
-        sessionTransitionNotBefore = nil
-        resetTerminalPresentationEvents()
+        turnTransitionNotBefore = nil
+        resetTerminalPresentationCutoff()
         cancelInactivityCheck()
         cancelAllProtectionAttempts()
         return protectionRecoveryGeneration
@@ -56,9 +56,9 @@ extension ActivityMonitor {
         guard generation == protectionRecoveryGeneration else {
             return
         }
-        resetTerminalPresentationEvents()
+        resetTerminalPresentationCutoff()
         isProtectionRecoveryInProgress = false
-        sessionTransitionNotBefore = Date()
+        turnTransitionNotBefore = Date()
         reconcileProtection(now: Date(), sendsNotification: false)
     }
 
@@ -75,7 +75,7 @@ extension ActivityMonitor {
             return
         }
 
-        for (key, var task) in tasks {
+        for (key, task) in tasks {
             guard task.hasFreshLifecycle(at: now),
                   let record = protectionRecords[key.protectionIdentifier] else {
                 continue
@@ -90,9 +90,7 @@ extension ActivityMonitor {
                 continue
             }
 
-            task.state = .suppressed
-            task.stateChangedAt = record.markedAt
-            tasks[key] = task
+            suppressedTasks[key] = record.markedAt
         }
     }
 
@@ -113,7 +111,7 @@ extension ActivityMonitor {
 
         let threshold = protectionSettings.inactivityDuration.timeInterval
         let restorableKeys = tasks.compactMap { key, task -> ActivityTaskKey? in
-            guard task.state == .suppressed,
+            guard suppressedTasks[key] != nil,
                   task.protectionReferenceAt.addingTimeInterval(threshold) > now else {
                 return nil
             }
@@ -124,7 +122,7 @@ extension ActivityMonitor {
         }
 
         let overdueKeys = tasks.compactMap { key, task -> ActivityTaskKey? in
-            guard task.state == .running,
+            guard task.state == .running, suppressedTasks[key] == nil,
                   let deadline = task.protectionDeadline(at: now, inactivityDuration: threshold),
                   deadline <= now else {
                 return nil
@@ -145,7 +143,7 @@ extension ActivityMonitor {
 
         let threshold = protectionSettings.inactivityDuration.timeInterval
         let nextDeadline = tasks.compactMap { key, task -> Date? in
-            guard task.state == .running,
+            guard task.state == .running, suppressedTasks[key] == nil,
                   protectionAttempts[key] == nil else {
                 return nil
             }
@@ -189,7 +187,7 @@ extension ActivityMonitor {
 
         let threshold = protectionSettings.inactivityDuration.timeInterval
         let candidates = tasks.compactMap { key, task -> ProtectionCandidate? in
-            guard task.state == .running,
+            guard task.state == .running, suppressedTasks[key] == nil,
                   protectionAttempts[key] == nil,
                   let deadline = task.protectionDeadline(at: now, inactivityDuration: threshold),
                   deadline <= now else {
@@ -293,12 +291,8 @@ extension ActivityMonitor {
             )
         }
 
-        guard var task = tasks[key] else {
-            return
-        }
-        task.state = .suppressed
-        task.stateChangedAt = attempt.markedAt
-        tasks[key] = task
+        guard tasks[key] != nil else { return }
+        suppressedTasks[key] = attempt.markedAt
         AppLog.activity.notice(
             "异常任务已隐藏: thresholdMinutes=\(attempt.candidate.inactivityDuration.loggedMinutes)"
         )
@@ -310,7 +304,7 @@ extension ActivityMonitor {
         markedAt: Date
     ) {
         cancelProtectionAttempt(for: key)
-        guard var task = tasks[key],
+        guard let task = tasks[key],
               task.state == .running else {
             return
         }
@@ -320,9 +314,7 @@ extension ActivityMonitor {
             lastProgressAt: task.lastProgressAt,
             markedAt: markedAt
         )
-        task.state = .suppressed
-        task.stateChangedAt = markedAt
-        tasks[key] = task
+        suppressedTasks[key] = markedAt
         AppLog.activity.notice("异常任务已静默隐藏: reason=reconcile")
     }
 
@@ -332,7 +324,7 @@ extension ActivityMonitor {
     ) {
         guard canEvaluateProtection,
               let task = tasks[key],
-              task.state == .running,
+              task.state == .running, suppressedTasks[key] == nil,
               let deadline = task.protectionDeadline(at: now, inactivityDuration: protectionSettings.inactivityDuration.timeInterval),
               deadline <= now else {
             return
@@ -342,15 +334,12 @@ extension ActivityMonitor {
 
     func restoreActivityTaskForCurrentThreshold(
         _ key: ActivityTaskKey,
-        restoredAt: Date
+        restoredAt _: Date
     ) {
-        guard var task = tasks[key], task.state == .suppressed else {
+        guard let task = tasks[key], suppressedTasks[key] != nil else {
             return
         }
 
-        task.state = .running
-        task.stateChangedAt = restoredAt
-        tasks[key] = task
         clearProtection(
             for: key,
             taskID: task.displayID,
@@ -359,17 +348,15 @@ extension ActivityMonitor {
         AppLog.activity.notice("异常任务已静默恢复: reason=thresholdChange")
     }
 
-    func restoreAllSuppressedActivityTasks(restoredAt: Date) {
-        let suppressedKeys = tasks.compactMap { key, task in
-            task.state == .suppressed ? key : nil
+    func restoreAllSuppressedActivityTasks(restoredAt _: Date) {
+        let suppressedKeys = tasks.compactMap { key, _ in
+            suppressedTasks[key] != nil ? key : nil
         }
         for key in suppressedKeys {
-            guard var task = tasks[key] else {
+            guard let task = tasks[key] else {
                 continue
             }
-            task.state = .running
-            task.stateChangedAt = restoredAt
-            tasks[key] = task
+            suppressedTasks.removeValue(forKey: key)
             invalidateProtectionNotification(for: task.displayID)
         }
         for (taskID, attemptID) in Array(protectionNoticeAttemptIDs) {
@@ -390,7 +377,7 @@ extension ActivityMonitor {
               protectionSettings.inactivityDuration == candidate.inactivityDuration,
               let task = tasks[candidate.key],
               task.displayID == candidate.taskID,
-              task.state == .running,
+              task.state == .running, suppressedTasks[candidate.key] == nil,
               task.lastProgressAt == candidate.lastProgressAt,
               task.progressGeneration == candidate.progressGeneration else {
             return false
@@ -428,6 +415,7 @@ extension ActivityMonitor {
         taskID: UUID?,
         reason: ProtectionClearReason
     ) {
+        suppressedTasks.removeValue(forKey: key)
         cancelProtectionAttempt(for: key)
         let identifier = key.protectionIdentifier
         if let record = protectionRecords.removeValue(forKey: identifier) {
