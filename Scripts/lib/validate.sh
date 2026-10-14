@@ -69,7 +69,7 @@ validate_final_app() {
     if [[ "${CONFIGURATION}" == "Debug" ]]; then
         manager_name="CodexBar Helper Debug"
     fi
-    local manager_path="${contents_path}/Library/LoginItems/${manager_name}.app"
+    local manager_path="${contents_path}/Helpers/${manager_name}.app"
     local manager_executable="${manager_path}/Contents/MacOS/CodexBarHelperManager"
     local helper_path="${manager_path}/Contents/Resources/CodexBarHelper"
     local launch_daemons_path="${manager_path}/Contents/Library/LaunchDaemons"

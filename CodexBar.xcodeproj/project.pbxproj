@@ -50,7 +50,7 @@
 		};
 		F10000000000000000000004 /* Embed Helper Manager */ = {
 			isa = PBXCopyFilesBuildPhase;
-			dstPath = Contents/Library/LoginItems;
+			dstPath = Contents/Helpers;
 			dstSubfolder = Wrapper;
 			files = (
 				F10000000000000000000001 /* CodexBar Helper Debug.app in Embed Helper Manager */,

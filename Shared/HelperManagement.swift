@@ -23,6 +23,6 @@ nonisolated enum HelperManagement {
     }
 
     static func bundleURL(in appURL: URL) -> URL {
-        appURL.appending(path: "Contents/Library/LoginItems/\(bundleName)")
+        appURL.appending(path: "Contents/Helpers/\(bundleName)")
     }
 }

@@ -154,7 +154,7 @@ struct ActivityBackfillTests {
             #expect(probe.graph.tasks[key]?.tokenUsage?.totalTokens == 50)
             #expect(await reader.drainNow().status == .completed)
             #expect(!unavailable)
-            try await Self.waitForItemReads(logs, count: outcome == .invalidResponse ? 1 : 2)
+            try await Self.waitForItemReads(logs, count: 2)
             await reader.stop()
         }
         #expect(try await store.refresh().first?.tokenUsage.totalTokens == 50)
