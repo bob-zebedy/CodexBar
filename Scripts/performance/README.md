@@ -47,10 +47,10 @@ python3 -m Scripts.performance \
 
 ## 输出位置
 
-默认输出到仓库根目录下的 `Performance/YYYYMMDD/HHMMSS-{preset}/`，日期和时间取测试启动时的本地时间。例如：
+默认输出到仓库根目录下的 `Performance/{version}({build})-{preset}-YYYYMMDDHHmmss/`，日期和时间取测试启动时的本地时间，精确到秒。版本和构建号分别读取 `Config/Version.xcconfig` 中的 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION`，保留版本号中的点号。
 
 ```text
-Performance/20260912/103000-quick/
+Performance/4.1.1(123)-extended-20261024140000/
 ├── performance.html
 ├── performance.json
 ├── schemas.json
@@ -61,6 +61,8 @@ Performance/20260912/103000-quick/
 ```
 
 `performance.html` 用于查看报告，`performance.json` 用于基线比较和重新生成报告，`*.trace` 可用 Instruments 打开。目录内同时保存采样 XML、命令日志和工具源码快照。
+
+已有同名目录时，脚本会报错而不覆盖已有结果。可用 `--output` 指定其他新目录：
 
 ```sh
 python3 -m Scripts.performance --preset quick --output Performance/idle-01

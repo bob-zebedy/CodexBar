@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import signal
 import sys
 import tempfile
@@ -65,10 +66,23 @@ def main() -> int:
     for value in (args.cpu_mean_budget, args.footprint_budget):
         if value is not None and (not 0 < value < float("inf")):
             parser.error("Budgets must be finite positive numbers")
-    timestamp = dt.datetime.now().strftime("%Y%m%d/%H%M%S")
-    output = (
-            args.output or ROOT / "Performance" / f"{timestamp}-{args.preset}"
-    ).resolve()
+    output = args.output
+    if output is None:
+        version_config = ROOT / "Config/Version.xcconfig"
+        try:
+            version_text = version_config.read_text()
+        except OSError as error:
+            parser.error(f"Cannot read {version_config}: {error}")
+        version_match = re.search(r"(?m)^\s*MARKETING_VERSION\s*=\s*(\d+(?:\.\d+)+)\s*$", version_text)
+        if version_match is None:
+            parser.error(f"Missing or invalid MARKETING_VERSION in {version_config}")
+        build_match = re.search(r"(?m)^\s*CURRENT_PROJECT_VERSION\s*=\s*(\d+(?:\.\d+)*)\s*$", version_text)
+        if build_match is None:
+            parser.error(f"Missing or invalid CURRENT_PROJECT_VERSION in {version_config}")
+        version = f"{version_match.group(1)}({build_match.group(1)})"
+        timestamp = dt.datetime.now().strftime("%Y%m%d%H%M%S")
+        output = ROOT / "Performance" / f"{version}-{args.preset}-{timestamp}"
+    output = output.resolve()
     try:
         output.mkdir(parents=True, exist_ok=False)
     except OSError as error:
