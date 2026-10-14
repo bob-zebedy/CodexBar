@@ -675,7 +675,9 @@ extension SyncRecoveryTests {
     @Test func repeatedRebuildKeepsSourceAndNeedsNoSeparateAcknowledgement() async throws {
         let fixture = try await HistoryRebuildFixture()
         defer { try? fixture.directory.remove() }
-        _ = try await fixture.history.rebuildData(for: [fixture.date], synchronize: false)
+        let initial = try await fixture.history.rebuildData(for: [fixture.date], synchronize: false)
+        #expect(initial.summary.failedTokenUsageDateKeys.isEmpty)
+        #expect(!initial.summary.didFailTokenUsageRebuild)
         _ = try await fixture.history.rebuildData(for: [fixture.date], synchronize: true)
         let state = try HistoryDatabase(directoryURL: fixture.directory.url)
         #expect(try state.activityDataAggregates().first == fixture.local)
@@ -760,6 +762,28 @@ extension SyncRecoveryTests {
         #expect(try Self.activityDataEventCount(remote) == 2)
         #expect(remote["sourceCheckpoint"] == nil)
         #expect(await fixture.database.activityDataRecords().count == 1)
+    }
+
+    @Test func unavailableTokenUsageHistoryMarksAllRequestedDatesFailed() async throws {
+        let fixture = try await HistoryRebuildFixture()
+        defer { try? fixture.directory.remove() }
+        let brokenDirectory = try TestDirectory()
+        defer { try? brokenDirectory.remove() }
+        _ = try brokenDirectory.write(Data("broken".utf8), to: HistoryDatabase.filename)
+        let history = HistoryService(
+            directoryURL: fixture.directory.url, syncService: fixture.sync,
+            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: brokenDirectory.url)
+        )
+        let date = try #require(CodexDateFormat.dayDate(from: fixture.date))
+        let dates = [fixture.date, HistoryStorage.dateKey(for: date.addingTimeInterval(-86400))]
+        let result = try await history.rebuildData(for: dates, synchronize: false)
+        #expect(result.summary.failedTokenUsageDateKeys == dates.sorted())
+        #expect(result.summary.didFailTokenUsageRebuild)
+        #expect(result.summary.rebuiltDateCount == 0)
+        #expect(result.summary.eventCount == 1)
+        #expect(result.summary.tokenUsageEventCount == 0)
+        #expect(result.summary.failedDateKeys.isEmpty)
+        #expect(try await Self.activityDataEventCount(fixture.database.activityDataRecords().first) == 9)
     }
 
     @Test func partialTokenUsageFailureIsReportedWithoutClaimingWholeDaySuccess() async throws {

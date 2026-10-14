@@ -13,9 +13,10 @@ nonisolated enum HistoryStorage {
         root.appendingPathComponent("Sync", isDirectory: true)
     }
 
-    static func rebuildableEventDateKeys(in directoryURL: URL = directoryURL()) -> [String] {
+    static func rebuildableEventDateKeys(in directoryURL: URL = directoryURL()) async -> [String] {
         let cutoff = dateKey(for: retentionCutoffDate())
-        return ((try? HistoryDatabase(directoryURL: directoryURL).dates()) ?? []).filter { $0 >= cutoff }
+        let dates = try? await HistoryDatabaseStore.shared(in: directoryURL).access { try $0.dates() }
+        return (dates ?? []).filter { $0 >= cutoff }
     }
 
     static func retentionCutoffDate(today: Date = Date(), calendar: Calendar = .current) -> Date {

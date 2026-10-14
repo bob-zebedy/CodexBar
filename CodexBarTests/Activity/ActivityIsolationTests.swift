@@ -248,7 +248,13 @@ extension ActivityIsolationTests {
         let entered = Mutex(false)
         let release = DispatchSemaphore(value: 0)
         defer { release.signal() }
-        let blocked = Task { await store.holdForReaderTest(entered: { entered.withLock { $0 = true } }, release: release) }
+        let database = HistoryDatabaseStore.shared(in: directory.url)
+        let blocked = Task {
+            try await database.access { _ in
+                entered.withLock { $0 = true }
+                _ = release.wait(timeout: .now() + 10)
+            }
+        }
         for _ in 0 ..< 100 where !entered.withLock({ $0 }) {
             try await Task.sleep(for: .milliseconds(10))
         }
@@ -276,7 +282,7 @@ extension ActivityIsolationTests {
         #expect(ContinuousClock.now - started < .seconds(3))
         let countAtStop = batches
         release.signal()
-        await blocked.value
+        try await blocked.value
         // 再次停止等待旧工作循环释放资源, 不能发布已停止连接的状态
         _ = await reader.stop()
         #expect(batches == countAtStop)
@@ -399,13 +405,6 @@ extension ActivityIsolationTests {
         return ["method": "thread/tokenUsage/updated", "params": [
             "threadId": "healthy", "turnId": "turn", "tokenUsage": ["total": counts, "last": counts]
         ]]
-    }
-}
-
-private extension TokenUsageHistoryStore {
-    func holdForReaderTest(entered: @Sendable () -> Void, release: DispatchSemaphore) {
-        entered()
-        _ = release.wait(timeout: .now() + 10)
     }
 }
 

@@ -4993,6 +4993,22 @@
         }
       }
     },
+    "settings.about.openai-status" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenAI Status"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenAI 服务状态"
+          }
+        }
+      }
+    },
     "settings.about.version" : {
       "localizations" : {
         "en" : {

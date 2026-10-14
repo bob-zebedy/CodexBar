@@ -1,19 +1,19 @@
 import Foundation
 
 /// 实时通知和历史执行项共用数据库事件身份去重
-actor ActivityDataRecorder {
-    private let directoryURL: URL
+nonisolated struct ActivityDataRecorder: Sendable {
+    private let database: HistoryDatabaseStore
 
     init(directoryURL: URL = HistoryStorage.directoryURL()) {
-        self.directoryURL = directoryURL
+        database = HistoryDatabaseStore.shared(in: directoryURL)
     }
 
-    func record(event: ActivityDataRecord) throws {
+    func record(event: ActivityDataRecord) async throws {
         guard event.id != nil else { return }
-        try HistoryDatabase(directoryURL: directoryURL).append(AppServerEventRecord(activityData: event))
+        _ = try await database.access { try $0.append(AppServerEventRecord(activityData: event)) }
     }
 
-    func record(events: [ActivityDataRecord]) throws {
-        try HistoryDatabase(directoryURL: directoryURL).appendActivityData(events)
+    func record(events: [ActivityDataRecord]) async throws {
+        try await database.access { try $0.appendActivityData(events) }
     }
 }

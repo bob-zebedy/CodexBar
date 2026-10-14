@@ -37,7 +37,7 @@ python3 -m Scripts.performance \
 | `--app PATH` | App 路径，默认 `/Applications/CodexBar.app` |
 | `--pid PID` | 指定待测试进程，存在多个 App 实例时使用 |
 | `--preset NAME` | 选择 `quick`、`standard` 或 `extended` |
-| `--output PATH` | 采集时指定新目录，重新生成报告时指定 HTML 文件 |
+| `--output VALUE` | 采集时追加目录名后缀，重新生成报告时指定 HTML 文件路径 |
 | `--workload TEXT` | 记录测试场景说明 |
 | `--baseline PATH` | 指定基线 `performance.json` |
 | `--cpu-mean-budget NUMBER` | 各阶段平均 CPU 上限，单位为 `%` |
@@ -50,7 +50,7 @@ python3 -m Scripts.performance \
 默认输出到仓库根目录下的 `Performance/{version}({build})-{preset}-YYYYMMDDHHmmss/`，日期和时间取测试启动时的本地时间，精确到秒。版本和构建号分别读取 `Config/Version.xcconfig` 中的 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION`，保留版本号中的点号。
 
 ```text
-Performance/4.1.1(123)-extended-20261024140000/
+Performance/4.1.1(111)-extended-20261024140000/
 ├── performance.html
 ├── performance.json
 ├── schemas.json
@@ -62,11 +62,13 @@ Performance/4.1.1(123)-extended-20261024140000/
 
 `performance.html` 用于查看报告，`performance.json` 用于基线比较和重新生成报告，`*.trace` 可用 Instruments 打开。目录内同时保存采样 XML、命令日志和工具源码快照。
 
-已有同名目录时，脚本会报错而不覆盖已有结果。可用 `--output` 指定其他新目录：
+已有同名目录时，脚本会报错而不覆盖已有结果。采集时可用 `--output` 在默认目录名后追加 `-{后缀}`，后缀不能为空或包含 `/`：
 
 ```sh
-python3 -m Scripts.performance --preset quick --output Performance/idle-01
+python3 -m Scripts.performance --preset quick --output idle
 ```
+
+例如，输出目录为 `Performance/4.1.1(111)-quick-20261024140000-idle/`
 
 ## 基线比较
 
@@ -75,15 +77,15 @@ python3 -m Scripts.performance --preset quick --output Performance/idle-01
 ```sh
 python3 -m Scripts.performance \
   --preset quick \
-  --output Performance/idle-01
+  --output idle
 ```
 
-再次测试时指定基线文件：
+再次测试时指定实际生成目录中的基线文件，例如：
 
 ```sh
 python3 -m Scripts.performance \
   --preset quick \
-  --baseline Performance/idle-01/performance.json
+  --baseline 'Performance/4.1.1(111)-quick-20261024140000-idle/performance.json'
 ```
 
 两个报告均完整，且应用标识、格式、测试配置与环境条件匹配时，报告计算各阶段的 CPU 均值和 Footprint 中位数差值；条件不匹配时列出原因。
@@ -115,13 +117,13 @@ python3 -m Scripts.performance \
 从已有 JSON 重新生成 HTML 报告：
 
 ```sh
-python3 -m Scripts.performance --render Performance/idle-01/performance.json
+python3 -m Scripts.performance --render 'Performance/4.1.1(111)-quick-20261024140000-idle/performance.json'
 ```
 
 默认更新 JSON 同目录的 `performance.html`。使用 `--output` 指定另一个 HTML 文件：
 
 ```sh
 python3 -m Scripts.performance \
-  --render Performance/idle-01/performance.json \
-  --output Performance/idle-01/performance-updated.html
+  --render 'Performance/4.1.1(111)-quick-20261024140000-idle/performance.json' \
+  --output 'Performance/4.1.1(111)-quick-20261024140000-idle/performance-updated.html'
 ```

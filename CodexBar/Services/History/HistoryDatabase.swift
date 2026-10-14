@@ -1,12 +1,18 @@
 import Foundation
 import SQLite3
 
-/// 连接只在所属采集或历史 actor 的同步调用内使用, 事务不跨 await
+/// SQLite 操作同步完成, 应用通过 HistoryDatabaseStore 串行访问共享连接
 final nonisolated class HistoryDatabase {
     static let filename = "event.db"
     private static let schemaVersion: Int32 = 1
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     private var connection: OpaquePointer?
+    private var threadSnapshots: [String: CachedThreadSnapshot] = [:]
+
+    private struct CachedThreadSnapshot {
+        let snapshot: TokenUsageThreadSnapshot
+        let accessedAt: Date
+    }
 
     enum Value {
         case integer(Int64)
@@ -18,6 +24,15 @@ final nonisolated class HistoryDatabase {
     struct Failure: Error {
         let code: Int32
         let message: String
+
+        var requiresReopening: Bool {
+            switch code & 0xFF {
+            case SQLITE_IOERR, SQLITE_CORRUPT, SQLITE_NOTADB, SQLITE_CANTOPEN, SQLITE_PROTOCOL, SQLITE_READONLY:
+                true
+            default:
+                false
+            }
+        }
     }
 
     struct Entry {
@@ -87,6 +102,18 @@ final nonisolated class HistoryDatabase {
         sqlite3_close(connection)
     }
 
+    var hasOpenTransaction: Bool {
+        sqlite3_get_autocommit(connection) == 0
+    }
+
+    func canReuseConnection() throws -> Bool {
+        var moved: Int32 = 0
+        let result = sqlite3_file_control(connection, "main", SQLITE_FCNTL_HAS_MOVED, &moved)
+        guard result == SQLITE_OK else { throw failure(result) }
+        guard moved == 0, !hasOpenTransaction else { return false }
+        return try scalar("PRAGMA user_version") == Int64(Self.schemaVersion)
+    }
+
     func transaction<T>(isolation _: isolated (any Actor)? = #isolation, _ body: () throws -> T) throws -> T {
         try execute("BEGIN IMMEDIATE")
         do {
@@ -144,6 +171,15 @@ final nonisolated class HistoryDatabase {
             )
             try insert(AppServerEventRecord(tokenUsage: observation, recordedAt: sample.observedAt))
         }
+    }
+
+    func tokenUsageSnapshot(threadID: String) throws -> TokenUsageThreadSnapshot {
+        let result = try tokenUsageSnapshot(threadSnapshots[threadID]?.snapshot ?? TokenUsageThreadSnapshot(threadID: threadID))
+        threadSnapshots[threadID] = CachedThreadSnapshot(snapshot: result, accessedAt: Date())
+        if threadSnapshots.count > 128, let oldest = threadSnapshots.min(by: { $0.value.accessedAt < $1.value.accessedAt })?.key {
+            threadSnapshots[oldest] = nil
+        }
+        return result
     }
 
     func tokenUsageSnapshot(_ previous: TokenUsageThreadSnapshot) throws -> TokenUsageThreadSnapshot {

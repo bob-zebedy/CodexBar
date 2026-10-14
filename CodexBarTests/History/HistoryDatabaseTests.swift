@@ -27,7 +27,7 @@ struct HistoryDatabaseTests {
         #expect(rebuilt.syncedAggregate.metrics.toolCallCount == 3)
     }
 
-    @Test func rebuildableDatesIncludeActivityAndTokenOnlyDaysWithinRetention() throws {
+    @Test func rebuildableDatesIncludeActivityAndTokenOnlyDaysWithinRetention() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let database = try HistoryDatabase(directoryURL: directory.url)
@@ -42,7 +42,7 @@ struct HistoryDatabaseTests {
             let observation = TestFixtures.tokenUsageObservation(at: date, tokenUsage: .zero)
             try database.append(AppServerEventRecord(tokenUsage: observation, recordedAt: now))
         }
-        #expect(HistoryStorage.rebuildableEventDateKeys(in: directory.url) == [cutoff, yesterday, now].map(HistoryStorage.dateKey(for:)))
+        #expect(await HistoryStorage.rebuildableEventDateKeys(in: directory.url) == [cutoff, yesterday, now].map(HistoryStorage.dateKey(for:)))
     }
 
     @Test func committedEventsSurviveRestartAndDeduplicate() throws {
