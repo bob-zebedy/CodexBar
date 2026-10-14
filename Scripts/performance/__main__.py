@@ -35,7 +35,8 @@ class Arguments(argparse.Namespace):
     app: Path
     pid: int | None
     preset: str
-    output: str | None
+    label: str | None
+    output: Path | None
     workload: str
     baseline: Path | None
     cpu_mean_budget: float | None
@@ -50,24 +51,29 @@ def main() -> int:
     parser.add_argument("--app", type=Path, default=Path("/Applications/CodexBar.app"))
     parser.add_argument("--pid", type=int)
     parser.add_argument("--preset", choices=PRESETS, default="standard")
-    parser.add_argument("--output", help="Append a suffix to the recording directory name, or set the HTML path with --render")
-    parser.add_argument("--workload", default="Natural workload; UI and active tasks uncontrolled")
+    parser.add_argument("--label", help="Label this recording in its directory name")
+    parser.add_argument("--output", type=Path, help="Set the HTML output path with --render")
+    parser.add_argument("--workload", default="default")
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--cpu-mean-budget", type=float)
     parser.add_argument("--footprint-budget", type=float, help="Physical footprint budget in MiB")
     parser.add_argument("--render", type=Path, help="Regenerate HTML from an existing performance.json without profiling")
     args = parser.parse_args(namespace=Arguments())
     if args.render:
+        if args.label is not None:
+            parser.error("--label is only available when recording")
         render_data = cast(Report, json.loads(args.render.read_text()))
-        destination = Path(args.output) if args.output is not None else args.render.parent / "performance.html"
+        destination = args.output if args.output is not None else args.render.parent / "performance.html"
         write_report(render_data, destination)
         print(destination)
         return 0
+    if args.output is not None:
+        parser.error("--output requires --render")
     for value in (args.cpu_mean_budget, args.footprint_budget):
         if value is not None and (not 0 < value < float("inf")):
             parser.error("Budgets must be finite positive numbers")
-    if args.output is not None and (not args.output or "/" in args.output):
-        parser.error("--output must be a non-empty directory name suffix without '/' when recording")
+    if args.label is not None and (not args.label or "/" in args.label):
+        parser.error("--label must be non-empty and must not contain '/'")
     version_config = ROOT / "Config/Version.xcconfig"
     try:
         version_text = version_config.read_text()
@@ -82,8 +88,8 @@ def main() -> int:
     version = f"{version_match.group(1)}({build_match.group(1)})"
     timestamp = dt.datetime.now().strftime("%Y%m%d%H%M%S")
     output_name = f"{version}-{args.preset}-{timestamp}"
-    if args.output is not None:
-        output_name += f"-{args.output}"
+    if args.label is not None:
+        output_name += f"-{args.label}"
     output = (ROOT / "Performance" / output_name).resolve()
     try:
         output.mkdir(parents=True, exist_ok=False)

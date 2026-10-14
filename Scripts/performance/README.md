@@ -37,8 +37,9 @@ python3 -m Scripts.performance \
 | `--app PATH` | App 路径，默认 `/Applications/CodexBar.app` |
 | `--pid PID` | 指定待测试进程，存在多个 App 实例时使用 |
 | `--preset NAME` | 选择 `quick`、`standard` 或 `extended` |
-| `--output VALUE` | 采集时追加目录名后缀，重新生成报告时指定 HTML 文件路径 |
-| `--workload TEXT` | 记录测试场景说明 |
+| `--label TEXT` | 本次测试的标签，会追加到采集目录名末尾 |
+| `--output PATH` | 配合 `--render` 指定 HTML 文件路径 |
+| `--workload TEXT` | 记录测试场景说明，默认 default |
 | `--baseline PATH` | 指定基线 `performance.json` |
 | `--cpu-mean-budget NUMBER` | 各阶段平均 CPU 上限，单位为 `%` |
 | `--footprint-budget NUMBER` | 各阶段 Footprint 峰值上限，单位为 `MiB` |
@@ -62,10 +63,10 @@ Performance/4.1.1(111)-extended-20261024140000/
 
 `performance.html` 用于查看报告，`performance.json` 用于基线比较和重新生成报告，`*.trace` 可用 Instruments 打开。目录内同时保存采样 XML、命令日志和工具源码快照。
 
-已有同名目录时，脚本会报错而不覆盖已有结果。采集时可用 `--output` 在默认目录名后追加 `-{后缀}`，后缀不能为空或包含 `/`：
+已有同名目录时，脚本会报错而不覆盖已有结果。采集时可用 `--label` 为本次测试添加标签，在默认目录名后追加 `-{标签}`，标签不能为空或包含 `/`：
 
 ```sh
-python3 -m Scripts.performance --preset quick --output idle
+python3 -m Scripts.performance --preset quick --label idle
 ```
 
 例如，输出目录为 `Performance/4.1.1(111)-quick-20261024140000-idle/`
@@ -77,7 +78,7 @@ python3 -m Scripts.performance --preset quick --output idle
 ```sh
 python3 -m Scripts.performance \
   --preset quick \
-  --output idle
+  --label idle
 ```
 
 再次测试时指定实际生成目录中的基线文件，例如：
