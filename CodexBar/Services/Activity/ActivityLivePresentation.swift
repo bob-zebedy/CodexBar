@@ -18,6 +18,8 @@ nonisolated struct ActivityLiveEvent: Equatable {
 nonisolated struct ActivityLiveWait: Equatable {
     let label: ActivityLiveLabel
     let since: Date?
+    /// 仅提问请求提供阻塞信息, 其他来源保留未知
+    var isBlocking: Bool?
 }
 
 nonisolated struct ActivityLiveSummary: Equatable {
@@ -27,6 +29,7 @@ nonisolated struct ActivityLiveSummary: Equatable {
     var toolCount: Int?
     var planCompleted: Int?
     var planTotal: Int?
+    var hasBlockingInputRequest = false
     var isReviewing = false
     var updatedAt: Date = .distantPast
 }
@@ -39,9 +42,16 @@ nonisolated struct ActivityLivePresentation {
         var isTool = false
     }
 
+    private struct PendingQuestions {
+        let since: Date
+        let count: Int
+        var answered: Set<Int> = []
+    }
+
     private var items: [String: Entry] = [:]
     private var operations: [String: Entry] = [:]
     private(set) var requests: [String: ActivityLiveWait] = [:]
+    private var questions: [String: PendingQuestions] = [:]
     private var flagWait: ActivityLiveWait?
     private var phase = Entry(label: ActivityLiveLabel("processing"), at: .distantPast)
     private var phaseItemID: String?
@@ -52,22 +62,33 @@ nonisolated struct ActivityLivePresentation {
     private var inventoryKnown = false
 
     var summary: ActivityLiveSummary {
-        let waiting = requests.min { lhs, rhs in
+        let requestWait = requests.min { lhs, rhs in
             let left = lhs.value.since ?? .distantFuture
             let right = rhs.value.since ?? .distantFuture
             return left == right ? lhs.key < rhs.key : left < right
-        }?.value ?? flagWait
+        }?.value
+        let questionWait = questions.values.map(\.since).min().map {
+            ActivityLiveWait(label: ActivityLiveLabel("waiting-input"), since: $0, isBlocking: false)
+        }
+        let waiting = [requestWait, questionWait].compactMap(\.self).min {
+            ($0.since ?? .distantFuture) < ($1.since ?? .distantFuture)
+        } ?? flagWait
         let current = operations.values.max { $0.at < $1.at }
             ?? (Array(items.values) + [phase]).max { $0.at < $1.at } ?? phase
         return ActivityLiveSummary(
             current: waiting?.label ?? current.label, waiting: waiting, recent: recent,
             toolCount: inventoryKnown ? items.values.filter(\.isTool).count : nil,
-            planCompleted: planCompleted, planTotal: planTotal, isReviewing: isReviewing, updatedAt: current.at
+            planCompleted: planCompleted, planTotal: planTotal,
+            hasBlockingInputRequest: requests.values.contains { $0.isBlocking == true },
+            isReviewing: isReviewing, updatedAt: current.at
         )
     }
 
     mutating func reconcile(status: ActivityThreadStatus?, observedAt: Date? = nil) {
         guard let status, [.active, .idle].contains(status.type) else { return }
+        if status.type == .idle {
+            questions.removeAll()
+        }
         guard let flags = status.type == .idle ? [] : status.activeFlags else { return }
         let label: ActivityLiveLabel? = if flags.contains(.waitingOnApproval) {
             ActivityLiveLabel("waiting-approval")
@@ -80,7 +101,8 @@ nonisolated struct ActivityLivePresentation {
             flagWait = ActivityLiveWait(label: label, since: flagWait?.label == label ? flagWait?.since : observedAt)
         } else {
             flagWait = nil
-            requests.removeAll()
+            // 非阻塞提问可与运行并存, active 状态不代表请求已被回应
+            requests = requests.filter { status.type == .active && $0.value.isBlocking == false }
         }
     }
 
@@ -92,8 +114,11 @@ nonisolated struct ActivityLivePresentation {
         case .threadStatusChanged:
             reconcile(status: params.status, observedAt: date)
         case .itemStarted, .itemFinished:
-            if let item = params.item, ActivityItem.isObservedType(item.type) {
-                consume(item, starting: notification.kind == .itemStarted, at: date)
+            if let item = params.item {
+                consumeQuestions(item, at: date)
+                if ActivityItem.isObservedType(item.type) {
+                    consume(item, starting: notification.kind == .itemStarted, at: date)
+                }
             }
         case .replyProgress, .reasoningProgress, .reasoningSummaryProgress:
             let label = if notification.kind == .replyProgress {
@@ -111,7 +136,7 @@ nonisolated struct ActivityLivePresentation {
                 items[id] = Entry(label: label, at: date, isTool: true)
             }
         case .commandApprovalRequested, .fileApprovalRequested, .permissionsRequested,
-             .inputRequested:
+             .inputRequested, .userInputRequested:
             consumeRequest(notification, at: date)
         case .requestResolved:
             if let id = params.requestId, requests.removeValue(forKey: id) != nil {
@@ -127,6 +152,8 @@ nonisolated struct ActivityLivePresentation {
         guard let id = notification.id else { return }
         let key: String
         switch notification.kind {
+        case .userInputRequested:
+            key = "waiting-input"
         case .inputRequested:
             guard notification.live.inputMode != .verification else { return }
             key = switch notification.live.inputMode {
@@ -137,7 +164,10 @@ nonisolated struct ActivityLivePresentation {
         default:
             key = "waiting-approval"
         }
-        requests[id] = requests[id] ?? ActivityLiveWait(label: ActivityLiveLabel(key), since: date)
+        requests[id] = requests[id] ?? ActivityLiveWait(
+            label: ActivityLiveLabel(key), since: date,
+            isBlocking: notification.kind == .userInputRequested ? notification.live.isBlocking : nil
+        )
     }
 
     private mutating func consume(_ item: ActivityItem, starting: Bool, at date: Date) {
@@ -160,6 +190,25 @@ nonisolated struct ActivityLivePresentation {
             if let label = item.liveCompletionLabel {
                 recent = ActivityLiveEvent(label: label, at: date)
             }
+        }
+    }
+
+    private mutating func consumeQuestions(_ item: ActivityItem, at date: Date) {
+        if item.asyncQuestionCount > 0, questions[item.id] == nil {
+            // item/completed 只表示提问已发送, 等待持续到对应问题收到回应
+            questions[item.id] = PendingQuestions(since: date, count: item.asyncQuestionCount)
+        }
+        var resolved = false
+        for reply in item.answeredQuestions {
+            guard let pending = questions[reply.itemID], reply.index < pending.count,
+                  questions[reply.itemID]?.answered.insert(reply.index).inserted == true else { continue }
+            resolved = true
+            if questions[reply.itemID]?.answered.count == pending.count {
+                questions.removeValue(forKey: reply.itemID)
+            }
+        }
+        if resolved {
+            record("request-ended", at: date)
         }
     }
 
@@ -228,8 +277,11 @@ nonisolated struct ActivityLivePresentation {
             operations = Dictionary(uniqueKeysWithValues: operations.sorted { $0.value.at > $1.value.at }.prefix(128).map { ($0.key, $0.value) })
         }
         if requests.count > 128 {
-            flagWait = ActivityLiveWait(label: ActivityLiveLabel("waiting-user"), since: nil)
+            flagWait = ActivityLiveWait(label: ActivityLiveLabel("waiting-default"), since: nil)
             requests = Dictionary(uniqueKeysWithValues: requests.sorted { $0.key < $1.key }.prefix(128).map { ($0.key, $0.value) })
+        }
+        if questions.count > 128 {
+            questions = Dictionary(uniqueKeysWithValues: questions.sorted { $0.value.since > $1.value.since }.prefix(128).map { ($0.key, $0.value) })
         }
     }
 }

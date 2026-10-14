@@ -1,32 +1,31 @@
 # app-server API Inventory
 
-Applicable version Codex `0.162.0`
+Codex version: `0.162.0`
 
-## Outgoing Calls
-
-### Requests
+## Outgoing Requests
 
 | API | Purpose |
 | --- | --- |
 | `initialize` | Initialize the connection and retrieve the server version |
-| `account/read` | Read account information and refresh authentication |
+| `account/read` | Read account information; `refreshToken` specifies whether to refresh authentication |
 | `account/rateLimits/read` | Read rate limits, credit balance, and reset credits |
 | `account/usage/read` | Read account usage summaries and daily token usage |
-| `account/rateLimitResetCredit/consume` | Consume a rate limit reset credit |
+| `account/rateLimitResetCredit/consume` | Consume a rate limit reset credit; `creditId` identifies the credit, and `idempotencyKey` prevents duplicate consumption |
 | `config/read` | Read Codex TUI notification settings |
-| `config/batchWrite` | Update Codex TUI notification settings |
+| `config/batchWrite` | Update Codex TUI notification settings; `edits` specifies the value of `tui.notifications`, and `reloadUserConfig: true` applies the change |
 | `thread/loaded/list` | List loaded threads |
-| `thread/read` | Read thread information and status |
-| `thread/resume` | Subscribe to messages from a loaded thread |
-| `thread/turns/list` | Read a thread's turns, statuses, root turn IDs, and sub-agent creation information |
+| `thread/read` | Read thread information and status; `threadId` identifies the thread, and `includeTurns: false` omits turn content |
+| `thread/resume` | Subscribe to messages from a loaded thread; `threadId` identifies the thread, and `excludeTurns: true` omits turn content |
+| `thread/turns/list` | Read paginated turn information for a thread; `threadId` identifies the thread, and `itemsView: "notLoaded"` omits item content |
+| `thread/items/list` | Read paginated items for a turn; `threadId` and `turnId` identify the target turn |
 
-### Notifications
+## Outgoing Notifications
 
 | API | Purpose |
 | --- | --- |
 | `initialized` | Notify the server that initialization is complete |
 
-## Incoming Messages
+## Incoming Notifications
 
 ### Account Notifications
 
@@ -35,7 +34,7 @@ Applicable version Codex `0.162.0`
 | `account/updated` | Receive account change notifications |
 | `account/rateLimits/updated` | Receive rate limit change notifications |
 
-### Thread, Turn, and Item Notifications
+### Threads, Turns, and Items
 
 | API | Purpose |
 | --- | --- |
@@ -44,8 +43,8 @@ Applicable version Codex `0.162.0`
 | `thread/tokenUsage/updated` | Receive thread token usage updates |
 | `turn/started` | Receive turn start notifications |
 | `turn/completed` | Receive turn end notifications |
-| `item/started` | Receive item start notifications |
-| `item/completed` | Receive item end notifications |
+| `item/started` | Receive item start notifications, including asynchronous questions and user responses |
+| `item/completed` | Receive item end notifications, including asynchronous questions and user responses |
 
 ### Progress Notifications
 
@@ -69,24 +68,16 @@ Applicable version Codex `0.162.0`
 | `model/safetyBuffering/updated` | Receive safety buffering display status |
 | `hook/started` | Observe the start of hook execution |
 | `hook/completed` | Receive hook execution results |
-| `serverRequest/resolved` | Observe that a server request has been resolved |
+| `serverRequest/resolved` | Receive notifications that server requests, such as approvals or questions, have ended |
 | `error` | Receive error notifications |
 | `warning` | Log server warnings |
 
-### Server Requests
+## Server Requests
 
 | API | Purpose |
 | --- | --- |
 | `item/commandExecution/requestApproval` | Observe command execution approval requests |
 | `item/fileChange/requestApproval` | Observe file change approval requests |
 | `item/permissions/requestApproval` | Observe permission approval requests |
+| `item/tool/requestUserInput` | Observe questions asked during a turn; `isBlocking` indicates whether the question blocks execution |
 | `mcpServer/elicitation/request` | Observe MCP elicitation requests |
-
-## Root Turn and Sub-Agent Fields Used
-
-| API | Field | Purpose |
-| --- | --- | --- |
-| `thread/turns/list` | Request parameter `itemsView` | Use `notLoaded` to read turn information and `full` to read items containing sub-agent creation information |
-| `thread/turns/list`, `turn/started`, `turn/completed` | `Turn.rootTurnId` | Read the ID of the root turn in the chain of work leading to the current turn |
-| `thread/turns/list`, `item/started`, `item/completed` | `subAgentActivity.model` | Read the resolved model at sub-agent creation when `kind` is `started` |
-| `thread/turns/list`, `item/started`, `item/completed` | `subAgentActivity.reasoningEffort` | Read the resolved reasoning effort at sub-agent creation when `kind` is `started` |

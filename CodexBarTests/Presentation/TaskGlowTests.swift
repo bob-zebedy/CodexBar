@@ -199,13 +199,41 @@ struct TaskGlowTests {
         #expect(presentation.terminal?.startedAt == nextPresentationTime)
     }
 
-    @Test func concurrentTaskCompletionStillShowsBrieflyThenRestoresRunning() throws {
+    @Test func liveInputWaitMatchesPanelAndReturnsToRunningAfterResponse() {
+        var task = ActivityTaskSnapshot(
+            id: UUID(), projectName: nil, modelName: nil, effort: nil, startedAt: TestFixtures.now,
+            stateChangedAt: TestFixtures.now, activeSubagentCount: nil
+        )
         var presentation = TaskGlowPresentationState()
-        let running = ActivityTaskSnapshot(
+        for waiting in [false, true, false] {
+            task.presentation = ActivityLiveSummary(
+                current: ActivityLiveLabel(waiting ? "waiting-input" : "replying"),
+                waiting: waiting ? ActivityLiveWait(label: ActivityLiveLabel("waiting-input"), since: TestFixtures.now) : nil
+            )
+            let snapshot = ActivitySnapshot(waitingTasks: [], runningTasks: [task], recentCompletions: [], recentTerminations: [])
+            presentation.update(snapshot: snapshot, terminalEvents: [], isEnabled: true, acceptsBriefEvents: true, now: TestFixtures.now)
+            presentation.refresh(now: TestFixtures.now, terminalDuration: 10)
+            #expect(snapshot.waitingCount == 0)
+            #expect(snapshot.runningCount == 1)
+            #expect(snapshot.panelWaitingTasks.isEmpty == !waiting)
+            #expect(presentation.state == (waiting ? .waiting : .running))
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func concurrentTaskCompletionStillShowsBrieflyThenRestoresActiveState(waiting: Bool) throws {
+        var presentation = TaskGlowPresentationState()
+        var running = ActivityTaskSnapshot(
             id: UUID(), projectName: nil,
             modelName: nil, effort: nil, startedAt: TestFixtures.now,
             stateChangedAt: TestFixtures.now, activeSubagentCount: nil
         )
+        if waiting {
+            running.presentation = ActivityLiveSummary(
+                current: ActivityLiveLabel("waiting-input"),
+                waiting: ActivityLiveWait(label: ActivityLiveLabel("waiting-input"), since: TestFixtures.now)
+            )
+        }
         let snapshot = ActivitySnapshot(
             waitingTasks: [], runningTasks: [running],
             recentCompletions: completedSnapshot().recentCompletions, recentTerminations: []
@@ -219,7 +247,7 @@ struct TaskGlowTests {
         #expect(presentation.state == .completed)
         #expect(presentation.terminal?.expiresAt == TestFixtures.now.addingTimeInterval(3))
         presentation.refresh(now: TestFixtures.now.addingTimeInterval(3), terminalDuration: 15)
-        #expect(presentation.state == .running)
+        #expect(presentation.state == (waiting ? .waiting : .running))
     }
 
     private func completedSnapshot() -> ActivitySnapshot {

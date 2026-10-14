@@ -283,29 +283,18 @@ final class LogPreviewPresentation {
 
 /// 保留后台生成的文本存储和排版缓存, 窗口缩放只调整可滚动区域
 final class LogPreviewScrollView: NSScrollView {
-    private var previewDocument: LogPreviewDocument?
+    private let previewDocument: LogPreviewDocument
     private static let textInset = NSSize(width: 12, height: 12)
 
     init(document: LogPreviewDocument) {
+        previewDocument = document
         super.init(frame: .zero)
         hasVerticalScroller = true
         hasHorizontalScroller = true
         autohidesScrollers = false
         drawsBackground = true
         backgroundColor = .textBackgroundColor
-        display(document)
-    }
-
-    @available(*, unavailable)
-    required init?(coder _: NSCoder) {
-        fatalError("init(coder:) is unavailable")
-    }
-
-    func display(_ document: LogPreviewDocument) {
-        guard previewDocument?.storage !== document.storage else { return }
-        previewDocument = document
-        let size = fittedSize(for: document)
-        let textView = NSTextView(frame: NSRect(origin: .zero, size: size), textContainer: document.container)
+        let textView = NSTextView(frame: NSRect(origin: .zero, size: fittedSize), textContainer: document.container)
         textView.isEditable = false
         textView.isSelectable = true
         textView.isRichText = true
@@ -320,19 +309,24 @@ final class LogPreviewScrollView: NSScrollView {
         documentView = textView
     }
 
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) is unavailable")
+    }
+
     override func layout() {
         super.layout()
-        guard let previewDocument, let documentView else { return }
-        let size = fittedSize(for: previewDocument)
+        guard let documentView else { return }
+        let size = fittedSize
         if documentView.frame.size != size {
             documentView.setFrameSize(size)
         }
     }
 
-    private func fittedSize(for document: LogPreviewDocument) -> NSSize {
+    private var fittedSize: NSSize {
         NSSize(
-            width: max(document.contentSize.width + Self.textInset.width * 2, contentSize.width),
-            height: max(document.contentSize.height + Self.textInset.height * 2, contentSize.height)
+            width: max(previewDocument.contentSize.width + Self.textInset.width * 2, contentSize.width),
+            height: max(previewDocument.contentSize.height + Self.textInset.height * 2, contentSize.height)
         )
     }
 }
@@ -344,7 +338,6 @@ struct LogCodePreviewView: NSViewRepresentable {
         LogPreviewScrollView(document: document)
     }
 
-    func updateNSView(_ scrollView: LogPreviewScrollView, context _: Context) {
-        scrollView.display(document)
-    }
+    /// 每次预览由 item.id 创建独立视图, 文档在视图生命周期内保持不变
+    func updateNSView(_: LogPreviewScrollView, context _: Context) {}
 }

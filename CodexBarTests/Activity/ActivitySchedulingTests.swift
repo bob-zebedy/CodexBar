@@ -299,7 +299,8 @@ struct ActivitySchedulingTests {
 }
 
 extension ActivitySchedulingTests {
-    @Test func snapshotCannotDismissNewMCPInputRequest() async throws {
+    @Test(arguments: ["mcpServer/elicitation/request", "item/tool/requestUserInput", "item/completed"])
+    func snapshotCannotDismissNewInputRequest(method: String) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let release = DispatchSemaphore(value: 0)
@@ -310,9 +311,11 @@ extension ActivitySchedulingTests {
             let loaded = try peer.readMessage()
             try peer.reply(to: loaded, result: ["data": ["thread"]])
             let read = try peer.readMessage()
-            try peer.send(["id": "input", "method": "mcpServer/elicitation/request", "params": [
-                "threadId": "thread", "turnId": "turn", "mode": "form"
-            ]])
+            var params: [String: Any] = ["threadId": "thread", "turnId": "turn", "mode": "form", "isBlocking": false]
+            if method == "item/completed" {
+                params["item"] = ["id": "input", "type": "agentMessage", "delivery": "async", "questions": [["title": "Question?"]]]
+            }
+            try peer.send(["id": "input", "method": method, "params": params])
             try peer.reply(to: read, result: ["thread": Self.thread(timestamp, status: "idle")])
             let turns = try peer.readMessage()
             try peer.reply(to: turns, result: ["data": [["id": "turn", "rootTurnId": "turn", "status": "inProgress", "startedAt": timestamp]]])
@@ -334,7 +337,7 @@ extension ActivitySchedulingTests {
         }
         #expect(await reader.drainNow().status == .partial)
         let state = await reader.lifecycleStatesForTesting(for: [.init(threadID: "thread", turnID: "turn")]).first
-        #expect(state?.presentation?.requests["input"] != nil)
+        #expect(state?.presentation?.summary.waiting != nil)
         await reader.stop()
         release.signal()
         try server.finish()

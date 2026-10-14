@@ -277,6 +277,15 @@ struct AppServerSessionTests {
             ]))
         }
         try filtered.append(notification("item/agentMessage/delta", params: ["delta": 123]))
+        try retained.append(JSONSerialization.data(withJSONObject: [
+            "id": "question", "method": "item/tool/requestUserInput", "params": [
+                "threadId": "thread", "turnId": "turn", "itemId": "item", "isBlocking": false,
+                "questions": [[
+                    "id": "q", "header": "Question", "question": "original question", "isSecret": true, "isOther": true,
+                    "options": [["label": "Original option", "description": "original description"]]
+                ]]
+            ]
+        ]))
         for count in 1 ... 3 {
             try retained.append(notification("thread/tokenUsage/updated", params: ["total": count]))
         }
@@ -321,7 +330,7 @@ struct AppServerSessionTests {
         var messages: [Data] = []
         for method in [
             "thread/settings/updated", "thread/environment/connected", "thread/environment/disconnected",
-            "item/tool/requestUserInput", "item/autoApprovalReview/started", "item/autoApprovalReview/completed",
+            "item/autoApprovalReview/started", "item/autoApprovalReview/completed",
             "hook/futureEvent",
             "remoteControl/status/changed", "thread/goal/cleared", "thread/name/updated", "future/tool/delta"
         ] {

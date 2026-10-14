@@ -12,7 +12,7 @@ final class KeepAliveController: ObservableObject {
     @Published private(set) var isPreventingSleep = false
     @Published private(set) var sleepPreventionSource = CodexBarSleepPreventionSource.none
     @Published private(set) var lowBatteryThreshold: LowBatteryThreshold
-    /// 等待批准的任务算不算"有任务", 决定审批期间要不要继续挡住睡眠
+    /// 是否将审批等待和明确阻塞的提问计入防睡眠
     @Published private(set) var keepsAwakeWhileWaiting: Bool
     /// 防睡眠生效期间是否连屏幕一起留住, 顺带压住屏保与闲置锁屏
     @Published private(set) var keepsDisplayAwake: Bool
@@ -147,7 +147,7 @@ final class KeepAliveController: ObservableObject {
         // 默认关闭: 老版本升上来的用户不该多出一条中断任务的路径
         lowBatteryThreshold = (defaults.object(forKey: Self.lowBatteryThresholdKey) as? Int)
             .flatMap(LowBatteryThreshold.init(rawValue:)) ?? .off
-        // 同样默认关闭: 等待批准没有终点, 开着它意味着无人值守时机器可能整夜不睡
+        // 默认关闭: 等待回应可能持续到用户返回, 避免无人值守时持续防睡眠
         keepsAwakeWhileWaiting = defaults.bool(forKey: Self.keepsAwakeWhileWaitingKey)
         // 默认关闭: 它会让人离开后机器一直停在解锁状态, 这个取舍只能由用户自己做
         keepsDisplayAwake = defaults.bool(forKey: Self.keepsDisplayAwakeKey)
@@ -301,16 +301,16 @@ final class KeepAliveController: ObservableObject {
     }
 
     /// 只改"哪些任务算数", 不参与拦截判定
-    /// 所以它不进 sleepBlockReason: 关着它时审批中的任务报的仍然是 noTasks, 与没有任务同一回事
+    /// 所以它不进 sleepBlockReason: 关着它时等待中的任务报的仍然是 noTasks, 与没有任务同一回事
     func setKeepsAwakeWhileWaiting(_ enabled: Bool) {
         guard enabled != keepsAwakeWhileWaiting else {
             return
         }
 
-        AppLog.keepAlive.notice("KeepAlive 等待批准时保持防睡眠变更: enabled=\(enabled ? 1 : 0)")
+        AppLog.keepAlive.notice("KeepAlive 等待回应时保持防睡眠变更: enabled=\(enabled ? 1 : 0)")
         keepsAwakeWhileWaiting = enabled
         defaults.set(enabled, forKey: Self.keepsAwakeWhileWaitingKey)
-        // 快照不会因为改设置重发一次, 正等着批准的那些任务只能在这里重新求值
+        // 快照不会因为改设置重发一次, 等待中的任务只能在这里重新求值
         reconcileSleepState(trigger: .settings)
     }
 
@@ -477,8 +477,7 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func handleActivitySnapshot(_ snapshot: ActivitySnapshot) {
-        let currentRunningTaskIDs = Set(snapshot.runningTasks.map(\.id))
-        let currentWaitingTaskIDs = Set(snapshot.waitingTasks.map(\.id))
+        let (currentRunningTaskIDs, currentWaitingTaskIDs) = snapshot.keepAliveTaskIDs
         // 运行与等待互斥, 新任务和等待后恢复都表现为运行集合新增成员
         let hasEnteredRunning = !currentRunningTaskIDs.isSubset(of: runningTaskIDs)
         runningTaskIDs = currentRunningTaskIDs
@@ -1407,7 +1406,7 @@ final class KeepAliveController: ObservableObject {
         sleepBlockReason == nil
     }
 
-    /// 等待批准算不算"有任务"由用户开关决定, 快照与设置两条路径共用这一份规则
+    /// 等待任务算不算"有任务"由用户开关决定, 快照与设置两条路径共用这一份规则
     private var hasKeepAliveTasks: Bool {
         !runningTaskIDs.isEmpty || (keepsAwakeWhileWaiting && !waitingTaskIDs.isEmpty)
     }

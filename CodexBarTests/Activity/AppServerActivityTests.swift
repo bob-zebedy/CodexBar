@@ -73,7 +73,7 @@ struct AppServerActivityTests {
 
     @Test(arguments: [
         "thread/settings/updated", "thread/environment/connected", "thread/environment/disconnected",
-        "item/plan/delta", "item/tool/requestUserInput", "item/autoApprovalReview/started", "item/autoApprovalReview/completed",
+        "item/plan/delta", "item/autoApprovalReview/started", "item/autoApprovalReview/completed",
         "item/fileChange/outputDelta", "item/future/delta", "item/future/outputDelta", "hook/delta", "command/exec/outputDelta",
         "process/outputDelta", "item/reasoning/textDelta/extra", "item/agentMessage/Delta"
     ])

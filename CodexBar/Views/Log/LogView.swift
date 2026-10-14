@@ -5,6 +5,7 @@ import SwiftUI
 struct LogView: View {
     @ObservedObject var store: AppServerLogViewModel
     @State private var preview = LogPreviewPresentation()
+    @State private var scrollPosition = ScrollPosition(idType: UUID.self, edge: .top)
 
     var body: some View {
         // 每轮渲染只取一次发布快照复用
@@ -89,8 +90,10 @@ struct LogView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(entries) { entry in
-                    LogRow(entry: entry, preview: preview)
-                    Divider()
+                    VStack(spacing: 0) {
+                        LogRow(entry: entry, preview: preview)
+                        Divider()
+                    }
                 }
                 if store.hasMore {
                     ProgressView()
@@ -99,7 +102,16 @@ struct LogView: View {
                         .task(id: entries.last?.id) { await store.loadMore() }
                 }
             }
+            .scrollTargetLayout()
         }
+        .scrollPosition($scrollPosition, anchor: .top)
+        .onScrollPhaseChange { _, phase, context in
+            // 浏览时按日志身份保持位置, 回到顶部后才重新跟随新日志
+            if phase == .idle, context.geometry.contentOffset.y + context.geometry.contentInsets.top <= 1 {
+                scrollPosition.scrollTo(edge: .top)
+            }
+        }
+        .onDisappear { scrollPosition = ScrollPosition(idType: UUID.self, edge: .top) }
         .background(Color(nsColor: .textBackgroundColor))
     }
 }

@@ -21,6 +21,7 @@ nonisolated struct ActivityInput {
         case reasoningSummaryProgress
         case commandProgress
         case inputRequested
+        case userInputRequested
         case planChanged
         case diffChanged
         case modelChanged
@@ -38,7 +39,7 @@ nonisolated struct ActivityInput {
             case .threadDiscovered, .threadStatusChanged, .usageUpdated, .turnStarted, .turnFinished, .itemStarted, .itemFinished,
                  .commandApprovalRequested, .fileApprovalRequested, .permissionsRequested, .requestResolved: .state
             case .replyProgress, .reasoningProgress, .reasoningSummaryProgress, .commandProgress: .progress
-            case .inputRequested, .planChanged, .diffChanged, .modelChanged, .verificationRequested,
+            case .inputRequested, .userInputRequested, .planChanged, .diffChanged, .modelChanged, .verificationRequested,
                  .authRecoveryStarted, .authRecoveryFinished, .safetyBufferingChanged, .hookStarted, .hookFinished, .errorReported: .presentation
             case .ignored: .ignored
             }
@@ -116,12 +117,17 @@ nonisolated struct ActivityItem {
     enum ItemType: String, Codable {
         case commandExecution, fileChange, webSearch, imageView, imageGeneration, sleep
         case mcpToolCall, dynamicToolCall, collabAgentToolCall, contextCompaction, subAgentActivity
-        case agentMessage, reasoning, enteredReviewMode, exitedReviewMode, unknown
+        case agentMessage, userMessage, reasoning, enteredReviewMode, exitedReviewMode, unknown
     }
 
     struct CommandAction { let type: String }
     struct WebAction { var type: String? }
     struct AgentState { var status: String? }
+    struct QuestionReply: Equatable {
+        let itemID: String
+        let index: Int
+    }
+
     let id: String
     let type: ItemType
     var status: String?
@@ -136,6 +142,12 @@ nonisolated struct ActivityItem {
     var action: WebAction?
     var success: Bool?
     var agentsStates: [String: AgentState]?
+    var asyncQuestionCount = 0
+    var answeredQuestions: [QuestionReply] = []
+    var affectsInputWait: Bool {
+        asyncQuestionCount > 0 || !answeredQuestions.isEmpty
+    }
+
     var isToolCall: Bool {
         Self.isToolType(type)
     }
@@ -159,6 +171,7 @@ nonisolated struct ActivityLiveContext {
     }
 
     let inputMode: InputMode
+    let isBlocking: Bool?
     let planCompleted: Int?
     let planTotal: Int?
     let run: Hook?

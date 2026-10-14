@@ -192,6 +192,8 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.viewing-image")
         case "waiting-approval":
             String(localized: "activity.live.waiting-approval")
+        case "waiting-default":
+            String(localized: "activity.live.waiting-default")
         case "waiting-external":
             String(localized: "activity.live.waiting-external")
         case "waiting-form":
@@ -200,8 +202,6 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.waiting-input")
         case "waiting-service":
             String(localized: "activity.live.waiting-service")
-        case "waiting-user":
-            String(localized: "activity.live.waiting-user")
         default:
             String(localized: "activity.live.processing")
         }

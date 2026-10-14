@@ -35,7 +35,7 @@ CodexBar is a menu bar app for macOS that displays your Codex account informatio
 ### Follow your tasks in real time
 
 - See each task's project, model, reasoning effort, duration, and token usage
-- Follow live states, actions that need your attention, task progress, and recent events
+- Follow live states, pending responses, task progress, and recent events
 - Review concurrent tasks and recent completions, failures, and interruptions in Task Center
 
 ### Review your usage
@@ -46,14 +46,14 @@ CodexBar is a menu bar app for macOS that displays your Codex account informatio
 
 ### Get timely alerts
 
-- Receive alerts for task completions, approval requests, allowance changes, and protection events
+- Receive alerts for task completions, pending responses, allowance changes, and protection events
 - Choose notification types, sounds, and task haptic feedback
 - Follow status changes through customizable task glow at the top of your displays
 
 ### Keep long tasks running
 
 - Keep your Mac awake while tasks run, then allow normal sleep when they finish
-- Optionally stay awake while waiting for approval or keep the display on as well
+- Optionally stay awake while awaiting a response or keep the display on as well
 - Set a keep-awake time limit, low-battery protection, and stalled task protection
 
 

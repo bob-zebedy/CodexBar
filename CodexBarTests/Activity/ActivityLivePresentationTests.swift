@@ -24,6 +24,106 @@ struct ActivityLivePresentationTests {
         try #require(reducer.states.values.first?.presentation?.summary)
     }
 
+    @Test func asyncQuestionMessageWaitsAfterItemCompletionAndActiveRefresh() throws {
+        var reducer = try prepared()
+        let item = #""item":{"id":"question-call","type":"agentMessage","phase":"final_answer","delivery":"async","questions":[{"title":"Continue?","options":["Yes","No"]}]}"#
+        for method in ["item/started", "item/completed"] {
+            #expect(try reducer.consume(message(method, item), now: now).isEmpty)
+            #expect(try summary(reducer).current.key == "waiting-input")
+        }
+        _ = try reducer.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":[]}"#, turn: false), now: now.addingTimeInterval(1))
+        _ = try reducer.consume(message("item/agentMessage/delta", #""itemId":"answer","delta":"Still working""#), now: now.addingTimeInterval(2))
+        #expect(try summary(reducer).waiting?.since == now)
+        #expect(try summary(reducer).current.key == "waiting-input")
+        #expect(reducer.states.values.first?.isWaitingApproval == false)
+    }
+
+    private func userMessage(_ text: String) throws -> ActivityInput {
+        try JSONDecoder().decode(ActivityInput.self, from: JSONSerialization.data(withJSONObject: [
+            "method": "item/completed", "params": [
+                "threadId": "thread-a", "turnId": "turn-a",
+                "item": ["id": "reply", "type": "userMessage", "content": [["type": "text", "text": text]]]
+            ]
+        ]))
+    }
+
+    private func questionReply(_ itemID: String, index: Int) throws -> ActivityInput {
+        let identity = try JSONSerialization.data(withJSONObject: ["request_user_input_async", itemID, index])
+        let body = try JSONSerialization.data(withJSONObject: [["questionItemId": #require(String(data: identity, encoding: .utf8))]])
+        return try userMessage("<send_user_message_question_reply>\n" + #require(String(data: body, encoding: .utf8)) + "\n</send_user_message_question_reply>")
+    }
+
+    @Test func asyncQuestionsResolveIndividuallyWithoutClearingOtherWaits() throws {
+        var reducer = try prepared()
+        for id in ["first", "second"] {
+            _ = try reducer.consume(message("item/completed", """
+            "item":{"id":"\(id)","type":"agentMessage","delivery":"async","questions":[{"title":"One?"},{"title":"Two?"}]}
+            """), now: now)
+        }
+        let progress = reducer.states.values.first?.lastProgressAt
+        let unknown = try questionReply("unknown", index: 0)
+        #expect(reducer.consume(unknown, now: now.addingTimeInterval(1)).isEmpty)
+        for id in ["first", "second"] {
+            let reply = try questionReply(id, index: 0)
+            #expect(reply.params.item?.answeredQuestions == [.init(itemID: id, index: 0)])
+            #expect(reducer.consume(reply, now: now.addingTimeInterval(2)).isEmpty)
+            _ = reducer.consume(reply, now: now.addingTimeInterval(3))
+            #expect(try summary(reducer).waiting?.since == now)
+        }
+        _ = try reducer.consume(questionReply("first", index: 1), now: now.addingTimeInterval(4))
+        #expect(try summary(reducer).waiting != nil)
+        _ = try reducer.consume(message("mcpServer/elicitation/request", #""mode":"form""#, id: 7), now: now.addingTimeInterval(5))
+        _ = try reducer.consume(questionReply("second", index: 1), now: now.addingTimeInterval(6))
+        #expect(try summary(reducer).current.key == "waiting-form")
+        _ = try reducer.consume(message("serverRequest/resolved", #""requestId":7"#, turn: false), now: now.addingTimeInterval(7))
+        #expect(try summary(reducer).waiting == nil)
+        #expect(reducer.states.values.first?.lastProgressAt == progress)
+        #expect(reducer.states.values.first?.isWaitingApproval == false)
+    }
+
+    @Test(arguments: [
+        #""delivery":"async","questions":[]"#,
+        #""delivery":"async","questions":null"#,
+        #""questions":[{"title":"Plain message?"}]"#
+    ])
+    func ordinaryAgentMessagesDoNotCreateQuestionWaits(fields: String) throws {
+        var reducer = try prepared()
+        _ = try reducer.consume(message("item/completed", "\"item\":{\"id\":\"plain\",\"type\":\"agentMessage\",\(fields)}"), now: now)
+        #expect(try summary(reducer).waiting == nil)
+    }
+
+    @Test(arguments: [
+        "Yes", "<send_user_message_question_reply>invalid</send_user_message_question_reply>",
+        #"<send_user_message_question_reply>[{"questionItemId":"[\"other_tool\",\"question\",0]"}]</send_user_message_question_reply>"#,
+        #"<send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"question\",-1]"}]</send_user_message_question_reply>"#,
+        #"<send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"question\",0.5]"}]</send_user_message_question_reply>"#,
+        #"Quoted: <send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"question\",0]"}]</send_user_message_question_reply>"#
+    ])
+    func unrelatedOrMalformedUserMessagesDoNotClearAsyncQuestions(text: String) throws {
+        var reducer = try prepared()
+        _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), now: now)
+        let reply = try userMessage(text)
+        #expect(reply.params.item?.answeredQuestions.isEmpty == true)
+        _ = reducer.consume(reply, now: now.addingTimeInterval(1))
+        #expect(try summary(reducer).waiting?.since == now)
+    }
+
+    @Test(arguments: ["idle", "completed", "reconnect"])
+    func asyncQuestionWaitsEndWithTheirTurnOrConnection(ending: String) throws {
+        var reducer = try prepared()
+        _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), now: now)
+        #expect(try summary(reducer).waiting != nil)
+        switch ending {
+        case "idle":
+            _ = try reducer.consume(message("thread/status/changed", #""status":{"type":"idle"}"#, turn: false), now: now.addingTimeInterval(1))
+        case "completed":
+            _ = try reducer.consume(message("turn/completed", #""turn":{"id":"turn-a","status":"completed"}"#), now: now.addingTimeInterval(1))
+        default:
+            reducer.reconnect()
+        }
+        #expect(reducer.states.values.first?.presentation?.summary.waiting == nil)
+    }
+
     @Test func toolCompletionDoesNotMaskReasoningOrAnswerDeltas() throws {
         var reducer = try prepared()
         _ = try reducer.consume(message("item/started", #""item":{"id":"cmd","type":"commandExecution","commandActions":[{"type":"read"}]}"#), now: now)
@@ -276,11 +376,105 @@ struct ActivityLivePresentationTests {
         #expect(live.summary.waiting?.since == now.addingTimeInterval(1))
     }
 
-    @Test func nonblockingInputAndUncorrelatedElicitationNeverBecomeWaiting() throws {
+    @Test(arguments: [true, false, nil] as [Bool?])
+    func userInputWaitsEndByRequestIDWithoutChangingLifecycle(isBlocking: Bool?) throws {
+        var reducer = try prepared()
+        let before = try #require(reducer.states.values.first)
+        let blocking = isBlocking.map { String($0) } ?? "null"
+        let input = try message("item/tool/requestUserInput", """
+        "itemId":"question","isBlocking":\(blocking),"autoResolutionMs":null,
+        "questions":[{"id":"q","header":"Choice","question":"private question","isOther":true,"isSecret":true,"options":null}]
+        """, id: 1)
+        #expect(input.kind.category == .presentation)
+        #expect(reducer.consume(input, now: now).isEmpty)
+        #expect(try summary(reducer).current.key == "waiting-input")
+        #expect(try summary(reducer).current.detail == nil)
+        #expect(try summary(reducer).waiting?.isBlocking == isBlocking)
+        #expect(try summary(reducer).hasBlockingInputRequest == (isBlocking == true))
+        #expect(try summary(reducer).waiting?.since == now)
+        #expect(reducer.consume(input, now: now.addingTimeInterval(1)).isEmpty)
+        #expect(try summary(reducer).waiting?.since == now)
+        let state = try #require(reducer.states.values.first)
+        #expect(state.isWaitingApproval == before.isWaitingApproval)
+        #expect(state.pendingApprovals.isEmpty)
+        #expect(state.lastProgressAt == before.lastProgressAt)
+        _ = try reducer.consume(message("serverRequest/resolved", #""requestId":99"#, turn: false), now: now.addingTimeInterval(2))
+        #expect(try summary(reducer).waiting != nil)
+        #expect(try reducer.consume(message("serverRequest/resolved", #""requestId":1"#, turn: false), now: now.addingTimeInterval(3)).isEmpty)
+        #expect(try summary(reducer).waiting == nil)
+        #expect(try summary(reducer).hasBlockingInputRequest == false)
+        #expect(try summary(reducer).recent?.label.key == "request-ended")
+    }
+
+    @Test func earlierAsyncWaitDoesNotMaskBlockingRequests() throws {
+        var reducer = try prepared()
+        _ = try reducer.consume(message("item/completed", #""item":{"id":"async","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), now: now)
+        _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":false"#, id: 1), now: now.addingTimeInterval(1))
+        for id in [2, 3] {
+            _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":true"#, id: id), now: now.addingTimeInterval(Double(id)))
+        }
+        #expect(try summary(reducer).waiting?.since == now)
+        #expect(try summary(reducer).waiting?.isBlocking == false)
+        #expect(try summary(reducer).hasBlockingInputRequest == true)
+        for id in [99, 1, 2] {
+            _ = try reducer.consume(message("serverRequest/resolved", "\"requestId\":\(id)", turn: false), now: now.addingTimeInterval(4))
+            #expect(try summary(reducer).hasBlockingInputRequest == true)
+        }
+        _ = try reducer.consume(message("serverRequest/resolved", #""requestId":3"#, turn: false), now: now.addingTimeInterval(5))
+        #expect(try summary(reducer).hasBlockingInputRequest == false)
+        #expect(try summary(reducer).waiting?.since == now)
+    }
+
+    @Test(arguments: ["active", "idle", "completed", "failed", "interrupted", "reconnect"])
+    func blockingInputEndsWithAuthoritativeStateOrConnection(ending: String) throws {
+        var reducer = try prepared()
+        _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":true"#, id: 1), now: now)
+        #expect(try summary(reducer).hasBlockingInputRequest == true)
+        switch ending {
+        case "active", "idle":
+            _ = try reducer.consume(message("thread/status/changed", "\"status\":{\"type\":\"\(ending)\",\"activeFlags\":[]}", turn: false), now: now.addingTimeInterval(1))
+        case "reconnect":
+            reducer.reconnect()
+        default:
+            _ = try reducer.consume(message("turn/completed", "\"turn\":{\"id\":\"turn-a\",\"status\":\"\(ending)\"}"), now: now.addingTimeInterval(1))
+        }
+        #expect(reducer.states.values.first?.presentation?.summary.hasBlockingInputRequest != true)
+    }
+
+    @Test func nonblockingQuestionsSurviveActiveStatusAndResolveIndependently() throws {
         var reducer = try prepared()
         _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":false"#, id: 1), now: now)
+        _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":false"#, id: 2), now: now.addingTimeInterval(1))
+        _ = try reducer.consume(message("item/agentMessage/delta", #""itemId":"answer""#), now: now.addingTimeInterval(2))
+        _ = try reducer.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":[]}"#, turn: false), now: now.addingTimeInterval(3))
+        let thread = ActivityThread(id: "thread-a", status: ActivityThreadStatus(type: .active, activeFlags: []))
+        _ = reducer.reconcile(thread: thread, turns: [ActivityTurn(id: "turn-a", status: .running)], now: now.addingTimeInterval(4))
+        #expect(try summary(reducer).waiting?.since == now)
+        _ = try reducer.consume(message("serverRequest/resolved", #""requestId":1"#, turn: false), now: now.addingTimeInterval(5))
+        #expect(try summary(reducer).waiting?.since == now.addingTimeInterval(1))
+        _ = try reducer.consume(message("serverRequest/resolved", #""requestId":2"#, turn: false), now: now.addingTimeInterval(6))
         #expect(try summary(reducer).waiting == nil)
-        _ = try reducer.consume(message("mcpServer/elicitation/request", #""mode":"url""#, id: 2, turn: false), now: now)
+        #expect(try summary(reducer).current.key == "replying")
+    }
+
+    @Test func activeStatusClearsBlockingRequestsButKeepsNonblockingQuestions() throws {
+        var live = ActivityLivePresentation()
+        try live.consume(message("item/tool/requestUserInput", #""isBlocking":true"#, id: 1), at: now)
+        try live.consume(message("mcpServer/elicitation/request", #""mode":"form""#, id: 2), at: now)
+        try live.consume(message("item/tool/requestUserInput", #""isBlocking":false"#, id: 3), at: now.addingTimeInterval(1))
+        live.reconcile(status: ActivityThreadStatus(type: .active, activeFlags: []))
+        #expect(live.requests.count == 1)
+        #expect(live.summary.waiting?.since == now.addingTimeInterval(1))
+        try live.consume(message("serverRequest/resolved", #""requestId":3"#, turn: false), at: now.addingTimeInterval(2))
+        #expect(live.summary.waiting == nil)
+    }
+
+    @Test(arguments: ["mcpServer/elicitation/request", "item/tool/requestUserInput"])
+    func uncorrelatedInputNeverBecomesWaiting(method: String) throws {
+        var reducer = try prepared()
+        _ = try reducer.consume(message(method, #""mode":"url","isBlocking":false"#, id: 1, turn: false), now: now)
+        #expect(try summary(reducer).waiting == nil)
+        _ = try reducer.consume(message(method, #""mode":"url","isBlocking":false"#), now: now)
         #expect(try summary(reducer).waiting == nil)
     }
 
@@ -338,7 +532,11 @@ struct ActivityLivePresentationTests {
         #expect(item.liveCompletionLabel?.key == (status == "unknown" ? nil : "image-" + status))
     }
 
-    @Test func displayWaitingDoesNotChangeApprovalOrProtectionState() throws {
+    @Test(arguments: [
+        ("thread/status/changed", false), ("mcpServer/elicitation/request", false),
+        ("item/tool/requestUserInput", false), ("item/tool/requestUserInput", true), ("item/completed", false)
+    ])
+    func displayWaitingDoesNotChangeApprovalOrProtectionState(method: String, isBlocking: Bool) throws {
         let event = TestFixtures.event()
         var task = try ActivityTask(
             displayID: UUID(),
@@ -349,7 +547,10 @@ struct ActivityLivePresentationTests {
             progressGeneration: 0
         )
         var reducer = try prepared()
-        _ = try reducer.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":["waitingOnUserInput"]}"#, turn: false), now: now)
+        _ = try reducer.consume(message(method, """
+        "status":{"type":"active","activeFlags":["waitingOnUserInput"]},"isBlocking":\(isBlocking),
+        "item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}
+        """, id: 1), now: now)
         let state = try #require(reducer.states.values.first)
         task.mergeExecutionLifecycle(state, owner: ActivityExecutionKey(agentThreadID: nil, turnID: "turn-a"))
         let snapshot = ActivitySnapshot(waitingTasks: [], runningTasks: [task.snapshot], recentCompletions: [], recentTerminations: [])
@@ -359,15 +560,59 @@ struct ActivityLivePresentationTests {
         #expect(snapshot.panelRunningTasks.isEmpty)
         #expect(snapshot.primaryActivity == .running(task.snapshot))
         #expect(snapshot.panelPrimaryActivity == .waiting(task.snapshot))
+        #expect(snapshot.keepAliveTaskIDs.waiting == (isBlocking ? [task.displayID] : []))
+        #expect(snapshot.keepAliveTaskIDs.running == (isBlocking ? [] : [task.displayID]))
         let summary = ActivityDisplayFormat.liveSummaryComponents(for: task.snapshot, now: now)
         #expect(summary.count == 2)
         #expect(summary.first == ActivityLiveLabel("elapsed-running").text + " " + CodexDurationFormat.activityText(for: 0))
         #expect(summary.last == ActivityLiveLabel("elapsed-waiting").text + " " + CodexDurationFormat.activityText(for: 0))
     }
 
+    @Test(arguments: [false, true])
+    func keepAliveFindsBlockingInputAcrossExecutions(blockingInChild: Bool) throws {
+        let event = TestFixtures.event()
+        var task = try ActivityTask(
+            displayID: UUID(), key: #require(ActivityTaskKey(event: event)), event: event,
+            state: .running, startedAt: now, progressGeneration: 0
+        )
+        var nonblocking = ActivityLivePresentation()
+        try nonblocking.consume(message("item/completed", #""item":{"id":"async","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), at: now)
+        var blocking = ActivityLivePresentation()
+        try blocking.consume(message("item/tool/requestUserInput", #""isBlocking":true"#, id: 1), at: now.addingTimeInterval(1))
+        let rootOwner = ActivityExecutionKey(agentThreadID: nil, turnID: "turn-a")
+        let childOwner = ActivityExecutionKey(agentThreadID: "child", turnID: "child-turn")
+        task.executions[rootOwner] = ActivityExecution(presentation: blockingInChild ? nonblocking : blocking)
+        task.executions[childOwner] = ActivityExecution(presentation: blockingInChild ? blocking : nonblocking)
+        let waiting = task.snapshot
+        #expect(waiting.presentation?.waiting?.isBlocking == false)
+        #expect(waiting.presentation?.hasBlockingInputRequest == true)
+        let snapshot = ActivitySnapshot(waitingTasks: [], runningTasks: [waiting], recentCompletions: [], recentTerminations: [])
+        #expect(snapshot.keepAliveTaskIDs.waiting == [task.displayID])
+        #expect(snapshot.keepAliveTaskIDs.running.isEmpty)
+
+        let concurrent = ActivityTaskSnapshot(
+            id: UUID(), projectName: nil, modelName: nil, effort: nil,
+            startedAt: now, stateChangedAt: now, activeSubagentCount: nil
+        )
+        let mixed = ActivitySnapshot(waitingTasks: [], runningTasks: [waiting, concurrent], recentCompletions: [], recentTerminations: [])
+        #expect(mixed.keepAliveTaskIDs.running == [concurrent.id])
+        #expect(mixed.keepAliveTaskIDs.waiting == [task.displayID])
+        let approval = ActivitySnapshot(waitingTasks: [concurrent], runningTasks: [waiting], recentCompletions: [], recentTerminations: [])
+        #expect(approval.keepAliveTaskIDs.running.isEmpty)
+        #expect(approval.keepAliveTaskIDs.waiting == [concurrent.id, task.displayID])
+
+        task.finishExecution(blockingInChild ? childOwner : rootOwner, at: now.addingTimeInterval(2))
+        #expect(task.snapshot.presentation?.waiting != nil)
+        #expect(task.snapshot.presentation?.hasBlockingInputRequest == false)
+        let resumed = ActivitySnapshot(waitingTasks: [], runningTasks: [task.snapshot], recentCompletions: [], recentTerminations: [])
+        #expect(resumed.keepAliveTaskIDs.running == [task.displayID])
+        #expect(resumed.keepAliveTaskIDs.waiting.isEmpty)
+    }
+
     @Test func authoritativeIdleClearsRequestsWithoutInventingApproval() throws {
         var live = ActivityLivePresentation()
         try live.consume(message("mcpServer/elicitation/request", #""mode":"form""#, id: 1), at: now)
+        try live.consume(message("item/tool/requestUserInput", #""isBlocking":false"#, id: 2), at: now)
         live.reconcile(status: ActivityThreadStatus(type: .idle))
         #expect(live.summary.waiting == nil)
         #expect(live.summary.recent == nil)
@@ -413,6 +658,7 @@ struct ActivityLivePresentationTests {
 
     @Test func failedTurnKeepsItsOutcomeWithoutChangingTerminalPolicy() throws {
         var reducer = try prepared()
+        _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":false"#, id: 1), now: now)
         let events = try reducer.consume(message("turn/completed", #""turn":{"id":"turn-a","status":"failed"}"#), now: now)
         let state = try #require(reducer.states.values.first)
         #expect(state.turnStatus == .failed)
@@ -430,6 +676,15 @@ struct ActivityLivePresentationTests {
         )
         ActivityTaskGraph.mergeLifecycleBackfill(from: state, into: &task)
         #expect(task.terminalFailed)
+    }
+
+    @Test func reconnectDiscardsPendingNonblockingQuestions() throws {
+        var reducer = try prepared()
+        _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":false"#, id: 1), now: now)
+        reducer.reconnect()
+        let thread = ActivityThread(id: "thread-a", status: ActivityThreadStatus(type: .active, activeFlags: []))
+        _ = reducer.reconcile(thread: thread, turns: [ActivityTurn(id: "turn-a", status: .running)], now: now.addingTimeInterval(1))
+        #expect(try summary(reducer).waiting == nil)
     }
 
     @Test func mixedCommandActionsResolveTheExplicitLocalizedKey() {

@@ -134,9 +134,19 @@ private nonisolated struct WireActivityItem: Decodable {
     var action: WebAction?
     var success: Bool?
     var agentsStates: [String: AgentState]?
+    var delivery: String?
+    var questions: [Question]?
+    var content: [Content]?
 
     struct WebAction: Decodable { var type: String? }
     struct AgentState: Decodable { var status: String? }
+    struct Question: Decodable { let title: String }
+    struct Content: Decodable {
+        let type: String
+        var text: String?
+    }
+
+    struct QuestionReply: Decodable { let questionItemId: String }
 }
 
 private nonisolated struct WireTokenUsageBreakdown: Decodable {
@@ -280,6 +290,7 @@ nonisolated enum AppServerActivityProtocol {
         case "item/reasoning/summaryTextDelta": .reasoningSummaryProgress
         case "item/commandExecution/outputDelta": .commandProgress
         case "mcpServer/elicitation/request": .inputRequested
+        case "item/tool/requestUserInput": .userInputRequested
         case "turn/plan/updated": .planChanged
         case "turn/diff/updated": .diffChanged
         case "model/rerouted": .modelChanged
@@ -359,8 +370,31 @@ private nonisolated extension WireActivityItem {
             phase: phase,
             action: action.map { .init(type: $0.type) },
             success: success,
-            agentsStates: agentsStates?.mapValues { .init(status: $0.status) }
+            agentsStates: agentsStates?.mapValues { .init(status: $0.status) },
+            asyncQuestionCount: type == "agentMessage" && delivery == "async" ? questions?.count ?? 0 : 0,
+            answeredQuestions: answeredQuestions
         )
+    }
+
+    private var answeredQuestions: [ActivityItem.QuestionReply] {
+        guard type == "userMessage" else { return [] }
+        return (content ?? []).filter { $0.type == "text" }.flatMap { content -> [ActivityItem.QuestionReply] in
+            let text = content.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let opening = "<send_user_message_question_reply>"
+            let closing = "</send_user_message_question_reply>"
+            // 异步回应通过用户消息携带问题标识, 仅解析完整信封, 不根据自然语言推断回应
+            guard text.hasPrefix(opening), text.hasSuffix(closing), text.count >= opening.count + closing.count,
+                  let replies = try? JSONDecoder().decode(
+                      [QuestionReply].self, from: Data(text.dropFirst(opening.count).dropLast(closing.count).utf8)
+                  ) else { return [] }
+            return replies.compactMap { reply in
+                guard let value = try? JSONDecoder().decode(ActivityJSONValue.self, from: Data(reply.questionItemId.utf8)),
+                      case let .array(parts) = value, parts.count == 3,
+                      parts[0].string == "request_user_input_async", let itemID = parts[1].string, !itemID.isEmpty,
+                      let number = parts[2].number, let index = Int(exactly: number), index >= 0 else { return nil }
+                return .init(itemID: itemID, index: index)
+            }
+        }
     }
 }
 
@@ -399,6 +433,7 @@ private nonisolated struct WireActivityLivePayload: Decodable {
     var threadId: String?
     var turnId: String?
     var mode: String?
+    var isBlocking: Bool?
     var plan: [Status]?
     var run: Hook?
     var showBufferingUi: Bool?
@@ -425,6 +460,7 @@ private nonisolated extension WireActivityLivePayload {
         }
         return ActivityLiveContext(
             inputMode: inputMode,
+            isBlocking: isBlocking,
             planCompleted: plan.map { $0.filter { $0.status == "completed" }.count },
             planTotal: plan?.count,
             run: run.map { .init(id: $0.id, status: $0.status.map { .init(rawValue: $0) ?? .unknown }, isSynchronous: $0.executionMode == "sync") },

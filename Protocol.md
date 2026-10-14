@@ -1,33 +1,31 @@
 # app-server 接口清单
 
-适用版本 Codex `0.162.0`
+Codex 版本：`0.162.0`
 
-## 主动调用
-
-### 请求
+## 主动请求
 
 | 接口 | 作用 |
 | --- | --- |
 | `initialize` | 初始化连接，获取服务端版本 |
-| `account/read` | 读取账户信息、刷新认证 |
+| `account/read` | 读取账户信息；`refreshToken` 指定是否刷新认证 |
 | `account/rateLimits/read` | 读取额度、余额和重置凭证 |
 | `account/usage/read` | 读取账户用量汇总和每日 Token 用量 |
-| `account/rateLimitResetCredit/consume` | 消费额度重置凭证 |
+| `account/rateLimitResetCredit/consume` | 消费额度重置凭证；`creditId` 指定凭证，`idempotencyKey` 用于避免重复消费 |
 | `config/read` | 读取 Codex TUI 通知配置 |
-| `config/batchWrite` | 修改 Codex TUI 通知配置 |
+| `config/batchWrite` | 修改 Codex TUI 通知配置；`edits` 指定 `tui.notifications` 的值，`reloadUserConfig: true` 使配置生效 |
 | `thread/loaded/list` | 获取已加载会话列表 |
-| `thread/read` | 读取会话信息和状态 |
-| `thread/resume` | 订阅已加载会话的消息 |
-| `thread/turns/list` | 获取会话的轮次列表、状态和根轮次标识 |
-| `thread/items/list` | 分页读取目标轮次的执行项，补齐历史活动和子 Agent 创建信息 |
+| `thread/read` | 读取会话信息和状态；`threadId` 指定会话，`includeTurns: false` 不返回轮次内容 |
+| `thread/resume` | 订阅已加载会话的消息；`threadId` 指定会话，`excludeTurns: true` 不返回轮次内容 |
+| `thread/turns/list` | 分页读取会话的轮次信息；`threadId` 指定会话，`itemsView: "notLoaded"` 不加载执行项正文 |
+| `thread/items/list` | 分页读取轮次的执行项；`threadId` 和 `turnId` 指定目标轮次 |
 
-### 通知
+## 主动通知
 
 | 接口 | 作用 |
 | --- | --- |
 | `initialized` | 告知服务端初始化已完成 |
 
-## 被动接收
+## 接收通知
 
 ### 账户通知
 
@@ -36,7 +34,7 @@
 | `account/updated` | 接收账户变化通知 |
 | `account/rateLimits/updated` | 接收额度变化通知 |
 
-### 会话、轮次和 item 通知
+### 会话、轮次和执行项
 
 | 接口 | 作用 |
 | --- | --- |
@@ -45,8 +43,8 @@
 | `thread/tokenUsage/updated` | 接收会话 Token 用量更新 |
 | `turn/started` | 接收轮次开始通知 |
 | `turn/completed` | 接收轮次结束通知 |
-| `item/started` | 接收执行项开始通知 |
-| `item/completed` | 接收执行项结束通知 |
+| `item/started` | 接收执行项开始通知，包括异步提问和用户回应 |
+| `item/completed` | 接收执行项结束通知，包括异步提问和用户回应 |
 
 ### 进展通知
 
@@ -70,24 +68,16 @@
 | `model/safetyBuffering/updated` | 接收安全缓冲展示状态 |
 | `hook/started` | 感知 hook 执行开始 |
 | `hook/completed` | 接收 hook 执行结果 |
-| `serverRequest/resolved` | 感知服务端请求已处理完毕 |
+| `serverRequest/resolved` | 接收审批、提问等服务端请求的结束通知 |
 | `error` | 接收错误通知 |
 | `warning` | 记录服务端警告 |
 
-### 服务端请求
+## 服务端请求
 
 | 接口 | 作用 |
 | --- | --- |
 | `item/commandExecution/requestApproval` | 观察命令执行审批请求 |
 | `item/fileChange/requestApproval` | 观察文件修改审批请求 |
 | `item/permissions/requestApproval` | 观察权限审批请求 |
+| `item/tool/requestUserInput` | 观察运行期间的提问；`isBlocking` 表示是否阻塞执行 |
 | `mcpServer/elicitation/request` | 观察 MCP 交互请求 |
-
-## 使用的根轮次和子 Agent 字段
-
-| 接口 | 字段 | 作用 |
-| --- | --- | --- |
-| `thread/turns/list` | 请求参数 `itemsView` | 使用 `notLoaded` 读取轮次信息，不加载执行项正文 |
-| `thread/turns/list`、`turn/started`、`turn/completed` | `Turn.rootTurnId` | 获取当前轮次所属工作链的根轮次 ID |
-| `thread/items/list`、`item/started`、`item/completed` | `subAgentActivity.model` | 获取 `kind` 为 `started` 时子 Agent 创建所用的实际模型 |
-| `thread/items/list`、`item/started`、`item/completed` | `subAgentActivity.reasoningEffort` | 获取 `kind` 为 `started` 时子 Agent 创建所用的实际推理强度 |

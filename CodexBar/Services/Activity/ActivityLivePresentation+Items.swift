@@ -154,7 +154,7 @@ nonisolated extension ActivityDisplayFormat {
         }
         // 等待起点缺失时只展示等待事实, 不把订阅连接的时间当成请求开始时间
         if waiting || live?.waiting != nil {
-            return [running, waitingDuration ?? ActivityLiveLabel("waiting-user").text]
+            return [running, waitingDuration ?? ActivityLiveLabel("waiting-default").text]
         }
         let extra: String? = if let count = task.activeSubagentCount, count > 0 {
             String(localized: "activity.live.subagent-count", defaultValue: "\(count, specifier: "%lld")")

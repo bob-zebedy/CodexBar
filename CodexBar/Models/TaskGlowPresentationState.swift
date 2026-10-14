@@ -104,9 +104,9 @@ struct TaskGlowPresentationState {
             show(briefEvent, until: briefExpiration, fadeDuration: 0.5, now: now)
             return
         }
-        if snapshot.waitingCount > 0 {
+        if !snapshot.panelWaitingTasks.isEmpty {
             state = .waiting
-        } else if snapshot.runningCount > 0 {
+        } else if !snapshot.panelRunningTasks.isEmpty {
             state = .running
         } else if let event = snapshot.latestTerminalEvent,
                   now < event.endedAt.addingTimeInterval(terminalDuration + terminalTimeOffset) {

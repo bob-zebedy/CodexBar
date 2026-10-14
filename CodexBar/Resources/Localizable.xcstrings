@@ -1612,7 +1612,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "用户操作请求已结束"
+            "value" : "用户操作已结束"
           }
         }
       }
@@ -1644,7 +1644,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "代码审查模式"
+            "value" : "代码审查"
           }
         }
       }
@@ -1884,7 +1884,23 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "等待用户审批"
+            "value" : "等待审批"
+          }
+        }
+      }
+    },
+    "activity.live.waiting-default" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Awaiting response"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "等待回应"
           }
         }
       }
@@ -1894,13 +1910,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Awaiting external action"
+            "value" : "Awaiting response"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "等待外部操作"
+            "value" : "等待回应"
           }
         }
       }
@@ -1910,13 +1926,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Awaiting info"
+            "value" : "Awaiting response"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "等待提供信息"
+            "value" : "等待回应"
           }
         }
       }
@@ -1926,13 +1942,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Awaiting input"
+            "value" : "Awaiting response"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "等待用户输入"
+            "value" : "等待回应"
           }
         }
       }
@@ -1948,23 +1964,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "等待回应请求"
-          }
-        }
-      }
-    },
-    "activity.live.waiting-user" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Awaiting user action"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "等待用户操作"
+            "value" : "等待回应"
           }
         }
       }
@@ -3990,13 +3990,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Prevent sleep while a task awaits approval"
+            "value" : "Prevent sleep while a task awaits a response"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "任务等待批准期间继续防止系统睡眠"
+            "value" : "任务等待回应期间继续防止系统睡眠"
           }
         }
       }
@@ -4012,7 +4012,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "等待批准时保持防睡眠"
+            "value" : "等待回应时保持防睡眠"
           }
         }
       }
@@ -4710,13 +4710,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex is waiting for approval to continue"
+            "value" : "Codex is awaiting a response to continue"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 正在等待批准下一步操作"
+            "value" : "Codex 正在等待回应以继续"
           }
         }
       }
@@ -4726,13 +4726,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex needs approval %@"
+            "value" : "Codex is awaiting a response (%@)"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 等待批准 %@"
+            "value" : "Codex 等待回应 (%@)"
           }
         }
       }
@@ -4742,13 +4742,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A task in \"%@\" is waiting for approval to continue"
+            "value" : "A task in \"%@\" is awaiting a response to continue"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」正在等待批准下一步操作"
+            "value" : "「%@」正在等待回应以继续"
           }
         }
       }
@@ -4758,13 +4758,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "\"%1$@\" needs approval %2$@"
+            "value" : "\"%1$@\" is awaiting a response (%2$@)"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%1$@」等待批准 %2$@"
+            "value" : "「%1$@」等待回应 (%2$@)"
           }
         }
       }
@@ -4774,13 +4774,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex Is Waiting for Approval"
+            "value" : "Codex Is Awaiting a Response"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 等待批准"
+            "value" : "Codex 等待回应"
           }
         }
       }
@@ -5638,13 +5638,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Trackpad haptics when tasks finish or await approval"
+            "value" : "Trackpad haptics when tasks finish or await a response"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "任务完成或等待批准时触发触摸板震动"
+            "value" : "任务完成或等待回应时触发触摸板震动"
           }
         }
       }
@@ -5670,7 +5670,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Approval Requests"
+            "value" : "Task Waiting"
           }
         },
         "zh-Hans" : {
@@ -6038,13 +6038,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Waiting for Approval"
+            "value" : "Waiting"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "等待批准"
+            "value" : "等待中"
           }
         }
       }

@@ -5,7 +5,7 @@ nonisolated enum ActivityRetention {
     static let window: TimeInterval = 24 * 60 * 60
 }
 
-/// 正在运行或等待批准的任务摘要, 不对 UI 暴露原始会话 ID
+/// 正在运行或等待回应的任务摘要, 不对 UI 暴露原始会话 ID
 nonisolated struct ActivityTaskSnapshot: Equatable, Identifiable {
     let id: UUID
     let projectName: String?
@@ -81,6 +81,7 @@ nonisolated struct ProtectionNotice: Equatable, Sendable {
 
 /// UI 只消费该快照, 不直接读取或解释 活动事件
 nonisolated struct ActivitySnapshot: Equatable {
+    /// 仅包含审批等待, 其他交互等待由 panelWaitingTasks 合并展示
     let waitingTasks: [ActivityTaskSnapshot]
     let runningTasks: [ActivityTaskSnapshot]
     let recentCompletions: [ActivityCompletion]
@@ -99,6 +100,20 @@ nonisolated struct ActivitySnapshot: Equatable {
 
     var panelRunningTasks: [ActivityTaskSnapshot] {
         runningTasks.filter { $0.presentation?.waiting == nil }
+    }
+
+    /// 防睡眠将明确阻塞的提问归入等待, 不改变任务的审批和保护状态
+    var keepAliveTaskIDs: (running: Set<UUID>, waiting: Set<UUID>) {
+        var running = Set<UUID>()
+        var waiting = Set(waitingTasks.map(\.id))
+        for task in runningTasks {
+            if task.presentation?.hasBlockingInputRequest == true {
+                waiting.insert(task.id)
+            } else {
+                running.insert(task.id)
+            }
+        }
+        return (running, waiting)
     }
 
     var panelPrimaryActivity: CodexPrimaryActivity {
@@ -155,7 +170,7 @@ nonisolated struct ActivitySnapshot: Equatable {
         hasActiveTasks || !recentCompletions.isEmpty || !recentTerminations.isEmpty
     }
 
-    /// 活动卡片优先展示等待批准和运行中任务, 空闲时保留最近完成或终止记录
+    /// 主活动优先展示等待回应和运行中任务, 空闲时保留最近完成或终止记录
     var primaryActivity: CodexPrimaryActivity {
         if let task = primaryWaitingTask {
             return .waiting(task)

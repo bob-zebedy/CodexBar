@@ -122,7 +122,7 @@ struct LogPreviewTests {
         #expect(presentation.item == nil)
     }
 
-    @Test func repeatedDisplayAndResizeKeepSelectionScrollAndLayout() async throws {
+    @Test func repeatedLayoutAndResizeKeepSelectionScrollAndLayout() async throws {
         let document = try await LogPreviewPreparer.shared.document(for: Self.denseJSON)
         let scrollView = LogPreviewScrollView(document: document)
         scrollView.setFrameSize(NSSize(width: 860, height: 600))
@@ -138,7 +138,8 @@ struct LogPreviewTests {
         let visibleOrigin = scrollView.contentView.bounds.origin
         #expect(visibleOrigin.y > 0)
         for _ in 0 ..< 3 {
-            scrollView.display(document)
+            scrollView.needsLayout = true
+            scrollView.layoutSubtreeIfNeeded()
         }
         #expect(scrollView.documentView === textView)
         #expect(textView.selectedRange() == selection)
@@ -166,16 +167,16 @@ struct LogPreviewTests {
         #expect(scrollView.contentView.bounds.maxX >= document.contentSize.width)
 
         let short = try await LogPreviewPreparer.shared.document(for: "🙂 汉字 é")
-        scrollView.display(short)
-        scrollView.layoutSubtreeIfNeeded()
-        let replacement = try #require(scrollView.documentView as? NSTextView)
-        #expect(replacement !== textView)
-        #expect(replacement.string == "🙂 汉字 é")
-        #expect(replacement.frame.width >= scrollView.contentSize.width)
-        #expect(replacement.frame.height >= scrollView.contentSize.height)
-        replacement.setSelectedRange(NSRange(location: 0, length: short.storage.length))
-        #expect(replacement.selectedRange().length == short.storage.length)
-        #expect(scrollView.contentView.bounds.origin.x == 0)
+        let shortScrollView = LogPreviewScrollView(document: short)
+        shortScrollView.setFrameSize(NSSize(width: 860, height: 600))
+        shortScrollView.layoutSubtreeIfNeeded()
+        let shortTextView = try #require(shortScrollView.documentView as? NSTextView)
+        #expect(shortTextView.string == "🙂 汉字 é")
+        #expect(shortTextView.frame.width >= shortScrollView.contentSize.width)
+        #expect(shortTextView.frame.height >= shortScrollView.contentSize.height)
+        shortTextView.setSelectedRange(NSRange(location: 0, length: short.storage.length))
+        #expect(shortTextView.selectedRange().length == short.storage.length)
+        #expect(shortScrollView.contentView.bounds.origin.x == 0)
     }
 
     private static var denseJSON: String {

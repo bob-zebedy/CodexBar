@@ -762,8 +762,12 @@ actor AppServerActivityReader {
         guard let id = notification.params.threadId ?? notification.params.thread?.id else { return }
         switch notification.kind {
         case .threadDiscovered, .threadStatusChanged, .turnStarted, .turnFinished,
-             .commandApprovalRequested, .fileApprovalRequested, .permissionsRequested, .inputRequested, .requestResolved:
+             .commandApprovalRequested, .fileApprovalRequested, .permissionsRequested, .inputRequested, .userInputRequested, .requestResolved:
             revisions[id, default: 0] += 1
+        case .itemStarted, .itemFinished:
+            if notification.params.item?.affectsInputWait == true {
+                revisions[id, default: 0] += 1
+            }
         default: break
         }
         if notification.kind == .turnStarted, let turn = notification.params.turn, turn.startedAt.map({ $0 >= connectedAt }) ?? true {
