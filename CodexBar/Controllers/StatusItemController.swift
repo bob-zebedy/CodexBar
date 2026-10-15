@@ -13,6 +13,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let globalHotKeySettings: GlobalHotKeySettings
     private let menuBarQuotaSettings: MenuBarQuotaSettings
     private let mainPanelSettings: MainPanelSettings
+    private let serviceStatusMonitor: CodexServiceStatusMonitor
     private let taskGlowSettings: TaskGlowSettings
     private let notificationSettings: NotificationSettings
     private let autoResetSettings: AutoResetSettings
@@ -119,6 +120,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         globalHotKeySettings: GlobalHotKeySettings,
         menuBarQuotaSettings: MenuBarQuotaSettings,
         mainPanelSettings: MainPanelSettings,
+        serviceStatusMonitor: CodexServiceStatusMonitor,
         taskGlowSettings: TaskGlowSettings,
         notificationSettings: NotificationSettings,
         autoResetSettings: AutoResetSettings,
@@ -133,6 +135,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.globalHotKeySettings = globalHotKeySettings
         self.menuBarQuotaSettings = menuBarQuotaSettings
         self.mainPanelSettings = mainPanelSettings
+        self.serviceStatusMonitor = serviceStatusMonitor
         self.taskGlowSettings = taskGlowSettings
         self.notificationSettings = notificationSettings
         self.autoResetSettings = autoResetSettings
@@ -154,6 +157,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func uninstall() {
         closeMenuSurface(animated: false)
+        serviceStatusMonitor.setActive(false, refreshInterval: .seconds(viewModel.dataUpdateInterval.duration))
         auxiliaryWindowFocusRestoreTask?.cancel()
         statusIconExpirationTask?.cancel()
         statusIconHostingView?.removeFromSuperview()
@@ -231,6 +235,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             viewModel: viewModel,
             historyViewModel: historyViewModel,
             mainPanelSettings: mainPanelSettings,
+            serviceStatusMonitor: serviceStatusMonitor,
             activityMonitor: activityMonitor,
             syncSettings: syncSettings,
             keepAliveController: keepAliveController,
@@ -267,6 +272,19 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - 订阅与全局快捷键
 
     private func observeViewModel() {
+        Publishers.CombineLatest3(
+            menuSurfaceVisibility.$isVisible,
+            mainPanelSettings.$layout,
+            viewModel.$dataUpdateInterval
+        )
+        .sink { [weak self] isVisible, layout, interval in
+            self?.serviceStatusMonitor.setActive(
+                isVisible && layout.isVisible(.serviceStatus),
+                refreshInterval: .seconds(interval.duration)
+            )
+        }
+        .store(in: &cancellables)
+
         let hasTaskCenterContent = activityMonitor.$snapshot
             .map(\.hasTaskCenterContent)
             .removeDuplicates()

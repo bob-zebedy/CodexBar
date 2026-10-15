@@ -4897,6 +4897,22 @@
         }
       }
     },
+    "service-status.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Service Status"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 服务状态"
+          }
+        }
+      }
+    },
     "settings.about.github-project" : {
       "localizations" : {
         "en" : {
@@ -4989,22 +5005,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "不可用"
-          }
-        }
-      }
-    },
-    "settings.about.openai-status" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OpenAI Status"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OpenAI 服务状态"
           }
         }
       }
@@ -5308,7 +5308,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "主面板布局"
+            "value" : "面板布局"
           }
         }
       }
@@ -5318,13 +5318,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Account"
+            "value" : "Account Info"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "账户"
+            "value" : "账户信息"
           }
         }
       }
@@ -5334,13 +5334,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tasks"
+            "value" : "Task Status"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "任务"
+            "value" : "任务状态"
           }
         }
       }
@@ -5350,13 +5350,29 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Quota"
+            "value" : "Quota Info"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "额度"
+            "value" : "额度信息"
+          }
+        }
+      }
+    },
+    "settings.main-panel.section.service-status" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Service Status"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务状态"
           }
         }
       }
@@ -5366,13 +5382,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Status"
+            "value" : "Update Status"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "状态"
+            "value" : "更新状态"
           }
         }
       }
@@ -5382,13 +5398,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Usage"
+            "value" : "Usage Statistics"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "用量"
+            "value" : "用量统计"
           }
         }
       }

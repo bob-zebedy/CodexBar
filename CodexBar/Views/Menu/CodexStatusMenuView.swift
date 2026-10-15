@@ -36,6 +36,7 @@ struct CodexStatusMenuView: View {
     @ObservedObject var viewModel: CodexStatusViewModel
     @ObservedObject var historyViewModel: HistoryViewModel
     @ObservedObject var mainPanelSettings: MainPanelSettings
+    let serviceStatusMonitor: CodexServiceStatusMonitor
     // 活动状态与时间变化由卡片自行观察, 避免刷新整个菜单树
     let activityMonitor: ActivityMonitor
     @ObservedObject var syncSettings: SyncSettings
@@ -144,6 +145,8 @@ private extension CodexStatusMenuView {
             usageSection(dataPlaceholderSection: dataPlaceholderSection)
         case .status:
             statusSection
+        case .serviceStatus:
+            CodexServiceStatusRow(monitor: serviceStatusMonitor)
         }
     }
 
@@ -244,7 +247,7 @@ private extension CodexStatusMenuView {
         case .usage:
             viewModel.snapshot != nil || !historyViewModel.snapshot.activityData.isEmpty
                 || !historyViewModel.snapshot.tokenUsageByDate.isEmpty
-        case .account, .activity, .status:
+        case .account, .activity, .status, .serviceStatus:
             false
         }
     }
@@ -263,6 +266,8 @@ private extension CodexStatusMenuView {
                 hasData(for: section) || dataPlaceholderSection == section
             case .status:
                 viewModel.snapshot != nil
+            case .serviceStatus:
+                true
             }
         }
     }

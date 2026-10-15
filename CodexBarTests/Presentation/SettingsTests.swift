@@ -124,7 +124,7 @@ struct SettingsTests {
 
     @Test func layoutRepairsDuplicateOrderAndAlwaysKeepsAVisibleSection() {
         let layout = MainPanelLayout(orderedSections: [.usage, .usage, .activity], hiddenSections: Set(MainPanelSection.allCases))
-        #expect(layout.orderedSections == [.usage, .activity, .account, .quota, .status])
+        #expect(layout.orderedSections == [.usage, .activity, .account, .quota, .serviceStatus, .status])
         #expect(layout.visibleSections == [.usage])
         let activityOnly = MainPanelLayout(orderedSections: [.activity], hiddenSections: Set(MainPanelSection.allCases).subtracting([.activity]))
         #expect(activityOnly.visibleSections == [.activity])
@@ -150,5 +150,30 @@ struct SettingsTests {
         #expect(settings.layout.isVisible(.activity))
         undo.undo()
         #expect(!settings.layout.isVisible(.activity))
+    }
+
+    @Test func serviceStatusAppendsToExistingLayoutAndPreservesPreferences() throws {
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let previousOrder = ["usage", "account", "status", "quota", "activity"]
+        preferences.defaults.set(previousOrder, forKey: "MainPanel.sectionOrder")
+        preferences.defaults.set(["quota", "activity"], forKey: "MainPanel.hiddenSections")
+        let settings = MainPanelSettings(defaults: preferences.defaults)
+        #expect(settings.layout.orderedSections.map(\.rawValue) == previousOrder + ["serviceStatus"])
+        #expect(settings.layout.hiddenSections == [.quota, .activity])
+        #expect(settings.layout.isVisible(.serviceStatus))
+
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        settings.setSectionOrder([.serviceStatus] + settings.layout.orderedSections, undoManager: undo)
+        settings.setSection(.serviceStatus, isVisible: false, undoManager: undo)
+        undo.endUndoGrouping()
+        let restored = MainPanelSettings(defaults: preferences.defaults)
+        #expect(restored.layout.orderedSections.first == .serviceStatus)
+        #expect(restored.layout.hiddenSections == [.quota, .activity, .serviceStatus])
+        undo.undo()
+        #expect(settings.layout.orderedSections.last == .serviceStatus)
+        #expect(settings.layout.isVisible(.serviceStatus))
     }
 }

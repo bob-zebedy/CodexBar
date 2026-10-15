@@ -205,7 +205,6 @@ private extension AppSettingsView {
         static let statusAnimation = Animation.codexStatus
     }
 
-    static let openAIStatusURL = URL(string: "https://status.openai.com")!
     static let githubProjectURL = URL(string: "https://github.com/bob-zebedy/CodexBar")!
 
     // MARK: - 分页骨架
@@ -317,8 +316,6 @@ private extension AppSettingsView {
         VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
             VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
                 codexVersionSection
-                LiquidGlassDivider()
-                openAIStatusRow
                 LiquidGlassDivider()
                 HelperInstallationStatusRow(status: keepAliveController.helperInstallationStatus)
                 LiquidGlassDivider()
@@ -955,10 +952,6 @@ private extension AppSettingsView {
                 }
             }
         )
-    }
-
-    var openAIStatusRow: some View {
-        externalLinkRow(title: "settings.about.openai-status", icon: "waveform.path.ecg.rectangle", destination: Self.openAIStatusURL)
     }
 
     var githubProjectRow: some View {

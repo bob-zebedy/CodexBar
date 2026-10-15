@@ -22,6 +22,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     let globalHotKeySettings = GlobalHotKeySettings()
     let menuBarQuotaSettings = MenuBarQuotaSettings()
     let mainPanelSettings = MainPanelSettings()
+    let serviceStatusMonitor = CodexServiceStatusMonitor()
     let taskGlowSettings = TaskGlowSettings()
     let notificationSettings = NotificationSettings()
     let autoResetSettings = AutoResetSettings()
@@ -48,6 +49,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             globalHotKeySettings: globalHotKeySettings,
             menuBarQuotaSettings: menuBarQuotaSettings,
             mainPanelSettings: mainPanelSettings,
+            serviceStatusMonitor: serviceStatusMonitor,
             taskGlowSettings: taskGlowSettings,
             notificationSettings: notificationSettings,
             autoResetSettings: autoResetSettings,

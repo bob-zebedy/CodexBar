@@ -7,6 +7,7 @@ nonisolated enum MainPanelSection: String, CaseIterable, Identifiable, Sendable 
     case quota
     case activity
     case usage
+    case serviceStatus
     case status
 
     var id: Self {

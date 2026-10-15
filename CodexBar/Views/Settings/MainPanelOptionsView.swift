@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// 通用设置页中的主面板布局入口, 自己持有定位锚点
+/// 通用设置页中的面板布局入口, 自己持有定位锚点
 struct MainPanelLayoutSettingsRow: View {
     let onOptionsTap: (ScreenFrameProvider) -> Void
     @State private var anchorProvider = ScreenFrameProvider()
@@ -26,7 +26,7 @@ struct MainPanelLayoutSettingsRow: View {
     }
 }
 
-/// 主面板布局子选项, 拖放调整区域顺序并控制显隐
+/// 面板布局子选项, 拖放调整区域顺序并控制显隐
 struct MainPanelOptionsView: View {
     @ObservedObject var settings: MainPanelSettings
     let undoManager: UndoManager
@@ -262,6 +262,8 @@ private extension MainPanelSection {
             "settings.main-panel.section.usage"
         case .status:
             "settings.main-panel.section.status"
+        case .serviceStatus:
+            "settings.main-panel.section.service-status"
         }
     }
 
@@ -277,6 +279,8 @@ private extension MainPanelSection {
             "chart.bar.xaxis"
         case .status:
             "clock"
+        case .serviceStatus:
+            "waveform.path.ecg.rectangle"
         }
     }
 }
