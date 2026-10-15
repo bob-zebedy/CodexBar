@@ -56,7 +56,7 @@
 
 CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。工程只有 `CodexBar` scheme，包含主 App、`CodexBarPowerHelperManager`、`CodexBarPowerHelper`、`CodexBarTests` 和 `CodexBarPowerHelperTests` 五个 target。
 
-`CodexBar/` 按 `App/` `Views/` `Controllers/` `Models/` `Services/` 和 `Resources/` 分层。`CodexBarHelper/` 按职责组织 Helper；其中 `Power/Daemon/` 提供电源管理的 root LaunchDaemon，主 App 直接与其通信；`Power/Manager/` 提供嵌入主 App 的管理 App，拥有该 daemon 的注册与授权归属；`Power/Shared/` 存放跨 target 协议与身份定义，`Power/Artwork/` 存放图标设计源文件。通用跨 target 工具位于 `Shared/`。测试统一放在 `Tests/`，按被测模块划分为 `App/` 和 `Helpers/`。`Scripts/` 提供发布和 Helper 清理工具，`Images/` 存放 README 资源。
+`CodexBar/` 按 `App/` `Views/` `Controllers/` `Models/` `Services/` 和 `Resources/` 分层。`CodexBarHelper/` 按职责组织 Helper；其中 `Power/Daemon/` 提供电源管理的 root LaunchDaemon，主 App 直接与其通信；`Power/Manager/` 提供嵌入主 App 的管理 App，拥有该 daemon 的注册与授权归属；`Power/Shared/` 存放跨 target 协议与身份定义。通用跨 target 工具位于 `Shared/`。测试统一放在 `Tests/`，按被测模块划分为 `App/` 和 `Helpers/`。`Scripts/` 提供发布和 Helper 清理工具，`Images/` 存放 README 资源，`Design/` 统一存放主 App 和 Helper 的原始设计图、图标工程等设计素材。
 
 ## 构建、测试与开发命令
 

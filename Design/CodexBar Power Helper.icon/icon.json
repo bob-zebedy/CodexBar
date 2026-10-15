@@ -5,9 +5,8 @@
     {
       "layers" : [
         {
-          "glass" : true,
-          "image-name" : "CodexBar.png",
-          "name" : "CodexBar"
+          "image-name" : "CodexBar Power Helper.png",
+          "name" : "CodexBar Power Helper"
         }
       ],
       "shadow" : {

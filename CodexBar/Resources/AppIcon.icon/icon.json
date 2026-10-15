@@ -5,7 +5,6 @@
     {
       "layers" : [
         {
-          "glass" : true,
           "image-name" : "CodexBar.png",
           "name" : "CodexBar"
         }
