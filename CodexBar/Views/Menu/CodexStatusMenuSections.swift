@@ -6,6 +6,8 @@ enum MenuMetrics {
     static let panelPadding: CGFloat = 10
     static let panelCornerRadius: CGFloat = 8
     static let accountIconSize: CGFloat = 14
+    static let statusIconSize: CGFloat = 10
+    static let statusIconSpacing: CGFloat = 8
     static let loadingVerticalPadding: CGFloat = 16
 }
 
@@ -281,7 +283,7 @@ struct UpdatedAtRow: View {
 
     var body: some View {
         HStack {
-            HStack(spacing: 5) {
+            HStack(spacing: MenuMetrics.statusIconSpacing) {
                 AutoRefreshCountdownTimeline(
                     startedAt: countdownStartedAt,
                     interval: countdownInterval,
@@ -289,13 +291,15 @@ struct UpdatedAtRow: View {
                     color: .blue
                 )
 
-                Text("usage.status.last-updated")
-                    .foregroundStyle(Self.secondaryTextColor)
+                HStack(spacing: 5) {
+                    Text("usage.status.last-updated")
+                        .foregroundStyle(Self.secondaryTextColor)
 
-                Text(Self.timeFormatter.string(from: snapshot.generatedAt))
-                    .monospacedDigit()
-                    .numericTransition(value: snapshot.generatedAt, comparison: snapshot.generatedAt.timeIntervalSinceReferenceDate, enabled: allowsAnimations)
-                    .foregroundStyle(Self.secondaryTextColor)
+                    Text(Self.timeFormatter.string(from: snapshot.generatedAt))
+                        .monospacedDigit()
+                        .numericTransition(value: snapshot.generatedAt, comparison: snapshot.generatedAt.timeIntervalSinceReferenceDate, enabled: allowsAnimations)
+                        .foregroundStyle(Self.secondaryTextColor)
+                }
             }
             .font(.caption2)
             .animation(Metrics.statusAnimation, value: snapshot.generatedAt)

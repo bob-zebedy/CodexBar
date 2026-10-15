@@ -47,22 +47,24 @@ private struct AutoRefreshCountdownCircle: View {
     var body: some View {
         ZStack {
             Circle()
-                .stroke(color.opacity(0.15), lineWidth: 1.4)
+                .strokeBorder(color.opacity(0.15), lineWidth: Metrics.lineWidth)
 
             Circle()
+                .inset(by: Metrics.lineWidth / 2)
                 .trim(from: 1 - progress, to: 1)
                 .stroke(
                     color,
-                    style: StrokeStyle(lineWidth: 1.4, lineCap: .round)
+                    style: StrokeStyle(lineWidth: Metrics.lineWidth, lineCap: .round)
                 )
                 .rotationEffect(.degrees(-90))
         }
-        .frame(width: 8, height: 8)
+        .frame(width: MenuMetrics.statusIconSize, height: MenuMetrics.statusIconSize)
         // 只让刷新起点变化触发动画, 避免每秒 tick 被补间
         .animation(isActive ? .linear(duration: Metrics.resetAnimationDuration) : nil, value: startedAt)
     }
 
     private enum Metrics {
+        static let lineWidth: CGFloat = 1.4
         static let resetAnimationDuration: TimeInterval = 0.50
     }
 }

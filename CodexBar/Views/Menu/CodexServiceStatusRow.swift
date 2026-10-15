@@ -8,21 +8,21 @@ struct CodexServiceStatusRow: View {
 
     var body: some View {
         Link(destination: CodexServiceStatusService.statusPageURL) {
-            HStack(spacing: 8) {
+            HStack(spacing: MenuMetrics.statusIconSpacing) {
                 ZStack {
                     Image(systemName: statusSymbol)
                         .resizable()
                         .scaledToFit()
-                        .frame(width: statusSymbolSize, height: statusSymbolSize)
+                        .frame(width: MenuMetrics.statusIconSize, height: MenuMetrics.statusIconSize)
                         .id(statusSymbol)
                         .transition(allowsAnimations ? .opacity : .identity)
                 }
-                .font(.system(size: MenuMetrics.accountIconSize, weight: .medium))
+                .font(.system(size: MenuMetrics.statusIconSize, weight: .medium))
                 .foregroundStyle(statusColor)
-                .frame(width: MenuMetrics.accountIconSize, height: MenuMetrics.accountIconSize)
+                .frame(width: MenuMetrics.statusIconSize, height: MenuMetrics.statusIconSize)
 
                 Text("service-status.title")
-                    .font(.caption.weight(.semibold))
+                    .font(.caption)
                     .foregroundStyle(Color.codexLabel)
                     .layoutPriority(1)
 
@@ -76,16 +76,6 @@ struct CodexServiceStatusRow: View {
         case .checking: "ellipsis.circle"
         case let .available(status): status.level.symbolName
         case .unavailable: "questionmark.circle"
-        }
-    }
-
-    private var statusSymbolSize: CGFloat {
-        switch monitor.state {
-        // 三角和斜向工具的视觉面积较小, 略放大以接近圆形符号
-        case let .available(status) where status.level == .partialOutage || status.level == .underMaintenance:
-            MenuMetrics.accountIconSize + 1
-        default:
-            MenuMetrics.accountIconSize
         }
     }
 
