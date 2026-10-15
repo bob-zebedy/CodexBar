@@ -1,8 +1,7 @@
 included:
     - CodexBar
-    - CodexBarTests
-    - CodexBarHelperTests
-    - CodexBarHelperManager
+    - Tests
+    - CodexBarHelper
     - Shared
 
 line_length:

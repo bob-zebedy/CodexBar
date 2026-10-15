@@ -63,7 +63,7 @@ extension KeepAliveController {
         }
     }
 
-    enum HelperStatus: Equatable {
+    enum PowerHelperStatus: Equatable {
         case notRegistered
         case enabled
         case requiresApproval
@@ -89,13 +89,13 @@ extension KeepAliveController {
         }
     }
 
-    enum HelperInstallationStatus: Equatable {
+    enum PowerHelperInstallationStatus: Equatable {
         case notInstalled
         case authorized
         case requiresApproval
         case unavailable(String)
 
-        init(registration: HelperStatus, packageIssue: HelperPackageIssue?, registrationError: String?) {
+        init(registration: PowerHelperStatus, packageIssue: PowerHelperPackageIssue?, registrationError: String?) {
             if let packageIssue {
                 self = .unavailable(packageIssue.message)
                 return
@@ -117,8 +117,8 @@ extension KeepAliveController {
         case notStarted
         case userOff
         case noTasks
-        case helperUnavailable
-        case helperRefreshing
+        case powerHelperUnavailable
+        case powerHelperRefreshing
         case terminating
         case lowBattery
         case limitReached
@@ -131,52 +131,52 @@ extension KeepAliveController {
         let blockReason: SleepBlockReason?
         let enabled: Bool
         let tasks: Bool
-        let helper: HelperStatus
+        let powerHelper: PowerHelperStatus
         let refreshing: Bool
         let battery: Bool
         let limited: Bool
     }
 }
 
-nonisolated enum HelperPackageIssue: Equatable, Sendable {
+nonisolated enum PowerHelperPackageIssue: Equatable, Sendable {
     case missing
     case invalid
 
     var message: String {
         switch self {
         case .missing:
-            KeepAliveLocalizedMessage.helperAssetsMissing
+            KeepAliveLocalizedMessage.powerHelperAssetsMissing
         case .invalid:
-            KeepAliveLocalizedMessage.helperAssetsInvalid
+            KeepAliveLocalizedMessage.powerHelperAssetsInvalid
         }
     }
 }
 
 nonisolated enum KeepAliveLocalizedMessage {
-    static let helperAssetsMissing = String(localized: "helper.error.assets-missing")
-    static let helperAssetsInvalid = String(localized: "helper.error.assets-invalid")
-    static let registrationFailed = String(localized: "helper.error.registration-failed")
-    static let updateFailed = String(localized: "helper.error.update-failed")
+    static let powerHelperAssetsMissing = String(localized: "power-helper.error.assets-missing")
+    static let powerHelperAssetsInvalid = String(localized: "power-helper.error.assets-invalid")
+    static let registrationFailed = String(localized: "power-helper.error.registration-failed")
+    static let updateFailed = String(localized: "power-helper.error.update-failed")
     static let preventIdleSleepFailed = String(localized: "keep-alive.error.prevent-idle-sleep-failed")
     static let toggleSleepFailed = String(localized: "keep-alive.error.toggle-sleep-failed")
     static let restoreIdleSleepFailed = String(localized: "keep-alive.error.restore-idle-sleep-failed")
-    static let connectionFailed = String(localized: "helper.error.connection-failed")
-    static let noResponse = String(localized: "helper.error.no-response")
+    static let connectionFailed = String(localized: "power-helper.error.connection-failed")
+    static let noResponse = String(localized: "power-helper.error.no-response")
     static let retryLimitReached = String(localized: "keep-alive.error.retry-limit-reached")
-    static let invalidHelperInterface = String(localized: "helper.error.invalid-interface")
-    static let connectionInterrupted = String(localized: "helper.error.connection-interrupted")
+    static let invalidPowerHelperInterface = String(localized: "power-helper.error.invalid-interface")
+    static let connectionInterrupted = String(localized: "power-helper.error.connection-interrupted")
     static let autoResetWakeScheduleFailed = String(localized: "auto-reset.error.wake-schedule-failed")
 }
 
 nonisolated enum KeepAliveError: LocalizedError {
-    case invalidHelperProxy
+    case invalidPowerHelperProxy
     case connectionInterrupted
     case wakeScheduleCancellationFailed
 
     var errorDescription: String? {
         switch self {
-        case .invalidHelperProxy:
-            KeepAliveLocalizedMessage.invalidHelperInterface
+        case .invalidPowerHelperProxy:
+            KeepAliveLocalizedMessage.invalidPowerHelperInterface
         case .connectionInterrupted:
             KeepAliveLocalizedMessage.connectionInterrupted
         case .wakeScheduleCancellationFailed:

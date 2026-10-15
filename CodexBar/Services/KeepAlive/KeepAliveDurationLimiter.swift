@@ -79,7 +79,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
     }
 
     /// 防睡眠解除时收表, 把这一段并进累计值
-    /// 收表之后的时间一律不算: 机器睡着, 低电量拦着, helper 断开都不该占用户的上限
+    /// 收表之后的时间一律不算: 机器睡着, 低电量拦着, Power Helper 断开都不该占用户的上限
     func pause() {
         guard let runningSince else {
             return

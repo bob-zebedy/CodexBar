@@ -31,7 +31,7 @@ struct AppSettingsView: View {
     @State private var isShowingRebuildConfirmation = false
     @State private var isRebuildingHistoryData = false
     @State private var rebuildResult: RebuildResult?
-    @State private var helperFeatureConfirmation: HelperFeatureConfirmation?
+    @State private var powerHelperFeatureConfirmation: PowerHelperFeatureConfirmation?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -96,7 +96,7 @@ struct AppSettingsView: View {
             loginItemSettings.refresh()
             selectedRebuildRange = nil
             isShowingRebuildConfirmation = false
-            helperFeatureConfirmation = nil
+            powerHelperFeatureConfirmation = nil
             rebuildResult = nil
         }
         .onChange(of: selectedTab) { _, _ in
@@ -151,16 +151,16 @@ struct AppSettingsView: View {
             Text(verbatim: result.message)
         }
         .alert(
-            helperFeatureConfirmation?.title ?? Text(verbatim: ""),
+            powerHelperFeatureConfirmation?.title ?? Text(verbatim: ""),
             isPresented: Binding(
-                get: { helperFeatureConfirmation != nil },
+                get: { powerHelperFeatureConfirmation != nil },
                 set: {
                     if !$0 {
-                        helperFeatureConfirmation = nil
+                        powerHelperFeatureConfirmation = nil
                     }
                 }
             ),
-            presenting: helperFeatureConfirmation
+            presenting: powerHelperFeatureConfirmation
         ) { feature in
             Button("common.action.enable", role: .destructive) {
                 switch feature {
@@ -170,7 +170,7 @@ struct AppSettingsView: View {
             }
             Button("common.action.cancel", role: .cancel) {}
         } message: { feature in
-            Text(verbatim: feature.message(helperStatus: keepAliveController.helperStatus))
+            Text(verbatim: feature.message(powerHelperStatus: keepAliveController.powerHelperStatus))
         }
     }
 }
@@ -317,7 +317,7 @@ private extension AppSettingsView {
             VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
                 codexVersionSection
                 LiquidGlassDivider()
-                HelperInstallationStatusRow(status: keepAliveController.helperInstallationStatus)
+                PowerHelperInstallationStatusRow(status: keepAliveController.powerHelperInstallationStatus)
                 LiquidGlassDivider()
                 versionRow
                 LiquidGlassDivider()
@@ -468,7 +468,7 @@ private extension AppSettingsView {
 
     var autoResetRow: some View {
         let isEnabled = autoResetSettings.isEnabled
-        let canShowOptions = isEnabled && keepAliveController.helperStatus == .enabled
+        let canShowOptions = isEnabled && keepAliveController.powerHelperStatus == .enabled
         let caption = autoResetCaption
 
         return VStack(alignment: .leading, spacing: 4) {
@@ -479,7 +479,7 @@ private extension AppSettingsView {
                     get: { autoResetSettings.isEnabled },
                     set: { enabled in
                         if enabled {
-                            helperFeatureConfirmation = .autoReset
+                            powerHelperFeatureConfirmation = .autoReset
                         } else {
                             autoResetSettings.setEnabled(enabled)
                         }
@@ -516,26 +516,26 @@ private extension AppSettingsView {
         guard autoResetSettings.isEnabled else {
             return nil
         }
-        if let caption = helperInstallationCaption {
+        if let caption = powerHelperInstallationCaption {
             return caption
         }
-        guard let errorMessage = keepAliveController.helperRegistrationErrorMessage
+        guard let errorMessage = keepAliveController.powerHelperRegistrationErrorMessage
             ?? keepAliveController.autoResetWakeScheduleErrorMessage else {
             return nil
         }
         return SettingsStatusCaption(message: errorMessage, isError: true)
     }
 
-    var helperInstallationCaption: SettingsStatusCaption? {
-        switch keepAliveController.helperInstallationStatus {
+    var powerHelperInstallationCaption: SettingsStatusCaption? {
+        switch keepAliveController.powerHelperInstallationStatus {
         case .requiresApproval:
             SettingsStatusCaption(
-                message: String(localized: "helper.status.authorization-required"),
+                message: String(localized: "power-helper.status.authorization-required"),
                 showsSystemSettingsButton: true
             )
         case .notInstalled:
             SettingsStatusCaption(
-                message: String(localized: "helper.status.not-registered")
+                message: String(localized: "power-helper.status.not-registered")
             )
         case let .unavailable(message):
             SettingsStatusCaption(message: message, isError: true)
@@ -557,7 +557,7 @@ private extension AppSettingsView {
                     get: { keepAliveController.isEnabled },
                     set: { enabled in
                         if enabled {
-                            helperFeatureConfirmation = .keepAlive
+                            powerHelperFeatureConfirmation = .keepAlive
                         } else {
                             keepAliveController.setEnabled(false)
                         }
@@ -624,7 +624,7 @@ private extension AppSettingsView {
         guard keepAliveController.isEnabled else {
             return nil
         }
-        if let caption = helperInstallationCaption {
+        if let caption = powerHelperInstallationCaption {
             return caption
         }
         if let errorMessage = keepAliveController.errorMessage {
@@ -640,7 +640,7 @@ private extension AppSettingsView {
 
         // 低电量拦下时开关开着却不防睡眠, 不留一句无从解释
         // 判定用 isLowBatteryBlocking 而不是 isLowBatteryActive: 后者在没有任务时也成立, 那时无话可说
-        // 它成立即意味着 helper 已就绪, 所以排在下面那个 switch 之前不影响 helper 类问题的呈现
+        // 它成立即意味着 Power Helper 已就绪, 所以排在下面那个 switch 之前不影响 Power Helper 类问题的呈现
         // 提示不写具体电量, 因为滞回会让保护持续到电量超过恢复阈值
         if keepAliveController.isLowBatteryBlocking {
             return SettingsStatusCaption(message: String(localized: "keep-alive.status.low-battery"))
@@ -781,7 +781,7 @@ private extension AppSettingsView {
     }
 
     /// 防睡眠不在这里刷: 控制器自己订阅了 didBecomeActive, 窗口打开也走 refreshSettingsState
-    /// 再调一次会让每次激活都多跑一遍电源读取 helper 状态查询和 helper 二进制哈希
+    /// 再调一次会让每次激活都多跑一遍电源读取 Power Helper 状态查询和 Power Helper 二进制哈希
     func refreshStatusRows() {
         refreshCodexVersionSection()
         refreshRebuildableDates()

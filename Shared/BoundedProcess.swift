@@ -54,7 +54,7 @@ nonisolated enum BoundedProcess {
             if case let .launchFailed(message) = completion {
                 return message
             }
-            // helper 和后台服务保留替换无效 UTF-8 字节的展示行为
+            // Power Helper 和后台服务保留替换无效 UTF-8 字节的展示行为
             // swiftlint:disable:next optional_data_string_conversion
             return String(decoding: standardOutput.data, as: UTF8.self)
         }

@@ -40,7 +40,7 @@ struct CodexStatusMenuView: View {
     // 活动状态与时间变化由卡片自行观察, 避免刷新整个菜单树
     let activityMonitor: ActivityMonitor
     @ObservedObject var syncSettings: SyncSettings
-    // 同 activityMonitor, 交给活动卡片自行观察, 不让 helper 状态变化重算整个菜单树
+    // 同 activityMonitor, 交给活动卡片自行观察, 不让 Power Helper 状态变化重算整个菜单树
     let keepAliveController: KeepAliveController
     @ObservedObject var menuSurfaceVisibility: MenuSurfaceVisibilityState
     @ObservedObject var animationState: MenuSurfaceAnimationState

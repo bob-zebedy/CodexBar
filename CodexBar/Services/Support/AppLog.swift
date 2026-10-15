@@ -45,7 +45,7 @@ nonisolated enum LogTrigger: String {
     case settings
     case retry
     case taskChanged
-    case helperRegistered
+    case powerHelperRegistered
     case termination
     case limitReached
     /// 电量或供电方式变化

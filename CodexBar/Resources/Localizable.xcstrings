@@ -3105,39 +3105,39 @@
         }
       }
     },
-    "helper.error.assets-invalid" : {
+    "power-helper.error.assets-invalid" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper is invalid"
+            "value" : "CodexBar Power Helper is invalid"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper 组件或配置异常"
+            "value" : "CodexBar Power Helper 组件或配置异常"
           }
         }
       }
     },
-    "helper.error.assets-missing" : {
+    "power-helper.error.assets-missing" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper is missing"
+            "value" : "CodexBar Power Helper is missing"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper 组件或配置丢失"
+            "value" : "CodexBar Power Helper 组件或配置丢失"
           }
         }
       }
     },
-    "helper.error.connection-failed" : {
+    "power-helper.error.connection-failed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3153,7 +3153,7 @@
         }
       }
     },
-    "helper.error.connection-interrupted" : {
+    "power-helper.error.connection-interrupted" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3169,7 +3169,7 @@
         }
       }
     },
-    "helper.error.invalid-interface" : {
+    "power-helper.error.invalid-interface" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3185,7 +3185,7 @@
         }
       }
     },
-    "helper.error.no-response" : {
+    "power-helper.error.no-response" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3201,7 +3201,7 @@
         }
       }
     },
-    "helper.error.registration-failed" : {
+    "power-helper.error.registration-failed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3217,7 +3217,7 @@
         }
       }
     },
-    "helper.error.update-failed" : {
+    "power-helper.error.update-failed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3233,66 +3233,66 @@
         }
       }
     },
-    "helper.status.authorization-required" : {
+    "power-helper.status.authorization-required" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Allow CodexBar Helper to run in the background"
+            "value" : "Allow CodexBar Power Helper to run in the background"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要授权允许 CodexBar Helper 后台运行"
+            "value" : "需要授权允许 CodexBar Power Helper 后台运行"
           }
         }
       }
     },
-    "helper.status.install-and-authorize" : {
+    "power-helper.status.install-and-authorize" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Install CodexBar Helper and allow background activity"
+            "value" : "Install CodexBar Power Helper and allow background activity"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要安装并授权 CodexBar Helper 后台运行"
+            "value" : "需要安装并授权 CodexBar Power Helper 后台运行"
           }
         }
       }
     },
-    "helper.status.installed-needs-authorization" : {
+    "power-helper.status.installed-needs-authorization" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper installed. Allow background activity"
+            "value" : "CodexBar Power Helper installed. Allow background activity"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已安装 CodexBar Helper 但需要授权允许后台运行"
+            "value" : "已安装 CodexBar Power Helper 但需要授权允许后台运行"
           }
         }
       }
     },
-    "helper.status.not-registered" : {
+    "power-helper.status.not-registered" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBarHelper is not registered"
+            "value" : "CodexBar Power Helper is not registered"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBarHelper 尚未注册"
+            "value" : "CodexBar Power Helper 尚未注册"
           }
         }
       }
@@ -4630,13 +4630,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Default"
+            "value" : "System"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "默认"
+            "value" : "系统"
           }
         }
       }
@@ -4929,7 +4929,7 @@
         }
       }
     },
-    "settings.about.helper.authorized" : {
+    "settings.about.power-helper.authorized" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4945,7 +4945,7 @@
         }
       }
     },
-    "settings.about.helper.not-installed" : {
+    "settings.about.power-helper.not-installed" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4961,7 +4961,7 @@
         }
       }
     },
-    "settings.about.helper.requires-approval" : {
+    "settings.about.power-helper.requires-approval" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4977,23 +4977,23 @@
         }
       }
     },
-    "settings.about.helper.title" : {
+    "settings.about.power-helper.title" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper"
+            "value" : "CodexBar Power Helper"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar Helper"
+            "value" : "CodexBar Power Helper"
           }
         }
       }
     },
-    "settings.about.helper.unavailable" : {
+    "settings.about.power-helper.unavailable" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {

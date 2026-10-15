@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-validate_helper_manager_distribution() {
+validate_power_helper_manager_distribution() {
     local manager_path="$1"
     local architectures="$2"
     local architecture=""
@@ -12,14 +12,14 @@ validate_helper_manager_distribution() {
 
     for architecture in ${architectures}; do
         if ! details="$(codesign --display --verbose=4 --arch "${architecture}" "${manager_path}" 2>&1)"; then
-            validation_fail "Helper manager ${architecture} signature metadata" "codesign could not read the signature" "${details}"
+            validation_fail "Power Helper manager ${architecture} signature metadata" "codesign could not read the signature" "${details}"
             return 1
         fi
         if ! printf '%s\n' "${details}" | grep -Eq '^CodeDirectory .*flags=.*\(runtime\)'; then
-            validation_fail "Helper manager ${architecture} Hardened Runtime" "The CodeDirectory does not contain the runtime flag"
+            validation_fail "Power Helper manager ${architecture} Hardened Runtime" "The CodeDirectory does not contain the runtime flag"
             return 1
         fi
-        validation_pass "Helper manager ${architecture} Hardened Runtime"
+        validation_pass "Power Helper manager ${architecture} Hardened Runtime"
 
         if [[ "${CONFIGURATION}" != "Release" ]]; then
             continue
@@ -28,35 +28,35 @@ validate_helper_manager_distribution() {
         authority="$(printf '%s\n' "${details}" | awk '/^Authority=/ {sub(/^Authority=/, ""); print; exit}')"
         timestamp="$(printf '%s\n' "${details}" | awk '/^Timestamp=/ {sub(/^Timestamp=/, ""); print; exit}')"
         if [[ "${authority}" != "Developer ID Application: "* ]]; then
-            validation_fail "Helper manager ${architecture} Developer ID" "Expected Developer ID Application, got ${authority:-none}"
+            validation_fail "Power Helper manager ${architecture} Developer ID" "Expected Developer ID Application, got ${authority:-none}"
             return 1
         fi
         if [[ -z "${timestamp}" || "${timestamp}" == "none" ]]; then
-            validation_fail "Helper manager ${architecture} secure timestamp" "The signature has no secure timestamp"
+            validation_fail "Power Helper manager ${architecture} secure timestamp" "The signature has no secure timestamp"
             return 1
         fi
-        validation_field "Helper manager ${architecture} authority" "${authority}"
-        validation_field "Helper manager ${architecture} timestamp" "${timestamp}"
+        validation_field "Power Helper manager ${architecture} authority" "${authority}"
+        validation_field "Power Helper manager ${architecture} timestamp" "${timestamp}"
 
         entitlements="${TEMP_ROOT}/validation/manager-${architecture}-entitlements.plist"
         : > "${entitlements}"
         if ! codesign --display --arch "${architecture}" --entitlements="${entitlements}" --xml "${manager_path}" >/dev/null 2>&1; then
-            validation_fail "Helper manager ${architecture} entitlements" "codesign could not read the entitlements"
+            validation_fail "Power Helper manager ${architecture} entitlements" "codesign could not read the entitlements"
             return 1
         fi
         # 没有 entitlements 的管理 App 同样符合发布要求
         if [[ -s "${entitlements}" ]]; then
             if ! plutil -lint "${entitlements}" >/dev/null 2>&1; then
-                validation_fail "Helper manager ${architecture} entitlements" "Invalid entitlements plist"
+                validation_fail "Power Helper manager ${architecture} entitlements" "Invalid entitlements plist"
                 return 1
             fi
             debugger_entitlement="$(read_plist_value "${entitlements}" com.apple.security.get-task-allow)"
             if [[ "${debugger_entitlement}" == "true" || "${debugger_entitlement}" == "1" ]]; then
-                validation_fail "Helper manager ${architecture} debugger attachment" "get-task-allow is enabled"
+                validation_fail "Power Helper manager ${architecture} debugger attachment" "get-task-allow is enabled"
                 return 1
             fi
         fi
-        validation_pass "Helper manager ${architecture} distribution signature"
+        validation_pass "Power Helper manager ${architecture} distribution signature"
     done
 }
 
@@ -65,29 +65,31 @@ validate_final_app() {
     local contents_path="${app_path}/Contents"
     local info_plist="${contents_path}/Info.plist"
     local executable_path="${contents_path}/MacOS/${PRODUCT_NAME}"
-    local manager_name="CodexBar Helper"
+    local manager_name="CodexBar Power Helper"
+    local daemon_plist_name="CodexBarPowerHelper.plist"
     if [[ "${CONFIGURATION}" == "Debug" ]]; then
-        manager_name="CodexBar Helper Debug"
+        manager_name="CodexBar Power Helper Debug"
+        daemon_plist_name="CodexBarPowerHelper.Debug.plist"
     fi
     local manager_path="${contents_path}/Helpers/${manager_name}.app"
-    local manager_executable="${manager_path}/Contents/MacOS/CodexBarHelperManager"
-    local helper_path="${manager_path}/Contents/Resources/CodexBarHelper"
+    local manager_executable="${manager_path}/Contents/MacOS/CodexBarPowerHelperManager"
+    local power_helper_path="${manager_path}/Contents/Helpers/CodexBarPowerHelper"
     local launch_daemons_path="${manager_path}/Contents/Library/LaunchDaemons"
     local embedded_profile="${contents_path}/embedded.provisionprofile"
     local validation_dir="${TEMP_ROOT}/validation"
     local main_entitlements="${validation_dir}/main-entitlements.plist"
-    local helper_entitlements="${validation_dir}/helper-entitlements.plist"
+    local power_helper_entitlements="${validation_dir}/power-helper-entitlements.plist"
     local profile_plist="${validation_dir}/embedded-profile.plist"
     local profile_decode_error="${validation_dir}/profile-decode-error.log"
     local profile_entitlements="${validation_dir}/profile-entitlements.plist"
     local signing_certificate_prefix="${validation_dir}/signing-certificate"
     local signing_certificate="${signing_certificate_prefix}0"
-    local helper_signing_certificate_prefix="${validation_dir}/helper-signing-certificate"
-    local helper_signing_certificate="${helper_signing_certificate_prefix}0"
+    local power_helper_signing_certificate_prefix="${validation_dir}/power-helper-signing-certificate"
+    local power_helper_signing_certificate="${power_helper_signing_certificate_prefix}0"
     local bundle_identifier=""
     local component_identifier_prefix=""
     local component_identifier_suffix=""
-    local expected_helper_identifier=""
+    local expected_power_helper_identifier=""
     local expected_manager_identifier=""
     local display_name=""
     local short_version=""
@@ -95,30 +97,30 @@ validate_final_app() {
     local minimum_system_version=""
     local ui_element=""
     local architectures=""
-    local helper_architectures=""
+    local power_helper_architectures=""
     local architecture=""
     local command_output=""
     local signature_details=""
-    local helper_signature_details=""
+    local power_helper_signature_details=""
     local signature_identifier=""
-    local helper_signature_identifier=""
+    local power_helper_signature_identifier=""
     local signing_authority=""
     local signing_timestamp=""
     local signing_team=""
-    local helper_signing_team=""
+    local power_helper_signing_team=""
     local signing_cdhash=""
     local signing_certificate_sha1=""
-    local helper_signing_certificate_sha1=""
+    local power_helper_signing_certificate_sha1=""
     local expected_signing_certificate=""
     local normalized_expected_certificate=""
     local export_certificate_selector=""
     local main_application_identifier=""
-    local helper_application_identifier=""
+    local power_helper_application_identifier=""
     local main_team_identifier=""
     local debugger_entitlement=""
-    local helper_debugger_entitlement=""
+    local power_helper_debugger_entitlement=""
     local app_debugger_status="disabled"
-    local helper_debugger_status="disabled"
+    local power_helper_debugger_status="disabled"
     local icloud_environment=""
     local icloud_containers=""
     local icloud_services=""
@@ -156,13 +158,13 @@ validate_final_app() {
     fi
     validation_pass "App bundle structure"
 
-    if [[ ! -x "${helper_path}" ]]; then
-        validation_fail "Embedded helper" "Executable helper not found at ${helper_path}"
+    if [[ ! -x "${power_helper_path}" ]]; then
+        validation_fail "Embedded Power Helper" "Executable Power Helper not found at ${power_helper_path}"
         return 1
     fi
-    validation_pass "Embedded helper"
+    validation_pass "Embedded Power Helper"
     if [[ ! -x "${manager_executable}" ]]; then
-        validation_fail "Helper manager" "Executable not found at ${manager_executable}"
+        validation_fail "Power Helper manager" "Executable not found at ${manager_executable}"
         return 1
     fi
     local manager_identifier
@@ -176,8 +178,8 @@ validate_final_app() {
         component_identifier_prefix="${bundle_identifier%.debug}"
         component_identifier_suffix=".debug"
     fi
-    expected_helper_identifier="${component_identifier_prefix}.helper${component_identifier_suffix}"
-    expected_manager_identifier="${component_identifier_prefix}.helper-manager${component_identifier_suffix}"
+    expected_power_helper_identifier="${component_identifier_prefix}.helper.power${component_identifier_suffix}"
+    expected_manager_identifier="${component_identifier_prefix}.helper.power.manager${component_identifier_suffix}"
     display_name="$(read_plist_value "${info_plist}" CFBundleDisplayName)"
     short_version="$(read_plist_value "${info_plist}" CFBundleShortVersionString)"
     build_version="$(read_plist_value "${info_plist}" CFBundleVersion)"
@@ -195,8 +197,8 @@ validate_final_app() {
         return 1
     fi
 
-    if ! helper_architectures="$(lipo -archs "${helper_path}" 2>&1)"; then
-        validation_fail "Helper architectures" "lipo could not inspect the helper executable" "${helper_architectures}"
+    if ! power_helper_architectures="$(lipo -archs "${power_helper_path}" 2>&1)"; then
+        validation_fail "Power Helper architectures" "lipo could not inspect the Power Helper executable" "${power_helper_architectures}"
         return 1
     fi
     validation_pass "Architectures inspected"
@@ -208,7 +210,7 @@ validate_final_app() {
     validation_field "Minimum macOS" "${minimum_system_version}"
     validation_field "LSUIElement" "${ui_element}"
     validation_field "App architectures" "${architectures}"
-    validation_field "Helper architectures" "${helper_architectures}"
+    validation_field "Power Helper architectures" "${power_helper_architectures}"
 
     validation_section "Code signature"
 
@@ -226,62 +228,62 @@ validate_final_app() {
     done
     validation_pass "App signature slices: ${architectures}"
 
-    if ! command_output="$(codesign --verify --strict --verbose=4 "${helper_path}" 2>&1)"; then
-        validation_fail "Helper signature" "codesign rejected the helper executable" "${command_output}"
+    if ! command_output="$(codesign --verify --strict --verbose=4 "${power_helper_path}" 2>&1)"; then
+        validation_fail "Power Helper signature" "codesign rejected the Power Helper executable" "${command_output}"
         return 1
     fi
-    validation_pass "Helper signature"
+    validation_pass "Power Helper signature"
 
-    for architecture in ${helper_architectures}; do
-        if ! command_output="$(codesign --verify --strict --verbose=4 --arch "${architecture}" "${helper_path}" 2>&1)"; then
-            validation_fail "Helper ${architecture} signature" "codesign rejected the helper ${architecture} slice" "${command_output}"
+    for architecture in ${power_helper_architectures}; do
+        if ! command_output="$(codesign --verify --strict --verbose=4 --arch "${architecture}" "${power_helper_path}" 2>&1)"; then
+            validation_fail "Power Helper ${architecture} signature" "codesign rejected the Power Helper ${architecture} slice" "${command_output}"
             return 1
         fi
     done
-    validation_pass "Helper signature slices: ${helper_architectures}"
+    validation_pass "Power Helper signature slices: ${power_helper_architectures}"
 
     if ! signature_details="$(codesign -d --verbose=4 "${app_path}" 2>&1)"; then
         validation_fail "App signature metadata" "codesign could not read the app signature" "${signature_details}"
         return 1
     fi
 
-    if ! helper_signature_details="$(codesign -d --verbose=4 "${helper_path}" 2>&1)"; then
-        validation_fail "Helper signature metadata" "codesign could not read the helper signature" "${helper_signature_details}"
+    if ! power_helper_signature_details="$(codesign -d --verbose=4 "${power_helper_path}" 2>&1)"; then
+        validation_fail "Power Helper signature metadata" "codesign could not read the Power Helper signature" "${power_helper_signature_details}"
         return 1
     fi
 
     signature_identifier="$(printf '%s\n' "${signature_details}" | awk -F= '/^Identifier=/ {print $2; exit}')"
-    helper_signature_identifier="$(printf '%s\n' "${helper_signature_details}" | awk -F= '/^Identifier=/ {print $2; exit}')"
+    power_helper_signature_identifier="$(printf '%s\n' "${power_helper_signature_details}" | awk -F= '/^Identifier=/ {print $2; exit}')"
     signing_authority="$(printf '%s\n' "${signature_details}" | awk -F= '/^Authority=/ {print substr($0, index($0, "=") + 1); exit}')"
     signing_timestamp="$(printf '%s\n' "${signature_details}" | awk -F= '/^Timestamp=/ {print substr($0, index($0, "=") + 1); exit}')"
     signing_team="$(printf '%s\n' "${signature_details}" | awk -F= '/^TeamIdentifier=/ {print $2; exit}')"
-    helper_signing_team="$(printf '%s\n' "${helper_signature_details}" | awk -F= '/^TeamIdentifier=/ {print $2; exit}')"
+    power_helper_signing_team="$(printf '%s\n' "${power_helper_signature_details}" | awk -F= '/^TeamIdentifier=/ {print $2; exit}')"
     signing_cdhash="$(printf '%s\n' "${signature_details}" | awk -F= '/^CDHash=/ {print $2; exit}')"
 
     if [[ "${signature_identifier}" != "${bundle_identifier}" ||
-        "${helper_signature_identifier}" != "${expected_helper_identifier}" ||
-        -z "${signing_team}" || "${helper_signing_team}" != "${signing_team}" ]]; then
+        "${power_helper_signature_identifier}" != "${expected_power_helper_identifier}" ||
+        -z "${signing_team}" || "${power_helper_signing_team}" != "${signing_team}" ]]; then
         validation_fail \
             "Code signature identifiers" \
-            "Expected app ${bundle_identifier}, helper ${expected_helper_identifier}, and one shared team; got app ${signature_identifier}, helper ${helper_signature_identifier}, teams ${signing_team:-none}/${helper_signing_team:-none}"
+            "Expected app ${bundle_identifier}, Power Helper ${expected_power_helper_identifier}, and one shared team; got app ${signature_identifier}, Power Helper ${power_helper_signature_identifier}, teams ${signing_team:-none}/${power_helper_signing_team:-none}"
         return 1
     fi
     validation_pass "Code signature identifiers"
     if [[ "${manager_identifier}" != "${expected_manager_identifier}" ]] ||
         ! codesign --verify --strict --all-architectures \
-            -R="anchor apple generic and certificate leaf[subject.OU] = \"${signing_team}\" and identifier \"${manager_identifier}\"" \
-            "${manager_path}"; then
-        validation_fail "Helper manager signature" "Unexpected identifier, team, or invalid signature"
+        -R="anchor apple generic and certificate leaf[subject.OU] = \"${signing_team}\" and identifier \"${manager_identifier}\"" \
+        "${manager_path}"; then
+        validation_fail "Power Helper manager signature" "Unexpected identifier, team, or invalid signature"
         return 1
     fi
     local manager_architectures
     manager_architectures="$(lipo -archs "${manager_executable}")"
     if [[ "${manager_architectures}" != "${architectures}" ]]; then
-        validation_fail "Helper manager architectures" "Expected ${architectures}, got ${manager_architectures}"
+        validation_fail "Power Helper manager architectures" "Expected ${architectures}, got ${manager_architectures}"
         return 1
     fi
-    validation_pass "Helper manager signature and architectures"
-    if ! validate_helper_manager_distribution "${manager_path}" "${manager_architectures}"; then
+    validation_pass "Power Helper manager signature and architectures"
+    if ! validate_power_helper_manager_distribution "${manager_path}" "${manager_architectures}"; then
         return 1
     fi
 
@@ -291,19 +293,19 @@ validate_final_app() {
     fi
     validation_pass "App Hardened Runtime"
 
-    if ! printf '%s\n' "${helper_signature_details}" | grep -Eq '^CodeDirectory .*flags=.*\(runtime\)'; then
-        validation_fail "Helper Hardened Runtime" "The helper CodeDirectory does not contain the runtime flag"
+    if ! printf '%s\n' "${power_helper_signature_details}" | grep -Eq '^CodeDirectory .*flags=.*\(runtime\)'; then
+        validation_fail "Power Helper Hardened Runtime" "The Power Helper CodeDirectory does not contain the runtime flag"
         return 1
     fi
-    validation_pass "Helper Hardened Runtime"
+    validation_pass "Power Helper Hardened Runtime"
 
     if ! codesign --display --extract-certificates="${signing_certificate_prefix}" "${app_path}" >/dev/null 2>&1 || [[ ! -f "${signing_certificate}" ]]; then
         validation_fail "App signing certificate" "codesign could not extract the app leaf certificate"
         return 1
     fi
 
-    if ! codesign --display --extract-certificates="${helper_signing_certificate_prefix}" "${helper_path}" >/dev/null 2>&1 || [[ ! -f "${helper_signing_certificate}" ]]; then
-        validation_fail "Helper signing certificate" "codesign could not extract the helper leaf certificate"
+    if ! codesign --display --extract-certificates="${power_helper_signing_certificate_prefix}" "${power_helper_path}" >/dev/null 2>&1 || [[ ! -f "${power_helper_signing_certificate}" ]]; then
+        validation_fail "Power Helper signing certificate" "codesign could not extract the Power Helper leaf certificate"
         return 1
     fi
 
@@ -312,18 +314,18 @@ validate_final_app() {
         return 1
     fi
 
-    if ! helper_signing_certificate_sha1="$(certificate_sha1 "${helper_signing_certificate}")"; then
-        validation_fail "Helper signing certificate" "Unable to calculate the helper certificate SHA-1"
+    if ! power_helper_signing_certificate_sha1="$(certificate_sha1 "${power_helper_signing_certificate}")"; then
+        validation_fail "Power Helper signing certificate" "Unable to calculate the Power Helper certificate SHA-1"
         return 1
     fi
 
-    if [[ "${helper_signing_certificate_sha1}" != "${signing_certificate_sha1}" ]]; then
+    if [[ "${power_helper_signing_certificate_sha1}" != "${signing_certificate_sha1}" ]]; then
         validation_fail \
-            "App and helper certificate match" \
-            "App uses ${signing_certificate_sha1}, helper uses ${helper_signing_certificate_sha1}"
+            "App and Power Helper certificate match" \
+            "App uses ${signing_certificate_sha1}, Power Helper uses ${power_helper_signing_certificate_sha1}"
         return 1
     fi
-    validation_pass "App and helper certificate match"
+    validation_pass "App and Power Helper certificate match"
 
     expected_signing_certificate="$(read_plist_value "${EXPORT_OPTIONS_PLIST}" signingCertificate)"
     normalized_expected_certificate="$(printf '%s' "${expected_signing_certificate}" | tr -d ':' | tr '[:lower:]' '[:upper:]')"
@@ -340,11 +342,11 @@ validate_final_app() {
     fi
 
     validation_field "App identifier" "${signature_identifier}"
-    validation_field "Helper identifier" "${helper_signature_identifier}"
+    validation_field "Power Helper identifier" "${power_helper_signature_identifier}"
     validation_field "Authority" "${signing_authority}"
     validation_field "Team identifier" "${signing_team}"
     validation_field "App certificate SHA-1" "${signing_certificate_sha1}"
-    validation_field "Helper certificate SHA-1" "${helper_signing_certificate_sha1}"
+    validation_field "Power Helper certificate SHA-1" "${power_helper_signing_certificate_sha1}"
     validation_field "Timestamp" "${signing_timestamp:-none}"
     validation_field "CDHash" "${signing_cdhash}"
     if [[ -n "${export_certificate_selector}" ]]; then
@@ -359,41 +361,41 @@ validate_final_app() {
     fi
     validation_pass "App entitlements extracted"
 
-    if ! codesign --display --entitlements="${helper_entitlements}" --xml "${helper_path}" >/dev/null 2>&1 || [[ ! -s "${helper_entitlements}" ]]; then
-        validation_fail "Helper entitlements" "codesign did not return a helper entitlements plist"
+    if ! codesign --display --entitlements="${power_helper_entitlements}" --xml "${power_helper_path}" >/dev/null 2>&1 || [[ ! -s "${power_helper_entitlements}" ]]; then
+        validation_fail "Power Helper entitlements" "codesign did not return a Power Helper entitlements plist"
         return 1
     fi
-    validation_pass "Helper entitlements extracted"
+    validation_pass "Power Helper entitlements extracted"
 
     main_application_identifier="$(read_plist_value "${main_entitlements}" com.apple.application-identifier)"
-    helper_application_identifier="$(read_plist_value "${helper_entitlements}" com.apple.application-identifier)"
+    power_helper_application_identifier="$(read_plist_value "${power_helper_entitlements}" com.apple.application-identifier)"
     main_team_identifier="$(read_plist_value "${main_entitlements}" com.apple.developer.team-identifier)"
     debugger_entitlement="$(read_plist_value "${main_entitlements}" com.apple.security.get-task-allow)"
-    helper_debugger_entitlement="$(read_plist_value "${helper_entitlements}" com.apple.security.get-task-allow)"
+    power_helper_debugger_entitlement="$(read_plist_value "${power_helper_entitlements}" com.apple.security.get-task-allow)"
     icloud_environment="$(read_plist_compact_value "${main_entitlements}" com.apple.developer.icloud-container-environment)"
     icloud_containers="$(read_plist_compact_value "${main_entitlements}" com.apple.developer.icloud-container-identifiers)"
     icloud_services="$(read_plist_compact_value "${main_entitlements}" com.apple.developer.icloud-services)"
     if [[ "${debugger_entitlement}" == "true" || "${debugger_entitlement}" == "1" ]]; then
         app_debugger_status="allowed"
     fi
-    if [[ "${helper_debugger_entitlement}" == "true" || "${helper_debugger_entitlement}" == "1" ]]; then
-        helper_debugger_status="allowed"
+    if [[ "${power_helper_debugger_entitlement}" == "true" || "${power_helper_debugger_entitlement}" == "1" ]]; then
+        power_helper_debugger_status="allowed"
     fi
 
     if [[ "${main_application_identifier}" != "${signing_team}.${bundle_identifier}" ||
-        "${helper_application_identifier}" != "${signing_team}.${expected_helper_identifier}" ]]; then
+        "${power_helper_application_identifier}" != "${signing_team}.${expected_power_helper_identifier}" ]]; then
         validation_fail \
             "Entitlement application identifiers" \
-            "Expected ${signing_team}.${bundle_identifier} and ${signing_team}.${expected_helper_identifier}; got ${main_application_identifier:-none} and ${helper_application_identifier:-none}"
+            "Expected ${signing_team}.${bundle_identifier} and ${signing_team}.${expected_power_helper_identifier}; got ${main_application_identifier:-none} and ${power_helper_application_identifier:-none}"
         return 1
     fi
     validation_pass "Entitlement application identifiers"
 
     if [[ "${CONFIGURATION}" == "Release" &&
-        ("${app_debugger_status}" == "allowed" || "${helper_debugger_status}" == "allowed") ]]; then
+        ("${app_debugger_status}" == "allowed" || "${power_helper_debugger_status}" == "allowed") ]]; then
         validation_fail \
             "Release debugger attachment" \
-            "get-task-allow is enabled for app=${debugger_entitlement:-false}, helper=${helper_debugger_entitlement:-false}"
+            "get-task-allow is enabled for app=${debugger_entitlement:-false}, Power Helper=${power_helper_debugger_entitlement:-false}"
         return 1
     fi
 
@@ -402,20 +404,20 @@ validate_final_app() {
         return 1
     fi
 
-    if ! command_output="$(plutil -p "${helper_entitlements}" 2>&1)"; then
-        validation_fail "Helper entitlements" "Unable to read helper entitlements" "${command_output}"
+    if ! command_output="$(plutil -p "${power_helper_entitlements}" 2>&1)"; then
+        validation_fail "Power Helper entitlements" "Unable to read Power Helper entitlements" "${command_output}"
         return 1
     fi
     validation_pass "Debugger attachment policy"
 
     validation_field "App identifier" "${main_application_identifier}"
-    validation_field "Helper identifier" "${helper_application_identifier}"
+    validation_field "Power Helper identifier" "${power_helper_application_identifier}"
     validation_field "Team identifier" "${main_team_identifier}"
     validation_field "iCloud environment" "${icloud_environment}"
     validation_field "iCloud containers" "${icloud_containers}"
     validation_field "iCloud services" "${icloud_services}"
     validation_field "App debugger attachment" "${app_debugger_status}"
-    validation_field "Helper debugger attachment" "${helper_debugger_status}"
+    validation_field "Power Helper debugger attachment" "${power_helper_debugger_status}"
 
     validation_section "LaunchDaemon"
 
@@ -434,16 +436,20 @@ validate_final_app() {
         validation_fail "LaunchDaemon plist count" "Expected exactly 1 plist, found ${launch_daemon_count}"
         return 1
     fi
+    if [[ "${launch_daemon_plist}" != "${launch_daemons_path}/${daemon_plist_name}" ]]; then
+        validation_fail "LaunchDaemon plist name" "Expected ${daemon_plist_name}, got $(basename "${launch_daemon_plist}")"
+        return 1
+    fi
 
     launch_daemon_label="$(read_plist_value "${launch_daemon_plist}" Label)"
     launch_daemon_bundle_identifier="$(read_plist_value "${launch_daemon_plist}" AssociatedBundleIdentifiers:0)"
     launch_daemon_program="$(read_plist_value "${launch_daemon_plist}" BundleProgram)"
-    if [[ "${launch_daemon_label}" != "${expected_helper_identifier}" ||
+    if [[ "${launch_daemon_label}" != "${expected_power_helper_identifier}" ||
         "${launch_daemon_bundle_identifier}" != "${manager_identifier}" ||
-        "${launch_daemon_program}" != "Contents/Resources/CodexBarHelper" ]]; then
+        "${launch_daemon_program}" != "Contents/Helpers/CodexBarPowerHelper" ]]; then
         validation_fail \
             "LaunchDaemon configuration" \
-            "Expected label ${expected_helper_identifier}, bundle ${manager_identifier}, and program Contents/Resources/CodexBarHelper; got ${launch_daemon_label:-none}, ${launch_daemon_bundle_identifier:-none}, ${launch_daemon_program:-none}"
+            "Expected label ${expected_power_helper_identifier}, bundle ${manager_identifier}, and program Contents/Helpers/CodexBarPowerHelper; got ${launch_daemon_label:-none}, ${launch_daemon_bundle_identifier:-none}, ${launch_daemon_program:-none}"
         return 1
     fi
     validation_pass "LaunchDaemon configuration"

@@ -28,14 +28,14 @@ final class AutoResetWakeScheduler {
     private enum PreparationState {
         case none
         case termination
-        case helperInterruption
+        case powerHelperInterruption
     }
 
     var onErrorMessageChanged: ((String?) -> Void)?
 
-    private let runtimeStatusMonitor = HelperStatusMonitor()
+    private let runtimeStatusMonitor = PowerHelperStatusMonitor()
     private var isRequested = false
-    private var isHelperReady = false
+    private var isPowerHelperReady = false
     private var desiredWakeDate: Date?
     private var appliedSchedule = AppliedSchedule.unknown
     private var syncTask: Task<Void, Never>?
@@ -79,15 +79,15 @@ final class AutoResetWakeScheduler {
         restartSyncForDesiredStateChange()
     }
 
-    func setHelperReady(_ ready: Bool) {
-        guard ready != isHelperReady else {
+    func setPowerHelperReady(_ ready: Bool) {
+        guard ready != isPowerHelperReady else {
             if ready {
                 reconcile()
             }
             return
         }
 
-        isHelperReady = ready
+        isPowerHelperReady = ready
         guard ready else {
             errorMessage = nil
             suspend()
@@ -98,21 +98,21 @@ final class AutoResetWakeScheduler {
 
     func stop() {
         isRequested = false
-        isHelperReady = false
+        isPowerHelperReady = false
         preparationState = .none
         desiredWakeDate = nil
         errorMessage = nil
         suspend()
     }
 
-    func prepareForTermination(helperSupportsWakeScheduling: Bool) async -> Bool {
+    func prepareForTermination(powerHelperSupportsWakeScheduling: Bool) async -> Bool {
         guard preparationState == .none else {
             return false
         }
 
         preparationState = .termination
         cancelSyncTask()
-        guard helperSupportsWakeScheduling || connection != nil else {
+        guard powerHelperSupportsWakeScheduling || connection != nil else {
             return !appliedSchedule.hasWakeDate
         }
         return await cancelOwnedSchedule(reason: "termination")
@@ -127,28 +127,28 @@ final class AutoResetWakeScheduler {
         reconcile()
     }
 
-    func beginHelperInterruptionPreparation() -> Bool {
+    func beginPowerHelperInterruptionPreparation() -> Bool {
         guard preparationState == .none else {
             return false
         }
 
-        preparationState = .helperInterruption
+        preparationState = .powerHelperInterruption
         cancelSyncTask()
         return true
     }
 
-    func cancelBeforeHelperInterruption() async -> Bool {
-        guard preparationState == .helperInterruption else {
+    func cancelBeforePowerHelperInterruption() async -> Bool {
+        guard preparationState == .powerHelperInterruption else {
             return false
         }
         guard connection != nil || appliedSchedule.hasWakeDate else {
             return true
         }
-        return await cancelOwnedSchedule(reason: "helperUpdate")
+        return await cancelOwnedSchedule(reason: "powerHelperUpdate")
     }
 
-    func resumeAfterHelperInterruption() {
-        guard preparationState == .helperInterruption else {
+    func resumeAfterPowerHelperInterruption() {
+        guard preparationState == .powerHelperInterruption else {
             return
         }
 
@@ -179,7 +179,7 @@ final class AutoResetWakeScheduler {
         guard preparationState == .none else {
             return
         }
-        guard isHelperReady else {
+        guard isPowerHelperReady else {
             return
         }
         guard syncTask == nil else {
@@ -204,7 +204,7 @@ final class AutoResetWakeScheduler {
     }
 
     private func cancelOwnedSchedule(reason: String) async -> Bool {
-        for delay in HelperConfiguration.wakeCancellationRetryDelays {
+        for delay in PowerHelperConfiguration.wakeCancellationRetryDelays {
             if delay > .zero {
                 try? await Task.sleep(for: delay)
             }
@@ -215,7 +215,7 @@ final class AutoResetWakeScheduler {
             let result = await runtimeStatusMonitor.setAutoResetWakeSchedule(
                 connection: connection ?? makeConnection(),
                 unixTimestamp: 0,
-                timeout: HelperConfiguration.requestTimeout
+                timeout: PowerHelperConfiguration.requestTimeout
             )
             guard !Task.isCancelled else {
                 return false
@@ -231,7 +231,7 @@ final class AutoResetWakeScheduler {
                 )
                 return true
 
-            case let .helperFailure(code):
+            case let .powerHelperFailure(code):
                 AppLog.keepAlive.error(
                     "自动重置唤醒计划取消失败: reason=\(reason, privacy: .public) code=\(code)"
                 )
@@ -261,7 +261,7 @@ final class AutoResetWakeScheduler {
 
     private func synchronizeSchedule() async {
         var retryIndex = 0
-        while !Task.isCancelled, isHelperReady {
+        while !Task.isCancelled, isPowerHelperReady {
             guard appliedSchedule != AppliedSchedule(wakeDate: desiredWakeDate) else {
                 return
             }
@@ -270,9 +270,9 @@ final class AutoResetWakeScheduler {
             let result = await runtimeStatusMonitor.setAutoResetWakeSchedule(
                 connection: connection ?? makeConnection(),
                 unixTimestamp: requestedDate?.timeIntervalSince1970 ?? 0,
-                timeout: HelperConfiguration.requestTimeout
+                timeout: PowerHelperConfiguration.requestTimeout
             )
-            guard !Task.isCancelled, isHelperReady else {
+            guard !Task.isCancelled, isPowerHelperReady else {
                 return
             }
 
@@ -288,7 +288,7 @@ final class AutoResetWakeScheduler {
             case .cancelled:
                 continue
 
-            case let .helperFailure(code):
+            case let .powerHelperFailure(code):
                 AppLog.keepAlive.error("自动重置唤醒计划同步失败: code=\(code)")
 
             case let .connectionFailure(error):
@@ -304,11 +304,11 @@ final class AutoResetWakeScheduler {
 
             appliedSchedule = .unknown
             errorMessage = KeepAliveLocalizedMessage.autoResetWakeScheduleFailed
-            guard retryIndex < HelperConfiguration.wakeScheduleRetryDelays.count else {
+            guard retryIndex < PowerHelperConfiguration.wakeScheduleRetryDelays.count else {
                 return
             }
 
-            let delay = HelperConfiguration.wakeScheduleRetryDelays[retryIndex]
+            let delay = PowerHelperConfiguration.wakeScheduleRetryDelays[retryIndex]
             retryIndex += 1
             try? await Task.sleep(for: delay)
         }
@@ -341,10 +341,10 @@ final class AutoResetWakeScheduler {
 
     private func makeConnection() -> NSXPCConnection {
         let connection = NSXPCConnection(
-            machServiceName: CodexBarHelperIPC.machServiceName,
+            machServiceName: CodexBarPowerHelperIPC.serviceIdentifier,
             options: .privileged
         )
-        connection.remoteObjectInterface = NSXPCInterface(with: CodexBarHelperProtocol.self)
+        connection.remoteObjectInterface = NSXPCInterface(with: CodexBarPowerHelperProtocol.self)
         connection.invalidationHandler = { [weak self, weak connection] in
             Task { @MainActor in
                 self?.handleConnectionLoss(connection, reason: "invalidated")

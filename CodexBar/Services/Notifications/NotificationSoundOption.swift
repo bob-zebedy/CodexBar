@@ -7,24 +7,17 @@ import UserNotifications
 /// `id` 是落在 UserDefaults 里的持久化值, 系统提示音取文件名小写形式, 与旧版本的枚举值天然对齐
 struct NotificationSoundOption: Identifiable, Hashable {
     let id: String
-    let title: String
+    let localizedTitle: String
     private let source: SoundSource
 
-    var localizedTitle: String {
-        switch source {
-        case .silent:
-            String(localized: "notification.sound.silent")
-        case .systemDefault:
-            String(localized: "notification.sound.default")
-        case .system, .bundled:
-            title
-        }
-    }
-
-    static let silent = NotificationSoundOption(id: "silent", title: "静音", source: .silent)
+    static let silent = NotificationSoundOption(
+        id: "silent",
+        localizedTitle: String(localized: "notification.sound.silent"),
+        source: .silent
+    )
     static let systemDefault = NotificationSoundOption(
         id: "systemDefault",
-        title: "默认",
+        localizedTitle: String(localized: "notification.sound.default"),
         source: .systemDefault
     )
 
@@ -189,7 +182,7 @@ struct NotificationSoundOption: Identifiable, Hashable {
     ) -> NotificationSoundOption {
         NotificationSoundOption(
             id: id,
-            title: title,
+            localizedTitle: title,
             source: .bundled("CodexBar-\(resource ?? title)")
         )
     }
@@ -217,7 +210,7 @@ struct NotificationSoundOption: Identifiable, Hashable {
                 sounds.append(
                     NotificationSoundOption(
                         id: id,
-                        title: title,
+                        localizedTitle: title,
                         source: .system(directoryURL.appendingPathComponent(fileName))
                     )
                 )
@@ -225,7 +218,7 @@ struct NotificationSoundOption: Identifiable, Hashable {
         }
 
         return sounds.sorted {
-            $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            $0.localizedTitle.localizedStandardCompare($1.localizedTitle) == .orderedAscending
         }
     }
 

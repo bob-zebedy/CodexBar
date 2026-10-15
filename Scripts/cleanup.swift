@@ -7,7 +7,7 @@ import IOKit
 import IOKit.pwr_mgt
 import ServiceManagement
 
-@objc private protocol CleanupHelperProtocol: AnyObject {
+@objc private protocol CleanupPowerHelperProtocol: AnyObject {
     func setAutoResetWakeSchedule(
         _ unixTimestamp: TimeInterval,
         reply: @escaping @Sendable (Int32) -> Void
@@ -45,9 +45,9 @@ private enum CleanupBuildConfiguration: String, CaseIterable {
     var managerBundleName: String {
         switch self {
         case .release:
-            "CodexBar Helper.app"
+            "CodexBar Power Helper.app"
         case .debug:
-            "CodexBar Helper Debug.app"
+            "CodexBar Power Helper Debug.app"
         }
     }
 
@@ -67,15 +67,20 @@ private struct CleanupTarget {
     let buildConfiguration: CleanupBuildConfiguration
 
     var plistName: String {
-        serviceLabel + ".plist"
-    }
-
-    var serviceLabel: String {
         switch buildConfiguration {
         case .release:
-            "app.zabrian.codexbar.helper"
+            "CodexBarPowerHelper.plist"
         case .debug:
-            "app.zabrian.codexbar.helper.debug"
+            "CodexBarPowerHelper.Debug.plist"
+        }
+    }
+
+    var serviceIdentifier: String {
+        switch buildConfiguration {
+        case .release:
+            "app.zabrian.codexbar.helper.power"
+        case .debug:
+            "app.zabrian.codexbar.helper.power.debug"
         }
     }
 }
@@ -85,7 +90,7 @@ private struct CommandOutput {
     let text: String
 }
 
-private struct HelperManagerReply: Decodable {
+private struct PowerHelperManagerReply: Decodable {
     let status: Int
     let errorDomain: String?
     let errorCode: Int?
@@ -194,12 +199,12 @@ private final class KeepAliveCleanupCommand {
             仅注销 CodexBar 的 Release 和 Debug KeepAlive LaunchDaemon
 
             Options:
-              --release       只移除 Release Helper
-              --debug         只移除 Debug Helper
+              --release       只移除 Release Power Helper
+              --debug         只移除 Debug Power Helper
               --check         只检查目标
               -h, --help      显示帮助
 
-            仅支持 Contents/Helpers 中的 Helper 管理 App
+            仅支持 Contents/Helpers 中的 Power Helper 管理 App
             不指定 --release 或 --debug 时同时处理两个目标
             实际清理前请先退出待清理的 CodexBar 实例
             """
@@ -314,11 +319,11 @@ private final class KeepAliveCleanupCommand {
         isCheckOnly: Bool
     ) throws {
         let managerURL = target.appURL.appending(path: "Contents/Helpers/\(target.buildConfiguration.managerBundleName)")
-        let managerExecutableURL = managerURL.appending(path: "Contents/MacOS/CodexBarHelperManager")
+        let managerExecutableURL = managerURL.appending(path: "Contents/MacOS/CodexBarPowerHelperManager")
         let daemonPlistURL = managerURL.appending(path: "Contents/Library/LaunchDaemons/\(target.plistName)")
         guard fileManager.isExecutableFile(atPath: managerExecutableURL.path),
               fileManager.fileExists(atPath: daemonPlistURL.path) else {
-            throw CleanupError.message("Helper 管理 App 缺失或结构无效, path=\(managerURL.path)")
+            throw CleanupError.message("Power Helper 管理 App 缺失或结构无效, path=\(managerURL.path)")
         }
 
         let teamIdentifier = try signingTeamIdentifier(for: target.appURL)
@@ -327,7 +332,7 @@ private final class KeepAliveCleanupCommand {
             throw CleanupError.codeSigningValidationFailed("管理 App 与主 App 的 Team ID 不匹配")
         }
 
-        // 清理进程必须使用主 App 的签名身份, 才能通过 Helper 的 XPC 校验
+        // 清理进程必须使用主 App 的签名身份, 才能通过 Power Helper 的 XPC 校验
         let cleanupAppURL = temporaryRoot
             .appending(path: "\(target.bundleIdentifier).app", directoryHint: .isDirectory)
         let contentsURL = cleanupAppURL.appending(path: "Contents", directoryHint: .isDirectory)
@@ -372,7 +377,7 @@ private final class KeepAliveCleanupCommand {
 
         try runChecked(
             destinationExecutableURL.path,
-            ["--unregister-child", target.plistName, managerExecutableURL.path]
+            ["--unregister-child", target.serviceIdentifier, managerExecutableURL.path]
         )
         for key in ["KeepAlive.isEnabled", "AutoReset.isEnabled"] {
             try runChecked(
@@ -382,17 +387,17 @@ private final class KeepAliveCleanupCommand {
         }
         _ = try run(
             "/usr/bin/defaults",
-            ["delete", target.bundleIdentifier, "KeepAlive.helperRegistrationFingerprint"],
+            ["delete", target.bundleIdentifier, "PowerHelper.registrationFingerprint"],
             capturesOutput: true
         )
 
         let serviceStatus = try run(
             "/bin/launchctl",
-            ["print", "system/\(target.serviceLabel)"],
+            ["print", "system/\(target.serviceIdentifier)"],
             capturesOutput: true
         )
         guard serviceStatus.status != 0 else {
-            throw CleanupError.message("后台服务仍在运行, service=\(target.serviceLabel)")
+            throw CleanupError.message("后台服务仍在运行, service=\(target.serviceIdentifier)")
         }
     }
 
@@ -515,30 +520,29 @@ private final class KeepAliveCleanupCommand {
     }
 }
 
-private func runUnregisterChild(plistName: String, managerExecutable: String) -> Never {
-    let label = String(plistName.dropLast(".plist".count))
-    guard cancelAutoResetWakeScheduleBeforeUnregister(serviceLabel: label) else {
+private func runUnregisterChild(serviceIdentifier: String, managerExecutable: String) -> Never {
+    guard cancelAutoResetWakeScheduleBeforeUnregister(serviceIdentifier: serviceIdentifier) else {
         Darwin.exit(EXIT_FAILURE)
     }
     do {
-        let initialStatus = try runHelperManager(command: "status", executable: managerExecutable)
+        let initialStatus = try runPowerHelperManager(command: "status", executable: managerExecutable)
         if initialStatus == .notRegistered || initialStatus == .notFound {
-            print("后台服务未注册: service=\(plistName)")
+            print("后台服务未注册: service=\(serviceIdentifier)")
             Darwin.exit(EXIT_SUCCESS)
         }
-        let status = try runHelperManager(command: "unregister", executable: managerExecutable)
+        let status = try runPowerHelperManager(command: "unregister", executable: managerExecutable)
         guard status == .notRegistered || status == .notFound else {
-            throw CleanupError.message("管理 App 未确认 Helper 已注销, status=\(status.rawValue)")
+            throw CleanupError.message("管理 App 未确认 Power Helper 已注销, status=\(status.rawValue)")
         }
-        print("后台服务已注销: service=\(plistName)")
+        print("后台服务已注销: service=\(serviceIdentifier)")
         Darwin.exit(EXIT_SUCCESS)
     } catch {
-        FileHandle.standardError.write(Data("Helper 注销失败: \(error.localizedDescription)\n".utf8))
+        FileHandle.standardError.write(Data("Power Helper 注销失败: \(error.localizedDescription)\n".utf8))
         Darwin.exit(EXIT_FAILURE)
     }
 }
 
-private func runHelperManager(command: String, executable: String) throws -> SMAppService.Status {
+private func runPowerHelperManager(command: String, executable: String) throws -> SMAppService.Status {
     let process = Process()
     let pipe = Pipe()
     process.executableURL = URL(fileURLWithPath: executable)
@@ -551,9 +555,9 @@ private func runHelperManager(command: String, executable: String) throws -> SMA
         throw CleanupError.message("管理 App 进程失败, command=\(command), exit=\(process.terminationStatus)")
     }
 
-    let reply: HelperManagerReply
+    let reply: PowerHelperManagerReply
     do {
-        reply = try JSONDecoder().decode(HelperManagerReply.self, from: data)
+        reply = try JSONDecoder().decode(PowerHelperManagerReply.self, from: data)
     } catch {
         throw CleanupError.message("管理 App 响应无效, command=\(command), detail=\(error.localizedDescription)")
     }
@@ -576,16 +580,16 @@ private func runHelperManager(command: String, executable: String) throws -> SMA
     }
 }
 
-private func cancelAutoResetWakeScheduleBeforeUnregister(serviceLabel: String) -> Bool {
-    let owner = serviceLabel + ".auto-reset"
+private func cancelAutoResetWakeScheduleBeforeUnregister(serviceIdentifier: String) -> Bool {
+    let owner = serviceIdentifier + ".auto-reset"
     guard hasScheduledWakeEvent(owner: owner) else {
         return true
     }
 
     let state = WakeScheduleCancellationState()
     let semaphore = DispatchSemaphore(value: 0)
-    let connection = NSXPCConnection(machServiceName: serviceLabel, options: .privileged)
-    connection.remoteObjectInterface = NSXPCInterface(with: CleanupHelperProtocol.self)
+    let connection = NSXPCConnection(machServiceName: serviceIdentifier, options: .privileged)
+    connection.remoteObjectInterface = NSXPCInterface(with: CleanupPowerHelperProtocol.self)
     let finish: @Sendable (String?) -> Void = { errorMessage in
         if state.complete(errorMessage: errorMessage) {
             semaphore.signal()
@@ -602,14 +606,14 @@ private func cancelAutoResetWakeScheduleBeforeUnregister(serviceLabel: String) -
     let errorHandler: @Sendable (Error) -> Void = { error in
         finish(error.localizedDescription)
     }
-    guard let helper = connection.remoteObjectProxyWithErrorHandler(errorHandler)
-        as? CleanupHelperProtocol else {
+    guard let powerHelper = connection.remoteObjectProxyWithErrorHandler(errorHandler)
+        as? CleanupPowerHelperProtocol else {
         connection.invalidate()
         reportWakeScheduleCancellationFailure(owner: owner, detail: "服务接口无效")
         return false
     }
 
-    helper.setAutoResetWakeSchedule(0) { exitCode in
+    powerHelper.setAutoResetWakeSchedule(0) { exitCode in
         finish(exitCode == 0 ? nil : "code=\(exitCode)")
     }
     let waitResult = semaphore.wait(timeout: .now() + 10)
@@ -662,7 +666,7 @@ if arguments.first == "--unregister-child" {
         )
         Darwin.exit(EXIT_FAILURE)
     }
-    runUnregisterChild(plistName: arguments[1], managerExecutable: arguments[2])
+    runUnregisterChild(serviceIdentifier: arguments[1], managerExecutable: arguments[2])
 }
 
 do {

@@ -54,9 +54,9 @@
 
 ## 项目结构与模块组织
 
-CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。工程只有 `CodexBar` scheme，包含主 App、`CodexBarHelperManager`、`CodexBarHelper`、`CodexBarTests` 和 `CodexBarHelperTests` 五个 target。
+CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, SwiftUI, AppKit 和 MVVM。工程只有 `CodexBar` scheme，包含主 App、`CodexBarPowerHelperManager`、`CodexBarPowerHelper`、`CodexBarTests` 和 `CodexBarPowerHelperTests` 五个 target。
 
-`CodexBar/` 按 `App/` `Views/` `Controllers/` `Models/` `Services/` 和 `Resources/` 分层。`CodexBarHelperManager/` 提供嵌入主 App 的 Helper 管理 App，拥有 root LaunchDaemon 的注册与授权归属。root LaunchDaemon 位于 `CodexBarHelper/` 目录，主 App 直接与其通信；跨 target 协议位于 `Shared/` 目录。`Scripts/` 提供发布和 helper 清理工具，`Images/` 存放 README 资源。
+`CodexBar/` 按 `App/` `Views/` `Controllers/` `Models/` `Services/` 和 `Resources/` 分层。`CodexBarHelper/` 按职责组织 Helper；其中 `Power/Daemon/` 提供电源管理的 root LaunchDaemon，主 App 直接与其通信；`Power/Manager/` 提供嵌入主 App 的管理 App，拥有该 daemon 的注册与授权归属；`Power/Shared/` 存放跨 target 协议与身份定义，`Power/Artwork/` 存放图标设计源文件。通用跨 target 工具位于 `Shared/`。测试统一放在 `Tests/`，按被测模块划分为 `App/` 和 `Helpers/`。`Scripts/` 提供发布和 Helper 清理工具，`Images/` 存放 README 资源。
 
 ## 构建、测试与开发命令
 
@@ -143,9 +143,13 @@ CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, Swi
 
 ## 测试规范
 
-`CodexBarTests` 使用 Swift Testing，无 App 宿主，直接编译 `CodexBar/` 与 `Shared/` 源码。测试 target 独有的 `CODEXBAR_TESTING` 条件只移除 `@main`，不启动 App、Codex、CloudKit 或 helper。文件测试使用独立临时目录，偏好测试使用独立 `UserDefaults` suite，禁止读写真实用户数据。`CodexBarHelperTests` 独立编译 helper 与 `Shared/` 源码，排除 `main.swift`，通过模拟睡眠操作和内存存储验证 helper，不启动 root 服务或修改系统状态。仓库没有覆盖率门槛。
+根据改动的影响范围和风险选择验证方式。测试入口、源码归属、编译条件和工具配置以当前工程为准。
 
-每次代码改动至少应完成构建和单元测试，运行 `swiftformat` 和 `swiftlint` 两项检查，并手动验证受影响流程。菜单、窗口焦点、活动采集、同步、通知和防睡眠改动必须说明手动验证场景。Debug 与 Release 使用不同 App 和 helper bundle ID，排查时不要混用。
+- 测试围绕可观察行为、关键边界和失败恢复设计，优先复用现有测试；新增测试应能发现实际回归，避免只重复实现或为简单改名机械补测
+- 单元测试使用独立临时数据和可控依赖，测试结束后清理资源；不得读写真实用户数据、调用真实外部服务、启动特权服务或修改系统设置
+- 代码改动需完成受影响目标的构建、相关自动化测试及项目配置的格式和静态检查；涉及共享逻辑、构建配置或跨模块行为时，扩大验证范围；纯文档改动检查内容和格式即可
+- 自动化测试无法覆盖的交互、系统集成和生命周期行为，补充手动验证；验证前确认运行产物、构建配置和测试环境，避免混用不同版本
+- 交付时说明实际执行的验证及结果；未执行或受环境限制的项目应明确列出，并说明待验证场景，不以构建通过代替运行行为验证
 
 ## Git 规范
 
