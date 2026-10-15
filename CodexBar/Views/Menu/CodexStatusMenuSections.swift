@@ -11,7 +11,7 @@ enum MenuMetrics {
     static let loadingVerticalPadding: CGFloat = 16
 }
 
-/// 已登录状态的账号行, 邮箱可双击模糊, 头像可双击刷新
+/// 已登录状态的账号行, 邮箱可双击模糊, 图标可双击刷新
 struct AccountCard: View {
     let title: String
     let isEmail: Bool
@@ -23,9 +23,10 @@ struct AccountCard: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "person.fill")
-                .font(.system(size: MenuMetrics.accountIconSize, weight: .medium))
-                .foregroundStyle(.tint)
+            Image("OpenAILogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: MenuMetrics.accountIconSize, height: MenuMetrics.accountIconSize)
                 .onTapGesture(count: 2, perform: onRefresh)
 
             Text(title)
@@ -95,9 +96,10 @@ struct StatusAccountCard: View {
     var body: some View {
         let display = statusDisplay
         HStack(spacing: 8) {
-            Image(systemName: "person.fill")
-                .font(.system(size: MenuMetrics.accountIconSize, weight: .medium))
-                .foregroundStyle(display.color)
+            Image("OpenAILogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: MenuMetrics.accountIconSize, height: MenuMetrics.accountIconSize)
                 .onTapGesture(count: 2, perform: onRefresh)
 
             if let text = display.text {
