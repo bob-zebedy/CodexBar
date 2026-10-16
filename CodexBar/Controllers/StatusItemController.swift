@@ -231,7 +231,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         animationState: MenuSurfaceAnimationState,
         usesPreferredContentSize: Bool
     ) -> NSHostingController<AnyView> {
-        let rootView = CodexStatusMenuView(
+        let menuContent = CodexStatusMenuView(
             viewModel: viewModel,
             historyViewModel: historyViewModel,
             mainPanelSettings: mainPanelSettings,
@@ -255,12 +255,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         .environmentObject(appUpdater)
         .frame(width: CodexStatusMenuView.menuWidth)
         .fixedSize(horizontal: false, vertical: true)
-        .onGeometryChange(for: CGFloat.self) { geometry in
-            geometry.size.height
-        } action: { [weak self] height in
-            guard !usesPreferredContentSize else { return }
-            self?.fallbackPanelController.resizeIfVisible(contentHeight: height)
-        }
+
+        let rootView = MenuPanelLayout { menuContent }
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.height
+            } action: { [weak self] height in
+                guard !usesPreferredContentSize else { return }
+                self?.fallbackPanelController.resizeIfVisible(contentHeight: height)
+            }
 
         let hostingController = NSHostingController(rootView: AnyView(rootView))
         if usesPreferredContentSize {

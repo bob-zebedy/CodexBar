@@ -11,6 +11,8 @@ struct ActivityCard: View {
     @State private var frameProvider = ScreenFrameProvider()
     @State private var isHovered = false
     @State private var wrappedHeaderTaskIDs: Set<UUID> = []
+    @State private var retainedContent: ActivityCardContent?
+    @State private var outgoingContent: ActivityCardContent?
 
     private var snapshot: ActivitySnapshot {
         activityMonitor.snapshot
@@ -33,6 +35,14 @@ struct ActivityCard: View {
         keepAliveController.isActivelyPreventingSleep && !showsUnavailableState
     }
 
+    private var currentContent: ActivityCardContent? {
+        guard snapshot.hasTaskCenterContent || showsUnavailableState else { return nil }
+        var value = content(at: timelineDate)
+        value.showsKeepAliveBadge = showsKeepAliveBadge
+        value.statusTextEffect = statusTextEffect
+        return value
+    }
+
     // MARK: - 卡片布局
 
     var body: some View {
@@ -40,7 +50,9 @@ struct ActivityCard: View {
         Button {
             onTaskCenterTap(frameProvider)
         } label: {
-            card(now: timelineDate)
+            if let content = currentContent ?? retainedContent {
+                card(content)
+            }
         }
         .buttonStyle(ActivityCardButtonStyle())
         .disabled(!snapshot.hasTaskCenterContent)
@@ -49,48 +61,82 @@ struct ActivityCard: View {
             ScreenFrameReader(provider: frameProvider)
         }
         .onHover { isHovered = $0 }
+        .onChange(of: currentContent, initial: true) { _, content in
+            // 退场期间保留最后一份展示内容, 不把正在收回的任务替换成空状态
+            if let content {
+                if allowsAnimations, let previous = retainedContent, content.requiresCrossfade(from: previous) {
+                    outgoingContent = previous
+                }
+                retainedContent = content
+            }
+        }
+        .task(id: outgoingContent) {
+            guard outgoingContent != nil else { return }
+            // 先保留旧内容的完整一帧, 下一次更新只交接透明度, 不参与自然高度测量
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            withAnimation(allowsAnimations ? .easeInOut(duration: 0.16) : nil) {
+                outgoingContent = nil
+            }
+        }
         .onChange(of: retainedHeaderTaskIDs) { _, retainedIDs in
             wrappedHeaderTaskIDs.formIntersection(retainedIDs)
         }
     }
 
-    private func card(now: Date) -> some View {
-        let content = content(at: now)
-        return VStack(alignment: .leading, spacing: 0) {
+    private func card(_ content: ActivityCardContent) -> some View {
+        cardContent(content)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.preference(key: ActivityCardNaturalHeightKey.self, value: geometry.size.height)
+                }
+            }
+            .opacity(outgoingContent == nil ? 1 : 0)
+            .overlay(alignment: .topLeading) {
+                if let outgoingContent {
+                    cardContent(outgoingContent)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
+                }
+            }
+            // 外层可以收起整个区域, 内部文字始终按自然高度排版
+            .frame(minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+            .clipped()
+            .activityStatusParticles(cornerRadius: MenuMetrics.panelCornerRadius)
+            .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
+            .overlay {
+                RoundedRectangle(cornerRadius: MenuMetrics.panelCornerRadius, style: .continuous)
+                    .strokeBorder(
+                        isTaskCenterPresented
+                            ? Color.accentColor.opacity(0.55)
+                            : Color.primary.opacity(isHovered && snapshot.hasTaskCenterContent ? 0.14 : 0),
+                        lineWidth: 1
+                    )
+                    .animation(.codexStatus, value: isHovered)
+                    .animation(.codexStatus, value: isTaskCenterPresented)
+            }
+    }
+
+    private func cardContent(_ content: ActivityCardContent) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             statusRow(content)
                 .frame(minHeight: content.detail == nil ? nil : Metrics.height)
-                .id(snapshot.hasTaskCenterContent)
-                .transition(.opacity)
+                // 切换任务时重新建立文本状态, 不让前一个任务的数字过渡穿过新布局
+                .id(content.taskID)
+                .transition(.identity)
             if let tokenUsage = content.tokenUsage {
                 VStack(spacing: 8) {
                     LiquidGlassDivider()
                     tokenUsageMetrics(tokenUsage)
                 }
                 .frame(height: Metrics.usageHeight - Metrics.height, alignment: .top)
-                .transition(.modifier(
-                    active: ActivityTokenReveal(progress: 0),
-                    identity: ActivityTokenReveal(progress: 1)
-                ))
             }
         }
         .padding(.horizontal, MenuMetrics.panelPadding)
         .frame(maxWidth: .infinity)
-        .activityStatusParticles(cornerRadius: MenuMetrics.panelCornerRadius)
-        .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
-        .overlay {
-            RoundedRectangle(cornerRadius: MenuMetrics.panelCornerRadius, style: .continuous)
-                .strokeBorder(
-                    isTaskCenterPresented
-                        ? Color.accentColor.opacity(0.55)
-                        : Color.primary.opacity(isHovered && snapshot.hasTaskCenterContent ? 0.14 : 0),
-                    lineWidth: 1
-                )
-                .animation(.codexStatus, value: isHovered)
-                .animation(.codexStatus, value: isTaskCenterPresented)
-        }
-        .animation(Metrics.expansionAnimation, value: snapshot.hasTaskCenterContent)
-        .animation(Metrics.expansionAnimation, value: content.tokenUsage != nil)
-        .animation(Metrics.expansionAnimation, value: content.detail == nil)
+        .fixedSize(horizontal: false, vertical: true)
+        // 内容只上报自然高度, 显示和尺寸变化都由区域容器统一驱动
+        .transaction { $0.animation = nil }
     }
 
     private func statusRow(_ content: ActivityCardContent) -> some View {
@@ -106,11 +152,12 @@ struct ActivityCard: View {
 
                 if let detail = content.detail {
                     ActivityStatusText(
-                        text: detail, tint: content.tint, effect: statusTextEffect,
+                        text: detail, tint: content.tint, effect: allowsAnimations ? content.statusTextEffect : .none,
                         lineLimit: nil, supplement: content.detailSupplement
                     )
                     .numericTransition(value: [detail, content.detailSupplement], enabled: allowsAnimations)
                     .fixedSize(horizontal: false, vertical: true)
+                    .clipped()
                 }
                 if let recent = content.recent {
                     Text(recent)
@@ -118,15 +165,13 @@ struct ActivityCard: View {
                         .foregroundStyle(Color.codexSecondaryLabel)
                         .numericTransition(value: recent, enabled: allowsAnimations)
                         .fixedSize(horizontal: false, vertical: true)
+                        .clipped()
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.top, 12)
         .padding(.bottom, content.detail == nil ? 8 : 12)
-        .animation(.codexStatus, value: showsKeepAliveBadge)
-        // 徽标只占用标题行的宽度, 下方状态和附加信息可以使用完整文本区域
-        .animation(.codexStatus, value: content.otherTaskCount)
     }
 
     private func statusHeader(_ content: ActivityCardContent) -> some View {
@@ -139,14 +184,13 @@ struct ActivityCard: View {
                 singleLineWidthReserve: Metrics.headerWidthReserve,
                 wrappedLayout: wrappedHeaderLayout(for: content.taskID)
             )
-            // 换行锁定只属于当前任务, 新任务在首次布局时重新判断
-            .id(content.taskID)
             .font(.caption.weight(.semibold))
             .foregroundStyle(Color.codexLabel)
             .numericTransition(value: content.header, enabled: allowsAnimations)
             .fixedSize(horizontal: false, vertical: true)
+            .clipped()
             .frame(maxWidth: .infinity, alignment: .leading)
-            if content.otherTaskCount > 0 || showsKeepAliveBadge {
+            if content.otherTaskCount > 0 || content.showsKeepAliveBadge {
                 statusBadges(content)
                     .fixedSize()
             }
@@ -158,6 +202,7 @@ struct ActivityCard: View {
             + snapshot.runningTasks.map(\.id)
             + snapshot.recentCompletions.map { $0.taskID ?? $0.id }
             + snapshot.recentTerminations.map { $0.taskID ?? $0.id })
+            .union([retainedContent?.taskID].compactMap(\.self))
     }
 
     private func wrappedHeaderLayout(for taskID: UUID?) -> Binding<Bool>? {
@@ -187,7 +232,7 @@ struct ActivityCard: View {
                     .help(String(localized: "activity.summary.other-task-count", defaultValue: "\(content.otherTaskCount, specifier: "%lld")"))
             }
             // 防睡眠由任务状态驱动, 徽标跟随活动卡片展示
-            if showsKeepAliveBadge {
+            if content.showsKeepAliveBadge {
                 // 隐藏或关闭动画效果时移除整个旋转视图, 避免保留持续渲染调度
                 Group {
                     if allowsAnimations {
@@ -201,6 +246,8 @@ struct ActivityCard: View {
                 .transition(.opacity)
             }
         }
+        .animation(.codexStatus, value: content.showsKeepAliveBadge)
+        .animation(.codexStatus, value: content.otherTaskCount)
     }
 
     private func tokenUsageMetrics(_ tokenUsage: TokenUsage) -> some View {
@@ -293,8 +340,8 @@ struct ActivityCard: View {
             )
         case .idle:
             return ActivityCardContent(
-                symbolName: "moon.zzz.fill",
-                tint: .secondary,
+                symbolName: "bubble.left.and.exclamationmark.bubble.right",
+                tint: .red,
                 detail: activityMonitor.sourcePresentation?.text,
                 otherTaskCount: 0,
                 header: [String(localized: "common.codex")]
@@ -343,27 +390,10 @@ struct ActivityCard: View {
         static let headerWidthReserve: CGFloat = 32
         static let height: CGFloat = 58
         static let usageHeight: CGFloat = 108
-        static let expansionAnimation = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.32)
     }
 }
 
 // MARK: - 动画
-
-/// 用展开进度控制显隐, 让动画中途反向时保持连贯
-private struct ActivityTokenReveal: ViewModifier, Animatable {
-    var progress: CGFloat
-
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(Double(min(1, max(0, (progress - 0.6) / 0.4))))
-            .offset(y: (1 - progress) * 4)
-    }
-}
 
 private struct RotatingKeepAliveSun: View {
     @State private var isRotating = false
@@ -385,7 +415,7 @@ private struct ActivityCardButtonStyle: ButtonStyle {
     }
 }
 
-private struct ActivityCardContent {
+private struct ActivityCardContent: Equatable {
     var taskID: UUID?
     let symbolName: String
     let tint: Color
@@ -395,6 +425,15 @@ private struct ActivityCardContent {
     let header: [String]
     var recent: String?
     var detailSupplement: String?
+    var showsKeepAliveBadge = false
+    var statusTextEffect = ActivityStatusText.Effect.none
+
+    func requiresCrossfade(from previous: Self) -> Bool {
+        taskID != previous.taskID || symbolName != previous.symbolName
+            || (tokenUsage == nil) != (previous.tokenUsage == nil)
+            || (detail == nil) != (previous.detail == nil)
+            || (recent == nil) != (previous.recent == nil)
+    }
 
     var headerLines: [String] {
         [header.first ?? "", header.dropFirst().joined(separator: " • ")]
