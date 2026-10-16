@@ -103,6 +103,8 @@ final nonisolated class AppServerSession {
         logStorage?.recordConnection(method: "connection/closed", detail: socketPath, connection: connectionName, status: .information)
     }
 
+    /// 按服务端 userAgent 校验当前连接的实际版本, 安装版本不能代替运行中的服务版本
+    /// 版本缺失或无法解析时也拒绝完成握手, 防止绕过最低版本要求
     @discardableResult
     func initialize(clientName: String, minimumVersion: String, timeout: TimeInterval = 10, title: String? = nil) throws -> String {
         var clientInfo = ["name": clientName, "version": Bundle.main.shortVersionString.flatMap { $0.isEmpty ? nil : $0 } ?? "1.0.0"]

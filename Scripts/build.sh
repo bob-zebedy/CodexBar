@@ -15,7 +15,7 @@ ALLOW_PROVISIONING_UPDATES="1"
 SKIP_NOTARIZATION="0"
 SPCTL_ASSESS="1"
 
-# Configure the keychain profile once before release builds:
+# Configure the keychain profile once before release builds
 # xcrun notarytool store-credentials "codexbar-notary" --apple-id "<Apple ID>" --team-id "<Team ID>"
 NOTARYTOOL_PROFILE=""
 APPLE_ID=""

@@ -186,7 +186,7 @@ struct ActivityCard: View {
                     .transition(.opacity)
                     .help(String(localized: "activity.summary.other-task-count", defaultValue: "\(content.otherTaskCount, specifier: "%lld")"))
             }
-            // 防睡眠只在任务运行期间生效, 所以状态挂在活动卡片上而不是单独占一行
+            // 防睡眠由任务状态驱动, 徽标跟随活动卡片展示
             if showsKeepAliveBadge {
                 // 隐藏或关闭动画效果时移除整个旋转视图, 避免保留持续渲染调度
                 Group {

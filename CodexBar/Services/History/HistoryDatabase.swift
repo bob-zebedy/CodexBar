@@ -36,6 +36,7 @@ final nonisolated class HistoryDatabase {
     }
 
     struct Entry {
+        /// 数据库分配的写入序号, 用于增量读取, 不表示业务事件发生顺序
         let position: Int64
         let record: AppServerEventRecord
     }

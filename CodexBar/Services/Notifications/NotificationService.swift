@@ -10,7 +10,7 @@ nonisolated enum AutoResetFailureNotice: String, Sendable {
     case permanent
 }
 
-/// 集中式提醒服务: 订阅额度与实时活动, 负责触觉反馈; 阈值判定; 去重; 重置识别与本地通知发送
+/// 订阅额度与实时活动, 统一处理提醒条件, 去重, 触觉反馈与本地通知发送
 @MainActor
 final class NotificationService: NSObject {
     private let settings: NotificationSettings

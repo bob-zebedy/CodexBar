@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 
+/// 设置页的安装版本状态, 对刷新请求节流并通过协调器丢弃过期结果
 @MainActor
 final class CodexVersionViewModel: ObservableObject {
     @Published private(set) var snapshot = CodexVersionSnapshot.empty

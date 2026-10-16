@@ -2,12 +2,9 @@ import Combine
 import Foundation
 import os
 
-/// 防睡眠的时长上限计时
-/// 累计的是真正挡住睡眠的那段时间: begin 起表, pause 收表, 收表之后机器睡着或被低电量拦下都不算
-/// 时钟用 SuspendingClock 而不是 Date: 后者受系统时间调整影响, 且系统睡眠期间照走
-/// hasReached 是粘滞标志: 累计只增不减, 到期之后每一秒都还成立
-/// 只有重新开始计时的入口能清除它, 这些清除全部收在 clearReached 里
-/// 低电量那条是纯条件判定, 不要照抄这里的粘滞写法
+/// 累计防睡眠生效时长, 暂停期间不计入上限
+/// 使用 SuspendingClock 排除系统时间调整和睡眠时长的影响
+/// 达到上限后保留 hasReached 状态, 由新计时周期或上限调整解除
 @MainActor
 final class KeepAliveDurationLimiter: ObservableObject {
     typealias Duration = KeepAliveController.MaximumDuration

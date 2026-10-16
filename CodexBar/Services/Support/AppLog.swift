@@ -34,8 +34,7 @@ nonisolated enum LogFields {
     }
 }
 
-/// 一次操作的触发来源, 作为日志里的 trigger 字段
-/// 同一条链路可能被用户动作 定时轮询 系统事件分别踢起来, 事后只有这个字段能区分
+/// 记录操作触发来源, 区分同一链路的用户动作, 定时轮询和系统事件
 nonisolated enum LogTrigger: String {
     case manual
     case panelOpen
@@ -63,19 +62,17 @@ nonisolated struct LogDuration {
         Self.seconds(startedAt.duration(to: .now))
     }
 
-    /// 已经算好的秒数走这里, 保证和 elapsed 同一种写法
+    /// 秒数与 elapsed 使用相同的日志格式
     static func seconds(_ value: TimeInterval) -> String {
         String(format: "%.2fs", max(0, value))
     }
 
-    /// 重试间隔这类 Duration 走这里, 不必在调用点各写一遍换算
     static func seconds(_ duration: Duration) -> String {
         seconds(TimeInterval(duration))
     }
 }
 
 nonisolated extension TimeInterval {
-    /// Duration 的 attosecond 分量换算成秒, 全仓库只留这一份
     init(_ duration: Duration) {
         self = Double(duration.components.seconds)
             + Double(duration.components.attoseconds) / 1e18

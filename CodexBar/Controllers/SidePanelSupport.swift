@@ -148,8 +148,7 @@ enum SidePanelSupport {
         )
     }
 
-    /// 锚点对齐的完整定位: 先按锚点收窄可见区域, 再算出对齐锚点顶边的 y, 最后交给 position 夹紧
-    /// 三步顺序固定且必须一致, 拆开写过一次就会出现第二份, 加参数时也只会改到其中一份
+    /// 先按锚点调整可见区域, 再对齐锚点顶边并限制面板位置, 避免定位结果受菜单栏保留区域干扰
     static func anchoredPosition(
         panelSize: CGSize,
         menuSurfaceFrame: CGRect,

@@ -15,8 +15,7 @@ nonisolated enum CodexBarPowerHelperIPC {
     static let ownedCheckIntervalSeconds: TimeInterval = 5
     static let recoveryCheckIntervalSeconds: TimeInterval = 60
     static let checkLeewaySeconds: TimeInterval = 1
-    /// App 侧等回复的上限, 与 watchdog 宽限是一对: 必须更小, 这样 App 先放手 Power Helper 再自行兜底
-    /// Power Helper 冷启动加一次 pmset 通常一秒内完成, 留这么宽只为排除偶发的调度抖动
+    /// App 等待 XPC 回复的上限, 超时后断开连接并进入失败恢复
     static let requestTimeoutSeconds: TimeInterval = 10
 }
 
@@ -33,7 +32,8 @@ nonisolated enum CodexBarSleepOwnershipState: Int, Sendable {
 }
 
 @objc nonisolated protocol CodexBarPowerHelperProtocol: AnyObject {
-    /// reply 依次返回 pmset 退出码, 本轮防睡眠来源与操作后实测的 SleepDisabled
+    /// clientSessionID 跨重连保持租约身份, generation 防止旧请求覆盖新状态
+    /// reply 依次返回操作状态码, 防睡眠来源和 SleepDisabled 状态, 后两项可能来自缓存
     func setSleepPreventionRequested(
         _ requested: Bool,
         clientSessionID: String,

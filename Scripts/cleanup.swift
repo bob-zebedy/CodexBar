@@ -230,8 +230,7 @@ private final class KeepAliveCleanupCommand {
             }
     }
 
-    /// 候选按可信度排序, 命中的唯一标准是 Info.plist 里的 CFBundleIdentifier 对得上
-    /// 这里就是唯一的 App 校验点: 读到 Info.plist 即说明是个目录, 标识符对上即说明是这个 App
+    /// 按候选顺序查找, 通过 Info.plist 中的 CFBundleIdentifier 确认目标 App
     private func resolveAppURL(configuration: CleanupBuildConfiguration) throws -> URL? {
         let bundleIdentifier = configuration.bundleIdentifier
         var candidates: [URL] = []
@@ -260,9 +259,8 @@ private final class KeepAliveCleanupCommand {
         return try appBundleIdentifier(at: builtAppURL) == bundleIdentifier ? builtAppURL : nil
     }
 
-    /// 返回 nil 只代表这个路径下没有 App, 属于正常跳过
-    /// 读到了却解析不了必须抛出去: 用 try? 折叠成 nil 会把损坏的安装当成"不是这个 App",
-    /// 于是一次什么都没清理的运行照样打印完成并以 0 退出
+    /// 缺少 Info.plist 或字符串类型的 CFBundleIdentifier 时返回 nil
+    /// 文件读取或解析失败时抛出错误, 避免将损坏的安装静默跳过
     private func appBundleIdentifier(at appURL: URL) throws -> String? {
         let infoURL = appURL.appending(path: "Contents/Info.plist")
         guard fileManager.fileExists(atPath: infoURL.path) else {

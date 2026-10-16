@@ -202,10 +202,12 @@ actor CodexVersionService {
     }
 }
 
-/// 从 ` codex --version` 的输出中提取用户可读版本号
+/// Codex 版本号的提取与语义版本比较
 nonisolated enum CodexVersionReader {
+    /// 账户, 活动和历史回填连接共用的最低服务版本, 启动候选也按此筛选
     static let minimumAppServerVersion = "0.162.0"
 
+    /// 从 `codex --version` 的输出中提取用户可读版本号
     static func displayVersion(from output: String) -> String {
         output
             .split(whereSeparator: \.isWhitespace)
@@ -312,5 +314,3 @@ nonisolated enum CodexVersionReader {
         }
     }
 }
-
-// 设置页持有的版本检测状态, 负责节流和丢弃过期刷新结果

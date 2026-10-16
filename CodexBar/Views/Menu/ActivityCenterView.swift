@@ -43,7 +43,7 @@ struct ActivityCenterPanelContext {
 
 // MARK: - 任务中心面板
 
-/// 并发任务中心, 实时展示全部等待; 运行; 最近完成和最近终止任务
+/// 并发任务中心, 展示等待, 运行, 最近完成和最近终止的任务
 struct ActivityCenterView: View {
     @ObservedObject var activityMonitor: ActivityMonitor
     @ObservedObject var presentationState: ActivityCenterPresentationState

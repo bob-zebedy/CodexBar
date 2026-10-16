@@ -29,7 +29,7 @@ final class MenuSurfaceAnimationState: ObservableObject {
     @Published var allowsAnimations = false
 }
 
-/// 菜单栏弹出面板根视图, 汇总账号; 实时活动; 额度; token; 同步状态和更新时间
+/// 菜单栏弹出面板根视图, 汇总账号, 实时活动, 额度, Token 用量, 同步状态和更新时间
 struct CodexStatusMenuView: View {
     static let menuWidth: CGFloat = Metrics.padding * 2 + MenuMetrics.panelPadding * 2 + UsageHeatmap.Metrics.totalWidth
 

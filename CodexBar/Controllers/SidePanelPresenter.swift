@@ -237,8 +237,8 @@ final class SidePanelDrawerPresenter {
 
 // MARK: - 内容宿主
 
-/// 侧边面板的内容宿主: 懒建 panel + hostingController, 统一"替换 rootView → configureLayers → setContentSize"的更新序列
-/// ⚠️ 每次更新都整树替换 rootView 是刻意行为 (见 CLAUDE.md 热力图详情面板的说明), 不要改成常驻状态推送
+/// 侧边面板按展示快照替换 rootView, 内容与面板尺寸在同一次更新中同步
+/// 替换内容后重新配置图层, 保持圆角裁剪与透明背景一致
 @MainActor
 final class SidePanelContentHost<Root: View> {
     private(set) var panel: NSPanel?

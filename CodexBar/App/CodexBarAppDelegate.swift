@@ -78,7 +78,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         )
         autoResetController.start()
         self.autoResetController = autoResetController
-        // 低电量触发会中断正在跑的任务, 得让用户知道是谁干的
+        // 低电量保护会解除防睡眠, 通知说明恢复系统睡眠策略的原因
         keepAliveController.onLowBatteryTriggered = { [weak notificationService] percent in
             await notificationService?.notifyLowBatteryProtection(percent: percent) ?? false
         }

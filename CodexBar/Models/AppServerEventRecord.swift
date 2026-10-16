@@ -1,11 +1,12 @@
 import Foundation
 
-/// 数据库仅保存活动事实和 Token 原始观测, 派生快照不能作为重建来源
+/// 事件记录保存活动事实和 Token 原始观测, 聚合重建以这些记录为来源
 nonisolated struct AppServerEventRecord: Codable, Equatable {
     enum Kind: String, Codable { case activityData, tokenUsage }
 
     static let schemaVersion = 1
     let schemaVersion: Int
+    /// 采集记录的时间, 历史回填时可能晚于业务事件时间
     let recordedAt: Date
     let context: ActivityDataContext?
     private let storedActivityData: ActivityDataRecord?

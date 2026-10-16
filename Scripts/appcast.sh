@@ -68,11 +68,11 @@ read_build_setting() {
         '
 }
 
-# Print the single entry matching a glob in a directory, or fail:
+# Print the single entry matching a glob in a directory, or fail
 # $1 noun for "no X found" $2 find -type $3 -name glob
 # $4 noun for "multiple X found" $5 hint appended to the multiple-match error
 # $6 directory to search. Exits 1 when nothing matches, 2 when more than one
-# matches (printing the list).
+# matches (printing the list)
 find_single() {
     local search_dir="$6"
     local items=()
@@ -230,7 +230,7 @@ APPCAST_ITEM="        <item>
         </item>"
 
 echo "==> Updating appcast"
-# Write through a temp file so a perl die leaves appcast.xml untouched.
+# Write through a temp file so a perl die leaves appcast.xml untouched
 APPCAST_TMP="$(mktemp)"
 trap 'rm -f "${APPCAST_TMP}"' EXIT
 APPCAST_ITEM="${APPCAST_ITEM}" APPCAST_VERSION="${BUILD_VERSION}" perl -0p -e '
@@ -239,7 +239,7 @@ APPCAST_ITEM="${APPCAST_ITEM}" APPCAST_VERSION="${BUILD_VERSION}" perl -0p -e '
   my $before = () = /<item>/g;
 
   # Keep the (?!<\/item>) guards: a plain .*? spans item boundaries and would
-  # also delete every entry above the one being replaced.
+  # also delete every entry above the one being replaced
   s/\n\s*<item>(?:(?!<\/item>).)*?<sparkle:version>\Q$version\E<\/sparkle:version>(?:(?!<\/item>).)*?<\/item>//sg;
 
   if (!s/(<language>.*?<\/language>)/$1\n$item/s) {

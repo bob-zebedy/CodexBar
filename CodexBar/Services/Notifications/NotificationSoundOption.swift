@@ -3,8 +3,8 @@ import Foundation
 import os
 import UserNotifications
 
-/// CodexBar 可用于系统通知的声音, 系统提示音按本机声音目录实时枚举, 其余随 App 打包
-/// `id` 是落在 UserDefaults 里的持久化值, 系统提示音取文件名小写形式, 与旧版本的枚举值天然对齐
+/// 系统提示音首次使用时从本机声音目录加载并缓存, 其余声音随 App 打包
+/// id 用于持久化, 系统提示音取不含扩展名的文件名小写形式
 struct NotificationSoundOption: Identifiable, Hashable {
     let id: String
     let localizedTitle: String
@@ -21,7 +21,7 @@ struct NotificationSoundOption: Identifiable, Hashable {
         source: .systemDefault
     )
 
-    /// 分组的唯一登记点, 菜单渲染与 id 解析都从这里派生, 新增一组声音只改这一处
+    /// 菜单分组与持久化 id 的解析共用同一份声音列表
     static let categories: [Category] = [
         Category(title: "System", sounds: systemSounds),
         Category(title: "Modern", sounds: modernSounds),
@@ -41,8 +41,7 @@ struct NotificationSoundOption: Identifiable, Hashable {
         return categories.lazy.flatMap(\.sounds).first { $0.id == id }
     }
 
-    /// 通知中心解析不到声音文件时是静音而不是回落默认音, 用户只会发现通知不响却查不出原因
-    /// 所以这里先确认文件在位, 缺失就主动降级, 宁可换个声音也不要静默失声
+    /// 声音列表会缓存, 文件可能在加载后被删除, 发送通知前检查并显式回退默认音
     var notificationSound: UNNotificationSound? {
         switch source {
         case .silent:
@@ -66,8 +65,7 @@ struct NotificationSoundOption: Identifiable, Hashable {
         }
     }
 
-    /// 降级本身没有用户可见的痕迹, 通知照常弹出只是换了个声音, 这条日志是事后唯一的线索
-    /// 记 id 是定位所需, 它是选项标识而不是文件路径, 用户自定义音也只会暴露文件名本身
+    /// 记录回退原因以便排查声音变化, 仅记录选项 id 和来源, 不记录完整文件路径
     private static func degraded(id: String, source: String) -> UNNotificationSound {
         let details = LogFields.joined(
             "id=\(id)",
@@ -79,8 +77,7 @@ struct NotificationSoundOption: Identifiable, Hashable {
         return .default
     }
 
-    /// 静音本就没有声音, 默认音由通知中心内部决定且不暴露文件, 两者都没有可试听的对象
-    /// 拿系统警告声冒充默认音会误导, 它和通知中心默认音是两个独立设置
+    /// 默认音由通知中心决定, 没有对应的试听资源, 不使用系统警告声代替
     var isPreviewable: Bool {
         switch source {
         case .silent, .systemDefault:
@@ -119,8 +116,8 @@ struct NotificationSoundOption: Identifiable, Hashable {
         }
     }
 
-    /// 系统提示音由声音目录提供, 枚举时就定下具体文件, 通知与预览都用它而不再重新搜索
-    /// 打包的声音出自私有框架或第三方资源包, 不在系统声音搜索路径内, 只能按 bundle 资源名解析
+    /// 系统提示音保留文件 URL 供校验和试听, 发送通知时只将文件名交给系统解析
+    /// 打包声音按 bundle 资源名定位, 不依赖本机声音目录
     private enum SoundSource: Hashable {
         case silent
         case systemDefault
@@ -187,7 +184,7 @@ struct NotificationSoundOption: Identifiable, Hashable {
         )
     }
 
-    /// 同名文件以靠前的目录为准, 与系统解析声音的顺序一致
+    /// 同名选项按目录优先级去重, 保留最先找到的文件
     private static func loadSystemSounds() -> [NotificationSoundOption] {
         var seen = reservedIDs
         var sounds: [NotificationSoundOption] = []

@@ -484,7 +484,7 @@ final class ActivityMonitor: ObservableObject {
             .sorted(by: Self.recentFirst(\.lastActivityAt, \.displayID))
     }
 
-    /// 时间相同再按 UUID 字符串排序(Swift sort 不稳定), 保证快照对 SwiftUI diff 稳定
+    /// 时间相同时按 UUID 排序, 避免字典遍历顺序变化导致快照重排
     private static func recentFirst<Element>(
         _ date: KeyPath<Element, Date>,
         _ id: KeyPath<Element, UUID>

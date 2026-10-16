@@ -14,26 +14,21 @@ final class KeepAliveController: ObservableObject {
     @Published private(set) var lowBatteryThreshold: LowBatteryThreshold
     /// 是否将审批等待和明确阻塞的提问计入防睡眠
     @Published private(set) var keepsAwakeWhileWaiting: Bool
-    /// 防睡眠生效期间是否连屏幕一起留住, 顺带压住屏保与闲置锁屏
+    /// 防睡眠生效期间保持屏幕常亮, 同时阻止屏保与闲置锁屏
     @Published private(set) var keepsDisplayAwake: Bool
-    /// 确认没有内置电池时为 false, 设置页据此隐藏低电量那一行
+    /// 确认没有内置电池时为 false, 设置页据此隐藏低电量选项
     @Published private(set) var hasBattery = true
-    /// 当前是否因低电量而停止防睡眠, 带滞回所以不等于"电量低于阈值"
-    /// 会随电量自己翻转, 不需要外部清除, 与 hasReachedMaximumDuration 那种粘滞标志不是一回事
+    /// 带滞回的低电量阻断状态, 随供电方式和电量恢复而解除
     @Published private(set) var isLowBatteryActive = false
-    /// 低电量保护是不是真的在起作用: 防睡眠本身可用, 阈值开着, 且这台机器确实有电池
-    /// 规则收在这里而不是各视图各写一遍: 通知面板要据此置灰那一行, 防睡眠面板据此决定显不显示阈值
+    /// 汇总防睡眠可用性, 阈值开关和电池状态, 供设置面板统一判断低电量选项是否可用
     @Published private(set) var isLowBatteryProtectionEnabled = false
-    /// 时长上限是不是真的会到点: 防睡眠本身可用, 且没选无限制
-    /// 与 isLowBatteryProtectionEnabled 同一个用法, 视图只读结论, 不各自再判一次 unlimited
-    /// 只在功能可用性变化时发信号, 单纯调整时长不需要通知面板重算高度
+    /// 防睡眠可用且已设置时长上限时为 true
+    /// 只在可用性变化时发布, 避免单纯调整时长触发通知面板重算高度
     @Published private(set) var isMaximumDurationEnabled = false
 
-    /// 低电量是不是当下唯一拦住防睡眠的那一项
-    /// 由 reconcileSleepState 从 sleepBlockReason 派生, 见那里的说明
+    /// 由 sleepBlockReason 派生, 表示当前优先处理的阻断原因是否为低电量
     @Published private(set) var isLowBatteryBlocking = false
-    /// 子面板入口该不该出现: 用户开关开着且依赖已就绪
-    /// 同样从 sleepBlockReason 派生, 于是新增阻断条件时必然要在那个 switch 里表态, 不会漏配
+    /// 从 sleepBlockReason 派生子面板入口是否可用, 与防睡眠阻断规则保持一致
     @Published private(set) var canShowOptions = false
     /// 只供自动重置设置行展示, 不与防睡眠操作错误混在一起
     @Published private(set) var autoResetWakeScheduleErrorMessage: String?
@@ -70,19 +65,16 @@ final class KeepAliveController: ObservableObject {
         durationLimiter.hasReached
     }
 
-    /// 低电量导致睡眠恢复之后回调一次, 参数是触及阈值时的电量; 由 AppDelegate 接到通知服务
-    /// 用事件回调而不是 @Published: 触发是一次性动作, 电量回升到解除门槛以上后再次跌破要能重新发一次
+    /// 低电量导致系统睡眠策略恢复后提交通知, 参数为触及阈值时的电量
+    /// 电量回升到解除门槛后才允许下一轮提醒
     /// 通知提交完成前保留空闲断言, 避免恢复系统策略后先进入空闲睡眠
-    /// 返回值是通知有没有真的发出去, 决定这一轮算不算已通知
+    /// 返回值表示通知是否提交成功, 用于本轮去重
     var onLowBatteryTriggered: ((Int) async -> Bool)?
 
-    /// 达到防睡眠时长上限且睡眠恢复成功之后回调一次
-    /// 时长上限本身是粘滞状态, 每个计时周期天然只会进入一次
+    /// 达到防睡眠时长上限且系统睡眠策略恢复后回调, 每个计时周期触发一次
     var onKeepAliveLimitTriggered: ((MaximumDuration) async -> Bool)?
 
-    /// 用户开关仍开着, 且 Power Helper 已经真的把睡眠关掉
-    /// isPreventingSleep 在稳态下已隐含 isEnabled (shouldDisableSleep 要求它)
-    /// 叠这一层是为了关开关到 Power Helper 回调之间的异步空窗: 用户意图先落地
+    /// 同时检查用户开关和实际状态, 覆盖关开关后等待 Power Helper 回复的异步窗口
     var isActivelyPreventingSleep: Bool {
         isEnabled && isPreventingSleep
     }
@@ -355,22 +347,15 @@ final class KeepAliveController: ObservableObject {
         reconcileSleepState(trigger: .battery)
     }
 
-    /// 纯条件判定: 只看当下, 不记"低过电"这笔账, 所以充上电会自动恢复
-    /// 滞回让解除门槛比触发门槛高一截, 否则电量在阈值附近抖动会反复切换睡眠状态
-    /// 读不到电量时维持上一次的判定, 两种情形各有各的理由
-    /// 从没读到过时保持不触发: 误触发会当场断掉用户任务, 漏触发最坏也有系统强制睡眠兜底
-    /// 已经在保护中时不清零: 一次瞬时失败不该让防睡眠反复开关, 那还会绕过滞回并重发通知
+    /// 供电恢复或电量达到解除门槛时解除阻断, 滞回避免阈值附近反复切换
+    /// 读数失败时保留上次判定, 避免无依据地解除防睡眠或绕过滞回
     private func updateBatteryState() {
         let reading = powerSourceMonitor.reading
-        // 读失败时维持上一次的判定, 与下面 isLowBatteryActive 同一条规则
-        // unreadable.hasBattery 是 true (从没读到过时按"可能有"处理), 无条件赋值会让一次
-        // IOKit 缺口把已确认没有电池的台式机翻回有电池, 低电量那一行跟着闪进闪出
+        // unreadable 将电池视为可能存在, 不能用它覆盖已确认的无电池状态
         if reading != .unreadable {
             assign(reading.hasBattery, to: \.hasBattery)
         }
-        // 阈值与 hasBattery 都只在这条路径上变, 派生值跟着一起收在这里
-        // 走这里而不是等 reconcileSleepState: handlePowerSourceChange 在低电量结论没变时就返回了,
-        // 而 hasBattery 可能在同一次读数里刚变过
+        // 电池状态可能单独变化, 不能等到低电量阻断状态变化后才刷新派生值
         publishNotificationDependencies()
 
         // 保护关掉了就没有可维持的状态, 这一条要排在读数判断之前
@@ -391,8 +376,7 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
-        // 这一轮结束的标志是电量真的回来了, 不是接上了电源
-        // 排在供电状态之前: 充电期间也要能收口, 否则下一次拔线还算同一轮
+        // 通知周期按电量恢复结束, 在供电判断前处理, 确保充电期间也能重置去重状态
         if status.percent >= threshold + Self.lowBatteryHysteresis {
             clearPendingLowBatteryNotification()
         }
@@ -411,8 +395,7 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
-        // 百分比只在这里记录, 避免电量每次变化都触发 SleepConditions 日志
-        // 本来就没在挡睡眠时这一跌不改变任何事, 但仍要记: 这是排查"为什么在这个电量断的"的唯一依据
+        // 仅在进入低电量状态时记录百分比, 保留触发依据并避免每次读数都产生日志
         let wasPreventingSleep = isActivelyPreventingSleep
             && sleepPreventionSource == .codexBar
         let details = LogFields.joined(
@@ -422,17 +405,16 @@ final class KeepAliveController: ObservableObject {
         )
         AppLog.keepAlive.notice("KeepAlive 电量已触及阈值: \(details, privacy: .public)")
 
-        // 没挡过就不通知: "已恢复系统睡眠"会变成一句空话, 启动时电量本就偏低的机器首当其冲
+        // 只有本次低电量会解除 CodexBar 的防睡眠时才通知
         guard wasPreventingSleep, !hasNotifiedLowBattery else {
             return
         }
 
-        // 这里只排队不发: 睡眠还没真的恢复, 恢复请求可能失败并耗尽重试
+        // 等系统睡眠策略恢复成功后再通知, 此时恢复请求仍可能失败
         pendingLowBatteryPercent = status.percent
     }
 
-    /// 排队的低电量通知在睡眠真的恢复之后才发
-    /// 途中接上电源时拦下防睡眠的已经不是低电量, 那条通知随即作废
+    /// 系统睡眠策略恢复后, 仅在低电量仍是当前阻断原因时发送排队的通知
     private func flushPendingLowBatteryNotification() async {
         guard let percent = pendingLowBatteryPercent else {
             return
@@ -443,15 +425,12 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
-        // 锁存要等通知真的发出去才打: 打在入队处或提交前, 都会让没送达的那一条吃掉整轮配额
-        // 使这一轮之后真正触发的低电量再也提醒不了
+        // 提交成功后才标记已通知, 失败不能消耗本轮提醒机会
         hasNotifiedLowBattery = await onLowBatteryTriggered?(percent) ?? false
     }
 
-    /// 恢复睡眠成功之后按当下的拦截原因发对应的那一条, 顺带把另一条作废
-    /// 作废低电量只写 pendingLowBatteryPercent, 不能改走 clearPendingLowBatteryNotification:
-    /// 那个方法会连 hasNotifiedLowBattery 一起清, 而这一轮低电量还没结束 (电量没回到解除门槛),
-    /// 清了会让下一次跌破阈值重发第二条, 也就是供电状态反复翻转时每翻一次一条
+    /// 系统睡眠策略恢复后按当前阻断原因发送通知, 清除另一种原因的待发通知
+    /// 作废低电量通知时保留本轮去重状态, 避免供电反复切换导致重复提醒
     private func flushPendingSleepRestoreNotification() async {
         switch sleepBlockReason {
         case .lowBattery:
@@ -1181,14 +1160,12 @@ final class KeepAliveController: ObservableObject {
         }
     }
 
-    /// Power Helper 起不来时 XPC 方法既不回复也不触发 errorHandler, 请求就那么挂着
-    /// 没有这道超时, 界面会显示防睡眠开着而实际没生效, 日志里只剩一条没有配对回复的请求已发送
+    /// XPC 请求可能没有回复或错误回调, 用独立超时结束等待并进入失败恢复
     private func scheduleRequestTimeout(for requested: Bool, generation: UInt64) {
         requestTimeoutTask?.cancel()
         requestTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: PowerHelperConfiguration.requestTimeout)
-            // 认状态而不是认取消位: 每条取消路径都同时推进了 generation 或清了 in-flight,
-            // 认状态就不必依赖将来每个新路径都记得 cancel
+            // 取消等待后仍可能执行到这里, 仅处理代次匹配且仍在途的请求
             guard let self, generation == requestGeneration, requestInFlight else {
                 return
             }
@@ -1231,17 +1208,14 @@ final class KeepAliveController: ObservableObject {
         releaseSleepPrevention()
     }
 
-    /// assertion 与 isPreventingSleep 同进同退的唯一出口
-    /// 两者必须一起收: 只清标志会让菜单栏图标显示成未防睡眠, 而这条 assertion 仍在防止空闲睡眠,
-    /// 且没有任何后续路径会释放它; 仍需要防睡眠时由重试重建
+    /// 释放空闲断言并清除防睡眠展示状态, 避免界面已关闭而断言仍生效
+    /// 同时停止屏幕常亮和时长累计, 仍需防睡眠时由重试重新建立
     private func releaseSleepPrevention() {
         _ = systemSleepService.endPreventingIdleSleep()
         cancelExternalObservation()
         assign(false, to: \.isPreventingSleep)
         assign(.none, to: \.sleepPreventionSource)
-        // 空闲断言与屏幕成对: 这里之后睡眠不再被挡, 屏幕也没有留住的理由
         reconcileDisplayAwake()
-        // 收表跟着实际效果走: 这里之后睡眠不再被挡, 那段时间不该占用户的上限
         durationLimiter.pause()
     }
 
@@ -1301,10 +1275,8 @@ final class KeepAliveController: ObservableObject {
 
     // MARK: - 屏幕常亮
 
-    /// 用户开关与防睡眠实际效果的汇合点, 两边任意一个变了都要过这里
-    /// 跟 isActivelyPreventingSleep 走, 于是低电量拦下, 达到上限, 任务结束时屏幕都会跟着放开
-    /// 失败只记日志不占 operationErrorMessage: 那个字段是睡眠切换的结论, 会顶到设置页最前面,
-    /// 让一个附加效果的失败显示成防睡眠本身出错
+    /// 屏幕常亮同时取决于用户设置和防睡眠实际状态
+    /// 屏幕操作失败仅记日志, 避免覆盖系统睡眠切换的错误结论
     private func reconcileDisplayAwake() {
         let shouldKeepAwake = keepsDisplayAwake && isActivelyPreventingSleep
         if shouldKeepAwake {

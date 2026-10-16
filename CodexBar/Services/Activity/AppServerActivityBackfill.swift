@@ -19,6 +19,7 @@ actor AppServerActivityBackfill {
     }
 
     func readPage(reference: ActivityTurnReference, cursor: String?, limit: Int, timeout: TimeInterval) throws -> Page {
+        // 缩小分页后的重试共用本次截止时间, 避免重连反复延长读取上限
         let budget = AppServerRequestBudget(deadline: Date().addingTimeInterval(timeout))
         return try AppServerRequestBudget.$current.withValue(budget) {
             var connection: AppServerSession?
@@ -47,6 +48,7 @@ actor AppServerActivityBackfill {
                     return Page(items: page.data, nextCursor: page.nextCursor, limit: pageLimit)
                 } catch let error as CodexStatusError {
                     guard case .messageTooLarge = error else { throw error }
+                    // 超大消息会关闭连接, 清除旧会话后缩小分页并重新握手
                     connection?.close()
                     connection = nil
                     if pageLimit > 1 {

@@ -2,7 +2,7 @@ import AppKit
 import ServiceManagement
 import SwiftUI
 
-/// 设置窗口根视图, 按通用、高级和关于分页汇总设置与版本信息
+/// 设置窗口根视图, 按通用, 高级和关于分页汇总设置与版本信息
 struct AppSettingsView: View {
     @EnvironmentObject private var statusViewModel: CodexStatusViewModel
     @EnvironmentObject private var appUpdater: AppUpdater
@@ -980,7 +980,7 @@ private extension AppSettingsView {
     }
 
     func refreshCodexVersionSection() {
-        // 版本检测较慢且内部会合并并发请求; 连接信息只是缓存读取
+        // 安装版本查询会节流并跳过重复刷新, 连接信息直接读取缓存
         codexVersions.refresh()
         statusViewModel.refreshCodexConnectionInfo()
     }
