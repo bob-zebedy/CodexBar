@@ -95,6 +95,20 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 
 The default global shortcut is `⌘⇧E`. You can record a different shortcut or disable it in Settings.
 
+## Uninstall
+
+Run the installed app's uninstall command in Terminal:
+
+```bash
+"/Applications/CodexBar.app/Contents/MacOS/CodexBar" --uninstall
+```
+
+The command quits the current app, removes hooks pointing to its executable from Codex's `hooks.json` and their trust records in `config.toml`, checks that its sleep prevention has been released, cancels its scheduled reset wake event, and unregisters its helper and login item. After verification, it moves the app to the Trash. History, preferences, and other applications' hooks and trust records are preserved.
+
+Hook trust records are identified and removed through Codex. When this app's hooks are present, a working Codex version with hook support is required. No account login is required. Before changing hook positions, the command saves a private recovery record, temporarily revokes affected trust entries, and restores existing records only when the remaining hooks can be matched uniquely with unchanged content. Previously untrusted hooks are not authorized. If interrupted, rerun the same command to resume; detected conflicting external edits stop recovery without overwriting them. Other CodexBar instances defer hook changes while recovery is pending. Trust records whose ownership cannot be identified are preserved.
+
+Adjust the path if the app is installed elsewhere. If you use a custom `CODEX_HOME`, run the command in that environment. Do not use `sudo`. Add `--keep-app` to retain the app or `--help` to view help. A cleanup failure returns a nonzero exit code and stops subsequent steps. You can retry after resolving the issue; completed steps are not automatically rolled back.
+
 ## Documentation
 
 | Document | Contents |

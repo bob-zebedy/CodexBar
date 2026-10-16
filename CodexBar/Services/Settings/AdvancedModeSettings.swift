@@ -40,6 +40,33 @@ final class AdvancedModeSettings: ObservableObject {
     /// 不能用 isEnabled 代替: 开启后它会刻意不跟随外部配置丢失
     private var lastKnownInstalled: Bool?
 
+    nonisolated static func defaultHooksURL() -> URL {
+        CodexCLIResolver.codexHomeDirectory().appendingPathComponent("hooks.json")
+    }
+
+    static func uninstallHookTrustKeys(from response: CodexHooksListResponse, executablePath: String, hooksURL: URL) throws -> Set<String> {
+        guard !response.data.isEmpty, response.data.allSatisfy({ $0.errors.isEmpty && $0.warnings.isEmpty }) else {
+            throw AppUninstallError("Codex 未完整读取 Hook 配置")
+        }
+        let hooks = response.data.flatMap(\.hooks).filter {
+            isManagedHook($0, executablePath: executablePath, expectedSourcePath: normalizedPath(hooksURL.path))
+        }
+        guard !hooks.isEmpty, hooks.allSatisfy({ $0.key?.isEmpty == false }) else {
+            throw AppUninstallError("无法确认当前 App 的 Hook 信任记录")
+        }
+        return Set(hooks.compactMap(\.key))
+    }
+
+    static func removingHooksForUninstall(from data: Data, executablePath: String) throws -> Data? {
+        guard var config = try JSONSerialization.jsonObject(with: data) as? JSONObject else {
+            throw AdvancedModeError.invalidFormat
+        }
+        let original = config as NSDictionary
+        try removeManagedHooks(from: &config, executablePath: executablePath)
+        guard !original.isEqual(to: config) else { return nil }
+        return try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+    }
+
     init(
         hooksURL: URL = AdvancedModeSettings.defaultHooksURL(),
         fileManager: FileManager = .default,
@@ -306,7 +333,15 @@ final class AdvancedModeSettings: ObservableObject {
                 return
             }
 
-            await operation(self, generation)
+            do {
+                let hooksURL = hooksURL
+                let lease = try await Task.detached { try HookConfigurationAccess.acquire(hooksURL: hooksURL) }.value
+                defer { withExtendedLifetime(lease) {} }
+                try ensureCurrentUpdate(generation)
+                await operation(self, generation)
+            } catch {
+                handleApplyError(error, generation: generation)
+            }
             updateCoordinator.finish(generation) {
                 if showProgress {
                     isUpdating = false
@@ -419,11 +454,6 @@ private extension AdvancedModeSettings {
                 false
             }
         }
-    }
-
-    nonisolated static func defaultHooksURL() -> URL {
-        CodexCLIResolver.codexHomeDirectory()
-            .appendingPathComponent("hooks.json")
     }
 
     var currentExecutablePath: String {

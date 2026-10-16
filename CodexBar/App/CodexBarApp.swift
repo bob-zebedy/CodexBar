@@ -6,15 +6,30 @@ import SwiftUI
 #if !CODEXBAR_TESTING
     @main
 #endif
-/// 应用入口; Hook 子进程模式会在初始化阶段记录事件并退出
-struct CodexBarApp: App {
-    @NSApplicationDelegateAdaptor(CodexBarAppDelegate.self) private var appDelegate
-
-    init() {
+enum CodexBarEntryPoint {
+    static func main() {
+        if CommandLine.arguments.contains(AppUninstallOptions.argument) {
+            AppUninstallCommand.start()
+            return
+        }
         if WorkflowHookEventRecorder.handleIfRequested() {
             exit(EXIT_SUCCESS)
         }
 
+        do {
+            let lease = try AppUninstallLease.acquire(exclusive: false)
+            withExtendedLifetime(lease) { CodexBarApp.main() }
+        } catch {
+            FileHandle.standardError.write(Data("CodexBar 正在清理, 无法启动: \(error.localizedDescription)\n".utf8))
+            exit(EXIT_FAILURE)
+        }
+    }
+}
+
+struct CodexBarApp: App {
+    @NSApplicationDelegateAdaptor(CodexBarAppDelegate.self) private var appDelegate
+
+    init() {
         // 缩短系统工具提示首次出现的延迟 (毫秒)
         UserDefaults.standard.set(500, forKey: "NSInitialToolTipDelay")
     }

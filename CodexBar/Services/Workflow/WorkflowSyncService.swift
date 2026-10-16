@@ -1039,7 +1039,7 @@ private extension WorkflowSyncService {
         do {
             _ = try await database.recordZone(for: syncZoneID)
             return true
-        } catch let error as CKError where error.code == .zoneNotFound || error.code == .unknownItem {
+        } catch let error as CKError where error.code == .zoneNotFound || error.code == .unknownItem || error.code == .userDeletedZone {
             return false
         }
     }

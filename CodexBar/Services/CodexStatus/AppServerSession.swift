@@ -103,6 +103,13 @@ final nonisolated class AppServerSession {
     }
 
     func initializeAccount() throws -> (version: String, account: AccountReadResponse) {
+        let version = try initialize(minimumVersion: CodexCLIMinimumVersion.global)
+        let account = try request("account/read", params: ["refreshToken": false], as: AccountReadResponse.self)
+        guard account.account != nil else { throw CodexStatusError.notLoggedIn }
+        return (version, account)
+    }
+
+    func initialize(minimumVersion minimum: String) throws -> String {
         let result = try request(
             "initialize",
             params: ["clientInfo": [
@@ -113,7 +120,6 @@ final nonisolated class AppServerSession {
             as: InitializeResult.self
         )
         let version = Self.serverVersion(fromUserAgent: result.userAgent)
-        let minimum = CodexCLIMinimumVersion.global
         // 版本未知不能作为明确的低版本结论, 否则 Hook 对账会误删现有配置
         guard let version, let isSupported = CodexCLIVersionReader.isVersion(version, atLeast: minimum) else {
             throw CodexStatusError.invalidServerResponse
@@ -128,9 +134,7 @@ final nonisolated class AppServerSession {
             throw error
         }
         try notify("initialized")
-        let account = try request("account/read", params: ["refreshToken": false], as: AccountReadResponse.self)
-        guard account.account != nil else { throw CodexStatusError.notLoggedIn }
-        return (version, account)
+        return version
     }
 
     private static func clientVersion() -> String {
