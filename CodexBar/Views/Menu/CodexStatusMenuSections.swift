@@ -23,7 +23,7 @@ struct AccountCard: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image("OpenAILogo")
+            Image("OpenAI Blossom")
                 .resizable()
                 .scaledToFit()
                 .frame(width: MenuMetrics.accountIconSize, height: MenuMetrics.accountIconSize)
@@ -96,7 +96,7 @@ struct StatusAccountCard: View {
     var body: some View {
         let display = statusDisplay
         HStack(spacing: 8) {
-            Image("OpenAILogo")
+            Image("OpenAI Blossom")
                 .resizable()
                 .scaledToFit()
                 .frame(width: MenuMetrics.accountIconSize, height: MenuMetrics.accountIconSize)
