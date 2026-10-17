@@ -42,7 +42,7 @@ struct ActivityCardLayoutTests {
                 fixture.monitor.graph.tasks.removeAll()
                 fixture.monitor.refreshSnapshot(now: fixture.now)
             }
-            for _ in 0 ..< 25 {
+            for _ in 0 ..< 45 {
                 try await Task.sleep(for: .milliseconds(16))
                 let header = try #require(fixture.headerFrame.currentScreenFrame())
                 offsets.append(header.maxY - initial)
@@ -59,7 +59,7 @@ struct ActivityCardLayoutTests {
         _ = try await fixture.sampleHeights()
         fixture.update(hasTokens: false, newTask: true)
         var gaps: [CGFloat] = []
-        for _ in 0 ..< 25 {
+        for _ in 0 ..< 45 {
             try await Task.sleep(for: .milliseconds(16))
             if let card = fixture.cardFrame.currentScreenFrame(), let history = fixture.historyFrame.currentScreenFrame() {
                 gaps.append(card.minY - history.maxY)
@@ -71,7 +71,7 @@ struct ActivityCardLayoutTests {
 
     @Test(arguments: [false, true])
     func taskTokenHeightChangesContinuously(collapsing: Bool) async throws {
-        let fixture = try CardFixture(hasTokens: collapsing)
+        let fixture = try CardFixture(hasTokens: collapsing, animationSpeed: 0.25)
         defer { fixture.close() }
         try await Task.sleep(for: .milliseconds(100))
         let initial = fixture.height
@@ -88,7 +88,7 @@ struct ActivityCardLayoutTests {
         try await Task.sleep(for: .milliseconds(100))
         let initial = fixture.height
         fixture.update(hasTokens: true, newTask: true)
-        let expanding = try await fixture.sampleHeights(count: 6)
+        let expanding = try await fixture.sampleHeights(count: 10)
         let turningPoint = fixture.height
         #expect(turningPoint > initial + 1)
         fixture.update(hasTokens: false, newTask: true)
@@ -98,7 +98,7 @@ struct ActivityCardLayoutTests {
         #expect(collapsing.contains { $0 > initial + 1 && $0 < turningPoint - 1 })
         // 反向时保留短暂的连续速度, 随后必须稳定收回且不能越过目标范围
         #expect((collapsing.max() ?? turningPoint) <= turningPoint + 10)
-        let settledDirection = Array(collapsing.dropFirst(4))
+        let settledDirection = Array(collapsing.dropFirst(7))
         #expect(zip(settledDirection, settledDirection.dropFirst()).allSatisfy { $1 <= $0 + 1 }, "Reversal continued expanding: \(collapsing)")
     }
 
@@ -135,7 +135,7 @@ struct ActivityCardLayoutTests {
     }
 
     @Test func switchingToWrappedHeaderAndBackAnimatesNaturalHeight() async throws {
-        let fixture = try CardFixture(hasTokens: true)
+        let fixture = try CardFixture(hasTokens: true, animationSpeed: 0.25)
         defer { fixture.close() }
         try await Task.sleep(for: .milliseconds(100))
         let initial = fixture.height
@@ -150,6 +150,24 @@ struct ActivityCardLayoutTests {
         let collapsing = try await fixture.sampleHeights()
         #expect(abs(fixture.height - initial) < 1)
         expectContinuous(collapsing, from: expanded, to: initial)
+    }
+
+    @Test(arguments: [false, true], [480, 560])
+    func wrappedHeaderKeepsSymbolAndFirstLineAtSameHeight(hasTokens: Bool, width: Int) throws {
+        let fixture = try CardFixture(hasTokens: hasTokens, allowsAnimations: false)
+        defer { fixture.close() }
+        let initial = try fixture.renderedHeaderPosition(width: CGFloat(width))
+        for wraps in [true, false] {
+            fixture.update(hasTokens: hasTokens, newTask: true)
+            fixture.monitor.graph.tasks[fixture.key]?.projectName = wraps
+                ? "CodexBar " + String(repeating: "long project name ", count: 5)
+                : "CodexBar"
+            fixture.monitor.refreshSnapshot(now: fixture.now)
+            let updated = try fixture.renderedHeaderPosition(width: CGFloat(width))
+            #expect(wraps ? updated.height > initial.height : updated.height == initial.height)
+            #expect(updated.symbolTop == initial.symbolTop, "The task symbol moved when the header wrapping changed")
+            #expect(updated.firstLineTop == initial.firstLineTop, "The first header line moved when the header wrapping changed")
+        }
     }
 
     @Test func hidingAndRestoringSectionAnimatesHostHeight() async throws {
@@ -177,7 +195,7 @@ struct ActivityCardLayoutTests {
         let visible = fixture.height
         fixture.monitor.graph.tasks.removeAll()
         fixture.monitor.refreshSnapshot(now: fixture.now)
-        let heights = try await fixture.sampleHeights(count: 35)
+        let heights = try await fixture.sampleHeights()
         let steps = zip(heights, heights.dropFirst()).map { abs($1 - $0) }.filter { $0 > 0 }
         let finalStep = try #require(steps.last)
         #expect(finalStep <= 2, "The drawer snapped on its final moving frame: \(heights)")
@@ -193,10 +211,10 @@ struct ActivityCardLayoutTests {
         for _ in 0 ..< 3 {
             fixture.monitor.graph.tasks.removeAll()
             fixture.monitor.refreshSnapshot(now: fixture.now)
-            _ = try await fixture.sampleHeights(count: 5)
+            _ = try await fixture.sampleHeights(count: 8)
             #expect(fixture.height < visible - 1)
             fixture.update(hasTokens: false, newTask: true)
-            _ = try await fixture.sampleHeights(count: 5)
+            _ = try await fixture.sampleHeights(count: 8)
         }
         _ = try await fixture.sampleHeights()
         #expect(abs(fixture.height - visible) < 1)
@@ -266,6 +284,12 @@ enum ActivityPlacement: CaseIterable {
 }
 
 private final class CardFixture {
+    struct HeaderPosition {
+        let height: Int
+        let symbolTop: Int
+        let firstLineTop: Int
+    }
+
     let directory: TestDirectory
     let preferences: TestPreferences
     let monitor: ActivityMonitor
@@ -277,6 +301,7 @@ private final class CardFixture {
     let headerFrame = ScreenFrameProvider()
     let cardFrame = ScreenFrameProvider()
     let historyFrame = ScreenFrameProvider()
+    let animationSpeed: Double
 
     var height: CGFloat {
         controller.preferredContentSize.height
@@ -285,10 +310,12 @@ private final class CardFixture {
     init(
         hasTokens: Bool,
         allowsAnimations: Bool = true,
+        animationSpeed: Double = 1,
         anchorEdge: NSRectEdge = .maxX,
         panelWidth: CGFloat = 560,
         placement: ActivityPlacement = .middle
     ) throws {
+        self.animationSpeed = animationSpeed
         directory = try TestDirectory()
         preferences = try TestPreferences()
         monitor = ActivityMonitor(
@@ -319,6 +346,10 @@ private final class CardFixture {
         .fixedSize(horizontal: false, vertical: true)
         let root = MenuPanelLayout { content }
             .environment(\.mainPanelAnimationsEnabled, allowsAnimations)
+            // 连续性测试放慢动画, 避免一次调度延迟跨过大部分中间帧
+            .transaction { transaction in
+                transaction.animation = transaction.animation?.speed(animationSpeed)
+            }
         controller = NSHostingController(rootView: AnyView(root))
         controller.sizingOptions = [.preferredContentSize]
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -348,10 +379,12 @@ private final class CardFixture {
         monitor.refreshSnapshot(now: now)
     }
 
-    func sampleHeights(count: Int = 30) async throws -> [CGFloat] {
+    func sampleHeights(count: Int = 45) async throws -> [CGFloat] {
         var heights: [CGFloat] = []
-        for _ in 0 ..< count {
-            try await Task.sleep(for: .milliseconds(16))
+        // 保持采样间隔, 按动画速度同步延长观察窗口
+        let sampleCount = Int((Double(count) / animationSpeed).rounded(.up))
+        for _ in 0 ..< sampleCount {
+            try await Task.sleep(for: .milliseconds(16), tolerance: .zero)
             heights.append(height)
             #expect(abs(popover.contentSize.height - height) < 1)
         }
@@ -373,6 +406,39 @@ private final class CardFixture {
             }
         }
         return count
+    }
+
+    func renderedHeaderPosition(width: CGFloat) throws -> HeaderPosition {
+        let card = ActivityCard(
+            activityMonitor: monitor,
+            presentationState: ActivityCenterPresentationState(),
+            keepAliveController: KeepAliveController(activityMonitor: monitor, defaults: preferences.defaults),
+            onTaskCenterTap: { _ in }
+        )
+        .frame(width: width)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(.white)
+        .environment(\.mainPanelAnimationsEnabled, false)
+        .environment(\.colorScheme, .light)
+        let renderer = ImageRenderer(content: card)
+        renderer.scale = 2
+        let bitmap = try NSBitmapImageRep(cgImage: #require(renderer.cgImage))
+        var symbolTop: Int?
+        var firstLineTop: Int?
+        // 分别扫描图标和标题开头, 避开下面的状态文字和 Token 区域
+        for y in 0 ..< min(64, bitmap.pixelsHigh) {
+            for x in 24 ..< 180 {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if x < 64, color.blueComponent > color.redComponent + 0.2,
+                   color.blueComponent > color.greenComponent + 0.05 {
+                    symbolTop = symbolTop ?? y
+                }
+                if x >= 84, max(color.redComponent, color.greenComponent, color.blueComponent) < 0.4 {
+                    firstLineTop = firstLineTop ?? y
+                }
+            }
+        }
+        return try HeaderPosition(height: bitmap.pixelsHigh, symbolTop: #require(symbolTop), firstLineTop: #require(firstLineTop))
     }
 
     func close() {

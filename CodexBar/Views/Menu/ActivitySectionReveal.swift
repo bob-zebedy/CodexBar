@@ -19,7 +19,7 @@ struct ActivitySection<Content: View>: View {
     @State private var transitionGeneration = 0
 
     private var animation: Animation? {
-        allowsAnimations ? .timingCurve(0.4, 0, 0.2, 1, duration: 0.32) : nil
+        allowsAnimations ? .timingCurve(0.4, 0, 0.2, 1, duration: 0.5) : nil
     }
 
     init(isVisible: Bool, @ViewBuilder content: @escaping () -> Content) {

@@ -75,7 +75,7 @@ struct ActivityCard: View {
             // 先保留旧内容的完整一帧, 下一次更新只交接透明度, 不参与自然高度测量
             await Task.yield()
             guard !Task.isCancelled else { return }
-            withAnimation(allowsAnimations ? .easeInOut(duration: 0.16) : nil) {
+            withAnimation(allowsAnimations ? .easeInOut(duration: 0.2) : nil) {
                 outgoingContent = nil
             }
         }
@@ -120,7 +120,8 @@ struct ActivityCard: View {
     private func cardContent(_ content: ActivityCardContent) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             statusRow(content)
-                .frame(minHeight: content.detail == nil ? nil : Metrics.height)
+                // 换行只向下增加高度, 避免居中留白改变首行和图标的位置
+                .frame(minHeight: content.detail == nil ? nil : Metrics.height, alignment: .top)
                 // 切换任务时重新建立文本状态, 不让前一个任务的数字过渡穿过新布局
                 .id(content.taskID)
                 .transition(.identity)
