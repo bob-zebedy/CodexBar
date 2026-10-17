@@ -195,11 +195,17 @@ nonisolated struct ActivityLivePresentation {
 
     private mutating func consumeQuestions(_ item: ActivityItem, at date: Date) {
         if item.asyncQuestionCount > 0, questions[item.id] == nil {
-            // item/completed 只表示提问已发送, 等待持续到对应问题收到回应
+            // item/completed 只表示提问已发送, 不能据此结束等待
             questions[item.id] = PendingQuestions(since: date, count: item.asyncQuestionCount)
         }
         var resolved = false
-        for reply in item.answeredQuestions {
+        if item.type == .userMessage, item.questionReplies == nil {
+            // 普通消息表示用户已继续对话, 只收起异步提问的等待展示
+            resolved = !questions.isEmpty || requests.values.contains { $0.isBlocking == false }
+            questions.removeAll()
+            requests = requests.filter { $0.value.isBlocking != false }
+        }
+        for reply in item.questionReplies ?? [] {
             guard let pending = questions[reply.itemID], reply.index < pending.count,
                   questions[reply.itemID]?.answered.insert(reply.index).inserted == true else { continue }
             resolved = true

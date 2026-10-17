@@ -372,29 +372,36 @@ private nonisolated extension WireActivityItem {
             success: success,
             agentsStates: agentsStates?.mapValues { .init(status: $0.status) },
             asyncQuestionCount: type == "agentMessage" && delivery == "async" ? questions?.count ?? 0 : 0,
-            answeredQuestions: answeredQuestions
+            questionReplies: questionReplies
         )
     }
 
-    private var answeredQuestions: [ActivityItem.QuestionReply] {
-        guard type == "userMessage" else { return [] }
-        return (content ?? []).filter { $0.type == "text" }.flatMap { content -> [ActivityItem.QuestionReply] in
+    private var questionReplies: [ActivityItem.QuestionReply]? {
+        guard type == "userMessage" else { return nil }
+        let opening = "<send_user_message_question_reply>"
+        let closing = "</send_user_message_question_reply>"
+        var result: [ActivityItem.QuestionReply]?
+        for content in content ?? [] where content.type == "text" {
             let text = content.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let opening = "<send_user_message_question_reply>"
-            let closing = "</send_user_message_question_reply>"
-            // 异步回应通过用户消息携带问题标识, 仅解析完整信封, 不根据自然语言推断回应
+            // 普通消息也可能讨论这些标签, 仅识别完整且问题标识格式正确的回应
             guard text.hasPrefix(opening), text.hasSuffix(closing), text.count >= opening.count + closing.count,
                   let replies = try? JSONDecoder().decode(
                       [QuestionReply].self, from: Data(text.dropFirst(opening.count).dropLast(closing.count).utf8)
-                  ) else { return [] }
-            return replies.compactMap { reply in
+                  ) else { continue }
+            let parsedReplies: [ActivityItem.QuestionReply] = replies.compactMap { reply in
                 guard let value = try? JSONDecoder().decode(ActivityJSONValue.self, from: Data(reply.questionItemId.utf8)),
                       case let .array(parts) = value, parts.count == 3,
                       parts[0].string == "request_user_input_async", let itemID = parts[1].string, !itemID.isEmpty,
                       let number = parts[2].number, let index = Int(exactly: number), index >= 0 else { return nil }
                 return .init(itemID: itemID, index: index)
             }
+            guard parsedReplies.count == replies.count else { continue }
+            if result == nil {
+                result = []
+            }
+            result?.append(contentsOf: parsedReplies)
         }
+        return result
     }
 }
 

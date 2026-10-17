@@ -38,10 +38,10 @@ struct ActivityLivePresentationTests {
         #expect(reducer.states.values.first?.isWaitingApproval == false)
     }
 
-    private func userMessage(_ text: String) throws -> ActivityInput {
+    private func userMessage(_ text: String, threadID: String = "thread-a", turnID: String = "turn-a") throws -> ActivityInput {
         try JSONDecoder().decode(ActivityInput.self, from: JSONSerialization.data(withJSONObject: [
             "method": "item/completed", "params": [
-                "threadId": "thread-a", "turnId": "turn-a",
+                "threadId": threadID, "turnId": turnID,
                 "item": ["id": "reply", "type": "userMessage", "content": [["type": "text", "text": text]]]
             ]
         ]))
@@ -65,7 +65,7 @@ struct ActivityLivePresentationTests {
         #expect(reducer.consume(unknown, now: now.addingTimeInterval(1)).isEmpty)
         for id in ["first", "second"] {
             let reply = try questionReply(id, index: 0)
-            #expect(reply.params.item?.answeredQuestions == [.init(itemID: id, index: 0)])
+            #expect(reply.params.item?.questionReplies == [.init(itemID: id, index: 0)])
             #expect(reducer.consume(reply, now: now.addingTimeInterval(2)).isEmpty)
             _ = reducer.consume(reply, now: now.addingTimeInterval(3))
             #expect(try summary(reducer).waiting?.since == now)
@@ -93,19 +93,118 @@ struct ActivityLivePresentationTests {
     }
 
     @Test(arguments: [
-        "Yes", "<send_user_message_question_reply>invalid</send_user_message_question_reply>",
-        #"<send_user_message_question_reply>[{"questionItemId":"[\"other_tool\",\"question\",0]"}]</send_user_message_question_reply>"#,
-        #"<send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"question\",-1]"}]</send_user_message_question_reply>"#,
-        #"<send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"question\",0.5]"}]</send_user_message_question_reply>"#,
-        #"Quoted: <send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"question\",0]"}]</send_user_message_question_reply>"#
+        "Yes", "现在左右切斜的时候抬头低头也在同步变化",
+        #"Quoted: <send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"question\",0]"}]</send_user_message_question_reply>"#,
+        "<send_user_message_question_reply>",
+        "  <send_user_message_question_reply> 这个是啥呀\n",
+        "<send_user_message_question_reply>invalid</send_user_message_question_reply>",
+        "<send_user_message_question_reply>[{}]</send_user_message_question_reply>",
+        "<send_user_message_question_reply>[]</send_user_message_question_reply> 这个是啥呀",
+        #"<send_user_message_question_reply>[{"questionItemId":"[\"other_tool\",\"first\",0]"}]</send_user_message_question_reply>"#,
+        #"<send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"\",0]"}]</send_user_message_question_reply>"#,
+        #"<send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"first\",-1]"}]</send_user_message_question_reply>"#,
+        #"<send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"first\",0.5]"}]</send_user_message_question_reply>"#,
+        #"""
+        <send_user_message_question_reply>[
+            {"questionItemId":"[\"request_user_input_async\",\"first\",0]"},
+            {"questionItemId":"invalid"}
+        ]</send_user_message_question_reply>
+        """#
     ])
-    func unrelatedOrMalformedUserMessagesDoNotClearAsyncQuestions(text: String) throws {
+    func ordinaryUserMessagesClearAsyncQuestionsAndAllowNewWaits(text: String) throws {
+        var reducer = try prepared()
+        for id in ["first", "second"] {
+            _ = try reducer.consume(message("item/completed", """
+            "item":{"id":"\(id)","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}
+            """), now: now)
+        }
+        _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":false"#, id: 9), now: now)
+        _ = try reducer.consume(message("item/started", #""item":{"id":"cmd","type":"commandExecution"}"#), now: now.addingTimeInterval(1))
+        #expect(try summary(reducer).current.key == "waiting-input")
+        let progress = reducer.states.values.first?.lastProgressAt
+        let reply = try userMessage(text)
+        #expect(reply.params.item?.questionReplies == nil)
+        #expect(reply.params.item?.affectsInputWait == true)
+        #expect(reducer.consume(reply, now: now.addingTimeInterval(2)).isEmpty)
+        #expect(try summary(reducer).waiting == nil)
+        #expect(try summary(reducer).current.key == "command")
+        #expect(reducer.states.values.first?.lastProgressAt == progress)
+        #expect(reducer.states.values.first?.isWaitingApproval == false)
+
+        _ = try reducer.consume(message("item/completed", """
+        "item":{"id":"third","type":"agentMessage","delivery":"async","questions":[{"title":"Next?"}]}
+        """), now: now.addingTimeInterval(3))
+        #expect(try summary(reducer).waiting?.since == now.addingTimeInterval(3))
+        _ = try reducer.consume(questionReply("third", index: 0), now: now.addingTimeInterval(4))
+        #expect(try summary(reducer).waiting == nil)
+    }
+
+    @Test(arguments: ["item/tool/requestUserInput", "item/commandExecution/requestApproval"], [
+        "Continue working", "<send_user_message_question_reply> 这个是啥呀"
+    ])
+    func ordinaryUserMessagesPreserveBlockingInputAndApproval(method: String, text: String) throws {
         var reducer = try prepared()
         _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), now: now)
-        let reply = try userMessage(text)
-        #expect(reply.params.item?.answeredQuestions.isEmpty == true)
+        _ = try reducer.consume(message(method, #""itemId":"request","startedAtMs":1789459201000,"isBlocking":true"#, id: 7), now: now.addingTimeInterval(1))
+        let approval = reducer.states.values.first?.isWaitingApproval
+        _ = try reducer.consume(userMessage(text), now: now.addingTimeInterval(2))
+        #expect(try summary(reducer).waiting?.since == now.addingTimeInterval(1))
+        #expect(try summary(reducer).current.key == (method == "item/tool/requestUserInput" ? "waiting-input" : "waiting-approval"))
+        #expect(try summary(reducer).hasBlockingInputRequest == (method == "item/tool/requestUserInput"))
+        #expect(reducer.states.values.first?.isWaitingApproval == approval)
+        _ = try reducer.consume(message("serverRequest/resolved", #""requestId":7"#, turn: false), now: now.addingTimeInterval(3))
+        #expect(try summary(reducer).waiting == nil)
+    }
+
+    @Test(arguments: ["thread-a", "thread-b"])
+    func ordinaryUserMessagesOnlyClearTheirOwnTurn(threadID: String) throws {
+        var reducer = try prepared()
+        _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), now: now)
+        let otherThread = ActivityThread(id: threadID, status: ActivityThreadStatus(type: .active, activeFlags: []))
+        _ = reducer.reconcile(thread: otherThread, turns: [ActivityTurn(id: "turn-b", status: .running)], now: now)
+        _ = try reducer.consume(userMessage("Continue", threadID: threadID, turnID: "turn-b"), now: now.addingTimeInterval(1))
+        let key = ActivityTurnReference(threadID: "thread-a", turnID: "turn-a")
+        #expect(reducer.states[key]?.presentation?.summary.waiting?.since == now)
+        _ = try reducer.consume(userMessage("Continue"), now: now.addingTimeInterval(2))
+        #expect(reducer.states[key]?.presentation?.summary.waiting == nil)
+    }
+
+    @Test(arguments: [
+        "[]",
+        #"[{"questionItemId":"[\"request_user_input_async\",\"unknown\",0]"}]"#,
+        #"[{"questionItemId":"[\"request_user_input_async\",\"question\",1]"}]"#
+    ])
+    func unmatchedQuestionRepliesDoNotClearAsyncQuestions(body: String) throws {
+        var reducer = try prepared()
+        _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), now: now)
+        let reply = try userMessage("<send_user_message_question_reply>\(body)</send_user_message_question_reply>")
+        #expect(reply.params.item?.questionReplies != nil)
         _ = reducer.consume(reply, now: now.addingTimeInterval(1))
         #expect(try summary(reducer).waiting?.since == now)
+    }
+
+    @Test func mixedContentQuestionRepliesOnlyResolveMatchingQuestions() throws {
+        var reducer = try prepared()
+        _ = try reducer.consume(message("item/completed", """
+        "item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"One?"},{"title":"Two?"}]}
+        """), now: now)
+        _ = try reducer.consume(message("item/completed", """
+        "item":{"id":"other","type":"agentMessage","delivery":"async","questions":[{"title":"Other?"}]}
+        """), now: now.addingTimeInterval(1))
+        let reply = try message("item/completed", #"""
+        "item":{"id":"reply","type":"userMessage","content":[
+            {"type":"text","text":"Continue"},
+            {"type":"text",
+             "text":"<send_user_message_question_reply>[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"question\\\",0]\"}]</send_user_message_question_reply>"},
+            {"type":"text","text":"<send_user_message_question_reply>invalid</send_user_message_question_reply>"},
+            {"type":"text",
+             "text":"<send_user_message_question_reply>[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"question\\\",1]\"}]</send_user_message_question_reply>"}
+        ]}
+        """#)
+        _ = reducer.consume(reply, now: now.addingTimeInterval(2))
+        #expect(try summary(reducer).waiting?.since == now.addingTimeInterval(1))
+        _ = try reducer.consume(questionReply("other", index: 0), now: now.addingTimeInterval(3))
+        #expect(try summary(reducer).waiting == nil)
     }
 
     @Test(arguments: ["idle", "completed", "reconnect"])

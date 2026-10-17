@@ -143,9 +143,10 @@ nonisolated struct ActivityItem {
     var success: Bool?
     var agentsStates: [String: AgentState]?
     var asyncQuestionCount = 0
-    var answeredQuestions: [QuestionReply] = []
+    /// 仅完整且格式正确的回应才为非 nil, 空列表不视为普通消息
+    var questionReplies: [QuestionReply]?
     var affectsInputWait: Bool {
-        asyncQuestionCount > 0 || !answeredQuestions.isEmpty
+        asyncQuestionCount > 0 || type == .userMessage
     }
 
     var isToolCall: Bool {
