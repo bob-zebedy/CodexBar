@@ -60,7 +60,7 @@ struct AppServerActivityTests {
         let tokens = reducer.tokenUsageTurns
         let later = now.addingTimeInterval(30)
         let events = try reducer.consume(message(method, params: """
-        {"threadId":"main","turnId":"turn","itemId":"item","delta":"content"}
+        {"threadId":"main","turnId":"turn","itemId":"item","delta":"Test response"}
         """), now: later)
         let state = try #require(reducer.states.values.first)
         #expect(state.lastProgressAt == later)
@@ -80,7 +80,7 @@ struct AppServerActivityTests {
     func unknownMethodsCannotRefreshActivity(_ method: String) throws {
         var reducer = try prepared()
         let events = try reducer.consume(message(method, params: """
-        {"threadId":"main","turnId":"turn","delta":"content"}
+        {"threadId":"main","turnId":"turn","delta":"Test response"}
         """), now: now.addingTimeInterval(30))
         let state = try #require(reducer.states.values.first)
         #expect(AppServerActivityProtocol.kind(for: method).category == .ignored)

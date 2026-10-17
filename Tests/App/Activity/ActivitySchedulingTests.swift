@@ -313,7 +313,7 @@ extension ActivitySchedulingTests {
             let read = try peer.readMessage()
             var params: [String: Any] = ["threadId": "thread", "turnId": "turn", "mode": "form", "isBlocking": false]
             if method == "item/completed" {
-                params["item"] = ["id": "input", "type": "agentMessage", "delivery": "async", "questions": [["title": "Question?"]]]
+                params["item"] = ["id": "input", "type": "agentMessage", "delivery": "async", "questions": [["title": "Test question?"]]]
             }
             try peer.send(["id": "input", "method": method, "params": params])
             try peer.reply(to: read, result: ["thread": Self.thread(timestamp, status: "idle")])

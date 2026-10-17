@@ -26,13 +26,16 @@ struct ActivityLivePresentationTests {
 
     @Test func asyncQuestionMessageWaitsAfterItemCompletionAndActiveRefresh() throws {
         var reducer = try prepared()
-        let item = #""item":{"id":"question-call","type":"agentMessage","phase":"final_answer","delivery":"async","questions":[{"title":"Continue?","options":["Yes","No"]}]}"#
+        let item = """
+        "item":{"id":"question-call","type":"agentMessage","phase":"final_answer","delivery":"async",
+        "questions":[{"title":"Test question?","options":["Test option A","Test option B"]}]}
+        """
         for method in ["item/started", "item/completed"] {
             #expect(try reducer.consume(message(method, item), now: now).isEmpty)
             #expect(try summary(reducer).current.key == "waiting-input")
         }
         _ = try reducer.consume(message("thread/status/changed", #""status":{"type":"active","activeFlags":[]}"#, turn: false), now: now.addingTimeInterval(1))
-        _ = try reducer.consume(message("item/agentMessage/delta", #""itemId":"answer","delta":"Still working""#), now: now.addingTimeInterval(2))
+        _ = try reducer.consume(message("item/agentMessage/delta", #""itemId":"answer","delta":"Test response""#), now: now.addingTimeInterval(2))
         #expect(try summary(reducer).waiting?.since == now)
         #expect(try summary(reducer).current.key == "waiting-input")
         #expect(reducer.states.values.first?.isWaitingApproval == false)
@@ -57,7 +60,7 @@ struct ActivityLivePresentationTests {
         var reducer = try prepared()
         for id in ["first", "second"] {
             _ = try reducer.consume(message("item/completed", """
-            "item":{"id":"\(id)","type":"agentMessage","delivery":"async","questions":[{"title":"One?"},{"title":"Two?"}]}
+            "item":{"id":"\(id)","type":"agentMessage","delivery":"async","questions":[{"title":"Test question?"},{"title":"Test question?"}]}
             """), now: now)
         }
         let progress = reducer.states.values.first?.lastProgressAt
@@ -84,7 +87,7 @@ struct ActivityLivePresentationTests {
     @Test(arguments: [
         #""delivery":"async","questions":[]"#,
         #""delivery":"async","questions":null"#,
-        #""questions":[{"title":"Plain message?"}]"#
+        #""questions":[{"title":"Test question?"}]"#
     ])
     func ordinaryAgentMessagesDoNotCreateQuestionWaits(fields: String) throws {
         var reducer = try prepared()
@@ -93,13 +96,13 @@ struct ActivityLivePresentationTests {
     }
 
     @Test(arguments: [
-        "Yes", "现在左右切斜的时候抬头低头也在同步变化",
+        "Test user message", "测试用户消息",
         #"Quoted: <send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"question\",0]"}]</send_user_message_question_reply>"#,
         "<send_user_message_question_reply>",
-        "  <send_user_message_question_reply> 这个是啥呀\n",
+        "  <send_user_message_question_reply> 测试用户消息\n",
         "<send_user_message_question_reply>invalid</send_user_message_question_reply>",
         "<send_user_message_question_reply>[{}]</send_user_message_question_reply>",
-        "<send_user_message_question_reply>[]</send_user_message_question_reply> 这个是啥呀",
+        "<send_user_message_question_reply>[]</send_user_message_question_reply> 测试用户消息",
         #"<send_user_message_question_reply>[{"questionItemId":"[\"other_tool\",\"first\",0]"}]</send_user_message_question_reply>"#,
         #"<send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"\",0]"}]</send_user_message_question_reply>"#,
         #"<send_user_message_question_reply>[{"questionItemId":"[\"request_user_input_async\",\"first\",-1]"}]</send_user_message_question_reply>"#,
@@ -115,7 +118,7 @@ struct ActivityLivePresentationTests {
         var reducer = try prepared()
         for id in ["first", "second"] {
             _ = try reducer.consume(message("item/completed", """
-            "item":{"id":"\(id)","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}
+            "item":{"id":"\(id)","type":"agentMessage","delivery":"async","questions":[{"title":"Test question?"}]}
             """), now: now)
         }
         _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":false"#, id: 9), now: now)
@@ -132,7 +135,7 @@ struct ActivityLivePresentationTests {
         #expect(reducer.states.values.first?.isWaitingApproval == false)
 
         _ = try reducer.consume(message("item/completed", """
-        "item":{"id":"third","type":"agentMessage","delivery":"async","questions":[{"title":"Next?"}]}
+        "item":{"id":"third","type":"agentMessage","delivery":"async","questions":[{"title":"Test question?"}]}
         """), now: now.addingTimeInterval(3))
         #expect(try summary(reducer).waiting?.since == now.addingTimeInterval(3))
         _ = try reducer.consume(questionReply("third", index: 0), now: now.addingTimeInterval(4))
@@ -140,11 +143,11 @@ struct ActivityLivePresentationTests {
     }
 
     @Test(arguments: ["item/tool/requestUserInput", "item/commandExecution/requestApproval"], [
-        "Continue working", "<send_user_message_question_reply> 这个是啥呀"
+        "Test user message", "<send_user_message_question_reply> 测试用户消息"
     ])
     func ordinaryUserMessagesPreserveBlockingInputAndApproval(method: String, text: String) throws {
         var reducer = try prepared()
-        _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), now: now)
+        _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Test question?"}]}"#), now: now)
         _ = try reducer.consume(message(method, #""itemId":"request","startedAtMs":1789459201000,"isBlocking":true"#, id: 7), now: now.addingTimeInterval(1))
         let approval = reducer.states.values.first?.isWaitingApproval
         _ = try reducer.consume(userMessage(text), now: now.addingTimeInterval(2))
@@ -159,13 +162,13 @@ struct ActivityLivePresentationTests {
     @Test(arguments: ["thread-a", "thread-b"])
     func ordinaryUserMessagesOnlyClearTheirOwnTurn(threadID: String) throws {
         var reducer = try prepared()
-        _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), now: now)
+        _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Test question?"}]}"#), now: now)
         let otherThread = ActivityThread(id: threadID, status: ActivityThreadStatus(type: .active, activeFlags: []))
         _ = reducer.reconcile(thread: otherThread, turns: [ActivityTurn(id: "turn-b", status: .running)], now: now)
-        _ = try reducer.consume(userMessage("Continue", threadID: threadID, turnID: "turn-b"), now: now.addingTimeInterval(1))
+        _ = try reducer.consume(userMessage("Test user message", threadID: threadID, turnID: "turn-b"), now: now.addingTimeInterval(1))
         let key = ActivityTurnReference(threadID: "thread-a", turnID: "turn-a")
         #expect(reducer.states[key]?.presentation?.summary.waiting?.since == now)
-        _ = try reducer.consume(userMessage("Continue"), now: now.addingTimeInterval(2))
+        _ = try reducer.consume(userMessage("Test user message"), now: now.addingTimeInterval(2))
         #expect(reducer.states[key]?.presentation?.summary.waiting == nil)
     }
 
@@ -176,7 +179,7 @@ struct ActivityLivePresentationTests {
     ])
     func unmatchedQuestionRepliesDoNotClearAsyncQuestions(body: String) throws {
         var reducer = try prepared()
-        _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), now: now)
+        _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Test question?"}]}"#), now: now)
         let reply = try userMessage("<send_user_message_question_reply>\(body)</send_user_message_question_reply>")
         #expect(reply.params.item?.questionReplies != nil)
         _ = reducer.consume(reply, now: now.addingTimeInterval(1))
@@ -186,14 +189,14 @@ struct ActivityLivePresentationTests {
     @Test func mixedContentQuestionRepliesOnlyResolveMatchingQuestions() throws {
         var reducer = try prepared()
         _ = try reducer.consume(message("item/completed", """
-        "item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"One?"},{"title":"Two?"}]}
+        "item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Test question?"},{"title":"Test question?"}]}
         """), now: now)
         _ = try reducer.consume(message("item/completed", """
-        "item":{"id":"other","type":"agentMessage","delivery":"async","questions":[{"title":"Other?"}]}
+        "item":{"id":"other","type":"agentMessage","delivery":"async","questions":[{"title":"Test question?"}]}
         """), now: now.addingTimeInterval(1))
         let reply = try message("item/completed", #"""
         "item":{"id":"reply","type":"userMessage","content":[
-            {"type":"text","text":"Continue"},
+            {"type":"text","text":"Test user message"},
             {"type":"text",
              "text":"<send_user_message_question_reply>[{\"questionItemId\":\"[\\\"request_user_input_async\\\",\\\"question\\\",0]\"}]</send_user_message_question_reply>"},
             {"type":"text","text":"<send_user_message_question_reply>invalid</send_user_message_question_reply>"},
@@ -210,7 +213,7 @@ struct ActivityLivePresentationTests {
     @Test(arguments: ["idle", "completed", "reconnect"])
     func asyncQuestionWaitsEndWithTheirTurnOrConnection(ending: String) throws {
         var reducer = try prepared()
-        _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), now: now)
+        _ = try reducer.consume(message("item/completed", #""item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Test question?"}]}"#), now: now)
         #expect(try summary(reducer).waiting != nil)
         switch ending {
         case "idle":
@@ -233,11 +236,11 @@ struct ActivityLivePresentationTests {
         #expect(try summary(reducer).current.key == "processing")
         let recent = try summary(reducer).recent
         #expect(recent?.label.key == "action-completed")
-        let events = try reducer.consume(message("item/reasoning/summaryTextDelta", #""itemId":"reason","delta":"private text""#), now: now.addingTimeInterval(2))
+        let events = try reducer.consume(message("item/reasoning/summaryTextDelta", #""itemId":"reason","delta":"Test response""#), now: now.addingTimeInterval(2))
         #expect(events.isEmpty)
         #expect(try summary(reducer).current.key == "thinking")
         _ = try reducer.consume(message("item/started", #""item":{"id":"answer","type":"agentMessage","phase":"final_answer"}"#), now: now.addingTimeInterval(3))
-        _ = try reducer.consume(message("item/agentMessage/delta", #""itemId":"answer","delta":"private answer""#), now: now.addingTimeInterval(4))
+        _ = try reducer.consume(message("item/agentMessage/delta", #""itemId":"answer","delta":"Test response""#), now: now.addingTimeInterval(4))
         #expect(try summary(reducer).current.key == "answering")
         #expect(try summary(reducer).recent == recent)
     }
@@ -262,7 +265,7 @@ struct ActivityLivePresentationTests {
         reducer.reconnect()
         let thread = ActivityThread(id: "thread-a", status: ActivityThreadStatus(type: .active, activeFlags: []))
         _ = reducer.reconcile(thread: thread, turns: [ActivityTurn(id: "turn-a", status: .running)], now: now)
-        let output = try message("item/\(type)/outputDelta", #""itemId":"tool","delta":"output""#)
+        let output = try message("item/\(type)/outputDelta", #""itemId":"tool","delta":"Test output""#)
         #expect(reducer.consume(output, now: now.addingTimeInterval(1)).isEmpty)
         #expect(try summary(reducer).current.key == key)
         #expect(try summary(reducer).toolCount == nil)
@@ -482,7 +485,7 @@ struct ActivityLivePresentationTests {
         let blocking = isBlocking.map { String($0) } ?? "null"
         let input = try message("item/tool/requestUserInput", """
         "itemId":"question","isBlocking":\(blocking),"autoResolutionMs":null,
-        "questions":[{"id":"q","header":"Choice","question":"private question","isOther":true,"isSecret":true,"options":null}]
+        "questions":[{"id":"q","header":"Test header","question":"Test question?","isOther":true,"isSecret":true,"options":null}]
         """, id: 1)
         #expect(input.kind.category == .presentation)
         #expect(reducer.consume(input, now: now).isEmpty)
@@ -507,7 +510,7 @@ struct ActivityLivePresentationTests {
 
     @Test func earlierAsyncWaitDoesNotMaskBlockingRequests() throws {
         var reducer = try prepared()
-        _ = try reducer.consume(message("item/completed", #""item":{"id":"async","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), now: now)
+        _ = try reducer.consume(message("item/completed", #""item":{"id":"async","type":"agentMessage","delivery":"async","questions":[{"title":"Test question?"}]}"#), now: now)
         _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":false"#, id: 1), now: now.addingTimeInterval(1))
         for id in [2, 3] {
             _ = try reducer.consume(message("item/tool/requestUserInput", #""isBlocking":true"#, id: id), now: now.addingTimeInterval(Double(id)))
@@ -607,8 +610,8 @@ struct ActivityLivePresentationTests {
     @Test func presentationEventsNeverProduceHistoricalRecords() throws {
         var reducer = try prepared()
         let messages = try [
-            message("turn/plan/updated", #""plan":[{"step":"private","status":"completed"}]"#),
-            message("turn/diff/updated", #""diff":"private diff""#),
+            message("turn/plan/updated", #""plan":[{"step":"Test plan step","status":"completed"}]"#),
+            message("turn/diff/updated", #""diff":"Test diff""#),
             message("model/rerouted", #""fromModel":"old","toModel":"new""#),
             message("modelProvider/authRecoveryStarted"),
             message("modelProvider/authRecoveryCompleted"),
@@ -648,7 +651,7 @@ struct ActivityLivePresentationTests {
         var reducer = try prepared()
         _ = try reducer.consume(message(method, """
         "status":{"type":"active","activeFlags":["waitingOnUserInput"]},"isBlocking":\(isBlocking),
-        "item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}
+        "item":{"id":"question","type":"agentMessage","delivery":"async","questions":[{"title":"Test question?"}]}
         """, id: 1), now: now)
         let state = try #require(reducer.states.values.first)
         task.mergeExecutionLifecycle(state, owner: ActivityExecutionKey(agentThreadID: nil, turnID: "turn-a"))
@@ -675,7 +678,7 @@ struct ActivityLivePresentationTests {
             state: .running, startedAt: now, progressGeneration: 0
         )
         var nonblocking = ActivityLivePresentation()
-        try nonblocking.consume(message("item/completed", #""item":{"id":"async","type":"agentMessage","delivery":"async","questions":[{"title":"Question?"}]}"#), at: now)
+        try nonblocking.consume(message("item/completed", #""item":{"id":"async","type":"agentMessage","delivery":"async","questions":[{"title":"Test question?"}]}"#), at: now)
         var blocking = ActivityLivePresentation()
         try blocking.consume(message("item/tool/requestUserInput", #""isBlocking":true"#, id: 1), at: now.addingTimeInterval(1))
         let rootOwner = ActivityExecutionKey(agentThreadID: nil, turnID: "turn-a")

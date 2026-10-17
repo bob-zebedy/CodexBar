@@ -266,14 +266,14 @@ struct AppServerSessionTests {
             "hook/started", "hook/completed", "model/rerouted", "model/verification",
             "modelProvider/authRecoveryStarted", "modelProvider/authRecoveryCompleted", "model/safetyBuffering/updated"
         ].map { try notification($0, params: ["marker": $0]) }
-        try retained.append(notification("turn/diff/updated", params: ["diff": "original patch"]))
-        try retained.append(notification("turn/plan/updated", params: ["plan": [["step": "original step", "status": "pending"]]]))
+        try retained.append(notification("turn/diff/updated", params: ["diff": "Test diff"]))
+        try retained.append(notification("turn/plan/updated", params: ["plan": [["step": "Test plan step", "status": "pending"]]]))
         for method in [
             "item/agentMessage/delta", "item/plan/delta", "item/reasoning/summaryTextDelta", "item/reasoning/textDelta",
             "item/commandExecution/outputDelta", "item/fileChange/outputDelta"
         ] {
             try filtered.append(notification(method, params: [
-                "threadId": "thread", "turnId": "turn", "itemId": "item", "delta": "original fragment", "summaryIndex": 0, "contentIndex": 0
+                "threadId": "thread", "turnId": "turn", "itemId": "item", "delta": "Test response", "summaryIndex": 0, "contentIndex": 0
             ]))
         }
         try filtered.append(notification("item/agentMessage/delta", params: ["delta": 123]))
@@ -281,8 +281,8 @@ struct AppServerSessionTests {
             "id": "question", "method": "item/tool/requestUserInput", "params": [
                 "threadId": "thread", "turnId": "turn", "itemId": "item", "isBlocking": false,
                 "questions": [[
-                    "id": "q", "header": "Question", "question": "original question", "isSecret": true, "isOther": true,
-                    "options": [["label": "Original option", "description": "original description"]]
+                    "id": "q", "header": "Test header", "question": "Test question?", "isSecret": true, "isOther": true,
+                    "options": [["label": "Test option", "description": "Test option description"]]
                 ]]
             ]
         ]))
@@ -307,7 +307,7 @@ struct AppServerSessionTests {
             "exitedReviewMode"
         ] {
             for method in ["item/started", "item/completed"] {
-                try retained.append(notification(method, params: ["item": ["type": type, "id": type, "output": "full output"]]))
+                try retained.append(notification(method, params: ["item": ["type": type, "id": type, "output": "Test output"]]))
             }
         }
         for method in [
@@ -341,13 +341,13 @@ struct AppServerSessionTests {
             try messages.append(notification(method, params: ["deltaBase64": "dGVzdA==", "stream": "stdout"]))
         }
         try messages.append(notification("item/reasoning/summaryPartAdded", params: ["summaryIndex": 0]))
-        try messages.append(notification("item/mcpToolCall/progress", params: ["message": "working"]))
+        try messages.append(notification("item/mcpToolCall/progress", params: ["message": "Test response"]))
         try messages.append(notification("mcpServer/startupStatus/updated", params: [
-            "threadId": "thread", "name": "tripo_backend", "status": "starting"
+            "threadId": "thread", "name": "test-server", "status": "starting"
         ]))
         for type in ["plan", "userMessage", "hookPrompt", "functionCallOutput", "futureItem"] {
             for method in ["item/started", "item/completed"] {
-                try messages.append(notification(method, params: ["item": ["id": type, "type": type, "text": "body"]]))
+                try messages.append(notification(method, params: ["item": ["id": type, "type": type, "text": "Test user message"]]))
             }
         }
         try messages.append(notification("mcpServer/elicitation/request", params: ["mode": "openai/userVerification"]))
@@ -459,7 +459,7 @@ struct AppServerSessionTests {
         let session = try AppServerSession(socketURL: server.url, logStorage: storage, connectionName: connection)
         defer { session.close() }
         #expect(throws: CodexStatusError.self) {
-            let _: Value = try session.request("probe", params: ["text": "original body", "apiKey": "original secret"])
+            let _: Value = try session.request("probe", params: ["text": "Test user message", "apiKey": "original secret"])
         }
         try server.finish()
         let page = try await storage.page()
@@ -468,7 +468,7 @@ struct AppServerSessionTests {
         let entry = try #require(page.entries.first { $0.method == "probe" })
         #expect(entry.connection == connection)
         #expect(entry.status == .failure)
-        #expect(entry.request?.contains("original body") == true)
+        #expect(entry.request?.contains("Test user message") == true)
         #expect(entry.request?.contains("original secret") == true)
         #expect(entry.detail?.contains("body and secret") == true)
     }
@@ -486,7 +486,7 @@ struct AppServerSessionTests {
             #expect(try peer.readPayload(opcode: 10) == Data([0xFF, 0x00]))
             try peer.send(["id": 999, "result": ["unmatched": true]])
             try peer.reply(to: request, result: ["value": 7])
-            try peer.send(["method": "item/completed", "params": ["text": "full content"]])
+            try peer.send(["method": "item/completed", "params": ["text": "Test response"]])
             let next = try peer.readMessage()
             #expect(next["method"] as? String == "done")
             try peer.reply(to: next, result: ["value": 8])
@@ -501,7 +501,7 @@ struct AppServerSessionTests {
             }
         }
         let live = try #require(try session.nextEvent())
-        #expect(String(data: live, encoding: .utf8)?.contains("full content") == true)
+        #expect(String(data: live, encoding: .utf8)?.contains("Test response") == true)
         let _: Value = try session.request("done")
         session.close()
         session.close()
@@ -516,7 +516,7 @@ struct AppServerSessionTests {
         #expect(entries.first { $0.method == "websocket/ping" }?.detail == "base64:/wA=")
         #expect(entries.first { $0.method == "websocket/pong" }?.request == "base64:/wA=")
         #expect(entries.first { $0.method == "item/commandExecution/requestApproval" }?.isReceived == true)
-        #expect(entries.first { $0.method == "item/completed" }?.detail?.contains("full content") == true)
+        #expect(entries.first { $0.method == "item/completed" }?.detail?.contains("Test response") == true)
         #expect(entries.filter { $0.method == "probe" }.count == 1)
         #expect(entries.first { $0.method == "probe" }?.status == .success)
     }
