@@ -5009,6 +5009,22 @@
         }
       }
     },
+    "settings.about.release-notes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CodexBar Release Notes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CodexBar 更新日志"
+          }
+        }
+      }
+    },
     "settings.about.version" : {
       "localizations" : {
         "en" : {

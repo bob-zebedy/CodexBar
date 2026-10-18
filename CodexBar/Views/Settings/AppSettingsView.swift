@@ -182,6 +182,7 @@ private extension AppSettingsView {
         static let sectionSpacing: CGFloat = 18
         static let rowSpacing: CGFloat = 14
         static let panelPadding: CGFloat = 12
+        static let githubIconSize: CGFloat = 16
         static let surfaceCornerRadius: CGFloat = 16
         static let panelCornerRadius: CGFloat = 10
         static let tabBarWidth = windowWidth - padding * 2
@@ -204,6 +205,12 @@ private extension AppSettingsView {
         )
         static let statusAnimation = Animation.codexStatus
     }
+
+    static let releaseNotesURL: URL = {
+        var components = URLComponents(string: "https://codexbar.zabrian.app/notes")!
+        components.fragment = Bundle.main.shortVersionString
+        return components.url!
+    }()
 
     static let githubProjectURL = URL(string: "https://github.com/bob-zebedy/CodexBar")!
 
@@ -320,6 +327,8 @@ private extension AppSettingsView {
                 PowerHelperInstallationStatusRow(status: keepAliveController.powerHelperInstallationStatus)
                 LiquidGlassDivider()
                 versionRow
+                LiquidGlassDivider()
+                releaseNotesRow
                 LiquidGlassDivider()
                 githubProjectRow
             }
@@ -954,14 +963,25 @@ private extension AppSettingsView {
         )
     }
 
-    var githubProjectRow: some View {
-        externalLinkRow(title: "settings.about.github-project", icon: "globe", destination: Self.githubProjectURL)
+    var releaseNotesRow: some View {
+        externalLinkRow(title: "settings.about.release-notes", icon: Image(systemName: "text.document"), destination: Self.releaseNotesURL)
     }
 
-    func externalLinkRow(title: LocalizedStringKey, icon: String, destination: URL) -> some View {
+    var githubProjectRow: some View {
+        externalLinkRow(
+            title: "settings.about.github-project",
+            icon: Image("GitHub")
+                .resizable()
+                .scaledToFit()
+                .frame(width: Metrics.githubIconSize, height: Metrics.githubIconSize),
+            destination: Self.githubProjectURL
+        )
+    }
+
+    func externalLinkRow(title: LocalizedStringKey, icon: some View, destination: URL) -> some View {
         Link(destination: destination) {
             HStack(spacing: SettingsRowMetrics.spacing) {
-                Image(systemName: icon)
+                icon
                     .frame(width: SettingsRowMetrics.iconWidth)
                     .foregroundStyle(.tint)
 

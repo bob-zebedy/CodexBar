@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# 已安装版本的构建号低于此值时, 需要手动升级
+# 发布不兼容更新时设为该版本的首个构建号, 后续兼容更新保持不变
+readonly MINIMUM_COMPATIBLE_BUILD=200
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/Build}"
@@ -31,6 +35,7 @@ Environment:
                            Defaults to https://codexbar.zabrian.app/download.
   RELEASE_NOTES_BASE_URL  Base URL for release notes. The version is appended
                            as a fragment anchor (BASE#X.Y.Z).
+                           Used for both release notes and the browser upgrade link.
                            Defaults to https://codexbar.zabrian.app/notes.
   INCLUDE_RELEASE_NOTES   Set to 0 to omit sparkle:releaseNotesLink.
   MINIMUM_SYSTEM_VERSION  Defaults to 15.0.
@@ -155,6 +160,22 @@ if [[ -z "${SHORT_VERSION}" || -z "${BUILD_VERSION}" ]]; then
     exit 1
 fi
 
+if [[ ! "${BUILD_VERSION}" =~ ^[1-9][0-9]*$ || ! "${MINIMUM_COMPATIBLE_BUILD}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "error: CURRENT_PROJECT_VERSION and MINIMUM_COMPATIBLE_BUILD must be positive integer build numbers" >&2
+    echo "       configure MINIMUM_COMPATIBLE_BUILD in Scripts/appcast.sh" >&2
+    exit 1
+fi
+if ! perl -e 'exit($ARGV[0] > $ARGV[1] ? 1 : 0)' "${MINIMUM_COMPATIBLE_BUILD}" "${BUILD_VERSION}"; then
+    echo "error: MINIMUM_COMPATIBLE_BUILD must not exceed CURRENT_PROJECT_VERSION" >&2
+    exit 1
+fi
+
+RELEASE_NOTES_URL="${RELEASE_NOTES_BASE_URL%/}#${SHORT_VERSION}"
+if [[ ! "${RELEASE_NOTES_URL}" =~ ^https?://[^/?#[:space:]]+([/?#][^[:space:]]*)?$ ]]; then
+    echo "error: release notes URL must be an absolute HTTP or HTTPS URL without whitespace" >&2
+    exit 1
+fi
+
 if [[ -z "${PRODUCT_NAME}" || "${PRODUCT_NAME}" == '$(TARGET_NAME)' ]]; then
     PRODUCT_NAME="$(basename "${DMG_PATH}")"
     PRODUCT_NAME="${PRODUCT_NAME%%-v*}"
@@ -211,11 +232,11 @@ TITLE="$(printf '%s %s' "${PRODUCT_NAME}" "${SHORT_VERSION}" | xml_escape)"
 DOWNLOAD_URL_ESCAPED="$(printf '%s' "${DOWNLOAD_URL}" | xml_escape)"
 ED_SIGNATURE_ESCAPED="$(printf '%s' "${ED_SIGNATURE}" | xml_escape)"
 MIN_SYSTEM_ESCAPED="$(printf '%s' "${MINIMUM_SYSTEM_VERSION}" | xml_escape)"
+SHORT_VERSION_ESCAPED="$(printf '%s' "${SHORT_VERSION}" | xml_escape)"
+RELEASE_NOTES_URL_ESCAPED="$(printf '%s' "${RELEASE_NOTES_URL}" | xml_escape)"
 
 RELEASE_NOTES_XML=""
 if [[ "${INCLUDE_RELEASE_NOTES}" != "0" ]]; then
-    RELEASE_NOTES_URL="${RELEASE_NOTES_BASE_URL%/}#${SHORT_VERSION}"
-    RELEASE_NOTES_URL_ESCAPED="$(printf '%s' "${RELEASE_NOTES_URL}" | xml_escape)"
     RELEASE_NOTES_XML="<sparkle:releaseNotesLink>${RELEASE_NOTES_URL_ESCAPED}</sparkle:releaseNotesLink>
     "
 fi
@@ -223,8 +244,10 @@ fi
 APPCAST_ITEM="        <item>
             <title>${TITLE}</title>
             <sparkle:version>${BUILD_VERSION}</sparkle:version>
-            <sparkle:shortVersionString>${SHORT_VERSION}</sparkle:shortVersionString>
+            <sparkle:shortVersionString>${SHORT_VERSION_ESCAPED}</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>${MIN_SYSTEM_ESCAPED}</sparkle:minimumSystemVersion>
+            <sparkle:informationalUpdate><sparkle:belowVersion>${MINIMUM_COMPATIBLE_BUILD}</sparkle:belowVersion></sparkle:informationalUpdate>
+            <link>${RELEASE_NOTES_URL_ESCAPED}</link>
             ${RELEASE_NOTES_XML}        <pubDate>${PUB_DATE}</pubDate>
             <enclosure url=\"${DOWNLOAD_URL_ESCAPED}\" sparkle:edSignature=\"${ED_SIGNATURE_ESCAPED}\" length=\"${ARCHIVE_LENGTH}\" type=\"application/octet-stream\"/>
         </item>"
@@ -251,11 +274,10 @@ APPCAST_ITEM="${APPCAST_ITEM}" APPCAST_VERSION="${BUILD_VERSION}" perl -0p -e '
     die "Unexpected appcast item count: before=$before after=$after\n";
   }
 ' "${APPCAST_PATH}" > "${APPCAST_TMP}"
-cat "${APPCAST_TMP}" > "${APPCAST_PATH}"
-
 if command -v xmllint >/dev/null 2>&1; then
-    xmllint --noout "${APPCAST_PATH}"
+    xmllint --noout "${APPCAST_TMP}"
 fi
+cat "${APPCAST_TMP}" > "${APPCAST_PATH}"
 
 echo "==> Added ${PRODUCT_NAME} ${SHORT_VERSION} (${BUILD_VERSION})"
 echo "    ${APPCAST_PATH}"
