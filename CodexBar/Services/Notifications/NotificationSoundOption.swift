@@ -3,7 +3,7 @@ import Foundation
 import os
 import UserNotifications
 
-/// 系统提示音首次使用时从本机声音目录加载并缓存, 其余声音随 App 打包
+/// 系统提示音首次使用时从 macOS 系统声音目录加载并缓存, 其余声音随 App 打包
 /// id 用于持久化, 系统提示音取不含扩展名的文件名小写形式
 struct NotificationSoundOption: Identifiable, Hashable {
     let id: String
@@ -28,7 +28,7 @@ struct NotificationSoundOption: Identifiable, Hashable {
         Category(title: "Material", sounds: materialSounds)
     ]
 
-    /// 持久化值可能指向已经不存在的声音, 例如换了机器或者用户删掉了自定义音, 这时交给调用方回落
+    /// 持久化值可能指向已移除或不再支持的声音, 这时交给调用方回落
     static func option(forID id: String) -> NotificationSoundOption? {
         if id == silent.id {
             return silent
@@ -164,11 +164,10 @@ struct NotificationSoundOption: Identifiable, Hashable {
         bundled(id: "materialFanfare3", title: "Fanfare 3", resource: "Fanfare-3")
     ]
 
-    /// 本机声音目录里实际存在的提示音, 不同机器上内容可以不同
-    /// 只在首次访问时扫一次, 运行期间新放进声音目录的文件要重启 App 才会出现
+    /// 系统声音列表只在首次访问时加载并缓存
     private static let systemSounds: [NotificationSoundOption] = loadSystemSounds()
 
-    /// 打包声音的 id 先占位, 本机同名文件不再生成第二个同 id 的选项
+    /// 打包声音的 id 先占位, 系统同名文件不再生成第二个同 id 的选项
     /// 否则用户在 System 组里选中的声音, 下次读取会被解析成打包组里那个同名资源
     private static let reservedIDs: Set<String> = Set((modernSounds + materialSounds).map(\.id))
 
@@ -184,48 +183,38 @@ struct NotificationSoundOption: Identifiable, Hashable {
         )
     }
 
-    /// 同名选项按目录优先级去重, 保留最先找到的文件
+    /// 同名声音只生成一个选项
     private static func loadSystemSounds() -> [NotificationSoundOption] {
         var seen = reservedIDs
         var sounds: [NotificationSoundOption] = []
 
-        for directory in systemSoundDirectories {
-            let directoryURL = URL(fileURLWithPath: directory)
-            let fileNames = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
-            for fileName in fileNames {
-                let name = fileName as NSString
-                guard supportedExtensions.contains(name.pathExtension.lowercased()) else {
-                    continue
-                }
-
-                let title = name.deletingPathExtension
-                let id = title.lowercased()
-                guard !title.isEmpty, seen.insert(id).inserted else {
-                    continue
-                }
-
-                sounds.append(
-                    NotificationSoundOption(
-                        id: id,
-                        localizedTitle: title,
-                        source: .system(directoryURL.appendingPathComponent(fileName))
-                    )
-                )
+        let directoryURL = URL(fileURLWithPath: "/System/Library/Sounds", isDirectory: true)
+        let fileNames = (try? FileManager.default.contentsOfDirectory(atPath: directoryURL.path)) ?? []
+        for fileName in fileNames {
+            let name = fileName as NSString
+            guard supportedExtensions.contains(name.pathExtension.lowercased()) else {
+                continue
             }
+
+            let title = name.deletingPathExtension
+            let id = title.lowercased()
+            guard !title.isEmpty, seen.insert(id).inserted else {
+                continue
+            }
+
+            sounds.append(
+                NotificationSoundOption(
+                    id: id,
+                    localizedTitle: title,
+                    source: .system(directoryURL.appendingPathComponent(fileName))
+                )
+            )
         }
 
         return sounds.sorted {
             $0.localizedTitle.localizedStandardCompare($1.localizedTitle) == .orderedAscending
         }
     }
-
-    /// 声音按这组目录逐级解析, 用户可以在靠前的目录放同名文件覆盖系统音
-    /// 标准搜索路径里还有 `/Network/Library/Sounds`, 这里不查它, 探测自动挂载点可能拖住调用方
-    private static let systemSoundDirectories = [
-        "\(NSHomeDirectory())/Library/Sounds",
-        "/Library/Sounds",
-        "/System/Library/Sounds"
-    ]
 
     private static let supportedExtensions: Set<String> = ["aiff", "aif", "wav", "caf"]
     private static let bundledExtension = "wav"

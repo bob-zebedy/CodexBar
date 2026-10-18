@@ -115,7 +115,6 @@ struct CodexVersionSection: View {
 
     private func codexVersionRow(icon: String, item: CodexVersionItem) -> some View {
         let hasVersion = item.version != nil
-        let isPathCopied = copiedPathResetTasks[item.source.rawValue] != nil
 
         return HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
@@ -135,13 +134,7 @@ struct CodexVersionSection: View {
                     .numericTransition(value: item.displayVersion, enabled: animationState.allowsAnimations)
 
                 if let path = item.path {
-                    CopyablePathText(path: path, isCopied: isPathCopied)
-                        .animation(Metrics.statusAnimation, value: isPathCopied)
-                        .help(
-                            isPathCopied
-                                ? "common.status.copied"
-                                : "common.action.click-to-copy"
-                        )
+                    CopyablePathText(path: path, isCopied: copiedPathResetTasks[item.source.rawValue] != nil)
                         .onTapGesture {
                             copyPathToPasteboard(path, key: item.source.rawValue)
                         }
@@ -195,5 +188,7 @@ private struct CopyablePathText: View {
                 .opacity(isCopied ? 1 : 0)
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+        .animation(.codexStatus, value: isCopied)
+        .help(isCopied ? "common.status.copied" : "common.action.click-to-copy")
     }
 }

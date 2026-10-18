@@ -340,7 +340,7 @@ final class NotificationSettings: ObservableObject {
         return value
     }
 
-    /// 存量值可能指向本机没有的声音, 例如换了机器或者用户删掉了自定义音, 这时回落默认音
+    /// 存量值可能指向已移除或不再支持的声音, 这时回落默认音
     private static func sound(from defaults: UserDefaults, key: String) -> NotificationSoundOption {
         guard let id = defaults.string(forKey: key),
               let sound = NotificationSoundOption.option(forID: id) else {
