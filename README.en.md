@@ -29,14 +29,14 @@ CodexBar is a menu bar app for macOS that displays your Codex account informatio
 
 ### Account and rate limits at a glance
 
-- View your account, plan, credits, and the remaining allowance and reset time for each rate-limit window
+- View your account, plan, credits, and the remaining percentage and reset time for each rate-limit window
 - Show your preferred allowance directly in the menu bar
 - Track banked resets and their expiry dates, with automatic use before they expire
 
 ### Follow your tasks in real time
 
 - See each task's project, model, reasoning effort, duration, and token usage
-- Follow live states, pending responses, task progress, and recent events
+- Track execution states, tasks awaiting a response, task progress, and recent events
 - Review concurrent tasks and recent completions, failures, and interruptions in Task Center
 
 ### Review your usage
@@ -47,7 +47,7 @@ CodexBar is a menu bar app for macOS that displays your Codex account informatio
 
 ### Get timely alerts
 
-- Receive alerts for task completions, pending responses, allowance changes, and protection events
+- Receive alerts for task completions, tasks awaiting a response, allowance changes, and protection events
 - Choose notification types, sounds, and task haptic feedback
 - Follow status changes through customizable task glow at the top of your displays
 
@@ -63,7 +63,7 @@ CodexBar is a menu bar app for macOS that displays your Codex account informatio
 ### Homebrew
 
 ```bash
-brew install --cask bob-zebedy/tap/codexbar
+brew install --cask bob-zebedy/tap/codexbar@5
 ```
 
 ### DMG
@@ -75,7 +75,7 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 - macOS 15.0 or later
 - [Codex CLI](https://github.com/openai/codex) installed and signed in, or ChatGPT App or Codex App with bundled Codex installed
 - Codex background service version `0.162.0` or later
-- Cross-device sync requires an available iCloud account on the Mac
+- Cross-device sync requires an available iCloud account signed in on the Mac
 
 ## Privacy
 
