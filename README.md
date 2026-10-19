@@ -63,7 +63,7 @@ CodexBar 是 macOS 的菜单栏 App，用于集中展示 Codex 账户、额度�
 ### Homebrew
 
 ```bash
-brew install --cask bob-zebedy/tap/codexbar
+brew install --cask bob-zebedy/tap/codexbar@5
 ```
 
 ### DMG
