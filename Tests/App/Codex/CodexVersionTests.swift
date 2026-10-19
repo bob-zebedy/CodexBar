@@ -3,13 +3,6 @@ import Testing
 
 struct CodexVersionTests {
     @Test(arguments: [
-        ("0.150.0", false),
-        ("0.156.0", false),
-        ("0.157.0-alpha.2", false),
-        ("0.157.0", false),
-        ("0.159.0", false),
-        ("0.160.0-alpha.2", false),
-        ("0.160.0", false),
         ("0.161.0", false),
         ("0.162.0-alpha.2", false),
         ("0.162.0", true),

@@ -187,7 +187,7 @@ struct HistoryDatabaseTests {
         #expect(try database.pendingActivityDataDates() == [HistoryStorage.dateKey(for: yesterday)])
     }
 
-    @Test func recordingLeaseHasOneWriterAndReleasesOnStop() throws {
+    @Test func recordingLeaseTransfersWithoutTwoWriters() throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let first = TokenUsageHistoryStore(directoryURL: directory.url)
@@ -432,9 +432,12 @@ extension HistoryDatabaseTests {
         let database = try HistoryDatabase(directoryURL: directory.url)
         try database.execute("UPDATE aggregates SET tokenUsage = ?", [.data(Data("broken".utf8))])
         #expect(try await store.refresh(now: now) == initial)
+        try database.execute("UPDATE aggregates SET tokenUsage = ?", [.data(Data("broken".utf8))])
         let rebuilt = try await store.rebuild(for: [HistoryStorage.dateKey(for: now)])
         #expect(rebuilt.eventCount == 2)
         #expect(try await store.persistedAggregates(now: now) == initial)
+        try database.execute("UPDATE aggregates SET tokenUsage = NULL")
+        #expect(try await store.refresh(now: now) == initial)
     }
 
     @Test func observedDateSurvivesDelayedWriteAcrossMidnight() async throws {

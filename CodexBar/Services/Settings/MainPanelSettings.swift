@@ -86,10 +86,7 @@ final class MainPanelSettings: ObservableObject {
         isVisible: Bool,
         undoManager: UndoManager
     ) {
-        guard layout.isVisible(section) != isVisible else {
-            return
-        }
-        guard isVisible || layout.visibleSections.count > 1 else {
+        guard layout.isVisible(section) != isVisible, isVisible || layout.visibleSections.count > 1 else {
             return
         }
 

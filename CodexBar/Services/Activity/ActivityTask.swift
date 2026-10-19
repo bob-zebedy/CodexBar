@@ -343,11 +343,9 @@ nonisolated struct ActivityTask {
                 state = .waitingApproval
                 stateChangedAt = approval.requestedAt
             }
-        } else if state == .waitingApproval || restoresRunning {
-            if state != .running {
-                state = .running
-                stateChangedAt = timestamp
-            }
+        } else if state == .waitingApproval || restoresRunning, state != .running {
+            state = .running
+            stateChangedAt = timestamp
         }
     }
 }

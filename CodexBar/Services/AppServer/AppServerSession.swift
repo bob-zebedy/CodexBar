@@ -48,8 +48,7 @@ final nonisolated class AppServerSession {
         let connectionLogID = logStorage?.recordConnection(method: "connection/open", detail: socketPath, connection: connectionName, status: .pending)
         do {
             descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-            guard descriptor >= 0 else { throw AppServerConnectionError(code: errno) }
-            guard fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0 else { throw AppServerConnectionError(code: errno) }
+            guard descriptor >= 0, fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0 else { throw AppServerConnectionError(code: errno) }
             var address = sockaddr_un()
             address.sun_family = sa_family_t(AF_UNIX)
             let path = Array(socketURL.path.utf8CString)

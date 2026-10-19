@@ -6,8 +6,9 @@ import Foundation
     var graph = ActivityTaskGraph()
 }
 
+@MainActor
 extension AppServerActivityReader {
-    @MainActor init(
+    init(
         probe: ActivityReaderProbe,
         socketURL: URL = AppServerActivityReader.defaultSocketURL,
         logStorage: AppServerLogStore? = nil,

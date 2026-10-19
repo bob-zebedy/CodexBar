@@ -416,18 +416,26 @@ struct ActivityLivePresentationTests {
         ("closeAgent", ("agent-closing", "activity.action.close-subagent")),
         ("listAgents", ("agent-querying", "activity.action.query-subagent")),
         ("future", ("agent-coordinating", "activity.action.coordinate-subagents"))
-    ] as [(String, (String, LocalizedStringResource))], ["completed", "failed", "declined"])
-    func subagentOperationOutcomesDescribeTheCall(
-        operation: (tool: String, expected: (statusKey: String, action: LocalizedStringResource)), status: String
-    ) {
+    ] as [(String, (String, LocalizedStringResource))])
+    func subagentOperationsDescribeTheCall(operation: (tool: String, expected: (statusKey: String, action: LocalizedStringResource))) {
         let item = ActivityItem(
-            id: "agent", type: .collabAgentToolCall, status: status, tool: operation.tool,
+            id: "agent", type: .collabAgentToolCall, status: "completed", tool: operation.tool,
             agentsStates: ["child": .init(status: "running")]
         )
         #expect(item.liveLabel?.key == operation.expected.statusKey)
-        #expect(item.liveCompletionLabel?.key == "action-" + status)
+        #expect(item.liveCompletionLabel?.key == "action-completed")
         #expect(item.liveCompletionLabel?.detail == String(localized: operation.expected.action))
         #expect(ActivityDisplayFormat.toolActionText(itemType: item.type.rawValue, toolName: operation.tool) == item.liveCompletionLabel?.detail)
+    }
+
+    @Test(arguments: ["completed", "failed", "declined"])
+    func subagentCompletionPreservesOutcome(status: String) {
+        let item = ActivityItem(
+            id: "agent", type: .collabAgentToolCall, status: status, tool: "spawnAgent",
+            agentsStates: ["child": .init(status: "running")]
+        )
+        #expect(item.liveCompletionLabel?.key == "action-" + status)
+        #expect(item.liveCompletionLabel?.detail == String(localized: "activity.action.start-subagent"))
     }
 
     @Test(arguments: [

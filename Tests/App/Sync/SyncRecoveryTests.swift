@@ -438,14 +438,18 @@ struct SyncRecoveryTests {
         let fixture = try await HistoryRebuildFixture()
         defer { try? fixture.directory.remove() }
         let previous = try #require(await fixture.database.activityDataRecords().first)
+        let event = TestFixtures.event(.toolStarted, at: Date(), turn: "different")
         try fixture.directory.replaceHistory(
-            AppServerEventRecord(activityData: TestFixtures.event(at: Date())).jsonLineData(),
+            AppServerEventRecord(activityData: event).jsonLineData(),
             date: fixture.date
         )
         _ = try await fixture.history.rebuildData(for: [fixture.date], synchronize: true)
         let updated = try #require(await fixture.database.activityDataRecords().first)
         #expect(updated.recordID == previous.recordID)
-        #expect(try Self.activityDataEventCount(updated) == 1)
+        let counts = try #require(try ActivityDataRecordCodec.remoteDailyRecord(from: updated)?.activityData)
+        #expect(counts.eventCount == 1)
+        #expect(counts.turnStartedCount == 0)
+        #expect(counts.toolStartedCount == 1)
         #expect(await fixture.database.activityDataRecords().count == 1)
         #expect(await fixture.database.deletedIDs.isEmpty)
     }
@@ -703,16 +707,6 @@ extension SyncRecoveryTests {
         try fixture.directory.replaceHistory(original, date: fixture.date)
         _ = await restarted.loadSnapshotWithMaintenance(synchronize: true, trigger: .auto)
         #expect(try await Self.activityDataEventCount(fixture.database.activityDataRecords().first) == 1)
-    }
-
-    @Test func rewrittenLocalJournalReplacesCloudCounts() async throws {
-        let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
-        let event = TestFixtures.event(.toolStarted, at: Date(), turn: "different")
-        try fixture.directory.replaceHistory(AppServerEventRecord(activityData: event).jsonLineData(), date: fixture.date)
-        _ = try await fixture.history.rebuildData(for: [fixture.date], synchronize: true)
-        #expect(try await Self.activityDataEventCount(fixture.database.activityDataRecords().first) == 1)
-        #expect(await fixture.database.deletedIDs.isEmpty)
     }
 
     @Test func requestSaveFailureDoesNotModifyAggregateOrCloud() async throws {

@@ -176,10 +176,7 @@ final class AutoResetWakeScheduler {
     }
 
     private func reconcile() {
-        guard preparationState == .none else {
-            return
-        }
-        guard isPowerHelperReady else {
+        guard preparationState == .none, isPowerHelperReady else {
             return
         }
         guard syncTask == nil else {

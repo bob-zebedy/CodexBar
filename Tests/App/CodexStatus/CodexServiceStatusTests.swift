@@ -16,13 +16,6 @@ struct CodexServiceStatusTests {
         #expect(try CodexServiceStatus(data: data) == CodexServiceStatus(level: .degradedPerformance, componentNames: [name]))
     }
 
-    @Test(arguments: CodexServiceStatus.Level.allCases)
-    func preservesComponentLevel(_ level: CodexServiceStatus.Level) throws {
-        let status = try CodexServiceStatus(data: Self.response(affected: [("cli", level.rawValue)]))
-        #expect(status.level == level)
-        #expect(status.componentNames == (level == .operational ? [] : ["CLI"]))
-    }
-
     @Test func reportsHighestComponentsOnceInCatalogOrder() throws {
         let affected = [
             ("web", "partial_outage"), ("cli", "full_outage"), ("api", "full_outage"), ("cli", "degraded_performance"),

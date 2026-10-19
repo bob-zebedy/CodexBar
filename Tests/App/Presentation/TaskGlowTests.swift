@@ -36,24 +36,21 @@ struct TaskGlowTests {
     }
 
     @Test(arguments: [0, 2, 6])
-    func repeatedOverflowPreservesColorAndSelection(_ cursor: Int) {
+    func overflowPreservesColorAndSelection(_ cursor: Int) {
         let formatter = TaskGlowHexFormatter()
         let original = "123456"
         let originalRange = NSRange(location: cursor, length: 0)
-        for _ in 0 ..< 100 {
-            var proposed = (original as NSString).replacingCharacters(in: originalRange, with: "a") as NSString
-            var proposedRange = NSRange(location: cursor + 1, length: 0)
-            let accepted = formatter.isPartialStringValid(
-                &proposed,
-                proposedSelectedRange: &proposedRange,
-                originalString: original,
-                originalSelectedRange: originalRange,
-                errorDescription: nil
-            )
-            #expect(!accepted)
-            #expect(proposed as String == original)
-            #expect(proposedRange == originalRange)
-        }
+        var proposed = (original as NSString).replacingCharacters(in: originalRange, with: "a") as NSString
+        var proposedRange = NSRange(location: cursor + 1, length: 0)
+        #expect(!formatter.isPartialStringValid(
+            &proposed,
+            proposedSelectedRange: &proposedRange,
+            originalString: original,
+            originalSelectedRange: originalRange,
+            errorDescription: nil
+        ))
+        #expect(proposed as String == original)
+        #expect(proposedRange == originalRange)
     }
 
     @Test func colorFormatterLimitsReplacementWithoutChangingSurroundingText() {

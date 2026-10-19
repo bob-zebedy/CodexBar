@@ -48,6 +48,7 @@ struct AppServerRPCTests {
         }
         do {
             let _: Int = try AppServerRPC.decode(Data(#"{"result":"wrong"}"#.utf8), as: Int.self)
+            Issue.record("Expected invalid response payload")
         } catch let error as CodexStatusError {
             #expect(!error.isTransportFailure)
         } catch { Issue.record(error) }

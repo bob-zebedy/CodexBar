@@ -15,15 +15,11 @@ struct RebuildDateRange: Equatable {
     var dayCount: Int {
         guard let endDateKey,
               let startDate = CodexDateFormat.dayDate(from: startDateKey),
-              let endDate = CodexDateFormat.dayDate(from: endDateKey) else {
-            return 0
-        }
-
-        guard let dayDifference = CodexDateFormat.localGregorianCalendar.dateComponents(
-            [.day],
-            from: startDate,
-            to: endDate
-        ).day else {
+              let endDate = CodexDateFormat.dayDate(from: endDateKey), let dayDifference = CodexDateFormat.localGregorianCalendar.dateComponents(
+                  [.day],
+                  from: startDate,
+                  to: endDate
+              ).day else {
             return 0
         }
         return dayDifference + 1

@@ -207,8 +207,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
                 let statement = try storage.prepare("SELECT position, payload, id FROM entries WHERE id = ?")
                 defer { sqlite3_finalize(statement) }
                 try storage.bind(id.uuidString, to: statement, at: 1)
-                guard try storage.step(statement) == SQLITE_ROW else { return }
-                guard var entry = storage.decode(statement, skipCorrupt: true) else { return }
+                guard try storage.step(statement) == SQLITE_ROW, var entry = storage.decode(statement, skipCorrupt: true) else { return }
                 entry.status = status
                 entry.detail = detail
                 entry.detailOriginalBytes = originalBytes > storage.limits.bodyBytes ? originalBytes : nil

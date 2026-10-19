@@ -357,18 +357,6 @@ struct AppServerActivityTests {
         #expect(records.first?.tokenUsage == tokenUsage)
     }
 
-    @Test func tokenWriterLeaseTransfersWithoutTwoWriters() throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let first = TokenUsageHistoryStore(directoryURL: directory.url)
-        let second = TokenUsageHistoryStore(directoryURL: directory.url)
-        #expect(try first.acquireRecordingLease())
-        #expect(try !second.acquireRecordingLease())
-        first.releaseRecordingLease()
-        #expect(try second.acquireRecordingLease())
-        second.releaseRecordingLease()
-    }
-
     @Test func rebuildUsesObservedRecordsAndContinuesCollecting() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

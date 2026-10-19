@@ -230,8 +230,7 @@ nonisolated struct AppServerActivityReducer {
             value.context = context
             return value
         }.filter { value in
-            guard let id = value.id else { return false }
-            guard seenEvents[id] == nil else { return false }
+            guard let id = value.id, seenEvents[id] == nil else { return false }
             seenEvents[id] = now
             return true
         }

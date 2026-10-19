@@ -133,8 +133,7 @@ nonisolated struct ActivityTaskGraph {
     private mutating func resumeTask(from event: ActivityDataRecord) -> ActivityTaskKey? {
         guard let eventKey = ActivityTaskKey(event: event) else { return nil }
         let matchedKey = event.agentThreadID == nil ? eventKey : matchingSubagentParentTaskKey(for: event)
-        guard let key = matchedKey, recentEndedDate(for: key) == nil, pendingTerminalTasks[key] == nil else { return nil }
-        guard tasks[key] != nil || event.agentThreadID == nil else { return nil }
+        guard let key = matchedKey, recentEndedDate(for: key) == nil, pendingTerminalTasks[key] == nil, tasks[key] != nil || event.agentThreadID == nil else { return nil }
         var task = tasks[key] ?? ActivityTask(displayID: UUID(), key: key, event: event, state: .running, startedAt: nil, progressGeneration: 0)
         guard task.acceptsExecutionEvent(event) else { return nil }
         task.mergeMetadata(from: event)

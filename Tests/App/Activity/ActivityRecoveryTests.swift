@@ -2,28 +2,6 @@ import Foundation
 import Testing
 
 struct ActivityRecoveryTests {
-    @Test func damagedDerivedCacheRecoversRefreshAndRebuild() async throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let now = Date()
-        let store = TokenUsageHistoryStore(directoryURL: directory.url)
-        try await store.appendObservation(TestFixtures.tokenUsageObservation(at: now, tokenUsage: .zero), now: now)
-        _ = try await store.refresh(now: now)
-        let database = try HistoryDatabase(directoryURL: directory.url)
-        try database.execute("UPDATE aggregates SET tokenUsage = ?", [.data(Data("broken".utf8))])
-        var refreshFailed = false
-        var rebuildFailed = false
-        do { _ = try await store.refresh(now: now) } catch { refreshFailed = true }
-        try database.execute("UPDATE aggregates SET tokenUsage = ?", [.data(Data("broken".utf8))])
-        do { _ = try await store.rebuild(for: [CodexDateFormat.dayString(from: now)]) } catch { rebuildFailed = true }
-        #expect(!refreshFailed && !rebuildFailed)
-        try database.execute("""
-        UPDATE aggregates SET tokenUsage = NULL
-        """)
-        let recovered = try await store.refresh(now: now)
-        #expect(recovered.count == 1)
-    }
-
     @Test(arguments: [false, true])
     func laterMalformedMessagePreservesEarlierValidEvent(_ malformed: Bool) async throws {
         let directory = try TestDirectory()

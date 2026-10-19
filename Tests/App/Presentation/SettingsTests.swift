@@ -12,18 +12,23 @@ struct SettingsTests {
         #expect(SyncSettings.isEnabled(defaults: defaults) == enabled)
     }
 
-    @Test func protectionPreferencePersistsAndRefreshes() throws {
+    @Test func protectionPreferenceFallsBackPersistsAndRefreshes() throws {
         let preferences = try TestPreferences()
         defer { preferences.remove() }
         let defaults = preferences.defaults
+        #expect(ProtectionSettings(defaults: defaults).inactivityDuration == .oneHour)
+        defaults.set("invalid", forKey: "Protection.inactivityDurationSeconds")
         let settings = ProtectionSettings(defaults: defaults)
         #expect(settings.inactivityDuration == .oneHour)
         settings.setInactivityDuration(.thirtyMinutes)
         #expect(defaults.integer(forKey: "Protection.inactivityDurationSeconds") == 1800)
-        defaults.set(14400, forKey: "Protection.inactivityDurationSeconds")
-        settings.refresh()
-        #expect(settings.inactivityDuration == .fourHours)
-        #expect(ProtectionSettings(defaults: defaults).inactivityDuration == .fourHours)
+        #expect(ProtectionSettings(defaults: defaults).inactivityDuration == .thirtyMinutes)
+        for duration in [ProtectionSettings.InactivityDuration.twoHours, .fourHours] {
+            defaults.set(duration.rawValue, forKey: "Protection.inactivityDurationSeconds")
+            settings.refresh()
+            #expect(settings.inactivityDuration == duration)
+            #expect(ProtectionSettings(defaults: defaults).inactivityDuration == duration)
+        }
     }
 
     @Test(arguments: DataUpdateInterval.allCases)
@@ -107,19 +112,6 @@ struct SettingsTests {
         initial.refresh()
         #expect(initial.isEnabled)
         #expect(initial.leadTime == .sixHours)
-    }
-
-    @Test func protectionFallsBackToOneHourAndReloadsChanges() throws {
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        preferences.defaults.set("invalid", forKey: "Protection.inactivityDurationSeconds")
-        let settings = ProtectionSettings(defaults: preferences.defaults)
-        #expect(settings.inactivityDuration == .oneHour)
-        settings.setInactivityDuration(.thirtyMinutes)
-        #expect(ProtectionSettings(defaults: preferences.defaults).inactivityDuration == .thirtyMinutes)
-        preferences.defaults.set(7200, forKey: "Protection.inactivityDurationSeconds")
-        settings.refresh()
-        #expect(settings.inactivityDuration == .twoHours)
     }
 
     @Test func layoutRepairsDuplicateOrderAndAlwaysKeepsAVisibleSection() {

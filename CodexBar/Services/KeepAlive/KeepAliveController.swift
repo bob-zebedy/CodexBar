@@ -535,10 +535,7 @@ final class KeepAliveController: ObservableObject {
 
     private func refreshRegisteredPowerHelper() async {
         let requiresSleepReset = powerHelperStatus == .enabled
-        guard let fingerprint = powerHelperPackageValidation.fingerprint else {
-            return
-        }
-        guard autoResetWakeScheduler.beginPowerHelperInterruptionPreparation() else {
+        guard let fingerprint = powerHelperPackageValidation.fingerprint, autoResetWakeScheduler.beginPowerHelperInterruptionPreparation() else {
             return
         }
         let updateIdentifier = PowerHelperConfiguration.beginUpdate(
@@ -570,11 +567,7 @@ final class KeepAliveController: ObservableObject {
             }
 
             guard isStarted,
-                  !Task.isCancelled else {
-                return
-            }
-
-            guard await refreshPowerHelperStatus() else { return }
+                  !Task.isCancelled, await refreshPowerHelperStatus() else { return }
             var powerHelperWasUpdated = false
             if updateError == nil,
                powerHelperStatus.isRegisteredOrAwaitingApproval {
@@ -1354,10 +1347,7 @@ final class KeepAliveController: ObservableObject {
 
         retryTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
-            guard !Task.isCancelled, let self else {
-                return
-            }
-            guard await refreshPowerHelperStatus(), isStarted, !Task.isCancelled, powerHelperStatus == .enabled else {
+            guard !Task.isCancelled, let self, await refreshPowerHelperStatus(), isStarted, !Task.isCancelled, powerHelperStatus == .enabled else {
                 return
             }
             retryTask = nil

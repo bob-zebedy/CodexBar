@@ -12,14 +12,10 @@ struct JSONLinesAndActivityDataTests {
         }
     }
 
-    @Test(arguments: ["PermissionRequest", "permission_request", "permission-request", "approval.requested"])
-    func eventAliasesAreNotAccepted(_ name: String) {
+    @Test(arguments: ["PermissionRequest", "permission_request", "permission-request", "approval.requested", "future_event"])
+    func aliasesAndUnknownEventNamesAreNotAccepted(_ name: String) {
         #expect(ActivityDataEventKind(eventName: name) == nil)
         #expect(ActivityDataEventKind(eventName: "approvalRequested") == .approvalRequested)
-    }
-
-    @Test func unknownEventNamesAreNotGuessed() {
-        #expect(ActivityDataEventKind(eventName: "future_event") == nil)
     }
 
     @Test func eventDecodingToleratesMissingMetadataAndUnknownOrigins() throws {

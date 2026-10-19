@@ -293,8 +293,7 @@ final class AutoResetController {
             let read = try await dependencies.read(budget)
             guard isCurrent(generation) else { return }
             reconcile(read)
-            guard read.candidates != nil else { return }
-            guard let currentTarget = target else { return }
+            guard read.candidates != nil, let currentTarget = target else { return }
             if let evaluation, evaluation.target.key != currentTarget.key {
                 return
             }
