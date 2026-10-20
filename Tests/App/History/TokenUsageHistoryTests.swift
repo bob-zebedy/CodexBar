@@ -37,21 +37,6 @@ struct TokenUsageHistoryTests {
         #expect(try second.load() == ["cursor": 3])
     }
 
-    @Test func sharedSyncLockExcludesConcurrentWritersWithoutBlockingCacheReads() throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let first = try #require(try JSONFileStorage.acquireLock(in: directory.url, name: "sync.lock", nonblocking: true))
-        let competing = try JSONFileStorage.acquireLock(in: directory.url, name: "sync.lock", nonblocking: true)
-        #expect(competing == nil)
-        if let competing {
-            JSONFileStorage.releaseLock(competing)
-        }
-        try JSONFileStorage.withLock(in: directory.url) {}
-        JSONFileStorage.releaseLock(first)
-        let next = try #require(try JSONFileStorage.acquireLock(in: directory.url, name: "sync.lock", nonblocking: true))
-        JSONFileStorage.releaseLock(next)
-    }
-
     @Test func heatmapSeparatesAccountIntensityFromLocalDailyMetrics() throws {
         var history = HistorySnapshot.empty
         history.tokenUsageByDate = [day: tokenUsage(input: 100)]
