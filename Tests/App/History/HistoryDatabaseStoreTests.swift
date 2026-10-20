@@ -198,7 +198,10 @@ struct HistoryDatabaseStoreTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = HistoryDatabaseStore.shared(in: directory.url)
-        try await store.access { try $0.execute("CREATE TEMP TABLE connection_probe(value INTEGER)") }
+        try await store.access {
+            try $0.execute("CREATE TEMP TABLE connection_probe(value INTEGER)")
+            try $0.execute("PRAGMA busy_timeout = 0")
+        }
         let external = try HistoryDatabase(directoryURL: directory.url)
         try external.execute("BEGIN EXCLUSIVE")
         do {

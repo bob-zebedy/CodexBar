@@ -272,8 +272,7 @@ private extension CodexStatusMenuView {
 
     func updatedAtRow(for snapshot: CodexQuotaSnapshot) -> some View {
         UpdatedAtRow(
-            snapshot: snapshot,
-            countdownStartedAt: viewModel.autoRefreshCountdownStartedAt ?? snapshot.generatedAt,
+            updatedAt: viewModel.autoRefreshCountdownStartedAt ?? snapshot.generatedAt,
             countdownInterval: viewModel.autoRefreshInterval,
             isCountdownActive: menuSurfaceVisibility.isVisible,
             syncDisplayState: SyncDisplayState(

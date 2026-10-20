@@ -37,7 +37,7 @@ struct SyncRecoveryTests {
         defer { try? directory.remove() }
         let database = SyncDatabaseFixture()
         let date = HistoryStorage.dateKey(for: Date())
-        let local = try directory.activityDataAggregate(date: date)
+        let local = TestFixtures.activityDataAggregate(date: date)
         let service = SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
         _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [local], trigger: .manual)
         #expect(await service.hasPendingActivityDataUpdates(local: [local]) == false)
@@ -67,7 +67,6 @@ struct SyncRecoveryTests {
     }
 
     private static let zone = CKRecordZone.ID(zoneName: SyncCloudKit.zoneName, ownerName: CKCurrentUserDefaultName)
-    private static let salt = Data(repeating: 1, count: 32)
 
     @Test func damagedActivityDataCursorRebuildsWithoutBlockingTokenUsage() async throws {
         let directory = try TestDirectory()
@@ -106,7 +105,7 @@ struct SyncRecoveryTests {
         _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [], trigger: .manual)
         let store = ActivityDataSyncStore(directoryURL: directory.url)
         let date = HistoryStorage.dateKey(for: Date())
-        let daily = try directory.activityDataAggregate(date: date).syncedAggregate
+        let daily = TestFixtures.activityDataAggregate(date: date).syncedAggregate
         let stale = try ActivityDataSyncRecord(deviceID: "stale", activityData: daily, recordName: "activityData_stale_\(date)")
         try store.saveFetchedRecords([stale.id: stale], cursor: nil)
         let url = directory.url.appendingPathComponent("activityData/cache.json")
@@ -117,7 +116,7 @@ struct SyncRecoveryTests {
         let deleted = CKRecord(recordType: "ActivityData", recordID: CKRecord.ID(recordName: "activityData_deleted_\(date)", zoneID: Self.zone))
         try ActivityDataRecordCodec.apply(daily, deviceID: "deleted", to: deleted)
         let expiredDate = HistoryStorage.dateKey(for: HistoryStorage.retentionCutoffDate().addingTimeInterval(-86400))
-        let expiredDaily = try directory.activityDataAggregate(date: expiredDate).syncedAggregate
+        let expiredDaily = TestFixtures.activityDataAggregate(date: expiredDate).syncedAggregate
         let expired = CKRecord(recordType: "ActivityData", recordID: CKRecord.ID(recordName: "activityData_remote_\(expiredDate)", zoneID: Self.zone))
         try ActivityDataRecordCodec.apply(expiredDaily, deviceID: "remote", to: expired)
         let metadata = CKRecord(recordType: "Metadata", recordID: CKRecord.ID(recordName: "ignored", zoneID: Self.zone))
@@ -211,7 +210,7 @@ struct SyncRecoveryTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let dates = (0 ..< 30).map { HistoryStorage.dateKey(for: Date().addingTimeInterval(Double(-$0) * 86400)) }
-        let aggregates = try dates.map { try directory.activityDataAggregate(date: $0) }
+        let aggregates = dates.map { TestFixtures.activityDataAggregate(date: $0) }
         let database = SyncDatabaseFixture(failingDate: dates[0], uploadFailure: code)
         let service = SyncService(
             database: database,
@@ -239,7 +238,7 @@ struct SyncRecoveryTests {
             .success(SyncChanges(records: [:], deletions: [], token: nil, moreComing: false)),
             .failure(CKError(.networkFailure))
         ])
-        let local = try directory.activityDataAggregate(date: HistoryStorage.dateKey(for: Date()))
+        let local = TestFixtures.activityDataAggregate(date: HistoryStorage.dateKey(for: Date()))
         let service = SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
         let snapshot = await service.synchronizeIfEnabled(localActivityDataAggregates: [local], trigger: .manual)
         #expect(!snapshot.isActivityDataComplete)
@@ -426,7 +425,7 @@ struct SyncRecoveryTests {
             directoryURL: directory.url,
             isEnabled: { true }
         )
-        var local = try directory.activityDataAggregate(date: HistoryStorage.dateKey(for: Date()))
+        var local = TestFixtures.activityDataAggregate(date: HistoryStorage.dateKey(for: Date()))
         local.eventCount = 1
         _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [local], trigger: .manual)
         #expect(await database.activityDataRecords().isEmpty)
@@ -518,7 +517,6 @@ private actor SyncDatabaseFixture: SyncDatabase {
     private(set) var deletedIDs: [CKRecord.ID] = []
     private var changesRecord: CKRecord?
     private var deletionFails = false
-    private var activityDataSaveCallback: (@Sendable () -> Void)?
 
     var remainingChangesPages: Int {
         changesPages.count
@@ -534,10 +532,6 @@ private actor SyncDatabaseFixture: SyncDatabase {
 
     func failActivityDataUpload(on date: String) {
         failingDate = date
-    }
-
-    func afterActivityDataSave(_ callback: @escaping @Sendable () -> Void) {
-        activityDataSaveCallback = callback
     }
 
     func activityDataRecords() -> [CKRecord] {
@@ -576,7 +570,6 @@ private actor SyncDatabaseFixture: SyncDatabase {
     func repair() {
         failingName = nil
         failingDate = nil
-        activityDataSaveCallback = nil
     }
 
     func records(for ids: [CKRecord.ID], desiredKeys _: [CKRecord.FieldKey]?) async throws -> Records {
@@ -603,9 +596,6 @@ private actor SyncDatabaseFixture: SyncDatabase {
                 stored[record.recordID] = record.copy() as? CKRecord
                 saved[record.recordID] = .success(record)
                 savedTypes.append(record.recordType)
-                if record.recordType == "ActivityData" {
-                    activityDataSaveCallback?()
-                }
             }
         }
         deletedIDs.append(contentsOf: ids)
@@ -1040,7 +1030,7 @@ extension SyncRecoveryTests {
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
         var old = try #require(try await store.recordObservations([observation], now: now).first)
         old.tokenUsage = Self.counts(120)
-        try await directory.seedTokenUsageAggregates([old], now: now)
+        try directory.seedTokenUsageAggregates([old])
         let database = SyncDatabaseFixture()
         let sync = TokenUsageSync(database: database, directoryURL: directory.url.appendingPathComponent("Sync/tokenUsage"), isEnabled: { true })
         try await sync.synchronize(local: [old], accountScopedDeviceID: "device", zoneID: Self.zone)
@@ -1109,7 +1099,7 @@ extension SyncRecoveryTests {
         defer { try? directory.remove() }
         let database = SyncDatabaseFixture()
         let date = HistoryStorage.dateKey(for: Date())
-        let local = try directory.activityDataAggregate(date: date)
+        let local = TestFixtures.activityDataAggregate(date: date)
         let service = SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
         _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [local], localTokenUsageAggregates: [Self.turn(0)], trigger: .manual)
 

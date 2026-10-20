@@ -69,6 +69,7 @@ final class CodexStatusViewModel: ObservableObject {
     }
 
     private let service: CodexStatusService
+    private let serviceStatusMonitor: CodexServiceStatusMonitor?
     private let defaults: UserDefaults
     private var autoRefreshTask: Task<Void, Never>?
     private var pendingRefreshTask: Task<Void, Never>?
@@ -79,8 +80,13 @@ final class CodexStatusViewModel: ObservableObject {
     private let refreshCoordinator = RefreshTaskCoordinator()
     private var connectionInfoGeneration: UInt64 = 0
 
-    init(service: CodexStatusService = CodexStatusService(), defaults: UserDefaults = .standard) {
+    init(
+        service: CodexStatusService = CodexStatusService(),
+        serviceStatusMonitor: CodexServiceStatusMonitor? = nil,
+        defaults: UserDefaults = .standard
+    ) {
         self.service = service
+        self.serviceStatusMonitor = serviceStatusMonitor
         self.defaults = defaults
         dataUpdateInterval = (defaults.object(forKey: Self.dataUpdateIntervalKey) as? Int)
             .flatMap(DataUpdateInterval.init(rawValue:)) ?? .oneMinute
@@ -159,11 +165,15 @@ final class CodexStatusViewModel: ObservableObject {
 
         refreshCoordinator.run(
             setRefreshing: { [weak self] in self?.setRefreshing($0) },
-            operation: { [service = self.service] in
-                await (
+            operation: { [service = self.service, serviceStatusMonitor = self.serviceStatusMonitor] in
+                // 账户推送只更新局部数据, 普通刷新等待服务状态后统一推进更新时间
+                async let serviceStatus: Void? = trigger == .accountNotification ? nil : serviceStatusMonitor?.refresh()
+                let result = await (
                     fetch: service.fetchOutcome(),
                     connectionInfo: service.currentConnectionInfo()
                 )
+                await serviceStatus
+                return result
             },
             commit: { [weak self] result in
                 guard let self else {

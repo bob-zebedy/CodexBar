@@ -404,17 +404,22 @@ extension HistoryDatabaseTests {
         let now = Date()
         let date = HistoryStorage.dateKey(for: now)
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
-        _ = try await store.recordObservations([TestFixtures.tokenUsageObservation(at: now, tokenUsage: tokenUsage(20))], now: now)
+        let before = try await store.recordObservations([TestFixtures.tokenUsageObservation(at: now, tokenUsage: tokenUsage(20))], now: now)
         try await store.appendObservation(TestFixtures.tokenUsageObservation(at: now, tokenUsage: tokenUsage(30)), now: now)
         try database.append(event("activityData", at: now))
         try database.execute("CREATE TRIGGER reject_tokenUsage BEFORE UPDATE OF tokenUsage ON aggregates BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
-        #expect(try await store.loadSnapshot(now: now).coverage == .partial)
+        let failed = try await store.loadSnapshot(now: now)
+        #expect(failed.coverage == .partial)
+        #expect(failed.aggregates == before)
         #expect(try database.aggregateActivityData(date: date).eventCount == 1)
         #expect(try database.tokenUsageAggregates().first?.tokenUsage == tokenUsage(20))
         #expect(try database.pendingActivityDataDates().isEmpty)
         #expect(try database.pendingTokenUsageDates() == [date])
         try database.execute("DROP TRIGGER reject_tokenUsage")
-        #expect(try await store.refresh(now: now).first?.tokenUsage == tokenUsage(50))
+        let recovered = try await store.loadSnapshot(now: now)
+        #expect(recovered.coverage == .complete)
+        #expect(recovered.aggregates.first?.tokenUsage == tokenUsage(50))
+        #expect(try await store.refresh(now: now) == recovered.aggregates)
         #expect(try database.activityDataAggregates().first?.eventCount == 1)
     }
 
@@ -522,25 +527,6 @@ extension HistoryDatabaseTests {
         let rebuilt = try await store.rebuild(for: [HistoryStorage.dateKey(for: yesterday)])
         #expect(rebuilt.eventCount == 0)
         #expect(rebuilt.failedDateKeys == [HistoryStorage.dateKey(for: yesterday)])
-    }
-
-    @Test func failedDailyCommitKeepsCursorAndRetryCountsIncrementOnce() async throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let now = Date()
-        let store = TokenUsageHistoryStore(directoryURL: directory.url)
-        let before = try await store.recordObservations([TestFixtures.tokenUsageObservation(at: now, tokenUsage: tokenUsage(10))], now: now)
-        try await store.appendObservation(TestFixtures.tokenUsageObservation(at: now, tokenUsage: tokenUsage(20)), now: now)
-        let database = try HistoryDatabase(directoryURL: directory.url)
-        try database.execute("CREATE TRIGGER reject_tokenUsage BEFORE UPDATE OF tokenUsage ON aggregates BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
-        let failed = try await store.loadSnapshot(now: now)
-        #expect(failed.coverage == .partial)
-        #expect(failed.aggregates == before)
-        try database.execute("DROP TRIGGER reject_tokenUsage")
-        let recovered = try await store.loadSnapshot(now: now)
-        #expect(recovered.coverage == .complete)
-        #expect(recovered.aggregates.first?.tokenUsage == tokenUsage(30))
-        #expect(try await store.refresh(now: now) == recovered.aggregates)
     }
 
     @Test func missingObservationCannotReplaceSavedDailyTotalDuringRebuild() async throws {

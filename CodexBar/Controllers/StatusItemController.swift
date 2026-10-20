@@ -157,7 +157,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     func uninstall() {
         closeMenuSurface(animated: false)
-        serviceStatusMonitor.setActive(false, refreshInterval: .seconds(viewModel.dataUpdateInterval.duration))
+        serviceStatusMonitor.setEnabled(false)
         auxiliaryWindowFocusRestoreTask?.cancel()
         statusIconExpirationTask?.cancel()
         statusIconHostingView?.removeFromSuperview()
@@ -274,18 +274,17 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - 订阅与全局快捷键
 
     private func observeViewModel() {
-        Publishers.CombineLatest3(
-            menuSurfaceVisibility.$isVisible,
-            mainPanelSettings.$layout,
-            viewModel.$dataUpdateInterval
-        )
-        .sink { [weak self] isVisible, layout, interval in
-            self?.serviceStatusMonitor.setActive(
-                isVisible && layout.isVisible(.serviceStatus),
-                refreshInterval: .seconds(interval.duration)
-            )
-        }
-        .store(in: &cancellables)
+        mainPanelSettings.$layout
+            .map { $0.isVisible(.serviceStatus) }
+            .removeDuplicates()
+            .sink { [weak self] isEnabled in
+                guard let self else { return }
+                serviceStatusMonitor.setEnabled(isEnabled)
+                if isEnabled, viewModel.isRefreshing || viewModel.autoRefreshCountdownStartedAt != nil {
+                    viewModel.refreshAfterCurrent(trigger: .settings)
+                }
+            }
+            .store(in: &cancellables)
 
         let hasTaskCenterContent = activityMonitor.$snapshot
             .map(\.hasTaskCenterContent)

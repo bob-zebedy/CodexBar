@@ -38,6 +38,12 @@ nonisolated enum TestFixtures {
         TokenUsageObservation(id: id, observedAt: date, previous: previous, current: TokenUsageUpdate(total: previous.adding(tokenUsage)!, last: tokenUsage))
     }
 
+    static func activityDataAggregate(date: String, events: Int = 1) -> ActivityDataAggregate {
+        var aggregate = ActivityDataAggregate(date: date)
+        aggregate.eventCount = events
+        return aggregate
+    }
+
     static func aggregate(
         events: Int = 2,
         turns: Int = 1
@@ -71,7 +77,7 @@ nonisolated struct TestDirectory {
         try write(Data(text.utf8), to: relativePath)
     }
 
-    func seedTokenUsageAggregates(_ aggregates: [TokenUsageAggregate], now _: Date) async throws {
+    func seedTokenUsageAggregates(_ aggregates: [TokenUsageAggregate]) throws {
         let database = try HistoryDatabase(directoryURL: url)
         for var aggregate in aggregates {
             aggregate.position = 0
@@ -128,14 +134,6 @@ struct TestPreferences {
 
     func remove() {
         defaults.removePersistentDomain(forName: suite)
-    }
-}
-
-nonisolated extension TestDirectory {
-    func activityDataAggregate(date: String, events: Int = 1) throws -> ActivityDataAggregate {
-        var aggregate = ActivityDataAggregate(date: date)
-        aggregate.eventCount = events
-        return aggregate
     }
 }
 

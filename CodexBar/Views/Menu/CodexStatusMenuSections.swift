@@ -275,8 +275,7 @@ struct QuotaLimitsSection: View {
 /// 底部更新时间行, 同时承载 Sparkle 被动更新提示
 struct UpdatedAtRow: View {
     @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
-    let snapshot: CodexQuotaSnapshot
-    let countdownStartedAt: Date
+    let updatedAt: Date
     let countdownInterval: TimeInterval
     let isCountdownActive: Bool
     let syncDisplayState: SyncDisplayState
@@ -287,7 +286,7 @@ struct UpdatedAtRow: View {
         HStack {
             HStack(spacing: MenuMetrics.statusIconSpacing) {
                 AutoRefreshCountdownTimeline(
-                    startedAt: countdownStartedAt,
+                    startedAt: updatedAt,
                     interval: countdownInterval,
                     isActive: isCountdownActive,
                     color: .blue
@@ -297,14 +296,14 @@ struct UpdatedAtRow: View {
                     Text("usage.status.last-updated")
                         .foregroundStyle(Self.secondaryTextColor)
 
-                    Text(Self.timeFormatter.string(from: snapshot.generatedAt))
+                    Text(Self.timeFormatter.string(from: updatedAt))
                         .monospacedDigit()
-                        .numericTransition(value: snapshot.generatedAt, comparison: snapshot.generatedAt.timeIntervalSinceReferenceDate, enabled: allowsAnimations)
+                        .numericTransition(value: updatedAt, comparison: updatedAt.timeIntervalSinceReferenceDate, enabled: allowsAnimations)
                         .foregroundStyle(Self.secondaryTextColor)
                 }
             }
             .font(.caption2)
-            .animation(Metrics.statusAnimation, value: snapshot.generatedAt)
+            .animation(Metrics.statusAnimation, value: updatedAt)
 
             Spacer()
 

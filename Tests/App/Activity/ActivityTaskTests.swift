@@ -529,10 +529,6 @@ struct ActivityTaskTests {
         return monitor
     }
 
-    private nonisolated func makeStatusService(suiteName: String) -> CodexStatusService {
-        CodexStatusService(socketURL: URL(fileURLWithPath: "/tmp/\(suiteName).sock"))
-    }
-
     @Test func subagentCountDeduplicatesAndRejectsOlderEvents() {
         var task = makeTask()
         #expect(task.snapshot.activeSubagentCount == nil)

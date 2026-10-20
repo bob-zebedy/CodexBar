@@ -11,21 +11,15 @@ final class CodexServiceStatusMonitor: ObservableObject {
 
     @Published private(set) var state: State = .checking
     private let fetch: @Sendable () async throws -> CodexServiceStatus
-    private var refreshInterval: Duration
+    private var isEnabled = false
     private var refreshTask: Task<Void, Never>?
-    private var lastRefresh: ContinuousClock.Instant?
-
-    private var nextRefresh: ContinuousClock.Instant? {
-        lastRefresh?.advanced(by: refreshInterval)
-    }
 
     convenience init() {
         let service = CodexServiceStatusService()
         self.init(fetch: { try await service.fetch() })
     }
 
-    init(refreshInterval: Duration = .seconds(60), fetch: @escaping @Sendable () async throws -> CodexServiceStatus) {
-        self.refreshInterval = refreshInterval
+    init(fetch: @escaping @Sendable () async throws -> CodexServiceStatus) {
         self.fetch = fetch
     }
 
@@ -33,39 +27,30 @@ final class CodexServiceStatusMonitor: ObservableObject {
         refreshTask?.cancel()
     }
 
-    func setActive(_ active: Bool, refreshInterval: Duration) {
-        let intervalChanged = self.refreshInterval != refreshInterval
-        self.refreshInterval = refreshInterval
-        if !active || intervalChanged {
+    func setEnabled(_ enabled: Bool) {
+        isEnabled = enabled
+        if !enabled {
             refreshTask?.cancel()
             refreshTask = nil
         }
-        guard active, refreshTask == nil else { return }
-        if nextRefresh.map({ $0 <= .now }) ?? true {
-            state = .checking
-        }
-        refreshTask = Task { [weak self] in
-            while !Task.isCancelled {
-                if let deadline = self?.nextRefresh {
-                    do { try await Task.sleep(until: deadline, clock: ContinuousClock()) } catch { return }
-                }
-                guard !Task.isCancelled, let self else { return }
-                await refresh()
-            }
-        }
     }
 
-    private func refresh() async {
-        do {
-            let status = try await fetch()
-            try Task.checkCancellation()
-            lastRefresh = .now
-            state = .available(status)
-        } catch {
-            // 隐藏后取消的旧请求不能覆盖重开面板后的结果
-            guard !Task.isCancelled else { return }
-            lastRefresh = .now
-            state = .unavailable
+    func refresh() async {
+        guard isEnabled, !Task.isCancelled else { return }
+        if refreshTask == nil {
+            refreshTask = Task { [weak self, fetch] in
+                let result: State
+                do {
+                    result = try await .available(fetch())
+                } catch {
+                    result = .unavailable
+                }
+                // 关闭分区后取消的旧请求不能覆盖重新启用后的结果
+                guard !Task.isCancelled, let self else { return }
+                state = result
+                refreshTask = nil
+            }
         }
+        await refreshTask?.value
     }
 }

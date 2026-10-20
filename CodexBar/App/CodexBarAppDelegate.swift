@@ -6,7 +6,7 @@ import os
 final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     private lazy var codexStatusService = CodexStatusService(startup: appServerStartup)
     private lazy var appServerStartup = AppServerStartup()
-    lazy var viewModel = CodexStatusViewModel(service: codexStatusService)
+    lazy var viewModel = CodexStatusViewModel(service: codexStatusService, serviceStatusMonitor: serviceStatusMonitor)
     let historyViewModel = HistoryViewModel()
     lazy var tuiNotificationSettings = TUINotificationSettings(
         codexStatusService: codexStatusService

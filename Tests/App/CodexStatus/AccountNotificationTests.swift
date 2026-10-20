@@ -329,19 +329,24 @@ extension AccountNotificationTests {
         try server.finish()
     }
 
-    @Test(arguments: ["serverError", "invalidPayload", "signedOut"])
-    func failedAuthenticationRefreshCannotFallBackToSupplementalCache(failure: String) async throws {
+    @Test(arguments: [
+        ("serverError", true), ("invalidPayload", true), ("signedOut", true),
+        ("signedOut", false), ("authentication", false), ("serverError", false),
+        ("invalidPayload", false), ("connectionClosed", false)
+    ])
+    func authenticationRefreshFailurePreservesOutcomeAndRejectsCache(failure: String, hasCache: Bool) async throws {
         let server = try SharedServerFixture { peer in
             let initialize = try peer.readMessage()
             try peer.reply(to: initialize, result: ["userAgent": "codex/0.162.0"])
             _ = try peer.readMessage()
-            for round in 0 ..< 2 {
+            let rounds = hasCache ? 2 : 1
+            for round in 0 ..< rounds {
                 let account = try peer.readMessage()
                 #expect(account["method"] as? String == "account/read")
                 try peer.reply(to: account, result: ["account": ["type": "apiKey"]])
                 let limits = try peer.readMessage()
                 #expect(limits["method"] as? String == "account/rateLimits/read")
-                if round == 0 {
+                if round < rounds - 1 {
                     try peer.reply(to: limits, result: ["rateLimits": [:], "ordinaryUsageAllowed": true])
                     let usage = try peer.readMessage()
                     #expect(usage["method"] as? String == "account/usage/read")
@@ -355,8 +360,11 @@ extension AccountNotificationTests {
                         switch failure {
                         case "signedOut": try peer.reply(to: refresh, result: ["account": NSNull()])
                         case "invalidPayload": try peer.reply(to: refresh, result: [:])
+                        case "connectionClosed": return
                         default:
-                            try peer.send(["id": #require(refresh["id"]), "error": ["code": -32000, "message": "upstream network request failed"]])
+                            try peer.send(["id": #require(refresh["id"]), "error": [
+                                "code": -32000, "message": failure == "authentication" ? "codex account authentication required" : "upstream network request failed"
+                            ]])
                         }
                     }
                 }
@@ -364,17 +372,23 @@ extension AccountNotificationTests {
         }
         defer { server.close() }
         let service = CodexStatusService(socketURL: server.url, logStorage: nil)
-        guard case .data = await service.fetchOutcome().outcome else {
-            Issue.record("Initial read did not populate the cache")
-            return
+        if hasCache {
+            guard case .data = await service.fetchOutcome().outcome else {
+                Issue.record("Initial read did not populate the cache")
+                return
+            }
         }
         let result = await service.fetchOutcome()
         #expect(result.trace.rateLimits == nil && result.trace.usage == nil)
         #expect(result.trace.failureStage == .snapshot)
+        if !hasCache {
+            #expect(result.trace.connection == .new)
+        }
         switch result.outcome {
         case .notLoggedIn: #expect(failure == "signedOut")
-        case .initializationFailed: #expect(failure != "signedOut")
-        default: Issue.record("Authentication refresh failure was hidden by cached data")
+        case .authenticationRequired: #expect(failure == "authentication")
+        case .initializationFailed: #expect(["serverError", "invalidPayload", "connectionClosed"].contains(failure))
+        default: Issue.record("Authentication refresh failure was hidden or misclassified")
         }
         try server.finish()
     }
@@ -472,45 +486,5 @@ extension AccountNotificationTests {
     @Test func missingAccountFieldIsNotSignedOut() throws {
         #expect(throws: DecodingError.self) { try TestFixtures.decode(AccountReadResponse.self, "{}") }
         #expect(try TestFixtures.decode(AccountReadResponse.self, "{\"account\":null}").account == nil)
-    }
-
-    @Test(arguments: ["signedOut", "authentication", "serverError", "invalidPayload", "connectionClosed"])
-    func refreshFailureKeepsAuthenticationSeparateFromReadFailure(result: String) async throws {
-        let server = try SharedServerFixture { peer in
-            let initialize = try peer.readMessage()
-            try peer.reply(to: initialize, result: ["userAgent": "codex/0.162.0"])
-            _ = try peer.readMessage()
-            let account = try peer.readMessage()
-            try peer.reply(to: account, result: ["account": ["type": "apiKey"]])
-            let limits = try peer.readMessage()
-            #expect(limits["method"] as? String == "account/rateLimits/read")
-            try peer.send(["id": #require(limits["id"]), "error": ["code": -32000, "message": "codex account authentication required"]])
-            for _ in 0 ..< (result == "serverError" ? 2 : 1) {
-                let refresh = try peer.readMessage()
-                #expect(refresh["method"] as? String == "account/read")
-                #expect((refresh["params"] as? [String: Any])?["refreshToken"] as? Bool == true)
-                switch result {
-                case "signedOut": try peer.reply(to: refresh, result: ["account": NSNull()])
-                case "invalidPayload": try peer.reply(to: refresh, result: [:])
-                case "connectionClosed": return
-                default:
-                    try peer.send(["id": #require(refresh["id"]), "error": [
-                        "code": -32000, "message": result == "authentication" ? "codex account authentication required" : "upstream network request failed"
-                    ]])
-                }
-            }
-        }
-        defer { server.close() }
-        let service = CodexStatusService(socketURL: server.url, logStorage: nil)
-        let fetched = await service.fetchOutcome()
-        #expect(fetched.trace.failureStage == .snapshot)
-        #expect(fetched.trace.connection == .new)
-        switch fetched.outcome {
-        case .notLoggedIn: #expect(result == "signedOut")
-        case .authenticationRequired: #expect(result == "authentication")
-        case .initializationFailed: #expect(["serverError", "invalidPayload", "connectionClosed"].contains(result))
-        default: Issue.record("Unexpected fetch outcome")
-        }
-        try server.finish()
     }
 }

@@ -142,26 +142,22 @@ struct ActivityTokenUsageTests {
     }
 
     @Test func activeUsageDoesNotCarryAcrossTurnsOrKeepUnavailableData() throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        let monitor = try makeMonitor(directory: directory, preferences: preferences)
+        var graph = ActivityTaskGraph()
         let event = TestFixtures.event(turn: "turn-b")
         let key = try #require(ActivityTaskKey(event: event))
-        monitor.graph.tasks[key] = ActivityTask(
+        graph.tasks[key] = ActivityTask(
             displayID: UUID(), key: key, event: event, state: .running,
             startedAt: TestFixtures.now, progressGeneration: 1
         )
-        monitor.graph.applyActiveTokenUsage([state(reference("thread-a", "turn-a"))])
-        #expect(monitor.graph.tasks[key]?.tokenUsage == nil)
+        graph.applyActiveTokenUsage([state(reference("thread-a", "turn-a"))])
+        #expect(graph.tasks[key]?.tokenUsage == nil)
         var current = state(reference("thread-a", "turn-b"), terminal: nil)
         current.rootTurnID = "turn-b"
-        monitor.graph.applyActiveTokenUsage([current])
-        #expect(monitor.graph.tasks[key]?.tokenUsage?.totalTokens == 110)
+        graph.applyActiveTokenUsage([current])
+        #expect(graph.tasks[key]?.tokenUsage?.totalTokens == 110)
         current.readStatus = .unavailable
-        monitor.graph.applyActiveTokenUsage([current])
-        #expect(monitor.graph.tasks[key]?.tokenUsage == nil)
+        graph.applyActiveTokenUsage([current])
+        #expect(graph.tasks[key]?.tokenUsage == nil)
     }
 
     @Test func overflowIsRejectedAndConfirmedZeroRemainsAvailable() {
@@ -244,11 +240,7 @@ struct ActivityTokenUsageTests {
     }
 
     @Test func laterTurnPendingAgentMustNotEraseCompletedTurnUsage() throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        let monitor = try makeMonitor(directory: directory, preferences: preferences)
+        var graph = ActivityTaskGraph()
         let first = TestFixtures.event()
         let firstKey = try #require(ActivityTaskKey(event: first))
         let task = ActivityTask(
@@ -256,32 +248,32 @@ struct ActivityTokenUsageTests {
             startedAt: TestFixtures.now, progressGeneration: 1
         )
         var transitions: [ActivityTransition] = []
-        monitor.graph.resolveTerminal(.completed(at: TestFixtures.now, duration: 1), task: task, key: firstKey, abortFallback: TestFixtures.now, into: &transitions)
+        graph.resolveTerminal(.completed(at: TestFixtures.now, duration: 1), task: task, key: firstKey, abortFallback: TestFixtures.now, into: &transitions)
         let firstState = state(reference("thread-a", "turn-a"))
-        monitor.graph.applyTerminalTokenUsage([firstState])
-        #expect(monitor.graph.completions.first?.tokenUsage?.totalTokens == 110)
+        graph.applyTerminalTokenUsage([firstState])
+        #expect(graph.completions.first?.tokenUsage?.totalTokens == 110)
         let second = TestFixtures.event(at: TestFixtures.now.addingTimeInterval(2), turn: "turn-b")
         let secondKey = try #require(ActivityTaskKey(event: second))
-        monitor.graph.tasks[secondKey] = ActivityTask(
+        graph.tasks[secondKey] = ActivityTask(
             displayID: UUID(), key: secondKey, event: second, state: .running,
             startedAt: second.timestamp, progressGeneration: 2
         )
         let child = TestFixtures.event(.subagentStarted, at: TestFixtures.now.addingTimeInterval(3), turn: "child-turn-b", agentThreadID: "child-b")
-        let observedResult11 = monitor.graph.deferUnassociatedSubagentEvent(child, source: .live)
+        let observedResult11 = graph.deferUnassociatedSubagentEvent(child, source: .live)
         #expect(observedResult11)
-        monitor.graph.applyTerminalTokenUsage([firstState])
-        #expect(monitor.graph.completions.first?.tokenUsage?.totalTokens == 110)
+        graph.applyTerminalTokenUsage([firstState])
+        #expect(graph.completions.first?.tokenUsage?.totalTokens == 110)
         let lateChild = reference("child-a", "child-turn-a")
-        monitor.graph.subagentTurnLinks[lateChild] = (firstKey, TestFixtures.now)
-        monitor.graph.applyTerminalTokenUsage([firstState])
-        #expect(monitor.graph.completions.first?.tokenUsage?.totalTokens == 110)
-        monitor.graph.applyTerminalTokenUsage([firstState, state(lateChild, input: 200)])
-        #expect(monitor.graph.completions.first?.tokenUsage?.totalTokens == 320)
+        graph.subagentTurnLinks[lateChild] = (firstKey, TestFixtures.now)
+        graph.applyTerminalTokenUsage([firstState])
+        #expect(graph.completions.first?.tokenUsage?.totalTokens == 110)
+        graph.applyTerminalTokenUsage([firstState, state(lateChild, input: 200)])
+        #expect(graph.completions.first?.tokenUsage?.totalTokens == 320)
         var unavailable = firstState
         unavailable.readStatus = .unavailable
-        monitor.graph.applyTerminalTokenUsage([unavailable])
-        _ = monitor.graph.terminalTokenUsageReferences()
-        #expect(monitor.graph.completions.first?.tokenUsage?.totalTokens == 320)
+        graph.applyTerminalTokenUsage([unavailable])
+        _ = graph.terminalTokenUsageReferences()
+        #expect(graph.completions.first?.tokenUsage?.totalTokens == 320)
     }
 
     @Test(arguments: [false, true])
@@ -326,16 +318,8 @@ struct ActivityTokenUsageTests {
 
     @Test(arguments: [false, true])
     func liveTerminalPresentationPreservesInterruptBehavior(interrupted: Bool) throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        let monitor = try makeMonitor(directory: directory, preferences: preferences)
-        monitor.isActivitySourceHealthy = true
-        monitor.isProtectionRecoveryInProgress = false
+        var graph = ActivityTaskGraph()
         let now = Date()
-        monitor.turnTransitionNotBefore = now.addingTimeInterval(-1)
-        monitor.terminalPresentationNotBefore = now.addingTimeInterval(-1)
         let event = TestFixtures.event(.turnAborted, at: now)
         let key = try #require(ActivityTaskKey(event: event))
         let task = ActivityTask(
@@ -344,21 +328,21 @@ struct ActivityTokenUsageTests {
         )
         var transitions: [ActivityTransition] = []
         if interrupted {
-            monitor.graph.tasks[key] = task
-            monitor.graph.finishTask(from: event, source: .live, into: &transitions)
-            monitor.graph.finishTask(from: event, source: .live, into: &transitions)
-            #expect(monitor.graph.tasks.isEmpty)
-            #expect(monitor.graph.terminations.count == 1)
+            graph.tasks[key] = task
+            graph.finishTask(from: event, source: .live, into: &transitions)
+            graph.finishTask(from: event, source: .live, into: &transitions)
+            #expect(graph.tasks.isEmpty)
+            #expect(graph.terminations.count == 1)
         } else {
-            monitor.graph.resolveTerminal(
+            graph.resolveTerminal(
                 .completed(at: now, duration: 1), task: task, key: key,
                 abortFallback: now, into: &transitions
             )
-            #expect(monitor.graph.completions.count == 1)
+            #expect(graph.completions.count == 1)
         }
         #expect(transitions.count == (interrupted ? 0 : 1))
-        #expect(monitor.graph.terminalEvents.count == 1)
-        #expect(monitor.graph.terminalTokenUsageRequests.count == 1)
+        #expect(graph.terminalEvents.count == 1)
+        #expect(graph.terminalTokenUsageRequests.count == 1)
     }
 
     @Test(arguments: [ActivityTaskState.running, .waitingApproval])
@@ -443,19 +427,11 @@ struct ActivityTokenUsageTests {
             protectionStore: ProtectionStore(directoryURL: directory.url)
         )
     }
-
-    private nonisolated func makeStatusService(suiteName: String) -> CodexStatusService {
-        CodexStatusService(socketURL: URL(fileURLWithPath: "/tmp/\(suiteName).sock"))
-    }
 }
 
 extension ActivityTokenUsageTests {
     @Test func unknownCompletionTimeDoesNotInventDurationOrRepeatCompletion() throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        let monitor = try makeMonitor(directory: directory, preferences: preferences)
+        var graph = ActivityTaskGraph()
         let now = Date()
         let event = TestFixtures.event(at: now.addingTimeInterval(-60))
         let key = try #require(ActivityTaskKey(event: event))
@@ -468,7 +444,7 @@ extension ActivityTokenUsageTests {
             progressGeneration: 1
         )
         var transitions: [ActivityTransition] = []
-        monitor.graph.resolveTerminal(
+        graph.resolveTerminal(
             .completed(at: nil, duration: nil),
             task: task,
             key: key,
@@ -476,15 +452,15 @@ extension ActivityTokenUsageTests {
             publishesEvents: false,
             into: &transitions
         )
-        monitor.graph.resolveTerminal(
+        graph.resolveTerminal(
             .completed(at: now.addingTimeInterval(-10), duration: 10),
             task: task,
             key: key,
             abortFallback: now,
             into: &transitions
         )
-        #expect(monitor.graph.completions.count == 1)
-        #expect(monitor.graph.completions.first?.duration == nil)
+        #expect(graph.completions.count == 1)
+        #expect(graph.completions.first?.duration == nil)
         #expect(transitions.isEmpty)
     }
 }

@@ -97,64 +97,128 @@ struct CodexServiceStatusTests {
         #expect(CodexServiceStatus.operational.componentNames.isEmpty)
     }
 
-    @Test func monitorCachesAcrossReopeningAndStopsWhileHidden() async throws {
+    @Test func disabledMonitorSkipsRefresh() async throws {
         let probe = ServiceStatusProbe()
         let monitor = CodexServiceStatusMonitor(fetch: { try await probe.fetch() })
-        defer { monitor.setActive(false, refreshInterval: .seconds(60)) }
-        monitor.setActive(false, refreshInterval: .seconds(60))
+        await monitor.refresh()
         #expect(await probe.calls == 0)
-        monitor.setActive(true, refreshInterval: .seconds(60))
-        monitor.setActive(true, refreshInterval: .seconds(60))
-        try await wait { monitor.state == .available(.operational) }
-        monitor.setActive(false, refreshInterval: .seconds(60))
-        monitor.setActive(true, refreshInterval: .seconds(60))
-        try await Task.sleep(for: .milliseconds(30))
-        #expect(await probe.calls == 1)
-        monitor.setActive(false, refreshInterval: .milliseconds(10))
+        monitor.setEnabled(true)
+        await monitor.refresh()
+        #expect(monitor.state == .available(.operational))
+        monitor.setEnabled(false)
+        await monitor.refresh()
         try await Task.sleep(for: .milliseconds(30))
         #expect(await probe.calls == 1)
     }
 
-    @Test func changingIntervalReschedulesFromLastRefresh() async throws {
+    @Test func eachRefreshFetchesWithoutAnIndependentTimer() async throws {
         let probe = ServiceStatusProbe()
         let monitor = CodexServiceStatusMonitor(fetch: { try await probe.fetch() })
-        defer { monitor.setActive(false, refreshInterval: .seconds(60)) }
-        monitor.setActive(true, refreshInterval: .seconds(60))
-        try await wait { monitor.state == .available(.operational) }
-        monitor.setActive(true, refreshInterval: .milliseconds(10))
-        try await wait { await probe.calls >= 2 }
-        monitor.setActive(true, refreshInterval: .seconds(60))
-        let count = await probe.calls
+        monitor.setEnabled(true)
+        await monitor.refresh()
+        await monitor.refresh()
+        #expect(await probe.calls == 2)
         try await Task.sleep(for: .milliseconds(40))
-        #expect(await probe.calls == count)
+        #expect(await probe.calls == 2)
     }
 
-    @Test func failedRefreshDoesNotKeepShowingHealthy() async throws {
-        let probe = ServiceStatusProbe()
-        let monitor = CodexServiceStatusMonitor(fetch: { try await probe.fetch() })
-        defer { monitor.setActive(false, refreshInterval: .seconds(60)) }
-        monitor.setActive(true, refreshInterval: .seconds(60))
-        try await wait { monitor.state == .available(.operational) }
-        await probe.fail()
-        monitor.setActive(true, refreshInterval: .milliseconds(10))
-        try await wait { monitor.state == .unavailable }
-        monitor.setActive(false, refreshInterval: .seconds(60))
-        #expect(monitor.state == .unavailable)
-    }
-
-    @Test func cancelledResultCannotOverwriteReopenedPanel() async throws {
+    @Test func concurrentRefreshesShareThePendingRequest() async throws {
         let probe = ServiceStatusProbe(holdsFirst: true)
         let monitor = CodexServiceStatusMonitor(fetch: { try await probe.fetch() })
-        defer { monitor.setActive(false, refreshInterval: .seconds(60)) }
-        monitor.setActive(true, refreshInterval: .seconds(60))
+        defer { monitor.setEnabled(false) }
+        monitor.setEnabled(true)
+        let first = Task { await monitor.refresh() }
         try await wait { await probe.calls == 1 }
-        monitor.setActive(false, refreshInterval: .seconds(60))
-        monitor.setActive(true, refreshInterval: .seconds(60))
-        let outage = CodexServiceStatus(level: .fullOutage, componentNames: ["CLI"])
-        try await wait { monitor.state == .available(outage) }
-        await probe.releaseFirst()
+        let second = Task { await monitor.refresh() }
         try await Task.sleep(for: .milliseconds(20))
+        #expect(await probe.calls == 1)
+        await probe.releaseFirst()
+        await first.value
+        await second.value
+        #expect(monitor.state == .available(.operational))
+    }
+
+    @Test func failedRefreshDoesNotKeepShowingHealthy() async {
+        let probe = ServiceStatusProbe()
+        let monitor = CodexServiceStatusMonitor(fetch: { try await probe.fetch() })
+        monitor.setEnabled(true)
+        await monitor.refresh()
+        #expect(monitor.state == .available(.operational))
+        await probe.fail()
+        await monitor.refresh()
+        #expect(monitor.state == .unavailable)
+        await probe.recover()
+        await monitor.refresh()
+        #expect(monitor.state == .available(.operational))
+    }
+
+    @Test func cancelledResultCannotOverwriteReenabledMonitor() async throws {
+        let probe = ServiceStatusProbe(holdsFirst: true)
+        let monitor = CodexServiceStatusMonitor(fetch: { try await probe.fetch() })
+        defer { monitor.setEnabled(false) }
+        monitor.setEnabled(true)
+        let first = Task { await monitor.refresh() }
+        try await wait { await probe.calls == 1 }
+        monitor.setEnabled(false)
+        monitor.setEnabled(true)
+        await monitor.refresh()
+        let outage = CodexServiceStatus(level: .fullOutage, componentNames: ["CLI"])
         #expect(monitor.state == .available(outage))
+        await probe.releaseFirst()
+        await first.value
+        #expect(monitor.state == .available(outage))
+        #expect(await probe.calls == 2)
+    }
+
+    @Test(arguments: [LogTrigger.manual, .auto, .launch, .panelOpen, .settings])
+    func sharedUpdateTimeWaitsForServiceStatus(_ trigger: LogTrigger) async throws {
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let probe = ServiceStatusProbe(holdsFirst: true)
+        let monitor = CodexServiceStatusMonitor(fetch: { try await probe.fetch() })
+        defer { monitor.setEnabled(false) }
+        monitor.setEnabled(true)
+        let model = CodexStatusViewModel(
+            service: CodexStatusService(socketURL: URL(fileURLWithPath: "/tmp/\(preferences.suite).sock"), logStorage: nil),
+            serviceStatusMonitor: monitor,
+            defaults: preferences.defaults
+        )
+        model.refresh(trigger: trigger)
+        try await wait { await probe.calls == 1 }
+        #expect(model.isRefreshing)
+        #expect(model.autoRefreshCountdownStartedAt == nil)
+        model.refresh(trigger: .manual)
+        await probe.releaseFirst()
+        try await wait { !model.isRefreshing }
+        #expect(monitor.state == .available(.operational))
+        #expect(model.autoRefreshCountdownStartedAt != nil)
+        #expect(await probe.calls == 1)
+    }
+
+    @Test func notificationsPreserveSharedTimeAndManualRefreshIncludesServiceFailure() async throws {
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let probe = ServiceStatusProbe()
+        let monitor = CodexServiceStatusMonitor(fetch: { try await probe.fetch() })
+        monitor.setEnabled(true)
+        let model = CodexStatusViewModel(
+            service: CodexStatusService(socketURL: URL(fileURLWithPath: "/tmp/\(preferences.suite).sock"), logStorage: nil),
+            serviceStatusMonitor: monitor,
+            defaults: preferences.defaults
+        )
+        model.refresh(trigger: .manual)
+        try await wait { !model.isRefreshing }
+        let updatedAt = try #require(model.autoRefreshCountdownStartedAt)
+        await probe.fail()
+        model.refresh(trigger: .accountNotification)
+        try await wait { !model.isRefreshing }
+        #expect(model.autoRefreshCountdownStartedAt == updatedAt)
+        #expect(monitor.state == .available(.operational))
+        #expect(await probe.calls == 1)
+        model.refresh(trigger: .manual)
+        try await wait { !model.isRefreshing }
+        #expect(try #require(model.autoRefreshCountdownStartedAt) > updatedAt)
+        #expect(monitor.state == .unavailable)
         #expect(await probe.calls == 2)
     }
 
@@ -226,6 +290,10 @@ private actor ServiceStatusProbe {
 
     func fail() {
         fails = true
+    }
+
+    func recover() {
+        fails = false
     }
 
     func releaseFirst() {

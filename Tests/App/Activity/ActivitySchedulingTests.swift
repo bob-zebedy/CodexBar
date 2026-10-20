@@ -66,23 +66,29 @@ struct ActivitySchedulingTests {
                 try peer.send(["method": "thread/tokenUsage/updated", "params": ["threadId": "thread", "turnId": "turn", "tokenUsage": ["total": tokenUsage, "last": tokenUsage]]])
             }
             try peer.send(["method": "thread/status/changed", "params": ["threadId": "thread", "status": 123]])
+            // 后续通知作为处理屏障, 避免在畸形消息被消费前结束测试
+            try peer.send(["method": "account/updated", "params": [:]])
             _ = release.wait(timeout: .now() + 5)
         }
         defer { server.close() }
         var failed = false
+        var receivedFollowup = false
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
         let reader = AppServerActivityReader(
             probe: ActivityReaderProbe(), socketURL: server.url,
-            tokenUsageHistory: store, activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url)
-        ) {
-            if case .sourceUnavailable = $0.phase {
-                failed = true
+            tokenUsageHistory: store, activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url),
+            onAccountChange: { _ in receivedFollowup = true },
+            onBatch: {
+                if case .sourceUnavailable = $0.phase {
+                    failed = true
+                }
             }
-        }
+        )
         await reader.start()
-        for _ in 0 ..< 200 where !failed {
+        for _ in 0 ..< 200 where !receivedFollowup && !failed {
             try await Task.sleep(for: .milliseconds(5))
         }
+        #expect(receivedFollowup)
         #expect(!failed)
         await reader.stop()
         #expect(try await store.refresh().first?.tokenUsage.totalTokens == 50)

@@ -15,8 +15,8 @@ struct ZoneRecoveryTests {
         _ = try directory.write("invalid activityData cache", to: "activityData/cache.json")
         _ = try directory.write("invalid token cache", to: "tokenUsage/cache.json")
         let service = service(database, directory)
-        let snapshot = try await service.synchronizeIfEnabled(
-            localActivityDataAggregates: [aggregate(0, directory: directory)],
+        let snapshot = await service.synchronizeIfEnabled(
+            localActivityDataAggregates: [aggregate(0)],
             localTokenUsageAggregates: [turn(0)], trigger: .manual
         )
         #expect(snapshot.currentDeviceID != nil)
@@ -32,8 +32,8 @@ struct ZoneRecoveryTests {
         defer { try? directory.remove() }
         let database = ZoneDatabase()
         let service = service(database, directory)
-        _ = try await service.synchronizeIfEnabled(
-            localActivityDataAggregates: [aggregate(0, directory: directory), aggregate(1, directory: directory)],
+        _ = await service.synchronizeIfEnabled(
+            localActivityDataAggregates: [aggregate(0), aggregate(1)],
             localTokenUsageAggregates: [turn(0), turn(1)],
             trigger: .manual
         )
@@ -46,8 +46,8 @@ struct ZoneRecoveryTests {
         }
         // 保留 salt 可以验证恢复不依赖设备 ID 碰巧变化
         await database.failOnce(at: point, wrapped: wrapped, preservingSalt: true)
-        let snapshot = try await service.synchronizeIfEnabled(
-            localActivityDataAggregates: [aggregate(0, events: 3, directory: directory)],
+        let snapshot = await service.synchronizeIfEnabled(
+            localActivityDataAggregates: [aggregate(0, events: 3)],
             localTokenUsageAggregates: [turn(0, tokens: 3)],
             trigger: .manual
         )
@@ -65,14 +65,14 @@ struct ZoneRecoveryTests {
         defer { try? directory.remove() }
         let database = ZoneDatabase()
         let service = service(database, directory)
-        let first = try await service.synchronizeIfEnabled(
-            localActivityDataAggregates: [aggregate(0, directory: directory), aggregate(1, directory: directory)],
+        let first = await service.synchronizeIfEnabled(
+            localActivityDataAggregates: [aggregate(0), aggregate(1)],
             localTokenUsageAggregates: [turn(0), turn(1)],
             trigger: .manual
         )
         await database.recreateByPeer()
-        let second = try await service.synchronizeIfEnabled(
-            localActivityDataAggregates: [aggregate(0, directory: directory)],
+        let second = await service.synchronizeIfEnabled(
+            localActivityDataAggregates: [aggregate(0)],
             localTokenUsageAggregates: [turn(0)], trigger: .manual
         )
         #expect(first.currentDeviceID != second.currentDeviceID)
@@ -90,8 +90,8 @@ struct ZoneRecoveryTests {
         defer { try? directory.remove() }
         let database = ZoneDatabase()
         let first = service(database, directory)
-        _ = try await first.synchronizeIfEnabled(
-            localActivityDataAggregates: [aggregate(0, directory: directory), aggregate(1, directory: directory)],
+        _ = await first.synchronizeIfEnabled(
+            localActivityDataAggregates: [aggregate(0), aggregate(1)],
             localTokenUsageAggregates: [turn(0), turn(1)],
             trigger: .manual
         )
@@ -108,7 +108,7 @@ struct ZoneRecoveryTests {
         #expect(snapshot.activityData.isEmpty)
         #expect(snapshot.tokenUsageByDate?.isEmpty == true)
         #expect(try store.load().records.isEmpty)
-        let synced = try await next.synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0, directory: directory)], localTokenUsageAggregates: [turn(0)], trigger: .manual)
+        let synced = await next.synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0)], localTokenUsageAggregates: [turn(0)], trigger: .manual)
         #expect(synced.currentDeviceID != nil)
         #expect(synced.activityData.count == 1)
         #expect(try cachedTokenUsageCount(directory) == 1)
@@ -123,8 +123,8 @@ struct ZoneRecoveryTests {
         let database = ZoneDatabase()
         await database.failOnce(at: .query, repeats: true)
         let service = service(database, directory)
-        let failed = try await service.synchronizeIfEnabled(
-            localActivityDataAggregates: [aggregate(0, directory: directory)],
+        let failed = await service.synchronizeIfEnabled(
+            localActivityDataAggregates: [aggregate(0)],
             localTokenUsageAggregates: [turn(0)], trigger: .manual
         )
         #expect(await database.queryCount == 2)
@@ -132,8 +132,8 @@ struct ZoneRecoveryTests {
         #expect(failed.currentDeviceID == nil)
         #expect(try ActivityDataSyncStore(directoryURL: directory.url).load().records.isEmpty)
         await database.repair()
-        let recovered = try await service.synchronizeIfEnabled(
-            localActivityDataAggregates: [aggregate(0, directory: directory)],
+        let recovered = await service.synchronizeIfEnabled(
+            localActivityDataAggregates: [aggregate(0)],
             localTokenUsageAggregates: [turn(0)], trigger: .manual
         )
         #expect(recovered.currentDeviceID != nil)
@@ -148,11 +148,11 @@ struct ZoneRecoveryTests {
         defer { try? directory.remove() }
         let database = ZoneDatabase()
         let service = service(database, directory)
-        _ = try await service.synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0, directory: directory)], localTokenUsageAggregates: [turn(0)], trigger: .manual)
+        _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0)], localTokenUsageAggregates: [turn(0)], trigger: .manual)
         let before = ActivityDataSyncStore(directoryURL: directory.url).loadState()
         let tokens = try Data(contentsOf: directory.url.appendingPathComponent("tokenUsage/cache.json"))
         await database.rejectChanges(code)
-        _ = try await service.synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0, directory: directory)], localTokenUsageAggregates: [turn(0)], trigger: .manual)
+        _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0)], localTokenUsageAggregates: [turn(0)], trigger: .manual)
         #expect(await database.creations == 0)
         #expect(ActivityDataSyncStore(directoryURL: directory.url).loadState() == before)
         #expect(try Data(contentsOf: directory.url.appendingPathComponent("tokenUsage/cache.json")) == tokens)
@@ -169,7 +169,7 @@ struct ZoneRecoveryTests {
             directoryURL: directory.url,
             isEnabled: { enabled.withLock { $0 } }
         )
-        _ = try await service.synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0, directory: directory)], localTokenUsageAggregates: [turn(0)], trigger: .manual)
+        _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0)], localTokenUsageAggregates: [turn(0)], trigger: .manual)
         #expect(await database.creations == 0)
         #expect(await database.recordCount("Metadata") == 0)
     }
@@ -181,18 +181,18 @@ struct ZoneRecoveryTests {
         await database.removeZone()
         let store = ActivityDataSyncStore(directoryURL: directory.url)
         try store.saveState(ActivityDataSyncState(deviceID: "stale"))
-        let stale = try aggregate(0, directory: directory).syncedAggregate
+        let stale = aggregate(0).syncedAggregate
         let record = try ActivityDataSyncRecord(deviceID: "stale", activityData: stale, recordName: ActivityDataSyncRecord.recordName(deviceID: "stale", date: stale.date))
         try store.saveFetchedRecords([record.id: record], cursor: nil)
         let blocked = directory.url.appendingPathComponent("tokenUsage/store.lock")
         try FileManager.default.createDirectory(at: blocked, withIntermediateDirectories: true)
-        _ = try await service(database, directory).synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0, directory: directory)], trigger: .manual)
+        _ = await service(database, directory).synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0)], trigger: .manual)
         #expect(store.loadState().deviceID == nil)
         #expect(try store.load().records.isEmpty)
         #expect(await database.creations == 0)
         try FileManager.default.removeItem(at: blocked)
-        let snapshot = try await service(database, directory).synchronizeIfEnabled(
-            localActivityDataAggregates: [aggregate(0, directory: directory)],
+        let snapshot = await service(database, directory).synchronizeIfEnabled(
+            localActivityDataAggregates: [aggregate(0)],
             localTokenUsageAggregates: [turn(0)],
             trigger: .manual
         )
@@ -219,8 +219,8 @@ struct ZoneRecoveryTests {
         SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
     }
 
-    private func aggregate(_ index: Int, events: Int = 1, directory: TestDirectory) throws -> ActivityDataAggregate {
-        try directory.activityDataAggregate(date: HistoryStorage.dateKey(for: Date().addingTimeInterval(Double(-index) * 86400)), events: events)
+    private func aggregate(_ index: Int, events: Int = 1) -> ActivityDataAggregate {
+        TestFixtures.activityDataAggregate(date: HistoryStorage.dateKey(for: Date().addingTimeInterval(Double(-index) * 86400)), events: events)
     }
 
     private func turn(_ index: Int, tokens: Int = 1) -> TokenUsageAggregate {
