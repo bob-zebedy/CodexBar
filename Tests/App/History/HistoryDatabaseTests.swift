@@ -440,6 +440,34 @@ extension HistoryDatabaseTests {
         #expect(try await store.refresh(now: now) == initial)
     }
 
+    @Test func tokenRebuildChecksOnlyRequestedDatesWithSourceEvents() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let database = try HistoryDatabase(directoryURL: directory.url)
+        let now = TestFixtures.now
+        let dates = (0 ..< 5).map { now.addingTimeInterval(Double($0) * 86400) }
+        let keys = dates.map(HistoryStorage.dateKey(for:))
+        for index in [0, 1, 2] {
+            try database.append(AppServerEventRecord(
+                tokenUsage: TestFixtures.tokenUsageObservation(at: dates[index], tokenUsage: tokenUsage(10)), recordedAt: now
+            ))
+        }
+        try database.append(event("activity-only", at: dates[3]))
+        try database.append(event("mixed", at: dates[0]))
+        let requested = [keys[2], keys[0], keys[3], keys[4], keys[2]]
+        #expect(try database.tokenUsageAggregates().isEmpty)
+        #expect(try database.tokenUsageDates(in: requested) == [keys[0], keys[2]])
+        #expect(try database.tokenUsageDates(in: []).isEmpty)
+
+        let store = TokenUsageHistoryStore(directoryURL: directory.url)
+        let rebuilt = try await store.rebuild(for: requested)
+        #expect(rebuilt.dateKeys == [keys[0], keys[2]])
+        #expect(rebuilt.eventCount == 2)
+        #expect(rebuilt.failedDateKeys.isEmpty)
+        #expect(try database.tokenUsageAggregates().map(\.date) == [keys[0], keys[2]])
+        #expect(try database.pendingTokenUsageDates() == [keys[1]])
+    }
+
     @Test func observedDateSurvivesDelayedWriteAcrossMidnight() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

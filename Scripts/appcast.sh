@@ -2,8 +2,9 @@
 set -euo pipefail
 
 # 已安装版本的构建号低于此值时, 需要手动升级
-# 发布不兼容更新时设为该版本的首个构建号, 后续兼容更新保持不变
+# 发布不兼容更新时同步调整构建号和升级指南版本, 后续兼容更新保持不变
 readonly MINIMUM_COMPATIBLE_BUILD=200
+readonly UPGRADE_GUIDE_VERSION=5.0.0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -33,9 +34,9 @@ Environment:
   APPCAST_PATH            Path to appcast.xml. Defaults to appcast.xml.
   DOWNLOAD_BASE_URL       Base URL for DMG downloads.
                            Defaults to https://codexbar.zabrian.app/download.
-  RELEASE_NOTES_BASE_URL  Base URL for release notes. The version is appended
-                           as a fragment anchor (BASE#X.Y.Z).
-                           Used for both release notes and the browser upgrade link.
+  RELEASE_NOTES_BASE_URL  Base URL for release notes and upgrade guides.
+                           Release notes append the current version as #X.Y.Z.
+                           The browser upgrade link appends #${UPGRADE_GUIDE_VERSION}-Guide.
                            Defaults to https://codexbar.zabrian.app/notes.
   INCLUDE_RELEASE_NOTES   Set to 0 to omit sparkle:releaseNotesLink.
   MINIMUM_SYSTEM_VERSION  Defaults to 15.0.
@@ -171,6 +172,7 @@ if ! perl -e 'exit($ARGV[0] > $ARGV[1] ? 1 : 0)' "${MINIMUM_COMPATIBLE_BUILD}" "
 fi
 
 RELEASE_NOTES_URL="${RELEASE_NOTES_BASE_URL%/}#${SHORT_VERSION}"
+UPGRADE_GUIDE_URL="${RELEASE_NOTES_BASE_URL%/}#${UPGRADE_GUIDE_VERSION}-Guide"
 if [[ ! "${RELEASE_NOTES_URL}" =~ ^https?://[^/?#[:space:]]+([/?#][^[:space:]]*)?$ ]]; then
     echo "error: release notes URL must be an absolute HTTP or HTTPS URL without whitespace" >&2
     exit 1
@@ -234,6 +236,7 @@ ED_SIGNATURE_ESCAPED="$(printf '%s' "${ED_SIGNATURE}" | xml_escape)"
 MIN_SYSTEM_ESCAPED="$(printf '%s' "${MINIMUM_SYSTEM_VERSION}" | xml_escape)"
 SHORT_VERSION_ESCAPED="$(printf '%s' "${SHORT_VERSION}" | xml_escape)"
 RELEASE_NOTES_URL_ESCAPED="$(printf '%s' "${RELEASE_NOTES_URL}" | xml_escape)"
+UPGRADE_GUIDE_URL_ESCAPED="$(printf '%s' "${UPGRADE_GUIDE_URL}" | xml_escape)"
 
 RELEASE_NOTES_XML=""
 if [[ "${INCLUDE_RELEASE_NOTES}" != "0" ]]; then
@@ -247,7 +250,7 @@ APPCAST_ITEM="        <item>
             <sparkle:shortVersionString>${SHORT_VERSION_ESCAPED}</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>${MIN_SYSTEM_ESCAPED}</sparkle:minimumSystemVersion>
             <sparkle:informationalUpdate><sparkle:belowVersion>${MINIMUM_COMPATIBLE_BUILD}</sparkle:belowVersion></sparkle:informationalUpdate>
-            <link>${RELEASE_NOTES_URL_ESCAPED}</link>
+            <link>${UPGRADE_GUIDE_URL_ESCAPED}</link>
             ${RELEASE_NOTES_XML}        <pubDate>${PUB_DATE}</pubDate>
             <enclosure url=\"${DOWNLOAD_URL_ESCAPED}\" sparkle:edSignature=\"${ED_SIGNATURE_ESCAPED}\" length=\"${ARCHIVE_LENGTH}\" type=\"application/octet-stream\"/>
         </item>"

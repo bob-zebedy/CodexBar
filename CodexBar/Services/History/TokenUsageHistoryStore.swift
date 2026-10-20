@@ -89,9 +89,9 @@ final nonisolated class TokenUsageHistoryStore: Sendable {
     }
 
     func rebuild(for dateKeys: [String]) async throws -> TokenUsageRebuildResult {
-        let available = try await database.access { try Set($0.tokenUsageDates()) }
+        let dates = try await database.access { try $0.tokenUsageDates(in: dateKeys) }
         var result = TokenUsageRebuildResult.empty
-        for date in Set(dateKeys).intersection(available).sorted() {
+        for date in dates {
             do {
                 let aggregate = try await database.access { try $0.aggregateTokenUsage(date: date, rebuilding: true) }
                 result.dateKeys.append(date)

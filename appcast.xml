@@ -8,12 +8,23 @@
         <description>CodexBar appcast feed</description>
         <language>zh-CN</language>
         <item>
+            <title>CodexBar.app 5.0.1</title>
+            <sparkle:version>201</sparkle:version>
+            <sparkle:shortVersionString>5.0.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:informationalUpdate><sparkle:belowVersion>200</sparkle:belowVersion></sparkle:informationalUpdate>
+            <link>https://codexbar.zabrian.app/notes#5.0.0-Guide</link>
+            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#5.0.1</sparkle:releaseNotesLink>
+            <pubDate>Tue, 20 Oct 2026 12:53:28 +0800</pubDate>
+            <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v5.0.1.dmg" sparkle:edSignature="yaEo8eL/wEbTlTDzR5qYKmyh2i6SmOBGgrWw3hYfkDhAm0e0bROxengeaOU877k1e4lCJnyl6GG9p8PJkA8HCw==" length="10164736" type="application/octet-stream"/>
+        </item>
+        <item>
             <title>CodexBar.app 5.0.0</title>
             <sparkle:version>200</sparkle:version>
             <sparkle:shortVersionString>5.0.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <sparkle:informationalUpdate><sparkle:belowVersion>200</sparkle:belowVersion></sparkle:informationalUpdate>
-            <link>https://codexbar.zabrian.app/notes#5.0.0</link>
+            <link>https://codexbar.zabrian.app/notes#5.0.0-Guide</link>
             <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#5.0.0</sparkle:releaseNotesLink>
             <pubDate>Mon, 19 Oct 2026 14:20:18 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v5.0.0.dmg" sparkle:edSignature="mNAWKIUQnsujXnLQlEtK/tGCkd/h774/uVJBtJS8tShImizRiJPCAlm383HoIzHEzrt0jByKb1L1Zje/2UzHAA==" length="10155520" type="application/octet-stream"/>

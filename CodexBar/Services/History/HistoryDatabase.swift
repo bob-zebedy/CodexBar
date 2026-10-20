@@ -6,6 +6,19 @@ final nonisolated class HistoryDatabase {
     static let filename = "event.db"
     private static let schemaVersion: Int32 = 1
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    private static let eventIndexPrefix = "codexbar_events_"
+
+    /// 索引使用专用前缀, 定义改变时更换名称, 避免将同名旧索引误判为已更新
+    private static let eventIndexDefinitions = [
+        eventIndexPrefix + "date_kind_position": "(date, kind, position)",
+        eventIndexPrefix + "token_usage_thread": """
+        (CASE WHEN json_valid(CAST(payload AS TEXT)) THEN json_extract(CAST(payload AS TEXT), '$.tokenUsage.threadID') END, position)
+        WHERE kind = 'tokenUsage'
+        """
+    ]
+
+    // 仅记录专用前缀启用前已发布的索引, 后续不再扩充
+    private static let legacyEventIndexNames: Set<String> = ["events_date", "events_token_usage_thread"]
     private var connection: OpaquePointer?
     private var threadSnapshots: [String: CachedThreadSnapshot] = [:]
 
@@ -75,7 +88,6 @@ final nonisolated class HistoryDatabase {
                         payload BLOB NOT NULL
                     )
                     """)
-                    try execute("CREATE INDEX IF NOT EXISTS events_date ON events(date, position)")
                     try execute("""
                     CREATE TABLE IF NOT EXISTS aggregates (
                         date TEXT PRIMARY KEY REFERENCES days(date) ON DELETE CASCADE,
@@ -86,11 +98,7 @@ final nonisolated class HistoryDatabase {
                     try execute("PRAGMA user_version = \(Self.schemaVersion)")
                 }
             }
-            try execute("""
-            CREATE INDEX IF NOT EXISTS events_token_usage_thread
-            ON events(CASE WHEN json_valid(CAST(payload AS TEXT)) THEN json_extract(CAST(payload AS TEXT), '$.tokenUsage.threadID') END, position)
-            WHERE kind = 'tokenUsage'
-            """)
+            try ensureEventIndexes()
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         } catch {
             sqlite3_close(connection)
@@ -101,6 +109,38 @@ final nonisolated class HistoryDatabase {
 
     deinit {
         sqlite3_close(connection)
+    }
+
+    private func ensureEventIndexes() throws {
+        let changes = try eventIndexChanges()
+        guard !changes.missing.isEmpty || !changes.obsolete.isEmpty else { return }
+
+        try transaction {
+            // 等待写锁期间其他连接可能已更新索引, 锁内重新读取后再执行差异
+            let changes = try eventIndexChanges()
+            for (name, definition) in changes.missing.sorted(by: { $0.key < $1.key }) {
+                try execute("CREATE INDEX \(Self.quotedIdentifier(name)) ON events \(definition)")
+            }
+            for name in changes.obsolete.sorted() {
+                try execute("DROP INDEX \(Self.quotedIdentifier(name))")
+            }
+        }
+    }
+
+    private func eventIndexChanges() throws -> (missing: [String: String], obsolete: Set<String>) {
+        var existing = Set<String>()
+        var managed = Set<String>()
+        try query("SELECT name, \"unique\", origin FROM pragma_index_list('events')") {
+            let name = Self.text($0, at: 0)
+            existing.insert(name)
+            guard sqlite3_column_int($0, 1) == 0, Self.text($0, at: 2) == "c",
+                  name.hasPrefix(Self.eventIndexPrefix) || Self.legacyEventIndexNames.contains(name) else { return }
+            managed.insert(name)
+        }
+        return (
+            Self.eventIndexDefinitions.filter { !existing.contains($0.key) },
+            managed.subtracting(Self.eventIndexDefinitions.keys)
+        )
     }
 
     var hasOpenTransaction: Bool {
@@ -307,9 +347,17 @@ final nonisolated class HistoryDatabase {
         }
     }
 
-    func tokenUsageDates() throws -> [String] {
+    func tokenUsageDates(in dateKeys: [String]) throws -> [String] {
+        let requested = Set(dateKeys).sorted()
+        guard !requested.isEmpty else { return [] }
+        let placeholders = Array(repeating: "?", count: requested.count).joined(separator: ", ")
         var result: [String] = []
-        try query("SELECT DISTINCT date FROM events WHERE kind = 'tokenUsage' ORDER BY date") { result.append(Self.text($0, at: 0)) }
+        try query("""
+        SELECT date FROM days
+        WHERE date IN (\(placeholders))
+            AND EXISTS (SELECT 1 FROM events WHERE events.date = days.date AND events.kind = 'tokenUsage')
+        ORDER BY date
+        """, requested.map(Value.text)) { result.append(Self.text($0, at: 0)) }
         return result
     }
 
@@ -432,6 +480,10 @@ final nonisolated class HistoryDatabase {
 
     private func failure(_ code: Int32) -> Failure {
         Failure(code: code, message: connection.map { String(cString: sqlite3_errmsg($0)) } ?? "Cannot open history database")
+    }
+
+    private static func quotedIdentifier(_ name: String) -> String {
+        "\"" + name.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
     private static func text(_ statement: OpaquePointer, at index: Int32) -> String {
