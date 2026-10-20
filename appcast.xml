@@ -12,6 +12,7 @@
             <sparkle:version>201</sparkle:version>
             <sparkle:shortVersionString>5.0.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:minimumAutoupdateVersion>200</sparkle:minimumAutoupdateVersion>
             <sparkle:informationalUpdate><sparkle:belowVersion>200</sparkle:belowVersion></sparkle:informationalUpdate>
             <link>https://codexbar.zabrian.app/notes#5.0.0-Guide</link>
             <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#5.0.1</sparkle:releaseNotesLink>
@@ -23,6 +24,7 @@
             <sparkle:version>200</sparkle:version>
             <sparkle:shortVersionString>5.0.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:minimumAutoupdateVersion>200</sparkle:minimumAutoupdateVersion>
             <sparkle:informationalUpdate><sparkle:belowVersion>200</sparkle:belowVersion></sparkle:informationalUpdate>
             <link>https://codexbar.zabrian.app/notes#5.0.0-Guide</link>
             <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#5.0.0</sparkle:releaseNotesLink>

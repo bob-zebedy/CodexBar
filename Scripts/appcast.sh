@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 已安装版本的构建号低于此值时, 需要手动升级
+# 低于此构建号时优先提供旧分支补丁, 无可用补丁时提示手动升级
 # 发布不兼容更新时同步调整构建号和升级指南版本, 后续兼容更新保持不变
 readonly MINIMUM_COMPATIBLE_BUILD=200
 readonly UPGRADE_GUIDE_VERSION=5.0.0
@@ -249,6 +249,7 @@ APPCAST_ITEM="        <item>
             <sparkle:version>${BUILD_VERSION}</sparkle:version>
             <sparkle:shortVersionString>${SHORT_VERSION_ESCAPED}</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>${MIN_SYSTEM_ESCAPED}</sparkle:minimumSystemVersion>
+            <sparkle:minimumAutoupdateVersion>${MINIMUM_COMPATIBLE_BUILD}</sparkle:minimumAutoupdateVersion>
             <sparkle:informationalUpdate><sparkle:belowVersion>${MINIMUM_COMPATIBLE_BUILD}</sparkle:belowVersion></sparkle:informationalUpdate>
             <link>${UPGRADE_GUIDE_URL_ESCAPED}</link>
             ${RELEASE_NOTES_XML}        <pubDate>${PUB_DATE}</pubDate>
