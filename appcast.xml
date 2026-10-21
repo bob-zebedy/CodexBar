@@ -1,12 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0"
-    xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"
-    xmlns:dc="http://purl.org/dc/elements/1.1/">
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>CodexBar Updates</title>
         <link>https://codexbar.zabrian.app/appcast.xml</link>
         <description>CodexBar appcast feed</description>
         <language>zh-CN</language>
+        <item>
+            <title>CodexBar.app 5.0.2</title>
+            <sparkle:version>202</sparkle:version>
+            <sparkle:shortVersionString>5.0.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:minimumAutoupdateVersion>200</sparkle:minimumAutoupdateVersion>
+            <sparkle:informationalUpdate><sparkle:belowVersion>200</sparkle:belowVersion></sparkle:informationalUpdate>
+            <link xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#5.0.0-Guide</link>
+            <link xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#5.0.0-Guide</link>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#5.0.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#5.0.2</sparkle:releaseNotesLink>
+            <pubDate>Wed, 21 Oct 2026 18:45:06 +0800</pubDate>
+            <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v5.0.2.dmg" sparkle:edSignature="4IiYcFroFPXC8q10rfPn+ueSaZ0+g1dt1VVfU+NxqZyGJ8v4y/czcAuYFPj0texO6WPJMlCPKeZgsYAUXZz9Ag==" length="10167296" type="application/octet-stream"/>
+        </item>
         <item>
             <title>CodexBar.app 5.0.1</title>
             <sparkle:version>201</sparkle:version>
@@ -14,8 +26,10 @@
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <sparkle:minimumAutoupdateVersion>200</sparkle:minimumAutoupdateVersion>
             <sparkle:informationalUpdate><sparkle:belowVersion>200</sparkle:belowVersion></sparkle:informationalUpdate>
-            <link>https://codexbar.zabrian.app/notes#5.0.0-Guide</link>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#5.0.1</sparkle:releaseNotesLink>
+            <link xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#5.0.0-Guide</link>
+            <link xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#5.0.0-Guide</link>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#5.0.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#5.0.1</sparkle:releaseNotesLink>
             <pubDate>Tue, 20 Oct 2026 12:53:28 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v5.0.1.dmg" sparkle:edSignature="yaEo8eL/wEbTlTDzR5qYKmyh2i6SmOBGgrWw3hYfkDhAm0e0bROxengeaOU877k1e4lCJnyl6GG9p8PJkA8HCw==" length="10164736" type="application/octet-stream"/>
         </item>
@@ -26,8 +40,10 @@
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
             <sparkle:minimumAutoupdateVersion>200</sparkle:minimumAutoupdateVersion>
             <sparkle:informationalUpdate><sparkle:belowVersion>200</sparkle:belowVersion></sparkle:informationalUpdate>
-            <link>https://codexbar.zabrian.app/notes#5.0.0-Guide</link>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#5.0.0</sparkle:releaseNotesLink>
+            <link xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#5.0.0-Guide</link>
+            <link xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#5.0.0-Guide</link>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#5.0.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#5.0.0</sparkle:releaseNotesLink>
             <pubDate>Mon, 19 Oct 2026 14:20:18 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v5.0.0.dmg" sparkle:edSignature="mNAWKIUQnsujXnLQlEtK/tGCkd/h774/uVJBtJS8tShImizRiJPCAlm383HoIzHEzrt0jByKb1L1Zje/2UzHAA==" length="10155520" type="application/octet-stream"/>
         </item>
@@ -36,7 +52,8 @@
             <sparkle:version>112</sparkle:version>
             <sparkle:shortVersionString>4.1.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.1.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.1.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.1.2</sparkle:releaseNotesLink>
             <pubDate>Fri, 16 Oct 2026 16:05:02 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.1.2.dmg" sparkle:edSignature="i+J/1R5++3mp/1jAmgF26yEhkSvpIfejR300yjc+QJMmn5OF95GvZSDXVQzrYcML83mbC90+UDHWZqSadnQoDQ==" length="8936448" type="application/octet-stream"/>
         </item>
@@ -45,7 +62,8 @@
             <sparkle:version>111</sparkle:version>
             <sparkle:shortVersionString>4.1.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.1.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.1.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.1.1</sparkle:releaseNotesLink>
             <pubDate>Fri, 02 Oct 2026 10:13:14 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.1.1.dmg" sparkle:edSignature="wpehOsAWbi0uDAGMSTqtSQAHjvp5BDuKF1NBrhnvWsUqyZWVQm1RItIVmoIgJOSx6Zre3+rZW1jFtE8VBgiUBA==" length="8765952" type="application/octet-stream"/>
         </item>
@@ -54,7 +72,8 @@
             <sparkle:version>110</sparkle:version>
             <sparkle:shortVersionString>4.1.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.1.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.1.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.1.0</sparkle:releaseNotesLink>
             <pubDate>Wed, 30 Sep 2026 14:16:33 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.1.0.dmg" sparkle:edSignature="o3P7LNUsv/rawY0upp4R2QXLZLN1rKWYM1w6zkIgAf/+jPZ937K0wEKWdPqztZekinzfUXgnCmvFILGKDxEOBw==" length="8689152" type="application/octet-stream"/>
         </item>
@@ -63,7 +82,8 @@
             <sparkle:version>109</sparkle:version>
             <sparkle:shortVersionString>4.0.9</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.0.9</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.0.9</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.0.9</sparkle:releaseNotesLink>
             <pubDate>Tue, 29 Sep 2026 10:19:18 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.0.9.dmg" sparkle:edSignature="oODBR1X6049kYbHveUV6YzY6eY6TskDhVpk2Oul/m0k4BNbbct8Ox758Oy47Wk8hpXq2AGVBKgYpOb3vCPzWBQ==" length="8687104" type="application/octet-stream"/>
         </item>
@@ -72,7 +92,8 @@
             <sparkle:version>108</sparkle:version>
             <sparkle:shortVersionString>4.0.8</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.0.8</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.0.8</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.0.8</sparkle:releaseNotesLink>
             <pubDate>Mon, 28 Sep 2026 14:11:47 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.0.8.dmg" sparkle:edSignature="xClBFa4SP6rZDtLwHIHc4XjF0eUuw38sxeeJEWVa7oZPjEBhyGE9fh3obPTx8V+c7Balp79Kj/XLIuWCDAaXCw==" length="8418816" type="application/octet-stream"/>
         </item>
@@ -81,7 +102,8 @@
             <sparkle:version>107</sparkle:version>
             <sparkle:shortVersionString>4.0.7</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.0.7</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.0.7</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.0.7</sparkle:releaseNotesLink>
             <pubDate>Sun, 27 Sep 2026 09:21:21 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.0.7.dmg" sparkle:edSignature="my1b6buFf1H9oCLCHiZmQ9pCycQyt5Te3IQ8rTzk/hh/yeVkdcqOCzRC+aIFbqZke7yybmDogEBDSqYkJ6xpBg==" length="8395264" type="application/octet-stream"/>
         </item>
@@ -90,7 +112,8 @@
             <sparkle:version>106</sparkle:version>
             <sparkle:shortVersionString>4.0.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.0.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.0.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.0.6</sparkle:releaseNotesLink>
             <pubDate>Sat, 26 Sep 2026 12:28:32 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.0.6.dmg" sparkle:edSignature="1MY2NtnI1PC+p6MIB8ulR8bwBQt/1hQrnOtqfKATjn0wOpgtxKLB5VMpoLvslK9R45gv8Z1pWB5QQofrI/kECw==" length="8389120" type="application/octet-stream"/>
         </item>
@@ -99,7 +122,8 @@
             <sparkle:version>105</sparkle:version>
             <sparkle:shortVersionString>4.0.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.0.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.0.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.0.5</sparkle:releaseNotesLink>
             <pubDate>Tue, 22 Sep 2026 18:30:39 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.0.5.dmg" sparkle:edSignature="1LP+QiJ6Ay/biCUfS+xzl2UTibj4Z4juM2RxCbuyAeQEYnCXiztHZp0QcemkPilUsxa+jcOymgvIZGMrmUNABw==" length="8369664" type="application/octet-stream"/>
         </item>
@@ -108,7 +132,8 @@
             <sparkle:version>104</sparkle:version>
             <sparkle:shortVersionString>4.0.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.0.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.0.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.0.4</sparkle:releaseNotesLink>
             <pubDate>Fri, 18 Sep 2026 18:00:21 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.0.4.dmg" sparkle:edSignature="XzeqZMC+9wS/21VT1VA5d4z6lKiFRDpv1HL6Hb/vfSDidRv81/wTgYp+xHgm0/hu16bYRs6DgRpJiJcn/4vRAw==" length="8299008" type="application/octet-stream"/>
         </item>
@@ -117,7 +142,8 @@
             <sparkle:version>103</sparkle:version>
             <sparkle:shortVersionString>4.0.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.0.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.0.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.0.3</sparkle:releaseNotesLink>
             <pubDate>Thu, 17 Sep 2026 12:49:39 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.0.3.dmg" sparkle:edSignature="sCcPcMguzYYIXTCjZS3rxE+cs13r89VUchTBu+swabtov6DCaCCVsGCc0XWssu+EaOYrVriT4sHjx4qYgh6hDQ==" length="8303616" type="application/octet-stream"/>
         </item>
@@ -126,7 +152,8 @@
             <sparkle:version>102</sparkle:version>
             <sparkle:shortVersionString>4.0.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.0.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.0.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.0.2</sparkle:releaseNotesLink>
             <pubDate>Tue, 15 Sep 2026 18:52:56 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.0.2.dmg" sparkle:edSignature="BwapF7NqkWMYh/nv09uUGLQYnrAJhzFhI8Qx7K9M7wQ5FKoQKspQnocupu4DDeoO9WZZbUwso6xwry8nvonOAA==" length="8160296" type="application/octet-stream"/>
         </item>
@@ -135,7 +162,8 @@
             <sparkle:version>101</sparkle:version>
             <sparkle:shortVersionString>4.0.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.0.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.0.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.0.1</sparkle:releaseNotesLink>
             <pubDate>Mon, 14 Sep 2026 20:17:36 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.0.1.dmg" sparkle:edSignature="78Yh/oljrOfxMdN3XpMuAog0JJLXldQ0K0Oh/Li5AMgJlMTmRSNswGakcMMP/Fn4xxi/W73oHcXXnfarOu8MAg==" length="8091527" type="application/octet-stream"/>
         </item>
@@ -144,7 +172,8 @@
             <sparkle:version>100</sparkle:version>
             <sparkle:shortVersionString>4.0.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#4.0.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#4.0.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#4.0.0</sparkle:releaseNotesLink>
             <pubDate>Mon, 14 Sep 2026 12:00:04 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v4.0.0.dmg" sparkle:edSignature="xokwKgzxP89UUEoIUopS+Xz6ENBQXcCYTyFwghnnYMGhAMXCCiYFCbIBwTGvf6hCFJ2SB5xe32kTNlKRJOzCBQ==" length="8031904" type="application/octet-stream"/>
         </item>
@@ -153,7 +182,8 @@
             <sparkle:version>90</sparkle:version>
             <sparkle:shortVersionString>3.7.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.7.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.7.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.7.6</sparkle:releaseNotesLink>
             <pubDate>Fri, 11 Sep 2026 21:52:37 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.7.6.dmg" sparkle:edSignature="99l57STdve1rEOvHIoIugvZrlVRGg8ST+nu3DVhu21m3abCR8cn0SnX3ZsA2dx+1lhzODnNO0cJNQ7fU6AZVDQ==" length="7947841" type="application/octet-stream"/>
         </item>
@@ -162,7 +192,8 @@
             <sparkle:version>89</sparkle:version>
             <sparkle:shortVersionString>3.7.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.7.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.7.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.7.5</sparkle:releaseNotesLink>
             <pubDate>Fri, 11 Sep 2026 17:22:09 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.7.5.dmg" sparkle:edSignature="porWGsr98IczjP6WR8JN4a5MViD4hZjHpV3YpjcAPNFizSdTfMbXlkJDYIVwTW7RD4cL2EWOIWIYa0G7CaZyDg==" length="7947703" type="application/octet-stream"/>
         </item>
@@ -171,7 +202,8 @@
             <sparkle:version>88</sparkle:version>
             <sparkle:shortVersionString>3.7.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.7.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.7.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.7.4</sparkle:releaseNotesLink>
             <pubDate>Fri, 11 Sep 2026 13:39:13 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.7.4.dmg" sparkle:edSignature="SrAqH6oyCF8tQJcUh6yPStv0FxgwWqynGg/CID6/KwutPCius0vK/OZzLkyrmRviv6X3KyRC7MBptdsXwOTuCg==" length="7938933" type="application/octet-stream"/>
         </item>
@@ -180,7 +212,8 @@
             <sparkle:version>87</sparkle:version>
             <sparkle:shortVersionString>3.7.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.7.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.7.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.7.3</sparkle:releaseNotesLink>
             <pubDate>Fri, 11 Sep 2026 10:54:05 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.7.3.dmg" sparkle:edSignature="flVY9wzxdXofkq6V49wbXltcNxvsNa5+6cuQLwntiu2xNZZE51sO6DcP+A6Q6ZthgeeRAG6hMbTzCAkPGKHpBw==" length="7927637" type="application/octet-stream"/>
         </item>
@@ -189,7 +222,8 @@
             <sparkle:version>86</sparkle:version>
             <sparkle:shortVersionString>3.7.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.7.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.7.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.7.2</sparkle:releaseNotesLink>
             <pubDate>Wed, 09 Sep 2026 22:18:59 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.7.2.dmg" sparkle:edSignature="EF3OF2kd1DSWAJzaWdMUCivhmbdqKblquHCKbH//06mM9brPJz53g6LLAbo4UaFC3nbZzmCIdKRkzEuhYD60CQ==" length="7902987" type="application/octet-stream"/>
         </item>
@@ -198,7 +232,8 @@
             <sparkle:version>85</sparkle:version>
             <sparkle:shortVersionString>3.7.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.7.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.7.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.7.1</sparkle:releaseNotesLink>
             <pubDate>Wed, 09 Sep 2026 16:59:49 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.7.1.dmg" sparkle:edSignature="S4gcEvTyLmV6esBoKLn+me18p+Oi+fm6oJhAKjRPgHcuUDCbRunMMo64aujo++M16iT3xIxzmyRRRgZD8xJhCw==" length="7900308" type="application/octet-stream"/>
         </item>
@@ -207,7 +242,8 @@
             <sparkle:version>84</sparkle:version>
             <sparkle:shortVersionString>3.7.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.7.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.7.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.7.0</sparkle:releaseNotesLink>
             <pubDate>Mon, 07 Sep 2026 23:05:04 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.7.0.dmg" sparkle:edSignature="7916h2Cdb90MLizxKzu+QDVoIg+r7vqiOXrJKzew0Af5oOI161b+MTwmpG1rxqskOXD8sgJq3XaXKZelHPlNBQ==" length="7892139" type="application/octet-stream"/>
         </item>
@@ -216,7 +252,8 @@
             <sparkle:version>83</sparkle:version>
             <sparkle:shortVersionString>3.6.16</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.16</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.16</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.16</sparkle:releaseNotesLink>
             <pubDate>Sat, 05 Sep 2026 16:42:13 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.16.dmg" sparkle:edSignature="n0bUA1ZSWByBAo23Jv7eHCRcg2vX/lNIfIpwy1AkJD7Y2GBDljHTYWaJdcp7U03d0cNTXEdP9QYHJdGxjyRIDw==" length="7722960" type="application/octet-stream"/>
         </item>
@@ -225,7 +262,8 @@
             <sparkle:version>82</sparkle:version>
             <sparkle:shortVersionString>3.6.15</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.15</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.15</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.15</sparkle:releaseNotesLink>
             <pubDate>Sat, 05 Sep 2026 10:30:10 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.15.dmg" sparkle:edSignature="WAZhZhbeqXm4o8EMnKB43rDi308owgPLJhGYs1yDmEBdNpfGay0kpvVqHqVmDhLaHL/6sup8vdksP18MB6z5BA==" length="7664898" type="application/octet-stream"/>
         </item>
@@ -234,7 +272,8 @@
             <sparkle:version>81</sparkle:version>
             <sparkle:shortVersionString>3.6.14</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.14</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.14</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.14</sparkle:releaseNotesLink>
             <pubDate>Fri, 04 Sep 2026 14:10:15 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.14.dmg" sparkle:edSignature="jIZoJhDg66tqVT8yu1cmgBJ0jjm2Pv813tyLrwAUYvtxZbXmG8wt035TtdM3Ef2gPocyXlYqxPdSDIa67Ym1Dw==" length="7640418" type="application/octet-stream"/>
         </item>
@@ -243,7 +282,8 @@
             <sparkle:version>80</sparkle:version>
             <sparkle:shortVersionString>3.6.13</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.13</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.13</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.13</sparkle:releaseNotesLink>
             <pubDate>Fri, 04 Sep 2026 12:32:29 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.13.dmg" sparkle:edSignature="mJtHp+TE/y1RSFiFVWvGjDVMe6VjWBKFGMQsIsCmpc2vBQtR9zeAPJBDeIMsabra5CxVKrpVcYosly3PAUKcAQ==" length="7636794" type="application/octet-stream"/>
         </item>
@@ -252,7 +292,8 @@
             <sparkle:version>79</sparkle:version>
             <sparkle:shortVersionString>3.6.12</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.12</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.12</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.12</sparkle:releaseNotesLink>
             <pubDate>Wed, 02 Sep 2026 19:30:41 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.12.dmg" sparkle:edSignature="rSbh8AMNrijzntjCPvjJepRRb1Cu7oRESYjBiQVQm5sbtw9GPxGV0nUnM6XFdG3rbm3lGKNOPt2XFczGfwj0Cw==" length="7624724" type="application/octet-stream"/>
         </item>
@@ -261,7 +302,8 @@
             <sparkle:version>78</sparkle:version>
             <sparkle:shortVersionString>3.6.11</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.11</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.11</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.11</sparkle:releaseNotesLink>
             <pubDate>Sat, 29 Aug 2026 21:03:51 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.11.dmg" sparkle:edSignature="6Rig20RatI1P6EJxQzlr2DvLQJuEIvzf3duRZIywEDOqbbx1IPa4ZSjYyzjFtGq2aQUgvqzZ5c9utnvzQwO8DQ==" length="7611320" type="application/octet-stream"/>
         </item>
@@ -270,7 +312,8 @@
             <sparkle:version>77</sparkle:version>
             <sparkle:shortVersionString>3.6.10</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.10</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.10</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.10</sparkle:releaseNotesLink>
             <pubDate>Fri, 28 Aug 2026 11:33:11 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.10.dmg" sparkle:edSignature="CsL8Is+YhUr7IR2sEB5DHhvWHmd1DMlB6HUfsEucDEvHdB9uXVX+JG6YULE0dGf6z32sqM1JF0zknci/nwSpAw==" length="7588102" type="application/octet-stream"/>
         </item>
@@ -279,7 +322,8 @@
             <sparkle:version>76</sparkle:version>
             <sparkle:shortVersionString>3.6.9</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.9</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.9</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.9</sparkle:releaseNotesLink>
             <pubDate>Wed, 26 Aug 2026 18:05:54 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.9.dmg" sparkle:edSignature="NGVVu88kgLRq9GhNS/O+t2RgQfVc06E0yK2TBppFnVv9k8ssPNXFrGngdjpEMCh8Z7jrwOmlFyPQa7yF6pIkCg==" length="7208639" type="application/octet-stream"/>
         </item>
@@ -288,7 +332,8 @@
             <sparkle:version>75</sparkle:version>
             <sparkle:shortVersionString>3.6.8</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.8</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.8</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.8</sparkle:releaseNotesLink>
             <pubDate>Wed, 26 Aug 2026 17:01:45 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.8.dmg" sparkle:edSignature="JlqlNXyWcWthF3G6e2mAD/9ThhNR6jjzJZNMcUMStsCWSguVJ7vL7cc2uPJ3sO0u9vPk8mcZF2c+gbBL/9IOBQ==" length="7210307" type="application/octet-stream"/>
         </item>
@@ -297,7 +342,8 @@
             <sparkle:version>74</sparkle:version>
             <sparkle:shortVersionString>3.6.7</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.7</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.7</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.7</sparkle:releaseNotesLink>
             <pubDate>Sun, 23 Aug 2026 20:22:04 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.7.dmg" sparkle:edSignature="63z8CpeoY/kizNamG2ZYmMFKUtrR3+KVArRWvIET5vduWsBLOtr3ohvpFbVh/LURKVvhwsHVt1IwG3PcYG9lAA==" length="7163785" type="application/octet-stream"/>
         </item>
@@ -306,7 +352,8 @@
             <sparkle:version>73</sparkle:version>
             <sparkle:shortVersionString>3.6.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.6</sparkle:releaseNotesLink>
             <pubDate>Sun, 23 Aug 2026 16:36:33 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.6.dmg" sparkle:edSignature="ot+67YOUAs+3NtNFDKxi1obrsVnbQtaBLFs9S+UVqlaUtXRxDOq0hWsghVo/CeK81PQk7hd9QPiUV+/q0XypCw==" length="7165228" type="application/octet-stream"/>
         </item>
@@ -315,7 +362,8 @@
             <sparkle:version>72</sparkle:version>
             <sparkle:shortVersionString>3.6.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.5</sparkle:releaseNotesLink>
             <pubDate>Sun, 23 Aug 2026 15:17:36 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.5.dmg" sparkle:edSignature="cOmTpbtv/9G6uuafebi1dnABglrn37tN6KcsM68RR+lkTW+hTKnh1PJQ2nkQTfnty83JIqa+RMr8T8RKJpgVAw==" length="7164758" type="application/octet-stream"/>
         </item>
@@ -324,7 +372,8 @@
             <sparkle:version>71</sparkle:version>
             <sparkle:shortVersionString>3.6.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.4</sparkle:releaseNotesLink>
             <pubDate>Fri, 14 Aug 2026 11:31:25 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.4.dmg" sparkle:edSignature="xwLME1JE73pbUKMoB2gLQ9/TxCAdqFpmbcuwnfSQpMByw9W/srQD0RyZ0S1JPzr4jZtMqKXe/VoHLLuko2XIDw==" length="7110859" type="application/octet-stream"/>
         </item>
@@ -333,7 +382,8 @@
             <sparkle:version>70</sparkle:version>
             <sparkle:shortVersionString>3.6.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.3</sparkle:releaseNotesLink>
             <pubDate>Thu, 13 Aug 2026 10:22:03 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.3.dmg" sparkle:edSignature="l73u49ZGsCqVuQqa8s1B6McU7mniIxdsEjWaZmcF3tKk/FWnhxAAYORc6MjbUT9cygVMSkoCvYj61nIiWbRVDg==" length="7115983" type="application/octet-stream"/>
         </item>
@@ -342,7 +392,8 @@
             <sparkle:version>69</sparkle:version>
             <sparkle:shortVersionString>3.6.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.2</sparkle:releaseNotesLink>
             <pubDate>Wed, 12 Aug 2026 15:45:59 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.2.dmg" sparkle:edSignature="HUViGbpYVc+CKjBaRy9lAi4AESb+2JfdbvMsAt7u4OSCtJI76Tf/NGMCgJqI49zk4OiMZsTA7Fx1hlTg9JR0BA==" length="7047070" type="application/octet-stream"/>
         </item>
@@ -351,7 +402,8 @@
             <sparkle:version>68</sparkle:version>
             <sparkle:shortVersionString>3.6.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.1</sparkle:releaseNotesLink>
             <pubDate>Thu, 06 Aug 2026 17:45:27 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.1.dmg" sparkle:edSignature="AO+5lECGFAxG3GOjnKYDRdOKWF4oF/q9osp+DqossUtBPvfioPiI79UHGMhenfYbD8Kz9OqB0BmFrebpp0zkBw==" length="6962517" type="application/octet-stream"/>
         </item>
@@ -360,7 +412,8 @@
             <sparkle:version>67</sparkle:version>
             <sparkle:shortVersionString>3.6.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.6.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.6.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.6.0</sparkle:releaseNotesLink>
             <pubDate>Wed, 05 Aug 2026 23:03:27 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.6.0.dmg" sparkle:edSignature="kBBvyCDY/rw3zB1yjxyFsrWLHuNd4IlOQmPUAzbtJHjL7cyou187asAFLYw5ZizCXxLsetsQmq/vbvJSbSzTBA==" length="6945058" type="application/octet-stream"/>
         </item>
@@ -369,7 +422,8 @@
             <sparkle:version>66</sparkle:version>
             <sparkle:shortVersionString>3.5.12</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.12</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.12</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.12</sparkle:releaseNotesLink>
             <pubDate>Tue, 04 Aug 2026 17:49:55 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.12.dmg" sparkle:edSignature="zeQWyGHg59V+G+jrTCgwEenEV3NZLDB6Cfz0HGkxon/4JewNFY3vPvfAuXIiO9Tiioh18Y7XlLyTBFW8VeiLBQ==" length="6680268" type="application/octet-stream"/>
         </item>
@@ -378,7 +432,8 @@
             <sparkle:version>65</sparkle:version>
             <sparkle:shortVersionString>3.5.11</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.11</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.11</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.11</sparkle:releaseNotesLink>
             <pubDate>Mon, 03 Aug 2026 22:42:26 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.11.dmg" sparkle:edSignature="j636O60LYYTXHiHyjktsFCSIhjIWVPraCavWdFwTbYLpTQg8mSg1BSNsTkQJm2V0HoioRRUxViNgmNQtnYd3BA==" length="6652072" type="application/octet-stream"/>
         </item>
@@ -387,7 +442,8 @@
             <sparkle:version>64</sparkle:version>
             <sparkle:shortVersionString>3.5.10</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.10</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.10</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.10</sparkle:releaseNotesLink>
             <pubDate>Sat, 01 Aug 2026 23:53:34 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.10.dmg" sparkle:edSignature="hODeMRnBs1RYwWDv4I8mre1z1cTw+vUzsaXQJHL5dVXw6kOGdz+62i+XNXY974m4LyDXFLhOug2MJHo1v5nODw==" length="6625904" type="application/octet-stream"/>
         </item>
@@ -396,7 +452,8 @@
             <sparkle:version>63</sparkle:version>
             <sparkle:shortVersionString>3.5.9</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.9</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.9</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.9</sparkle:releaseNotesLink>
             <pubDate>Fri, 31 Jul 2026 19:34:00 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.9.dmg" sparkle:edSignature="7YC53HMkr/TUCLtc9ioD3EwFtUjvWxPSEMzsOV4FH5P7AnyyMgnxUKDlA9VzK1uZVdIUR+IndvS73TypVxBxBw==" length="6558815" type="application/octet-stream"/>
         </item>
@@ -405,7 +462,8 @@
             <sparkle:version>62</sparkle:version>
             <sparkle:shortVersionString>3.5.8</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.8</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.8</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.8</sparkle:releaseNotesLink>
             <pubDate>Thu, 30 Jul 2026 11:51:19 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.8.dmg" sparkle:edSignature="pG3e0I+c/8ePLmTImZiKtvXiavt+HAShuAXH7DgJYokmjxCCqPnn1v7cHtZ1cIncjE+eE3yVXl5ljEOKvPRKAg==" length="6001866" type="application/octet-stream"/>
         </item>
@@ -414,7 +472,8 @@
             <sparkle:version>61</sparkle:version>
             <sparkle:shortVersionString>3.5.7</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.7</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.7</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.7</sparkle:releaseNotesLink>
             <pubDate>Wed, 29 Jul 2026 22:35:50 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.7.dmg" sparkle:edSignature="x7G0gxH2UBgUEKVK25EhibiVyfexk2JOshkWOxXUdjkE/pMsfZuCLwxX+SdSfcvDKsVAFp4Xu0Qfm1lEh4SvCg==" length="5996332" type="application/octet-stream"/>
         </item>
@@ -423,7 +482,8 @@
             <sparkle:version>60</sparkle:version>
             <sparkle:shortVersionString>3.5.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.6</sparkle:releaseNotesLink>
             <pubDate>Wed, 29 Jul 2026 11:41:16 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.6.dmg" sparkle:edSignature="WNs2hQy/XsKr7YVt5oVBFy0Dw/iTP5RHt/jQBB1mWeho7Bh511e5aAWIf7tE1ql47Y5x10NhqpEwX/zKieQjBg==" length="5944501" type="application/octet-stream"/>
         </item>
@@ -432,7 +492,8 @@
             <sparkle:version>59</sparkle:version>
             <sparkle:shortVersionString>3.5.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.5</sparkle:releaseNotesLink>
             <pubDate>Mon, 27 Jul 2026 16:29:01 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.5.dmg" sparkle:edSignature="7SsxaIRyGOmmLK+x4v7hgRqd8EAUbFcD3/4InMLJBMY4YG5gBHj2/WPt7yW/Gh+k6aiw5u/bWBVN07NJVe07DQ==" length="5914638" type="application/octet-stream"/>
         </item>
@@ -441,7 +502,8 @@
             <sparkle:version>58</sparkle:version>
             <sparkle:shortVersionString>3.5.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.4</sparkle:releaseNotesLink>
             <pubDate>Sun, 26 Jul 2026 21:50:11 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.4.dmg" sparkle:edSignature="rd23OmvFIlTEZT+SA7mZ05uw8v24PmYixMFsiRBqlEFN3i9HFM42cWg4/IzfscYwNHl1OG0hQCVdksltgIYgBw==" length="5864512" type="application/octet-stream"/>
         </item>
@@ -450,7 +512,8 @@
             <sparkle:version>57</sparkle:version>
             <sparkle:shortVersionString>3.5.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.3</sparkle:releaseNotesLink>
             <pubDate>Sun, 26 Jul 2026 12:41:46 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.3.dmg" sparkle:edSignature="UvbfP+3O+lrBf3dRWJ2ghCcz1+LVSxGTZQf0Sr3qidbgmhH5Ho7UFUNijSTG+uXmTVc7L9DhNzg6sopc3YCHBg==" length="5865018" type="application/octet-stream"/>
         </item>
@@ -459,7 +522,8 @@
             <sparkle:version>56</sparkle:version>
             <sparkle:shortVersionString>3.5.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.2</sparkle:releaseNotesLink>
             <pubDate>Sat, 25 Jul 2026 20:21:25 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.2.dmg" sparkle:edSignature="BM53jQdnyfrX5Qy4Ny4dVNcwannh4NWT+mdhSOVTXbZKu5FKMwUr22sC295hzbY5Fu2VgvqhN1OSCSmUPbosDg==" length="5861330" type="application/octet-stream"/>
         </item>
@@ -468,7 +532,8 @@
             <sparkle:version>55</sparkle:version>
             <sparkle:shortVersionString>3.5.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.1</sparkle:releaseNotesLink>
             <pubDate>Sat, 25 Jul 2026 11:45:55 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.1.dmg" sparkle:edSignature="O1TzaDZPnX0hYJs+ZhJjz8CWU2Fdzm+xpX+j6a9eyPifD1J07J7KKeSukdAMw6T4hYrzLfQelbQc2P9+HoVtDQ==" length="5843097" type="application/octet-stream"/>
         </item>
@@ -477,7 +542,8 @@
             <sparkle:version>54</sparkle:version>
             <sparkle:shortVersionString>3.5.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.5.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.5.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.5.0</sparkle:releaseNotesLink>
             <pubDate>Fri, 24 Jul 2026 19:03:37 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.5.0.dmg" sparkle:edSignature="3qaofG00ROUq5OWFQ0SClpIbo1v6SCUJcekOyvhrfj6DdPMf6DSeXMNO0hBYorKws6BzfaZWforXEgGIBmIzAg==" length="5807840" type="application/octet-stream"/>
         </item>
@@ -486,7 +552,8 @@
             <sparkle:version>53</sparkle:version>
             <sparkle:shortVersionString>3.4.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.4.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.4.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.4.3</sparkle:releaseNotesLink>
             <pubDate>Thu, 23 Jul 2026 16:29:02 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.4.3.dmg" sparkle:edSignature="t2uhg2bwGtLsQu7vq/SmUQXKKCJOQD0CxviTd689rfe0ahGzOrVRDyH8MDED7D4RRDPeyisiObC+rNSYKCf1AA==" length="5676850" type="application/octet-stream"/>
         </item>
@@ -495,7 +562,8 @@
             <sparkle:version>52</sparkle:version>
             <sparkle:shortVersionString>3.4.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.4.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.4.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.4.2</sparkle:releaseNotesLink>
             <pubDate>Thu, 23 Jul 2026 14:20:05 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.4.2.dmg" sparkle:edSignature="yLOeDCaJForqKjgFIORG3jBzbyWozlONQSM66pq9FLdL+cj4YYCbSkCtDAPiaDk4BlqN2pcVTcSTM4YEo3foAw==" length="5686121" type="application/octet-stream"/>
         </item>
@@ -504,7 +572,8 @@
             <sparkle:version>51</sparkle:version>
             <sparkle:shortVersionString>3.4.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.4.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.4.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.4.1</sparkle:releaseNotesLink>
             <pubDate>Wed, 22 Jul 2026 11:10:11 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.4.1.dmg" sparkle:edSignature="ET2yGbVBwxCYVtUGjyqMD4CxkEhHdtdigdsFdsvr3AZFnkohhltcwuM+mpl9LdKV6T2FdL1vm3N9Rf4NMwNtBA==" length="4177727" type="application/octet-stream"/>
         </item>
@@ -513,7 +582,8 @@
             <sparkle:version>50</sparkle:version>
             <sparkle:shortVersionString>3.4.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.4.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.4.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.4.0</sparkle:releaseNotesLink>
             <pubDate>Tue, 21 Jul 2026 16:06:26 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.4.0.dmg" sparkle:edSignature="tonVt6j9oDtgI7FAqBH5y+qg38WAJEycXBnHSyw7eMv9br5ppuOBYtfsngqCkBP/QkMFKnn6QZqlUlkbSMZHCA==" length="4176079" type="application/octet-stream"/>
         </item>
@@ -522,7 +592,8 @@
             <sparkle:version>49</sparkle:version>
             <sparkle:shortVersionString>3.3.11</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.3.11</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.3.11</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.3.11</sparkle:releaseNotesLink>
             <pubDate>Tue, 21 Jul 2026 15:05:35 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.3.11.dmg" sparkle:edSignature="xTVz2I+N7uQUQj2UdapIM8Jj+4VRTcoSntuQqlL084JpY7/Pcr5L8lIRAWxD+1Xw0Frvuutz0xD1LyusXq63BA==" length="4204885" type="application/octet-stream"/>
         </item>
@@ -531,7 +602,8 @@
             <sparkle:version>48</sparkle:version>
             <sparkle:shortVersionString>3.3.10</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.3.10</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.3.10</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.3.10</sparkle:releaseNotesLink>
             <pubDate>Mon, 20 Jul 2026 16:20:40 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.3.10.dmg" sparkle:edSignature="Dv5jMFE4wzTDrSVGQM9uabHkQk1n0VxY/tcPIti902ml684AvlDPKG5LgLRuMv82Ca1blYdGWTlQQrJ5j6htBw==" length="4097809" type="application/octet-stream"/>
         </item>
@@ -540,7 +612,8 @@
             <sparkle:version>47</sparkle:version>
             <sparkle:shortVersionString>3.3.9</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.3.9</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.3.9</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.3.9</sparkle:releaseNotesLink>
             <pubDate>Mon, 20 Jul 2026 11:15:50 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.3.9.dmg" sparkle:edSignature="1xAbFt/eCKbbbW5BQo0o23jEDYAUXBixoeqHOqdexFMMTr7oH9e3rZZ9migi37Sv8MWHf5WO063SPjEq/X2eBA==" length="4021546" type="application/octet-stream"/>
         </item>
@@ -549,7 +622,8 @@
             <sparkle:version>46</sparkle:version>
             <sparkle:shortVersionString>3.3.8</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.3.8</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.3.8</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.3.8</sparkle:releaseNotesLink>
             <pubDate>Fri, 17 Jul 2026 11:31:35 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.3.8.dmg" sparkle:edSignature="UiA7DCQmrW4eBptwdwLnWkaurM65YtzJQrn075sw4KvwwZWWmS+3N9ylXiKMdwAQJjvSzAFktjRVFFjDpsLkAQ==" length="4033885" type="application/octet-stream"/>
         </item>
@@ -558,7 +632,8 @@
             <sparkle:version>45</sparkle:version>
             <sparkle:shortVersionString>3.3.7</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.3.7</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.3.7</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.3.7</sparkle:releaseNotesLink>
             <pubDate>Wed, 15 Jul 2026 13:19:43 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.3.7.dmg" sparkle:edSignature="OENHqBRBwEnuJKsqRm2xFTcF6s5VTFIYEfnseThCLDHuP4iepCRGqfu+/+ZpcjCm/ad97uo9m4XwfC7rxz0QAg==" length="4004319" type="application/octet-stream"/>
         </item>
@@ -567,7 +642,8 @@
             <sparkle:version>44</sparkle:version>
             <sparkle:shortVersionString>3.3.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.3.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.3.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.3.6</sparkle:releaseNotesLink>
             <pubDate>Mon, 13 Jul 2026 13:08:37 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.3.6.dmg" sparkle:edSignature="11eKrUdEUbpfIR8n6ZWrS72p6RFzbMIwoiImuts4VzMtibrn4qtZt3zrZFmGhFiwEnYKCLZRabqtqtlbEoSuCQ==" length="4003530" type="application/octet-stream"/>
         </item>
@@ -576,7 +652,8 @@
             <sparkle:version>43</sparkle:version>
             <sparkle:shortVersionString>3.3.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.3.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.3.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.3.5</sparkle:releaseNotesLink>
             <pubDate>Sun, 12 Jul 2026 21:26:55 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.3.5.dmg" sparkle:edSignature="uRaQAj2G+Ru+oaxcYckQXTKkIHc9h2NtJdjusTe7Xr+c9q4LwP36M2oc2jk+ftWpppsU5jyx7EDTQWSzLF4KAA==" length="3986637" type="application/octet-stream"/>
         </item>
@@ -585,7 +662,8 @@
             <sparkle:version>42</sparkle:version>
             <sparkle:shortVersionString>3.3.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.3.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.3.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.3.4</sparkle:releaseNotesLink>
             <pubDate>Sun, 12 Jul 2026 10:14:23 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.3.4.dmg" sparkle:edSignature="X+JMSEHQ8WzjaREXFoLzTmZIa2NCWIBfoVwekABTdS2T8oBCv5htgZ1v3H9GGXYDPZ3ZLnWr5DlI8mM6HZhpDA==" length="3979311" type="application/octet-stream"/>
         </item>
@@ -594,7 +672,8 @@
             <sparkle:version>41</sparkle:version>
             <sparkle:shortVersionString>3.3.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.3.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.3.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.3.3</sparkle:releaseNotesLink>
             <pubDate>Sat, 11 Jul 2026 14:25:23 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.3.3.dmg" sparkle:edSignature="QKwjgbH2p2f1nkGm8aCfdP2+GALaw+NCwWlPzjFYFxFJerxHPTFnqfPx4To7UpnGKBzxBbV2QkFms4mkHD1LBA==" length="3862343" type="application/octet-stream"/>
         </item>
@@ -603,7 +682,8 @@
             <sparkle:version>40</sparkle:version>
             <sparkle:shortVersionString>3.3.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.3.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.3.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.3.2</sparkle:releaseNotesLink>
             <pubDate>Fri, 10 Jul 2026 19:58:06 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.3.2.dmg" sparkle:edSignature="9Ev14FIUNz82Onbbzu0cwKOzvZAMepoktYCBSXrKlEhv8LBWqCJrp7yweV2pUERx+VH1M3UvTo+oR3STwZSkDQ==" length="3858056" type="application/octet-stream"/>
         </item>
@@ -612,7 +692,8 @@
             <sparkle:version>39</sparkle:version>
             <sparkle:shortVersionString>3.3.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.3.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.3.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.3.1</sparkle:releaseNotesLink>
             <pubDate>Fri, 10 Jul 2026 16:30:18 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.3.1.dmg" sparkle:edSignature="Qk0AW44MHcOn4t8XpDGcnLScEH3DxilCf86pUxLiFEY7V1tDZzlfN1ydQe0NHxRjuTln2ks1bMZIQo5Y6l2XAQ==" length="3859263" type="application/octet-stream"/>
         </item>
@@ -621,7 +702,8 @@
             <sparkle:version>38</sparkle:version>
             <sparkle:shortVersionString>3.3.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.3.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.3.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.3.0</sparkle:releaseNotesLink>
             <pubDate>Fri, 10 Jul 2026 10:30:19 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.3.0.dmg" sparkle:edSignature="u5Qwjjj8I7QHEE+wtsyjZ8mOlafk+L5a1AE9xRo0NnF28nz6ExB5Gk8ZMmtc5XhqwCvoG9/Kli+g5cZ7tYFOCw==" length="3608469" type="application/octet-stream"/>
         </item>
@@ -630,7 +712,8 @@
             <sparkle:version>37</sparkle:version>
             <sparkle:shortVersionString>3.2.9</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.2.9</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.2.9</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.2.9</sparkle:releaseNotesLink>
             <pubDate>Tue, 07 Jul 2026 13:35:43 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.2.9.dmg" sparkle:edSignature="WUhGhr7nzZx5kexAzC6t7FgWJij8scl/DGvlhhLL1qKFhgRIy+UkA5khALdGB0U2AHX6jVrHjkB0fO6+rF+/Cg==" length="3481077" type="application/octet-stream"/>
         </item>
@@ -639,7 +722,8 @@
             <sparkle:version>36</sparkle:version>
             <sparkle:shortVersionString>3.2.8</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.2.8</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.2.8</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.2.8</sparkle:releaseNotesLink>
             <pubDate>Tue, 30 Jun 2026 22:23:34 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.2.8.dmg" sparkle:edSignature="ZHmnBkhfSld8TGsxIS2ZrcZNX4MNdEIGfWkUswBdZyz6Rb3GWCiFvrDB/+utQW+MfkfkNSFLif0/UCeM6DHmAQ==" length="3480360" type="application/octet-stream"/>
         </item>
@@ -648,7 +732,8 @@
             <sparkle:version>35</sparkle:version>
             <sparkle:shortVersionString>3.2.7</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.2.7</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.2.7</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.2.7</sparkle:releaseNotesLink>
             <pubDate>Tue, 30 Jun 2026 13:36:55 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.2.7.dmg" sparkle:edSignature="v1CNOWyRse3F/axyOBG17ZePKw43EzRYAeZHcFp4jm6tz8Q0zPN/MPLcfTvo/H710N36B4xqwuHclu9/3gFvAg==" length="3474123" type="application/octet-stream"/>
         </item>
@@ -657,7 +742,8 @@
             <sparkle:version>34</sparkle:version>
             <sparkle:shortVersionString>3.2.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.2.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.2.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.2.6</sparkle:releaseNotesLink>
             <pubDate>Tue, 30 Jun 2026 12:40:30 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.2.6.dmg" sparkle:edSignature="Nj+fF98ifI/Jgf04s1UT6Yv/brvj2Ik4izOAwQN32BmMvjgvaB+IC/9P9ViqO2LZlO9aC/avpoPdPYRlNOl/DA==" length="3462024" type="application/octet-stream"/>
         </item>
@@ -666,7 +752,8 @@
             <sparkle:version>33</sparkle:version>
             <sparkle:shortVersionString>3.2.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.2.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.2.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.2.5</sparkle:releaseNotesLink>
             <pubDate>Mon, 29 Jun 2026 20:21:01 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.2.5.dmg" sparkle:edSignature="W76KGNhsrZvQ5FqxXtSgUknMMt3b+nEl50BXWCvgh2nw167KgBdQDsSBkXx7mkrM+RkZQ4dzHUsJLB0Whf5dAQ==" length="3420026" type="application/octet-stream"/>
         </item>
@@ -675,7 +762,8 @@
             <sparkle:version>32</sparkle:version>
             <sparkle:shortVersionString>3.2.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.2.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.2.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.2.4</sparkle:releaseNotesLink>
             <pubDate>Mon, 29 Jun 2026 20:09:25 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.2.4.dmg" sparkle:edSignature="d3YF/XAZ0Yx7MZzFaLzjScIrXk7waqYpK8lNWVfabcPWe/QMeMEVXp0U7x3S9fon6r8KxZtRBbkH4Hhi4TgqBA==" length="3421733" type="application/octet-stream"/>
         </item>
@@ -684,7 +772,8 @@
             <sparkle:version>31</sparkle:version>
             <sparkle:shortVersionString>3.2.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.2.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.2.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.2.3</sparkle:releaseNotesLink>
             <pubDate>Mon, 29 Jun 2026 13:04:49 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.2.3.dmg" sparkle:edSignature="OXJfyNWHk28CvigPBo2OHFW2jbAw9d2pz+OCXVtpIu2WGGylOnLN1Gs5qvGRqd5DsTqMhbuF/zq79eAT3PBVAA==" length="3384594" type="application/octet-stream"/>
         </item>
@@ -693,7 +782,8 @@
             <sparkle:version>30</sparkle:version>
             <sparkle:shortVersionString>3.2.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.2.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.2.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.2.2</sparkle:releaseNotesLink>
             <pubDate>Sun, 28 Jun 2026 11:37:15 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.2.2.dmg" sparkle:edSignature="dqOKvzZ1wgiB/n2Vvkuve7F3eDFOZ2WEbXJaLxm7AmauIY/a/O7vPG0Y0jfhFO0cIZ1eUmLNx2EUJq6ANNGgBw==" length="3350670" type="application/octet-stream"/>
         </item>
@@ -702,7 +792,8 @@
             <sparkle:version>29</sparkle:version>
             <sparkle:shortVersionString>3.2.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.2.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.2.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.2.1</sparkle:releaseNotesLink>
             <pubDate>Sat, 27 Jun 2026 20:16:03 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.2.1.dmg" sparkle:edSignature="c/Yt/6GzPzxK95iqBO8rdFgMs9drbLI0zeIOpeLwLW26KUnNTEKotMknRQvWaIy+9vj9iIcKGYj2O+3WCnvCBA==" length="3349526" type="application/octet-stream"/>
         </item>
@@ -711,7 +802,8 @@
             <sparkle:version>28</sparkle:version>
             <sparkle:shortVersionString>3.2.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.2.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.2.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.2.0</sparkle:releaseNotesLink>
             <pubDate>Thu, 25 Jun 2026 21:08:27 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.2.0.dmg" sparkle:edSignature="wnmcvQEIyI4jBIDmAaAWOWP/sGLw9tT5KBDYdBhzOAB+jIz5hbALMFZzf40F5lW0dV0Hy9SJ8r0DO3ab9b12Bw==" length="3329866" type="application/octet-stream"/>
         </item>
@@ -720,7 +812,8 @@
             <sparkle:version>27</sparkle:version>
             <sparkle:shortVersionString>3.1.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.1.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.1.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.1.3</sparkle:releaseNotesLink>
             <pubDate>Thu, 25 Jun 2026 12:03:41 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.1.3.dmg" sparkle:edSignature="RRlH9tMTga4XjHhRiRQS3g5GA9BIQHkKfcFMaQP8wYbmJxXqE/PJ6METPSB9enHh8DSZMJq4qGlhnLvR1bM9Bg==" length="3158065" type="application/octet-stream"/>
         </item>
@@ -729,7 +822,8 @@
             <sparkle:version>26</sparkle:version>
             <sparkle:shortVersionString>3.1.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.1.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.1.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.1.2</sparkle:releaseNotesLink>
             <pubDate>Thu, 25 Jun 2026 00:29:59 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.1.2.dmg" sparkle:edSignature="l0umYKfi2dvZxxuwWQOK3lm/ZBG2A5MbOvvKyo/odpcOYxKlvyxf9ktTstKwQ7N0+3IEZ1Q/cLajJn9HL2EMAg==" length="3131191" type="application/octet-stream"/>
         </item>
@@ -738,7 +832,8 @@
             <sparkle:version>25</sparkle:version>
             <sparkle:shortVersionString>3.1.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.1.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.1.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.1.1</sparkle:releaseNotesLink>
             <pubDate>Wed, 24 Jun 2026 23:38:10 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.1.1.dmg" sparkle:edSignature="ZAqYx2b6FLAS3Qy1hKM8GAcBQr3vHQkd9TEzPYrkBepYl8FrwKBM9FVjhVuTO4kc7DeCipofmjFGfO3Jytk6Dw==" length="3134760" type="application/octet-stream"/>
         </item>
@@ -747,7 +842,8 @@
             <sparkle:version>24</sparkle:version>
             <sparkle:shortVersionString>3.1.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.1.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.1.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.1.0</sparkle:releaseNotesLink>
             <pubDate>Wed, 24 Jun 2026 20:18:38 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.1.0.dmg" sparkle:edSignature="FppmuKHgGue1IKo9TCjzm7hmoE2YjPKPnXKHNIh4mbhn9fkHs5qcSsjCq9pygIwr3ZqkJbQ+3u49bBcvPAexBA==" length="3084556" type="application/octet-stream"/>
         </item>
@@ -756,7 +852,8 @@
             <sparkle:version>23</sparkle:version>
             <sparkle:shortVersionString>3.0.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#3.0.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#3.0.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#3.0.0</sparkle:releaseNotesLink>
             <pubDate>Wed, 24 Jun 2026 14:32:55 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v3.0.0.dmg" sparkle:edSignature="i0pBg41pJVgmZCUctggIWCZmjcTI6ZMPnpPj2CAsgv9UmrnB7grm9eE0no/Ja6by1v/cx0A0CEKmOHFxkWSmDA==" length="3030047" type="application/octet-stream"/>
         </item>
@@ -765,7 +862,8 @@
             <sparkle:version>22</sparkle:version>
             <sparkle:shortVersionString>2.4.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.4.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#2.4.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#2.4.6</sparkle:releaseNotesLink>
             <pubDate>Tue, 23 Jun 2026 13:32:15 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.4.6.dmg" sparkle:edSignature="2PmJ48M8JsOyyC39M815vZf8+/AgzVC8cNqjhfNl0XBc8NzoUPUtsYiVMGTrjYr3Lw3JphP5haHcLsxshVetDQ==" length="3025786" type="application/octet-stream"/>
         </item>
@@ -774,7 +872,8 @@
             <sparkle:version>21</sparkle:version>
             <sparkle:shortVersionString>2.4.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.4.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#2.4.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#2.4.5</sparkle:releaseNotesLink>
             <pubDate>Tue, 23 Jun 2026 12:04:18 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.4.5.dmg" sparkle:edSignature="GPNqVI92o8IBzzNR1mgs2B4xRql6SQy2SSu58FiIRsFYo3z/Ir8DRzvlPLbeYNHYXaGOnw42SyrqAieJPhyHDQ==" length="3023597" type="application/octet-stream"/>
         </item>
@@ -783,7 +882,8 @@
             <sparkle:version>20</sparkle:version>
             <sparkle:shortVersionString>2.4.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.4.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#2.4.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#2.4.4</sparkle:releaseNotesLink>
             <pubDate>Tue, 23 Jun 2026 00:21:01 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.4.4.dmg" sparkle:edSignature="86Arq3i4v0VziTt0/t7g6vLjiLNMA4NpT39mp1E4gA+s+u5Md6MDITfZGlDUeCGBskLhNofYoHGn1h/a/UJpDg==" length="3023619" type="application/octet-stream"/>
         </item>
@@ -792,7 +892,8 @@
             <sparkle:version>19</sparkle:version>
             <sparkle:shortVersionString>2.4.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.4.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#2.4.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#2.4.3</sparkle:releaseNotesLink>
             <pubDate>Mon, 22 Jun 2026 22:57:37 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.4.3.dmg" sparkle:edSignature="CMho4+yF++HMGdebevoxoS12vtvTDefc89Lu++musO9/3/rC7SE8ZRIHHqrn1YXqaS24kkwsKuXZNluMudlfAw==" length="3020530" type="application/octet-stream"/>
         </item>
@@ -801,7 +902,8 @@
             <sparkle:version>18</sparkle:version>
             <sparkle:shortVersionString>2.4.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.4.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#2.4.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#2.4.2</sparkle:releaseNotesLink>
             <pubDate>Mon, 22 Jun 2026 10:19:47 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.4.2.dmg" sparkle:edSignature="KyzjZ4lj6KWA/idFXs/2IZp5MTdfVfyCVxSEwbJ92KRLeNQzY0+ZMjfvR919KezFzp+qRo/Svt0gC+aY+/brCw==" length="2894098" type="application/octet-stream"/>
         </item>
@@ -810,7 +912,8 @@
             <sparkle:version>17</sparkle:version>
             <sparkle:shortVersionString>2.4.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.4.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#2.4.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#2.4.1</sparkle:releaseNotesLink>
             <pubDate>Sun, 21 Jun 2026 23:11:45 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.4.1.dmg" sparkle:edSignature="TBEbo3dJ65fTF3RotYnDQXBhZCk0SKGy0V5NN/YPNTiQY11xhFT6Z+w1luumWdEZJqZuSXC+vbLmiDZYh2dkDw==" length="2887949" type="application/octet-stream"/>
         </item>
@@ -819,7 +922,8 @@
             <sparkle:version>16</sparkle:version>
             <sparkle:shortVersionString>2.4.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.4.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#2.4.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#2.4.0</sparkle:releaseNotesLink>
             <pubDate>Sun, 21 Jun 2026 22:32:31 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.4.0.dmg" sparkle:edSignature="h375ImnKqMc1M+q26ouBl/wlEMoaoMC2vSBHqFEIu106ShDdr2UaKF/6i9ms10qiItyNVDjspv6bQFVIlJ0qBA==" length="2887904" type="application/octet-stream"/>
         </item>
@@ -828,7 +932,8 @@
             <sparkle:version>13</sparkle:version>
             <sparkle:shortVersionString>2.3.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.3.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#2.3.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#2.3.0</sparkle:releaseNotesLink>
             <pubDate>Sun, 21 Jun 2026 11:46:37 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.3.0.dmg" sparkle:edSignature="n8vjt1rxRaJwa261pU5Fo0BNaETL6nygdfkLLfnK+K+fd1XWk8SJMzVCp/w536MTWtSN8W3+L118jCb8LV+QDA==" length="2849403" type="application/octet-stream"/>
         </item>
@@ -837,7 +942,8 @@
             <sparkle:version>12</sparkle:version>
             <sparkle:shortVersionString>2.2.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.2.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#2.2.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#2.2.0</sparkle:releaseNotesLink>
             <pubDate>Fri, 19 Jun 2026 15:36:20 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.2.0.dmg" sparkle:edSignature="L/6jFdturq7Mz31UItkx5aO6uPu7uOKfFdHEvov44W+PZVLD1BDf/jiSujDED9xuBnvXk8GoIg5mRAFnoIo5Dw==" length="2681727" type="application/octet-stream"/>
         </item>
@@ -846,7 +952,8 @@
             <sparkle:version>11</sparkle:version>
             <sparkle:shortVersionString>2.1.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.1.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#2.1.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#2.1.0</sparkle:releaseNotesLink>
             <pubDate>Thu, 18 Jun 2026 16:05:00 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.1.0.dmg" sparkle:edSignature="2FBNtL8I4tLW1hfkA6kDgLaShjnGw55q3qQbaUwW2238ulf8IzJeLemzGju0b9LRdrSVQoavheydTljCHJyMDQ==" length="1564567" type="application/octet-stream"/>
         </item>
@@ -855,7 +962,8 @@
             <sparkle:version>10</sparkle:version>
             <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#2.0.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#2.0.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#2.0.0</sparkle:releaseNotesLink>
             <pubDate>Mon, 15 Jun 2026 22:25:38 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v2.0.0.dmg" sparkle:edSignature="cSN94/EgbLzV9LvRznE+dsrSlUpIPT9ustcr28E+fZa/0VEz9wtLC3OUriYTZXHvFnixmjHJBaF0s6G+unSUDg==" length="1492881" type="application/octet-stream"/>
         </item>
@@ -864,7 +972,8 @@
             <sparkle:version>9</sparkle:version>
             <sparkle:shortVersionString>1.3.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#1.3.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#1.3.6</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#1.3.6</sparkle:releaseNotesLink>
             <pubDate>Mon, 15 Jun 2026 16:06:15 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v1.3.6.dmg" sparkle:edSignature="xkRTJRxVthwJw1oIUZMmSmJ3UDCqDP3YREuK1Qf+zBbeEx2UWcJBuDQW5BNxC3lZ+krPqgz/oWySGwbJfjyVAw==" length="1482951" type="application/octet-stream"/>
         </item>
@@ -873,7 +982,8 @@
             <sparkle:version>8</sparkle:version>
             <sparkle:shortVersionString>1.3.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#1.3.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#1.3.5</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#1.3.5</sparkle:releaseNotesLink>
             <pubDate>Mon, 15 Jun 2026 14:45:43 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v1.3.5.dmg" sparkle:edSignature="+O1seqtfFeoNPUjkzdu+h3gMm6wTkWExRtyOObZNqnDu3FPiOxhqWT/Zm/AKSw091CyFmG1rhwYQfmafFwJwBA==" length="1461278" type="application/octet-stream"/>
         </item>
@@ -882,7 +992,8 @@
             <sparkle:version>7</sparkle:version>
             <sparkle:shortVersionString>1.3.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#1.3.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#1.3.4</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#1.3.4</sparkle:releaseNotesLink>
             <pubDate>Mon, 15 Jun 2026 13:59:04 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v1.3.4.dmg" sparkle:edSignature="1Eozkv41L4r7ecCVr6wpAeOR2ZPLcnKOfGEtsFv6EZZuNaFSpMw5EUvc1KESoReaxVZU7PkpVGhZrCw4FexPAA==" length="1461243" type="application/octet-stream"/>
         </item>
@@ -891,7 +1002,8 @@
             <sparkle:version>6</sparkle:version>
             <sparkle:shortVersionString>1.3.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#1.3.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#1.3.3</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#1.3.3</sparkle:releaseNotesLink>
             <pubDate>Sun, 14 Jun 2026 22:10:39 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v1.3.3.dmg" sparkle:edSignature="1auvaT2F0dJ4GOQAN7CpC1cFWBRq+eZGzjj6lIFj0iI4vwMVuUl4QcY9usI9UpfSOPDyJniARYkEXrIJoJZYCQ==" length="1405208" type="application/octet-stream"/>
         </item>
@@ -900,7 +1012,8 @@
             <sparkle:version>5</sparkle:version>
             <sparkle:shortVersionString>1.3.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#1.3.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#1.3.2</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#1.3.2</sparkle:releaseNotesLink>
             <pubDate>Sun, 14 Jun 2026 15:12:18 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v1.3.2.dmg" sparkle:edSignature="FWk4PT/QIvq17Z3NzHZD7hao5NEhpLMsoOL3UMHl5l08nFZINtrUj4w4Hapkh8V4rkk6BbxN08kayns5L73wAg==" length="1396203" type="application/octet-stream"/>
         </item>
@@ -909,7 +1022,8 @@
             <sparkle:version>4</sparkle:version>
             <sparkle:shortVersionString>1.3.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#1.3.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#1.3.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#1.3.1</sparkle:releaseNotesLink>
             <pubDate>Sat, 13 Jun 2026 11:54:40 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v1.3.1.dmg" sparkle:edSignature="1WyJkqYmdHveZMBB7Ne+GLwz6agqklZ6F+RXqLiu3l30cXo9PnsnDOiyjEC8Dl5Sb4oFo+7oGjSZoZci0tdBCg==" length="1331802" type="application/octet-stream"/>
         </item>
@@ -918,7 +1032,8 @@
             <sparkle:version>3</sparkle:version>
             <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#1.3.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#1.3.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#1.3.0</sparkle:releaseNotesLink>
             <pubDate>Fri, 12 Jun 2026 16:48:27 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v1.3.0.dmg" sparkle:edSignature="9d/fZdrMGXjOlKoKOTRutWZcNIdjxxQEbK0WqV+vg2rlEyaUYK973gD/JlX6S6+mhrSFQjAPdw5nd3y/C4j0CA==" length="1330236" type="application/octet-stream"/>
         </item>
@@ -927,7 +1042,8 @@
             <sparkle:version>2</sparkle:version>
             <sparkle:shortVersionString>1.2.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#1.2.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#1.2.1</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#1.2.1</sparkle:releaseNotesLink>
             <pubDate>Thu, 11 Jun 2026 21:47:07 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v1.2.1.dmg" sparkle:edSignature="28wK6sVULaMiv6vL2nG+I2AYVtgJN1AKVDWhfYebKYdldbKmz4aOmggolKlXk9F2p1IlctC+713KIvPeRwWcCw==" length="1323377" type="application/octet-stream"/>
         </item>
@@ -936,7 +1052,8 @@
             <sparkle:version>1</sparkle:version>
             <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://codexbar.zabrian.app/notes#1.2.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="en">https://codexbar.zabrian.app/notes?lang=en#1.2.0</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#1.2.0</sparkle:releaseNotesLink>
             <pubDate>Thu, 11 Jun 2026 21:19:36 +0800</pubDate>
             <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v1.2.0.dmg" sparkle:edSignature="uwe29fAr5NHr+Id4H0cEMqVDmFxWZb/R+GE0yxvbqKDet+NvY6tlWphl9GxbEW8FwVow5B9BF0nsg1PSJ7NIDQ==" length="1323252" type="application/octet-stream"/>
         </item>

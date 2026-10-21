@@ -35,6 +35,7 @@ Environment:
   DOWNLOAD_BASE_URL       Base URL for DMG downloads.
                            Defaults to https://codexbar.zabrian.app/download.
   RELEASE_NOTES_BASE_URL  Base URL for release notes and upgrade guides.
+                           Both links append lang=en and lang=zh-CN query parameters.
                            Release notes append the current version as #X.Y.Z.
                            The browser upgrade link appends #${UPGRADE_GUIDE_VERSION}-Guide.
                            Defaults to https://codexbar.zabrian.app/notes.
@@ -171,11 +172,15 @@ if ! perl -e 'exit($ARGV[0] > $ARGV[1] ? 1 : 0)' "${MINIMUM_COMPATIBLE_BUILD}" "
     exit 1
 fi
 
-RELEASE_NOTES_URL="${RELEASE_NOTES_BASE_URL%/}#${SHORT_VERSION}"
-UPGRADE_GUIDE_URL="${RELEASE_NOTES_BASE_URL%/}#${UPGRADE_GUIDE_VERSION}-Guide"
-if [[ ! "${RELEASE_NOTES_URL}" =~ ^https?://[^/?#[:space:]]+([/?#][^[:space:]]*)?$ ]]; then
+RELEASE_NOTES_URL_PREFIX="${RELEASE_NOTES_BASE_URL%/}"
+if [[ ! "${RELEASE_NOTES_URL_PREFIX}" =~ ^https?://[^/?#[:space:]]+([/?#][^[:space:]]*)?$ ]]; then
     echo "error: release notes URL must be an absolute HTTP or HTTPS URL without whitespace" >&2
     exit 1
+fi
+if [[ "${RELEASE_NOTES_URL_PREFIX}" == *\?* ]]; then
+    RELEASE_NOTES_URL_PREFIX+="&lang="
+else
+    RELEASE_NOTES_URL_PREFIX+="?lang="
 fi
 
 if [[ -z "${PRODUCT_NAME}" || "${PRODUCT_NAME}" == '$(TARGET_NAME)' ]]; then
@@ -235,14 +240,19 @@ DOWNLOAD_URL_ESCAPED="$(printf '%s' "${DOWNLOAD_URL}" | xml_escape)"
 ED_SIGNATURE_ESCAPED="$(printf '%s' "${ED_SIGNATURE}" | xml_escape)"
 MIN_SYSTEM_ESCAPED="$(printf '%s' "${MINIMUM_SYSTEM_VERSION}" | xml_escape)"
 SHORT_VERSION_ESCAPED="$(printf '%s' "${SHORT_VERSION}" | xml_escape)"
-RELEASE_NOTES_URL_ESCAPED="$(printf '%s' "${RELEASE_NOTES_URL}" | xml_escape)"
-UPGRADE_GUIDE_URL_ESCAPED="$(printf '%s' "${UPGRADE_GUIDE_URL}" | xml_escape)"
 
+UPGRADE_GUIDE_XML=""
 RELEASE_NOTES_XML=""
-if [[ "${INCLUDE_RELEASE_NOTES}" != "0" ]]; then
-    RELEASE_NOTES_XML="<sparkle:releaseNotesLink>${RELEASE_NOTES_URL_ESCAPED}</sparkle:releaseNotesLink>
-    "
-fi
+for NOTES_LANGUAGE in en zh-CN; do
+    UPGRADE_GUIDE_URL_ESCAPED="$(printf '%s%s#%s-Guide' "${RELEASE_NOTES_URL_PREFIX}" "${NOTES_LANGUAGE}" "${UPGRADE_GUIDE_VERSION}" | xml_escape)"
+    UPGRADE_GUIDE_XML+="<link xml:lang=\"${NOTES_LANGUAGE}\">${UPGRADE_GUIDE_URL_ESCAPED}</link>
+            "
+    if [[ "${INCLUDE_RELEASE_NOTES}" != "0" ]]; then
+        RELEASE_NOTES_URL_ESCAPED="$(printf '%s%s#%s' "${RELEASE_NOTES_URL_PREFIX}" "${NOTES_LANGUAGE}" "${SHORT_VERSION}" | xml_escape)"
+        RELEASE_NOTES_XML+="<sparkle:releaseNotesLink xml:lang=\"${NOTES_LANGUAGE}\">${RELEASE_NOTES_URL_ESCAPED}</sparkle:releaseNotesLink>
+            "
+    fi
+done
 
 APPCAST_ITEM="        <item>
             <title>${TITLE}</title>
@@ -251,8 +261,7 @@ APPCAST_ITEM="        <item>
             <sparkle:minimumSystemVersion>${MIN_SYSTEM_ESCAPED}</sparkle:minimumSystemVersion>
             <sparkle:minimumAutoupdateVersion>${MINIMUM_COMPATIBLE_BUILD}</sparkle:minimumAutoupdateVersion>
             <sparkle:informationalUpdate><sparkle:belowVersion>${MINIMUM_COMPATIBLE_BUILD}</sparkle:belowVersion></sparkle:informationalUpdate>
-            <link>${UPGRADE_GUIDE_URL_ESCAPED}</link>
-            ${RELEASE_NOTES_XML}        <pubDate>${PUB_DATE}</pubDate>
+            ${UPGRADE_GUIDE_XML}${RELEASE_NOTES_XML}<pubDate>${PUB_DATE}</pubDate>
             <enclosure url=\"${DOWNLOAD_URL_ESCAPED}\" sparkle:edSignature=\"${ED_SIGNATURE_ESCAPED}\" length=\"${ARCHIVE_LENGTH}\" type=\"application/octet-stream\"/>
         </item>"
 
