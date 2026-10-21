@@ -278,8 +278,7 @@ private extension CodexStatusMenuView {
             syncDisplayState: SyncDisplayState(
                 settings: syncSettings
             ),
-            updateMessage: appUpdater.panelUpdateMessage,
-            startUpdate: appUpdater.startUpdate
+            updateMessage: appUpdater.availableUpdateMessage
         )
     }
 }

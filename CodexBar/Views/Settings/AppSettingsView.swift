@@ -929,7 +929,7 @@ private extension AppSettingsView {
                 Button {
                     appUpdater.startUpdate()
                 } label: {
-                    Image(systemName: "arrow.down.circle.fill")
+                    Image(systemName: appUpdater.isUpdateReadyToInstall ? "square.and.arrow.down" : "arrow.down.circle.fill")
                         .imageScale(.large)
                 }
                 .controlSize(.small)

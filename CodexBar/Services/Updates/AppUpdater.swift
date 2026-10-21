@@ -6,10 +6,24 @@ import Sparkle
 /// Sparkle 更新状态桥接层, 同时驱动设置窗和菜单面板的更新提示
 @MainActor
 final class AppUpdater: NSObject, ObservableObject {
-    @Published private(set) var settingsStatusMessage: String?
-    @Published private(set) var panelUpdateMessage: String?
+    @Published private var settingsCheckMessage: String?
+    @Published private var pendingInstallation: (version: String, install: () -> Void)?
     @Published private(set) var availableUpdateMessage: String?
     @Published private(set) var automaticallyChecksForUpdates = false
+
+    var settingsStatusMessage: String? {
+        if let pendingInstallation {
+            return String(
+                localized: "updater.status.ready-to-install.settings",
+                defaultValue: "\(pendingInstallation.version)"
+            )
+        }
+        return settingsCheckMessage
+    }
+
+    var isUpdateReadyToInstall: Bool {
+        pendingInstallation != nil
+    }
 
     var canConfigureAutomaticChecks: Bool {
         updaterController != nil
@@ -24,8 +38,8 @@ final class AppUpdater: NSObject, ObservableObject {
     }
 
     private static let missingUpdateConfigurationMessage = String(localized: "updater.status.missing-configuration")
-    /// Sparkle 可能既不回调 didFindValidUpdate / didNotFindUpdate 也不回调 didAbortWithError
-    /// (后台检查已在进行, 或 feed 请求被放弃), 超时复位避免永久停留在手动检查态
+    /// Sparkle 启动失败时检查请求可能直接返回, 不触发完成回调
+    /// 兜底复位手动检查状态, 避免后续后台结果被误认为手动检查
     private static let manualCheckTimeout = Duration.seconds(30)
 
     init(bundle: Bundle = .main) {
@@ -47,17 +61,19 @@ final class AppUpdater: NSObject, ObservableObject {
     }
 
     func checkForUpdates() {
+        if availableUpdateMessage != nil {
+            clearSettingsStatusMessage()
+            return
+        }
+
         guard let updaterController else {
             showSettingsStatusMessage(Self.missingUpdateConfigurationMessage)
             return
         }
 
-        if let availableUpdateMessage {
-            showSettingsStatusMessage(availableUpdateMessage, autoDismissDelay: nil)
-            return
-        }
+        guard !updaterController.updater.sessionInProgress else { return }
 
-        AppLog.app.notice("更新检查开始: trigger=\(LogTrigger.manual.rawValue, privacy: .public)")
+        AppLog.app.notice("检查更新开始: trigger=\(LogTrigger.manual.rawValue, privacy: .public)")
         beginManualCheck()
         showSettingsStatusMessage(
             String(localized: "updater.status.checking")
@@ -66,10 +82,18 @@ final class AppUpdater: NSObject, ObservableObject {
     }
 
     func startUpdate() {
+        if let pendingInstallation {
+            // 退出被取消后仍可重试, 直到 Sparkle 结束更新会话才释放回调
+            pendingInstallation.install()
+            return
+        }
+
         guard let updaterController else {
             showSettingsStatusMessage(Self.missingUpdateConfigurationMessage)
             return
         }
+
+        guard updaterController.updater.canCheckForUpdates else { return }
 
         NSApplication.shared.activate()
         updaterController.checkForUpdates(nil)
@@ -108,25 +132,26 @@ final class AppUpdater: NSObject, ObservableObject {
         isManualCheckInProgress ? .manual : .auto
     }
 
-    /// 手动检查态只影响结果去向 (设置窗 vs 菜单面板), 复位失败会永久隐藏面板更新提示
+    /// 手动检查态决定是否在设置窗显示检查结果, 检查结束后统一复位
     private func finishManualCheck() {
         manualCheckTimeoutTask?.cancel()
         manualCheckTimeoutTask = nil
     }
 
-    private func showSettingsStatusMessage(_ message: String, autoDismissDelay: Duration? = .seconds(3)) {
+    private func clearSettingsStatusMessage() {
         clearSettingsStatusMessageTask?.cancel()
-        settingsStatusMessage = message
+        clearSettingsStatusMessageTask = nil
+        settingsCheckMessage = nil
+    }
 
-        guard let autoDismissDelay else {
-            clearSettingsStatusMessageTask = nil
-            return
-        }
+    private func showSettingsStatusMessage(_ message: String, autoDismissDelay: Duration = .seconds(3)) {
+        clearSettingsStatusMessage()
+        settingsCheckMessage = message
 
         clearSettingsStatusMessageTask = Task { [weak self] in
             try? await Task.sleep(for: autoDismissDelay)
             guard !Task.isCancelled else { return }
-            self?.settingsStatusMessage = nil
+            self?.settingsCheckMessage = nil
         }
     }
 
@@ -144,6 +169,39 @@ final class AppUpdater: NSObject, ObservableObject {
 }
 
 extension AppUpdater: SPUUpdaterDelegate {
+    func updater(
+        _: SPUUpdater,
+        willInstallUpdateOnQuit item: SUAppcastItem,
+        immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
+    ) -> Bool {
+        // 保留当前安装会话, 避免重新检查时恢复已下载更新的信息
+        pendingInstallation = (item.displayVersionString, immediateInstallHandler)
+        return true
+    }
+
+    func updater(_: SPUUpdater, didFinishUpdateCycleFor _: SPUUpdateCheck, error: Error?) {
+        pendingInstallation = nil
+        defer { finishManualCheck() }
+
+        guard let error else { return }
+        let errorCode = (error as NSError).code
+        // 没有更新和稍后授权不作为检查失败处理
+        guard errorCode != Int(SUError.noUpdateError.rawValue),
+              errorCode != Int(SUError.installationAuthorizeLaterError.rawValue) else { return }
+
+        let details = LogFields.joined(
+            "trigger=\(checkTrigger.rawValue)",
+            "detail=\(error.localizedDescription)"
+        )
+        AppLog.app.error("检查更新失败: \(details, privacy: .public)")
+
+        if isManualCheckInProgress {
+            showSettingsStatusMessage(
+                String(localized: "updater.status.check-failed")
+            )
+        }
+    }
+
     func updater(_: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         let version = item.displayVersionString
         let message = String(
@@ -157,12 +215,10 @@ extension AppUpdater: SPUUpdaterDelegate {
             "result=available",
             "version=\(version)"
         )
-        AppLog.app.notice("更新检查完成: \(details, privacy: .public)")
+        AppLog.app.notice("检查更新完成: \(details, privacy: .public)")
 
         if isManualCheckInProgress {
-            showSettingsStatusMessage(message, autoDismissDelay: nil)
-        } else {
-            panelUpdateMessage = message
+            clearSettingsStatusMessage()
         }
 
         finishManualCheck()
@@ -170,13 +226,12 @@ extension AppUpdater: SPUUpdaterDelegate {
 
     func updaterDidNotFindUpdate(_: SPUUpdater, error _: Error) {
         availableUpdateMessage = nil
-        panelUpdateMessage = nil
         let trigger = checkTrigger.rawValue
         let details = LogFields.joined(
             "trigger=\(trigger)",
             "result=upToDate"
         )
-        AppLog.app.notice("更新检查完成: \(details, privacy: .public)")
+        AppLog.app.notice("检查更新完成: \(details, privacy: .public)")
 
         if isManualCheckInProgress {
             showSettingsStatusMessage(
@@ -185,28 +240,6 @@ extension AppUpdater: SPUUpdaterDelegate {
             )
         }
 
-        finishManualCheck()
-    }
-
-    func updater(_: SPUUpdater, didAbortWithError error: Error) {
-        // 没有可用更新时 Sparkle 也会走这个回调, 那不是失败
-        // 这一轮的结果已由 updaterDidNotFindUpdate 记成 result=upToDate
-        if (error as NSError).code != Int(SUError.noUpdateError.rawValue) {
-            let trigger = checkTrigger.rawValue
-            let details = LogFields.joined(
-                "trigger=\(trigger)",
-                "detail=\(error.localizedDescription)"
-            )
-            AppLog.app.error("更新检查失败: \(details, privacy: .public)")
-        }
-
-        guard isManualCheckInProgress else {
-            return
-        }
-
-        showSettingsStatusMessage(
-            String(localized: "updater.status.check-failed")
-        )
         finishManualCheck()
     }
 }

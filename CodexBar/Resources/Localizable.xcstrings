@@ -6353,6 +6353,22 @@
         }
       }
     },
+    "updater.status.ready-to-install.settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Click to install v%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "点击安装 v%@"
+          }
+        }
+      }
+    },
     "updater.status.up-to-date" : {
       "localizations" : {
         "en" : {

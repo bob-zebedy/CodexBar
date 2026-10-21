@@ -280,7 +280,6 @@ struct UpdatedAtRow: View {
     let isCountdownActive: Bool
     let syncDisplayState: SyncDisplayState
     let updateMessage: String?
-    let startUpdate: () -> Void
 
     var body: some View {
         HStack {
@@ -314,7 +313,6 @@ struct UpdatedAtRow: View {
                     .lineLimit(1)
                     .numericTransition(value: updateMessage, enabled: allowsAnimations)
                     .transition(.opacity)
-                    .onTapGesture(count: 2, perform: startUpdate)
             }
 
             Image(systemName: syncDisplayState.symbolName)
