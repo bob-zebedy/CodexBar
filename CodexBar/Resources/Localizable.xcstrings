@@ -3105,198 +3105,6 @@
         }
       }
     },
-    "power-helper.error.assets-invalid" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CodexBar Power Helper is invalid"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CodexBar Power Helper 组件或配置异常"
-          }
-        }
-      }
-    },
-    "power-helper.error.assets-missing" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CodexBar Power Helper is missing"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CodexBar Power Helper 组件或配置丢失"
-          }
-        }
-      }
-    },
-    "power-helper.error.connection-failed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Could not connect to the service"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "连接服务失败"
-          }
-        }
-      }
-    },
-    "power-helper.error.connection-interrupted" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The service connection was interrupted"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "服务连接中断"
-          }
-        }
-      }
-    },
-    "power-helper.error.invalid-interface" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Invalid service interface"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "服务接口无效"
-          }
-        }
-      }
-    },
-    "power-helper.error.no-response" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The service is not responding"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "服务无响应"
-          }
-        }
-      }
-    },
-    "power-helper.error.registration-failed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Could not register the service"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "注册服务失败"
-          }
-        }
-      }
-    },
-    "power-helper.error.update-failed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Could not update the service"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "更新服务失败"
-          }
-        }
-      }
-    },
-    "power-helper.status.authorization-required" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Allow CodexBar Power Helper to run in the background"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "需要授权允许 CodexBar Power Helper 后台运行"
-          }
-        }
-      }
-    },
-    "power-helper.status.install-and-authorize" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Install CodexBar Power Helper and allow background activity"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "需要安装并授权 CodexBar Power Helper 后台运行"
-          }
-        }
-      }
-    },
-    "power-helper.status.installed-needs-authorization" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CodexBar Power Helper installed. Allow background activity"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已安装 CodexBar Power Helper 但需要授权允许后台运行"
-          }
-        }
-      }
-    },
-    "power-helper.status.not-registered" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CodexBar Power Helper is not registered"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CodexBar Power Helper 尚未注册"
-          }
-        }
-      }
-    },
     "history.activity-data.approvals" : {
       "localizations" : {
         "en" : {
@@ -4785,6 +4593,198 @@
         }
       }
     },
+    "power-helper.error.assets-invalid" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CodexBar Power Helper is invalid"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CodexBar Power Helper 组件或配置异常"
+          }
+        }
+      }
+    },
+    "power-helper.error.assets-missing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CodexBar Power Helper is missing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CodexBar Power Helper 组件或配置丢失"
+          }
+        }
+      }
+    },
+    "power-helper.error.connection-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not connect to the service"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接服务失败"
+          }
+        }
+      }
+    },
+    "power-helper.error.connection-interrupted" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The service connection was interrupted"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务连接中断"
+          }
+        }
+      }
+    },
+    "power-helper.error.invalid-interface" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid service interface"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务接口无效"
+          }
+        }
+      }
+    },
+    "power-helper.error.no-response" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The service is not responding"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "服务无响应"
+          }
+        }
+      }
+    },
+    "power-helper.error.registration-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not register the service"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "注册服务失败"
+          }
+        }
+      }
+    },
+    "power-helper.error.update-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not update the service"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新服务失败"
+          }
+        }
+      }
+    },
+    "power-helper.status.authorization-required" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow CodexBar Power Helper to run in the background"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要授权允许 CodexBar Power Helper 后台运行"
+          }
+        }
+      }
+    },
+    "power-helper.status.install-and-authorize" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install CodexBar Power Helper and allow background activity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "需要安装并授权 CodexBar Power Helper 后台运行"
+          }
+        }
+      }
+    },
+    "power-helper.status.installed-needs-authorization" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CodexBar Power Helper installed. Allow background activity"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安装 CodexBar Power Helper 但需要授权允许后台运行"
+          }
+        }
+      }
+    },
+    "power-helper.status.not-registered" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CodexBar Power Helper is not registered"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CodexBar Power Helper 尚未注册"
+          }
+        }
+      }
+    },
     "protection.caption" : {
       "localizations" : {
         "en" : {
@@ -4897,18 +4897,114 @@
         }
       }
     },
-    "service-status.title" : {
+    "service-status.checking" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex Service Status"
+            "value" : "Codex Checking"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 服务状态"
+            "value" : "Codex 正在检查"
+          }
+        }
+      }
+    },
+    "service-status.degraded-performance" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Degraded Performance"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 性能下降"
+          }
+        }
+      }
+    },
+    "service-status.full-outage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Full Outage"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 完全中断"
+          }
+        }
+      }
+    },
+    "service-status.operational" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Operational"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 服务正常"
+          }
+        }
+      }
+    },
+    "service-status.partial-outage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Partial Outage"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 部分中断"
+          }
+        }
+      }
+    },
+    "service-status.under-maintenance" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Under Maintenance"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 正在维护"
+          }
+        }
+      }
+    },
+    "service-status.unknown" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Unknown Status"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 未知状态"
           }
         }
       }

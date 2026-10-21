@@ -21,9 +21,10 @@ struct CodexServiceStatusRow: View {
                 .foregroundStyle(statusColor)
                 .frame(width: MenuMetrics.statusIconSize, height: MenuMetrics.statusIconSize)
 
-                Text("service-status.title")
+                Text(statusTitle)
                     .font(.caption)
                     .foregroundStyle(Color.codexLabel)
+                    .contentTransition(allowsAnimations ? .opacity : .identity)
                     .layoutPriority(1)
 
                 Spacer(minLength: 8)
@@ -35,7 +36,6 @@ struct CodexServiceStatusRow: View {
                         .contentTransition(allowsAnimations ? .opacity : .identity)
                         .truncationMode(.tail)
                         .layoutPriority(-1)
-                        .help(Text(verbatim: displayedComponents.joined(separator: "\n")))
                         .transition(allowsAnimations ? .opacity : .identity)
                 }
             }
@@ -65,9 +65,18 @@ struct CodexServiceStatusRow: View {
         switch name {
         case "Codex Web": "Web"
         case "Codex API": "API"
+        case "CLI": "CLI"
         case "VS Code extension": "VS Code"
         case "Codex in ChatGPT Desktop": "Desktop"
         default: name
+        }
+    }
+
+    private var statusTitle: LocalizedStringResource {
+        switch monitor.state {
+        case .checking: LocalizedStringResource("service-status.checking")
+        case let .available(status): status.level.title
+        case .unavailable: LocalizedStringResource("service-status.unknown")
         }
     }
 
@@ -88,6 +97,16 @@ struct CodexServiceStatusRow: View {
 }
 
 private extension CodexServiceStatus.Level {
+    var title: LocalizedStringResource {
+        switch self {
+        case .operational: LocalizedStringResource("service-status.operational")
+        case .degradedPerformance: LocalizedStringResource("service-status.degraded-performance")
+        case .partialOutage: LocalizedStringResource("service-status.partial-outage")
+        case .fullOutage: LocalizedStringResource("service-status.full-outage")
+        case .underMaintenance: LocalizedStringResource("service-status.under-maintenance")
+        }
+    }
+
     var symbolName: String {
         switch self {
         case .operational: "checkmark.circle.fill"
@@ -101,7 +120,7 @@ private extension CodexServiceStatus.Level {
     func tint(for colorScheme: ColorScheme) -> Color {
         switch self {
         case .operational: .green
-        case .degradedPerformance: Color(hex: colorScheme == .dark ? 0xE4C66A : 0xBE9B38)
+        case .degradedPerformance: Color(hex: colorScheme == .dark ? 0xFEF3C7 : 0xC08A00)
         case .partialOutage: .orange
         case .fullOutage: .red
         case .underMaintenance: .blue
