@@ -17,7 +17,7 @@ struct AppServerRequestBudgetTests {
             let budget = AppServerRequestBudget(deadline: Date().addingTimeInterval(-1))
             #expect(throws: CodexStatusError.self) {
                 try AppServerRequestBudget.$current.withValue(budget) {
-                    let _: [String: String] = try session.request("account/read", as: [String: String].self)
+                    let _: [String: String] = try session.perform(AppServerRequest(method: "account/read"))
                 }
             }
         }.value
@@ -42,7 +42,7 @@ struct AppServerRequestBudgetTests {
             let budget = AppServerRequestBudget(deadline: Date().addingTimeInterval(0.1))
             #expect(throws: CodexStatusError.self) {
                 try AppServerRequestBudget.$current.withValue(budget) {
-                    let _: [String: String] = try session.request("account/read", as: [String: String].self)
+                    let _: [String: String] = try session.perform(AppServerRequest(method: "account/read"))
                 }
             }
             #expect(started.duration(to: .now) < .seconds(1))

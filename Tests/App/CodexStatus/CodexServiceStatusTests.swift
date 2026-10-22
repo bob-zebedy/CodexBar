@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -109,6 +110,7 @@ struct CodexServiceStatusTests {
         await monitor.refresh()
         try await Task.sleep(for: .milliseconds(30))
         #expect(await probe.calls == 1)
+        #expect(monitor.state == .available(.operational))
     }
 
     @Test func eachRefreshFetchesWithoutAnIndependentTimer() async throws {
@@ -144,12 +146,16 @@ struct CodexServiceStatusTests {
         monitor.setEnabled(true)
         await monitor.refresh()
         #expect(monitor.state == .available(.operational))
+        var states: [CodexServiceStatusMonitor.State] = []
+        let observation = monitor.$state.sink { states.append($0) }
+        defer { observation.cancel() }
         await probe.fail()
         await monitor.refresh()
         #expect(monitor.state == .unavailable)
         await probe.recover()
         await monitor.refresh()
         #expect(monitor.state == .available(.operational))
+        #expect(states == [.available(.operational), .checking, .unavailable, .checking, .available(.operational)])
     }
 
     @Test func cancelledResultCannotOverwriteReenabledMonitor() async throws {
@@ -193,6 +199,15 @@ struct CodexServiceStatusTests {
         #expect(monitor.state == .available(.operational))
         #expect(model.autoRefreshCountdownStartedAt != nil)
         #expect(await probe.calls == 1)
+
+        var states: [CodexServiceStatusMonitor.State] = []
+        let observation = monitor.$state.sink { states.append($0) }
+        defer { observation.cancel() }
+        model.refresh(trigger: trigger)
+        try await wait { !model.isRefreshing }
+        let outage = CodexServiceStatus(level: .fullOutage, componentNames: ["CLI"])
+        #expect(states == [.available(.operational), .checking, .available(outage)])
+        #expect(await probe.calls == 2)
     }
 
     @Test func notificationsPreserveSharedTimeAndManualRefreshIncludesServiceFailure() async throws {

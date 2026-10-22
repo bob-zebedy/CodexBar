@@ -38,6 +38,7 @@ final class CodexServiceStatusMonitor: ObservableObject {
     func refresh() async {
         guard isEnabled, !Task.isCancelled else { return }
         if refreshTask == nil {
+            state = .checking
             refreshTask = Task { [weak self, fetch] in
                 let result: State
                 do {

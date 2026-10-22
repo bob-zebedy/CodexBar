@@ -56,11 +56,11 @@ struct AccountNotificationTests {
         defer { server.close() }
         let session = try AccountSession(socketURL: server.url, logStorage: nil)
         defer { session.close() }
-        let first = try session.request("probe", as: Value.self)
+        let first = try session.perform(AppServerRequest<Value>(method: "probe"))
         #expect(first.value == 1)
         #expect(try session.pollChanges() == .account)
         #expect(try session.pollChanges() == nil)
-        let second = try session.request("probe", as: Value.self)
+        let second = try session.perform(AppServerRequest<Value>(method: "probe"))
         #expect(second.value == 2)
         #expect(try session.pollChanges() == .rateLimits)
         #expect(try session.pollChanges() == nil)

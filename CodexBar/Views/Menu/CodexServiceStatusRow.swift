@@ -14,17 +14,17 @@ struct CodexServiceStatusRow: View {
                         .resizable()
                         .scaledToFit()
                         .frame(width: MenuMetrics.statusIconSize, height: MenuMetrics.statusIconSize)
+                        .foregroundStyle(statusColor)
                         .id(statusSymbol)
                         .transition(allowsAnimations ? .opacity : .identity)
                 }
                 .font(.system(size: MenuMetrics.statusIconSize, weight: .medium))
-                .foregroundStyle(statusColor)
                 .frame(width: MenuMetrics.statusIconSize, height: MenuMetrics.statusIconSize)
 
                 Text(statusTitle)
                     .font(.caption)
                     .foregroundStyle(Color.codexLabel)
-                    .contentTransition(allowsAnimations ? .opacity : .identity)
+                    .numericTransition(value: monitor.state, enabled: allowsAnimations)
                     .layoutPriority(1)
 
                 Spacer(minLength: 8)
@@ -33,7 +33,7 @@ struct CodexServiceStatusRow: View {
                     Text(verbatim: displayedComponents.map { Self.shortComponentName($0) }.joined(separator: " • "))
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(statusColor)
-                        .contentTransition(allowsAnimations ? .opacity : .identity)
+                        .numericTransition(value: displayedComponents, enabled: allowsAnimations)
                         .truncationMode(.tail)
                         .layoutPriority(-1)
                         .transition(allowsAnimations ? .opacity : .identity)

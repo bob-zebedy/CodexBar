@@ -4,19 +4,20 @@ import Foundation
 nonisolated struct AppServerRequest<Response: Decodable> {
     let method: String
     var params: [String: Any]?
+    var timeout: TimeInterval?
 }
 
 nonisolated enum AccountRequests {
     static func account(refreshToken: Bool) -> AppServerRequest<AccountReadResponse> {
-        AppServerRequest(method: "account/read", params: ["refreshToken": refreshToken])
+        AppServerRequest(method: "account/read", params: ["refreshToken": refreshToken], timeout: refreshToken ? nil : 10)
     }
 
     static var rateLimits: AppServerRequest<AccountRateLimitsResponse> {
-        AppServerRequest(method: "account/rateLimits/read")
+        AppServerRequest(method: "account/rateLimits/read", timeout: 10)
     }
 
     static var usage: AppServerRequest<AccountUsageResponse> {
-        AppServerRequest(method: "account/usage/read")
+        AppServerRequest(method: "account/usage/read", timeout: 10)
     }
 
     static var configuration: AppServerRequest<ConfigReadResponse> {

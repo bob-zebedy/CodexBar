@@ -55,36 +55,26 @@ final nonisolated class AccountSession {
     }
 
     func perform<Response>(_ request: AppServerRequest<Response>) throws -> Response {
-        try self.request(request.method, params: request.params, as: Response.self)
-    }
-
-    func request<Response: Decodable>(
-        _ method: String,
-        params: [String: Any]? = nil,
-        as type: Response.Type
-    ) throws -> Response {
-        guard !unsupportedMethods.contains(method) else {
+        guard !unsupportedMethods.contains(request.method) else {
             throw CodexStatusError.unsupportedMethod
         }
 
         // app-server 偶发业务错误可重试一次; 传输错误由上层重建连接
         do {
-            return try performRequestRememberingUnsupported(method, params: params, as: type)
-        } catch let error as CodexStatusError where error.isRetriableServerError && AppServerRPC.permitsRetry(method) {
-            return try performRequestRememberingUnsupported(method, params: params, as: type)
+            return try performRequestRememberingUnsupported(request)
+        } catch let error as CodexStatusError where error.isRetriableServerError && AppServerRPC.permitsRetry(request.method) {
+            return try performRequestRememberingUnsupported(request)
         }
     }
 
-    private func performRequestRememberingUnsupported<Response: Decodable>(
-        _ method: String,
-        params: [String: Any]? = nil,
-        as _: Response.Type
+    private func performRequestRememberingUnsupported<Response>(
+        _ request: AppServerRequest<Response>
     ) throws -> Response {
         do {
-            return try transport.request(method, params: params, timeout: timeout)
+            return try transport.request(request.method, params: request.params, timeout: request.timeout ?? timeout)
         } catch let error as CodexStatusError {
             if error.isUnsupportedMethod {
-                unsupportedMethods.insert(method)
+                unsupportedMethods.insert(request.method)
             }
             throw error
         }

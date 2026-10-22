@@ -119,13 +119,46 @@ struct AppServerSessionTests {
         defer { server.close() }
         let session = try AccountSession(socketURL: server.url, logStorage: nil)
         defer { session.close() }
-        let first = try session.request("account/read", as: Value.self)
+        let first = try session.perform(AppServerRequest<Value>(method: "account/read"))
         #expect(first.value == 7)
         for _ in 0 ..< 2 {
-            #expect(throws: CodexStatusError.self) { _ = try session.request("missing", as: Value.self) }
+            #expect(throws: CodexStatusError.self) { _ = try session.perform(AppServerRequest<Value>(method: "missing")) }
         }
-        let next = try session.request("probe", as: Value.self)
+        let next = try session.perform(AppServerRequest<Value>(method: "probe"))
         #expect(next.value == 8)
+        try server.finish()
+    }
+
+    @Test(arguments: [false, true])
+    func accountRequestTimeoutAppliesToInitialAttemptAndRetry(_ retries: Bool) async throws {
+        let server = try SharedServerFixture { peer in
+            let first = try peer.readMessage()
+            if retries {
+                try peer.send(["id": #require(first["id"]), "error": ["code": -32000, "message": "temporary failure"]])
+                _ = try peer.readMessage()
+            }
+            var byte: UInt8 = 0
+            #expect(Darwin.read(peer.descriptor, &byte, 1) == 0)
+        }
+        defer { server.close() }
+        let socketURL = server.url
+        try await Task.detached {
+            let session = try AccountSession(socketURL: socketURL, timeout: 2, logStorage: nil)
+            defer { session.close() }
+            let request = AppServerRequest<Value>(method: "account/read", timeout: 0.1)
+            let started = ContinuousClock.now
+            do {
+                _ = try session.perform(request)
+                Issue.record("Expected request timeout")
+            } catch let error as CodexStatusError {
+                guard case .serverTimeout = error else {
+                    Issue.record("Wrong error: \(error)")
+                    return
+                }
+            }
+            #expect(started.duration(to: .now) < .seconds(1))
+            #expect(!session.isOpen)
+        }.value
         try server.finish()
     }
 
@@ -389,7 +422,7 @@ struct AppServerSessionTests {
         let session = try AccountSession(socketURL: server.url, logStorage: nil)
         defer { session.close() }
         do {
-            _ = try session.request("probe", as: Value.self)
+            _ = try session.perform(AppServerRequest<Value>(method: "probe"))
             Issue.record("Expected a payload error")
         } catch let error as CodexStatusError {
             #expect(!error.isTransportFailure)
@@ -398,7 +431,7 @@ struct AppServerSessionTests {
             }
         }
         #expect(session.isOpen)
-        let value = try session.request("probe", as: Value.self)
+        let value = try session.perform(AppServerRequest<Value>(method: "probe"))
         #expect(value.value == 42)
         try server.finish()
     }
@@ -440,7 +473,7 @@ struct AppServerSessionTests {
         defer { server.close() }
         let session = try AccountSession(socketURL: server.url, logStorage: nil)
         #expect(throws: CodexStatusError.self) {
-            _ = try session.request("probe", as: Value.self)
+            _ = try session.perform(AppServerRequest<Value>(method: "probe"))
         }
         #expect(!session.isOpen)
         try server.finish()
