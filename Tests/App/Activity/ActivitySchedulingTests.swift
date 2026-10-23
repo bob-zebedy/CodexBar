@@ -178,7 +178,7 @@ struct ActivitySchedulingTests {
     @Test func persistedEventIsPublishedOnceAfterMaintenanceWriteRecovers() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let blocker = try directory.write("block maintenance directory", to: HistoryDatabase.filename)
+        let blocker = try directory.write("block maintenance directory", to: "event.db")
         let release = DispatchSemaphore(value: 0)
         defer { release.signal() }
         let server = try SharedServerFixture { peer in
@@ -530,7 +530,7 @@ extension ActivitySchedulingTests {
     func stopWaitsForPendingWritesAndReportsPersistenceFailure(failFirstStop: Bool) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let blocker = try directory.write("block maintenance directory", to: HistoryDatabase.filename)
+        let blocker = try directory.write("block maintenance directory", to: "event.db")
         let release = DispatchSemaphore(value: 0)
         defer { release.signal() }
         let server = try SharedServerFixture { peer in

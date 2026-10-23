@@ -4,16 +4,16 @@ import Foundation
 nonisolated struct ActivityDataSyncStore {
     let directoryURL: URL
 
-    private var cacheDirectoryURL: URL {
-        directoryURL.appendingPathComponent("activityData", isDirectory: true)
+    private var cacheURL: URL {
+        AppStorage(rootURL: directoryURL).activityDataSyncCacheURL
     }
 
-    private var cacheURL: URL {
-        cacheDirectoryURL.appendingPathComponent("cache.json", isDirectory: false)
+    private var lockURL: URL {
+        AppStorage(rootURL: directoryURL).lockURL(.activityDataSyncCache)
     }
 
     func load() throws -> ActivityDataSyncCache {
-        try JSONFileStorage.withLock(in: cacheDirectoryURL) { try read() }
+        try JSONFileStorage.withLock(at: lockURL) { try read() }
     }
 
     func loadState() -> ActivityDataSyncState {
@@ -49,7 +49,7 @@ nonisolated struct ActivityDataSyncStore {
     }
 
     func prune(now: Date) throws {
-        try JSONFileStorage.withLock(in: cacheDirectoryURL) {
+        try JSONFileStorage.withLock(at: lockURL) {
             var cache = try read()
             if cache.prune(now: now) {
                 try JSONFileStorage.save(cache, to: cacheURL)
@@ -79,7 +79,7 @@ nonisolated struct ActivityDataSyncStore {
     }
 
     private func update(_ body: (inout ActivityDataSyncCache) throws -> Void) throws {
-        try JSONFileStorage.withLock(in: cacheDirectoryURL) {
+        try JSONFileStorage.withLock(at: lockURL) {
             var cache = try read()
             try body(&cache)
             cache.prune()

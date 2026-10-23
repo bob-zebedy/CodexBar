@@ -78,7 +78,7 @@ struct SyncRecoveryTests {
             isEnabled: { true }
         )
         _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [], trigger: .manual)
-        let url = directory.url.appendingPathComponent("activityData/cache.json")
+        let url = directory.url.appendingPathComponent("Sync/activityData.json")
         var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         json["cursor"] = Data("broken cursor".utf8).base64EncodedString()
         try JSONSerialization.data(withJSONObject: json).write(to: url)
@@ -108,7 +108,7 @@ struct SyncRecoveryTests {
         let daily = TestFixtures.activityDataAggregate(date: date).syncedAggregate
         let stale = try ActivityDataSyncRecord(deviceID: "stale", activityData: daily, recordName: "activityData_stale_\(date)")
         try store.saveFetchedRecords([stale.id: stale], cursor: nil)
-        let url = directory.url.appendingPathComponent("activityData/cache.json")
+        let url = directory.url.appendingPathComponent("Sync/activityData.json")
         let original = try Data(contentsOf: url)
         let remote = CKRecord(recordType: "ActivityData", recordID: CKRecord.ID(recordName: "activityData_remote_\(date)", zoneID: Self.zone))
         try ActivityDataRecordCodec.apply(daily, deviceID: "remote", to: remote)
@@ -149,7 +149,7 @@ struct SyncRecoveryTests {
         let database = SyncDatabaseFixture()
         let service = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
         try await service.synchronize(local: [Self.turn(0)], accountScopedDeviceID: "device", zoneID: Self.zone)
-        let url = directory.url.appendingPathComponent("cache.json")
+        let url = directory.url.appendingPathComponent("Sync/tokenUsage.json")
         if cursorOnly {
             var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
             json["cursor"] = Data("broken cursor".utf8).base64EncodedString()
@@ -166,7 +166,7 @@ struct SyncRecoveryTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let original = Data("broken cache".utf8)
-        let url = try directory.write(original, to: "cache.json")
+        let url = try directory.write(original, to: "Sync/tokenUsage.json")
         let database = SyncDatabaseFixture(changesFail: true)
         let service = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
         await #expect(throws: (any Error).self) {
@@ -261,7 +261,7 @@ struct SyncRecoveryTests {
         let database = SyncDatabaseFixture()
         let service = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
         try await service.synchronize(local: [Self.turn(0)], accountScopedDeviceID: "device", zoneID: Self.zone)
-        let url = directory.url.appendingPathComponent("cache.json")
+        let url = directory.url.appendingPathComponent("Sync/tokenUsage.json")
         let original = try Data(contentsOf: url)
         await database.failChangesRecord()
         await #expect(throws: (any Error).self) {
@@ -276,7 +276,7 @@ struct SyncRecoveryTests {
         let database = SyncDatabaseFixture()
         let service = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
         try await service.synchronize(local: [], accountScopedDeviceID: "device", zoneID: Self.zone)
-        let url = directory.url.appendingPathComponent("cache.json")
+        let url = directory.url.appendingPathComponent("Sync/tokenUsage.json")
         let original = Data(#"{"schemaVersion":999,"futureField":"unsupported"}"#.utf8)
         try original.write(to: url)
         await #expect(throws: (any Error).self) {
@@ -291,7 +291,7 @@ struct SyncRecoveryTests {
         let store = ActivityDataSyncStore(directoryURL: directory.url)
         let state = ActivityDataSyncState(deviceID: "device")
         try store.saveState(state)
-        let url = directory.url.appendingPathComponent("activityData/cache.json")
+        let url = directory.url.appendingPathComponent("Sync/activityData.json")
         var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         json["cursor"] = Data("previous cursor".utf8).base64EncodedString()
         try JSONSerialization.data(withJSONObject: json).write(to: url)
@@ -314,7 +314,7 @@ struct SyncRecoveryTests {
         #expect(reopened.sortedRecords == [record])
         #expect(reopened.cursor == nil)
         let files = try FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)
-        #expect(Set(files) == ["cache.json", "store.lock"])
+        #expect(Set(files) == ["activityData.json"])
         try store.reset(state: ActivityDataSyncState())
         #expect(try store.load() == ActivityDataSyncCache(state: ActivityDataSyncState()))
     }
@@ -325,7 +325,7 @@ struct SyncRecoveryTests {
         defer { try? directory.remove() }
         let store = ActivityDataSyncStore(directoryURL: directory.url)
         try store.saveState(ActivityDataSyncState(deviceID: "device"))
-        let url = directory.url.appendingPathComponent("activityData/cache.json")
+        let url = directory.url.appendingPathComponent("Sync/activityData.json")
         var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         json["cursor"] = Data("stale cursor".utf8).base64EncodedString()
         var record: [String: Any] = [
@@ -350,7 +350,7 @@ struct SyncRecoveryTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let original = Data(#"{"schemaVersion":999,"futureField":"unsupported"}"#.utf8)
-        let url = try directory.write(original, to: "activityData/cache.json")
+        let url = try directory.write(original, to: "Sync/activityData.json")
         let store = ActivityDataSyncStore(directoryURL: directory.url)
         #expect(throws: SyncRecovery.Failure.self) { try store.saveState(ActivityDataSyncState()) }
         #expect(throws: SyncRecovery.Failure.self) { try store.reset(state: ActivityDataSyncState()) }
@@ -362,7 +362,7 @@ struct SyncRecoveryTests {
         defer { try? directory.remove() }
         let store = ActivityDataSyncStore(directoryURL: directory.url)
         try store.saveState(ActivityDataSyncState(deviceID: "device"))
-        let url = directory.url.appendingPathComponent("activityData/cache.json")
+        let url = directory.url.appendingPathComponent("Sync/activityData.json")
         var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
         json["cursor"] = Data("previous cursor".utf8).base64EncodedString()
         let original = try JSONSerialization.data(withJSONObject: json)
@@ -456,7 +456,7 @@ struct SyncRecoveryTests {
     @Test func unknownCloudVersionPreservesCacheAndPreventsActivityDataUpload() async throws {
         let fixture = try await HistoryRebuildFixture()
         defer { try? fixture.directory.remove() }
-        let cacheURL = HistoryStorage.syncDirectoryURL(in: fixture.directory.url).appendingPathComponent("activityData/cache.json")
+        let cacheURL = fixture.directory.url.appendingPathComponent("Sync/activityData.json")
         let before = try Data(contentsOf: cacheURL)
         let unsupported = CKRecord(recordType: "ActivityData", recordID: CKRecord.ID(recordName: "future", zoneID: Self.zone))
         unsupported["schemaVersion"] = 999 as CKRecordValue
@@ -472,7 +472,7 @@ struct SyncRecoveryTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let original = Data("{\"schemaVersion\":999}".utf8)
-        let url = try directory.write(original, to: "activityData/cache.json")
+        let url = try directory.write(original, to: "Sync/activityData.json")
         let database = SyncDatabaseFixture()
         let service = SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
         let result = await service.synchronizeIfEnabled(localActivityDataAggregates: [], localTokenUsageAggregates: [Self.turn(0)], trigger: .manual)
@@ -488,7 +488,7 @@ struct SyncRecoveryTests {
     }
 
     private static func cachedDailyCount(in directory: URL) throws -> Int {
-        let data = try Data(contentsOf: directory.appendingPathComponent("cache.json"))
+        let data = try Data(contentsOf: directory.appendingPathComponent("Sync/tokenUsage.json"))
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         return try #require(json["records"] as? [[String: Any]]).count
     }
@@ -715,7 +715,7 @@ extension SyncRecoveryTests {
     @Test func disabledSyncKeepsUpdatedAggregateForNextEnabledRun() async throws {
         let fixture = try await HistoryRebuildFixture()
         defer { try? fixture.directory.remove() }
-        let disabled = SyncService(database: fixture.database, directoryURL: HistoryStorage.syncDirectoryURL(in: fixture.directory.url), isEnabled: { false })
+        let disabled = SyncService(database: fixture.database, directoryURL: fixture.directory.url, isEnabled: { false })
         let history = HistoryService(directoryURL: fixture.directory.url, syncService: disabled)
         _ = try await history.rebuildData(for: [fixture.date], synchronize: true)
         #expect(try await Self.activityDataEventCount(fixture.database.activityDataRecords().first) == 9)
@@ -753,7 +753,7 @@ extension SyncRecoveryTests {
         defer { try? fixture.directory.remove() }
         let brokenDirectory = try TestDirectory()
         defer { try? brokenDirectory.remove() }
-        _ = try brokenDirectory.write(Data("broken".utf8), to: HistoryDatabase.filename)
+        _ = try brokenDirectory.write(Data("broken".utf8), to: "event.db")
         let history = HistoryService(
             directoryURL: fixture.directory.url, syncService: fixture.sync,
             tokenUsageHistory: TokenUsageHistoryStore(directoryURL: brokenDirectory.url)
@@ -800,7 +800,7 @@ private struct HistoryRebuildFixture {
     init() async throws {
         directory = try TestDirectory()
         database = SyncDatabaseFixture()
-        sync = SyncService(database: database, directoryURL: HistoryStorage.syncDirectoryURL(in: directory.url), isEnabled: { true })
+        sync = SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
         history = HistoryService(directoryURL: directory.url, syncService: sync)
         let now = Date()
         date = HistoryStorage.dateKey(for: now)
@@ -849,7 +849,7 @@ extension SyncRecoveryTests {
             deviceID: "other", activityData: remote.syncedAggregate,
             recordName: ActivityDataSyncRecord.recordName(deviceID: "other", date: date)
         )
-        let root = HistoryStorage.syncDirectoryURL(in: directory.url)
+        let root = directory.url
         let store = ActivityDataSyncStore(directoryURL: root)
         try store.saveState(ActivityDataSyncState(deviceID: "local"))
         try store.saveFetchedRecords([record.id: record], cursor: nil)
@@ -1032,7 +1032,7 @@ extension SyncRecoveryTests {
         old.tokenUsage = Self.counts(120)
         try directory.seedTokenUsageAggregates([old])
         let database = SyncDatabaseFixture()
-        let sync = TokenUsageSync(database: database, directoryURL: directory.url.appendingPathComponent("Sync/tokenUsage"), isEnabled: { true })
+        let sync = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
         try await sync.synchronize(local: [old], accountScopedDeviceID: "device", zoneID: Self.zone)
         let date = HistoryStorage.dateKey(for: now)
         _ = try await store.rebuild(for: [date])
@@ -1054,7 +1054,7 @@ extension SyncRecoveryTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let database = SyncDatabaseFixture()
-        let sync = SyncService(database: database, directoryURL: HistoryStorage.syncDirectoryURL(in: directory.url), isEnabled: { true })
+        let sync = SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
         let history = HistoryService(directoryURL: directory.url, syncService: sync)
         let now = Date()
         let date = HistoryStorage.dateKey(for: now)
@@ -1065,7 +1065,7 @@ extension SyncRecoveryTests {
         try directory.replaceHistory(entry("first", count: 100) + entry("second", count: 200), date: date)
         let initial = await history.loadSnapshot(synchronize: true)
         #expect(initial.tokenUsageByDate[date] == Self.counts(300))
-        let deviceID = try #require(ActivityDataSyncStore(directoryURL: HistoryStorage.syncDirectoryURL(in: directory.url)).loadState().deviceID)
+        let deviceID = try #require(ActivityDataSyncStore(directoryURL: directory.url).loadState().deviceID)
         let recordID = TokenUsageSync.recordID("tokenUsage_\(deviceID)_\(date)", zoneID: Self.zone)
         try HistoryDatabase(directoryURL: directory.url).execute("""
         UPDATE aggregates SET tokenUsage = NULL
@@ -1105,7 +1105,7 @@ extension SyncRecoveryTests {
 
         var deviceIDs: [String] = []
         for kind in ["activityData", "tokenUsage"] {
-            let data = try Data(contentsOf: directory.url.appendingPathComponent("\(kind)/cache.json"))
+            let data = try Data(contentsOf: directory.url.appendingPathComponent("Sync/\(kind).json"))
             let cache = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
             #expect(Set(cache.keys) == ["schemaVersion", "state", "cursor", "records"])
             let state = try #require(cache["state"] as? [String: Any])
@@ -1137,7 +1137,7 @@ extension SyncRecoveryTests {
         let local = Self.turn(0)
         let service = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
         try await service.synchronize(local: [local], accountScopedDeviceID: "device", zoneID: Self.zone)
-        let url = directory.url.appendingPathComponent("cache.json")
+        let url = directory.url.appendingPathComponent("Sync/tokenUsage.json")
         let first = try JSONLines.decoder.decode(TokenUsageSyncCache.self, from: Data(contentsOf: url))
         let before = try #require(first.sortedRecords.first)
         #expect(before.updatedAt != nil)

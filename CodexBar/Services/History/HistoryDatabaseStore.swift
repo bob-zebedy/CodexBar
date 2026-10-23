@@ -3,7 +3,7 @@ import os
 
 /// 同一目录共用连接, 每次访问在数据库 actor 内同步完成, 事务不跨 await
 actor HistoryDatabaseStore {
-    private static let applicationStore = HistoryDatabaseStore(directoryURL: HistoryStorage.directoryURL().standardizedFileURL)
+    private static let applicationStore = HistoryDatabaseStore(directoryURL: AppStorage.directoryURL().standardizedFileURL)
     private static let stores = OSAllocatedUnfairLock(initialState: [URL: WeakStore]())
 
     private struct WeakStore {

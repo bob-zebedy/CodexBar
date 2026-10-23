@@ -8,7 +8,7 @@ struct ProtectionRecoveryTests {
         defer { try? directory.remove() }
         let preferences = try TestPreferences()
         defer { preferences.remove() }
-        let bad = try directory.write("broken", to: "state.json")
+        let bad = try directory.write("broken", to: "Protection/state.json")
         let monitor = makeMonitor(directory: directory, preferences: preferences)
         monitor.isStarted = true
         monitor.loadProtectionState()
@@ -26,7 +26,7 @@ struct ProtectionRecoveryTests {
         defer { try? directory.remove() }
         let preferences = try TestPreferences()
         defer { preferences.remove() }
-        let path = directory.url.appendingPathComponent("state.json")
+        let path = directory.url.appendingPathComponent("Protection/state.json")
         try FileManager.default.createDirectory(at: path, withIntermediateDirectories: true)
         let monitor = makeMonitor(directory: directory, preferences: preferences)
         monitor.isStarted = true

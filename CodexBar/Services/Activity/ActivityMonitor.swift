@@ -89,7 +89,7 @@ final class ActivityMonitor: ObservableObject {
     init(
         protectionSettings: ProtectionSettings,
         protectionStore: ProtectionStore = ProtectionStore(),
-        activityDataDirectoryURL: URL = HistoryStorage.directoryURL()
+        activityDataDirectoryURL: URL = AppStorage.directoryURL()
     ) {
         self.protectionSettings = protectionSettings
         self.protectionStore = protectionStore

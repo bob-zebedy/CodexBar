@@ -19,7 +19,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
     #endif
 
     static var defaultDirectory: URL {
-        AppStorage.directoryURL().appendingPathComponent("Logs", isDirectory: true)
+        AppStorage().logDirectoryURL
     }
 
     static let databaseName = "app.db"

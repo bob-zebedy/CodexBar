@@ -8,11 +8,11 @@ struct JSONFileStorageTests {
         defer { try? directory.remove() }
 
         do {
-            let descriptor = try #require(try JSONFileStorage.acquireLock(in: directory.url, name: "sync.lock", nonblocking: true))
+            let descriptor = try #require(try JSONFileStorage.acquireLock(at: directory.url.appendingPathComponent("sync.lock"), nonblocking: true))
             defer { JSONFileStorage.releaseLock(descriptor) }
 
             let started = ContinuousClock.now
-            let duplicate = try JSONFileStorage.acquireLock(in: directory.url, name: "sync.lock", nonblocking: true)
+            let duplicate = try JSONFileStorage.acquireLock(at: directory.url.appendingPathComponent("sync.lock"), nonblocking: true)
             defer {
                 if let duplicate {
                     JSONFileStorage.releaseLock(duplicate)
@@ -20,17 +20,17 @@ struct JSONFileStorageTests {
             }
             #expect(duplicate == nil)
             #expect(started.duration(to: .now) < .seconds(1))
-            try JSONFileStorage.withLock(in: directory.url) {}
+            try JSONFileStorage.withLock(at: directory.url.appendingPathComponent("store.lock")) {}
         }
 
-        let replacement = try #require(try JSONFileStorage.acquireLock(in: directory.url, name: "sync.lock", nonblocking: true))
+        let replacement = try #require(try JSONFileStorage.acquireLock(at: directory.url.appendingPathComponent("sync.lock"), nonblocking: true))
         JSONFileStorage.releaseLock(replacement)
     }
 
     @Test nonisolated func lockDoesNotSurviveExec() throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let descriptor = try #require(try JSONFileStorage.acquireLock(in: directory.url, nonblocking: true))
+        let descriptor = try #require(try JSONFileStorage.acquireLock(at: directory.url.appendingPathComponent("store.lock"), nonblocking: true))
         defer { JSONFileStorage.releaseLock(descriptor) }
 
         let flags = fcntl(descriptor, F_GETFD)
@@ -42,9 +42,9 @@ struct JSONFileStorageTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
 
-        let first = try #require(try JSONFileStorage.acquireLock(in: directory.url.appendingPathComponent("first"), nonblocking: true))
+        let first = try #require(try JSONFileStorage.acquireLock(at: directory.url.appendingPathComponent("first/store.lock"), nonblocking: true))
         defer { JSONFileStorage.releaseLock(first) }
-        let second = try #require(try JSONFileStorage.acquireLock(in: directory.url.appendingPathComponent("second"), nonblocking: true))
+        let second = try #require(try JSONFileStorage.acquireLock(at: directory.url.appendingPathComponent("second/store.lock"), nonblocking: true))
         defer { JSONFileStorage.releaseLock(second) }
     }
 
@@ -54,7 +54,7 @@ struct JSONFileStorageTests {
         let fileURL = try directory.write(Data(), to: "file")
 
         #expect(throws: (any Error).self) {
-            try JSONFileStorage.acquireLock(in: fileURL, nonblocking: true)
+            try JSONFileStorage.acquireLock(at: fileURL.appendingPathComponent("store.lock"), nonblocking: true)
         }
     }
 }

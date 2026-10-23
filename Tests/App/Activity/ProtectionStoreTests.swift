@@ -43,12 +43,12 @@ struct ProtectionStoreTests {
     func invalidStateIsPreservedAndRejectsWrites(_ content: String) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        _ = try directory.write(content, to: "state.json")
+        _ = try directory.write(content, to: "Protection/state.json")
         let store = ProtectionStore(directoryURL: directory.url)
         await #expect(throws: (any Error).self) { try await store.load(now: TestFixtures.now) }
         let record = makeRecord("task", markedAfter: 0)
         await #expect(throws: (any Error).self) { try await store.apply(upserts: [record], now: TestFixtures.now) }
-        #expect(try String(contentsOf: directory.url.appendingPathComponent("state.json"), encoding: .utf8) == content)
+        #expect(try String(contentsOf: directory.url.appendingPathComponent("Protection/state.json"), encoding: .utf8) == content)
     }
 
     @Test func duplicateStoredIdentifiersChooseLatestMarkAndFileIsPrivate() async throws {
@@ -57,7 +57,7 @@ struct ProtectionStoreTests {
         let older = makeRecord("task", markedAfter: 0)
         let newer = makeRecord("task", markedAfter: 5)
         let records = try #require(String(data: JSONEncoder().encode([newer, older]), encoding: .utf8))
-        let url = try directory.write("{\"schemaVersion\":1,\"records\":\(records)}", to: "state.json")
+        let url = try directory.write("{\"schemaVersion\":1,\"records\":\(records)}", to: "Protection/state.json")
         let store = ProtectionStore(directoryURL: directory.url)
         #expect(try await store.load(now: TestFixtures.now)["task"] == newer)
         try await store.apply(now: TestFixtures.now)

@@ -71,13 +71,13 @@ struct HistoryAggregationTests {
         defer { try? directory.remove() }
         let debugRoot = directory.url.appendingPathComponent("CodexBar Data Debug", isDirectory: true)
         let releaseRoot = directory.url.appendingPathComponent("CodexBar Data", isDirectory: true)
-        let debugStore = ActivityDataSyncStore(directoryURL: HistoryStorage.syncDirectoryURL(in: debugRoot))
-        let releaseStore = ActivityDataSyncStore(directoryURL: HistoryStorage.syncDirectoryURL(in: releaseRoot))
+        let debugStore = ActivityDataSyncStore(directoryURL: debugRoot)
+        let releaseStore = ActivityDataSyncStore(directoryURL: releaseRoot)
         try releaseStore.saveState(ActivityDataSyncState(deviceID: "release"))
         #expect(debugStore.loadState().deviceID == nil)
         try debugStore.saveState(ActivityDataSyncState(deviceID: "debug"))
         #expect(releaseStore.loadState().deviceID == "release")
-        let restored = ActivityDataSyncStore(directoryURL: HistoryStorage.syncDirectoryURL(in: debugRoot))
+        let restored = ActivityDataSyncStore(directoryURL: debugRoot)
         #expect(restored.loadState().deviceID == "debug")
         #expect(SyncCloudKit.zoneName == "CodexBarAppZone")
         let root = AppStorage.directoryURL()
@@ -86,8 +86,6 @@ struct HistoryAggregationTests {
         #else
             #expect(root.lastPathComponent == "CodexBar Data")
         #endif
-        #expect(HistoryStorage.directoryURL() == root)
-        #expect(HistoryStorage.syncDirectoryURL() == root.appendingPathComponent("Sync", isDirectory: true))
         #expect(AppServerLogStore.defaultDirectory == root.appendingPathComponent("Logs", isDirectory: true))
     }
 

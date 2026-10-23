@@ -5,15 +5,7 @@ nonisolated enum HistoryStorage {
     private static let retentionDayCount = 210
     private static let identifierRetentionDayCount = 3
 
-    static func directoryURL() -> URL {
-        AppStorage.directoryURL()
-    }
-
-    static func syncDirectoryURL(in root: URL = directoryURL()) -> URL {
-        root.appendingPathComponent("Sync", isDirectory: true)
-    }
-
-    static func rebuildableEventDateKeys(in directoryURL: URL = directoryURL()) async -> [String] {
+    static func rebuildableEventDateKeys(in directoryURL: URL = AppStorage.directoryURL()) async -> [String] {
         let cutoff = dateKey(for: retentionCutoffDate())
         let dates = try? await HistoryDatabaseStore.shared(in: directoryURL).access { try $0.dates() }
         return (dates ?? []).filter { $0 >= cutoff }

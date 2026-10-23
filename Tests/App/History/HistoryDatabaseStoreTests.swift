@@ -35,7 +35,7 @@ struct HistoryDatabaseStoreTests {
         defer { try? directory.remove() }
         let now = Date()
         let store = HistoryDatabaseStore.shared(in: directory.url)
-        let sync = SyncService(directoryURL: HistoryStorage.syncDirectoryURL(in: directory.url), isEnabled: { false })
+        let sync = SyncService(directoryURL: directory.url, isEnabled: { false })
         let history = HistoryService(directoryURL: directory.url, syncService: sync)
         let event = Self.event(at: now)
         try await ActivityDataRecorder(directoryURL: directory.url).record(event: event)
@@ -102,7 +102,7 @@ struct HistoryDatabaseStoreTests {
     @Test func failedOpenCanRecoverOnTheSameStore() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let blocker = try directory.write("not a database", to: HistoryDatabase.filename)
+        let blocker = try directory.write("not a database", to: "event.db")
         let store = HistoryDatabaseStore.shared(in: directory.url)
         await #expect(throws: (any Error).self) { try await store.access { try $0.dates() } }
         try FileManager.default.removeItem(at: blocker)
@@ -134,9 +134,9 @@ struct HistoryDatabaseStoreTests {
         let replacementDirectory = directory.url.appendingPathComponent("replacement", isDirectory: true)
         let replacement = Self.observation(tokens: 20, at: now)
         try HistoryDatabase(directoryURL: replacementDirectory).append(AppServerEventRecord(tokenUsage: replacement, recordedAt: now))
-        let url = directory.url.appendingPathComponent(HistoryDatabase.filename)
+        let url = directory.url.appendingPathComponent("event.db")
         try FileManager.default.moveItem(at: url, to: directory.url.appendingPathComponent("previous.db"))
-        try FileManager.default.moveItem(at: replacementDirectory.appendingPathComponent(HistoryDatabase.filename), to: url)
+        try FileManager.default.moveItem(at: replacementDirectory.appendingPathComponent("event.db"), to: url)
         #expect(try await tokens.snapshot(threadID: "thread").turns["turn"]?.totalTokens == 20)
         #expect(try await store.access { try $0.dates() } == [HistoryStorage.dateKey(for: now)])
     }

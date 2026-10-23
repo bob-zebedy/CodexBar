@@ -12,7 +12,7 @@ nonisolated enum CodexBarMain {
         do {
             // 在 SwiftUI 创建 AppDelegate 前互斥, 避免重复实例初始化服务
             guard let descriptor = try JSONFileStorage.acquireLock(
-                in: AppStorage.directoryURL(), name: "app.lock", nonblocking: true
+                at: AppStorage().lockURL(.appInstance), nonblocking: true
             ) else { return }
             defer { JSONFileStorage.releaseLock(descriptor) }
 

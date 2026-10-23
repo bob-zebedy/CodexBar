@@ -216,7 +216,7 @@ struct HistoryDatabaseIndexTests {
 
     private func values(in directory: TestDirectory, sql: String) throws -> [String] {
         var connection: OpaquePointer?
-        let opened = sqlite3_open_v2(directory.url.appendingPathComponent(HistoryDatabase.filename).path, &connection, SQLITE_OPEN_READONLY, nil)
+        let opened = sqlite3_open_v2(directory.url.appendingPathComponent("event.db").path, &connection, SQLITE_OPEN_READONLY, nil)
         defer { sqlite3_close(connection) }
         try #require(opened == SQLITE_OK)
         var statement: OpaquePointer?

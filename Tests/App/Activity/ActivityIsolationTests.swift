@@ -136,7 +136,7 @@ struct ActivityIsolationTests {
     func fullStorageBufferKeepsLiveReadingAndRetainsAcceptedEvents(byteLimit: Bool) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let blocker = try directory.write("blocked", to: HistoryDatabase.filename)
+        let blocker = try directory.write("blocked", to: "event.db")
         let now = Date().addingTimeInterval(-60)
         let server = try SharedServerFixture { peer in
             let initialize = try peer.readMessage()
@@ -412,7 +412,7 @@ extension ActivityIsolationTests {
     @Test func fullObservationQueueContinuesBaselineAfterStorageRecovery() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let blocker = try directory.write("blocked", to: HistoryDatabase.filename)
+        let blocker = try directory.write("blocked", to: "event.db")
         let phase = Mutex(0)
         let server = try Self.tokenServer(now: Date().addingTimeInterval(-60), phase: { phase.withLock { $0 } })
         defer { server.close() }
@@ -439,7 +439,7 @@ extension ActivityIsolationTests {
         #expect(await reader.drainNow().status == .completed)
         #expect(observed == 2)
         try FileManager.default.removeItem(at: blocker)
-        for _ in 0 ..< 200 where !FileManager.default.fileExists(atPath: directory.url.appendingPathComponent(HistoryDatabase.filename).path) {
+        for _ in 0 ..< 200 where !FileManager.default.fileExists(atPath: directory.url.appendingPathComponent("event.db").path) {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(await reader.drainNow().status == .completed)

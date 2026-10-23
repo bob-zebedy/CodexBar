@@ -29,9 +29,9 @@ actor HistoryService {
     private var idleMaintenanceRounds = 0
     private var lastRetentionCutoff: Date?
 
-    init(directoryURL: URL = HistoryStorage.directoryURL(), syncService: SyncService? = nil, tokenUsageHistory: TokenUsageHistoryStore? = nil) {
+    init(directoryURL: URL = AppStorage.directoryURL(), syncService: SyncService? = nil, tokenUsageHistory: TokenUsageHistoryStore? = nil) {
         database = HistoryDatabaseStore.shared(in: directoryURL)
-        self.syncService = syncService ?? SyncService(directoryURL: HistoryStorage.syncDirectoryURL(in: directoryURL))
+        self.syncService = syncService ?? SyncService(directoryURL: directoryURL)
         self.tokenUsageHistory = tokenUsageHistory ?? TokenUsageHistoryStore(directoryURL: directoryURL)
     }
 

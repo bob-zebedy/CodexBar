@@ -4,7 +4,7 @@ import Foundation
 /// 按设备和日期覆盖每日数量, 本机数据与其他设备的汇总分别保留
 actor TokenUsageSync {
     private let database: any SyncDatabase
-    private let directoryURL: URL
+    private let storage: AppStorage
     private let isEnabled: @Sendable () -> Bool
     private var fileCache: TokenUsageFileCache<TokenUsageSyncCache>
     static let recordType = "TokenUsage"
@@ -12,9 +12,9 @@ actor TokenUsageSync {
 
     init(database: any SyncDatabase, directoryURL: URL, isEnabled: @escaping @Sendable () -> Bool = { SyncSettings.isEnabled() }) {
         self.database = database
-        self.directoryURL = directoryURL
+        storage = AppStorage(rootURL: directoryURL)
         self.isEnabled = isEnabled
-        fileCache = TokenUsageFileCache(url: directoryURL.appendingPathComponent("cache.json"))
+        fileCache = TokenUsageFileCache(url: AppStorage(rootURL: directoryURL).tokenUsageSyncCacheURL)
     }
 
     func snapshot(local: [TokenUsageAggregate], accountScopedDeviceID: String?) throws -> [String: TokenUsage] {
@@ -37,11 +37,11 @@ actor TokenUsageSync {
 
     func resetCache() throws {
         try SyncCancellation.check(isEnabled: isEnabled)
-        guard let lock = try JSONFileStorage.acquireLock(in: directoryURL, name: "sync.lock", nonblocking: true) else {
+        guard let lock = try JSONFileStorage.acquireLock(at: storage.lockURL(.tokenUsageSync), nonblocking: true) else {
             throw POSIXError(.EWOULDBLOCK)
         }
         defer { JSONFileStorage.releaseLock(lock) }
-        try JSONFileStorage.withLock(in: directoryURL) {
+        try JSONFileStorage.withLock(at: storage.lockURL(.tokenUsageSyncCache)) {
             do { _ = try Self.loadCache(&fileCache) } catch is DecodingError {
                 // 已知格式损坏可清除, 未知版本继续向上抛出
             }
@@ -55,7 +55,7 @@ actor TokenUsageSync {
     func synchronize(local: [TokenUsageAggregate], accountScopedDeviceID: String, zoneID: CKRecordZone.ID, canUpload: Bool = true) async throws {
         try SyncCancellation.check(isEnabled: isEnabled)
         // 整轮同步共用非阻塞锁, 防止另一个进程用较早的快照覆盖游标, 界面读取不等待网络
-        guard let lock = try JSONFileStorage.acquireLock(in: directoryURL, name: "sync.lock", nonblocking: true) else { return }
+        guard let lock = try JSONFileStorage.acquireLock(at: storage.lockURL(.tokenUsageSync), nonblocking: true) else { return }
         defer { JSONFileStorage.releaseLock(lock) }
         var cache: TokenUsageSyncCache
         do {
@@ -186,7 +186,7 @@ actor TokenUsageSync {
     }
 
     private func load() throws -> TokenUsageSyncCache? {
-        try JSONFileStorage.withLock(in: directoryURL) { try Self.loadCache(&fileCache) }
+        try JSONFileStorage.withLock(at: storage.lockURL(.tokenUsageSyncCache)) { try Self.loadCache(&fileCache) }
     }
 
     private nonisolated static func loadCache(_ fileCache: inout TokenUsageFileCache<TokenUsageSyncCache>) throws -> TokenUsageSyncCache? {
@@ -196,7 +196,7 @@ actor TokenUsageSync {
     }
 
     private func save(_ cache: TokenUsageSyncCache) throws {
-        try JSONFileStorage.withLock(in: directoryURL) {
+        try JSONFileStorage.withLock(at: storage.lockURL(.tokenUsageSyncCache)) {
             var cache = cache
             cache.prune()
             try fileCache.save(cache)
@@ -204,8 +204,9 @@ actor TokenUsageSync {
     }
 
     nonisolated static func pruneLocalCache(in directoryURL: URL, now: Date) throws {
-        try JSONFileStorage.withLock(in: directoryURL) {
-            var fileCache = TokenUsageFileCache<TokenUsageSyncCache>(url: directoryURL.appendingPathComponent("cache.json"))
+        let storage = AppStorage(rootURL: directoryURL)
+        try JSONFileStorage.withLock(at: storage.lockURL(.tokenUsageSyncCache)) {
+            var fileCache = TokenUsageFileCache<TokenUsageSyncCache>(url: AppStorage(rootURL: directoryURL).tokenUsageSyncCacheURL)
             if var cache = try loadCache(&fileCache), cache.prune(now: now) {
                 try fileCache.save(cache)
             }

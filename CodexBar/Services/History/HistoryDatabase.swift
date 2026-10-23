@@ -3,7 +3,6 @@ import SQLite3
 
 /// SQLite 操作同步完成, 应用通过 HistoryDatabaseStore 串行访问共享连接
 final nonisolated class HistoryDatabase {
-    static let filename = "event.db"
     private static let schemaVersion: Int32 = 1
     private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     private static let eventIndexPrefix = "codexbar_events_"
@@ -55,8 +54,8 @@ final nonisolated class HistoryDatabase {
     }
 
     init(directoryURL: URL) throws {
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        let url = directoryURL.appendingPathComponent(Self.filename)
+        let url = AppStorage(rootURL: directoryURL).historyDatabaseURL
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let result = sqlite3_open_v2(url.path, &connection, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil)
         guard result == SQLITE_OK else {
             let error = failure(result)

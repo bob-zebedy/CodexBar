@@ -7,7 +7,7 @@ final nonisolated class TokenUsageHistoryStore: Sendable {
     private let database: HistoryDatabaseStore
     private let recordingLease = OSAllocatedUnfairLock<Int32?>(initialState: nil)
 
-    init(directoryURL: URL = HistoryStorage.directoryURL()) {
+    init(directoryURL: URL = AppStorage.directoryURL()) {
         self.directoryURL = directoryURL
         database = HistoryDatabaseStore.shared(in: directoryURL)
     }
@@ -26,7 +26,7 @@ final nonisolated class TokenUsageHistoryStore: Sendable {
             if lease != nil {
                 return true
             }
-            lease = try JSONFileStorage.acquireLock(in: directoryURL.appendingPathComponent("Locks"), name: "tokenUsage.lock", nonblocking: true)
+            lease = try JSONFileStorage.acquireLock(at: AppStorage(rootURL: directoryURL).lockURL(.tokenUsageRecording), nonblocking: true)
             return lease != nil
         }
     }
@@ -163,6 +163,7 @@ nonisolated struct TokenUsageFileCache<Value: Codable & Equatable> {
         }
         let encoded = try JSONLines.stableEncoder.encode(updated)
         if current != encoded {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try encoded.write(to: url, options: .atomic)
         }
         data = encoded

@@ -12,8 +12,8 @@ struct ZoneRecoveryTests {
         defer { try? directory.remove() }
         let database = ZoneDatabase()
         await database.removeZone(code: code, wrapped: wrapped)
-        _ = try directory.write("invalid activityData cache", to: "activityData/cache.json")
-        _ = try directory.write("invalid token cache", to: "tokenUsage/cache.json")
+        _ = try directory.write("invalid activityData cache", to: "Sync/activityData.json")
+        _ = try directory.write("invalid token cache", to: "Sync/tokenUsage.json")
         let service = service(database, directory)
         let snapshot = await service.synchronizeIfEnabled(
             localActivityDataAggregates: [aggregate(0)],
@@ -150,12 +150,12 @@ struct ZoneRecoveryTests {
         let service = service(database, directory)
         _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0)], localTokenUsageAggregates: [turn(0)], trigger: .manual)
         let before = ActivityDataSyncStore(directoryURL: directory.url).loadState()
-        let tokens = try Data(contentsOf: directory.url.appendingPathComponent("tokenUsage/cache.json"))
+        let tokens = try Data(contentsOf: directory.url.appendingPathComponent("Sync/tokenUsage.json"))
         await database.rejectChanges(code)
         _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0)], localTokenUsageAggregates: [turn(0)], trigger: .manual)
         #expect(await database.creations == 0)
         #expect(ActivityDataSyncStore(directoryURL: directory.url).loadState() == before)
-        #expect(try Data(contentsOf: directory.url.appendingPathComponent("tokenUsage/cache.json")) == tokens)
+        #expect(try Data(contentsOf: directory.url.appendingPathComponent("Sync/tokenUsage.json")) == tokens)
     }
 
     @Test func switchingSyncOffDuringFailurePreventsZoneCreation() async throws {
@@ -184,7 +184,7 @@ struct ZoneRecoveryTests {
         let stale = aggregate(0).syncedAggregate
         let record = try ActivityDataSyncRecord(deviceID: "stale", activityData: stale, recordName: ActivityDataSyncRecord.recordName(deviceID: "stale", date: stale.date))
         try store.saveFetchedRecords([record.id: record], cursor: nil)
-        let blocked = directory.url.appendingPathComponent("tokenUsage/store.lock")
+        let blocked = directory.url.appendingPathComponent("Locks/tokenUsageSyncCache.lock")
         try FileManager.default.createDirectory(at: blocked, withIntermediateDirectories: true)
         _ = await service(database, directory).synchronizeIfEnabled(localActivityDataAggregates: [aggregate(0)], trigger: .manual)
         #expect(store.loadState().deviceID == nil)
@@ -233,7 +233,7 @@ struct ZoneRecoveryTests {
     }
 
     private func cachedTokenUsageCount(_ directory: TestDirectory) throws -> Int {
-        let data = try Data(contentsOf: directory.url.appendingPathComponent("tokenUsage/cache.json"))
+        let data = try Data(contentsOf: directory.url.appendingPathComponent("Sync/tokenUsage.json"))
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         return try #require(json["records"] as? [[String: Any]]).count
     }

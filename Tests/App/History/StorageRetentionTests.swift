@@ -21,8 +21,8 @@ struct StorageRetentionTests {
         let tokenUsageCacheData = try JSONLines.stableEncoder.encode(TokenUsageSyncCache(
             state: TokenUsageSyncState(deviceID: "device"), records: [tokenUsageRecord.id: tokenUsageRecord]
         ))
-        let activityDataURL = try directory.write(activityDataCache, to: "activityData/cache.json")
-        let tokenUsageURL = try directory.write(Data(#"{"schemaVersion":999}"#.utf8), to: "tokenUsage/cache.json")
+        let activityDataURL = try directory.write(activityDataCache, to: "Sync/activityData.json")
+        let tokenUsageURL = try directory.write(Data(#"{"schemaVersion":999}"#.utf8), to: "Sync/tokenUsage.json")
         let sync = SyncService(directoryURL: directory.url, isEnabled: { false })
         await sync.pruneLocalCaches(now: now)
         #expect(try JSONLines.decoder.decode(ActivityDataSyncCache.self, from: Data(contentsOf: activityDataURL)).records.isEmpty)
@@ -89,7 +89,7 @@ struct StorageRetentionTests {
             state: ActivityDataSyncState(deviceID: "device"),
             records: Dictionary(uniqueKeysWithValues: records.map { ($0.id, $0) })
         )
-        _ = try directory.write(JSONLines.stableEncoder.encode(cache), to: "Sync/activityData/cache.json")
+        _ = try directory.write(JSONLines.stableEncoder.encode(cache), to: "Sync/activityData.json")
         let days = [
             TokenUsageSyncRecord(deviceID: "device", date: expiredKey, tokenUsage: .zero),
             TokenUsageSyncRecord(deviceID: "device", date: retainedKey, tokenUsage: .zero),
@@ -99,15 +99,15 @@ struct StorageRetentionTests {
             state: TokenUsageSyncState(deviceID: "device"), records: Dictionary(uniqueKeysWithValues: days.map { ($0.id, $0) }),
             cursor: Data("cursor".utf8)
         )
-        _ = try directory.write(JSONLines.stableEncoder.encode(tokenUsageCache), to: "Sync/tokenUsage/cache.json")
-        let sync = SyncService(directoryURL: HistoryStorage.syncDirectoryURL(in: directory.url), isEnabled: { false })
+        _ = try directory.write(JSONLines.stableEncoder.encode(tokenUsageCache), to: "Sync/tokenUsage.json")
+        let sync = SyncService(directoryURL: directory.url, isEnabled: { false })
         let service = HistoryService(directoryURL: directory.url, syncService: sync)
         _ = await service.loadSnapshotWithMaintenance(synchronize: false, trigger: .manual)
-        let activityData = try Data(contentsOf: directory.url.appendingPathComponent("Sync/activityData/cache.json"))
+        let activityData = try Data(contentsOf: directory.url.appendingPathComponent("Sync/activityData.json"))
         let activityDataCache = try JSONLines.decoder.decode(ActivityDataSyncCache.self, from: activityData)
         #expect(activityDataCache.sortedRecords.map(\.date) == [retainedKey])
         #expect(activityDataCache.state.deviceID == "device")
-        let tokenUsageData = try Data(contentsOf: directory.url.appendingPathComponent("Sync/tokenUsage/cache.json"))
+        let tokenUsageData = try Data(contentsOf: directory.url.appendingPathComponent("Sync/tokenUsage.json"))
         let tokenUsageCacheData = try JSONLines.decoder.decode(TokenUsageSyncCache.self, from: tokenUsageData)
         #expect(Set(tokenUsageCacheData.records.keys) == ["tokenUsage_device_\(retainedKey)", "tokenUsage_other_\(retainedKey)"])
         #expect(tokenUsageCacheData.cursor == nil)

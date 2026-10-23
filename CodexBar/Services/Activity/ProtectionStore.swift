@@ -28,10 +28,10 @@ actor ProtectionStore {
 
     init(directoryURL: URL? = nil, fileManager: FileManager = .default) {
         self.fileManager = fileManager
-        self.directoryURL = directoryURL ?? AppStorage.directoryURL(fileManager: fileManager)
-            .appendingPathComponent("Protection", isDirectory: true)
-        stateURL = self.directoryURL.appendingPathComponent("state.json", isDirectory: false)
-        lockURL = self.directoryURL.appendingPathComponent("state.lock", isDirectory: false)
+        let storage = AppStorage(rootURL: directoryURL ?? AppStorage.directoryURL(fileManager: fileManager))
+        self.directoryURL = storage.protectionStateURL.deletingLastPathComponent()
+        stateURL = storage.protectionStateURL
+        lockURL = storage.lockURL(.protectionState)
     }
 
     func load(now: Date = Date()) throws -> [String: ProtectionRecord] {
@@ -83,7 +83,7 @@ actor ProtectionStore {
 
     private func withExclusiveLock<T>(_ work: () throws -> T) throws -> T {
         try fileManager.createDirectory(
-            at: directoryURL,
+            at: lockURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
 
@@ -144,6 +144,7 @@ actor ProtectionStore {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = try encoder.encode(state)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         try data.write(to: stateURL, options: .atomic)
         chmod(stateURL.path, 0o600)
     }

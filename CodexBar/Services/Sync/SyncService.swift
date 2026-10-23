@@ -33,7 +33,7 @@ actor SyncService {
     private let directoryURL: URL
     private let isEnabled: @Sendable () -> Bool
     private lazy var tokenUsageSync = TokenUsageSync(
-        database: database, directoryURL: directoryURL.appendingPathComponent("tokenUsage"), isEnabled: isEnabled
+        database: database, directoryURL: directoryURL, isEnabled: isEnabled
     )
 
     // zone 存在性跨轮缓存, 共享故障后重新确认
@@ -45,7 +45,7 @@ actor SyncService {
     init(
         container: CKContainer? = nil,
         database: (any SyncDatabase)? = nil,
-        directoryURL: URL = HistoryStorage.syncDirectoryURL(),
+        directoryURL: URL = AppStorage.directoryURL(),
         isEnabled: @escaping @Sendable () -> Bool = { SyncSettings.isEnabled() }
     ) {
         self.container = container
@@ -68,7 +68,7 @@ actor SyncService {
         }
         if lastTokenUsageCacheRetentionCutoff != cutoff {
             do {
-                try TokenUsageSync.pruneLocalCache(in: directoryURL.appendingPathComponent("tokenUsage"), now: now)
+                try TokenUsageSync.pruneLocalCache(in: directoryURL, now: now)
                 lastTokenUsageCacheRetentionCutoff = cutoff
             } catch {
                 AppLog.sync.error("Token 同步缓存过期清理失败")
@@ -819,7 +819,7 @@ private extension SyncService {
 extension SyncService {
     /// 设置页读取最近上传时间, 与内部 loadState 使用同一 schemaVersion 校验口径
     nonisolated static func loadLastUploadAt() -> Date? {
-        ActivityDataSyncStore(directoryURL: HistoryStorage.syncDirectoryURL()).loadState().lastUploadAt
+        ActivityDataSyncStore(directoryURL: AppStorage.directoryURL()).loadState().lastUploadAt
     }
 }
 
