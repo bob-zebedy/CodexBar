@@ -68,7 +68,7 @@ struct HeatmapDetailView: View {
 
                 VStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
                     columnTitle("usage.heatmap.token-usage-metrics")
-                    dailyTokenUsageMetrics
+                    tokenUsageMetrics
                 }
                 .frame(minWidth: 0, maxWidth: .infinity)
             }
@@ -83,15 +83,15 @@ struct HeatmapDetailView: View {
             .frame(height: Metrics.metricRowHeight)
     }
 
-    private var dailyTokenUsageMetrics: some View {
-        let tokenUsage = context.day.tokenUsage
-        let cacheHitRate = tokenUsage?.cacheHitRate ?? 0
+    private var tokenUsageMetrics: some View {
+        let tokenUsage = context.period.tokenUsage
+        let cacheHitRate = tokenUsage.map { $0.cacheHitRate ?? 0 } ?? (context.mode == .daily ? 0 : nil)
         return Grid(alignment: .leading, horizontalSpacing: Metrics.metricRowSpacing, verticalSpacing: Metrics.metricSpacing) {
-            dailyTokenUsageRow("usage.token-usage.total", tokens: tokenUsage?.totalTokens, tint: .blue)
-            dailyTokenUsageRow("usage.token-usage.input", tokens: tokenUsage?.inputTokens, tint: .indigo)
-            dailyTokenUsageRow("usage.token-usage.output", tokens: tokenUsage?.outputTokens, tint: .orange)
-            dailyTokenUsageRow("usage.token-usage.cached-input", tokens: tokenUsage?.cachedInputTokens, tint: .green)
-            dailyTokenUsageRow("usage.token-usage.cache-write-input", tokens: tokenUsage?.cacheWriteInputTokens, tint: .purple)
+            tokenUsageRow("usage.token-usage.total", tokens: tokenUsage?.totalTokens, tint: .blue)
+            tokenUsageRow("usage.token-usage.input", tokens: tokenUsage?.inputTokens, tint: .indigo)
+            tokenUsageRow("usage.token-usage.output", tokens: tokenUsage?.outputTokens, tint: .orange)
+            tokenUsageRow("usage.token-usage.cached-input", tokens: tokenUsage?.cachedInputTokens, tint: .green)
+            tokenUsageRow("usage.token-usage.cache-write-input", tokens: tokenUsage?.cacheWriteInputTokens, tint: .purple)
             metricRowLayout {
                 metricDot(tint: .teal)
                 Text("usage.token-usage.cache-hit-rate")
@@ -99,16 +99,16 @@ struct HeatmapDetailView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .frame(height: Metrics.metricRowHeight)
                 fittingMetricValue(
-                    cacheHitRate.formatted(.percent.precision(.fractionLength(0 ... 1))),
-                    comparison: cacheHitRate
+                    cacheHitRate?.formatted(.percent.precision(.fractionLength(0 ... 1))) ?? "--",
+                    comparison: cacheHitRate ?? 0
                 )
             }
-            dailyTokenUsageRow("usage.token-usage.reasoning-output", tokens: tokenUsage?.reasoningOutputTokens, tint: .cyan)
+            tokenUsageRow("usage.token-usage.reasoning-output", tokens: tokenUsage?.reasoningOutputTokens, tint: .cyan)
         }
     }
 
-    private func dailyTokenUsageRow(_ title: LocalizedStringKey, tokens: Int64?, tint: Color) -> some View {
-        let count = tokens ?? 0
+    private func tokenUsageRow(_ title: LocalizedStringKey, tokens: Int64?, tint: Color) -> some View {
+        let count = tokens ?? (context.mode == .daily ? 0 : nil)
         return metricRowLayout {
             metricDot(tint: tint)
             Text(title)
@@ -116,7 +116,7 @@ struct HeatmapDetailView: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(height: Metrics.metricRowHeight)
-            fittingMetricValue(TokenCountFormatter.parts(from: Int(count)).text, comparison: Double(count))
+            fittingMetricValue(count.map { TokenCountFormatter.parts(from: Int($0)).text } ?? "--", comparison: Double(count ?? 0))
         }
     }
 
@@ -134,7 +134,7 @@ struct HeatmapDetailView: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(height: Metrics.metricRowHeight)
 
-            fittingModelValue(context.day.activityData.mostUsedModel ?? "--")
+            fittingModelValue(context.period.activityData.mostUsedModel ?? "--")
         }
     }
 
@@ -164,48 +164,55 @@ struct HeatmapDetailView: View {
         [
             ActivityMetricRow(
                 label: String(localized: "history.activity-data.threads"),
-                value: context.day.activityData.threadCount,
+                value: context.period.activityData.threadCount,
                 tint: .green
             ),
             ActivityMetricRow(
                 label: String(localized: "history.activity-data.turns"),
-                value: context.day.activityData.turnCount,
+                value: context.period.activityData.turnCount,
                 tint: .teal
             ),
             ActivityMetricRow(
                 label: String(localized: "history.activity-data.subagents"),
-                value: context.day.activityData.subagentCount,
+                value: context.period.activityData.subagentCount,
                 tint: .indigo
             ),
             ActivityMetricRow(
                 label: String(localized: "history.activity-data.tool-calls"),
-                value: context.day.activityData.toolCallCount,
+                value: context.period.activityData.toolCallCount,
                 tint: .orange
             ),
             ActivityMetricRow(
                 label: String(localized: "history.activity-data.approvals"),
-                value: context.day.activityData.approvalRequestedCount,
+                value: context.period.activityData.approvalRequestedCount,
                 tint: .red
             ),
             ActivityMetricRow(
                 label: String(localized: "history.activity-data.compactions"),
-                value: context.day.activityData.contextCompactionCount,
+                value: context.period.activityData.contextCompactionCount,
                 tint: .purple
             )
         ]
     }
 
     private var dateText: some View {
-        AnimatedDateText(startDate: context.day.startDate, font: dateFont)
-            .foregroundStyle(Color.codexSecondaryLabel)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .layoutPriority(1)
+        HStack(spacing: 0) {
+            AnimatedDateText(startDate: context.period.startDate, font: dateFont)
+            if context.mode == .weekly {
+                Text(verbatim: " ~ ")
+                    .font(dateFont)
+                AnimatedDateText(startDate: context.period.endDate, font: dateFont)
+            }
+        }
+        .foregroundStyle(Color.codexSecondaryLabel)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .layoutPriority(1)
     }
 
     private var tokenText: some View {
         HeatmapTokenText(
-            tokenState: context.day.tokenState,
+            tokenState: context.period.tokenState,
             font: tokenFont,
             numericWidth: Metrics.tokenMinimumWidth,
             unitWidth: Metrics.tokenUnitWidth
@@ -221,7 +228,7 @@ struct HeatmapDetailView: View {
     }
 
     private var tokenIntensityLevel: Int {
-        guard context.day.tokensForHeatmap > 0 else {
+        guard context.period.tokensForHeatmap > 0 else {
             return 0
         }
 
@@ -237,11 +244,11 @@ struct HeatmapDetailView: View {
             return 0
         }
 
-        return min(max(Double(context.day.tokensForHeatmap) / Double(context.peakTokens), 0), 1)
+        return min(max(Double(context.period.tokensForHeatmap) / Double(context.peakTokens), 0), 1)
     }
 
     private func tokenIntensityFill(for index: Int) -> Color {
-        guard context.day.tokenCount != nil else {
+        guard context.period.tokenState.count != nil else {
             return Color.secondary.opacity(colorScheme == .dark ? 0.18 : 0.12)
         }
 
@@ -255,7 +262,7 @@ struct HeatmapDetailView: View {
     }
 
     private func metricRow(_ row: ActivityMetricRow) -> some View {
-        let count = row.value ?? 0
+        let count = row.value ?? (context.mode == .daily ? 0 : nil)
         return metricRowLayout {
             metricDot(tint: row.tint)
             Text(row.label)
@@ -263,7 +270,7 @@ struct HeatmapDetailView: View {
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(height: Metrics.metricRowHeight)
 
-            fittingMetricValue(String(count), comparison: Double(count))
+            fittingMetricValue(count.map(String.init) ?? "--", comparison: Double(count ?? 0))
         }
     }
 

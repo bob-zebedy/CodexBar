@@ -48,11 +48,12 @@ nonisolated struct MainPanelLayout: Equatable, Sendable {
     }
 }
 
-/// 主面板区域布局与动画效果偏好
+/// 主面板布局 动画和热力图显示偏好
 @MainActor
 final class MainPanelSettings: ObservableObject {
     @Published private(set) var layout: MainPanelLayout
     @Published private(set) var areAnimationsEnabled: Bool
+    @Published private(set) var usageHeatmapMode: UsageHeatmapMode
 
     private let defaults: UserDefaults
 
@@ -60,12 +61,18 @@ final class MainPanelSettings: ObservableObject {
         self.defaults = defaults
         layout = Self.loadLayout(from: defaults)
         areAnimationsEnabled = Self.loadAnimationsEnabled(from: defaults)
+        usageHeatmapMode = Self.loadUsageHeatmapMode(from: defaults)
     }
 
     func refresh() {
         let loadedAnimationsEnabled = Self.loadAnimationsEnabled(from: defaults)
         if loadedAnimationsEnabled != areAnimationsEnabled {
             areAnimationsEnabled = loadedAnimationsEnabled
+        }
+
+        let loadedUsageHeatmapMode = Self.loadUsageHeatmapMode(from: defaults)
+        if loadedUsageHeatmapMode != usageHeatmapMode {
+            usageHeatmapMode = loadedUsageHeatmapMode
         }
 
         publish(Self.loadLayout(from: defaults))
@@ -79,6 +86,15 @@ final class MainPanelSettings: ObservableObject {
         AppLog.settings.notice("动画效果变更: enabled=\(enabled ? 1 : 0)")
         defaults.set(enabled, forKey: Self.animationsEnabledKey)
         areAnimationsEnabled = enabled
+    }
+
+    func setUsageHeatmapMode(_ mode: UsageHeatmapMode) {
+        guard mode != usageHeatmapMode else {
+            return
+        }
+
+        defaults.set(mode.rawValue, forKey: Self.usageHeatmapModeKey)
+        usageHeatmapMode = mode
     }
 
     func setSection(
@@ -193,7 +209,12 @@ final class MainPanelSettings: ObservableObject {
         layout.orderedSections.map(\.rawValue).joined(separator: ",")
     }
 
+    private static func loadUsageHeatmapMode(from defaults: UserDefaults) -> UsageHeatmapMode {
+        defaults.string(forKey: usageHeatmapModeKey).flatMap(UsageHeatmapMode.init(rawValue:)) ?? .daily
+    }
+
     private static let sectionOrderKey = "MainPanel.sectionOrder"
     private static let hiddenSectionsKey = "MainPanel.hiddenSections"
     private static let animationsEnabledKey = "MainPanel.areAnimationsEnabled"
+    private static let usageHeatmapModeKey = "MainPanel.usageHeatmapMode"
 }

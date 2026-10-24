@@ -10,16 +10,21 @@ struct UsageSummaryView: View {
     let onHoverContextChange: (UsageHeatmapHoverContext?) -> Void
     private let days: [UsageHeatmapDay?]
     private let peakTokens: Int
+    private let weeks: [UsageHeatmapPeriod?]
+    private let peakWeeklyTokens: Int
+    @Binding var mode: UsageHeatmapMode
     @State private var hoverSelection: UsageHeatmapSelection?
     @State private var heatmapScreenFrame: CGRect?
 
     init(
         usage: CodexUsageSnapshot?,
         history: HistorySnapshot,
+        mode: Binding<UsageHeatmapMode>,
         isStale: Bool = false,
         onHoverContextChange: @escaping (UsageHeatmapHoverContext?) -> Void = { _ in }
     ) {
         self.usage = usage
+        _mode = mode
         self.isStale = isStale
         self.onHoverContextChange = onHoverContextChange
 
@@ -30,6 +35,9 @@ struct UsageSummaryView: View {
             today: Date()
         )
         self.days = days
+        let weeks = UsageHeatmapPeriod.weeks(in: days)
+        self.weeks = weeks
+        peakWeeklyTokens = max(weeks.lazy.compactMap { $0?.tokensForHeatmap }.max() ?? 0, 1)
         peakTokens = max(days.lazy.compactMap { $0?.tokensForHeatmap }.max() ?? 0, 1)
     }
 
@@ -59,8 +67,10 @@ struct UsageSummaryView: View {
             metricsGrid
             UsageHeatmap(
                 days: days,
+                weeks: weeks,
+                mode: $mode,
                 selection: $hoverSelection,
-                peakTokens: peakTokens,
+                peakTokens: mode == .daily ? peakTokens : peakWeeklyTokens,
                 onScreenFrameChange: { frame in
                     heatmapScreenFrame = frame
                 }
@@ -150,13 +160,16 @@ struct UsageSummaryView: View {
 
     private var hoverContext: UsageHeatmapHoverContext? {
         // 详情面板由控制器显示, SwiftUI 这里只负责传递屏幕坐标和数据
-        guard let hoverSelection, let day = hoverSelection.day(in: days) else { return nil }
+        guard let hoverSelection,
+              let column = hoverSelection.currentColumn(in: days),
+              let period = hoverSelection.period(in: days, weeks: weeks, mode: mode) else { return nil }
         return UsageHeatmapHoverContext(
-            day: day,
+            period: period,
+            mode: mode,
             isStale: isStale,
             alignmentScreenFrame: heatmapScreenFrame,
-            preferredSide: UsageHeatmap.Metrics.preferredDetailSide(for: hoverSelection.column),
-            peakTokens: peakTokens
+            preferredSide: UsageHeatmap.Metrics.preferredDetailSide(for: column),
+            peakTokens: mode == .daily ? peakTokens : peakWeeklyTokens
         )
     }
 

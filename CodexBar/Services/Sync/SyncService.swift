@@ -868,12 +868,12 @@ private extension SyncService {
         }
 
         guard let value = IORegistryEntryCreateCFProperty(
-            service,
-            "IOPlatformUUID" as CFString,
-            kCFAllocatorDefault,
-            0
-        )?.takeRetainedValue() as? String,
-            !value.isEmpty else {
+                  service,
+                  "IOPlatformUUID" as CFString,
+                  kCFAllocatorDefault,
+                  0
+              )?.takeRetainedValue() as? String,
+              !value.isEmpty else {
             throw SyncError.missingIOPlatformUUID
         }
 

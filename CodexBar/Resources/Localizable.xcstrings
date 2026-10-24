@@ -6417,6 +6417,22 @@
         }
       }
     },
+    "usage.heatmap.daily-data" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Daily"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日数据"
+          }
+        }
+      }
+    },
     "usage.heatmap.past-weeks" : {
       "localizations" : {
         "en" : {
@@ -6461,6 +6477,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最热模型"
+          }
+        }
+      }
+    },
+    "usage.heatmap.weekly-data" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weekly"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "周数据"
           }
         }
       }

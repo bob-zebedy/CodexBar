@@ -89,6 +89,43 @@ struct SettingsTests {
         #expect(!settings.areAnimationsEnabled)
     }
 
+    @Test(arguments: [UsageHeatmapMode.daily, .weekly])
+    func usageHeatmapModePersistsRestoresAndRefreshes(_ mode: UsageHeatmapMode) throws {
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let defaults = preferences.defaults
+        let previousMode: UsageHeatmapMode = mode == .daily ? .weekly : .daily
+        defaults.set(previousMode.rawValue, forKey: "MainPanel.usageHeatmapMode")
+        let settings = MainPanelSettings(defaults: defaults)
+        #expect(settings.usageHeatmapMode == previousMode)
+
+        settings.setUsageHeatmapMode(mode)
+        #expect(settings.usageHeatmapMode == mode)
+        #expect(defaults.string(forKey: "MainPanel.usageHeatmapMode") == mode.rawValue)
+        let restoredDefaults = try #require(UserDefaults(suiteName: preferences.suite))
+        #expect(MainPanelSettings(defaults: restoredDefaults).usageHeatmapMode == mode)
+
+        defaults.set(previousMode.rawValue, forKey: "MainPanel.usageHeatmapMode")
+        settings.refresh()
+        #expect(settings.usageHeatmapMode == previousMode)
+    }
+
+    @Test func usageHeatmapModeDefaultsToDailyForMissingOrUnknownPreference() throws {
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let defaults = preferences.defaults
+        #expect(MainPanelSettings(defaults: defaults).usageHeatmapMode == .daily)
+
+        defaults.set("unknown", forKey: "MainPanel.usageHeatmapMode")
+        let settings = MainPanelSettings(defaults: defaults)
+        #expect(settings.usageHeatmapMode == .daily)
+        #expect(defaults.string(forKey: "MainPanel.usageHeatmapMode") == "unknown")
+        settings.setUsageHeatmapMode(.weekly)
+        defaults.removeObject(forKey: "MainPanel.usageHeatmapMode")
+        settings.refresh()
+        #expect(settings.usageHeatmapMode == .daily)
+    }
+
     @Test func rebuildRangeIncludesDatesWithoutActivityEvents() {
         let range = RebuildDateRange.starting(at: "2026-09-15").completing(with: "2026-09-17")
         #expect(range.dateKeys == ["2026-09-15", "2026-09-16", "2026-09-17"])

@@ -207,6 +207,10 @@ private extension CodexStatusMenuView {
             UsageSummaryView(
                 usage: viewModel.snapshot?.usage,
                 history: historyViewModel.snapshot,
+                mode: Binding(
+                    get: { mainPanelSettings.usageHeatmapMode },
+                    set: { mainPanelSettings.setUsageHeatmapMode($0) }
+                ),
                 isStale: viewModel.snapshot?.isUsageStale ?? false,
                 onHoverContextChange: onUsageHeatmapHoverChange
             )
