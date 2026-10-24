@@ -491,6 +491,61 @@ extension HistoryDatabaseTests {
         #expect(try await store.refresh(now: now) == result)
     }
 
+    @Test(arguments: [-1, 1])
+    func storedTokenDatesSurviveLocalDateChanges(dayOffset: Int) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let now = TestFixtures.now
+        let localDate = HistoryStorage.dateKey(for: now)
+        let storedDate = HistoryStorage.dateKey(for: now.addingTimeInterval(Double(dayOffset) * 86400))
+        func sample(_ id: String, _ count: Int64) -> TokenUsageSample {
+            let usage = tokenUsage(count)
+            return TokenUsageSample(
+                id: id, observedAt: now, threadID: "thread", turnID: "turn", turnStartedAt: now,
+                current: TokenUsageUpdate(total: usage, last: usage)
+            )
+        }
+        do {
+            let database = try HistoryDatabase(directoryURL: directory.url)
+            try database.appendTokenUsage(sample("baseline", 0))
+            try database.appendTokenUsage(sample("first", 100))
+            let initial = try database.aggregateTokenUsage(date: localDate)
+            try database.appendTokenUsage(sample("pending", 130))
+            // 模拟在另一时区保存的日期, 避免修改并行测试共享的系统时区
+            var stored = TokenUsageAggregate(date: storedDate, tokenUsage: initial.tokenUsage, eventCount: initial.eventCount)
+            stored.position = initial.position
+            try database.transaction {
+                try database.execute("INSERT INTO days(date) VALUES (?)", [.text(storedDate)])
+                try database.execute("UPDATE events SET date = ?", [.text(storedDate)])
+                try database.execute("INSERT INTO aggregates(date, tokenUsage) VALUES (?, ?)", [.text(storedDate), .data(JSONLines.stableEncoder.encode(stored))])
+                try database.execute("DELETE FROM days WHERE date = ?", [.text(localDate)])
+            }
+        }
+
+        let database = try HistoryDatabase(directoryURL: directory.url)
+        let latest = sample("after-switch", 150)
+        try database.appendTokenUsage(latest)
+        try database.appendTokenUsage(latest)
+        let store = TokenUsageHistoryStore(directoryURL: directory.url)
+        let snapshot = try await store.loadSnapshot(now: now)
+        #expect(snapshot.coverage == .complete)
+        #expect(Dictionary(uniqueKeysWithValues: snapshot.aggregates.map { ($0.date, $0.tokenUsage.totalTokens) }) == [storedDate: 130, localDate: 20])
+        #expect(snapshot.aggregates.reduce(0) { $0 + $1.eventCount } == 4)
+        #expect(try database.pendingTokenUsageDates().isEmpty)
+        #expect(try database.tokenUsageSnapshot(threadID: "thread").turns["turn"]?.totalTokens == 150)
+
+        let rebuilt = try await store.rebuild(for: [storedDate, localDate])
+        #expect(rebuilt.failedDateKeys.isEmpty)
+        #expect(rebuilt.dateKeys == [storedDate, localDate].sorted())
+        #expect(rebuilt.eventCount == 4)
+        #expect(try await store.persistedAggregates(now: now) == snapshot.aggregates)
+        let expectedDates = dayOffset > 0 ? [localDate] : [storedDate, localDate].sorted()
+        #expect(TokenUsageAggregate.tokenUsageByDate(snapshot.aggregates, now: now).keys.sorted() == expectedDates)
+        #expect(try TokenUsageSyncRecord.dailyRecords(local: snapshot.aggregates, deviceID: "device", now: now).map(\.date) == expectedDates)
+        let later = now.addingTimeInterval(86400)
+        #expect(TokenUsageAggregate.tokenUsageByDate(snapshot.aggregates, now: later).values.reduce(0) { $0 + $1.totalTokens } == 150)
+    }
+
     @Test func unchangedSnapshotReadsSavedDailyTotalsWithoutReplayingEventsOrWriting() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

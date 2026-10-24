@@ -290,6 +290,101 @@ extension AccountNotificationTests {
         try server.finish()
     }
 
+    @Test(arguments: ["account/rateLimits/read", "account/usage/read"], ["none", "account/rateLimits/read", "account/usage/read"])
+    func accountChangeDuringAuthRefreshDiscardsOldData(authMethod: String, failedRead: String) async throws {
+        let server = try SharedServerFixture { peer in
+            func respond(_ method: String, _ result: [String: Any]) throws {
+                let request = try peer.readMessage()
+                try #require(request["method"] as? String == method)
+                try peer.reply(to: request, result: result)
+            }
+            try respond("initialize", ["userAgent": "codex/0.162.0"])
+            _ = try peer.readMessage()
+            let firstAccount: [String: Any] = ["account": ["type": "chatgpt", "email": "a@example.test", "planType": "pro"]]
+            let secondAccount: [String: Any] = ["account": ["type": "chatgpt", "email": "b@example.test", "planType": "pro"]]
+            try respond("account/read", firstAccount)
+            try respond("account/rateLimits/read", ["rateLimits": [:], "ordinaryUsageAllowed": true])
+            try respond("account/usage/read", ["summary": ["lifetimeTokens": 123]])
+            try respond("account/read", firstAccount)
+            if authMethod == "account/usage/read" {
+                try respond("account/rateLimits/read", ["rateLimits": [:], "ordinaryUsageAllowed": true])
+            }
+            let unauthorized = try peer.readMessage()
+            try #require(unauthorized["method"] as? String == authMethod)
+            try peer.send(["id": #require(unauthorized["id"]), "error": ["code": -32000, "message": "codex account authentication required"]])
+            let refresh = try peer.readMessage()
+            try #require(refresh["method"] as? String == "account/read")
+            #expect((refresh["params"] as? [String: Any])?["refreshToken"] as? Bool == true)
+            try peer.reply(to: refresh, result: secondAccount)
+            try respond("account/rateLimits/read", failedRead == "account/rateLimits/read" ? [:] : ["rateLimits": [:], "ordinaryUsageAllowed": false])
+            try respond("account/usage/read", failedRead == "account/usage/read" ? [:] : ["summary": ["lifetimeTokens": 456]])
+            try respond("account/read", secondAccount)
+            try respond("account/rateLimits/read", [:])
+            try respond("account/usage/read", [:])
+        }
+        defer { server.close() }
+        let service = CodexStatusService(socketURL: server.url, logStorage: nil)
+        guard case .data = await service.fetchOutcome().outcome else {
+            Issue.record("Initial read did not populate the cache")
+            return
+        }
+        let result = await service.fetchOutcome()
+        guard case let .data(snapshot) = result.outcome else {
+            Issue.record("Account change did not restart supplemental reads")
+            return
+        }
+        #expect(snapshot.account.email == "b@example.test")
+        #expect(snapshot.ordinaryUsageAllowed == (failedRead == "account/rateLimits/read" ? nil : false))
+        #expect(snapshot.usage?.summary.lifetimeTokens == (failedRead == "account/usage/read" ? nil : 456))
+        #expect(!snapshot.isRateLimitsStale && !snapshot.isUsageStale)
+        #expect(result.trace.account == .refreshed)
+        #expect(result.trace.rateLimits == (failedRead == "account/rateLimits/read" ? .failed : .ok))
+        #expect(result.trace.usage == (failedRead == "account/usage/read" ? .failed : .ok))
+        guard case let .data(cached) = await service.fetchOutcome().outcome else {
+            Issue.record("New account cache was unavailable")
+            return
+        }
+        #expect(cached.account == snapshot.account)
+        #expect(cached.ordinaryUsageAllowed == snapshot.ordinaryUsageAllowed)
+        #expect(cached.usage?.summary.lifetimeTokens == snapshot.usage?.summary.lifetimeTokens)
+        #expect(cached.isRateLimitsStale == (failedRead != "account/rateLimits/read"))
+        #expect(cached.isUsageStale == (failedRead != "account/usage/read"))
+        try server.finish()
+    }
+
+    @Test(arguments: ["account/rateLimits/read", "account/usage/read"])
+    func accountChangeDoesNotRenewAuthenticationBudget(authMethod: String) async throws {
+        let server = try SharedServerFixture { peer in
+            try peer.reply(to: peer.readMessage(), result: ["userAgent": "codex/0.162.0"])
+            _ = try peer.readMessage()
+            try peer.reply(to: peer.readMessage(), result: ["account": ["type": "chatgpt", "email": "a@example.test", "planType": "pro"]])
+            if authMethod == "account/usage/read" {
+                try peer.reply(to: peer.readMessage(), result: ["rateLimits": [:], "ordinaryUsageAllowed": true])
+            }
+            let unauthorized = try peer.readMessage()
+            try #require(unauthorized["method"] as? String == authMethod)
+            let error: [String: Any] = ["code": -32000, "message": "codex account authentication required"]
+            try peer.send(["id": #require(unauthorized["id"]), "error": error])
+            let refresh = try peer.readMessage()
+            try #require(refresh["method"] as? String == "account/read")
+            #expect((refresh["params"] as? [String: Any])?["refreshToken"] as? Bool == true)
+            try peer.reply(to: refresh, result: ["account": ["type": "chatgpt", "email": "b@example.test", "planType": "pro"]])
+            let retried = try peer.readMessage()
+            try #require(retried["method"] as? String == "account/rateLimits/read")
+            try peer.send(["id": #require(retried["id"]), "error": error])
+        }
+        defer { server.close() }
+        let result = await CodexStatusService(socketURL: server.url, logStorage: nil).fetchOutcome()
+        guard case .authenticationRequired = result.outcome else {
+            Issue.record("Account change renewed the authentication budget")
+            return
+        }
+        #expect(result.trace.account == .refreshed)
+        #expect(result.trace.failureStage == .snapshot)
+        #expect(result.trace.rateLimits == nil && result.trace.usage == nil && result.trace.resetCredits == nil)
+        try server.finish()
+    }
+
     @Test(arguments: [false, true])
     func quotaReadsShareOneAuthenticationRefreshBudget(repeatsOnSameMethod: Bool) async throws {
         let server = try SharedServerFixture { peer in

@@ -123,7 +123,7 @@ actor TokenUsageSync {
             for candidate in batch {
                 let id = Self.recordID(candidate.id, zoneID: zoneID)
                 do {
-                    let fetched = try fetchedRecord(existing[id])
+                    let fetched = try SyncRecovery.fetchedRecord(from: existing[id])
                     if let remote = try fetched.flatMap(Self.dailyRecord), remote.hasSameData(as: candidate) {
                         cache.records[candidate.id] = remote
                         continue
@@ -150,7 +150,7 @@ actor TokenUsageSync {
                         cache.records[tokenUsageRecord.id] = tokenUsageRecord
                     }
                 case let .failure(error): failures.record(error)
-                case nil: failures.record(TokenUsageSyncError.missingRecordResult)
+                case nil: failures.record(SyncRecovery.Failure.missingRecordResult)
                 }
             }
             try save(cache)
@@ -158,15 +158,6 @@ actor TokenUsageSync {
             try failures.checkStopping()
         }
         try failures.check()
-    }
-
-    private func fetchedRecord(_ result: Result<CKRecord, any Error>?) throws -> CKRecord? {
-        switch result {
-        case let .success(record): record
-        case let .failure(error as CKError) where error.code == .unknownItem: nil
-        case let .failure(error): throw error
-        case nil: throw TokenUsageSyncError.missingRecordResult
-        }
     }
 
     private func prune(cache: inout TokenUsageSyncCache, zoneID: CKRecordZone.ID) async throws {
@@ -179,7 +170,7 @@ actor TokenUsageSync {
         try SyncCancellation.check(isEnabled: isEnabled)
         let result = try await database.modifyRecords(saving: [], deleting: ids, savePolicy: .ifServerRecordUnchanged, atomically: false)
         for id in ids {
-            guard let deletion = result.deleteResults[id] else { throw TokenUsageSyncError.missingRecordResult }
+            guard let deletion = result.deleteResults[id] else { throw SyncRecovery.Failure.missingRecordResult }
             do { try deletion.get() } catch let error as CKError where error.code == .unknownItem {}
             cache.records.removeValue(forKey: id.recordName)
         }
@@ -277,8 +268,4 @@ nonisolated extension SyncCache where Record == TokenUsageSyncRecord, State == T
         cursor = nil
         return true
     }
-}
-
-private nonisolated enum TokenUsageSyncError: Error {
-    case missingRecordResult
 }

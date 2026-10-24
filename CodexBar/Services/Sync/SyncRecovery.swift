@@ -9,6 +9,15 @@ nonisolated enum SyncRecovery {
         case missingRecordResult
     }
 
+    static func fetchedRecord(from result: Result<CKRecord, any Error>?) throws -> CKRecord? {
+        switch result {
+        case let .success(record): record
+        case let .failure(error as CKError) where error.code == .unknownItem: nil
+        case let .failure(error): throw error
+        case nil: throw Failure.missingRecordResult
+        }
+    }
+
     static func decodeCursor(_ data: Data) throws -> CKServerChangeToken {
         do {
             guard let token = try NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: data) else {

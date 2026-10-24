@@ -441,7 +441,7 @@ private extension SyncService {
                 case let .failure(error):
                     throw error
                 case nil:
-                    throw SyncError.missingRecordResult
+                    throw SyncRecovery.Failure.missingRecordResult
                 }
             }
         }
@@ -459,7 +459,7 @@ private extension SyncService {
 
         for (aggregate, id) in zip(aggregates, recordIDs) {
             do {
-                let existing = try Self.fetchedRecord(from: existingRecords[id])
+                let existing = try SyncRecovery.fetchedRecord(from: existingRecords[id])
                 if let existing {
                     guard let remote = try ActivityDataRecordCodec.remoteDailyRecord(from: existing) else {
                         throw ActivityDataSyncError.invalidRecordIdentity
@@ -695,7 +695,7 @@ private extension SyncService {
     func fetchAccountSalt(_ recordID: CKRecord.ID) async throws -> Data? {
         try SyncCancellation.check(isEnabled: isEnabled)
         let result = try await database.records(for: [recordID], desiredKeys: nil)
-        guard let record = try Self.fetchedRecord(from: result[recordID]) else {
+        guard let record = try SyncRecovery.fetchedRecord(from: result[recordID]) else {
             return nil
         }
         try StorageVersion.require(
@@ -729,7 +729,7 @@ private extension SyncService {
             case let .failure(error):
                 throw error
             case nil:
-                throw SyncError.missingRecordResult
+                throw SyncRecovery.Failure.missingRecordResult
             }
         } catch let error as CKError where error.code == .serverRecordChanged || error.code == .constraintViolation {
             if let salt = try await fetchAccountSalt(recordID) {
@@ -760,7 +760,7 @@ private extension SyncService {
             case let .failure(error):
                 throw error
             case nil:
-                throw SyncError.missingRecordResult
+                throw SyncRecovery.Failure.missingRecordResult
             }
         }
 
@@ -824,21 +824,6 @@ extension SyncService {
 }
 
 private extension SyncService {
-    static func fetchedRecord(
-        from result: Result<CKRecord, Error>?
-    ) throws -> CKRecord? {
-        switch result {
-        case let .success(record):
-            return record
-        case let .failure(error as CKError) where error.code == .unknownItem:
-            return nil
-        case let .failure(error):
-            throw error
-        case nil:
-            throw SyncError.missingRecordResult
-        }
-    }
-
     static func filteredRetained(
         records: [ActivityDataSyncRecord]
     ) -> [ActivityDataSyncRecord] {
@@ -899,6 +884,5 @@ nonisolated struct SyncSnapshot: Equatable {
 private nonisolated enum SyncError: Error {
     case missingAccountSalt
     case missingIOPlatformUUID
-    case missingRecordResult
     case randomSaltFailed
 }

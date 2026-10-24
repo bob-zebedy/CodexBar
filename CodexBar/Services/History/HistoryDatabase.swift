@@ -405,9 +405,9 @@ final nonisolated class HistoryDatabase {
                 }
             }
             var aggregate = rebuilding ? TokenUsageAggregate(date: date) : baseline ?? TokenUsageAggregate(date: date)
+            // 沿用数据库中保存的日期, 避免切换时区后误判历史记录
             try entries(after: position, date: date, kind: .tokenUsage) { entry in
-                guard let observation = entry.record.tokenUsage, !observation.id.isEmpty,
-                      HistoryStorage.dateKey(for: observation.aggregationDate) == date else {
+                guard let observation = entry.record.tokenUsage, !observation.id.isEmpty else {
                     throw StorageCompatibilityError.incompleteSource
                 }
                 try aggregate.record(observation)

@@ -188,6 +188,48 @@ struct SyncRecoveryTests {
         #expect(await database.savedTypes.contains(TokenUsageSync.recordType) == !shared)
     }
 
+    @Test(arguments: ["Metadata", "ActivityData", "TokenUsage"])
+    func missingReadResultStopsAffectedUploadAndRetries(recordType: String) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let database = SyncDatabaseFixture()
+        let service = SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
+        let initial = await service.synchronizeIfEnabled(localActivityDataAggregates: [], trigger: .manual)
+        let deviceID = try #require(initial.currentDeviceID)
+        let tokenUsage = Self.turn(0)
+        let activityData = TestFixtures.activityDataAggregate(date: tokenUsage.date)
+        let missingName: String = switch recordType {
+        case "ActivityData":
+            ActivityDataSyncRecord.recordName(deviceID: deviceID, date: activityData.date)
+        case "TokenUsage":
+            TokenUsageSyncRecord(deviceID: deviceID, date: tokenUsage.date, tokenUsage: .zero).recordName
+        default:
+            try #require(await database.requestedIDs.first).recordName
+        }
+        await database.omitReadResult(named: missingName)
+
+        _ = await service.synchronizeIfEnabled(
+            localActivityDataAggregates: [activityData], localTokenUsageAggregates: [tokenUsage], trigger: .manual
+        )
+        let savedTypes = await database.savedTypes
+        #expect(savedTypes.filter { $0 == "Metadata" }.count == 1)
+        #expect(savedTypes.contains("ActivityData") == (recordType == "TokenUsage"))
+        #expect(savedTypes.contains("TokenUsage") == (recordType == "ActivityData"))
+        #expect(await service.hasPendingActivityDataUpdates(local: [activityData]) == (recordType != "TokenUsage"))
+        #expect(await service.hasPendingTokenUsageUpdates(local: [tokenUsage]) == (recordType != "ActivityData"))
+
+        await database.repair()
+        _ = await service.synchronizeIfEnabled(
+            localActivityDataAggregates: [activityData], localTokenUsageAggregates: [tokenUsage], trigger: .manual
+        )
+        let recoveredTypes = await database.savedTypes
+        for type in ["Metadata", "ActivityData", "TokenUsage"] {
+            #expect(recoveredTypes.filter { $0 == type }.count == 1)
+        }
+        #expect(await service.hasPendingActivityDataUpdates(local: [activityData]) == false)
+        #expect(await service.hasPendingTokenUsageUpdates(local: [tokenUsage]) == false)
+    }
+
     @Test(arguments: [false, true]) func partialTokenUsageBatchContinuesAndRetainsSuccesses(readFailure: Bool) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
@@ -508,6 +550,7 @@ private actor SyncDatabaseFixture: SyncDatabase {
 
     private var failingName: String?
     private var failingDate: String?
+    private var omittedReadName: String?
     private let readFailure: Bool
     private let uploadFailure: CKError.Code
     private(set) var queryCount = 0
@@ -567,14 +610,19 @@ private actor SyncDatabaseFixture: SyncDatabase {
         changesRecordFails = true
     }
 
+    func omitReadResult(named name: String) {
+        omittedReadName = name
+    }
+
     func repair() {
         failingName = nil
         failingDate = nil
+        omittedReadName = nil
     }
 
     func records(for ids: [CKRecord.ID], desiredKeys _: [CKRecord.FieldKey]?) async throws -> Records {
         requestedIDs.append(contentsOf: ids)
-        return Dictionary(uniqueKeysWithValues: ids.map { id in
+        return Dictionary(uniqueKeysWithValues: ids.filter { $0.recordName != omittedReadName }.map { id in
             if readFailure, id.recordName == failingName {
                 return (id, .failure(CKError(.constraintViolation)))
             }
