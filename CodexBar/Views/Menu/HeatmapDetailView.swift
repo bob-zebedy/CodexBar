@@ -85,7 +85,7 @@ struct HeatmapDetailView: View {
 
     private var tokenUsageMetrics: some View {
         let tokenUsage = context.period.tokenUsage
-        let cacheHitRate = tokenUsage.map { $0.cacheHitRate ?? 0 } ?? (context.mode == .daily ? 0 : nil)
+        let cacheHitRate = tokenUsage?.cacheHitRate ?? 0
         return Grid(alignment: .leading, horizontalSpacing: Metrics.metricRowSpacing, verticalSpacing: Metrics.metricSpacing) {
             tokenUsageRow("usage.token-usage.total", tokens: tokenUsage?.totalTokens, tint: .blue)
             tokenUsageRow("usage.token-usage.input", tokens: tokenUsage?.inputTokens, tint: .indigo)
@@ -99,8 +99,8 @@ struct HeatmapDetailView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .frame(height: Metrics.metricRowHeight)
                 fittingMetricValue(
-                    cacheHitRate?.formatted(.percent.precision(.fractionLength(0 ... 1))) ?? "--",
-                    comparison: cacheHitRate ?? 0
+                    cacheHitRate.formatted(.percent.precision(.fractionLength(0 ... 1))),
+                    comparison: cacheHitRate
                 )
             }
             tokenUsageRow("usage.token-usage.reasoning-output", tokens: tokenUsage?.reasoningOutputTokens, tint: .cyan)
@@ -108,7 +108,7 @@ struct HeatmapDetailView: View {
     }
 
     private func tokenUsageRow(_ title: LocalizedStringKey, tokens: Int64?, tint: Color) -> some View {
-        let count = tokens ?? (context.mode == .daily ? 0 : nil)
+        let count = tokens ?? 0
         return metricRowLayout {
             metricDot(tint: tint)
             Text(title)
@@ -116,7 +116,7 @@ struct HeatmapDetailView: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(height: Metrics.metricRowHeight)
-            fittingMetricValue(count.map { TokenCountFormatter.parts(from: Int($0)).text } ?? "--", comparison: Double(count ?? 0))
+            fittingMetricValue(TokenCountFormatter.parts(from: Int(count)).text, comparison: Double(count))
         }
     }
 
