@@ -13,15 +13,38 @@ nonisolated enum AutoResetFailureNotice: String, Sendable {
 /// 订阅额度与实时活动, 统一处理提醒条件, 去重, 触觉反馈与本地通知发送
 @MainActor
 final class NotificationService: NSObject {
+    struct Delivery {
+        var setDelegate: (any UNUserNotificationCenterDelegate) -> Void = {
+            UNUserNotificationCenter.current().delegate = $0
+        }
+
+        var add: (UNNotificationRequest) async throws -> Void = {
+            try await UNUserNotificationCenter.current().add($0)
+        }
+
+        var remove: ([String]) -> Void = {
+            let center = UNUserNotificationCenter.current()
+            center.removeDeliveredNotifications(withIdentifiers: $0)
+            center.removePendingNotificationRequests(withIdentifiers: $0)
+        }
+    }
+
     private let settings: NotificationSettings
     private let statusViewModel: CodexStatusViewModel
     private let activityMonitor: ActivityMonitor
     private let defaults: UserDefaults
+    private let delivery: Delivery
     private nonisolated let openMenuSurface: @MainActor @Sendable () -> Void
 
     private var cancellables = Set<AnyCancellable>()
     private var taskHapticFeedbackTask: Task<Void, Never>?
     private var taskWaitingNotificationIdentifiers = Set<String>()
+    #if CODEXBAR_TESTING
+        private(set) var lastSubmissionTaskForTesting: Task<Bool, Never>?
+        var taskWaitingNotificationIdentifiersForTesting: Set<String> {
+            taskWaitingNotificationIdentifiers
+        }
+    #endif
     private let creditExpiryReminderScheduler = ReminderCheckScheduler()
     private var latestQuotaSnapshot: CodexQuotaSnapshot?
 
@@ -56,12 +79,14 @@ final class NotificationService: NSObject {
         statusViewModel: CodexStatusViewModel,
         activityMonitor: ActivityMonitor,
         defaults: UserDefaults = .standard,
+        delivery: Delivery = Delivery(),
         openMenuSurface: @escaping @MainActor @Sendable () -> Void
     ) {
         self.settings = settings
         self.statusViewModel = statusViewModel
         self.activityMonitor = activityMonitor
         self.defaults = defaults
+        self.delivery = delivery
         self.openMenuSurface = openMenuSurface
         let storedDedupKeys = defaults.stringArray(forKey: Self.sentKeysKey) ?? []
         sentDedupKeys = storedDedupKeys.filter { !$0.hasPrefix(Self.legacyResetDedupKeyPrefix) }
@@ -73,7 +98,7 @@ final class NotificationService: NSObject {
     }
 
     func start() {
-        UNUserNotificationCenter.current().delegate = self
+        delivery.setDelegate(self)
         settings.refreshAuthorizationStatus()
 
         statusViewModel.$snapshot
@@ -126,7 +151,7 @@ final class NotificationService: NSObject {
         }
 
         switch transition {
-        case let .waitingApproval(task):
+        case let .waiting(task, _):
             guard settings.isTaskWaitingEnabled else {
                 return
             }
@@ -138,10 +163,7 @@ final class NotificationService: NSObject {
                 sound: settings.taskWaitingSound,
                 identifier: identifier,
                 isStillRelevant: { [weak self] in
-                    self?.isTaskStillWaiting(
-                        taskID,
-                        notificationIdentifier: identifier
-                    ) ?? false
+                    self?.activityMonitor.snapshot.blockingWaitingTaskIDs.contains(taskID) ?? false
                 },
                 onSubmissionFailure: { [weak self] in
                     self?.taskWaitingNotificationIdentifiers.remove(identifier)
@@ -160,22 +182,9 @@ final class NotificationService: NSObject {
         }
     }
 
-    private func isTaskStillWaiting(
-        _ taskID: UUID,
-        notificationIdentifier: String
-    ) -> Bool {
-        let isStillWaiting = activityMonitor.snapshot.waitingTasks.contains {
-            $0.id == taskID
-        }
-        if !isStillWaiting {
-            taskWaitingNotificationIdentifiers.remove(notificationIdentifier)
-        }
-        return isStillWaiting
-    }
-
     private func reconcileTaskWaitingNotifications(with snapshot: ActivitySnapshot) {
-        let activeIdentifiers = Set(snapshot.waitingTasks.map {
-            Self.taskWaitingNotificationIdentifier(for: $0.id)
+        let activeIdentifiers = Set(snapshot.blockingWaitingTaskIDs.map {
+            Self.taskWaitingNotificationIdentifier(for: $0)
         })
         let obsoleteIdentifiers = taskWaitingNotificationIdentifiers.subtracting(activeIdentifiers)
         guard !obsoleteIdentifiers.isEmpty else {
@@ -622,7 +631,7 @@ final class NotificationService: NSObject {
             content: content,
             trigger: nil
         )
-        return Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             await self?.deliver(
                 request,
                 kind: kind,
@@ -632,6 +641,10 @@ final class NotificationService: NSObject {
                 retryCount: retryCount
             ) ?? false
         }
+        #if CODEXBAR_TESTING
+            lastSubmissionTaskForTesting = task
+        #endif
+        return task
     }
 
     /// 返回值是"这条通知真的提交出去了", 调用方据此决定要不要记下已通知
@@ -659,7 +672,7 @@ final class NotificationService: NSObject {
                 return false
             }
             do {
-                try await UNUserNotificationCenter.current().add(request)
+                try await delivery.add(request)
                 guard isStillRelevant?() != false else {
                     // 投递后任务状态又变了, 撤回避免用户看到过期提醒
                     let details = LogFields.joined(
@@ -691,9 +704,7 @@ final class NotificationService: NSObject {
     }
 
     private func removeNotifications(withIdentifiers identifiers: [String]) {
-        let center = UNUserNotificationCenter.current()
-        center.removeDeliveredNotifications(withIdentifiers: identifiers)
-        center.removePendingNotificationRequests(withIdentifiers: identifiers)
+        delivery.remove(identifiers)
     }
 
     private nonisolated static func accountKey(for snapshot: CodexQuotaSnapshot) -> String {

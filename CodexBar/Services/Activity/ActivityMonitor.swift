@@ -436,9 +436,9 @@ final class ActivityMonitor: ObservableObject {
         let date: Date
         switch transition {
         case let .completed(completion): date = completion.completedAt
-        case let .waitingApproval(snapshot):
-            guard tasks.values.contains(where: { $0.displayID == snapshot.id && $0.state == .waitingApproval }) else { return false }
-            date = snapshot.stateChangedAt
+        case let .waiting(task, since):
+            guard snapshot.blockingWaitingTaskIDs.contains(task.id) else { return false }
+            date = since
         }
         return date >= turnTransitionNotBefore && now.timeIntervalSince(date) <= 10
     }

@@ -46,12 +46,13 @@ struct ActivityUpdateTests {
         #expect((task.state == .waitingApproval) == expectsWaiting)
         #expect(transitions.count == (expectsWaiting ? 1 : 0))
         if expectsWaiting {
-            guard case let .waitingApproval(published) = try #require(transitions.first) else {
+            guard case let .waiting(published, since) = try #require(transitions.first) else {
                 Issue.record("Expected waiting transition")
                 return
             }
             #expect(published == task.snapshot)
             #expect(published.stateChangedAt == now.addingTimeInterval(scenario == "replaced" ? -1 : -2))
+            #expect(since == published.stateChangedAt)
         }
         let repeated = graph.update(events: [], source: .bootstrap, lifecycle: snapshot)
         #expect(repeated.isEmpty)
@@ -276,6 +277,138 @@ struct ActivityUpdateTests {
         #expect(await reader.stop())
         #expect(await reader.drainNow().status == .cancelled)
         try server.finish()
+    }
+
+    @Test(arguments: [true, false, nil] as [Bool?], [false, true])
+    func inputWaitNotifiesOnlyWhenBlocking(isBlocking: Bool?, inChild: Bool) throws {
+        let now = Date()
+        var reducer = try approvalReducer(at: now)
+        var graph = ActivityTaskGraph()
+        _ = graph.update(events: [TestFixtures.event(at: now.addingTimeInterval(-60))], source: .bootstrap, lifecycle: lifecycle(reducer, at: now))
+        _ = try reducer.consume(inputRequest(id: "async", blocking: false), now: now.addingTimeInterval(-20))
+        #expect(graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now)).isEmpty)
+        let thread = inChild ? "child" : "thread-a"
+        let turn = inChild ? "child-turn" : "turn-a"
+        let since = now.addingTimeInterval(-1)
+        let input = try inputRequest(id: "blocking", blocking: isBlocking, thread: thread, turn: turn)
+        #expect(reducer.consume(input, now: since).isEmpty)
+        let transitions = graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now))
+        let task = try #require(graph.tasks.values.first)
+        #expect(task.state == .running)
+        #expect(task.snapshot.presentation?.waiting?.since == now.addingTimeInterval(-20))
+        #expect(task.snapshot.presentation?.blockingInputSince == (isBlocking == true ? since : nil))
+        #expect(transitions == (isBlocking == true ? [.waiting(task.snapshot, since: since)] : []))
+        #expect(graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now)).isEmpty)
+
+        let userMessage = try TestFixtures.decode(ActivityInput.self, """
+        {"method":"item/completed","params":{"threadId":"\(thread)","turnId":"\(turn)",
+        "item":{"id":"reply","type":"userMessage","content":[{"type":"text","text":"Continue"}]}}}
+        """)
+        _ = reducer.consume(userMessage, now: now)
+        #expect(graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now)).isEmpty)
+        #expect(graph.tasks.values.first?.snapshot.presentation?.hasBlockingInputRequest == (isBlocking == true))
+
+        _ = try reducer.consume(resolvedRequest(id: "blocking", thread: thread), now: now)
+        #expect(graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now)).isEmpty)
+        #expect(graph.tasks.values.first?.blockingWaitStartedAt == nil)
+        _ = reducer.consume(input, now: now)
+        #expect(graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now)).count == (isBlocking == true ? 1 : 0))
+    }
+
+    @Test(arguments: [false, true])
+    func resolvedOrEndedInputDoesNotNotify(ended: Bool) throws {
+        let now = Date()
+        var reducer = try approvalReducer(at: now)
+        var graph = ActivityTaskGraph()
+        _ = graph.update(events: [TestFixtures.event(at: now.addingTimeInterval(-60))], source: .bootstrap, lifecycle: lifecycle(reducer, at: now))
+        _ = try reducer.consume(inputRequest(id: "input", blocking: true), now: now)
+        let resolution = try ended ? TestFixtures.decode(ActivityInput.self, """
+        {"method":"turn/completed","params":{"threadId":"thread-a","turn":{"id":"turn-a","status":"completed","completedAt":\(now.timeIntervalSince1970)}}}
+        """) : resolvedRequest(id: "input")
+        _ = reducer.consume(resolution, now: now)
+        let transitions = graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now))
+        #expect(!transitions.contains {
+            if case .waiting = $0 {
+                true
+            } else {
+                false
+            }
+        })
+        #expect(graph.tasks.values.allSatisfy { $0.blockingWaitStartedAt == nil })
+    }
+
+    @Test func approvalAndBlockingInputsShareOneWaitingPeriod() throws {
+        let now = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
+        var reducer = try approvalReducer(at: now)
+        var graph = ActivityTaskGraph()
+        _ = graph.update(events: [TestFixtures.event(at: now.addingTimeInterval(-60))], source: .bootstrap, lifecycle: lifecycle(reducer, at: now))
+        let approvals = try reducer.consume(approvalRequest(id: "approval", at: now), now: now)
+        #expect(graph.update(events: approvals, source: .live, lifecycle: lifecycle(reducer, at: now)).count == 1)
+        for (id, thread, turn, offset) in [("first", "thread-a", "turn-a", 1.0), ("second", "child", "child-turn", 2.0)] {
+            _ = try reducer.consume(inputRequest(id: id, blocking: true, thread: thread, turn: turn), now: now.addingTimeInterval(offset))
+            #expect(graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now)).isEmpty)
+        }
+        for (id, thread, remaining) in [("approval", "child", 1.0), ("first", "thread-a", 2.0)] {
+            _ = try reducer.consume(resolvedRequest(id: id, thread: thread), now: now.addingTimeInterval(3))
+            #expect(graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now)).isEmpty)
+            #expect(graph.tasks.values.first?.blockingWaitStartedAt == now.addingTimeInterval(remaining))
+        }
+        _ = try reducer.consume(resolvedRequest(id: "second", thread: "child"), now: now.addingTimeInterval(4))
+        #expect(graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now)).isEmpty)
+        #expect(graph.tasks.values.first?.blockingWaitStartedAt == nil)
+    }
+
+    @Test(arguments: ["live", "bootstrap", "recovery", "unavailable", "stale", "before-cutoff"])
+    func monitorFiltersBlockingWaitsAndClearsResolvedRequests(scenario: String) throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = ActivityMonitor(
+            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
+            protectionStore: ProtectionStore(directoryURL: directory.url), activityDataDirectoryURL: directory.url
+        )
+        let now = Date()
+        monitor.isActivitySourceHealthy = scenario != "unavailable"
+        monitor.isBootstrapping = scenario == "bootstrap"
+        monitor.isProtectionRecoveryInProgress = scenario == "recovery"
+        monitor.turnTransitionNotBefore = now.addingTimeInterval(scenario == "before-cutoff" ? 0 : -60)
+        var reducer = try approvalReducer(at: now)
+        var graph = ActivityTaskGraph()
+        _ = graph.update(events: [TestFixtures.event(at: now.addingTimeInterval(-60))], source: .bootstrap, lifecycle: lifecycle(reducer, at: now))
+        _ = try reducer.consume(inputRequest(id: "async", blocking: false), now: now.addingTimeInterval(-30))
+        _ = graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now))
+        _ = try reducer.consume(inputRequest(id: "input", blocking: true), now: now.addingTimeInterval(scenario == "stale" ? -20 : -1))
+        let transitions = graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now))
+        let readerID = UUID()
+        var published: [ActivityTransition] = []
+        let observation = monitor.transitionPublisher.sink { published.append($0) }
+        defer { observation.cancel() }
+        monitor.consume(update(graph, readerID: readerID, revision: 1, transitions: transitions))
+        #expect(published.count == (scenario == "live" ? 1 : 0))
+        #expect(monitor.snapshot.waitingTasks.isEmpty)
+        #expect(monitor.snapshot.blockingWaitingTaskIDs.count == 1)
+        #expect(monitor.snapshot.keepAliveTaskIDs.waiting == monitor.snapshot.blockingWaitingTaskIDs)
+        _ = try reducer.consume(resolvedRequest(id: "input"), now: now)
+        let resolved = graph.update(events: [], source: .bootstrap, lifecycle: lifecycle(reducer, at: now))
+        monitor.consume(update(graph, readerID: readerID, revision: 2, transitions: resolved))
+        #expect(monitor.snapshot.blockingWaitingTaskIDs.isEmpty)
+        #expect(monitor.snapshot.panelWaitingTasks.count == 1)
+        #expect(try !monitor.isCurrentTransition(#require(transitions.first), now: now))
+        #expect(published.count == (scenario == "live" ? 1 : 0))
+    }
+
+    private func inputRequest(id: String, blocking: Bool?, thread: String = "thread-a", turn: String = "turn-a") throws -> ActivityInput {
+        let blocking = blocking.map { String($0) } ?? "null"
+        return try TestFixtures.decode(ActivityInput.self, """
+        {"id":"\(id)","method":"item/tool/requestUserInput","params":{"threadId":"\(thread)","turnId":"\(turn)","isBlocking":\(blocking)}}
+        """)
+    }
+
+    private func resolvedRequest(id: String, thread: String = "thread-a") throws -> ActivityInput {
+        try TestFixtures.decode(ActivityInput.self, """
+        {"method":"serverRequest/resolved","params":{"threadId":"\(thread)","requestId":"\(id)"}}
+        """)
     }
 
     private func approvalReducer(at now: Date) throws -> AppServerActivityReducer {

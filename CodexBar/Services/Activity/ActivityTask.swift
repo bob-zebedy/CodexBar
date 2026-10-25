@@ -139,8 +139,13 @@ nonisolated struct ActivityTask {
         var result = (waiting ?? root ?? live.max { $0.1.updatedAt < $1.1.updatedAt })!.1
         result.recent = live.compactMap(\.1.recent).max { $0.at < $1.at }
         result.toolCount = live.allSatisfy { $0.1.toolCount != nil } ? live.reduce(0) { $0 + ($1.1.toolCount ?? 0) } : nil
-        result.hasBlockingInputRequest = live.contains { $0.1.hasBlockingInputRequest }
+        result.blockingInputSince = live.compactMap(\.1.blockingInputSince).min()
         return result
+    }
+
+    var blockingWaitStartedAt: Date? {
+        [state == .waitingApproval ? stateChangedAt : nil, livePresentation?.blockingInputSince]
+            .compactMap(\.self).min()
     }
 
     var turnReference: ActivityTurnReference {

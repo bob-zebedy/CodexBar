@@ -17,22 +17,32 @@ nonisolated struct ActivityTaskGraph {
     mutating func update(
         events: [ActivityDataRecord], source: ActivityEventSource, lifecycle: TurnLifecycleSnapshot
     ) -> [ActivityTransition] {
-        let previouslyWaiting = Set(tasks.values.filter { $0.state == .waitingApproval }.map(\.displayID))
+        let previouslyWaiting = Set(tasks.values.filter { $0.blockingWaitStartedAt != nil }.map(\.displayID))
+        let previouslyAwaitingApproval = Set(tasks.values.filter { $0.state == .waitingApproval }.map(\.displayID))
         var transitions = consume(events, source: source)
         transitions += reconcile(lifecycle.lifecycleStates(for: lifecycleReferences()))
-        for (key, task) in tasks where task.state == .waitingApproval && !previouslyWaiting.contains(task.displayID) {
+        for (key, task) in tasks where task.state == .waitingApproval && !previouslyAwaitingApproval.contains(task.displayID) {
             if let approval = task.displayedApproval {
                 tasks[key]?.stateChangedAt = approval.requestedAt
             }
         }
-        let waiting = Dictionary(uniqueKeysWithValues: tasks.values.filter { $0.state == .waitingApproval }.map { ($0.displayID, $0.snapshot) })
+        var waiting: [UUID: (snapshot: ActivityTaskSnapshot, since: Date)] = [:]
+        for task in tasks.values {
+            guard let since = task.blockingWaitStartedAt else { continue }
+            let snapshot = task.snapshot
+            waiting[task.displayID] = (snapshot, since)
+            // 提问只存在于实时内存状态, 不产生历史事件, 在生命周期核对后发布
+            if snapshot.presentation?.hasBlockingInputRequest == true {
+                transitions.append(.waiting(snapshot, since: since))
+            }
+        }
         var notified = Set<UUID>()
         // 事件中的等待只是候选, 提醒必须使用本次核对后的最终状态
         return transitions.compactMap { transition in
-            guard case let .waitingApproval(snapshot) = transition else { return transition }
+            guard case let .waiting(snapshot, _) = transition else { return transition }
             guard !previouslyWaiting.contains(snapshot.id), let current = waiting[snapshot.id],
                   notified.insert(snapshot.id).inserted else { return nil }
-            return .waitingApproval(current)
+            return .waiting(current.snapshot, since: current.since)
         }
     }
 
@@ -338,7 +348,7 @@ nonisolated struct ActivityTaskGraph {
         var seen = Set<ActivityTaskKey>()
         return keys.reversed().compactMap { key in
             guard seen.insert(key).inserted, let task = tasks[key], task.state == .waitingApproval else { return nil }
-            return .waitingApproval(task.snapshot)
+            return .waiting(task.snapshot, since: task.blockingWaitStartedAt ?? task.stateChangedAt)
         }.reversed()
     }
 }

@@ -29,9 +29,13 @@ nonisolated struct ActivityLiveSummary: Equatable {
     var toolCount: Int?
     var planCompleted: Int?
     var planTotal: Int?
-    var hasBlockingInputRequest = false
+    var blockingInputSince: Date?
     var isReviewing = false
     var updatedAt: Date = .distantPast
+
+    var hasBlockingInputRequest: Bool {
+        blockingInputSince != nil
+    }
 }
 
 /// 与历史统计和审批策略独立的内存状态, 连接失效时整体丢弃
@@ -79,7 +83,7 @@ nonisolated struct ActivityLivePresentation {
             current: waiting?.label ?? current.label, waiting: waiting, recent: recent,
             toolCount: inventoryKnown ? items.values.filter(\.isTool).count : nil,
             planCompleted: planCompleted, planTotal: planTotal,
-            hasBlockingInputRequest: requests.values.contains { $0.isBlocking == true },
+            blockingInputSince: requests.values.filter { $0.isBlocking == true }.compactMap(\.since).min(),
             isReviewing: isReviewing, updatedAt: current.at
         )
     }

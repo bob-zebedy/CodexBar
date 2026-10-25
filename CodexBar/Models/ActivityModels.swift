@@ -102,18 +102,16 @@ nonisolated struct ActivitySnapshot: Equatable {
         runningTasks.filter { $0.presentation?.waiting == nil }
     }
 
-    /// 防睡眠将明确阻塞的提问归入等待, 不改变任务的审批和保护状态
+    /// 通知和防睡眠共用阻塞等待, 不改变面板展示或任务的审批和保护状态
+    var blockingWaitingTaskIDs: Set<UUID> {
+        Set(waitingTasks.map(\.id)).union(
+            runningTasks.lazy.filter { $0.presentation?.hasBlockingInputRequest == true }.map(\.id)
+        )
+    }
+
     var keepAliveTaskIDs: (running: Set<UUID>, waiting: Set<UUID>) {
-        var running = Set<UUID>()
-        var waiting = Set(waitingTasks.map(\.id))
-        for task in runningTasks {
-            if task.presentation?.hasBlockingInputRequest == true {
-                waiting.insert(task.id)
-            } else {
-                running.insert(task.id)
-            }
-        }
-        return (running, waiting)
+        let waiting = blockingWaitingTaskIDs
+        return (Set(runningTasks.map(\.id)).subtracting(waiting), waiting)
     }
 
     var panelPrimaryActivity: CodexPrimaryActivity {
@@ -217,9 +215,9 @@ nonisolated enum CodexPrimaryActivity: Equatable {
     case idle
 }
 
-/// 只有 live 事件 或 turn 生命周期会发布 transition, bootstrap 永远不会触发历史通知
+/// 等待携带实际起点, monitor 在初始化和恢复期间屏蔽通知
 nonisolated enum ActivityTransition: Equatable {
-    case waitingApproval(ActivityTaskSnapshot)
+    case waiting(ActivityTaskSnapshot, since: Date)
     case completed(ActivityCompletion)
 }
 

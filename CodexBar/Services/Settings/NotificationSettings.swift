@@ -65,12 +65,19 @@ final class NotificationSettings: ObservableObject {
     static let taskCompletionDurationOptions = [30, 60, 120, 300]
 
     private let defaults: UserDefaults
+    private let readAuthorizationStatus: () async -> UNAuthorizationStatus
     private var authorizationTask: Task<Void, Never>?
     private var isRequestingAuthorization = false
     private var appActivationObserver: AnyCancellable?
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        readAuthorizationStatus: @escaping () async -> UNAuthorizationStatus = {
+            await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+        }
+    ) {
         self.defaults = defaults
+        self.readAuthorizationStatus = readAuthorizationStatus
         isEnabled = defaults.bool(forKey: Self.enabledKey)
         isLowQuotaEnabled = Self.bool(from: defaults, key: Self.lowQuotaEnabledKey, defaultValue: true)
         isQuotaResetEnabled = Self.bool(from: defaults, key: Self.quotaResetEnabledKey, defaultValue: true)
@@ -230,9 +237,8 @@ final class NotificationSettings: ObservableObject {
             return
         }
         authorizationTask?.cancel()
-        authorizationTask = Task { @MainActor [weak self] in
-            let status = await UNUserNotificationCenter.current()
-                .notificationSettings().authorizationStatus
+        authorizationTask = Task { @MainActor [weak self, readAuthorizationStatus] in
+            let status = await readAuthorizationStatus()
             guard let self, !Task.isCancelled else {
                 return
             }
