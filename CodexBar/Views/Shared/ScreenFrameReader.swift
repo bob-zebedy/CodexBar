@@ -52,6 +52,10 @@ final class ScreenFrameProvider {
     private weak var lastValidWindow: NSWindow?
     private var lastValidFrame: CGRect?
 
+    var window: NSWindow? {
+        view?.window
+    }
+
     func bind(to view: NSView) {
         self.view = view
     }

@@ -12,6 +12,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let syncSettings: SyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
     private let menuBarQuotaSettings: MenuBarQuotaSettings
+    private let appearanceSettings: AppearanceSettings
     private let mainPanelSettings: MainPanelSettings
     private let serviceStatusMonitor: CodexServiceStatusMonitor
     private let taskGlowSettings: TaskGlowSettings
@@ -25,8 +26,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let popoverAnimationState = MenuSurfaceAnimationState()
     private let fallbackPanelAnimationState = MenuSurfaceAnimationState()
     private let activityCenterPresentationState = ActivityCenterPresentationState()
-    private let heatmapDetailPanelController = HeatmapPanelController()
-    private let resetCreditsPanelController = ResetCreditsPanelController()
+    private lazy var heatmapDetailPanelController = HeatmapPanelController(mainPanelSettings: mainPanelSettings)
+    private lazy var resetCreditsPanelController = ResetCreditsPanelController(mainPanelSettings: mainPanelSettings)
     private lazy var activityCenterPanelController = ActivityPanelController(
         activityMonitor: activityMonitor,
         presentationState: activityCenterPresentationState,
@@ -48,6 +49,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         syncSettings: syncSettings,
         globalHotKeySettings: globalHotKeySettings,
         menuBarQuotaSettings: menuBarQuotaSettings,
+        appearanceSettings: appearanceSettings,
         mainPanelSettings: mainPanelSettings,
         taskGlowSettings: taskGlowSettings,
         notificationSettings: notificationSettings,
@@ -67,7 +69,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         syncScheduler.requestRebuild(for: dateKeys, completion: completion)
     }
 
-    private lazy var logWindowController = LogWindowController { [weak self] in
+    private lazy var logWindowController = LogWindowController(mainPanelSettings: mainPanelSettings) { [weak self] in
         self?.statusItem.button?.window?.screen
     }
 
@@ -119,6 +121,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         syncSettings: SyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
         menuBarQuotaSettings: MenuBarQuotaSettings,
+        appearanceSettings: AppearanceSettings,
         mainPanelSettings: MainPanelSettings,
         serviceStatusMonitor: CodexServiceStatusMonitor,
         taskGlowSettings: TaskGlowSettings,
@@ -134,6 +137,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
         self.menuBarQuotaSettings = menuBarQuotaSettings
+        self.appearanceSettings = appearanceSettings
         self.mainPanelSettings = mainPanelSettings
         self.serviceStatusMonitor = serviceStatusMonitor
         self.taskGlowSettings = taskGlowSettings
@@ -225,6 +229,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         popover.behavior = .applicationDefined
         popover.animates = false
         popover.contentViewController = hostingController
+
+        applyAppearance(appearanceSettings.theme.appearance)
+    }
+
+    func applyAppearance(_ appearance: NSAppearance?) {
+        // NSPopover 和 NSMenu 有独立的外观继承路径, 与应用外观在同一轮过渡中更新
+        popover.appearance = appearance
+        activeStatusItemMenu?.appearance = appearance
     }
 
     private func makeMenuHostingController(
@@ -600,6 +612,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func makeContextMenu() -> NSMenu {
         let menu = NSMenu()
+        menu.appearance = appearanceSettings.theme.appearance
 
         menu.addItem(menuItem(
             title: "app.menu.settings",
@@ -830,7 +843,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - 侧边面板
 
     private func updateHeatmapDetailPanel(_ context: UsageHeatmapHoverContext?) {
-        guard isActiveMenuSurfaceVisible,
+        guard menuSurfaceVisibility.isVisible,
+              isActiveMenuSurfaceVisible,
               let menuSurfaceContentView = activeMenuSurfaceContentView,
               let menuSurfaceWindow = activeMenuSurfaceWindow else {
             heatmapDetailPanelController.hide(immediate: true)

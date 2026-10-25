@@ -2,8 +2,6 @@ import Combine
 import SwiftUI
 
 extension EnvironmentValues {
-    // 持续动画需要显式停用, 不能只依赖 transaction 的动画禁用
-    @Entry var mainPanelAnimationsEnabled: Bool = false
     @Entry var mainPanelEntranceAnimationsEnabled: Bool = true
 }
 
@@ -62,10 +60,6 @@ struct CodexStatusMenuView: View {
             content
         }
         .environment(
-            \.mainPanelAnimationsEnabled,
-            animationState.allowsAnimations && mainPanelSettings.areAnimationsEnabled
-        )
-        .environment(
             \.mainPanelEntranceAnimationsEnabled,
             mainPanelSettings.areAnimationsEnabled
         )
@@ -82,14 +76,7 @@ struct CodexStatusMenuView: View {
                 .map { snapshot, isHealthy in snapshot.hasTaskCenterContent || !isHealthy }
                 .removeDuplicates()
         ) { activitySectionVisibility = $0 }
-        .transaction { transaction in
-            // 已关闭的 NSPopover 仍可能绘制数字过渡, 让字体缓存逐轮增长
-            guard !animationState.allowsAnimations else {
-                return
-            }
-            transaction.animation = nil
-            transaction.disablesAnimations = true
-        }
+        .contentAnimations(settings: mainPanelSettings, isVisible: animationState.allowsAnimations)
     }
 }
 

@@ -11,7 +11,7 @@ nonisolated struct ActivityCardNaturalHeightKey: PreferenceKey {
 struct ActivitySection<Content: View>: View {
     let isVisible: Bool
     @ViewBuilder let content: () -> Content
-    @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
     @State private var retainsContent: Bool
     @State private var naturalHeight: CGFloat = 0
     @State private var height: CGFloat

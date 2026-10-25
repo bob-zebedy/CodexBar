@@ -4,6 +4,7 @@ import SwiftUI
 /// app-server 交互日志窗口根视图
 struct LogView: View {
     @ObservedObject var store: AppServerLogViewModel
+    let mainPanelSettings: MainPanelSettings
     @State private var preview = LogPreviewPresentation()
     @State private var scrollPosition = ScrollPosition(idType: UUID.self, edge: .top)
 
@@ -40,6 +41,7 @@ struct LogView: View {
                 .onDisappear { preview.dismiss(item) }
         }
         .onDisappear { preview.cancel() }
+        .contentAnimations(settings: mainPanelSettings)
     }
 
     private var header: some View {

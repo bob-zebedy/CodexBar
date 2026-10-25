@@ -84,28 +84,22 @@ struct AutoResetScheduleTests {
         #expect(observed17 == nil)
     }
 
-    @Test func inFlightOrdinaryAttemptCoversFinalPoint() throws {
+    @Test(arguments: [false, true])
+    func inFlightAttemptAcrossFinalPointPreservesRetryBudget(transientFailure: Bool) throws {
         var schedule = AutoResetSchedule()
         let expiration = start.addingTimeInterval(900)
-        let observed18 = schedule.begin(expirationDate: expiration, leadTime: 900, now: start.addingTimeInterval(710))
-        let attempt = try #require(observed18)
+        let started = schedule.begin(expirationDate: expiration, leadTime: 900, now: start.addingTimeInterval(710))
+        let attempt = try #require(started)
         schedule.finish(attempt, transientFailure: true, leadTime: 900, now: start.addingTimeInterval(730))
-        schedule.coverFinalIfNeeded(attempt, expirationDate: expiration, transientFailure: false, now: start.addingTimeInterval(730))
-        let observed19 = schedule.plan(expirationDate: expiration, leadTime: 900, now: start.addingTimeInterval(730))
-        #expect(observed19 == nil)
-    }
-
-    @Test func faultAcrossFinalPointUsesRemainingFinalAttempts() throws {
-        var schedule = AutoResetSchedule()
-        let expiration = start.addingTimeInterval(900)
-        let value = schedule.begin(expirationDate: expiration, leadTime: 900, now: start.addingTimeInterval(710))
-        let attempt = try #require(value)
-        schedule.finish(attempt, transientFailure: true, leadTime: 900, now: start.addingTimeInterval(730))
-        schedule.coverFinalIfNeeded(attempt, expirationDate: expiration, transientFailure: true, now: start.addingTimeInterval(730))
+        schedule.coverFinalIfNeeded(attempt, expirationDate: expiration, transientFailure: transientFailure, now: start.addingTimeInterval(730))
         let plan = schedule.plan(expirationDate: expiration, leadTime: 900, now: start.addingTimeInterval(730))
-        #expect(plan?.evaluationDate == start.addingTimeInterval(745))
-        let next = schedule.begin(expirationDate: expiration, leadTime: 900, now: start.addingTimeInterval(745))
-        #expect(next?.phase == .final)
+        if transientFailure {
+            #expect(plan?.evaluationDate == start.addingTimeInterval(745))
+            let next = schedule.begin(expirationDate: expiration, leadTime: 900, now: start.addingTimeInterval(745))
+            #expect(next?.phase == .final)
+        } else {
+            #expect(plan == nil)
+        }
     }
 
     @Test func extendingExpirationRearmsFinalWithoutRestoringInitialBudget() throws {

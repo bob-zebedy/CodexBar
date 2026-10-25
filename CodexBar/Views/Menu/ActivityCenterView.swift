@@ -62,6 +62,7 @@ struct ActivityCenterView: View {
             )
             .activityStatusParticles(cornerRadius: Metrics.cornerRadius)
             .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
+            .contentAnimations(settings: mainPanelSettings, isVisible: presentationState.isPresented)
     }
 
     static var initialPanelSize: CGSize {
@@ -153,7 +154,7 @@ struct ActivityCenterView: View {
             Text(headerSummary)
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(Color.codexSecondaryLabel)
-                .numericTransition(value: headerSummary, enabled: allowsAnimations)
+                .numericTransition(value: headerSummary)
                 .lineLimit(1)
         }
         .padding(.horizontal, Metrics.horizontalPadding)
@@ -243,7 +244,7 @@ struct ActivityCenterView: View {
                 Text(verbatim: "\(count)")
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-                    .numericTransition(value: count, comparison: Double(count), enabled: allowsAnimations)
+                    .numericTransition(value: count, comparison: Double(count))
             }
             .frame(height: Metrics.sectionHeaderHeight)
 
@@ -334,7 +335,7 @@ struct ActivityCenterView: View {
                         tint: tint,
                         effect: allowsAnimations ? effect : .none
                     )
-                    .numericTransition(value: detail, enabled: allowsAnimations)
+                    .numericTransition(value: detail)
                     if let tokenUsage {
                         Spacer(minLength: 0)
                         TokenUsageText(tokenUsage: tokenUsage)
@@ -367,7 +368,7 @@ struct ActivityCenterView: View {
                 Text(metadata)
                     .font(.caption2)
                     .foregroundStyle(Color.codexSecondaryLabel)
-                    .numericTransition(value: metadata, enabled: allowsAnimations)
+                    .numericTransition(value: metadata)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }

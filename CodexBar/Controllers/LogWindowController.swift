@@ -6,12 +6,15 @@ import SwiftUI
 final class LogWindowController: HostingWindowController {
     private var closeObserver: (any NSObjectProtocol)?
     private let store: AppServerLogViewModel
+    private let mainPanelSettings: MainPanelSettings
 
     init(
+        mainPanelSettings: MainPanelSettings,
         store: AppServerLogViewModel = .shared,
         screenProvider: @escaping () -> NSScreen?
     ) {
         self.store = store
+        self.mainPanelSettings = mainPanelSettings
         super.init(screenProvider: screenProvider)
     }
 
@@ -21,7 +24,7 @@ final class LogWindowController: HostingWindowController {
     }
 
     override func makeWindow() -> NSWindow {
-        let hostingController = NSHostingController(rootView: LogView(store: store))
+        let hostingController = NSHostingController(rootView: LogView(store: store, mainPanelSettings: mainPanelSettings))
 
         let window = AuxiliaryHostingWindow(contentViewController: hostingController)
         window.title = String(localized: "log.window.title")

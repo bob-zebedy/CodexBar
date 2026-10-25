@@ -4,27 +4,10 @@ import Testing
 struct AppServerEventStorageTests {
     private let now = TestFixtures.now
 
-    @Test func nativeMetadataRoundTripsWithoutChangingBusinessIdentity() throws {
+    @Test func activityDataStorageSeparatesProtocolContextFromBusinessFields() throws {
         var event = TestFixtures.event(.toolStarted, thread: "root", turn: "child-turn", agentThreadID: "child", origin: .auxiliary)
         event.context = ActivityDataContext(
-            method: "item/started", threadID: "child", turnID: "child-turn", parentThreadID: "parent",
-            rootThreadID: "root", rootTurnID: "root-turn", itemID: "item", itemType: "commandExecution", itemStatus: "inProgress"
-        )
-        let record = AppServerEventRecord(activityData: event, recordedAt: now)
-        let decoded = try AppServerEventRecord.decode(from: record.jsonLineData())
-        #expect(decoded.activityData == event)
-        #expect(decoded.context?.threadID == "child")
-        #expect(decoded.activityData?.threadID == "root")
-        let text = try #require(String(bytes: record.jsonLineData(), encoding: .utf8))
-        #expect(text.contains("toolStarted"))
-        #expect(!text.contains("PreToolUse"))
-        #expect(!text.contains("commandLine"))
-    }
-
-    @Test func activityDataStorageSeparatesProtocolContextFromBusinessFields() throws {
-        var event = TestFixtures.event(.approvalRequested, agentThreadID: "child")
-        event.context = ActivityDataContext(
-            method: "item/commandExecution/requestApproval", threadID: "child", turnID: "child-turn",
+            method: "item/started", threadID: "child", turnID: "child-turn",
             parentThreadID: "parent", rootThreadID: "root", rootTurnID: "root-turn", itemID: "item",
             itemType: "commandExecution", itemStatus: "inProgress", agentThreadID: "child",
             itemKind: "started", requestID: "request", turnStatus: .running,
@@ -48,7 +31,14 @@ struct AppServerEventStorageTests {
             "timestamp", "name", "origin", "cwd", "toolName", "model", "effort",
             "threadID", "turnID", "agentThreadID"
         ])
-        #expect(try AppServerEventRecord.decode(from: data).activityData == event)
+        let decoded = try AppServerEventRecord.decode(from: data)
+        #expect(decoded.activityData == event)
+        #expect(decoded.context?.threadID == "child")
+        #expect(decoded.activityData?.threadID == "root")
+        let text = try #require(String(bytes: data, encoding: .utf8))
+        #expect(text.contains("toolStarted"))
+        #expect(!text.contains("PreToolUse"))
+        #expect(!text.contains("commandLine"))
     }
 
     @Test func unsupportedVersionAndMixedPayloadAreRejected() throws {

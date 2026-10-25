@@ -70,6 +70,7 @@ final class OptionsPanelController {
     private var isEntryAnimationRunning = false
 
     init(
+        mainPanelSettings: MainPanelSettings,
         animationKey: String,
         initialPanelSize: CGSize,
         willShow: (() -> Void)? = nil,
@@ -85,6 +86,7 @@ final class OptionsPanelController {
         contentControllerProvider = { cue in
             let controller = NSHostingController(
                 rootView: SidePanelEntryRebuildHost(cue: cue, content: contentProvider())
+                    .contentAnimations(settings: mainPanelSettings)
             )
             // 高度重算依赖 preferredContentSize 提交的 fitting size
             controller.sizingOptions = [.preferredContentSize]

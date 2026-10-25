@@ -20,6 +20,16 @@ struct AggregationPolicyTests {
         #expect(object["observedAt"] != nil)
     }
 
+    @Test func unsupportedTokenUsageAlgorithmCannotEnterLocalSnapshots() throws {
+        let first = TestFixtures.tokenUsageAggregate(at: Date())
+        var unsupported = first
+        unsupported.aggregationVersion = 999
+        #expect(throws: StorageCompatibilityError.self) { try TokenUsageSyncRecord.dailyRecords(local: [first, unsupported], deviceID: "device") }
+        #expect(throws: StorageCompatibilityError.self) {
+            try JSONLines.decoder.decode(TokenUsageAggregate.self, from: JSONLines.stableEncoder.encode(unsupported))
+        }
+    }
+
     @Test func algorithmCompatibilityAcceptsPastAndRejectsFuture() throws {
         try AggregationVersion.require(1, current: 2, name: "test")
         #expect(throws: StorageCompatibilityError.self) { try AggregationVersion.require(3, current: 2, name: "test") }

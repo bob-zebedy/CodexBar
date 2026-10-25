@@ -35,7 +35,7 @@ Environment:
   DOWNLOAD_BASE_URL       Base URL for DMG downloads.
                            Defaults to https://codexbar.zabrian.app/download.
   RELEASE_NOTES_BASE_URL  Base URL for release notes and upgrade guides.
-                           Both links append lang=en and lang=zh-CN query parameters.
+                           Both links append lang=en-US and lang=zh-CN query parameters.
                            Release notes append the current version as #X.Y.Z.
                            The browser upgrade link appends #${UPGRADE_GUIDE_VERSION}-Guide.
                            Defaults to https://codexbar.zabrian.app/notes.
@@ -243,7 +243,7 @@ SHORT_VERSION_ESCAPED="$(printf '%s' "${SHORT_VERSION}" | xml_escape)"
 
 UPGRADE_GUIDE_XML=""
 RELEASE_NOTES_XML=""
-for NOTES_LANGUAGE in en zh-CN; do
+for NOTES_LANGUAGE in en-US zh-CN; do
     UPGRADE_GUIDE_URL_ESCAPED="$(printf '%s%s#%s-Guide' "${RELEASE_NOTES_URL_PREFIX}" "${NOTES_LANGUAGE}" "${UPGRADE_GUIDE_VERSION}" | xml_escape)"
     UPGRADE_GUIDE_XML+="<link xml:lang=\"${NOTES_LANGUAGE}\">${UPGRADE_GUIDE_URL_ESCAPED}</link>
             "

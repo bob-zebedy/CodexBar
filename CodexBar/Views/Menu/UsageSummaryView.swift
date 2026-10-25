@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Token 摘要和近期用量热力图的组合区
 struct UsageSummaryView: View {
-    @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
     let usage: CodexUsageSnapshot?
     let isStale: Bool
     let onHoverContextChange: (UsageHeatmapHoverContext?) -> Void
@@ -115,7 +115,7 @@ struct UsageSummaryView: View {
             Text(value)
                 .font(.caption.monospacedDigit().weight(.semibold))
                 .foregroundStyle(Color.codexLabel)
-                .numericTransition(value: value, enabled: allowsAnimations)
+                .numericTransition(value: value)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }

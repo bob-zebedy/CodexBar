@@ -4,7 +4,6 @@ import SwiftUI
 struct QuotaRow: View {
     let window: QuotaWindow
     @Environment(\.mainPanelEntranceAnimationsEnabled) private var animatesEntrance
-    @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
     @State private var revealedPercent: Double = 0
 
     var body: some View {
@@ -33,7 +32,7 @@ struct QuotaRow: View {
             Text(resetText)
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(Color.codexSecondaryLabel)
-                .numericTransition(value: resetText, comparison: window.resetsAt?.timeIntervalSinceReferenceDate, enabled: allowsAnimations)
+                .numericTransition(value: resetText, comparison: window.resetsAt?.timeIntervalSinceReferenceDate)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
                 .allowsTightening(true)
@@ -124,6 +123,7 @@ private extension QuotaRow {
 
 /// 通过 Animatable 的中间值让百分比数字和进度条保持同一动画进度
 private struct AnimatedQuotaPercentageText: View, Animatable {
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
     var percent: Double
     let targetPercent: Double
 
@@ -140,7 +140,7 @@ private struct AnimatedQuotaPercentageText: View, Animatable {
                     targetPercent: targetPercent
                 )
             )
-            .contentTransition(.numericText(value: Double(roundedPercent)))
+            .contentTransition(allowsAnimations ? .numericText(value: Double(roundedPercent)) : .identity)
     }
 
     private var roundedPercent: Int {
@@ -192,6 +192,7 @@ private enum QuotaBarPalette {
 
 /// 胶囊条, 与菜单面板宽度联动
 private struct SegmentedQuotaBar: View, Animatable {
+    @Environment(\.colorScheme) private var colorScheme
     var percent: Double
     let targetPercent: Double?
     var revealedWidth: CGFloat
@@ -211,12 +212,13 @@ private struct SegmentedQuotaBar: View, Animatable {
     }
 
     var body: some View {
+        let placeholderColor = colorScheme == .dark ? CodexDarkPalette.track : QuotaBarPalette.placeholderColor
         let filledColor = targetPercent.map {
             QuotaBarPalette.animatedColor(for: percent, targetPercent: $0)
-        } ?? QuotaBarPalette.placeholderColor
+        } ?? placeholderColor
 
         ZStack(alignment: .leading) {
-            segments(color: QuotaBarPalette.placeholderColor)
+            segments(color: placeholderColor)
 
             segments(color: filledColor)
                 .mask(alignment: .leading) {

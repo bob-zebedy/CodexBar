@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HeatmapDetailView: View {
     let context: UsageHeatmapHoverContext
+    let mainPanelSettings: MainPanelSettings
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -18,6 +19,7 @@ struct HeatmapDetailView: View {
             )
             .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
             .animation(Metrics.statusAnimation, value: context)
+            .contentAnimations(settings: mainPanelSettings)
     }
 
     static var panelCornerRadius: CGFloat {
@@ -88,10 +90,11 @@ struct HeatmapDetailView: View {
         let cacheHitRate = tokenUsage?.cacheHitRate ?? 0
         return Grid(alignment: .leading, horizontalSpacing: Metrics.metricRowSpacing, verticalSpacing: Metrics.metricSpacing) {
             tokenUsageRow("usage.token-usage.total", tokens: tokenUsage?.totalTokens, tint: .blue)
-            tokenUsageRow("usage.token-usage.input", tokens: tokenUsage?.inputTokens, tint: .indigo)
             tokenUsageRow("usage.token-usage.output", tokens: tokenUsage?.outputTokens, tint: .orange)
-            tokenUsageRow("usage.token-usage.cached-input", tokens: tokenUsage?.cachedInputTokens, tint: .green)
+            tokenUsageRow("usage.token-usage.input", tokens: tokenUsage?.inputTokens, tint: .indigo)
+            tokenUsageRow("usage.token-usage.reasoning-output", tokens: tokenUsage?.reasoningOutputTokens, tint: .cyan)
             tokenUsageRow("usage.token-usage.cache-write-input", tokens: tokenUsage?.cacheWriteInputTokens, tint: .purple)
+            tokenUsageRow("usage.token-usage.cached-input", tokens: tokenUsage?.cachedInputTokens, tint: .green)
             metricRowLayout {
                 metricDot(tint: .teal)
                 Text("usage.token-usage.cache-hit-rate")
@@ -103,7 +106,6 @@ struct HeatmapDetailView: View {
                     comparison: cacheHitRate
                 )
             }
-            tokenUsageRow("usage.token-usage.reasoning-output", tokens: tokenUsage?.reasoningOutputTokens, tint: .cyan)
         }
     }
 
@@ -116,7 +118,7 @@ struct HeatmapDetailView: View {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(height: Metrics.metricRowHeight)
-            fittingMetricValue(TokenCountFormatter.parts(from: Int(count)).text, comparison: Double(count))
+            fittingMetricValue(TokenCountFormatter.text(from: Int(count)), comparison: Double(count))
         }
     }
 
@@ -214,8 +216,7 @@ struct HeatmapDetailView: View {
         HeatmapTokenText(
             tokenState: context.period.tokenState,
             font: tokenFont,
-            numericWidth: Metrics.tokenMinimumWidth,
-            unitWidth: Metrics.tokenUnitWidth
+            minimumWidth: Metrics.tokenMinimumWidth
         )
     }
 
@@ -276,7 +277,7 @@ struct HeatmapDetailView: View {
 
     private func fittingMetricValue(_ value: String, comparison: Double) -> some View {
         fittingValueContent(value)
-            .contentTransition(.numericText(value: comparison))
+            .numericTransition(value: value, comparison: comparison)
             .layoutPriority(1)
             .frame(maxWidth: .infinity, alignment: .trailing)
     }
@@ -285,7 +286,7 @@ struct HeatmapDetailView: View {
         metricValueText(value)
             .minimumScaleFactor(Metrics.metricValueMinimumScale)
             .allowsTightening(true)
-            .contentTransition(.numericText())
+            .numericTransition(value: value)
             .layoutPriority(1)
             .frame(maxWidth: .infinity, alignment: .trailing)
     }
@@ -328,8 +329,7 @@ struct HeatmapDetailView: View {
         static let horizontalPadding: CGFloat = 12
         static let verticalPadding: CGFloat = 10
         static let cornerRadius: CGFloat = 12
-        static let tokenMinimumWidth: CGFloat = 38
-        static let tokenUnitWidth: CGFloat = 14
+        static let tokenMinimumWidth: CGFloat = 52
         static let metricSpacing: CGFloat = 5
         static let metricRowSpacing: CGFloat = 6
         static let metricDotSize: CGFloat = 5
@@ -345,10 +345,10 @@ struct HeatmapDetailView: View {
 
 /// token 详情在数字和占位状态之间切换时只做淡入淡出, 数字之间仍保留滚动过渡
 private struct HeatmapTokenText: View {
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
     let tokenState: UsageHeatmapTokenState
     let font: Font
-    let numericWidth: CGFloat
-    let unitWidth: CGFloat
+    let minimumWidth: CGFloat
 
     @State private var displayedTokenState: UsageHeatmapTokenState
     @State private var isVisible = true
@@ -356,21 +356,19 @@ private struct HeatmapTokenText: View {
     init(
         tokenState: UsageHeatmapTokenState,
         font: Font,
-        numericWidth: CGFloat,
-        unitWidth: CGFloat
+        minimumWidth: CGFloat
     ) {
         self.tokenState = tokenState
         self.font = font
-        self.numericWidth = numericWidth
-        self.unitWidth = unitWidth
+        self.minimumWidth = minimumWidth
         _displayedTokenState = State(initialValue: tokenState)
     }
 
     var body: some View {
         content
             .opacity(isVisible ? 1 : 0)
-            .frame(minWidth: width, alignment: .trailing)
-            .task(id: tokenState) {
+            .frame(minWidth: minimumWidth, alignment: .trailing)
+            .task(id: Update(state: tokenState, animated: allowsAnimations)) {
                 await updateDisplayedTokenState(tokenState)
             }
     }
@@ -379,13 +377,8 @@ private struct HeatmapTokenText: View {
     private var content: some View {
         switch displayedTokenState {
         case let .available(tokenCount):
-            TokenCountText(
-                tokens: tokenCount,
-                font: font,
-                reservedNumericWidth: numericWidth,
-                reservedUnitWidth: unitWidth
-            )
-            .foregroundStyle(Color.codexLabel)
+            TokenCountText(tokens: tokenCount, font: font)
+                .foregroundStyle(Color.codexLabel)
 
         case .pending:
             Image(systemName: "questionmark")
@@ -400,6 +393,12 @@ private struct HeatmapTokenText: View {
     }
 
     private func updateDisplayedTokenState(_ newTokenState: UsageHeatmapTokenState) async {
+        guard !Task.isCancelled else { return }
+        guard allowsAnimations else {
+            displayedTokenState = newTokenState
+            isVisible = true
+            return
+        }
         guard displayedTokenState != newTokenState || !isVisible else {
             return
         }
@@ -438,8 +437,9 @@ private struct HeatmapTokenText: View {
         }
     }
 
-    private var width: CGFloat {
-        numericWidth + unitWidth
+    private struct Update: Equatable {
+        let state: UsageHeatmapTokenState
+        let animated: Bool
     }
 
     private enum Metrics {
@@ -451,6 +451,7 @@ private struct HeatmapTokenText: View {
 
 /// 日期拆成三段以固定 yyyy-MM-dd 格式并保留自然的数字滚动过渡
 private struct AnimatedDateText: View {
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
     let startDate: String
     let font: Font
 
@@ -464,11 +465,11 @@ private struct AnimatedDateText: View {
                 Text(verbatim: components.day)
             }
             .font(font)
-            .contentTransition(.numericText(value: dateValue(components)))
+            .contentTransition(allowsAnimations ? .numericText(value: dateValue(components)) : .identity)
         } else {
             Text(verbatim: startDate)
                 .font(font)
-                .contentTransition(.numericText())
+                .contentTransition(allowsAnimations ? .numericText() : .identity)
         }
     }
 

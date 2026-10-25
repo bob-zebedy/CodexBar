@@ -1034,40 +1034,35 @@ extension SyncRecoveryTests {
         #expect(try await service.snapshot(local: [daily], accountScopedDeviceID: "device")[daily.date] == .zero)
     }
 
-    @Test func otherDeviceDailyUsageIsNeverReuploadedAsLocalContribution() async throws {
+    @Test(arguments: [100, 900] as [Int64])
+    func deviceDailyContributionsStayIsolatedAndStableAcrossRestart(otherCount: Int64) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let database = SyncDatabaseFixture()
         var local = Self.turn(0)
         local.tokenUsage = Self.counts(100)
         let date = local.date
-        let other = TokenUsageSyncRecord(deviceID: "other", date: date, tokenUsage: Self.counts(900))
+        let other = TokenUsageSyncRecord(deviceID: "other", date: date, tokenUsage: Self.counts(otherCount))
         let otherRecord = try Self.tokenUsageRecord(other)
         await database.storeRecord(otherRecord)
         let service = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
         try await service.synchronize(local: [local], accountScopedDeviceID: "device", zoneID: Self.zone)
-        #expect(try await service.snapshot(local: [local], accountScopedDeviceID: "device")[date] == Self.counts(1000))
+        #expect(try await service.snapshot(local: [local], accountScopedDeviceID: "device")[date] == Self.counts(100 + otherCount))
         let localID = TokenUsageSync.recordID("tokenUsage_device_\(date)", zoneID: Self.zone)
         let saved = try #require(try await database.records(for: [localID], desiredKeys: nil)[localID]?.get())
         #expect(try TokenUsageSync.dailyRecord(from: saved)?.tokenUsage == Self.counts(100))
+        let cacheURL = directory.url.appendingPathComponent("Sync/tokenUsage.json")
+        let cache = try JSONLines.decoder.decode(TokenUsageSyncCache.self, from: Data(contentsOf: cacheURL))
+        let before = try #require(cache.records[localID.recordName])
+        #expect(before.updatedAt != nil)
         let restarted = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
+        #expect(await restarted.hasPendingUpdates(local: [local], accountScopedDeviceID: "device") == false)
         try await restarted.synchronize(local: [local], accountScopedDeviceID: "device", zoneID: Self.zone)
+        let after = try JSONLines.decoder.decode(TokenUsageSyncCache.self, from: Data(contentsOf: cacheURL))
+        #expect(after.records[before.id] == before)
         #expect(await database.savedTypes == ["TokenUsage"])
         #expect(try await restarted.snapshot(local: [local], accountScopedDeviceID: "new-account")[date] == Self.counts(100))
-        #expect(try await restarted.snapshot(local: [], accountScopedDeviceID: "device")[date] == Self.counts(1000))
-    }
-
-    @Test func deviceDailyContributionsAreAddedWithoutComparingTurnIdentities() async throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let database = SyncDatabaseFixture()
-        var local = Self.turn(0)
-        local.tokenUsage = Self.counts(100)
-        let other = try #require(TokenUsageSyncRecord.dailyRecords(local: [local], deviceID: "other").first)
-        try await database.storeRecord(Self.tokenUsageRecord(other))
-        let sync = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
-        try await sync.synchronize(local: [local], accountScopedDeviceID: "device", zoneID: Self.zone)
-        #expect(try await sync.snapshot(local: [local], accountScopedDeviceID: "device")[other.date] == Self.counts(200))
+        #expect(try await restarted.snapshot(local: [], accountScopedDeviceID: "device")[date] == Self.counts(100 + otherCount))
     }
 
     @Test func rebuiltLocalObservationsReplaceCloudDailyTotalsWithoutCloudTurnState() async throws {
@@ -1176,24 +1171,5 @@ extension SyncRecoveryTests {
             #expect(cachedCounts == remoteCounts)
         }
         #expect(deviceIDs[0] == deviceIDs[1])
-    }
-
-    @Test func tokenUsageCloudTimestampSurvivesCacheRestartWithoutReupload() async throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let database = SyncDatabaseFixture()
-        let local = Self.turn(0)
-        let service = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
-        try await service.synchronize(local: [local], accountScopedDeviceID: "device", zoneID: Self.zone)
-        let url = directory.url.appendingPathComponent("Sync/tokenUsage.json")
-        let first = try JSONLines.decoder.decode(TokenUsageSyncCache.self, from: Data(contentsOf: url))
-        let before = try #require(first.sortedRecords.first)
-        #expect(before.updatedAt != nil)
-        let restarted = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
-        #expect(await restarted.hasPendingUpdates(local: [local], accountScopedDeviceID: "device") == false)
-        try await restarted.synchronize(local: [local], accountScopedDeviceID: "device", zoneID: Self.zone)
-        let after = try JSONLines.decoder.decode(TokenUsageSyncCache.self, from: Data(contentsOf: url))
-        #expect(after.records[before.id] == before)
-        #expect(await database.savedTypes == ["TokenUsage"])
     }
 }

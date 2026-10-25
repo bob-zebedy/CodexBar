@@ -3,6 +3,28 @@ import Testing
 
 struct DateAndPresentationTests {
     @Test(arguments: [
+        (1000, 1.0, "K"),
+        (1049, 1.0, "K"),
+        (1050, 1.1, "K"),
+        (999949, 999.9, "K"),
+        (999950, 1000.0, "K"),
+        (1000000, 1.0, "M"),
+        (554400000, 554.4, "M"),
+        (999950000, 1000.0, "M"),
+        (1000000000, 1.0, "B"),
+        (1100000000, 1.1, "B")
+    ])
+    func tokenCountsPreserveUnitThresholdsAndJoinLocalizedNumbers(tokens: Int, number: Double, unit: String) {
+        let expectedNumber = number.formatted(.number.precision(.fractionLength(0 ... 1)).locale(.autoupdatingCurrent))
+        #expect(TokenCountFormatter.text(from: tokens) == expectedNumber + unit)
+    }
+
+    @Test(arguments: [Int.min, -1000, -1, 0, 999])
+    func tokenCountsBelowAbbreviationThresholdStayPlainIntegers(tokens: Int) {
+        #expect(TokenCountFormatter.text(from: tokens) == String(tokens))
+    }
+
+    @Test(arguments: [
         (-1.0, "0 秒"),
         (0.0, "0 秒"),
         (21.0, "21 秒"),
@@ -60,9 +82,9 @@ struct DateAndPresentationTests {
         #expect(unavailable.allSatisfy { $0.tokenState == .unavailable })
     }
 
-    @Test func heatmapSelectionReadsLatestDayDataAndKeepsItsPosition() {
+    @Test func heatmapSelectionReadsLatestDayDataByDate() {
         let date = "2026-09-15"
-        let selection = UsageHeatmapSelection(dateID: date, column: 8, row: 2)
+        let selection = UsageHeatmapSelection(dateID: date)
         let initial = UsageHeatmapDay(startDate: date, tokenState: .pending, activityData: .empty(startDate: date))
         let updated = UsageHeatmapDay(
             startDate: date, tokenState: .available(120), activityData: .unavailable(startDate: date), tokenUsage: .zero
@@ -70,7 +92,6 @@ struct DateAndPresentationTests {
         let unrelated = UsageHeatmapDay(startDate: "2026-09-14", tokenState: .available(5), activityData: .empty(startDate: "2026-09-14"))
         #expect(selection.day(in: [initial, unrelated]) == initial)
         #expect(selection.day(in: [nil, unrelated, updated]) == updated)
-        #expect(selection.column == 8 && selection.row == 2)
         #expect(selection.day(in: [nil, unrelated]) == nil)
         #expect(selection.day(in: []) == nil)
     }

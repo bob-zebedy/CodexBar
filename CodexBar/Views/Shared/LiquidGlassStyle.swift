@@ -23,22 +23,68 @@ extension Color {
     }
 }
 
+/// 深色界面用背景明度区分层级, 强调色只用于数据和交互状态
+enum CodexDarkPalette {
+    static let background = Color(hex: 0x171B22)
+    static let surface = Color(hex: 0x222832)
+    static let raisedSurface = Color(hex: 0x2B3340)
+    static let track = Color(hex: 0x394350)
+    static let heatmap = Color(hex: 0x749DE0)
+    static let separator = Color.white.opacity(0.06)
+    static let outline = Color.white.opacity(0.08)
+}
+
 // MARK: - View 修饰符
 
+extension EnvironmentValues {
+    @Entry var contentAnimationsEnabled = false
+}
+
 extension View {
+    func contentAnimations(settings: MainPanelSettings, isVisible: Bool = true) -> some View {
+        modifier(ContentAnimationsModifier(settings: settings, isVisible: isVisible))
+    }
+
     /// 数值比较决定滚动方向, 复合文案按显示内容触发过渡
     func numericTransition(
         value: some Equatable,
-        comparison: Double? = nil,
-        enabled: Bool = true
+        comparison: Double? = nil
     ) -> some View {
+        modifier(NumericTransitionModifier(value: value, comparison: comparison))
+    }
+}
+
+private struct ContentAnimationsModifier: ViewModifier {
+    @ObservedObject var settings: MainPanelSettings
+    let isVisible: Bool
+
+    func body(content: Content) -> some View {
+        let enabled = settings.areAnimationsEnabled && isVisible
+        content
+            .environment(\.contentAnimationsEnabled, enabled)
+            .transaction { transaction in
+                // 隐藏的宿主仍可能绘制数字过渡, 必须同时阻止子视图重新开启动画
+                guard !enabled else { return }
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
+    }
+}
+
+private struct NumericTransitionModifier<Value: Equatable>: ViewModifier {
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
+    let value: Value
+    let comparison: Double?
+
+    func body(content: Content) -> some View {
         let transition: ContentTransition = if let comparison {
             .numericText(value: comparison)
         } else {
             .numericText()
         }
-        return contentTransition(enabled ? transition : .identity)
-            .animation(enabled ? .codexStatus : nil, value: value)
+        content
+            .contentTransition(allowsAnimations ? transition : .identity)
+            .animation(allowsAnimations ? .codexStatus : nil, value: value)
     }
 }
 
@@ -75,9 +121,9 @@ extension View {
         liquidGlassBadge(tint: tint, in: Capsule(style: .continuous))
     }
 
-    func liquidGlassBadge(tint: Color, in shape: some InsettableShape) -> some View {
+    func liquidGlassBadge(tint: Color, in shape: some InsettableShape, showsTopHighlight: Bool = true) -> some View {
         background {
-            LiquidGlassBadge(tint: tint, shape: shape)
+            LiquidGlassBadge(tint: tint, shape: shape, showsTopHighlight: showsTopHighlight)
         }
     }
 
@@ -111,13 +157,14 @@ private struct SidePanelChrome: ViewModifier {
     }
 
     private var backingFill: Color {
-        Color(nsColor: .windowBackgroundColor)
-            .opacity(colorScheme == .dark ? 0.90 : 0.86)
+        colorScheme == .dark
+            ? CodexDarkPalette.background
+            : Color(nsColor: .windowBackgroundColor).opacity(0.86)
     }
 
     private var boundaryColor: Color {
         colorScheme == .dark
-            ? .white.opacity(0.18)
+            ? .clear
             : .black.opacity(0.14)
     }
 }
@@ -128,9 +175,15 @@ struct LiquidGlassDivider: View {
     @State private var isVisible = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isVisible)) { timeline in
-            let phase = timeline.date.timeIntervalSinceReferenceDate * .pi / 4
-            line(offset: sin(phase) * 0.28)
+        Group {
+            if colorScheme == .dark {
+                Rectangle().fill(CodexDarkPalette.separator)
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isVisible)) { timeline in
+                    let phase = timeline.date.timeIntervalSinceReferenceDate * .pi / 4
+                    line(offset: sin(phase) * 0.28)
+                }
+            }
         }
         .mask {
             LinearGradient(
@@ -165,7 +218,7 @@ struct LiquidGlassDivider: View {
                     endPoint: UnitPoint(x: 1 + offset, y: 0.5)
                 )
             )
-            .opacity(colorScheme == .dark ? 0.36 : 0.30)
+            .opacity(0.30)
     }
 }
 
@@ -226,7 +279,7 @@ private struct LiquidGlassDividerVisibility: NSViewRepresentable {
 
 // MARK: - 表面绘制
 
-/// 自绘玻璃面板, 由底色, 高光, 纹理, 描边和阴影叠加组成
+/// 深色使用低对比表面, 浅色保留玻璃高光和纹理
 private struct LiquidGlassSurface: View {
     let cornerRadii: RectangleCornerRadii
     let isOuterSurface: Bool
@@ -235,59 +288,70 @@ private struct LiquidGlassSurface: View {
     var body: some View {
         let shape = UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous)
 
-        ZStack {
+        if colorScheme == .dark {
             shape
-                .fill(baseFill)
+                .fill(isOuterSurface ? CodexDarkPalette.background : CodexDarkPalette.surface)
+                .overlay {
+                    if isOuterSurface {
+                        shape.strokeBorder(CodexDarkPalette.outline, lineWidth: 0.5)
+                    }
+                }
+                .shadow(color: .black.opacity(isOuterSurface ? 0.24 : 0.10), radius: isOuterSurface ? 12 : 4, y: isOuterSurface ? 6 : 1)
+        } else {
+            ZStack {
+                shape
+                    .fill(baseFill)
 
-            shape
-                .fill(highlightFill)
-                .blendMode(.plusLighter)
+                shape
+                    .fill(highlightFill)
+                    .blendMode(.plusLighter)
 
-            LiquidGlassFrostedTexture(isOuterSurface: isOuterSurface)
-                .clipShape(shape)
+                LiquidGlassFrostedTexture(isOuterSurface: isOuterSurface)
+                    .clipShape(shape)
 
-            shape
-                .strokeBorder(
-                    borderColor,
-                    lineWidth: isOuterSurface ? 1.0 : 0.8
-                )
+                shape
+                    .strokeBorder(
+                        borderColor,
+                        lineWidth: isOuterSurface ? 1.0 : 0.8
+                    )
 
-            shape
-                .strokeBorder(rimHighlightColor, lineWidth: rimLineWidth)
-                .shadow(
-                    color: rimLightShadowColor,
-                    radius: isOuterSurface ? 0.5 : 1.0,
-                    x: 0,
-                    y: isOuterSurface ? -0.2 : -0.4
-                )
-                .shadow(
-                    color: rimDarkShadowColor,
-                    radius: isOuterSurface ? 0.8 : 1.3,
-                    x: 0,
-                    y: isOuterSurface ? 0.6 : 1.0
-                )
+                shape
+                    .strokeBorder(rimHighlightColor, lineWidth: rimLineWidth)
+                    .shadow(
+                        color: rimLightShadowColor,
+                        radius: isOuterSurface ? 0.5 : 1.0,
+                        x: 0,
+                        y: isOuterSurface ? -0.2 : -0.4
+                    )
+                    .shadow(
+                        color: rimDarkShadowColor,
+                        radius: isOuterSurface ? 0.8 : 1.3,
+                        x: 0,
+                        y: isOuterSurface ? 0.6 : 1.0
+                    )
 
-            LiquidGlassSpecular(cornerRadii: cornerRadii)
-                .opacity(isOuterSurface ? 0.82 : 0.64)
+                LiquidGlassSpecular(cornerRadii: cornerRadii)
+                    .opacity(isOuterSurface ? 0.82 : 0.64)
+            }
+            .shadow(
+                color: raisedHighlightShadowColor,
+                radius: isOuterSurface ? 0 : 2,
+                x: isOuterSurface ? 0 : -1,
+                y: isOuterSurface ? 0 : -1
+            )
+            .shadow(
+                color: ambientShadowColor,
+                radius: isOuterSurface ? 18 : 12,
+                x: 0,
+                y: isOuterSurface ? 10 : 7
+            )
+            .shadow(
+                color: contactShadowColor,
+                radius: isOuterSurface ? 0 : 3,
+                x: 0,
+                y: isOuterSurface ? 0 : 2
+            )
         }
-        .shadow(
-            color: raisedHighlightShadowColor,
-            radius: isOuterSurface ? 0 : 2,
-            x: isOuterSurface ? 0 : -1,
-            y: isOuterSurface ? 0 : -1
-        )
-        .shadow(
-            color: ambientShadowColor,
-            radius: isOuterSurface ? 18 : 12,
-            x: 0,
-            y: isOuterSurface ? 10 : 7
-        )
-        .shadow(
-            color: contactShadowColor,
-            radius: isOuterSurface ? 0 : 3,
-            x: 0,
-            y: isOuterSurface ? 0 : 2
-        )
     }
 
     private var baseFill: Color {
@@ -307,11 +371,11 @@ private struct LiquidGlassSurface: View {
     }
 
     private var rimLightShadowColor: Color {
-        .white.opacity(colorScheme == .dark ? 0.05 : 0.20)
+        .white.opacity(0.20)
     }
 
     private var rimDarkShadowColor: Color {
-        .black.opacity(colorScheme == .dark ? 0.28 : 0.12)
+        .black.opacity(0.12)
     }
 
     private var rimLineWidth: CGFloat {
@@ -319,23 +383,13 @@ private struct LiquidGlassSurface: View {
     }
 
     private var baseColor: Color {
-        if colorScheme == .dark {
-            return isOuterSurface
-                ? Color(red: 0.07, green: 0.08, blue: 0.095)
-                : Color(red: 0.16, green: 0.18, blue: 0.20)
-        }
-
-        return isOuterSurface
+        isOuterSurface
             ? Color(red: 0.97, green: 0.985, blue: 1.0)
             : Color.white
     }
 
     private var raisedHighlightShadowColor: Color {
-        if colorScheme == .dark {
-            return .white.opacity(0.08)
-        }
-
-        return .white.opacity(0.46)
+        .white.opacity(0.46)
     }
 
     private var ambientShadowColor: Color {
@@ -343,27 +397,26 @@ private struct LiquidGlassSurface: View {
             return .black.opacity(0.16)
         }
 
-        return .black.opacity(colorScheme == .dark ? 0.34 : 0.18)
+        return .black.opacity(0.18)
     }
 
     private var contactShadowColor: Color {
-        .black.opacity(colorScheme == .dark ? 0.20 : 0.08)
+        .black.opacity(0.08)
     }
 }
 
 /// 稳定伪随机纹理, 不依赖运行时随机数以避免重绘闪烁
 private struct LiquidGlassFrostedTexture: View {
     let isOuterSurface: Bool
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Canvas(opaque: false, rendersAsynchronously: true) { context, size in
             let step: CGFloat = isOuterSurface ? 4 : 3
             let columns = max(Int((size.width / step).rounded(.up)), 0)
             let rows = max(Int((size.height / step).rounded(.up)), 0)
-            let baseOpacity = colorScheme == .dark ? 0.035 : 0.045
+            let baseOpacity = 0.045
             let outerScale = isOuterSurface ? 0.75 : 1.0
-            let shadowFactor = colorScheme == .dark ? 0.24 : 0.16
+            let shadowFactor = 0.16
 
             // 按强度分桶合并同色点, 把上万次单点 fill 压缩成每桶一次路径填充
             // 桶内取中值不透明度, 与逐点绘制的偏差不超过 baseOpacity / (2 * bucketCount)
@@ -419,52 +472,59 @@ private struct LiquidGlassFrostedTexture: View {
 private struct LiquidGlassBadge<S: InsettableShape>: View {
     let tint: Color
     let shape: S
+    let showsTopHighlight: Bool
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        shape
-            .fill(fillColor)
-            .overlay {
-                LiquidGlassFrostedTexture(isOuterSurface: false)
-                    .clipShape(shape)
-                    .opacity(0.55)
-            }
-            .overlay {
-                shape
-                    .strokeBorder(borderColor, lineWidth: 0.8)
-            }
-            .overlay {
-                shape
-                    .strokeBorder(innerRimColor, lineWidth: 0.45)
-                    .padding(0.8)
-            }
-            .overlay(alignment: .top) {
-                Capsule(style: .continuous)
-                    .fill(topHighlightColor)
-                    .frame(height: 1)
-                    .padding(.horizontal, 7)
-                    .padding(.top, 1.5)
-            }
+        if colorScheme == .dark {
+            shape
+                .fill(CodexDarkPalette.raisedSurface)
+                .overlay {
+                    shape.fill(tint.opacity(0.12))
+                }
+        } else {
+            shape
+                .fill(fillColor)
+                .overlay {
+                    LiquidGlassFrostedTexture(isOuterSurface: false)
+                        .clipShape(shape)
+                        .opacity(0.55)
+                }
+                .overlay {
+                    shape
+                        .strokeBorder(borderColor, lineWidth: 0.8)
+                }
+                .overlay {
+                    shape
+                        .strokeBorder(innerRimColor, lineWidth: 0.45)
+                        .padding(0.8)
+                }
+                .overlay(alignment: .top) {
+                    if showsTopHighlight {
+                        Capsule(style: .continuous)
+                            .fill(topHighlightColor)
+                            .frame(height: 1)
+                            .padding(.horizontal, 7)
+                            .padding(.top, 1.5)
+                    }
+                }
+        }
     }
 
     private var fillColor: Color {
-        colorScheme == .dark
-            ? Color(red: 0.18, green: 0.20, blue: 0.22)
-            : Color(red: 0.94, green: 0.96, blue: 0.98)
+        Color(red: 0.94, green: 0.96, blue: 0.98)
     }
 
     private var borderColor: Color {
-        colorScheme == .dark
-            ? tint.opacity(0.34)
-            : tint.opacity(0.26)
+        tint.opacity(0.26)
     }
 
     private var innerRimColor: Color {
-        .white.opacity(colorScheme == .dark ? 0.12 : 0.42)
+        .white.opacity(0.42)
     }
 
     private var topHighlightColor: Color {
-        .white.opacity(colorScheme == .dark ? 0.10 : 0.30)
+        .white.opacity(0.30)
     }
 }
 

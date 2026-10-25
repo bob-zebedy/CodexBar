@@ -16,11 +16,9 @@ nonisolated enum UsageHeatmapDetailSide: Equatable {
     case right
 }
 
-/// 日期标识跟随数据刷新, 列/行位置只记录指针命中时的坐标
+/// 选择跟随日期, 位置从最新网格计算
 nonisolated struct UsageHeatmapSelection: Equatable {
     let dateID: String
-    let column: Int
-    let row: Int
 
     func day(in days: [UsageHeatmapDay?]) -> UsageHeatmapDay? {
         days.lazy.compactMap(\.self).first { $0.id == dateID }
@@ -47,7 +45,7 @@ nonisolated struct UsageHeatmapSelection: Equatable {
         let selectedRow = mode == .daily ? row : 0
         let index = column * CodexWeekGrid.rowCount + selectedRow
         guard days.indices.contains(index), let day = days[index] else { return nil }
-        return UsageHeatmapSelection(dateID: day.id, column: column, row: selectedRow)
+        return UsageHeatmapSelection(dateID: day.id)
     }
 
     func highlights(column: Int, row: Int, in days: [UsageHeatmapDay?], mode: UsageHeatmapMode) -> Bool {
@@ -65,7 +63,7 @@ struct UsageHeatmap: View {
     @Binding var selection: UsageHeatmapSelection?
     let peakTokens: Int
     var onScreenFrameChange: (CGRect?) -> Void = { _ in }
-    @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -79,7 +77,8 @@ struct UsageHeatmap: View {
                     } label: {
                         Text(modeTitle)
                             .foregroundStyle(Color.codexSecondaryLabel)
-                            .numericTransition(value: modeTitle, enabled: allowsAnimations)
+                            .contentTransition(allowsAnimations ? .numericText() : .identity)
+                            .animation(allowsAnimations ? .codexStatus : nil, value: modeTitle)
                     }
                     .buttonStyle(ModeButtonStyle())
                 }
@@ -92,8 +91,9 @@ struct UsageHeatmap: View {
                 if let dateRangeText {
                     Text(dateRangeText)
                         .font(.caption2.monospacedDigit())
-                        .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-                        .numericTransition(value: dateRangeText, enabled: allowsAnimations)
+                        .foregroundStyle(Color.codexSecondaryLabel)
+                        .contentTransition(allowsAnimations ? .numericText() : .identity)
+                        .animation(allowsAnimations ? .codexStatus : nil, value: dateRangeText)
                         .lineLimit(1)
                 }
             }
@@ -168,8 +168,10 @@ private struct UsageHeatmapGrid: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var areSquaresRevealed = false
     @State private var entranceStartedAt: TimeInterval?
-    @State private var snapSelection: UsageHeatmapSelection?
     @State private var hoverClearTask: Task<Void, Never>?
+    @State private var frameProvider = ScreenFrameProvider()
+    @State private var followsAppearanceTransition = false
+    @State private var appearanceTransitionRevision = 0
 
     var body: some View {
         HStack(alignment: .top, spacing: Metrics.squareSpacing) {
@@ -186,6 +188,9 @@ private struct UsageHeatmapGrid: View {
         }
         .frame(width: Metrics.totalWidth, height: Metrics.gridHeight, alignment: .topLeading)
         .contentShape(Rectangle())
+        .background {
+            ScreenFrameReader(provider: frameProvider)
+        }
         .onContinuousHover(coordinateSpace: .local) { phase in
             switch phase {
             case let .active(point):
@@ -197,16 +202,24 @@ private struct UsageHeatmapGrid: View {
         .task {
             await revealSquares()
         }
-        .onChange(of: days) { _, newDays in
-            guard let snapSelection, snapSelection.day(in: newDays) == nil else { return }
-            cancelHoverClearTask()
-            withAnimation(.snappy(duration: Metrics.snapAnimationDuration)) {
-                self.snapSelection = nil
+        .onReceive(NotificationCenter.default.publisher(for: AppearanceTransition.didChangeNotification)) { notification in
+            guard let window = notification.object as? NSWindow, window === frameProvider.window else { return }
+            if selection != nil, AppearanceTransition.isActive(in: window) {
+                followsAppearanceTransition = true
             }
+            guard followsAppearanceTransition else { return }
+            appearanceTransitionRevision &+= 1
+        }
+        .onChange(of: days.map { $0?.id }) { _, _ in
+            guard followsAppearanceTransition else { return }
+            appearanceTransitionRevision &+= 1
+        }
+        .task(id: appearanceTransitionRevision) { [appearanceTransitionRevision] in
+            await followAppearanceTransition(revision: appearanceTransitionRevision)
         }
         .onDisappear {
+            followsAppearanceTransition = false
             cancelHoverClearTask()
-            snapSelection = nil
             selection = nil
         }
     }
@@ -215,18 +228,20 @@ private struct UsageHeatmapGrid: View {
     private func square(column: Int, row: Int) -> some View {
         let index = column * Metrics.rowCount + row
         let day = days.indices.contains(index) ? days[index] : nil
-        let isHovered = snapSelection?.highlights(column: column, row: row, in: days, mode: mode) == true
+        let isHovered = selection?.highlights(column: column, row: row, in: days, mode: mode) == true
         if mode == .weekly, weeks.indices.contains(column), let week = weeks[column] {
             let filledRows = week.filledRowCount(peakTokens: peakTokens)
             let isFilled = row >= Metrics.rowCount - filledRows
             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(isFilled ? Color.blue.opacity(0.82) : Color.secondary.opacity(0.09))
+                .fill(isFilled
+                    ? (colorScheme == .dark ? CodexDarkPalette.heatmap : Color.blue).opacity(0.82)
+                    : (colorScheme == .dark ? CodexDarkPalette.raisedSurface.opacity(0.70) : Color.secondary.opacity(0.09)))
                 .frame(width: Metrics.squareSize, height: Metrics.squareSize)
                 .overlay {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .fill(isFilled
-                            ? (colorScheme == .dark ? Color.white : Color.black).opacity(0.25)
-                            : Color.blue.opacity(0.15))
+                            ? (colorScheme == .dark ? Color.white.opacity(0.25) : Color.black.opacity(0.25))
+                            : CodexDarkPalette.heatmap.opacity(0.20))
                         .opacity(isHovered ? 1 : 0)
                         .animation(.snappy(duration: 0.14), value: isHovered)
                         .allowsHitTesting(false)
@@ -301,38 +316,48 @@ private struct UsageHeatmapGrid: View {
 
         cancelHoverClearTask()
 
-        if !matches(snapSelection, target) {
-            withAnimation(.snappy(duration: Metrics.snapAnimationDuration)) {
-                snapSelection = target
-            }
-        }
-
-        if !matches(selection, target) {
+        if selection != target {
             activate(target)
         }
     }
 
     private func snappedSelection(at point: CGPoint) -> UsageHeatmapSelection? {
-        // 以格子中心为准吸附, 指针离中心过远时视为离开格子
-        let column = Int(((point.x - Metrics.squareSize / 2) / Metrics.squarePitch).rounded())
-        let row = Int(((point.y - Metrics.squareSize / 2) / Metrics.squarePitch).rounded())
-
-        guard (0 ..< Metrics.columnCount).contains(column),
-              (0 ..< Metrics.rowCount).contains(row),
+        guard let (column, row) = Metrics.gridPosition(at: point),
               isSquareInteractive(column: column, row: row) else {
             return nil
         }
-
-        let center = CGPoint(
-            x: CGFloat(column) * Metrics.squarePitch + Metrics.squareSize / 2,
-            y: CGFloat(row) * Metrics.squarePitch + Metrics.squareSize / 2
-        )
-        guard abs(point.x - center.x) <= Metrics.snapHalfExtent,
-              abs(point.y - center.y) <= Metrics.snapHalfExtent else {
-            return nil
-        }
-
         return UsageHeatmapSelection.at(column: column, row: row, in: days, mode: mode)
+    }
+
+    private func followAppearanceTransition(revision: Int) async {
+        guard !Task.isCancelled, revision == appearanceTransitionRevision,
+              followsAppearanceTransition, let window = frameProvider.window else { return }
+        defer {
+            // 新任务可能已排队, 旧任务退出时不能清除它的跟踪状态
+            if !Task.isCancelled, revision == appearanceTransitionRevision {
+                followsAppearanceTransition = false
+            }
+        }
+        // 快照可能中断 hover, 只在过渡期间按真实指针核对, 结束时再校准一次
+        repeat {
+            guard !Task.isCancelled, revision == appearanceTransitionRevision,
+                  frameProvider.window === window,
+                  window.isVisible, !window.isMiniaturized else { return }
+            if let frame = frameProvider.currentScreenFrame(in: window, allowingCachedFrame: false) {
+                let pointer = NSEvent.mouseLocation
+                let point = CGPoint(x: pointer.x - frame.minX, y: frame.maxY - pointer.y)
+                if frame.contains(pointer), let target = snappedSelection(at: point) {
+                    cancelHoverClearTask()
+                    if selection != target {
+                        activate(target)
+                    }
+                } else if selection != nil, hoverClearTask == nil {
+                    scheduleDeactivate()
+                }
+            }
+            guard AppearanceTransition.isActive(in: window) else { return }
+            try? await Task.sleep(for: .milliseconds(16))
+        } while !Task.isCancelled
     }
 
     private func activate(_ target: UsageHeatmapSelection) {
@@ -349,8 +374,8 @@ private struct UsageHeatmapGrid: View {
                 return
             }
 
+            hoverClearTask = nil
             withAnimation(.easeInOut(duration: Metrics.hoverFadeDuration)) {
-                snapSelection = nil
                 selection = nil
             }
         }
@@ -359,10 +384,6 @@ private struct UsageHeatmapGrid: View {
     private func cancelHoverClearTask() {
         hoverClearTask?.cancel()
         hoverClearTask = nil
-    }
-
-    private func matches(_ lhs: UsageHeatmapSelection?, _ rhs: UsageHeatmapSelection) -> Bool {
-        lhs?.dateID == rhs.dateID && lhs?.column == rhs.column && lhs?.row == rhs.row
     }
 }
 
@@ -374,14 +395,21 @@ extension UsageHeatmap {
         static let squareSpacing: CGFloat = 3
         static let squarePitch = squareSize + squareSpacing
         static let height: CGFloat = 120
-        static let snapAnimationDuration: TimeInterval = 0.12
         static let hoverFadeDuration: TimeInterval = 0.15
         static let hoverExitGraceMilliseconds: UInt64 = 160
-        static let snapHalfExtent: CGFloat = squareSize / 2 + squareSpacing
         static let entranceScale: CGFloat = 0.35
         static let entranceStagger: TimeInterval = 0.015
         static let entranceResponse: TimeInterval = 0.25
         static let entranceDampingFraction = 0.60
+
+        static func gridPosition(at point: CGPoint) -> (column: Int, row: Int)? {
+            let column = ((point.x - squareSize / 2) / squarePitch).rounded()
+            let row = ((point.y - squareSize / 2) / squarePitch).rounded()
+            // 先验证浮点索引, 避免非有限值或超大坐标在转为 Int 时崩溃
+            guard column >= 0, column < CGFloat(columnCount),
+                  row >= 0, row < CGFloat(rowCount) else { return nil }
+            return (Int(column), Int(row))
+        }
 
         static var totalWidth: CGFloat {
             CGFloat(columnCount) * squareSize + CGFloat(columnCount - 1) * squareSpacing
@@ -404,6 +432,7 @@ private struct UsageHeatmapSquare: View {
     let tokenState: UsageHeatmapTokenState
     let percent: Double
     let isHovered: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         RoundedRectangle(cornerRadius: 4, style: .continuous)
@@ -428,15 +457,21 @@ private struct UsageHeatmapSquare: View {
             return Color.secondary.opacity(isHovered ? 0.12 : 0.05)
         }
         guard (tokenState.count ?? 0) > 0 else {
-            return Color.blue.opacity(isHovered ? 0.16 : 0.08)
+            return colorScheme == .dark
+                ? CodexDarkPalette.raisedSurface.opacity(isHovered ? 1 : 0.70)
+                : Color.blue.opacity(isHovered ? 0.16 : 0.08)
         }
 
         let intensity = pow(clampedPercent, 0.62)
         let opacity = 0.18 + intensity * 0.68
-        return Color.blue.opacity(isHovered ? min(opacity + 0.10, 1.0) : opacity)
+        return (colorScheme == .dark ? CodexDarkPalette.heatmap : Color.blue)
+            .opacity(isHovered ? min(opacity + 0.10, 1.0) : opacity)
     }
 
     private var borderColor: Color {
+        if colorScheme == .dark {
+            return isHovered ? CodexDarkPalette.heatmap.opacity(0.55) : .clear
+        }
         guard tokenState.count != nil else {
             return Color.secondary.opacity(isHovered ? 0.42 : 0.12)
         }
@@ -448,6 +483,6 @@ private struct UsageHeatmapSquare: View {
     }
 
     private var shadowColor: Color {
-        tokenState.count == nil ? .clear : .blue.opacity(0.22)
+        colorScheme == .dark || tokenState.count == nil ? .clear : .blue.opacity(0.22)
     }
 }

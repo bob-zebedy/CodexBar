@@ -137,20 +137,12 @@ struct ActivityTaskTests {
         #expect(monitor.graph.tasks.count == 1)
     }
 
-    @Test func subagentLinkRetentionDoesNotDependOnIdentityOrRefreshTime() throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        let monitor = ActivityMonitor(
-            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
-            protectionStore: ProtectionStore(directoryURL: directory.url), activityDataDirectoryURL: directory.url
-        )
-        defer { monitor.stop() }
+    @Test func subagentLinkRetentionDoesNotDependOnIdentityOrRefreshTime() {
+        var graph = ActivityTaskGraph()
         let root = ActivityTaskKey(thread: "root", turn: "root-turn")
         let child = ActivityTurnReference(threadID: "child", turnID: "child-turn")
         let expired = Date().addingTimeInterval(-ActivityRetention.window - 1)
-        monitor.graph.subagentTurnLinks[child] = (root, expired)
+        graph.subagentTurnLinks[child] = (root, expired)
         var state = TurnLifecycleState(
             requestedThreadID: "child", turnID: "child-turn", startedAt: nil,
             effort: nil, lastProgressAt: nil, terminal: nil
@@ -158,10 +150,10 @@ struct ActivityTaskTests {
         state.rootThreadID = "root"
         state.rootTurnID = "root-turn"
         state.parentThreadID = "root"
-        monitor.graph.applySubagentLifecycle(state)
-        #expect(monitor.graph.subagentTurnLinks[child]?.retainedAt == expired)
-        _ = monitor.graph.subagentLifecycleReferences()
-        #expect(monitor.graph.subagentTurnLinks[child] == nil)
+        graph.applySubagentLifecycle(state)
+        #expect(graph.subagentTurnLinks[child]?.retainedAt == expired)
+        _ = graph.subagentLifecycleReferences()
+        #expect(graph.subagentTurnLinks[child] == nil)
     }
 
     @Test func incompleteSubagentRootCannotBeGuessedFromQueuedEventsOrPreviousLink() throws {

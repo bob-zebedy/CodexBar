@@ -5,6 +5,7 @@ import SwiftUI
 /// 热力图 hover 详情控制器, 负责左右贴边定位和抽屉式切换动画
 @MainActor
 final class HeatmapPanelController {
+    private let mainPanelSettings: MainPanelSettings
     private let contentHost = SidePanelContentHost<HeatmapDetailView>(
         initialSize: HeatmapDetailView.panelSize,
         ignoresMouseEvents: true,
@@ -24,6 +25,10 @@ final class HeatmapPanelController {
     private var drawerTransition = DrawerTransition.idle
     private var pendingSideSwitchRequest: PanelRequest?
     private weak var menuSurfaceWindow: NSWindow?
+
+    init(mainPanelSettings: MainPanelSettings) {
+        self.mainPanelSettings = mainPanelSettings
+    }
 
     func containsScreenPoint(_ screenPoint: NSPoint) -> Bool {
         contentHost.containsScreenPoint(screenPoint)
@@ -290,7 +295,7 @@ final class HeatmapPanelController {
 
     private func updateContent(_ context: UsageHeatmapHoverContext) {
         contentHost.updateContent(
-            HeatmapDetailView(context: context),
+            HeatmapDetailView(context: context, mainPanelSettings: mainPanelSettings),
             size: HeatmapDetailView.panelSize
         )
     }

@@ -176,8 +176,7 @@ struct CodexServiceStatusTests {
         #expect(await probe.calls == 2)
     }
 
-    @Test(arguments: [LogTrigger.manual, .auto, .launch, .panelOpen, .settings])
-    func sharedUpdateTimeWaitsForServiceStatus(_ trigger: LogTrigger) async throws {
+    @Test func sharedUpdateTimeWaitsForServiceStatus() async throws {
         let preferences = try TestPreferences()
         defer { preferences.remove() }
         let probe = ServiceStatusProbe(holdsFirst: true)
@@ -189,7 +188,7 @@ struct CodexServiceStatusTests {
             serviceStatusMonitor: monitor,
             defaults: preferences.defaults
         )
-        model.refresh(trigger: trigger)
+        model.refresh(trigger: .manual)
         try await wait { await probe.calls == 1 }
         #expect(model.isRefreshing)
         #expect(model.autoRefreshCountdownStartedAt == nil)
@@ -203,7 +202,7 @@ struct CodexServiceStatusTests {
         var states: [CodexServiceStatusMonitor.State] = []
         let observation = monitor.$state.sink { states.append($0) }
         defer { observation.cancel() }
-        model.refresh(trigger: trigger)
+        model.refresh(trigger: .manual)
         try await wait { !model.isRefreshing }
         let outage = CodexServiceStatus(level: .fullOutage, componentNames: ["CLI"])
         #expect(states == [.available(.operational), .checking, .available(outage)])

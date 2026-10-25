@@ -4,6 +4,18 @@ import Testing
 struct AppServerActivityTests {
     private let now = TestFixtures.now
 
+    @Test func protocolBoundaryNormalizesStatusAndTimeUnits() throws {
+        let input = try TestFixtures.decode(ActivityInput.self, """
+        {"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"turn","status":"completed","startedAt":1000,"completedAt":1002,"durationMs":1500}}}
+        """)
+        #expect(input.kind == .turnFinished)
+        #expect(input.params.turn?.status == .completed)
+        #expect(input.params.turn?.startedAt == Date(timeIntervalSince1970: 1000))
+        #expect(input.params.turn?.duration == 1.5)
+        let unknown = try TestFixtures.decode(ActivityInput.self, "{\"method\":\"future/event\",\"params\":{}}")
+        #expect(unknown.kind == .ignored)
+    }
+
     private func thread(_ id: String = "main", source: String = #""cli""#) throws -> ActivityThread {
         try TestFixtures.decode(ActivityThread.self, """
         {"id":"\(id)","cwd":"/test","model":"gpt-5","reasoningEffort":"high","createdAt":\(now.timeIntervalSince1970),

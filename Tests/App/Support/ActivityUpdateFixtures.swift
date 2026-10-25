@@ -92,15 +92,6 @@ extension ActivityMonitor {
         acceptFixtureGraph(next, phase: batch.phase, transitions: transitions)
     }
 
-    func apply(_ event: ActivityDataRecord, source: ActivityEventSource, into transitions: inout [ActivityTransition]) -> ActivityTaskKey? {
-        var next = graph
-        var changes: [ActivityTransition] = []
-        let waiting = next.apply(event, source: source, into: &changes)
-        acceptFixtureGraph(next)
-        transitions += changes.filter { isCurrentTransition($0) }
-        return waiting
-    }
-
     func resolveTerminal(
         _ terminal: TurnTerminalState,
         task: ActivityTask,
@@ -120,11 +111,5 @@ extension ActivityMonitor {
         var next = graph
         next.applySubagentLifecycle(state)
         acceptFixtureGraph(next)
-    }
-
-    func publishWaitingApprovalTransitions(_ keys: [ActivityTaskKey]) {
-        for transition in graph.waitingApprovalTransitions(keys) where isCurrentTransition(transition) {
-            transitionSubject.send(transition)
-        }
     }
 }

@@ -11,6 +11,7 @@ final class SettingsWindowController: HostingWindowController {
     private let syncSettings: SyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
     private let menuBarQuotaSettings: MenuBarQuotaSettings
+    private let appearanceSettings: AppearanceSettings
     private let mainPanelSettings: MainPanelSettings
     private let taskGlowSettings: TaskGlowSettings
     private let notificationSettings: NotificationSettings
@@ -38,6 +39,7 @@ final class SettingsWindowController: HostingWindowController {
         syncSettings: SyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
         menuBarQuotaSettings: MenuBarQuotaSettings,
+        appearanceSettings: AppearanceSettings,
         mainPanelSettings: MainPanelSettings,
         taskGlowSettings: TaskGlowSettings,
         notificationSettings: NotificationSettings,
@@ -54,6 +56,7 @@ final class SettingsWindowController: HostingWindowController {
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
         self.menuBarQuotaSettings = menuBarQuotaSettings
+        self.appearanceSettings = appearanceSettings
         self.mainPanelSettings = mainPanelSettings
         self.taskGlowSettings = taskGlowSettings
         self.notificationSettings = notificationSettings
@@ -81,6 +84,7 @@ final class SettingsWindowController: HostingWindowController {
                 syncSettings: syncSettings,
                 globalHotKeySettings: globalHotKeySettings,
                 menuBarQuotaSettings: menuBarQuotaSettings,
+                appearanceSettings: appearanceSettings,
                 mainPanelSettings: mainPanelSettings,
                 taskGlowSettings: taskGlowSettings,
                 notificationSettings: notificationSettings,
@@ -152,6 +156,7 @@ final class SettingsWindowController: HostingWindowController {
         tuiNotificationSettings.refresh()
         syncSettings.refresh()
         menuBarQuotaSettings.refresh()
+        appearanceSettings.refresh()
         mainPanelSettings.refresh()
         taskGlowSettings.refresh()
         autoResetSettings.refresh()
@@ -186,6 +191,7 @@ final class SettingsWindowController: HostingWindowController {
             makeMainPanelOptionsPanelController()
         case .taskGlow:
             OptionsPanelController(
+                mainPanelSettings: mainPanelSettings,
                 animationKey: "CodexBar.taskGlowOptionsDrawerTransform",
                 initialPanelSize: TaskGlowOptionsView.initialPanelSize,
                 willHide: { [taskGlowSettings] in taskGlowSettings.endColorPreview() },
@@ -195,6 +201,7 @@ final class SettingsWindowController: HostingWindowController {
             )
         case .notification:
             OptionsPanelController(
+                mainPanelSettings: mainPanelSettings,
                 animationKey: "CodexBar.notificationOptionsDrawerTransform",
                 initialPanelSize: NotificationOptionsView.initialPanelSize,
                 willShow: { [tuiNotificationSettings] in
@@ -225,6 +232,7 @@ final class SettingsWindowController: HostingWindowController {
             )
         case .autoReset:
             OptionsPanelController(
+                mainPanelSettings: mainPanelSettings,
                 animationKey: "CodexBar.autoResetOptionsDrawerTransform",
                 initialPanelSize: AutoResetOptionsView.initialPanelSize,
                 contentProvider: { [autoResetSettings] in
@@ -233,6 +241,7 @@ final class SettingsWindowController: HostingWindowController {
             )
         case .keepAlive:
             OptionsPanelController(
+                mainPanelSettings: mainPanelSettings,
                 animationKey: "CodexBar.keepAliveOptionsDrawerTransform",
                 initialPanelSize: KeepAliveOptionsView.initialPanelSize,
                 contentProvider: { [keepAliveController, protectionSettings] in
@@ -251,6 +260,7 @@ final class SettingsWindowController: HostingWindowController {
 
     private func makeMainPanelOptionsPanelController() -> OptionsPanelController {
         OptionsPanelController(
+            mainPanelSettings: mainPanelSettings,
             animationKey: "CodexBar.mainPanelOptionsDrawerTransform",
             initialPanelSize: MainPanelOptionsView.initialPanelSize,
             willShow: { [mainPanelSettings] in

@@ -349,26 +349,6 @@ struct AppServerLogTests {
         #expect(store.entries.count == 1)
     }
 
-    @Test func closedWindowCanReloadFromDiskWithBoundedInitialRead() async throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let storage = AppServerLogStore(directoryURL: directory.url)
-        for _ in 0 ..< 10 {
-            storage.recordFailure(message: "failure")
-        }
-        let store = AppServerLogViewModel(storage: storage, pageSize: 3)
-        await store.refresh()
-        await store.loadMore()
-        #expect(store.entries.count == 6)
-        store.stop()
-        #expect(store.entries.isEmpty)
-        storage.recordFailure(message: "closed-window failure")
-        await store.refresh()
-        #expect(store.entries.count == 3)
-        #expect(store.totalCount == 11)
-        #expect(store.entries.first?.detail == "closed-window failure")
-    }
-
     @Test func terminationDrainsQueuedWritesAndRejectsLateCallbacks() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
@@ -498,14 +478,20 @@ extension AppServerLogTests {
             visited.formUnion(model.entries.map(\.id))
         }
         #expect(visited.count == 20)
+        #expect(model.entries.count == 6)
         let historyIDs = model.entries.map(\.id)
         storage.recordFailure(message: "latest")
         await model.refresh()
         #expect(model.entries.count <= 6)
         #expect(model.entries.map(\.id) == historyIDs)
         model.stop()
+        #expect(model.entries.isEmpty)
+        storage.recordFailure(message: "closed-window failure")
         await model.refresh()
-        #expect(model.entries.first?.detail == "latest")
+        #expect(model.entries.count == 3)
+        #expect(model.totalCount == 22)
+        #expect(model.entries.first?.detail == "closed-window failure")
+        #expect(model.entries.contains { $0.detail == "latest" })
     }
 }
 

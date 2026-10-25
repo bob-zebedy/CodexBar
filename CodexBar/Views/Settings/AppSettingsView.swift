@@ -12,6 +12,7 @@ struct AppSettingsView: View {
     @ObservedObject var syncSettings: SyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
     @ObservedObject var menuBarQuotaSettings: MenuBarQuotaSettings
+    @ObservedObject var appearanceSettings: AppearanceSettings
     let mainPanelSettings: MainPanelSettings
     let taskGlowSettings: TaskGlowSettings
     @ObservedObject var notificationSettings: NotificationSettings
@@ -73,13 +74,9 @@ struct AppSettingsView: View {
             ),
             isOuterSurface: true
         )
+        .contentAnimations(settings: mainPanelSettings, isVisible: animationState.allowsAnimations)
         .onAppear {
             loginItemSettings.refresh()
-            syncSettings.refresh()
-            menuBarQuotaSettings.refresh()
-            mainPanelSettings.refresh()
-            taskGlowSettings.refresh()
-            autoResetSettings.refresh()
             appUpdater.refreshAutomaticCheckSetting()
             refreshStatusRows()
         }
@@ -87,6 +84,7 @@ struct AppSettingsView: View {
             loginItemSettings.refresh()
             syncSettings.refresh()
             menuBarQuotaSettings.refresh()
+            appearanceSettings.refresh()
             mainPanelSettings.refresh()
             taskGlowSettings.refresh()
             autoResetSettings.refresh()
@@ -194,6 +192,7 @@ private extension AppSettingsView {
         static let tabContentSpacing = padding
         static let windowChromeHeight = padding * 2 + tabBarHeight + tabContentSpacing
         static let dataUpdateIntervalPickerWidth: CGFloat = 90
+        static let themePickerWidth: CGFloat = 140
         static let syncStatusRowHeight: CGFloat = 16
         static let syncStatusValueWidth: CGFloat = 160
         static let tabContentInitialScale = 0.975
@@ -208,7 +207,7 @@ private extension AppSettingsView {
 
     static let releaseNotesURL: URL = {
         var components = URLComponents(string: "https://codexbar.zabrian.app/notes")!
-        let language = Bundle.main.preferredLocalizations.first == "zh-Hans" ? "zh-CN" : "en"
+        let language = Bundle.main.preferredLocalizations.first == "zh-Hans" ? "zh-CN" : "en-US"
         components.queryItems = [URLQueryItem(name: "lang", value: language)]
         components.fragment = Bundle.main.shortVersionString
         return components.url!
@@ -242,7 +241,7 @@ private extension AppSettingsView {
                         if isSelected {
                             shape
                                 .fill(.clear)
-                                .liquidGlassBadge(tint: .accentColor, in: shape)
+                                .liquidGlassBadge(tint: .accentColor, in: shape, showsTopHighlight: false)
                         }
                     }
                 }
@@ -285,6 +284,8 @@ private extension AppSettingsView {
             mainPanelLayoutRow
             LiquidGlassDivider()
             notificationRow
+            LiquidGlassDivider()
+            themeRow
             LiquidGlassDivider()
             MainPanelAnimationsSettingsRow(settings: mainPanelSettings)
             LiquidGlassDivider()
@@ -348,6 +349,27 @@ private extension AppSettingsView {
     }
 
     // MARK: - 通用页各行
+
+    var themeRow: some View {
+        HStack(spacing: SettingsRowMetrics.spacing) {
+            Image(systemName: "circle.lefthalf.filled")
+                .frame(width: SettingsRowMetrics.iconWidth)
+                .foregroundStyle(.tint)
+            Text("settings.appearance.theme.title")
+            Spacer()
+            SettingsOptionsPicker(
+                title: "settings.appearance.theme.title",
+                selection: Binding(
+                    get: { appearanceSettings.theme },
+                    set: { appearanceSettings.setTheme($0) }
+                ),
+                options: AppearanceSettings.Theme.allCases,
+                label: { $0.title },
+                width: Metrics.themePickerWidth,
+                alignment: .trailing
+            )
+        }
+    }
 
     var launchAtLoginRow: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -606,7 +628,7 @@ private extension AppSettingsView {
                     .font(.caption)
                     .foregroundStyle(caption.isError ? Color.red : Color.codexSecondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
-                    .numericTransition(value: caption.message, enabled: animationState.allowsAnimations)
+                    .numericTransition(value: caption.message)
 
                 Spacer(minLength: 8)
 
@@ -712,7 +734,7 @@ private extension AppSettingsView {
                             Text(lastSyncText)
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(Color.codexSecondaryLabel)
-                                .numericTransition(value: lastSyncText, enabled: animationState.allowsAnimations)
+                                .numericTransition(value: lastSyncText)
                                 .lineLimit(1)
                                 .transition(.opacity)
                         }
@@ -923,7 +945,7 @@ private extension AppSettingsView {
                 .font(status.isVersionLabel ? .body.monospacedDigit() : .body)
                 .foregroundStyle(Color.codexSecondaryLabel)
                 .lineLimit(1)
-                .numericTransition(value: status.text, enabled: animationState.allowsAnimations)
+                .numericTransition(value: status.text)
 
             if appUpdater.availableUpdateMessage != nil {
                 Button {

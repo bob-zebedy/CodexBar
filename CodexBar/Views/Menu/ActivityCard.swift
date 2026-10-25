@@ -7,7 +7,7 @@ struct ActivityCard: View {
     @ObservedObject var presentationState: ActivityCenterPresentationState
     @ObservedObject var keepAliveController: KeepAliveController
     let onTaskCenterTap: (ScreenFrameProvider) -> Void
-    @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
     @State private var frameProvider = ScreenFrameProvider()
     @State private var isHovered = false
     @State private var wrappedHeaderTaskIDs: Set<UUID> = []
@@ -156,7 +156,7 @@ struct ActivityCard: View {
                         text: detail, tint: content.tint, effect: allowsAnimations ? content.statusTextEffect : .none,
                         lineLimit: nil, supplement: content.detailSupplement
                     )
-                    .numericTransition(value: [detail, content.detailSupplement], enabled: allowsAnimations)
+                    .numericTransition(value: [detail, content.detailSupplement])
                     .fixedSize(horizontal: false, vertical: true)
                     .clipped()
                 }
@@ -164,7 +164,7 @@ struct ActivityCard: View {
                     Text(recent)
                         .font(.caption2)
                         .foregroundStyle(Color.codexSecondaryLabel)
-                        .numericTransition(value: recent, enabled: allowsAnimations)
+                        .numericTransition(value: recent)
                         .fixedSize(horizontal: false, vertical: true)
                         .clipped()
                 }
@@ -187,7 +187,7 @@ struct ActivityCard: View {
             )
             .font(.caption.weight(.semibold))
             .foregroundStyle(Color.codexLabel)
-            .numericTransition(value: content.header, enabled: allowsAnimations)
+            .numericTransition(value: content.header)
             .fixedSize(horizontal: false, vertical: true)
             .clipped()
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -225,7 +225,7 @@ struct ActivityCard: View {
                     .font(.caption2.monospacedDigit().weight(.semibold))
                     // 必须是具体 Color, 层级样式在 numericText 的过渡层里会被重新解析成别的层级
                     .foregroundStyle(Color.codexSecondaryLabel)
-                    .numericTransition(value: content.otherTaskCount, comparison: Double(content.otherTaskCount), enabled: allowsAnimations)
+                    .numericTransition(value: content.otherTaskCount, comparison: Double(content.otherTaskCount))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
                     .background(.secondary.opacity(0.12), in: Capsule())
@@ -254,10 +254,11 @@ struct ActivityCard: View {
     private func tokenUsageMetrics(_ tokenUsage: TokenUsage) -> some View {
         HStack(alignment: .top, spacing: 0) {
             tokenMetric("usage.token-usage.total", tokens: tokenUsage.totalTokens)
-            tokenMetric("usage.token-usage.input", tokens: tokenUsage.inputTokens)
             tokenMetric("usage.token-usage.output", tokens: tokenUsage.outputTokens)
-            tokenMetric("usage.token-usage.cached-input", tokens: tokenUsage.cachedInputTokens)
+            tokenMetric("usage.token-usage.input", tokens: tokenUsage.inputTokens)
+            tokenMetric("usage.token-usage.reasoning-output", tokens: tokenUsage.reasoningOutputTokens)
             tokenMetric("usage.token-usage.cache-write-input", tokens: tokenUsage.cacheWriteInputTokens)
+            tokenMetric("usage.token-usage.cached-input", tokens: tokenUsage.cachedInputTokens)
             VStack(spacing: 3) {
                 Text("usage.token-usage.cache-hit-rate")
                     .font(.caption2)
@@ -266,10 +267,9 @@ struct ActivityCard: View {
                 Text(tokenUsage.cacheHitRate.map { $0.formatted(.percent.precision(.fractionLength(0 ... 1))) } ?? "—")
                     .font(.caption2.monospacedDigit().weight(.semibold))
                     .foregroundStyle(Color.codexLabel)
-                    .numericTransition(value: tokenUsage.cacheHitRate, comparison: tokenUsage.cacheHitRate ?? 0, enabled: allowsAnimations)
+                    .numericTransition(value: tokenUsage.cacheHitRate, comparison: tokenUsage.cacheHitRate ?? 0)
             }
             .frame(minWidth: 0, maxWidth: .infinity)
-            tokenMetric("usage.token-usage.reasoning-output", tokens: tokenUsage.reasoningOutputTokens)
         }
         .lineLimit(1)
         .animation(allowsAnimations ? .codexStatus : nil, value: tokenUsage)

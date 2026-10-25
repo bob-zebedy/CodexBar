@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import os
 
 /// 应用级对象装配点, 持有服务和 ViewModel 生命周期
@@ -21,6 +22,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     let syncSettings = SyncSettings()
     let globalHotKeySettings = GlobalHotKeySettings()
     let menuBarQuotaSettings = MenuBarQuotaSettings()
+    let appearanceSettings = AppearanceSettings()
     let mainPanelSettings = MainPanelSettings()
     let serviceStatusMonitor = CodexServiceStatusMonitor()
     let taskGlowSettings = TaskGlowSettings()
@@ -29,6 +31,8 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     let appUpdater = AppUpdater()
 
     private var statusItemController: StatusItemController?
+    private var appearanceObserver: AnyCancellable?
+    private var appearanceTransition: AppearanceTransition?
     private var taskGlowController: TaskGlowController?
     private var notificationService: NotificationService?
     private var autoResetController: AutoResetController?
@@ -40,6 +44,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_: Notification) {
         AppProcessDiagnostics.install()
+        configureAppearance()
         let controller = StatusItemController(
             viewModel: viewModel,
             historyViewModel: historyViewModel,
@@ -48,6 +53,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             syncSettings: syncSettings,
             globalHotKeySettings: globalHotKeySettings,
             menuBarQuotaSettings: menuBarQuotaSettings,
+            appearanceSettings: appearanceSettings,
             mainPanelSettings: mainPanelSettings,
             serviceStatusMonitor: serviceStatusMonitor,
             taskGlowSettings: taskGlowSettings,
@@ -118,8 +124,27 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func configureAppearance() {
+        NSApplication.shared.appearance = appearanceSettings.theme.appearance
+        appearanceTransition = AppearanceTransition { [weak self] in
+            self?.mainPanelSettings.areAnimationsEnabled ?? false
+        }
+        appearanceObserver = appearanceSettings.$theme
+            .dropFirst()
+            // @Published 在属性赋值前通知, 截图必须等本轮赋值完成后再刷新 SwiftUI
+            .receive(on: RunLoop.main)
+            .sink { [weak self] theme in
+                guard let self,
+                      theme == appearanceSettings.theme,
+                      NSApplication.shared.appearance?.name != theme.appearance?.name else { return }
+                NSApplication.shared.appearance = theme.appearance
+                statusItemController?.applyAppearance(theme.appearance)
+            }
+    }
+
     func applicationWillTerminate(_: Notification) {
         AppLog.app.notice("App 即将退出: reason=userQuit")
+        appearanceTransition?.stop()
         startupTask?.cancel()
         startupTask = nil
         terminationPreparationTask?.cancel()

@@ -309,16 +309,21 @@ struct ActivityLivePresentationTests {
     }
 
     @Test(arguments: [
-        (["read"], "command-read"), (["listFiles"], "command-listfiles"), (["search"], "command-search"),
-        (["search", "read", "read"], "command-read-search"), (["search", "listFiles"], "command-listfiles-search"),
-        (["listFiles", "read"], "command-read-listfiles"), (["search", "listFiles", "read"], "command-read-listfiles-search"),
-        (["read", "unknown"], "command"), (["future"], "command"), ([], "command")
-    ])
-    func commandActionsUseServerClassification(actions: [String], key: String) {
+        (["read"], .init("command-read")), (["listFiles"], .init("command-listfiles")), (["search"], .init("command-search")),
+        (["search", "read", "read"], .init("command-read-search")), (["search", "listFiles"], .init("command-listfiles-search")),
+        (["listFiles", "read"], .init("command-read-listfiles")), (["search", "listFiles", "read"], .init("command-read-listfiles-search")),
+        (["read", "unknown"], .init("command", detail: String(localized: "activity.live.actions-read"))),
+        (["search", "unknown", "read"], .init("command", detail: String(localized: "activity.live.actions-read-search"))),
+        (["search", "unknown", "read", "read"], .init("command", detail: String(localized: "activity.live.actions-read-search"))),
+        (["future"], .init("command")), ([], .init("command"))
+    ] as [([String], ActivityLiveLabel)])
+    func commandActionsUseServerClassification(actions: [String], expected: ActivityLiveLabel) throws {
         let item = ActivityItem(id: "cmd", type: .commandExecution, commandActions: actions.map { .init(type: $0) })
-        #expect(item.liveLabel?.key == key)
-        if actions.contains("read"), actions.contains("unknown") {
-            #expect(item.liveLabel?.detail != nil)
+        let label = try #require(item.liveLabel)
+        #expect(label == expected)
+        if let detail = expected.detail {
+            #expect(label.text == String(localized: "activity.live.command-with-actions", defaultValue: "\(detail)"))
+            #expect(!label.text.contains(" • "))
         }
     }
 
@@ -380,13 +385,6 @@ struct ActivityLivePresentationTests {
         "item":{"id":"tool","type":"mcpToolCall","server":"server","tool":"tools","status":"completed"}
         """), now: now.addingTimeInterval(1))
         #expect(try summary(reducer).recent?.label.detail == name)
-        let command = ActivityItem(
-            id: "cmd", type: .commandExecution, commandActions: ["search", "unknown", "read"].map { .init(type: $0) }
-        )
-        let label = try #require(command.liveLabel)
-        let detail = try #require(label.detail)
-        #expect(label.text == String(localized: "activity.live.command-with-actions", defaultValue: "\(detail)"))
-        #expect(!label.text.contains(" • "))
     }
 
     @Test func modelChangePreservesRouteDetails() throws {
@@ -795,17 +793,6 @@ struct ActivityLivePresentationTests {
         let thread = ActivityThread(id: "thread-a", status: ActivityThreadStatus(type: .active, activeFlags: []))
         _ = reducer.reconcile(thread: thread, turns: [ActivityTurn(id: "turn-a", status: .running)], now: now.addingTimeInterval(1))
         #expect(try summary(reducer).waiting == nil)
-    }
-
-    @Test func mixedCommandActionsResolveTheExplicitLocalizedKey() {
-        let item = ActivityItem(
-            id: "cmd", type: .commandExecution,
-            commandActions: ["search", "unknown", "read", "read"].map { .init(type: $0) }
-        )
-        #expect(item.liveLabel?.key == "command")
-        #expect(item.liveLabel?.detail == String(localized: "activity.live.actions-read-search"))
-        let actions = String(localized: "activity.live.actions-read-search")
-        #expect(item.liveLabel?.text == String(localized: "activity.live.command-with-actions", defaultValue: "\(actions)"))
     }
 
     @Test func resolvedRequestDoesNotClearThreadInputWait() throws {

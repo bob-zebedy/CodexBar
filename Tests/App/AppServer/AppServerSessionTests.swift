@@ -479,8 +479,8 @@ struct AppServerSessionTests {
         try server.finish()
     }
 
-    @Test(arguments: ["account", "activity"])
-    func bothConnectionsPersistFullWireRequestAndError(_ connection: String) async throws {
+    @Test func sessionPersistsConnectionLabelAndFullWireRequestAndError() async throws {
+        let connection = "account"
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)

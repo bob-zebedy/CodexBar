@@ -2,7 +2,7 @@ import SwiftUI
 
 struct CodexServiceStatusRow: View {
     @ObservedObject var monitor: CodexServiceStatusMonitor
-    @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
@@ -24,7 +24,7 @@ struct CodexServiceStatusRow: View {
                 Text(statusTitle)
                     .font(.caption)
                     .foregroundStyle(Color.codexLabel)
-                    .numericTransition(value: monitor.state, enabled: allowsAnimations)
+                    .numericTransition(value: monitor.state)
                     .layoutPriority(1)
 
                 Spacer(minLength: 8)
@@ -33,7 +33,7 @@ struct CodexServiceStatusRow: View {
                     Text(verbatim: displayedComponents.map { Self.shortComponentName($0) }.joined(separator: " • "))
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(statusColor)
-                        .numericTransition(value: displayedComponents, enabled: allowsAnimations)
+                        .numericTransition(value: displayedComponents)
                         .truncationMode(.tail)
                         .layoutPriority(-1)
                         .transition(allowsAnimations ? .opacity : .identity)

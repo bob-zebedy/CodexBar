@@ -157,7 +157,6 @@ struct EmptyDataPanel: View {
 
 /// 多个 limit 的额度区, 使用 stale 透明度标记缓存回退数据
 struct QuotaLimitsSection: View {
-    @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
     let limits: [CodexQuotaLimitSnapshot]
     let credits: RateLimitCreditsSnapshot?
     let resetCreditsAvailableCount: Int?
@@ -263,7 +262,7 @@ struct QuotaLimitsSection: View {
             .font(.caption2.weight(.medium))
             .monospacedDigit()
             .foregroundStyle(tint)
-            .numericTransition(value: text, enabled: allowsAnimations)
+            .numericTransition(value: text)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 6)
@@ -274,7 +273,6 @@ struct QuotaLimitsSection: View {
 
 /// 底部更新时间行, 同时承载 Sparkle 被动更新提示
 struct UpdatedAtRow: View {
-    @Environment(\.mainPanelAnimationsEnabled) private var allowsAnimations
     let updatedAt: Date
     let countdownInterval: TimeInterval
     let isCountdownActive: Bool
@@ -293,13 +291,12 @@ struct UpdatedAtRow: View {
 
                 HStack(spacing: 5) {
                     Text("usage.status.last-updated")
-                        .foregroundStyle(Self.secondaryTextColor)
 
                     Text(Self.timeFormatter.string(from: updatedAt))
                         .monospacedDigit()
-                        .numericTransition(value: updatedAt, comparison: updatedAt.timeIntervalSinceReferenceDate, enabled: allowsAnimations)
-                        .foregroundStyle(Self.secondaryTextColor)
+                        .numericTransition(value: updatedAt, comparison: updatedAt.timeIntervalSinceReferenceDate)
                 }
+                .foregroundStyle(Color.codexLabel)
             }
             .font(.caption2)
             .animation(Metrics.statusAnimation, value: updatedAt)
@@ -311,7 +308,7 @@ struct UpdatedAtRow: View {
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(Color.codexSecondaryLabel)
                     .lineLimit(1)
-                    .numericTransition(value: updateMessage, enabled: allowsAnimations)
+                    .numericTransition(value: updateMessage)
                     .transition(.opacity)
             }
 
@@ -334,8 +331,6 @@ struct UpdatedAtRow: View {
         formatter.timeStyle = .medium
         return formatter
     }()
-
-    private static let secondaryTextColor = Color.codexSecondaryLabel
 
     private enum Metrics {
         static let statusAnimation = Animation.codexStatus

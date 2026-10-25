@@ -278,17 +278,8 @@ struct ActivityTokenUsageTests {
 
     @Test(arguments: [false, true])
     func historicalTerminalUpdatesHistoryWithoutPublishingEvents(aborted: Bool) throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        let monitor = try makeMonitor(directory: directory, preferences: preferences)
-        monitor.isActivitySourceHealthy = true
-        monitor.isProtectionRecoveryInProgress = false
+        var graph = ActivityTaskGraph()
         let now = Date()
-        monitor.turnTransitionNotBefore = now.addingTimeInterval(-1)
-        monitor.terminalPresentationNotBefore = now.addingTimeInterval(-1)
-        #expect(monitor.canPublishActivityTransitions)
         for publishesEvents in [false, true] {
             let event = TestFixtures.event(at: now, turn: publishesEvents ? "live-turn" : "historical-turn")
             let key = try #require(ActivityTaskKey(event: event))
@@ -297,23 +288,23 @@ struct ActivityTokenUsageTests {
                 startedAt: now, progressGeneration: 1
             )
             var transitions: [ActivityTransition] = []
-            monitor.graph.resolveTerminal(
+            graph.resolveTerminal(
                 aborted ? .aborted(at: now, duration: nil) : .completed(at: now, duration: 1),
                 task: task, key: key, abortFallback: now, publishesEvents: publishesEvents, into: &transitions
             )
             #expect(transitions.isEmpty == (aborted || !publishesEvents))
-            #expect(monitor.graph.terminalEvents.isEmpty == !publishesEvents)
-            let observedResult15 = monitor.graph.recentEndedDate(for: key, now: now) != nil
+            #expect(graph.terminalEvents.isEmpty == !publishesEvents)
+            let observedResult15 = graph.recentEndedDate(for: key, now: now) != nil
             #expect(observedResult15)
-            let presentationCount = monitor.graph.terminalEvents.count
-            monitor.graph.resolveTerminal(
+            let presentationCount = graph.terminalEvents.count
+            graph.resolveTerminal(
                 aborted ? .aborted(at: now, duration: nil) : .completed(at: now, duration: 1),
                 task: task, key: key, abortFallback: now, publishesEvents: true, into: &transitions
             )
-            #expect(monitor.graph.terminalEvents.count == presentationCount)
+            #expect(graph.terminalEvents.count == presentationCount)
         }
-        #expect(aborted ? monitor.graph.terminations.count == 2 : monitor.graph.completions.count == 2)
-        #expect(monitor.graph.terminalTokenUsageRequests.count == 2)
+        #expect(aborted ? graph.terminations.count == 2 : graph.completions.count == 2)
+        #expect(graph.terminalTokenUsageRequests.count == 2)
     }
 
     @Test(arguments: [false, true])

@@ -21,13 +21,16 @@ struct HistoryAggregationTests {
         #expect(completed.syncedAggregate.metrics.toolCallCount == expected)
     }
 
-    @Test func commandActionCountsMatchBetweenIncrementalAndFullAggregation() {
-        let firstEvents = [
+    @Test(arguments: [false, true])
+    func incrementalAggregationMatchesFullReplay(withCommandActions: Bool) {
+        let firstEvents = withCommandActions ? [
             commandEvent(.toolStarted, actions: ["search", "read", "read"]),
             commandEvent(.toolCompleted, actions: ["search", "read", "read"]),
             TestFixtures.event(.toolStarted)
-        ]
-        let laterEvents = [TestFixtures.event(.toolCompleted)]
+        ] : [TestFixtures.event(), TestFixtures.event(.toolCompleted)]
+        let laterEvents = withCommandActions
+            ? [TestFixtures.event(.toolCompleted)]
+            : [TestFixtures.event(.toolStarted), TestFixtures.event(turn: "turn-b")]
         var full = makeAccumulator()
         (firstEvents + laterEvents).forEach { full.record($0) }
         var initial = makeAccumulator()
@@ -35,10 +38,11 @@ struct HistoryAggregationTests {
         var incremental = ActivityDataAccumulator(appending: initial.finalized(identifierStorage: .retained))
         laterEvents.forEach { incremental.record($0) }
         let aggregate = full.finalized(identifierStorage: .retained)
-        #expect(aggregate.metrics.toolCallCount == 4)
+        #expect(aggregate.metrics.toolCallCount == (withCommandActions ? 4 : 1))
         #expect(aggregate.eventCount == 4)
+        #expect(aggregate.turnIDs == (withCommandActions ? ["turn-a"] : ["turn-a", "turn-b"]))
         #expect(incremental.finalized(identifierStorage: .retained) == aggregate)
-        #expect(full.finalized(identifierStorage: .compacted).metrics.toolCallCount == 4)
+        #expect(full.finalized(identifierStorage: .compacted).metrics.toolCallCount == (withCommandActions ? 4 : 1))
     }
 
     @Test func aggregateJSONLinesPreserveSlashesAndStableBytes() throws {
@@ -155,18 +159,6 @@ struct HistoryAggregationTests {
         #expect(compacted.threadIDs == nil)
         #expect(compacted.turnIDs == nil)
         #expect(!compacted.supportsIncrementalAggregation)
-    }
-
-    @Test func incrementalAggregationMatchesFullReplay() {
-        let firstEvents = [TestFixtures.event(), TestFixtures.event(.toolCompleted)]
-        let laterEvents = [TestFixtures.event(.toolStarted), TestFixtures.event(turn: "turn-b")]
-        var full = makeAccumulator()
-        (firstEvents + laterEvents).forEach { full.record($0) }
-        var initial = makeAccumulator()
-        firstEvents.forEach { initial.record($0) }
-        var incremental = ActivityDataAccumulator(appending: initial.finalized(identifierStorage: .retained))
-        laterEvents.forEach { incremental.record($0) }
-        #expect(incremental.finalized(identifierStorage: .retained) == full.finalized(identifierStorage: .retained))
     }
 
     @Test func historicalAggregationIncludesAutoReviewEvents() {

@@ -2737,22 +2737,6 @@
         }
       }
     },
-    "common.action.click-to-copy" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Click to Copy"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "点击复制"
-          }
-        }
-      }
-    },
     "common.action.close" : {
       "localizations" : {
         "en" : {
@@ -5137,6 +5121,70 @@
         }
       }
     },
+    "settings.appearance.theme.dark" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dark Mode"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深色模式"
+          }
+        }
+      }
+    },
+    "settings.appearance.theme.light" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Light Mode"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "浅色模式"
+          }
+        }
+      }
+    },
+    "settings.appearance.theme.system" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Follow System"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "跟随系统"
+          }
+        }
+      }
+    },
+    "settings.appearance.theme.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Theme"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主题模式"
+          }
+        }
+      }
+    },
     "settings.auto-reset.title" : {
       "localizations" : {
         "en" : {
@@ -5494,13 +5542,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Update Status"
+            "value" : "Data Status"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "更新状态"
+            "value" : "数据状态"
           }
         }
       }
@@ -6108,7 +6156,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "亮度"
+            "value" : "流光亮度"
           }
         }
       }
@@ -6374,7 +6422,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CodexBar is up to date"
+            "value" : "Up to date"
           }
         },
         "zh-Hans" : {
@@ -6390,7 +6438,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Version v%@ is available"
+            "value" : "New version: v%@"
           }
         },
         "zh-Hans" : {

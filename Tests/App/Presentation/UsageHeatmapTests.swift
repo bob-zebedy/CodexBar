@@ -2,6 +2,69 @@ import Foundation
 import Testing
 
 struct UsageHeatmapTests {
+    @Test(arguments: [UsageHeatmapMode.daily, .weekly])
+    func pointerReconciliationKeepsSelectionAndFollowsAnotherCell(mode: UsageHeatmapMode) throws {
+        let today = try #require(CodexDateFormat.dayDate(from: "2026-10-24"))
+        let days = UsageHeatmapDay.grid(usage: nil, history: .empty, columnCount: 30, today: today)
+        let original = try #require(UsageHeatmapSelection.at(column: 28, row: 3, in: days, mode: mode))
+        let position = try #require(UsageHeatmap.Metrics.gridPosition(at: CGPoint(x: 426, y: 51)))
+        #expect(UsageHeatmapSelection.at(column: position.column, row: position.row, in: days, mode: mode) == original)
+
+        let next = try #require(UsageHeatmap.Metrics.gridPosition(at: CGPoint(x: 441, y: 96)))
+        let updated = try #require(UsageHeatmapSelection.at(column: next.column, row: next.row, in: days, mode: mode))
+        #expect(updated != original)
+        #expect(updated.highlights(column: 29, row: 6, in: days, mode: mode))
+    }
+
+    @Test func pointerReconciliationRejectsOutsideAndInvalidCoordinates() {
+        for point in [
+            CGPoint(x: -1.5, y: 6), CGPoint(x: 6, y: -1.5),
+            CGPoint(x: 448.5, y: 6), CGPoint(x: 6, y: 103.5)
+        ] {
+            #expect(UsageHeatmap.Metrics.gridPosition(at: point) == nil)
+        }
+        for coordinate in [CGFloat.nan, .infinity, -.infinity, .greatestFiniteMagnitude, -.greatestFiniteMagnitude] {
+            #expect(UsageHeatmap.Metrics.gridPosition(at: CGPoint(x: coordinate, y: 6)) == nil)
+            #expect(UsageHeatmap.Metrics.gridPosition(at: CGPoint(x: 6, y: coordinate)) == nil)
+        }
+    }
+
+    @Test func pointerReconciliationPreservesEdgesAndMidpointSnapping() {
+        for (point, column, row) in [
+            (CGPoint(x: 0, y: 0), 0, 0),
+            (CGPoint(x: 446, y: 101), 29, 6),
+            (CGPoint(x: -1.499, y: -1.499), 0, 0),
+            (CGPoint(x: 448.499, y: 103.499), 29, 6),
+            (CGPoint(x: 13.499, y: 13.499), 0, 0),
+            (CGPoint(x: 13.5, y: 13.5), 1, 1),
+            (CGPoint(x: 433.499, y: 88.499), 28, 5),
+            (CGPoint(x: 433.5, y: 88.5), 29, 6)
+        ] {
+            let position = UsageHeatmap.Metrics.gridPosition(at: point)
+            #expect(position?.column == column && position?.row == row)
+        }
+    }
+
+    @Test(arguments: [UsageHeatmapMode.daily, .weekly])
+    func stationaryPointerSelectsNewDateAfterWeekChanges(mode: UsageHeatmapMode) throws {
+        let before = try #require(CodexDateFormat.dayDate(from: "2026-10-24"))
+        let after = try #require(CodexDateFormat.dayDate(from: "2026-10-25"))
+        let oldDays = UsageHeatmapDay.grid(usage: nil, history: .empty, columnCount: 30, today: before)
+        let newDays = UsageHeatmapDay.grid(usage: nil, history: .empty, columnCount: 30, today: after)
+        let position = try #require(UsageHeatmap.Metrics.gridPosition(at: CGPoint(x: 426, y: 51)))
+        let original = try #require(UsageHeatmapSelection.at(column: position.column, row: position.row, in: oldDays, mode: mode))
+        let updated = try #require(UsageHeatmapSelection.at(column: position.column, row: position.row, in: newDays, mode: mode))
+
+        #expect(original.dateID == (mode == .daily ? "2026-10-14" : "2026-10-11"))
+        #expect(updated.dateID == (mode == .daily ? "2026-10-21" : "2026-10-18"))
+        #expect(original.currentColumn(in: newDays) == position.column - 1)
+        #expect(!original.highlights(column: position.column, row: position.row, in: newDays, mode: mode))
+        #expect(updated.highlights(column: position.column, row: position.row, in: newDays, mode: mode))
+        let period = try #require(updated.period(in: newDays, weeks: UsageHeatmapPeriod.weeks(in: newDays), mode: mode))
+        #expect(period.startDate == updated.dateID)
+        #expect(period.endDate == (mode == .daily ? "2026-10-21" : "2026-10-24"))
+    }
+
     @Test(arguments: ["2026-10-18", "2026-10-20", "2026-10-24"])
     func currentWeekAlwaysHasSevenSelectableRowsWhileDailyFutureStaysEmpty(todayKey: String) throws {
         let today = try #require(CodexDateFormat.dayDate(from: todayKey))
@@ -13,7 +76,6 @@ struct UsageHeatmapTests {
         for row in 0 ..< CodexWeekGrid.rowCount {
             let selection = try #require(UsageHeatmapSelection.at(column: 1, row: row, in: days, mode: .weekly))
             #expect(selection.dateID == week.startDate)
-            #expect(selection.row == 0)
             #expect(selection.period(in: days, weeks: weeks, mode: .weekly) == week)
             #expect(selection.highlights(column: 1, row: row, in: days, mode: .weekly))
             #expect(!selection.highlights(column: 0, row: row, in: days, mode: .weekly))
@@ -143,6 +205,7 @@ struct UsageHeatmapTests {
 
         let currentColumn = try #require(selection.currentColumn(in: days))
         #expect(currentColumn == originalColumn - 1)
+        #expect(UsageHeatmapSelection.at(column: currentColumn, row: selectedRow, in: days, mode: mode) == selection)
         #expect(UsageHeatmap.Metrics.preferredDetailSide(for: currentColumn) == .left)
         #expect(selection.period(in: days, weeks: UsageHeatmapPeriod.weeks(in: days), mode: mode) == initialPeriod)
         for row in 0 ..< CodexWeekGrid.rowCount {

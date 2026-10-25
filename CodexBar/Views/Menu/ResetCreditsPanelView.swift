@@ -35,6 +35,7 @@ nonisolated struct ResetCreditsPanelContext: Equatable {
 /// 重置次数侧边详情, 按过期时间从近到远展示
 struct ResetCreditsPanelView: View {
     let context: ResetCreditsPanelContext
+    let mainPanelSettings: MainPanelSettings
 
     var body: some View {
         let groups = expirationGroups
@@ -65,6 +66,7 @@ struct ResetCreditsPanelView: View {
         .frame(width: panelSize.width, height: panelSize.height, alignment: .topLeading)
         .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
         .animation(Metrics.statusAnimation, value: context)
+        .contentAnimations(settings: mainPanelSettings)
     }
 
     static var panelCornerRadius: CGFloat {

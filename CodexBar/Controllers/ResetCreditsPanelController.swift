@@ -4,6 +4,7 @@ import SwiftUI
 /// 重置次数详情控制器, 复用共享侧边抽屉定位和动画
 @MainActor
 final class ResetCreditsPanelController {
+    private let mainPanelSettings: MainPanelSettings
     private let contentHost = SidePanelContentHost<ResetCreditsPanelView>(
         initialSize: ResetCreditsPanelView.initialPanelSize,
         ignoresMouseEvents: false,
@@ -16,6 +17,10 @@ final class ResetCreditsPanelController {
             self?.contentHost.contentView
         }
     )
+
+    init(mainPanelSettings: MainPanelSettings) {
+        self.mainPanelSettings = mainPanelSettings
+    }
 
     var isVisible: Bool {
         presenter.isVisible
@@ -84,7 +89,10 @@ final class ResetCreditsPanelController {
             SidePanelSupport.restoreMenuSurfaceKeyWindow(menuSurfaceWindow)
         }
 
-        contentHost.updateContent(ResetCreditsPanelView(context: resolvedContext), size: panelSize)
+        contentHost.updateContent(
+            ResetCreditsPanelView(context: resolvedContext, mainPanelSettings: mainPanelSettings),
+            size: panelSize
+        )
         presenter.present(panel, at: position, relativeTo: menuSurfaceWindow)
     }
 

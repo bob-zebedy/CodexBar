@@ -54,7 +54,7 @@ final class GlobalHotKeyController {
             return false
         }
 
-        AppLog.settings.notice("快捷键已注册")
+        AppLog.settings.notice("快捷键已注册: \(shortcut.label, privacy: .public)")
         clearCurrentRegistration()
 
         registration = GlobalHotKeyRegistration(
