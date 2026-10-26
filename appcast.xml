@@ -6,6 +6,20 @@
         <description>CodexBar appcast feed</description>
         <language>zh-CN</language>
         <item>
+            <title>CodexBar.app 5.0.7</title>
+            <sparkle:version>207</sparkle:version>
+            <sparkle:shortVersionString>5.0.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <sparkle:minimumAutoupdateVersion>200</sparkle:minimumAutoupdateVersion>
+            <sparkle:informationalUpdate><sparkle:belowVersion>200</sparkle:belowVersion></sparkle:informationalUpdate>
+            <link xml:lang="en-US">https://codexbar.zabrian.app/notes?lang=en-US#5.0.0-Guide</link>
+            <link xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#5.0.0-Guide</link>
+            <sparkle:releaseNotesLink xml:lang="en-US">https://codexbar.zabrian.app/notes?lang=en-US#5.0.7</sparkle:releaseNotesLink>
+            <sparkle:releaseNotesLink xml:lang="zh-CN">https://codexbar.zabrian.app/notes?lang=zh-CN#5.0.7</sparkle:releaseNotesLink>
+            <pubDate>Mon, 26 Oct 2026 18:53:05 +0800</pubDate>
+            <enclosure url="https://codexbar.zabrian.app/download/CodexBar-v5.0.7.dmg" sparkle:edSignature="4ctM7P/gTxM2FjlMw/5b/SmiliThbtFUqfyKwX+eIgDpQFOTrlzxEgcVvOY7hxd3qKghsP51338dyMAYo4lAAw==" length="10290176" type="application/octet-stream"/>
+        </item>
+        <item>
             <title>CodexBar.app 5.0.6</title>
             <sparkle:version>206</sparkle:version>
             <sparkle:shortVersionString>5.0.6</sparkle:shortVersionString>

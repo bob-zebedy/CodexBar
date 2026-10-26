@@ -23,11 +23,13 @@ final class MenuSurfaceFadeCoordinator {
     func prepareForFadeIn() {
         contentView?.alphaValue = 0
         contentView?.window?.alphaValue = 0
+        AppearanceTransition.setSnapshotAlpha(in: contentView?.window, to: 0)
     }
 
     func resetAlpha() {
         contentView?.alphaValue = 1
         contentView?.window?.alphaValue = 1
+        AppearanceTransition.setSnapshotAlpha(in: contentView?.window, to: 1)
     }
 
     func fadeIn(duration: TimeInterval, completion: @escaping () -> Void) {
@@ -90,6 +92,7 @@ final class MenuSurfaceFadeCoordinator {
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             activeMenuSurfaceWindow?.animator().alphaValue = alpha
             contentView.animator().alphaValue = alpha
+            AppearanceTransition.fadeSnapshots(in: activeMenuSurfaceWindow, to: alpha)
         }
     }
 }

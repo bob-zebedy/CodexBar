@@ -39,6 +39,7 @@ final class FallbackPanelController {
 
     func orderOut() {
         panel?.orderOut(nil)
+        AppearanceTransition.dismissSnapshots(in: panel)
     }
 
     func resizeIfVisible(contentHeight: CGFloat) {

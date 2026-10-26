@@ -9,9 +9,56 @@ final class AppearanceTransition {
         window.childWindows?.contains { $0 is SnapshotPanel } == true
     }
 
+    static func setSnapshotAlpha(in window: NSWindow?, to alpha: CGFloat) {
+        for snapshot in snapshotPanels(in: window) {
+            snapshot.alphaValue = alpha
+            snapshot.snapshotView.alphaValue = alpha
+        }
+    }
+
+    /// 复用调用方的动画事务, 保持快照与源窗口的时间和曲线一致
+    static func fadeSnapshots(in window: NSWindow?, to alpha: CGFloat) {
+        for snapshot in snapshotPanels(in: window) {
+            snapshot.animator().alphaValue = alpha
+            snapshot.snapshotView.animator().alphaValue = alpha
+        }
+    }
+
+    static func setSnapshotTranslation(in window: NSWindow?, to transform: CATransform3D) {
+        snapshotPanels(in: window).forEach { $0.snapshotView.setTranslation(transform) }
+    }
+
+    static func animateSnapshotTranslation(in window: NSWindow?, animation: CABasicAnimation, to transform: CATransform3D) {
+        snapshotPanels(in: window).forEach { $0.snapshotView.animateTranslation(animation, to: transform) }
+    }
+
+    static func dismissSnapshots(in window: NSWindow?) {
+        snapshotPanels(in: window).forEach { $0.dismiss() }
+    }
+
+    private static func snapshotPanels(in window: NSWindow?) -> [SnapshotPanel] {
+        window?.childWindows?.compactMap { $0 as? SnapshotPanel } ?? []
+    }
+
+    static func anchoredOrigin(from screenPoint: CGPoint?, isSourceWindow: Bool, screenFrame: CGRect, mouseLocation: CGPoint) -> CGPoint? {
+        let point: CGPoint
+        if let screenPoint, isSourceWindow {
+            point = screenPoint
+        } else if screenFrame.contains(mouseLocation) {
+            point = mouseLocation
+        } else {
+            return nil
+        }
+        return CGPoint(
+            x: (point.x - screenFrame.minX) / screenFrame.width,
+            y: (screenFrame.maxY - point.y) / screenFrame.height
+        )
+    }
+
     private let animationsEnabled: () -> Bool
     private var observation: NSKeyValueObservation?
     private var pendingSnapshots: [(NSWindow, SnapshotPanel)]?
+    private var changeOrigin: AppearanceSettings.TransitionOrigin?
 
     init(animationsEnabled: @escaping () -> Bool) {
         self.animationsEnabled = animationsEnabled
@@ -29,6 +76,13 @@ final class AppearanceTransition {
         }
     }
 
+    func performChange(from origin: AppearanceSettings.TransitionOrigin?, _ change: () -> Void) {
+        let previousOrigin = changeOrigin
+        changeOrigin = origin
+        defer { changeOrigin = previousOrigin }
+        change()
+    }
+
     func stop() {
         observation?.invalidate()
         observation = nil
@@ -41,13 +95,14 @@ final class AppearanceTransition {
         // 同一轮内连续切换时保留最初画面, 最终外观由 AppKit 决定
         guard pendingSnapshots == nil else { return }
         let animated = animationsEnabled()
+        let mouseLocation = NSEvent.mouseLocation
         let windows = NSApplication.shared.windows.filter {
             $0.isVisible && !$0.isMiniaturized && !($0 is SnapshotPanel) && !($0 is TaskGlowPanel)
         }
         pendingSnapshots = windows.compactMap { window -> (NSWindow, SnapshotPanel)? in
             let previous = window.childWindows?.compactMap { $0 as? SnapshotPanel } ?? []
             previous.forEach { $0.snapshotView.freeze() }
-            let snapshot = animated ? SnapshotPanel(capturing: window, previous: previous) : nil
+            let snapshot = animated ? SnapshotPanel(capturing: window, previous: previous, changeOrigin: changeOrigin, mouseLocation: mouseLocation) : nil
             // 先接上新快照, 避免连续切换时短暂报告过渡已结束
             snapshot?.present(over: window)
             previous.forEach { $0.dismiss() }
@@ -85,7 +140,7 @@ final class AppearanceTransition {
             false
         }
 
-        init?(capturing window: NSWindow, previous: [SnapshotPanel]) {
+        init?(capturing window: NSWindow, previous: [SnapshotPanel], changeOrigin: AppearanceSettings.TransitionOrigin?, mouseLocation: CGPoint) {
             guard let view = Self.sourceView(in: window), !view.bounds.isEmpty,
                   let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
             view.cacheDisplay(in: view.bounds, to: bitmap)
@@ -95,10 +150,17 @@ final class AppearanceTransition {
             sourceAppearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
             let image = NSImage(size: view.bounds.size)
             image.addRepresentation(bitmap)
-            snapshotView = SnapshotView(image: image)
+            let screenFrame = window.convertToScreen(view.convert(view.bounds, to: nil))
+            let origin = AppearanceTransition.anchoredOrigin(
+                from: changeOrigin?.screenPoint,
+                isSourceWindow: changeOrigin?.window === window,
+                screenFrame: screenFrame,
+                mouseLocation: mouseLocation
+            )
+            snapshotView = SnapshotView(image: image, origin: origin)
             let hasTitlebar = window.styleMask.contains(.titled)
             super.init(
-                contentRect: window.convertToScreen(view.convert(view.bounds, to: nil)),
+                contentRect: screenFrame,
                 styleMask: hasTitlebar ? [.titled, .fullSizeContentView, .nonactivatingPanel] : [.borderless, .nonactivatingPanel],
                 backing: .buffered,
                 defer: false
@@ -190,24 +252,25 @@ final class AppearanceTransition {
         }
     }
 
-    private final class SnapshotView: NSImageView {
+    final class SnapshotView: NSImageView {
         private let revealMask = CAGradientLayer()
+        private let revealOrigin: CGPoint
+        private let translationAnimationKey = "appearanceExitTranslation"
 
         override var isFlipped: Bool {
             true
         }
 
-        init(image: NSImage) {
+        init(image: NSImage, origin: CGPoint? = nil) {
+            revealOrigin = origin ?? CGPoint(x: .random(in: 0.1 ... 0.9), y: .random(in: 0.1 ... 0.9))
             super.init(frame: NSRect(origin: .zero, size: image.size))
             self.image = image
             imageScaling = .scaleAxesIndependently
             autoresizingMask = [.width, .height]
             wantsLayer = true
             revealMask.colors = [NSColor.clear.cgColor, NSColor.black.cgColor]
-            revealMask.startPoint = CGPoint(x: 0, y: 0)
-            revealMask.endPoint = CGPoint(x: 1, y: 1)
             revealMask.locations = [0, 0]
-            revealMask.frame = bounds
+            updateMaskGeometry()
             layer?.mask = revealMask
         }
 
@@ -216,12 +279,40 @@ final class AppearanceTransition {
             fatalError("init(coder:) has not been implemented")
         }
 
+        func setTranslation(_ transform: CATransform3D) {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.removeAnimation(forKey: translationAnimationKey)
+            layer?.transform = transform
+            CATransaction.commit()
+        }
+
+        func animateTranslation(_ animation: CABasicAnimation, to transform: CATransform3D) {
+            layer?.add(animation, forKey: translationAnimationKey)
+            layer?.transform = transform
+        }
+
         override func layout() {
             super.layout()
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            revealMask.frame = bounds
+            updateMaskGeometry()
             CATransaction.commit()
+        }
+
+        private func updateMaskGeometry() {
+            guard !bounds.isEmpty else { return }
+            revealMask.frame = bounds
+            let origin = revealOrigin
+            let center = CGPoint(x: origin.x * bounds.width, y: origin.y * bounds.height)
+            let radius = hypot(
+                max(abs(center.x), abs(bounds.width - center.x)),
+                max(abs(center.y), abs(bounds.height - center.y))
+            ) + 1
+            revealMask.type = .radial
+            revealMask.startPoint = origin
+            // 径向渐变按横纵半径绘制椭圆, 分别归一化同一半径才能保持圆形并覆盖最远角
+            revealMask.endPoint = CGPoint(x: origin.x + radius / bounds.width, y: origin.y + radius / bounds.height)
         }
 
         func freeze() {
@@ -242,10 +333,10 @@ final class AppearanceTransition {
 
         func reveal(completion: @escaping @MainActor () -> Void) {
             let animation = CAKeyframeAnimation(keyPath: "locations")
-            animation.values = [[0, 0], [0, 0.1], [0.9, 1], [1, 1]]
-            animation.keyTimes = [0, 0.05, 0.95, 1]
-            animation.duration = 0.45
-            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animation.values = [[0, 0], [0, 0.06], [0.94, 1], [1, 1]]
+            animation.keyTimes = [0, 0.03, 0.97, 1]
+            animation.duration = 0.5
+            animation.timingFunction = CAMediaTimingFunction(controlPoints: 0.76, 0, 0.24, 1)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             CATransaction.setCompletionBlock {

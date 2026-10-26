@@ -189,6 +189,7 @@ enum SidePanelSupport {
         let parentWindow = panel.parent ?? menuSurfaceWindow
         let shouldRestoreParentKey = panel.isKeyWindow
         panel.orderOut(nil)
+        AppearanceTransition.dismissSnapshots(in: panel)
         parentWindow?.removeChildWindow(panel)
         if shouldRestoreParentKey {
             restoreMenuSurfaceKeyWindow(parentWindow)

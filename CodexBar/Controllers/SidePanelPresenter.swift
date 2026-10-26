@@ -38,6 +38,7 @@ final class SidePanelDrawerAnimator {
         CATransaction.setDisableActions(true)
         layer.removeAnimation(forKey: animationKey)
         layer.transform = CATransform3DMakeTranslation(translationX, 0, 0)
+        AppearanceTransition.setSnapshotTranslation(in: contentViewProvider()?.window, to: layer.transform)
         CATransaction.commit()
     }
 
@@ -66,6 +67,7 @@ final class SidePanelDrawerAnimator {
         animation.timingFunction = CAMediaTimingFunction(name: timing)
         layer.add(animation, forKey: animationKey)
         layer.transform = targetTransform
+        AppearanceTransition.animateSnapshotTranslation(in: contentViewProvider()?.window, animation: animation, to: targetTransform)
 
         CATransaction.commit()
     }

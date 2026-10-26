@@ -27,6 +27,7 @@ struct AppSettingsView: View {
     @State private var notificationAnchorProvider = ScreenFrameProvider()
     @State private var autoResetAnchorProvider = ScreenFrameProvider()
     @State private var keepAliveAnchorProvider = ScreenFrameProvider()
+    @State private var themeAnchorProvider = ScreenFrameProvider()
     @State private var rebuildableDates = [String]()
     @State private var selectedRebuildRange: RebuildDateRange?
     @State private var isShowingRebuildConfirmation = false
@@ -361,13 +362,24 @@ private extension AppSettingsView {
                 title: "settings.appearance.theme.title",
                 selection: Binding(
                     get: { appearanceSettings.theme },
-                    set: { appearanceSettings.setTheme($0) }
+                    set: { theme in
+                        let origin = themeAnchorProvider.currentScreenFrame().map {
+                            AppearanceSettings.TransitionOrigin(
+                                screenPoint: CGPoint(x: $0.midX, y: $0.midY),
+                                window: themeAnchorProvider.window
+                            )
+                        }
+                        appearanceSettings.setTheme(theme, from: origin)
+                    }
                 ),
                 options: AppearanceSettings.Theme.allCases,
                 label: { $0.title },
                 width: Metrics.themePickerWidth,
                 alignment: .trailing
             )
+            .background {
+                ScreenFrameReader(provider: themeAnchorProvider)
+            }
         }
     }
 

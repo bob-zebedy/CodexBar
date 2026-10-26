@@ -135,10 +135,14 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: RunLoop.main)
             .sink { [weak self] theme in
                 guard let self,
-                      theme == appearanceSettings.theme,
-                      NSApplication.shared.appearance?.name != theme.appearance?.name else { return }
-                NSApplication.shared.appearance = theme.appearance
-                statusItemController?.applyAppearance(theme.appearance)
+                      theme == appearanceSettings.theme else { return }
+                // 连续选择只应用最终主题及其来源, 即使外观未变也要消费本次圆心
+                let origin = appearanceSettings.takeTransitionOrigin()
+                guard NSApplication.shared.appearance?.name != theme.appearance?.name else { return }
+                appearanceTransition?.performChange(from: origin) {
+                    NSApplication.shared.appearance = theme.appearance
+                    statusItemController?.applyAppearance(theme.appearance)
+                }
             }
     }
 
@@ -197,12 +201,14 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// 启动时把各开关的初始值记成一条基线, 之后的变更日志都是相对这条基线的增量
-    /// 排查时先看这条就知道当时的配置, 不必让用户逐项回忆
     private func logLaunchState() {
         // 先拼成普通字符串再交给 Logger, 避免在日志 autoclosure 中直接捕获属性
         let state = LogFields.joined(
             "version=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-")",
             "build=\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-")",
+            "theme=\(appearanceSettings.theme.rawValue)",
+            "animations=\(mainPanelSettings.areAnimationsEnabled ? 1 : 0)",
+            "taskGlow=\(taskGlowSettings.isEnabled ? 1 : 0)",
             "keepAlive=\(keepAliveController.isEnabled ? 1 : 0)",
             "keepAliveLimit=\(keepAliveController.maximumDuration.loggedHours)",
             "keepAliveBattery=\(keepAliveController.lowBatteryThreshold.rawValue)",
@@ -215,6 +221,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             "autoResetLeadTimeSeconds=\(autoResetSettings.leadTime.rawValue)",
             "menuBarQuota=\(menuBarQuotaSettings.selection.rawValue)",
             "mainPanel=\(mainPanelSettings.layout.visibleSections.map(\.rawValue).joined(separator: ","))",
+            "usageHeatmapMode=\(mainPanelSettings.usageHeatmapMode.rawValue)",
             "hotKey=\(globalHotKeySettings.shortcut == nil ? 0 : 1)"
         )
         AppLog.app.notice("App 已启动: \(state, privacy: .public)")

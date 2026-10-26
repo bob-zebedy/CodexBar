@@ -931,7 +931,11 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // 主动关闭先清除宿主身份, 避免同步的关闭回调重入清理流程
         activeMenuSurface = .none
         if popover.isShown {
+            let window = popover.contentViewController?.view.window
+            window?.alphaValue = 0
+            AppearanceTransition.dismissSnapshots(in: window)
             popover.performClose(nil)
+            window?.alphaValue = 1
         }
 
         fallbackPanelController.orderOut()
