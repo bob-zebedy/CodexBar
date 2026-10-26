@@ -35,6 +35,7 @@ struct ActivityIsolationTests {
         defer { server.close() }
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
         let logs = AppServerLogStore(directoryURL: directory.url.appendingPathComponent("Logs"))
+        defer { await #expect(throws: Never.self) { try await logs.close() } }
         var received = false
         var liveUsage: Int64?
         let reader = AppServerActivityReader(

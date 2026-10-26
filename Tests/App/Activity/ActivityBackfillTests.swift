@@ -94,6 +94,7 @@ struct ActivityBackfillTests {
         defer { server.close() }
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
         let logs = AppServerLogStore(directoryURL: directory.url.appendingPathComponent("Logs"))
+        defer { await #expect(throws: Never.self) { try await logs.close() } }
         let probe = ActivityReaderProbe()
         var ready = false
         var updates = 0
@@ -124,7 +125,7 @@ struct ActivityBackfillTests {
         #expect(probe.graph.tasks[key]?.state == .running)
         let progress = probe.graph.tasks[key]?.progressGeneration
         let references = [ActivityTurnReference(threadID: "child", turnID: "child-turn")]
-        let before = await reader.lifecycleStatesForTesting(for: references).first
+        let before = await reader.lifecycleSnapshot.lifecycleStates(for: references).first
         #expect(before?.effort == "high")
         if outcome == .stop {
             await reader.stop()
@@ -146,7 +147,7 @@ struct ActivityBackfillTests {
                 }
                 #expect(updates > beforeBackfillUpdates)
             }
-            let after = await reader.lifecycleStatesForTesting(for: references).first
+            let after = await reader.lifecycleSnapshot.lifecycleStates(for: references).first
             #expect(after?.effort == (outcome == .complete ? "mixed" : "high"))
             #expect(after?.verifiedAt == before?.verifiedAt)
             #expect(probe.graph.tasks[key]?.progressGeneration == progress)
@@ -292,11 +293,14 @@ extension ActivityBackfillTests {
             releasePage.signal()
         }
         let cursors = Mutex<[String?]>([])
+        let queriedThreads = Mutex<Set<String>>([])
         let timestamp = Date().addingTimeInterval(-60).timeIntervalSince1970
         let server = try SharedServerFixture(connections: 4, concurrentConnections: true) { peer in
             if try Self.initialize(peer) == "codex_bar_activity_backfill" {
                 let request = try peer.readMessage()
                 let params = try #require(request["params"] as? [String: Any])
+                let threadID = try #require(params["threadId"] as? String)
+                _ = queriedThreads.withLock { $0.insert(threadID) }
                 if params["threadId"] as? String == "child" {
                     try peer.reply(to: request, result: ["data": []])
                     return
@@ -333,24 +337,24 @@ extension ActivityBackfillTests {
         await reader.start()
         let references = [ActivityTurnReference(threadID: "new-child", turnID: "new-child-turn"), .init(threadID: "child", turnID: "child-turn")]
         for _ in 0 ..< 200 {
-            if await reader.lifecycleStatesForTesting(for: references).contains(where: { $0.requestedThreadID == "new-child" && $0.startedAt != nil }) {
+            if await reader.lifecycleSnapshot.lifecycleStates(for: references).contains(where: { $0.requestedThreadID == "new-child" && $0.startedAt != nil }) {
                 break
             }
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(await reader.lifecycleStatesForTesting(for: references).contains { $0.requestedThreadID == "new-child" && $0.startedAt != nil })
+        #expect(await reader.lifecycleSnapshot.lifecycleStates(for: references).contains { $0.requestedThreadID == "new-child" && $0.startedAt != nil })
         releasePage.signal()
         for _ in 0 ..< 200 {
-            if await reader.lifecycleStatesForTesting(for: references).allSatisfy({ $0.effort == "low" }) {
+            if await reader.lifecycleSnapshot.lifecycleStates(for: references).allSatisfy({ $0.effort == "low" }) {
                 break
             }
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(await reader.lifecycleStatesForTesting(for: references).allSatisfy { $0.effort == "low" })
+        #expect(await reader.lifecycleSnapshot.lifecycleStates(for: references).allSatisfy { $0.effort == "low" })
         #expect(cursors.withLock { $0 } == [nil, "older"])
-        #expect(await !reader.historyTargetsForTesting().contains(.init(threadID: "new-child", turnID: "new-child-turn")))
         await reader.stop()
         try server.finish()
+        #expect(queriedThreads.withLock { $0 } == ["parent", "child"])
     }
 
     private nonisolated static func serveNewSubagent(_ peer: SharedServerFixture.Peer, timestamp: Double, firstPage: DispatchSemaphore) throws {
@@ -509,6 +513,8 @@ extension ActivityBackfillTests {
     @Test func taskStartedWhileReaderIsConnectedDoesNotQueryHistory() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
+        let logs = AppServerLogStore(directoryURL: directory.url.appendingPathComponent("Logs"))
+        defer { await #expect(throws: Never.self) { try await logs.close() } }
         let startTask = Mutex(false)
         let server = try SharedServerFixture { peer in
             try Self.initialize(peer)
@@ -542,7 +548,7 @@ extension ActivityBackfillTests {
         let reader = AppServerActivityReader(
             probe: probe,
             socketURL: server.url,
-            logStorage: nil,
+            logStorage: logs,
             tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url),
             activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url)
         ) {
@@ -558,8 +564,8 @@ extension ActivityBackfillTests {
         startTask.withLock { $0 = true }
         #expect(await reader.drainNow().status == .completed)
         #expect(probe.graph.tasks[.init(thread: "main", turn: "root")]?.state == .running)
-        #expect(await reader.historyTargetsForTesting().isEmpty)
         #expect(await reader.stop())
+        #expect(try await !logs.page().entries.contains { $0.method == "thread/items/list" })
         #expect(try directory.historyRecords().allSatisfy { $0.context?.method != "thread/items/list" })
         try server.finish()
     }

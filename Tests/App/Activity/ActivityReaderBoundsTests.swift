@@ -157,13 +157,13 @@ struct ActivityReaderBoundsTests {
         #expect(ready)
         #expect(await reader.drainNow().status == .completed)
         for _ in 0 ..< 200 {
-            let current = await reader.lifecycleStatesForTesting(for: [.init(threadID: "child", turnID: "child-turn")])
+            let current = await reader.lifecycleSnapshot.lifecycleStates(for: [.init(threadID: "child", turnID: "child-turn")])
             if current.first?.effort == "low" {
                 break
             }
             try await Task.sleep(for: .milliseconds(10))
         }
-        let states = await reader.lifecycleStatesForTesting(for: [.init(threadID: "child", turnID: "child-turn")])
+        let states = await reader.lifecycleSnapshot.lifecycleStates(for: [.init(threadID: "child", turnID: "child-turn")])
         let child = try #require(states.first)
         #expect(child.rootThreadID == "parent")
         #expect(child.rootTurnID == "root-turn")

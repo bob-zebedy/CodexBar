@@ -47,6 +47,7 @@ struct StorageRetentionTests {
         defer { try? directory.remove() }
         let clock = RetentionClock()
         let storage = AppServerLogStore(directoryURL: directory.url, now: { clock.read() })
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let expired = storage.beginRequest(method: "expired", payload: "{}")
         let boundary = storage.beginRequest(method: "boundary", payload: "{}")
         let original = try await storage.page()
@@ -61,6 +62,7 @@ struct StorageRetentionTests {
         }
         clock.set(tomorrow)
         let reader = reopen ? AppServerLogStore(directoryURL: directory.url, now: { clock.read() }) : storage
+        defer { await #expect(throws: Never.self) { try await reader.close() } }
         let page = try await reader.page()
         #expect(page.total == 1)
         #expect(page.entries.map(\.id) == [boundary])

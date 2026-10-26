@@ -36,7 +36,7 @@ final nonisolated class AppServerSession {
     init(
         socketURL: URL,
         retainsNotifications: Bool = true,
-        logStorage: AppServerLogStore? = .shared,
+        logStorage: AppServerLogStore?,
         connectionName: String = "activity",
         maximumMessageSize: Int = AppServerSession.defaultMaximumMessageSize
     ) throws {

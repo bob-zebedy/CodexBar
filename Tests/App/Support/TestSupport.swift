@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -106,6 +107,32 @@ nonisolated struct TestDirectory {
 
     func remove() throws {
         try FileManager.default.removeItem(at: url)
+    }
+
+    func removeAfterClosingHistory() async throws {
+        await HistoryDatabaseStore.shared(in: url).releaseConnection()
+        try #require(openFilePaths().isEmpty)
+        try remove()
+    }
+
+    func openFilePaths() throws -> [String] {
+        let byteCount = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, nil, 0)
+        guard byteCount > 0 else { throw POSIXError(.EIO) }
+        var descriptors = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(byteCount) / MemoryLayout<proc_fdinfo>.stride)
+        let written = descriptors.withUnsafeMutableBytes { buffer in
+            proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, buffer.baseAddress, Int32(buffer.count))
+        }
+        guard written > 0 else { throw POSIXError(.EIO) }
+        let prefix = url.resolvingSymlinksInPath().path + "/"
+        return descriptors.prefix(Int(written) / MemoryLayout<proc_fdinfo>.stride).compactMap { descriptor in
+            guard descriptor.proc_fdtype == PROX_FDTYPE_VNODE else { return nil }
+            var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+            guard fcntl(descriptor.proc_fd, F_GETPATH, &path) == 0 else { return nil }
+            let bytes = path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+            guard let value = String(bytes: bytes, encoding: .utf8) else { return nil }
+            let normalized = URL(fileURLWithPath: value).resolvingSymlinksInPath().path
+            return normalized.hasPrefix(prefix) ? value : nil
+        }
     }
 
     func executable(_ body: String, named name: String = "test command") throws -> URL {

@@ -5,17 +5,57 @@ import SQLite3
 import Testing
 
 struct AppServerLogTests {
+    @Test func closeDrainsWritesAndPermanentlyClosesDatabase() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
+        storage.recordFailure(message: "before cleanup")
+        _ = try await storage.page()
+        #expect(try !directory.openFilePaths().isEmpty)
+        storage.recordFailure(message: "queued before cleanup")
+        try await storage.close()
+        try await storage.close()
+        #expect(try directory.openFilePaths().isEmpty)
+        await #expect(throws: AppServerLogStore.LifecycleError.closed) { try await storage.page() }
+        await #expect(throws: AppServerLogStore.LifecycleError.closed) { try await storage.changes(since: 0) }
+        await #expect(throws: AppServerLogStore.LifecycleError.closed) { try await storage.clear() }
+        #expect(try directory.openFilePaths().isEmpty)
+        storage.recordFailure(message: "after cleanup")
+        try await storage.close()
+        let reopened = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await reopened.close() } }
+        let page = try await reopened.page()
+        #expect(page.entries.map(\.detail) == ["queued before cleanup", "before cleanup"])
+    }
+
+    @Test func closePersistsSkippedWriteCountBeforeReleasingConnection() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let storage = AppServerLogStore(directoryURL: directory.url, limits: .init(bytes: 4096))
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
+        storage.recordFailure(message: String(repeating: "a", count: 8192))
+        try await storage.close()
+        #expect(try directory.openFilePaths().isEmpty)
+        let reopened = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await reopened.close() } }
+        let page = try await reopened.page()
+        #expect(page.total == 1)
+        #expect(page.entries.first?.method == "log/backpressure")
+        #expect(page.entries.first?.detail == "Skipped 1 log entries because the write buffer was full")
+    }
+
     @Test(arguments: [false, true])
     func stoppingDuringFirstReadDiscardsResultsAndAllowsReopening(reopenImmediately: Bool) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let writer = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await writer.close() } }
         writer.recordFailure(message: "saved log")
         _ = try await writer.page()
 
         let reads = OSAllocatedUnfairLock(initialState: 0)
         let release = DispatchSemaphore(value: 0)
-        defer { release.signal() }
         let storage = AppServerLogStore(directoryURL: directory.url, now: {
             let firstRead = reads.withLock { count in
                 count += 1
@@ -27,6 +67,8 @@ struct AppServerLogTests {
             }
             return Date()
         })
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
+        defer { release.signal() }
         let model = AppServerLogViewModel(storage: storage)
         defer { model.stop() }
         let firstRead = Task { await model.refresh() }
@@ -65,6 +107,7 @@ struct AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         storage.recordFailure(message: "startup log")
         let model = AppServerLogViewModel(storage: storage)
         defer { model.stop() }
@@ -106,9 +149,11 @@ struct AppServerLogTests {
         sqlite3_close(database)
         let before = try Data(contentsOf: url)
         let store = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await store.close() } }
         store.recordFailure(message: "must not be written")
         await #expect(throws: (any Error).self) { try await store.page() }
         await #expect(throws: (any Error).self) { try await store.clear() }
+        await #expect(throws: (any Error).self) { try await store.close() }
         #expect(try Data(contentsOf: url) == before)
     }
 
@@ -117,6 +162,7 @@ struct AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         for index in 0 ..< entryCount {
             storage.recordFailure(message: "entry-\(index)")
         }
@@ -151,6 +197,7 @@ struct AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         storage.recordFailure(message: "existing")
         let model = AppServerLogViewModel(storage: storage)
         await model.refresh()
@@ -180,6 +227,7 @@ struct AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url, limits: .init(entries: 4))
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         for index in 0 ..< 4 {
             storage.recordFailure(message: "old-\(index)")
         }
@@ -210,6 +258,7 @@ struct AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let first = storage.beginRequest(method: "healthy", payload: "{}")
         storage.finishRequest(first, response: "ok")
         let broken = storage.beginRequest(method: "broken", payload: "{}")
@@ -219,6 +268,7 @@ struct AppServerLogTests {
         defer { sqlite3_close(database) }
         #expect(sqlite3_exec(database, "UPDATE entries SET payload = x'7B' WHERE id = '\(broken.uuidString)'", nil, nil, nil) == SQLITE_OK)
         let reopened = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await reopened.close() } }
         let page = try await reopened.page(limit: 1)
         #expect(page.entries.first?.id == broken)
         #expect(page.entries.first?.method == "log/corrupt")
@@ -230,6 +280,7 @@ struct AppServerLogTests {
         reopened.recordFailure(message: "still writes")
         #expect(try await reopened.page().total == 3)
         let again = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await again.close() } }
         #expect(try await again.page().entries.first(where: { $0.id == broken })?.detail == page.entries.first?.detail)
         try await again.clear()
         #expect(try await again.page().total == 0)
@@ -239,6 +290,7 @@ struct AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         for index in 0 ..< 625 {
             let id = storage.beginRequest(method: "probe/\(index)", payload: "{\"secret\":\"unchanged\",\"index\":\(index)}", connection: "activity")
             storage.finishRequest(id, response: " response \(index)\n")
@@ -250,6 +302,7 @@ struct AppServerLogTests {
         #expect(page.entries.first?.detail == " response 624\n")
         #expect(page.hasMore)
         let reopened = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await reopened.close() } }
         let restored = try await reopened.page(limit: 700)
         #expect(restored.total == 625)
         #expect(restored.entries.count == 625)
@@ -262,6 +315,7 @@ struct AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         var ids: [UUID] = []
         for index in 0 ..< 12 {
             ids.append(storage.beginRequest(method: "probe/\(index)", payload: "{}"))
@@ -285,6 +339,7 @@ struct AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let pending = storage.beginRequest(method: "old", payload: "{}")
         let before = try await storage.page()
         try await storage.clear()
@@ -297,6 +352,7 @@ struct AppServerLogTests {
         #expect(after.generation > before.generation)
         #expect(after.entries.first?.position ?? 0 > before.entries.first?.position ?? 0)
         let reopened = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await reopened.close() } }
         #expect(try await reopened.page().entries.map(\.id) == [new])
     }
 
@@ -304,10 +360,12 @@ struct AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         var writer: AppServerLogStore? = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await writer?.close() } }
         let id = try #require(writer).beginRequest(method: "unfinished", payload: "{}")
         _ = try await writer?.page()
         writer = nil
         let reopened = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await reopened.close() } }
         let entry = try #require(try await reopened.page().entries.first)
         #expect(entry.id == id)
         #expect(entry.status == .failure)
@@ -320,6 +378,7 @@ struct AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         var ids: [UUID] = []
         for index in 0 ..< 9 {
             ids.append(storage.beginRequest(method: "probe/\(index)", payload: "{}"))
@@ -353,11 +412,13 @@ struct AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let id = storage.beginRequest(method: "last", payload: "{}")
         storage.finishRequest(id, response: "saved")
-        try await storage.finish()
+        try await storage.close()
         storage.recordFailure(message: "after shutdown")
         let reopened = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await reopened.close() } }
         let page = try await reopened.page()
         #expect(page.total == 1)
         #expect(page.entries.first?.detail == "saved")
@@ -368,11 +429,14 @@ struct AppServerLogTests {
         defer { try? directory.remove() }
         let file = try directory.write("not a directory", to: "blocked")
         let storage = AppServerLogStore(directoryURL: file)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         storage.recordFailure(message: "recording remains nonthrowing")
         let store = AppServerLogViewModel(storage: storage)
         await store.refresh()
         #expect(store.errorMessage != nil)
         #expect(store.entries.isEmpty)
+        await #expect(throws: (any Error).self) { try await storage.close() }
+        #expect(try directory.openFilePaths().isEmpty)
     }
 }
 
@@ -382,13 +446,15 @@ extension AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let payload = String(repeating: "a", count: bodyBytes - 4) + "🙂"
         let id = storage.beginRequest(method: "large/request", payload: payload)
         storage.finishRequest(id, response: payload)
         storage.recordReceived(method: "large/event", payload: payload, connection: "activity")
-        try await storage.finish()
+        try await storage.close()
 
         let reopened = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await reopened.close() } }
         let page = try await reopened.page()
         let request = try #require(page.entries.first { $0.id == id })
         let event = try #require(page.entries.first { $0.method == "large/event" })
@@ -414,6 +480,7 @@ extension AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url, limits: .init(entries: 10))
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let first = storage.beginRequest(method: "old", payload: "{}")
         let initial = try await storage.page()
         for index in 0 ..< 40 {
@@ -433,6 +500,7 @@ extension AppServerLogTests {
         defer { try? directory.remove() }
         let limits = AppServerLogStore.Limits(entries: 100, bytes: 4096, bodyBytes: 256, pageEntries: 10)
         let storage = AppServerLogStore(directoryURL: directory.url, limits: limits)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let text = String(repeating: "你好🙂", count: 300)
         for index in 0 ..< 30 {
             let id = storage.beginRequest(method: "large-\(index)", payload: text)
@@ -451,8 +519,9 @@ extension AppServerLogTests {
             #expect(entry.request?.contains("Truncated") == true)
             #expect(entry.request?.contains("�") == false)
         }
-        try await storage.finish()
+        try await storage.close()
         let reopened = AppServerLogStore(directoryURL: directory.url, limits: limits)
+        defer { await #expect(throws: Never.self) { try await reopened.close() } }
         #expect(try await reopened.page().total == page.total)
         let size = try directory.url.appendingPathComponent(AppServerLogStore.databaseName)
             .resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
@@ -463,6 +532,7 @@ extension AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url, limits: .init(pageEntries: 5))
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let model = AppServerLogViewModel(storage: storage, pageSize: 3, maximumEntries: 6)
         await model.refresh()
         for index in 0 ..< 20 {
@@ -500,6 +570,7 @@ extension AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let success = storage.beginRequest(method: "success", payload: "{}")
         let failure = storage.beginRequest(method: "failure", payload: "{}")
         let pending = try await storage.page().entries
@@ -517,6 +588,7 @@ extension AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         storage.recordSent(method: "initialized", payload: "{}")
         storage.recordSent(method: "websocket/pong", payload: "ping", error: "disconnected")
         storage.recordReceived(method: "turn/completed", payload: #"{"status":"failed"}"#, connection: "activity")
@@ -536,6 +608,7 @@ extension AppServerLogTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let attempt = storage.recordConnection(method: "connection/open", detail: "socket", connection: "activity", status: .pending)
         #expect(try await storage.page().entries.first?.status == .pending)
         storage.finishRequest(attempt, response: "socket")
@@ -548,6 +621,7 @@ extension AppServerLogTests {
         #expect(entries.first { $0.id == handshake }?.status == .failure)
         #expect(entries.first { $0.method == "connection/closed" }?.status == .information)
         let reopened = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await reopened.close() } }
         #expect(try await reopened.page().entries == entries)
     }
 }

@@ -3,6 +3,18 @@ import SQLite3
 import Testing
 
 struct HistoryDatabaseStoreTests {
+    @Test func releasingConnectionPreservesCommittedData() async throws {
+        let directory = try TestDirectory()
+        defer { await #expect(throws: Never.self) { try await directory.removeAfterClosingHistory() } }
+        let store = HistoryDatabaseStore.shared(in: directory.url)
+        try await store.access { try $0.execute("INSERT INTO days(date) VALUES ('committed')") }
+        #expect(try !directory.openFilePaths().isEmpty)
+        await store.releaseConnection()
+        await store.releaseConnection()
+        #expect(try directory.openFilePaths().isEmpty)
+        #expect(try await store.access { try $0.dates() } == ["committed"])
+    }
+
     @Test func activityAndTokenWritersUseTheSharedConnection() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
@@ -125,8 +137,13 @@ struct HistoryDatabaseStoreTests {
     @Test func replacingDatabaseReopensConnectionAndDiscardsThreadSnapshots() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let store = HistoryDatabaseStore.shared(in: directory.url)
-        let tokens = TokenUsageHistoryStore(directoryURL: directory.url)
+        let activeDirectory = directory.url.appendingPathComponent("active", isDirectory: true)
+        let store = HistoryDatabaseStore.shared(in: activeDirectory)
+        defer {
+            await store.releaseConnection()
+            #expect(throws: Never.self) { try #require(directory.openFilePaths().isEmpty) }
+        }
+        let tokens = TokenUsageHistoryStore(directoryURL: activeDirectory)
         let now = Date()
         let first = Self.observation(tokens: 5, at: now)
         try await tokens.appendObservation(first)
@@ -134,9 +151,9 @@ struct HistoryDatabaseStoreTests {
         let replacementDirectory = directory.url.appendingPathComponent("replacement", isDirectory: true)
         let replacement = Self.observation(tokens: 20, at: now)
         try HistoryDatabase(directoryURL: replacementDirectory).append(AppServerEventRecord(tokenUsage: replacement, recordedAt: now))
-        let url = directory.url.appendingPathComponent("event.db")
-        try FileManager.default.moveItem(at: url, to: directory.url.appendingPathComponent("previous.db"))
-        try FileManager.default.moveItem(at: replacementDirectory.appendingPathComponent("event.db"), to: url)
+        // 替换容器目录以改变数据库身份, 避免直接重命名 SQLite 监视的文件
+        try FileManager.default.moveItem(at: activeDirectory, to: directory.url.appendingPathComponent("previous", isDirectory: true))
+        try FileManager.default.moveItem(at: replacementDirectory, to: activeDirectory)
         #expect(try await tokens.snapshot(threadID: "thread").turns["turn"]?.totalTokens == 20)
         #expect(try await store.access { try $0.dates() } == [HistoryStorage.dateKey(for: now)])
     }

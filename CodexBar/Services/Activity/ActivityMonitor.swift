@@ -77,7 +77,6 @@ final class ActivityMonitor: ObservableObject {
     @Published var isActivitySourceHealthy = false
     @Published private(set) var sourcePresentation: ActivityLiveLabel? = ActivityLiveLabel("unavailable")
     private var hasConnectedActivitySource = false
-    private var unavailableTurns = Set<ActivityTaskKey>()
     var isProtectionRecoveryInProgress = false
     var protectionRecoveryGeneration: UInt64 = 0
     private var cancellables = Set<AnyCancellable>()
@@ -86,14 +85,18 @@ final class ActivityMonitor: ObservableObject {
     var isBootstrapping = false
     var turnTransitionNotBefore: Date?
 
+    private let logStorage: AppServerLogStore?
+
     init(
         protectionSettings: ProtectionSettings,
         protectionStore: ProtectionStore = ProtectionStore(),
-        activityDataDirectoryURL: URL = AppStorage.directoryURL()
+        activityDataDirectoryURL: URL = AppStorage.directoryURL(),
+        logStorage: AppServerLogStore? = nil
     ) {
         self.protectionSettings = protectionSettings
         self.protectionStore = protectionStore
         self.activityDataDirectoryURL = activityDataDirectoryURL
+        self.logStorage = logStorage
     }
 
     func start() {
@@ -242,6 +245,7 @@ final class ActivityMonitor: ObservableObject {
         activityReaderGeneration &+= 1
         let generation = activityReaderGeneration
         let reader = AppServerActivityReader(
+            logStorage: logStorage,
             tokenUsageHistory: TokenUsageHistoryStore(directoryURL: activityDataDirectoryURL),
             activityDataRecorder: ActivityDataRecorder(directoryURL: activityDataDirectoryURL),
             onAccountChange: { [weak self] change in
@@ -364,7 +368,6 @@ final class ActivityMonitor: ObservableObject {
         publishedRevision = update.revision
         let previous = graph.tasks
         graph = update.graph
-        unavailableTurns = graph.unavailableTurns
         for (key, old) in previous {
             guard let task = tasks[key] else {
                 clearProtection(for: key, taskID: old.displayID, reason: .terminal)
@@ -480,7 +483,7 @@ final class ActivityMonitor: ObservableObject {
 
     private func sortedTasks(in state: ActivityTaskState) -> [ActivityTask] {
         tasks.values
-            .filter { $0.state == state && suppressedTasks[$0.key] == nil && !unavailableTurns.contains($0.key) }
+            .filter { $0.state == state && suppressedTasks[$0.key] == nil && !graph.unavailableTurns.contains($0.key) }
             .sorted(by: Self.recentFirst(\.lastActivityAt, \.displayID))
     }
 

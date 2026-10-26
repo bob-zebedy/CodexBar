@@ -77,7 +77,7 @@ struct AppServerRequestBudgetTests {
         defer { server.close() }
         let socketURL = server.url
         try await Task.detached {
-            let service = CodexStatusService(socketURL: socketURL)
+            let service = CodexStatusService(socketURL: socketURL, logStorage: nil)
             do {
                 _ = try await service.consumeResetCredit(
                     id: "test-credit", idempotencyKey: "test-key",

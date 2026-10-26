@@ -231,6 +231,7 @@ struct AppServerSessionTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let (filtered, retained) = try logDeliveryMessages()
         let messages = filtered + retained
         let server = try SharedServerFixture { peer in
@@ -288,6 +289,7 @@ struct AppServerSessionTests {
         #expect(page.entries.first { $0.method == "probe" }?.status == .success)
         #expect(page.entries.contains { $0.method == "connection/closed" })
         let reopened = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await reopened.close() } }
         #expect(try await reopened.page(limit: 200).entries == page.entries)
     }
 
@@ -484,6 +486,7 @@ struct AppServerSessionTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let server = try SharedServerFixture { peer in
             let request = try peer.readMessage()
             try peer.send(["id": #require(request["id"]), "error": ["message": "body and secret", "code": -1]])
@@ -511,6 +514,7 @@ struct AppServerSessionTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let server = try SharedServerFixture { peer in
             let request = try peer.readMessage()
             try peer.send(["method": "thread/tokenUsage/updated", "params": ["token": 123]])
@@ -558,6 +562,7 @@ struct AppServerSessionTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
         let server = try SharedServerFixture { peer in
             _ = try peer.readMessage()
             try peer.sendRaw(Data("{broken JSON".utf8))

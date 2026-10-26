@@ -342,7 +342,7 @@ extension ActivitySchedulingTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         #expect(await reader.drainNow().status == .partial)
-        let state = await reader.lifecycleStatesForTesting(for: [.init(threadID: "thread", turnID: "turn")]).first
+        let state = await reader.lifecycleSnapshot.lifecycleStates(for: [.init(threadID: "thread", turnID: "turn")]).first
         #expect(state?.presentation?.summary.waiting != nil)
         await reader.stop()
         release.signal()
@@ -393,7 +393,7 @@ extension ActivitySchedulingTests {
         #expect(probe.graph.tasks[.init(thread: "thread", turn: "turn")] == nil)
         #expect(probe.graph.tasks[.init(thread: "thread", turn: "new-turn")]?.state == .running)
         #expect(probe.graph.completions.count == 1)
-        let old = await reader.lifecycleStatesForTesting(for: [.init(threadID: "thread", turnID: "turn")]).first
+        let old = await reader.lifecycleSnapshot.lifecycleStates(for: [.init(threadID: "thread", turnID: "turn")]).first
         #expect(old?.terminal != nil)
         #expect(old?.turnStatus == .completed)
         await reader.stop()

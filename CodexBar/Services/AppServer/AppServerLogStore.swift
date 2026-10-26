@@ -12,11 +12,11 @@ nonisolated struct AppServerLogPage: Sendable {
 
 /// SQLite 连接和全部可变状态仅在 queue 上访问, 请求线程只提交有序写入
 final nonisolated class AppServerLogStore: @unchecked Sendable {
-    #if CODEXBAR_TESTING
-        static let shared = AppServerLogStore(directoryURL: FileManager.default.temporaryDirectory.appendingPathComponent("CodexBarTestLogs-\(UUID().uuidString)"))
-    #else
-        static let shared = AppServerLogStore(directoryURL: defaultDirectory)
-    #endif
+    static let shared = AppServerLogStore(directoryURL: defaultDirectory)
+
+    enum LifecycleError: Error {
+        case closed
+    }
 
     static var defaultDirectory: URL {
         AppStorage().logDirectoryURL
@@ -57,6 +57,37 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
     deinit {
         if let database {
             sqlite3_close(database)
+        }
+    }
+
+    /// 排空此前提交的操作并关闭连接, 可重复调用
+    /// 关闭后的写入丢弃, 读取和清空操作报错, 不会重新打开数据库
+    func close() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            queue.async { [self] in
+                let shouldFinish = !isFinished
+                isFinished = true
+                let finishing = Result {
+                    guard shouldFinish else { return }
+                    try prepareForAccess()
+                    try reclaimSpaceIfNeeded()
+                    try execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    if let writeError {
+                        throw StorageError(message: writeError)
+                    }
+                }
+                do {
+                    if let database {
+                        guard sqlite3_close(database) == SQLITE_OK else { throw failure() }
+                        self.database = nil
+                    }
+                    writeError = nil
+                    try finishing.get()
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
     }
 
@@ -182,14 +213,6 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
         }
     }
 
-    /// 正常退出时排空已提交写入, 之后到达的网络回调不再追加日志
-    func finish() async throws {
-        try await perform { storage in
-            storage.isFinished = true
-            try storage.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        }
-    }
-
     private func append(_ entry: AppServerLogEntry) {
         let entry = entry.bounded(to: limits.bodyBytes)
         enqueue(cost: (entry.request?.utf8.count ?? 0) + (entry.detail?.utf8.count ?? 0)
@@ -250,23 +273,8 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [self] in
                 do {
-                    try open()
-                    try transaction { try pruneIfNeeded() }
-                    admissionLock.lock()
-                    let dropped = droppedEntries
-                    droppedEntries = 0
-                    admissionLock.unlock()
-                    if dropped > 0, !isFinished {
-                        let entry = AppServerLogEntry(
-                            id: UUID(),
-                            requestedAt: Date(),
-                            source: .local, status: .failure,
-                            method: "log/backpressure",
-                            request: nil,
-                            detail: "Skipped \(dropped) log entries because the write buffer was full"
-                        )
-                        try transaction { try save(entry, inserting: true) }
-                    }
+                    guard !isFinished else { throw LifecycleError.closed }
+                    try prepareForAccess()
                     let result = try operation(self)
                     try reclaimSpaceIfNeeded()
                     if let writeError {
@@ -277,6 +285,26 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
                     continuation.resume(throwing: error)
                 }
             }
+        }
+    }
+
+    private func prepareForAccess() throws {
+        try open()
+        try transaction { try pruneIfNeeded() }
+        admissionLock.lock()
+        let dropped = droppedEntries
+        droppedEntries = 0
+        admissionLock.unlock()
+        if dropped > 0 {
+            let entry = AppServerLogEntry(
+                id: UUID(),
+                requestedAt: Date(),
+                source: .local, status: .failure,
+                method: "log/backpressure",
+                request: nil,
+                detail: "Skipped \(dropped) log entries because the write buffer was full"
+            )
+            try transaction { try save(entry, inserting: true) }
         }
     }
 

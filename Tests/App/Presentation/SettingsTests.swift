@@ -71,7 +71,7 @@ struct SettingsTests {
     }
 
     private nonisolated func makeStatusService(suiteName: String) -> CodexStatusService {
-        CodexStatusService(socketURL: URL(fileURLWithPath: "/tmp/\(suiteName).sock"))
+        CodexStatusService(socketURL: URL(fileURLWithPath: "/tmp/\(suiteName).sock"), logStorage: nil)
     }
 
     @Test func mainPanelAnimationsPreserveStoredPreferenceAndDefault() throws {

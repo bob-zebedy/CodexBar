@@ -39,12 +39,6 @@ final class NotificationService: NSObject {
     private var cancellables = Set<AnyCancellable>()
     private var taskHapticFeedbackTask: Task<Void, Never>?
     private var taskWaitingNotificationIdentifiers = Set<String>()
-    #if CODEXBAR_TESTING
-        private(set) var lastSubmissionTaskForTesting: Task<Bool, Never>?
-        var taskWaitingNotificationIdentifiersForTesting: Set<String> {
-            taskWaitingNotificationIdentifiers
-        }
-    #endif
     private let creditExpiryReminderScheduler = ReminderCheckScheduler()
     private var latestQuotaSnapshot: CodexQuotaSnapshot?
 
@@ -143,22 +137,23 @@ final class NotificationService: NSObject {
 
     // MARK: - 任务提醒
 
-    private func handleActivityTransition(_ transition: ActivityTransition) {
+    @discardableResult
+    func handleActivityTransition(_ transition: ActivityTransition) -> Task<Bool, Never>? {
         performTaskHapticFeedbackIfEnabled()
 
         guard settings.canDeliver else {
-            return
+            return nil
         }
 
         switch transition {
         case let .waiting(task, _):
             guard settings.isTaskWaitingEnabled else {
-                return
+                return nil
             }
             let taskID = task.id
             let identifier = Self.taskWaitingNotificationIdentifier(for: taskID)
             taskWaitingNotificationIdentifiers.insert(identifier)
-            send(
+            return send(
                 .taskWaiting(project: task.projectName, actionText: task.approvalActionText),
                 sound: settings.taskWaitingSound,
                 identifier: identifier,
@@ -173,9 +168,9 @@ final class NotificationService: NSObject {
             guard settings.isTaskCompletionEnabled,
                   let duration = completion.duration,
                   duration >= TimeInterval(settings.taskCompletionMinimumDurationSeconds) else {
-                return
+                return nil
             }
-            send(
+            return send(
                 .taskCompleted(project: completion.projectName, duration: duration),
                 sound: settings.taskCompletionSound
             )
@@ -631,7 +626,7 @@ final class NotificationService: NSObject {
             content: content,
             trigger: nil
         )
-        let task = Task { @MainActor [weak self] in
+        return Task { @MainActor [weak self] in
             await self?.deliver(
                 request,
                 kind: kind,
@@ -641,10 +636,6 @@ final class NotificationService: NSObject {
                 retryCount: retryCount
             ) ?? false
         }
-        #if CODEXBAR_TESTING
-            lastSubmissionTaskForTesting = task
-        #endif
-        return task
     }
 
     /// 返回值是"这条通知真的提交出去了", 调用方据此决定要不要记下已通知

@@ -422,7 +422,7 @@ struct SyncRecoveryTests {
 
     @Test func sameSourceRecalculationCanReduceCountsWithoutDeletingRecord() async throws {
         let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
+        defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         let before = try #require(await fixture.database.activityDataRecords().first)
         let result = try await fixture.history.rebuildData(for: [fixture.date], synchronize: true)
         let after = try #require(await fixture.database.activityDataRecords().first)
@@ -477,7 +477,7 @@ struct SyncRecoveryTests {
 
     @Test func recreatedJournalReplacesSameDeviceDateInsteadOfAddingAnotherBatch() async throws {
         let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
+        defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         let previous = try #require(await fixture.database.activityDataRecords().first)
         let event = TestFixtures.event(.toolStarted, at: Date(), turn: "different")
         try fixture.directory.replaceHistory(
@@ -497,7 +497,7 @@ struct SyncRecoveryTests {
 
     @Test func unknownCloudVersionPreservesCacheAndPreventsActivityDataUpload() async throws {
         let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
+        defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         let cacheURL = fixture.directory.url.appendingPathComponent("Sync/activityData.json")
         let before = try Data(contentsOf: cacheURL)
         let unsupported = CKRecord(recordType: "ActivityData", recordID: CKRecord.ID(recordName: "future", zoneID: Self.zone))
@@ -700,7 +700,7 @@ private actor SyncDatabaseFixture: SyncDatabase {
 extension SyncRecoveryTests {
     @Test func failedUploadPreservesRemoteAndRetriesAfterRestart() async throws {
         let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
+        defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         let outcome = try await fixture.history.rebuildData(for: [fixture.date], synchronize: false)
         #expect(outcome.summary.isSyncPending)
         await fixture.database.failActivityDataUpload(on: fixture.date)
@@ -716,7 +716,7 @@ extension SyncRecoveryTests {
 
     @Test func repeatedRebuildKeepsSourceAndNeedsNoSeparateAcknowledgement() async throws {
         let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
+        defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         let initial = try await fixture.history.rebuildData(for: [fixture.date], synchronize: false)
         #expect(initial.summary.failedTokenUsageDateKeys.isEmpty)
         #expect(!initial.summary.didFailTokenUsageRebuild)
@@ -730,7 +730,7 @@ extension SyncRecoveryTests {
 
     @Test func unavailableSourceCannotOverwriteRemoteAndRecoversAfterRepair() async throws {
         let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
+        defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         let local = try HistoryDatabase(directoryURL: fixture.directory.url)
         let original = try local.exportJSONLines(date: fixture.date)
         try local.execute("UPDATE events SET payload = ?", [.data(Data("broken".utf8))])
@@ -749,7 +749,7 @@ extension SyncRecoveryTests {
 
     @Test func requestSaveFailureDoesNotModifyAggregateOrCloud() async throws {
         let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
+        defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         let local = try HistoryDatabase(directoryURL: fixture.directory.url)
         let original = try local.activityDataAggregates()
         try local.execute("CREATE TRIGGER reject_aggregate BEFORE UPDATE ON aggregates BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
@@ -762,7 +762,7 @@ extension SyncRecoveryTests {
 
     @Test func disabledSyncKeepsUpdatedAggregateForNextEnabledRun() async throws {
         let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
+        defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         let disabled = SyncService(database: fixture.database, directoryURL: fixture.directory.url, isEnabled: { false })
         let history = HistoryService(directoryURL: fixture.directory.url, syncService: disabled)
         _ = try await history.rebuildData(for: [fixture.date], synchronize: true)
@@ -773,7 +773,7 @@ extension SyncRecoveryTests {
 
     @Test func appendedEventsUpdateSameDeviceDailyCounts() async throws {
         let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
+        defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         let activityDataRecorder = ActivityDataRecorder(directoryURL: fixture.directory.url)
         let event = ActivityDataRecord(
             timestamp: Date(),
@@ -798,7 +798,7 @@ extension SyncRecoveryTests {
 
     @Test func unavailableTokenUsageHistoryMarksAllRequestedDatesFailed() async throws {
         let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
+        defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         let brokenDirectory = try TestDirectory()
         defer { try? brokenDirectory.remove() }
         _ = try brokenDirectory.write(Data("broken".utf8), to: "event.db")
@@ -820,7 +820,7 @@ extension SyncRecoveryTests {
 
     @Test func partialTokenUsageFailureIsReportedWithoutClaimingWholeDaySuccess() async throws {
         let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
+        defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         let now = Date()
         let good = TestFixtures.tokenUsageObservation(id: "good", at: now, tokenUsage: .zero)
         let bad = TokenUsageObservation(id: "bad", observedAt: now, previous: Self.counts(10), current: TokenUsageUpdate(total: .zero, last: .zero))
@@ -865,7 +865,7 @@ private struct HistoryRebuildFixture {
 extension SyncRecoveryTests {
     @Test func rebuildUploadsAlgorithmVersionEvenWhenCountsAreUnchanged() async throws {
         let fixture = try await HistoryRebuildFixture()
-        defer { try? fixture.directory.remove() }
+        defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         var previous = fixture.local
         previous.aggregationVersion = 1
         try HistoryDatabase(directoryURL: fixture.directory.url).execute(

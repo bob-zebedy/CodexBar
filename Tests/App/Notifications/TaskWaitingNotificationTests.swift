@@ -4,19 +4,32 @@ import UserNotifications
 
 struct TaskWaitingNotificationTests {
     @Test(arguments: [false, true])
+    func monitorTransitionDeliversAndSnapshotWithdrawsNotification(blockingInput: Bool) async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try await fixture.start()
+        try fixture.publishWaiting(blockingInput: blockingInput)
+        try await waitUntil { fixture.delivery.delivered == [fixture.identifier] }
+        #expect(fixture.delivery.attempts == [fixture.identifier])
+        try fixture.resolveWaiting()
+        #expect(fixture.delivery.delivered.isEmpty)
+        #expect(fixture.delivery.removals == [[fixture.identifier]])
+    }
+
+    @Test(arguments: [false, true])
     func resolvedBeforeSubmissionSkipsDeliveryAndClearsTracking(blockingInput: Bool) async throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
         try await fixture.start()
         let submission = try fixture.enterWaiting(blockingInput: blockingInput)
-        #expect(fixture.service.taskWaitingNotificationIdentifiersForTesting == [fixture.identifier])
 
         try fixture.resolveWaiting()
-        #expect(fixture.service.taskWaitingNotificationIdentifiersForTesting.isEmpty)
         #expect(fixture.delivery.attempts.isEmpty)
         #expect(await submission.value == false)
         #expect(fixture.delivery.attempts.isEmpty)
         #expect(fixture.delivery.delivered.isEmpty)
+        #expect(fixture.delivery.removals == [[fixture.identifier]])
+        try fixture.resolveWaiting()
         #expect(fixture.delivery.removals == [[fixture.identifier]])
     }
 
@@ -30,14 +43,12 @@ struct TaskWaitingNotificationTests {
         try await waitUntil { fixture.delivery.hasPendingSubmission }
 
         try fixture.resolveWaiting()
-        #expect(fixture.service.taskWaitingNotificationIdentifiersForTesting.isEmpty)
         #expect(fixture.delivery.removals == [[fixture.identifier]])
         fixture.delivery.resumeSubmission()
         #expect(await submission.value == false)
         #expect(fixture.delivery.attempts.count == 1)
         #expect(fixture.delivery.delivered.isEmpty)
         #expect(fixture.delivery.removals == [[fixture.identifier], [fixture.identifier]])
-        #expect(fixture.service.taskWaitingNotificationIdentifiersForTesting.isEmpty)
     }
 
     @Test(arguments: [false, true])
@@ -48,14 +59,14 @@ struct TaskWaitingNotificationTests {
         let submission = try fixture.enterWaiting(blockingInput: blockingInput)
         #expect(await submission.value)
         #expect(fixture.delivery.delivered == [fixture.identifier])
-        #expect(fixture.service.taskWaitingNotificationIdentifiersForTesting == [fixture.identifier])
 
         try fixture.resolveWaiting(keepsNonblockingQuestion: true)
         #expect(fixture.monitor.snapshot.panelWaitingTasks.count == 1)
         #expect(fixture.monitor.snapshot.blockingWaitingTaskIDs.isEmpty)
         #expect(fixture.delivery.delivered.isEmpty)
         #expect(fixture.delivery.removals == [[fixture.identifier]])
-        #expect(fixture.service.taskWaitingNotificationIdentifiersForTesting.isEmpty)
+        try fixture.resolveWaiting()
+        #expect(fixture.delivery.removals == [[fixture.identifier]])
     }
 
     @Test(arguments: [false, true])
@@ -68,7 +79,6 @@ struct TaskWaitingNotificationTests {
         #expect(await submission.value == false)
         #expect(fixture.delivery.attempts.count == 2)
         #expect(fixture.monitor.snapshot.blockingWaitingTaskIDs == [fixture.taskID])
-        #expect(fixture.service.taskWaitingNotificationIdentifiersForTesting.isEmpty)
         #expect(fixture.delivery.delivered.isEmpty)
         #expect(fixture.delivery.removals.isEmpty)
 
@@ -79,7 +89,8 @@ struct TaskWaitingNotificationTests {
         #expect(fixture.delivery.delivered == [fixture.identifier])
         try fixture.resolveWaiting()
         #expect(fixture.delivery.removals == [[fixture.identifier]])
-        #expect(fixture.service.taskWaitingNotificationIdentifiersForTesting.isEmpty)
+        try fixture.resolveWaiting()
+        #expect(fixture.delivery.removals == [[fixture.identifier]])
     }
 }
 
@@ -139,6 +150,17 @@ private final class Fixture {
     }
 
     func enterWaiting(blockingInput: Bool) throws -> Task<Bool, Never> {
+        let transition = try waitingTransition(blockingInput: blockingInput)
+        monitor.acceptFixtureGraph(graph)
+        return try #require(service.handleActivityTransition(transition))
+    }
+
+    func publishWaiting(blockingInput: Bool) throws {
+        let transition = try waitingTransition(blockingInput: blockingInput)
+        monitor.acceptFixtureGraph(graph, transitions: [transition])
+    }
+
+    private func waitingTransition(blockingInput: Bool) throws -> ActivityTransition {
         let now = Date()
         if blockingInput {
             graph.tasks[key]?.executions[owner]?.presentation = try question(blocking: true, at: now)
@@ -146,8 +168,7 @@ private final class Fixture {
             _ = graph.tasks[key]?.recordApprovalRequest(from: TestFixtures.event(.approvalRequested, at: now))
         }
         let snapshot = try #require(graph.tasks[key]?.snapshot)
-        monitor.acceptFixtureGraph(graph, transitions: [.waiting(snapshot, since: now)])
-        return try #require(service.lastSubmissionTaskForTesting)
+        return .waiting(snapshot, since: now)
     }
 
     func resolveWaiting(keepsNonblockingQuestion: Bool = false) throws {

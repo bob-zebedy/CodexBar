@@ -81,7 +81,7 @@ final class CodexStatusViewModel: ObservableObject {
     private var connectionInfoGeneration: UInt64 = 0
 
     init(
-        service: CodexStatusService = CodexStatusService(),
+        service: CodexStatusService,
         serviceStatusMonitor: CodexServiceStatusMonitor? = nil,
         defaults: UserDefaults = .standard
     ) {

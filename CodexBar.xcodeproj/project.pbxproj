@@ -62,6 +62,8 @@
 /* Begin PBXFileReference section */
 		B10000000000000000000014 /* CodexBarPowerHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = CodexBarPowerHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		C449FB5030203E0000ED2123 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
+		A82000000000000000000001 /* Standard.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Standard.xctestplan; sourceTree = "<group>"; };
+		A82000000000000000000002 /* Sanitizers.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Sanitizers.xctestplan; sourceTree = "<group>"; };
 		C4A0FD952FD9302E000263A7 /* CodexBar Debug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "CodexBar Debug.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D10000000000000000000002 /* CodexBarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E10000000000000000000002 /* CodexBarPowerHelperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarPowerHelperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -149,6 +151,7 @@
 		D10000000000000000000003 /* Exceptions for "CodexBar" folder in "CodexBarTests" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				App/CodexBarMain.swift,
 				Resources/AppIcon.icon,
 				Resources/Info.plist,
 			);
@@ -241,6 +244,8 @@
 			isa = PBXGroup;
 			children = (
 				C449FB5030203E0000ED2123 /* Version.xcconfig */,
+				A82000000000000000000001 /* Standard.xctestplan */,
+				A82000000000000000000002 /* Sanitizers.xctestplan */,
 			);
 			path = Config;
 			sourceTree = "<group>";
@@ -552,6 +557,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODEXBAR_POWER_HELPER_MANAGER_WRAPPER_NAME = "CodexBar Power Helper Debug.app";
+				COMPILATION_CACHE_ENABLE_CACHING = YES;
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
@@ -623,6 +629,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODEXBAR_POWER_HELPER_MANAGER_WRAPPER_NAME = "CodexBar Power Helper.app";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				COMPILATION_CACHE_ENABLE_CACHING = YES;
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
@@ -658,7 +665,6 @@
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -673,7 +679,6 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				REGISTER_APP_GROUPS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -691,7 +696,6 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -707,7 +711,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "$(CODEXBAR_PROVISIONING_PROFILE_SPECIFIER)";
-				REGISTER_APP_GROUPS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -729,7 +732,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) CODEXBAR_TESTING";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -751,7 +753,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) CODEXBAR_TESTING";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -886,7 +887,7 @@
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.10.0;
+				minimumVersion = 2.10.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

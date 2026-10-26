@@ -5,7 +5,7 @@ import os
 /// 应用级对象装配点, 持有服务和 ViewModel 生命周期
 @MainActor
 final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
-    private lazy var codexStatusService = CodexStatusService(startup: appServerStartup)
+    private lazy var codexStatusService = CodexStatusService(logStorage: .shared, startup: appServerStartup)
     private lazy var appServerStartup = AppServerStartup()
     lazy var viewModel = CodexStatusViewModel(service: codexStatusService, serviceStatusMonitor: serviceStatusMonitor)
     let historyViewModel = HistoryViewModel()
@@ -14,7 +14,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     )
     let protectionSettings = ProtectionSettings()
     lazy var activityMonitor = ActivityMonitor(
-        protectionSettings: protectionSettings
+        protectionSettings: protectionSettings, logStorage: .shared
     )
     lazy var keepAliveController = KeepAliveController(
         activityMonitor: activityMonitor
@@ -181,7 +181,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             if success {
-                do { try await AppServerLogStore.shared.finish() } catch {
+                do { try await AppServerLogStore.shared.close() } catch {
                     AppLog.app.error("退出 App 前日志写入失败")
                 }
             }

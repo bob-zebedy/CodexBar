@@ -3,8 +3,6 @@ import Foundation
 
 @MainActor
 final class AppServerLogViewModel: ObservableObject {
-    static let shared = AppServerLogViewModel()
-
     @Published private(set) var entries: [AppServerLogEntry] = []
     @Published private(set) var totalCount = 0
     @Published private(set) var hasMore = false
@@ -22,7 +20,7 @@ final class AppServerLogViewModel: ObservableObject {
     private var observation: Task<Void, Never>?
     private var observationGeneration = 0
 
-    init(storage: AppServerLogStore = .shared, pageSize: Int = 100, maximumEntries: Int = 1000) {
+    init(storage: AppServerLogStore, pageSize: Int = 100, maximumEntries: Int = 1000) {
         self.storage = storage
         self.pageSize = min(pageSize, maximumEntries)
         self.maximumEntries = maximumEntries

@@ -45,7 +45,7 @@ struct JSONFileStorageTests {
         let first = try #require(try JSONFileStorage.acquireLock(at: directory.url.appendingPathComponent("first/store.lock"), nonblocking: true))
         defer { JSONFileStorage.releaseLock(first) }
         let second = try #require(try JSONFileStorage.acquireLock(at: directory.url.appendingPathComponent("second/store.lock"), nonblocking: true))
-        defer { JSONFileStorage.releaseLock(second) }
+        JSONFileStorage.releaseLock(second)
     }
 
     @Test nonisolated func storageFailureIsDistinctFromLockContention() throws {

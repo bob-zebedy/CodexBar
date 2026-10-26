@@ -22,7 +22,6 @@ buildServer.json
 # Swift Package Manager
 .build/
 .swiftpm/
-Package.resolved
 
 # Code signing inspection output
 codesign0

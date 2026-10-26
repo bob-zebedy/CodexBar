@@ -130,7 +130,7 @@ actor AppServerActivityReader {
 
     init(
         socketURL: URL = AppServerActivityReader.defaultSocketURL,
-        logStorage: AppServerLogStore? = .shared,
+        logStorage: AppServerLogStore?,
         tokenUsageHistory: TokenUsageHistoryStore = TokenUsageHistoryStore(),
         activityDataRecorder: ActivityDataRecorder = ActivityDataRecorder(),
         maximumPendingEvents: Int = 4096,
@@ -906,15 +906,9 @@ actor AppServerActivityReader {
         await publish(.lifecycleChanged)
     }
 
-    #if CODEXBAR_TESTING
-        func historyTargetsForTesting() -> Set<ActivityTurnReference> {
-            Set(backfillScans.keys)
-        }
-
-        func lifecycleStatesForTesting(for references: [ActivityTurnReference]) -> [TurnLifecycleState] {
-            TurnLifecycleSnapshot(states: reducer.states, verifiedTurns: verifiedTurns).lifecycleStates(for: references)
-        }
-    #endif
+    var lifecycleSnapshot: TurnLifecycleSnapshot {
+        TurnLifecycleSnapshot(states: reducer.states, verifiedTurns: verifiedTurns)
+    }
 
     private func publish(_ phase: ActivityUpdate.Phase, events: [ActivityDataRecord] = []) async {
         if case .bootstrapStart = phase {
@@ -925,7 +919,6 @@ actor AppServerActivityReader {
         } else {
             .bootstrap
         }
-        let lifecycleSnapshot = TurnLifecycleSnapshot(states: reducer.states, verifiedTurns: verifiedTurns)
         let transitions = taskGraph.update(events: events, source: source, lifecycle: lifecycleSnapshot)
         let terminalEvents = taskGraph.terminalEvents
         let backfilledTasks = taskGraph.backfilledTasks

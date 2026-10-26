@@ -10,7 +10,7 @@ final class LogWindowController: HostingWindowController {
 
     init(
         mainPanelSettings: MainPanelSettings,
-        store: AppServerLogViewModel = .shared,
+        store: AppServerLogViewModel = AppServerLogViewModel(storage: .shared),
         screenProvider: @escaping () -> NSScreen?
     ) {
         self.store = store

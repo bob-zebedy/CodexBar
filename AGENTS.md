@@ -61,10 +61,13 @@ CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, Swi
 ## 构建、测试与开发命令
 
 - `xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build` 执行代码变更后的构建验证
-- `xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'platform=macOS' test` 执行无宿主单元测试
+- `env -u CC -u CXX xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'platform=macOS' -testPlan Standard test` 执行日常无宿主单元测试
+- `env -u CC -u CXX xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'platform=macOS' -testPlan Sanitizers test` 分别运行 TSan 和 ASan 诊断；使用 `-only-test-configuration ThreadSanitizer` 或 `-only-test-configuration AddressSanitizer` 可单独运行对应配置
 - `swiftformat .` 按 `.swiftformat` 格式化全部 Swift，使用 Swift 6 和 4 空格缩进
 - `swiftlint` 按 `.swiftlint.yml` 检查
 - `/usr/bin/log stream --predicate 'subsystem == "app.zabrian.codexbar"' --style compact` 查看系统日志，Debug 版 subsystem 带 `.debug` 后缀
+
+测试命令中的 `env -u CC -u CXX` 用于清除终端的编译器覆盖，确保使用 Xcode 工具链，避免 Homebrew LLVM 干扰 Sanitizer。
 
 `Scripts/build.sh` `dmg.sh` 和 `appcast.sh` 需要 Developer ID 与公证凭据，不用于日常验证。
 
@@ -148,8 +151,11 @@ CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, Swi
 - 测试围绕可观察行为、关键边界和失败恢复设计，优先复用现有测试；新增测试应能发现实际回归，避免只重复实现或为简单改名机械补测
 - 单元测试使用独立临时数据和可控依赖，测试结束后清理资源；不得读写真实用户数据、调用真实外部服务、启动特权服务或修改系统设置
 - 代码改动需完成受影响目标的构建、相关自动化测试及项目配置的格式和静态检查；涉及共享逻辑、构建配置或跨模块行为时，扩大验证范围；纯文档改动检查内容和格式即可
+- 日常代码改动默认运行 `Standard` 测试计划，按影响范围选择相关测试
+- 修改共享可变状态、锁或跨线程访问时，追加运行 `Sanitizers` 中的 `ThreadSanitizer` 配置；修改 SQLite、Darwin、C 接口或指针相关的内存访问与资源生命周期时，追加运行 `AddressSanitizer` 配置；同时涉及两类风险时，分别运行两种配置
+- 测试完成后同时检查失败用例和运行期警告，定位并处理新增的 Sanitizer、Main Thread Checker 和 Thread Performance Checker 报告
 - 自动化测试无法覆盖的交互、系统集成和生命周期行为，补充手动验证；验证前确认运行产物、构建配置和测试环境，避免混用不同版本
-- 交付时说明实际执行的验证及结果；未执行或受环境限制的项目应明确列出，并说明待验证场景，不以构建通过代替运行行为验证
+- 交付时说明实际执行的验证、测试计划与配置、结果及运行期警告；未执行或受环境限制的项目应明确列出，并说明待验证场景，不以构建通过代替运行行为验证
 
 ## Git 规范
 

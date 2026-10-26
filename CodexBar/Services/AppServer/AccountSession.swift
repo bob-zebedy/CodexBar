@@ -28,7 +28,7 @@ final nonisolated class AccountSession {
         transport.isOpen
     }
 
-    init(socketURL: URL, timeout: TimeInterval = 20, logStorage: AppServerLogStore? = .shared) throws {
+    init(socketURL: URL, timeout: TimeInterval = 20, logStorage: AppServerLogStore?) throws {
         transport = try AppServerSession(socketURL: socketURL, retainsNotifications: false, logStorage: logStorage, connectionName: "account")
         self.timeout = timeout
     }
