@@ -1,8 +1,13 @@
 import Foundation
 import SwiftUI
 
-/// 菜单面板内共享的固定尺寸, 保持各分区对齐
+/// 主面板共享的字体和尺寸, 按内容角色区分层级并保持各分区对齐
 enum MenuMetrics {
+    static let titleFont = Font.caption.weight(.semibold)
+    static let bodyFont = Font.caption.weight(.regular)
+    static let valueFont = Font.caption.weight(.semibold).monospacedDigit()
+    static let badgeFont = Font.caption.weight(.medium).monospacedDigit()
+
     static let panelPadding: CGFloat = 10
     static let panelCornerRadius: CGFloat = 8
     static let accountIconSize: CGFloat = 14
@@ -30,7 +35,7 @@ struct AccountCard: View {
                 .onTapGesture(count: 2, perform: onRefresh)
 
             Text(title)
-                .font(.caption.weight(.semibold))
+                .font(MenuMetrics.titleFont)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .blur(radius: isEmail && isEmailBlurred ? 3 : 0)
@@ -50,7 +55,7 @@ struct AccountCard: View {
 
             if let plan {
                 Text(plan.uppercased())
-                    .font(.caption2.weight(.bold))
+                    .font(MenuMetrics.badgeFont)
                     .foregroundStyle(
                         Self.planBadgeTint(for: plan, colorScheme: colorScheme)
                     )
@@ -104,7 +109,7 @@ struct StatusAccountCard: View {
 
             if let text = display.text {
                 Text(text)
-                    .font(.caption.weight(.semibold))
+                    .font(MenuMetrics.titleFont)
                     .foregroundStyle(display.color)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -147,6 +152,7 @@ struct StatusAccountCard: View {
 struct EmptyDataPanel: View {
     var body: some View {
         Text("common.empty.no-data")
+            .font(MenuMetrics.bodyFont)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.vertical, MenuMetrics.loadingVerticalPadding)
@@ -188,7 +194,7 @@ struct QuotaLimitsSection: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(limit.title)
-                    .font(.caption.weight(.semibold))
+                    .font(MenuMetrics.titleFont)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -259,8 +265,7 @@ struct QuotaLimitsSection: View {
 
     private func metadataCapsule(_ text: String, tint: Color = .green) -> some View {
         Text(text)
-            .font(.caption2.weight(.medium))
-            .monospacedDigit()
+            .font(MenuMetrics.badgeFont)
             .foregroundStyle(tint)
             .numericTransition(value: text)
             .lineLimit(1)
@@ -298,14 +303,14 @@ struct UpdatedAtRow: View {
                 }
                 .foregroundStyle(Color.codexLabel)
             }
-            .font(.caption2)
+            .font(MenuMetrics.bodyFont)
             .animation(Metrics.statusAnimation, value: updatedAt)
 
             Spacer()
 
             if let updateMessage {
                 Text(updateMessage)
-                    .font(.caption2.monospacedDigit())
+                    .font(MenuMetrics.bodyFont.monospacedDigit())
                     .foregroundStyle(Color.codexSecondaryLabel)
                     .lineLimit(1)
                     .numericTransition(value: updateMessage)

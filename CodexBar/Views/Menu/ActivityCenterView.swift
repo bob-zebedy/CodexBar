@@ -335,6 +335,7 @@ struct ActivityCenterView: View {
                         tint: tint,
                         effect: allowsAnimations ? effect : .none
                     )
+                    .font(.caption2)
                     .numericTransition(value: detail)
                     if let tokenUsage {
                         Spacer(minLength: 0)

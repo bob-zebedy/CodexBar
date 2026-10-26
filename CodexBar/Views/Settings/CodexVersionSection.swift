@@ -19,6 +19,7 @@ struct CodexVersionSection: View {
                     .foregroundStyle(.tint)
 
                 Text("settings.codex.version.title")
+                    .font(SettingsRowMetrics.titleFont)
 
                 reconnectButton
 
@@ -34,6 +35,7 @@ struct CodexVersionSection: View {
             }
             .padding(.leading, Metrics.childIndent)
         }
+        .font(SettingsRowMetrics.bodyFont)
         .onDisappear {
             copiedPathResetTasks.values.forEach { $0.cancel() }
         }
@@ -91,7 +93,7 @@ struct CodexVersionSection: View {
                 if let info = connectionInfo {
                     HStack(spacing: 12) {
                         Text("settings.codex.daemon.in-use")
-                            .font(.caption2.weight(.medium))
+                            .font(SettingsRowMetrics.badgeFont)
                             .foregroundStyle(.green)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -128,7 +130,7 @@ struct CodexVersionSection: View {
 
             VStack(alignment: .trailing, spacing: 3) {
                 Text(item.displayVersion)
-                    .font(hasVersion ? .body.monospacedDigit() : .body)
+                    .font(hasVersion ? SettingsRowMetrics.bodyFont.monospacedDigit() : SettingsRowMetrics.bodyFont)
                     .foregroundStyle(Color(nsColor: hasVersion ? .secondaryLabelColor : .tertiaryLabelColor))
                     .lineLimit(1)
                     .numericTransition(value: item.displayVersion)
@@ -175,14 +177,14 @@ private struct CopyablePathText: View {
     var body: some View {
         ZStack(alignment: .trailing) {
             Text(path)
-                .font(.caption2)
+                .font(SettingsRowMetrics.captionFont)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .opacity(isCopied ? 0 : 1)
 
             Text("common.status.copied")
-                .font(.caption2)
+                .font(SettingsRowMetrics.captionFont)
                 .foregroundStyle(.green)
                 .lineLimit(1)
                 .opacity(isCopied ? 1 : 0)

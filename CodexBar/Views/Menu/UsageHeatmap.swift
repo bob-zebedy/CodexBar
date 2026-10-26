@@ -82,7 +82,7 @@ struct UsageHeatmap: View {
                     }
                     .buttonStyle(ModeButtonStyle())
                 }
-                .font(.caption2.weight(.medium))
+                .font(MenuMetrics.bodyFont)
                 .foregroundStyle(.secondary)
                 .fixedSize()
 
@@ -90,7 +90,7 @@ struct UsageHeatmap: View {
 
                 if let dateRangeText {
                     Text(dateRangeText)
-                        .font(.caption2.monospacedDigit())
+                        .font(MenuMetrics.bodyFont.monospacedDigit())
                         .foregroundStyle(Color.codexSecondaryLabel)
                         .contentTransition(allowsAnimations ? .numericText() : .identity)
                         .animation(allowsAnimations ? .codexStatus : nil, value: dateRangeText)

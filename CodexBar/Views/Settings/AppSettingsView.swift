@@ -64,6 +64,7 @@ struct AppSettingsView: View {
             .offset(y: isTabContentSettled ? 0 : Metrics.tabContentInitialOffset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .font(SettingsRowMetrics.bodyFont)
         .frame(width: Metrics.windowWidth)
         .frame(maxHeight: .infinity, alignment: .top)
         .liquidGlassSurface(
@@ -234,7 +235,7 @@ private extension AppSettingsView {
                         Text(tab.title)
                             .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                     }
-                    .font(.subheadline.weight(.medium))
+                    .font(SettingsRowMetrics.tabFont)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, Metrics.tabVerticalPadding)
                     .contentShape(shape)
@@ -447,6 +448,7 @@ private extension AppSettingsView {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .controlSize(.small)
+                .font(SettingsRowMetrics.controlFont.monospacedDigit())
                 .fixedSize(horizontal: true, vertical: false)
                 .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
@@ -637,7 +639,7 @@ private extension AppSettingsView {
         if let caption {
             SettingsIndentedRow(alignment: .top) {
                 Text(caption.message)
-                    .font(.caption)
+                    .font(SettingsRowMetrics.captionFont)
                     .foregroundStyle(caption.isError ? Color.red : Color.codexSecondaryLabel)
                     .fixedSize(horizontal: false, vertical: true)
                     .numericTransition(value: caption.message)
@@ -649,6 +651,7 @@ private extension AppSettingsView {
                         SMAppService.openSystemSettingsLoginItems()
                     }
                     .controlSize(.small)
+                    .font(SettingsRowMetrics.controlFont)
                     .fixedSize()
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
@@ -727,7 +730,7 @@ private extension AppSettingsView {
             } else if state.shouldShowSyncStatus(lastSyncText: lastSyncText) {
                 SettingsIndentedRow {
                     Text("sync.status.last-sync")
-                        .font(.caption)
+                        .font(SettingsRowMetrics.captionFont)
                         .foregroundStyle(.secondary)
 
                     Spacer(minLength: 8)
@@ -744,7 +747,7 @@ private extension AppSettingsView {
                                 .transition(.opacity)
                         } else if let lastSyncText {
                             Text(lastSyncText)
-                                .font(.caption.monospacedDigit())
+                                .font(SettingsRowMetrics.captionFont.monospacedDigit())
                                 .foregroundStyle(Color.codexSecondaryLabel)
                                 .numericTransition(value: lastSyncText)
                                 .lineLimit(1)
@@ -805,6 +808,7 @@ private extension AppSettingsView {
                     isShowingRebuildConfirmation = true
                 }
                 .controlSize(.small)
+                .font(SettingsRowMetrics.controlFont)
                 .frame(minWidth: RebuildLayoutMetrics.actionMinimumWidth)
                 .disabled(selectedRebuildDateKeys.isEmpty)
             }
@@ -954,7 +958,7 @@ private extension AppSettingsView {
             Spacer()
 
             Text(status.text)
-                .font(status.isVersionLabel ? .body.monospacedDigit() : .body)
+                .font(status.isVersionLabel ? SettingsRowMetrics.bodyFont.monospacedDigit() : SettingsRowMetrics.bodyFont)
                 .foregroundStyle(Color.codexSecondaryLabel)
                 .lineLimit(1)
                 .numericTransition(value: status.text)

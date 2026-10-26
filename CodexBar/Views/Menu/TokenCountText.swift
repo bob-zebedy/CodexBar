@@ -4,7 +4,7 @@ import SwiftUI
 struct TokenCountText: View {
     @Environment(\.contentAnimationsEnabled) private var allowsAnimations
     let tokens: Int
-    var font: Font = .caption.monospacedDigit().weight(.semibold)
+    var font: Font = MenuMetrics.valueFont
 
     var body: some View {
         Text(TokenCountFormatter.text(from: tokens))

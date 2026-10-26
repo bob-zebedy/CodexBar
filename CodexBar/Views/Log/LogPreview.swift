@@ -12,13 +12,9 @@ private nonisolated struct LogCodePreview {
 
 /// 将 JSON 格式化并做轻量 token 高亮, 非 JSON 保持纯文本
 private nonisolated enum LogCodePreviewFormatter {
-    private static var font: NSFont {
-        NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    }
-
     private static var baseAttributes: [NSAttributedString.Key: Any] {
         [
-            .font: font,
+            .font: LogTypography.fullTextFont,
             .foregroundColor: NSColor.labelColor
         ]
     }

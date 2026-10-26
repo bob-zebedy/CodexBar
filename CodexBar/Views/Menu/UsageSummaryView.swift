@@ -105,7 +105,7 @@ struct UsageSummaryView: View {
                     .minimumScaleFactor(0.8)
             } else {
                 Text(verbatim: "--")
-                    .font(.caption.monospacedDigit().weight(.semibold))
+                    .font(MenuMetrics.valueFont)
             }
         }
     }
@@ -113,7 +113,7 @@ struct UsageSummaryView: View {
     private func textMetric(label: LocalizedStringResource, value: String) -> some View {
         metric(label: label) {
             Text(value)
-                .font(.caption.monospacedDigit().weight(.semibold))
+                .font(MenuMetrics.valueFont)
                 .foregroundStyle(Color.codexLabel)
                 .numericTransition(value: value)
                 .lineLimit(1)
@@ -127,7 +127,7 @@ struct UsageSummaryView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.caption2)
+                .font(MenuMetrics.bodyFont)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
 

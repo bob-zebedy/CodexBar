@@ -15,6 +15,7 @@ struct HotKeyRecorderRow: View {
                     .foregroundStyle(.tint)
 
                 Text("settings.hotkey.title")
+                    .font(SettingsRowMetrics.bodyFont)
 
                 Spacer()
 
@@ -25,7 +26,7 @@ struct HotKeyRecorderRow: View {
                         .frame(minWidth: Metrics.shortcutButtonMinWidth)
                         .contentShape(Rectangle())
                 }
-                .font(.body.monospacedDigit())
+                .font(SettingsRowMetrics.bodyFont.monospacedDigit())
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .disabled(!canStartRecording)

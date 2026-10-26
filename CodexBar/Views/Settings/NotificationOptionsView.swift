@@ -259,7 +259,7 @@ struct NotificationOptionsView: View {
     ) -> some View {
         HStack(spacing: 10) {
             Text(title)
-                .font(.caption)
+                .font(SettingsRowMetrics.captionFont)
                 .foregroundStyle(.secondary)
 
             Spacer(minLength: 8)
@@ -278,7 +278,7 @@ struct NotificationOptionsView: View {
     private func captionRow(_ caption: LocalizedStringResource) -> some View {
         HStack(spacing: 0) {
             Text(caption)
-                .font(.caption2)
+                .font(SettingsRowMetrics.captionFont)
                 .foregroundStyle(.tertiary)
 
             Spacer(minLength: 0)
@@ -315,7 +315,7 @@ struct NotificationOptionsView: View {
         return VStack(spacing: 0) {
             HStack(spacing: Metrics.notificationControlSpacing) {
                 Text(title)
-                    .font(.caption)
+                    .font(SettingsRowMetrics.captionFont)
                     .foregroundStyle(.secondary)
                     .layoutPriority(1)
 
@@ -336,7 +336,7 @@ struct NotificationOptionsView: View {
             if showsSoundControls {
                 HStack(spacing: Metrics.notificationControlSpacing) {
                     Text("settings.notifications.sound.title")
-                        .font(.caption2)
+                        .font(SettingsRowMetrics.captionFont)
                         .foregroundStyle(.tertiary)
 
                     Spacer(minLength: 8)
@@ -395,7 +395,7 @@ struct NotificationOptionsView: View {
             }
         } label: {
             Text(selection.wrappedValue.localizedTitle)
-                .font(.caption)
+                .font(SettingsRowMetrics.captionFont)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -473,7 +473,7 @@ struct NotificationAuthorizationRow: View {
     var body: some View {
         SettingsIndentedRow {
             Text("settings.notifications.system.permission-disabled")
-                .font(.caption)
+                .font(SettingsRowMetrics.captionFont)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -483,6 +483,7 @@ struct NotificationAuthorizationRow: View {
                 settings.openSystemNotificationSettings()
             }
             .controlSize(.small)
+            .font(SettingsRowMetrics.controlFont)
             .fixedSize()
         }
     }

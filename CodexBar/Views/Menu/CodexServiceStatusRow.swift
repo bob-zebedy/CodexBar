@@ -22,7 +22,7 @@ struct CodexServiceStatusRow: View {
                 .frame(width: MenuMetrics.statusIconSize, height: MenuMetrics.statusIconSize)
 
                 Text(statusTitle)
-                    .font(.caption)
+                    .font(MenuMetrics.bodyFont)
                     .foregroundStyle(Color.codexLabel)
                     .numericTransition(value: monitor.state)
                     .layoutPriority(1)
@@ -31,7 +31,7 @@ struct CodexServiceStatusRow: View {
 
                 if !displayedComponents.isEmpty {
                     Text(verbatim: displayedComponents.map { Self.shortComponentName($0) }.joined(separator: " • "))
-                        .font(.caption2.weight(.medium))
+                        .font(MenuMetrics.bodyFont)
                         .foregroundStyle(statusColor)
                         .numericTransition(value: displayedComponents)
                         .truncationMode(.tail)

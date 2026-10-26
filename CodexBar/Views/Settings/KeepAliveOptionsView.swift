@@ -139,7 +139,7 @@ struct KeepAliveOptionsView: View {
         VStack(spacing: 0) {
             HStack(spacing: Metrics.controlSpacing) {
                 Text(title)
-                    .font(.caption)
+                    .font(SettingsRowMetrics.captionFont)
                     .foregroundStyle(.secondary)
 
                 Spacer(minLength: 8)
@@ -150,7 +150,7 @@ struct KeepAliveOptionsView: View {
 
             HStack(spacing: 0) {
                 Text(caption)
-                    .font(.caption2)
+                    .font(SettingsRowMetrics.captionFont)
                     .foregroundStyle(.tertiary)
 
                 Spacer(minLength: 0)

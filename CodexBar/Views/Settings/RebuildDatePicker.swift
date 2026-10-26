@@ -47,7 +47,7 @@ struct RebuildDatePicker: View {
                         Text("date-picker.select-range")
                     }
                 }
-                .font(.caption.monospacedDigit().weight(.medium))
+                .font(SettingsRowMetrics.captionFont.monospacedDigit())
                 .foregroundStyle(Color.codexLabel)
                 .numericTransition(value: selection?.displayText)
                 .lineLimit(1)
@@ -96,8 +96,7 @@ struct RebuildDatePicker: View {
                 Spacer()
 
                 Text(monthTitle)
-                    .font(.system(.body, design: .rounded).weight(.semibold))
-                    .monospacedDigit()
+                    .font(SettingsRowMetrics.titleFont.monospacedDigit())
                     .foregroundStyle(Color.codexLabel)
                     .numericTransition(value: monthTitle, comparison: displayedMonth.timeIntervalSinceReferenceDate)
 
@@ -113,7 +112,7 @@ struct RebuildDatePicker: View {
             LazyVGrid(columns: Self.columns, spacing: 5) {
                 ForEach(weekdaySymbols.indices, id: \.self) { index in
                     Text(verbatim: weekdaySymbols[index])
-                        .font(.system(size: 10, weight: .medium))
+                        .font(SettingsRowMetrics.captionFont)
                         .foregroundStyle(.secondary)
                         .frame(width: Metrics.daySize, height: 18)
                 }
@@ -130,7 +129,7 @@ struct RebuildDatePicker: View {
                     Text("date-picker.select-start")
                 }
             }
-            .font(.caption2)
+            .font(SettingsRowMetrics.captionFont)
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .frame(height: 14)
@@ -189,7 +188,7 @@ struct RebuildDatePicker: View {
                     ))
 
                 Text(String(day))
-                    .font(.system(size: 11, weight: isEndpoint ? .semibold : .regular))
+                    .font(SettingsRowMetrics.controlFont.weight(isEndpoint ? .semibold : .regular).monospacedDigit())
                     .foregroundStyle(dayTextColor(
                         isSelectable: isSelectable,
                         isEndpoint: isEndpoint,

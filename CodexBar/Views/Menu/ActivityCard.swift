@@ -156,13 +156,14 @@ struct ActivityCard: View {
                         text: detail, tint: content.tint, effect: allowsAnimations ? content.statusTextEffect : .none,
                         lineLimit: nil, supplement: content.detailSupplement
                     )
+                    .font(MenuMetrics.bodyFont)
                     .numericTransition(value: [detail, content.detailSupplement])
                     .fixedSize(horizontal: false, vertical: true)
                     .clipped()
                 }
                 if let recent = content.recent {
                     Text(recent)
-                        .font(.caption2)
+                        .font(MenuMetrics.bodyFont)
                         .foregroundStyle(Color.codexSecondaryLabel)
                         .numericTransition(value: recent)
                         .fixedSize(horizontal: false, vertical: true)
@@ -185,7 +186,7 @@ struct ActivityCard: View {
                 singleLineWidthReserve: Metrics.headerWidthReserve,
                 wrappedLayout: wrappedHeaderLayout(for: content.taskID)
             )
-            .font(.caption.weight(.semibold))
+            .font(MenuMetrics.titleFont)
             .foregroundStyle(Color.codexLabel)
             .numericTransition(value: content.header)
             .fixedSize(horizontal: false, vertical: true)
@@ -222,7 +223,7 @@ struct ActivityCard: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             if content.otherTaskCount > 0 {
                 Text(verbatim: "+\(content.otherTaskCount)")
-                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .font(MenuMetrics.badgeFont)
                     // 必须是具体 Color, 层级样式在 numericText 的过渡层里会被重新解析成别的层级
                     .foregroundStyle(Color.codexSecondaryLabel)
                     .numericTransition(value: content.otherTaskCount, comparison: Double(content.otherTaskCount))
@@ -261,11 +262,11 @@ struct ActivityCard: View {
             tokenMetric("usage.token-usage.cached-input", tokens: tokenUsage.cachedInputTokens)
             VStack(spacing: 3) {
                 Text("usage.token-usage.cache-hit-rate")
-                    .font(.caption2)
+                    .font(MenuMetrics.bodyFont)
                     .foregroundStyle(Color.codexSecondaryLabel)
                     .minimumScaleFactor(0.65)
                 Text(tokenUsage.cacheHitRate.map { $0.formatted(.percent.precision(.fractionLength(0 ... 1))) } ?? "—")
-                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .font(MenuMetrics.valueFont)
                     .foregroundStyle(Color.codexLabel)
                     .numericTransition(value: tokenUsage.cacheHitRate, comparison: tokenUsage.cacheHitRate ?? 0)
             }
@@ -278,10 +279,10 @@ struct ActivityCard: View {
     private func tokenMetric(_ title: LocalizedStringKey, tokens: Int64) -> some View {
         VStack(spacing: 3) {
             Text(title)
-                .font(.caption2)
+                .font(MenuMetrics.bodyFont)
                 .foregroundStyle(Color.codexSecondaryLabel)
                 .minimumScaleFactor(0.65)
-            TokenCountText(tokens: Int(tokens), font: .caption2.monospacedDigit().weight(.semibold))
+            TokenCountText(tokens: Int(tokens), font: MenuMetrics.valueFont)
                 .foregroundStyle(Color.codexLabel)
         }
         .frame(minWidth: 0, maxWidth: .infinity)

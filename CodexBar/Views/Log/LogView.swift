@@ -1,6 +1,19 @@
 import AppKit
 import SwiftUI
 
+enum LogTypography {
+    static let titleFont = Font.body.weight(.semibold)
+    static let bodyFont = Font.body.weight(.regular)
+    static let sectionTitleFont = Font.caption.weight(.semibold)
+    static let captionFont = Font.caption.weight(.regular)
+    static let badgeFont = Font.caption.weight(.medium)
+    static let controlFont = Font.system(size: NSFont.smallSystemFontSize, weight: .regular)
+
+    nonisolated static var fullTextFont: NSFont {
+        .monospacedSystemFont(ofSize: 12, weight: .regular)
+    }
+}
+
 /// app-server 交互日志窗口根视图
 struct LogView: View {
     @ObservedObject var store: AppServerLogViewModel
@@ -17,7 +30,7 @@ struct LogView: View {
 
             if let error = store.errorMessage {
                 Text(error)
-                    .font(.caption)
+                    .font(LogTypography.captionFont)
                     .foregroundStyle(.red)
                     .padding(8)
             }
@@ -50,10 +63,10 @@ struct LogView: View {
                 .foregroundStyle(.tint)
 
             Text("log.app-server.window.title")
-                .font(.headline)
+                .font(LogTypography.titleFont)
 
             Text(verbatim: "\(store.totalCount)")
-                .font(.caption.monospacedDigit())
+                .font(LogTypography.badgeFont.monospacedDigit())
                 .foregroundStyle(Color.codexSecondaryLabel)
                 .numericTransition(value: store.totalCount, comparison: Double(store.totalCount))
                 .padding(.horizontal, 7)
@@ -70,6 +83,7 @@ struct LogView: View {
                 Label("common.action.clear", systemImage: "trash")
             }
             .controlSize(.small)
+            .font(LogTypography.controlFont)
             .disabled(store.totalCount == 0 || store.isLoading)
         }
         .padding(.horizontal, 16)
@@ -83,6 +97,7 @@ struct LogView: View {
                 .foregroundStyle(.tertiary)
 
             Text("log.empty.no-entries")
+                .font(LogTypography.bodyFont)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -160,7 +175,7 @@ private struct LogRow: View {
                         )
                     } else if entry.status == .pending {
                         Text("log.status.waiting-response")
-                            .font(.caption.monospaced())
+                            .font(LogTypography.captionFont)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -204,11 +219,11 @@ private struct LogRow: View {
                 .frame(width: 12)
 
             Text(Self.timeFormatter.string(from: entry.requestedAt))
-                .font(.caption.monospaced())
+                .font(LogTypography.captionFont.monospaced())
                 .foregroundStyle(.secondary)
 
             Text(entry.source.label)
-                .font(.caption2.weight(.semibold))
+                .font(LogTypography.badgeFont)
                 .foregroundStyle(entry.status.tint)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1)
@@ -219,13 +234,13 @@ private struct LogRow: View {
 
             if let method = entry.method {
                 Text(method)
-                    .font(.caption.weight(.medium).monospaced())
+                    .font(LogTypography.sectionTitleFont.monospaced())
                     .foregroundStyle(.primary)
             } else if entry.detail != nil {
                 // 无方法名的记录 (信息/进程级错误) 直接预览正文
                 // 避免标签后留空
                 Text(verbatim: currentInlinePreview?.summary ?? "")
-                    .font(.caption)
+                    .font(LogTypography.captionFont)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -248,12 +263,12 @@ private struct LogRow: View {
         return VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
                 Text(caption)
-                    .font(.caption2.weight(.semibold))
+                    .font(LogTypography.sectionTitleFont)
                     .foregroundStyle(.tertiary)
 
                 if let time {
                     Text(Self.timeFormatter.string(from: time))
-                        .font(.caption2.monospaced())
+                        .font(LogTypography.captionFont.monospaced())
                         .foregroundStyle(.tertiary)
                 }
 
@@ -273,10 +288,10 @@ private struct LogRow: View {
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
-            .font(.caption)
+            .font(LogTypography.controlFont)
 
             Text(verbatim: inline?.text ?? "")
-                .font(.caption.monospaced())
+                .font(LogTypography.captionFont.monospaced())
                 .foregroundStyle(color)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -316,15 +331,15 @@ private struct FullLogTextView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Text(item.request.title)
-                    .font(.headline)
+                    .font(LogTypography.titleFont)
 
                 Text(verbatim: "\(item.document.characterCount)")
-                    .font(.caption.monospacedDigit())
+                    .font(LogTypography.captionFont.monospacedDigit())
                     .foregroundStyle(.secondary)
 
                 if let language = item.document.language {
                     Text(language)
-                        .font(.caption2.weight(.semibold))
+                        .font(LogTypography.badgeFont)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -342,6 +357,7 @@ private struct FullLogTextView: View {
                     Label("common.action.copy", systemImage: "doc.on.doc")
                 }
                 .controlSize(.small)
+                .font(LogTypography.controlFont)
 
                 Button {
                     dismiss()
@@ -349,6 +365,7 @@ private struct FullLogTextView: View {
                     Label("common.action.close", systemImage: "xmark")
                 }
                 .controlSize(.small)
+                .font(LogTypography.controlFont)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)

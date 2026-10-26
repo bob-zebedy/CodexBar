@@ -1,7 +1,15 @@
+import AppKit
 import SwiftUI
 
-/// 设置页行布局共享常量: 各行的图标列宽与行内间距必须一致才能对齐
+/// 设置页共享字体和布局, 按内容角色区分层级并保持各行对齐
 enum SettingsRowMetrics {
+    static let tabFont = Font.subheadline.weight(.semibold)
+    static let titleFont = Font.body.weight(.semibold)
+    static let bodyFont = Font.body.weight(.regular)
+    static let captionFont = Font.caption.weight(.regular)
+    static let controlFont = Font.system(size: NSFont.smallSystemFontSize, weight: .regular)
+    static let badgeFont = Font.caption.weight(.medium)
+
     static let iconWidth: CGFloat = 18
     static let spacing: CGFloat = 10
     static let optionsButtonSize: CGFloat = 22
@@ -66,6 +74,7 @@ struct SettingsOptionsPicker<Option: Hashable>: View {
         .labelsHidden()
         .pickerStyle(.menu)
         .controlSize(.small)
+        .font(SettingsRowMetrics.controlFont.monospacedDigit())
         .frame(width: width, alignment: alignment)
     }
 }
@@ -99,6 +108,7 @@ struct SettingsToggleRow<Accessory: View>: View {
                 .foregroundStyle(.tint)
 
             Text(title)
+                .font(SettingsRowMetrics.bodyFont)
 
             Spacer()
 

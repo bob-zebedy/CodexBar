@@ -13,6 +13,7 @@ struct MainPanelLayoutSettingsRow: View {
                 .foregroundStyle(.tint)
 
             Text("settings.main-panel.layout.title")
+                .font(SettingsRowMetrics.bodyFont)
 
             Spacer()
 
@@ -100,7 +101,7 @@ struct MainPanelOptionsView: View {
                 .frame(width: Metrics.sectionIconWidth)
 
             Text(section.title)
-                .font(.caption)
+                .font(SettingsRowMetrics.captionFont)
                 .foregroundStyle(.secondary)
 
             Spacer(minLength: 8)

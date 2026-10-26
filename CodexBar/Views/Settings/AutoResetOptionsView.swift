@@ -7,7 +7,7 @@ struct AutoResetOptionsView: View {
     var body: some View {
         HStack(spacing: Metrics.controlSpacing) {
             Text("auto-reset.lead-time.title")
-                .font(.caption)
+                .font(SettingsRowMetrics.captionFont)
                 .foregroundStyle(.secondary)
 
             Spacer(minLength: 8)

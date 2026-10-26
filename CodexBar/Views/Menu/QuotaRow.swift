@@ -9,7 +9,7 @@ struct QuotaRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
             Text(window.label)
-                .font(.caption.weight(.semibold))
+                .font(MenuMetrics.bodyFont)
                 .lineLimit(1)
                 .minimumScaleFactor(Metrics.labelMinimumScaleFactor)
                 .allowsTightening(true)
@@ -22,7 +22,7 @@ struct QuotaRow: View {
             .padding(.leading, Metrics.labelBarSpacing)
 
             percentageValue
-                .font(.caption.monospacedDigit().weight(.semibold))
+                .font(MenuMetrics.valueFont)
                 .lineLimit(1)
                 .frame(width: Metrics.percentWidth, alignment: .leading)
                 .padding(.leading, Metrics.barPercentSpacing)
@@ -30,7 +30,7 @@ struct QuotaRow: View {
             Spacer(minLength: Metrics.percentResetSpacing)
 
             Text(resetText)
-                .font(.caption2.monospacedDigit())
+                .font(MenuMetrics.bodyFont.monospacedDigit())
                 .foregroundStyle(Color.codexSecondaryLabel)
                 .numericTransition(value: resetText, comparison: window.resetsAt?.timeIntervalSinceReferenceDate)
                 .lineLimit(1)

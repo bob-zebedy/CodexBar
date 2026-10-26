@@ -47,7 +47,7 @@ struct TaskGlowOptionsView: View {
                 ))
             }
         }
-        .font(.caption)
+        .font(SettingsRowMetrics.captionFont)
         .controlSize(.small)
         .padding(.horizontal, SettingsOptionsPanelMetrics.horizontalPadding)
         .padding(.vertical, SettingsOptionsPanelMetrics.verticalPadding)
@@ -80,8 +80,7 @@ private struct TaskGlowBrightnessControl: View {
             TaskGlowBrightnessSlider(value: $value)
                 .frame(width: 88, height: 22)
             Text(value, format: .percent.precision(.fractionLength(0)))
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .monospacedDigit()
+                .font(SettingsRowMetrics.captionFont.monospacedDigit())
                 .foregroundStyle(Color.codexSecondaryLabel)
                 .numericTransition(value: Int((value * 100).rounded()), comparison: value)
                 .frame(width: 32, alignment: .trailing)
@@ -197,7 +196,7 @@ private struct TaskGlowColorHexField: View {
                 .help("task-glow.color.preview-help")
 
             Text(verbatim: "#")
-                .font(.system(.caption, design: .monospaced))
+                .font(SettingsRowMetrics.captionFont.monospaced())
                 .foregroundStyle(.secondary)
                 .frame(width: 8)
 
@@ -243,7 +242,7 @@ private struct TaskGlowHexInput: NSViewRepresentable {
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
         field.controlSize = .small
-        field.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        field.font = .monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         field.alignment = .center
         field.bezelStyle = .roundedBezel
         field.cell?.usesSingleLineMode = true

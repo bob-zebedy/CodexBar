@@ -24,7 +24,7 @@ struct SettingsCaptionMessageRow: View {
     var body: some View {
         SettingsIndentedRow(alignment: .top) {
             Text(message)
-                .font(.caption)
+                .font(SettingsRowMetrics.captionFont)
                 .foregroundStyle(color)
                 .fixedSize(horizontal: false, vertical: true)
         }

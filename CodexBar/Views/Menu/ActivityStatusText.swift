@@ -27,7 +27,6 @@ struct ActivityStatusText: View {
                         .allowsHitTesting(false)
                 }
             }
-            .font(.caption2)
             .lineLimit(lineLimit)
             .truncationMode(.tail)
             .anchorPreference(key: ActivityIonizationSourceKey.self, value: .bounds) { bounds in
