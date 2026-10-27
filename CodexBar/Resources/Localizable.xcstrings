@@ -2289,6 +2289,22 @@
         }
       }
     },
+    "auto-reset.lead-time.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose how long before a banked reset expires to start trying to use it automatically"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置留存重置过期前多久开始尝试自动使用"
+          }
+        }
+      }
+    },
     "auto-reset.lead-time.two-hours" : {
       "localizations" : {
         "en" : {
@@ -3409,6 +3425,22 @@
         }
       }
     },
+    "history.rebuild.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recalculate historical statistics for a selected date or date range using the collected source data. This can restore missing or incomplete statistics. Rebuilt results are synced if sync is enabled. Lost source data cannot be recovered"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择指定的日期或者日期范围，根据采集到的原始数据重新计算历史统计。可用于修复缺失或不完整的数据，开启同步时会同步重建结果；已丢失的原始数据无法恢复"
+          }
+        }
+      }
+    },
     "hotkey.error.default-in-use" : {
       "localizations" : {
         "en" : {
@@ -3521,22 +3553,6 @@
         }
       }
     },
-    "keep-alive.display.caption" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Also prevent the screen saver and auto-lock"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "同时阻止屏幕保护与自动锁屏"
-          }
-        }
-      }
-    },
     "keep-alive.display.title" : {
       "localizations" : {
         "en" : {
@@ -3553,18 +3569,18 @@
         }
       }
     },
-    "keep-alive.duration-limit.caption" : {
+    "keep-alive.display.title.help" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restore normal sleep when the limit is reached"
+            "value" : "Keep the display on while sleep prevention is active, and prevent the screen saver from starting or your Mac from locking automatically"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "防睡眠时长超过阈值后自动恢复系统睡眠"
+            "value" : "在防睡眠生效期间保持屏幕常亮，同时阻止屏幕保护与自动锁屏"
           }
         }
       }
@@ -3581,6 +3597,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最长防睡眠时间"
+          }
+        }
+      }
+    },
+    "keep-alive.duration-limit.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Limit how long CodexBar can keep your Mac awake continuously. Normal sleep resumes when the limit is reached"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "限制单次连续防睡眠的最长时间，达到上限后恢复系统睡眠"
           }
         }
       }
@@ -3681,22 +3713,6 @@
         }
       }
     },
-    "keep-alive.low-battery.caption" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Battery only; resumes when charging"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "仅在使用电池供电时生效, 充电时自动恢复"
-          }
-        }
-      }
-    },
     "keep-alive.low-battery.off" : {
       "localizations" : {
         "en" : {
@@ -3725,6 +3741,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "低电量保护"
+          }
+        }
+      }
+    },
+    "keep-alive.low-battery.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "While your Mac is running on battery power, stop preventing sleep when the battery level drops to the threshold. Resume sleep prevention automatically when your Mac is connected to power"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅在使用电池供电时生效；电量降至阈值时停止防睡眠，接通电源后自动恢复防睡眠"
           }
         }
       }
@@ -3777,22 +3809,6 @@
         }
       }
     },
-    "keep-alive.waiting.caption" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prevent sleep while a task awaits a response"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "任务等待回应期间继续防止系统睡眠"
-          }
-        }
-      }
-    },
     "keep-alive.waiting.title" : {
       "localizations" : {
         "en" : {
@@ -3805,6 +3821,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "等待回应时保持防睡眠"
+          }
+        }
+      }
+    },
+    "keep-alive.waiting.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue keeping your Mac awake while Codex tasks are waiting for your response"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 任务在等待用户回应期间也防止系统睡眠"
           }
         }
       }
@@ -4769,22 +4801,6 @@
         }
       }
     },
-    "protection.caption" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hide inactive tasks and exclude them from keep-awake"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "任务长时间没有进展时隐藏并停止参与防睡眠"
-          }
-        }
-      }
-    },
     "protection.duration.hours" : {
       "localizations" : {
         "en" : {
@@ -4829,6 +4845,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "异常任务保护"
+          }
+        }
+      }
+    },
+    "protection.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide running tasks that have made no progress for an extended period and stop counting them as tasks that keep your Mac awake. This check does not apply to tasks waiting for your response"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "隐藏长时间未取得进展的运行中任务，并停止将其计入防止睡眠的任务。等待用户回应的任务不参与此判定"
           }
         }
       }
@@ -5126,7 +5158,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dark Mode"
+            "value" : "Dark"
           }
         },
         "zh-Hans" : {
@@ -5142,7 +5174,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Light Mode"
+            "value" : "Light"
           }
         },
         "zh-Hans" : {
@@ -5158,7 +5190,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Follow System"
+            "value" : "System"
           }
         },
         "zh-Hans" : {
@@ -5185,6 +5217,22 @@
         }
       }
     },
+    "settings.appearance.theme.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose the app's appearance"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择 App 外观"
+          }
+        }
+      }
+    },
     "settings.auto-reset.title" : {
       "localizations" : {
         "en" : {
@@ -5197,6 +5245,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自动重置"
+          }
+        }
+      }
+    },
+    "settings.auto-reset.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable or disable automatic use of banked resets that are about to expire"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用/禁用 自动使用临近过期的留存重置"
           }
         }
       }
@@ -5313,6 +5377,22 @@
         }
       }
     },
+    "settings.data-update.interval.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set how often data is refreshed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置数据的刷新间隔"
+          }
+        }
+      }
+    },
     "settings.general.automatic-update-checks" : {
       "localizations" : {
         "en" : {
@@ -5325,6 +5405,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自动检查更新"
+          }
+        }
+      }
+    },
+    "settings.general.automatic-update-checks.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable or disable automatic checks for new versions of CodexBar. You can still check for updates manually from the About page when this is disabled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用/禁用 自动检查是否有新的 CodexBar 版本，关闭后仍可在关于页面手动检查更新"
           }
         }
       }
@@ -5377,6 +5473,22 @@
         }
       }
     },
+    "settings.general.launch-at-login.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable or disable launching CodexBar automatically when you log in to macOS"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用/禁用 登录 macOS 后自动启动 CodexBar"
+          }
+        }
+      }
+    },
     "settings.hotkey.action.clear" : {
       "localizations" : {
         "en" : {
@@ -5425,6 +5537,22 @@
         }
       }
     },
+    "settings.hotkey.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set a global keyboard shortcut to show or hide the CodexBar main panel. To change it, clear the current shortcut, then click to record a new one. Press Esc to cancel recording"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "设置用于打开或收起 CodexBar 主面板的全局快捷键。修改前先清除现有快捷键，再点击录制；按 Esc 取消录制"
+          }
+        }
+      }
+    },
     "settings.keep-alive.title" : {
       "localizations" : {
         "en" : {
@@ -5437,6 +5565,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "防止睡眠"
+          }
+        }
+      }
+    },
+    "settings.keep-alive.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable or disable sleep prevention while Codex tasks are running"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用/禁用 Codex 任务运行期间防止系统睡眠"
           }
         }
       }
@@ -5457,6 +5601,22 @@
         }
       }
     },
+    "settings.main-panel.animations.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable or disable animations in the app"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用/禁用 App 内展示动画效果"
+          }
+        }
+      }
+    },
     "settings.main-panel.layout.title" : {
       "localizations" : {
         "en" : {
@@ -5469,6 +5629,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "面板布局"
+          }
+        }
+      }
+    },
+    "settings.main-panel.layout.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose which sections appear in the main panel and in what order. Drag a section's icon on the left to move it. Keep at least one section visible"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调整主面板各模块的显示和顺序，拖动模块左侧图标可调节顺序；需要至少保留一个模块"
           }
         }
       }
@@ -5585,6 +5761,22 @@
         }
       }
     },
+    "settings.menu-bar-quota.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable or disable quota display in the menu bar icon"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用/禁用 菜单栏图标显示额度信息"
+          }
+        }
+      }
+    },
     "settings.menu-bar-quota.window" : {
       "localizations" : {
         "en" : {
@@ -5617,6 +5809,22 @@
         }
       }
     },
+    "settings.notifications.auto-reset.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notify you when an automatic reset succeeds or fails. Automatic Reset must be enabled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动重置成功或失败时发送通知。需要开启自动重置功能"
+          }
+        }
+      }
+    },
     "settings.notifications.banked-reset-expiry.title" : {
       "localizations" : {
         "en" : {
@@ -5633,18 +5841,18 @@
         }
       }
     },
-    "settings.notifications.codex-tui.caption" : {
+    "settings.notifications.banked-reset-expiry.title.help" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Separate from CodexBar notifications"
+            "value" : "Notify you when banked resets are about to expire"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex TUI 通知, 独立于 CodexBar 通知"
+            "value" : "在留存重置次数即将过期时发送通知"
           }
         }
       }
@@ -5665,6 +5873,22 @@
         }
       }
     },
+    "settings.notifications.codex-tui.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex TUI notifications are separate from CodexBar notifications"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex TUI 通知，独立于 CodexBar 的通知类型"
+          }
+        }
+      }
+    },
     "settings.notifications.keep-alive-limit.title" : {
       "localizations" : {
         "en" : {
@@ -5681,6 +5905,22 @@
         }
       }
     },
+    "settings.notifications.keep-alive-limit.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notify you when the keep-awake time limit is reached and normal sleep resumes. Sleep prevention must be enabled and the time limit must be set to a value other than Unlimited"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "达到最长防睡眠时间并恢复系统睡眠时发送通知。需要启用防睡眠功能，且时长上限不是无限制"
+          }
+        }
+      }
+    },
     "settings.notifications.low-battery.title" : {
       "localizations" : {
         "en" : {
@@ -5693,6 +5933,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "低电量保护通知"
+          }
+        }
+      }
+    },
+    "settings.notifications.low-battery.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notify you when CodexBar stops keeping your Mac awake because the battery is low. Both sleep prevention and low battery protection must be enabled"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "因电量过低而停止防睡眠时发送通知，需要启用防睡眠功能，且启用低电量保护"
           }
         }
       }
@@ -5729,6 +5985,22 @@
         }
       }
     },
+    "settings.notifications.low-quota.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notify you when your remaining quota drops to the selected threshold"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当剩余额度降至设置阈值时发送通知"
+          }
+        }
+      }
+    },
     "settings.notifications.quota-reset.title" : {
       "localizations" : {
         "en" : {
@@ -5741,6 +6013,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "额度重置通知"
+          }
+        }
+      }
+    },
+    "settings.notifications.quota-reset.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notify you when your quota has reset"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当额度已重置时发送通知"
           }
         }
       }
@@ -5793,6 +6081,22 @@
         }
       }
     },
+    "settings.notifications.system.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable or disable CodexBar notifications. The first time you turn this on, you'll need to grant notification permission in macOS"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用/禁用 CodexBar 发送通知，首次开启需要 macOS 通知授权"
+          }
+        }
+      }
+    },
     "settings.notifications.task-completion.minimum-duration" : {
       "localizations" : {
         "en" : {
@@ -5825,18 +6129,18 @@
         }
       }
     },
-    "settings.notifications.task-haptics.caption" : {
+    "settings.notifications.task-completion.title.help" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Trackpad haptics when tasks finish or await a response"
+            "value" : "Notify you when a Codex task completes after running for at least the selected duration"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "任务完成或等待回应时触发触摸板震动"
+            "value" : "Codex 任务完成时发送通知，运行时长低于设置阈值的 Codex 任务不会发送通知"
           }
         }
       }
@@ -5857,6 +6161,22 @@
         }
       }
     },
+    "settings.notifications.task-haptics.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trigger haptic feedback on the trackpad when a task completes or needs your response"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任务完成或等待回应时触发触摸板触觉反馈"
+          }
+        }
+      }
+    },
     "settings.notifications.task-waiting.title" : {
       "localizations" : {
         "en" : {
@@ -5873,6 +6193,22 @@
         }
       }
     },
+    "settings.notifications.task-waiting.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Notify you when a Codex task needs your response"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 任务需要用户回应时发送通知"
+          }
+        }
+      }
+    },
     "settings.sync.title" : {
       "localizations" : {
         "en" : {
@@ -5885,6 +6221,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "跨设备同步"
+          }
+        }
+      }
+    },
+    "settings.sync.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable or disable data syncing across devices using your iCloud account"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用/禁用 通过 iCloud 账户同步不同设备的数据"
           }
         }
       }
@@ -5949,6 +6301,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "流光效果"
+          }
+        }
+      }
+    },
+    "settings.task-glow.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable or disable the glow at the top of the screen that shows Codex task status"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启用/禁用 屏幕顶部通过流光展示 Codex 任务状态"
           }
         }
       }
@@ -6161,6 +6529,22 @@
         }
       }
     },
+    "task-glow.brightness.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adjust the brightness of the glow"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调整流光效果的亮度"
+          }
+        }
+      }
+    },
     "task-glow.color.completed" : {
       "localizations" : {
         "en" : {
@@ -6177,18 +6561,18 @@
         }
       }
     },
-    "task-glow.color.preview-help" : {
+    "task-glow.color.help" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Double-click to preview effect"
+            "value" : "Choose the glow color for this task state. Double-click the color swatch to preview the effect"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "双击预览效果"
+            "value" : "设置此任务状态的流光颜色，双击色块可预览效果"
           }
         }
       }
@@ -6257,6 +6641,22 @@
         }
       }
     },
+    "task-glow.duration.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose how long the glow stays visible after a task completes or is stopped"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "任务完成或终止后，对应流光效果展示时长"
+          }
+        }
+      }
+    },
     "task-glow.speed.fast" : {
       "localizations" : {
         "en" : {
@@ -6317,6 +6717,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "动画速度"
+          }
+        }
+      }
+    },
+    "task-glow.speed.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adjust the speed of the glow animation"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "调整流光动画的运动速度"
           }
         }
       }
@@ -6646,7 +7062,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cache-H"
+            "value" : "Cache-HR%"
           }
         },
         "zh-Hans" : {
@@ -6662,7 +7078,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cache-W"
+            "value" : "Cache-WR"
           }
         },
         "zh-Hans" : {

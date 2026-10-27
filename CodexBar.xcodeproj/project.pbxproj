@@ -60,10 +60,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		B10000000000000000000014 /* CodexBarPowerHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = CodexBarPowerHelper; sourceTree = BUILT_PRODUCTS_DIR; };
-		C449FB5030203E0000ED2123 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
 		A82000000000000000000001 /* Standard.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Standard.xctestplan; sourceTree = "<group>"; };
 		A82000000000000000000002 /* Sanitizers.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Sanitizers.xctestplan; sourceTree = "<group>"; };
+		B10000000000000000000014 /* CodexBarPowerHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = CodexBarPowerHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		C449FB5030203E0000ED2123 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
 		C4A0FD952FD9302E000263A7 /* CodexBar Debug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "CodexBar Debug.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D10000000000000000000002 /* CodexBarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E10000000000000000000002 /* CodexBarPowerHelperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarPowerHelperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };

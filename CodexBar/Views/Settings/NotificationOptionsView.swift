@@ -35,7 +35,7 @@ struct NotificationOptionsView: View {
             width: Metrics.panelWidth,
             height: Metrics.verticalPadding * 2
                 + Metrics.notificationRowHeight * CGFloat(Metrics.notificationRowCount)
-                + Metrics.captionedRowHeight * CGFloat(Metrics.captionedRowCount)
+                + Metrics.rowHeight * CGFloat(Metrics.optionRowCount)
                 + Metrics.rowSpacing * CGFloat(Metrics.totalRowCount - 1)
         )
     }
@@ -45,6 +45,7 @@ struct NotificationOptionsView: View {
     private var lowQuotaRow: some View {
         notificationOptionRow(
             title: "settings.notifications.low-quota.title",
+            help: "settings.notifications.low-quota.title.help",
             isOn: Binding(
                 get: { notificationSettings.isLowQuotaEnabled },
                 set: { notificationSettings.setLowQuotaEnabled($0) }
@@ -69,6 +70,7 @@ struct NotificationOptionsView: View {
     private var quotaResetRow: some View {
         notificationOptionRow(
             title: "settings.notifications.quota-reset.title",
+            help: "settings.notifications.quota-reset.title.help",
             isOn: Binding(
                 get: { notificationSettings.isQuotaResetEnabled },
                 set: { notificationSettings.setQuotaResetEnabled($0) }
@@ -85,6 +87,7 @@ struct NotificationOptionsView: View {
 
         return notificationOptionRow(
             title: "settings.notifications.task-completion.title",
+            help: "settings.notifications.task-completion.title.help",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { notificationSettings.setTaskCompletionEnabled($0) }
@@ -111,6 +114,7 @@ struct NotificationOptionsView: View {
 
         return notificationOptionRow(
             title: "settings.notifications.task-waiting.title",
+            help: "settings.notifications.task-waiting.title.help",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { notificationSettings.setTaskWaitingEnabled($0) }
@@ -125,22 +129,20 @@ struct NotificationOptionsView: View {
     private var taskHapticRow: some View {
         let isDisplayedOn = notificationSettings.isTaskHapticEnabled
 
-        return VStack(spacing: 0) {
-            optionRow(
-                title: "settings.notifications.task-haptics.title",
-                isOn: Binding(
-                    get: { isDisplayedOn },
-                    set: { notificationSettings.setTaskHapticEnabled($0) }
-                )
+        return optionRow(
+            title: "settings.notifications.task-haptics.title",
+            help: "settings.notifications.task-haptics.title.help",
+            isOn: Binding(
+                get: { isDisplayedOn },
+                set: { notificationSettings.setTaskHapticEnabled($0) }
             )
-
-            captionRow("settings.notifications.task-haptics.caption")
-        }
+        )
     }
 
     private var creditExpiryRow: some View {
         notificationOptionRow(
             title: "settings.notifications.banked-reset-expiry.title",
+            help: "settings.notifications.banked-reset-expiry.title.help",
             isOn: Binding(
                 get: { notificationSettings.isCreditExpiryEnabled },
                 set: { notificationSettings.setCreditExpiryEnabled($0) }
@@ -159,6 +161,7 @@ struct NotificationOptionsView: View {
 
         return notificationOptionRow(
             title: "settings.notifications.auto-reset.title",
+            help: "settings.notifications.auto-reset.title.help",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { notificationSettings.setAutoResetEnabled($0) }
@@ -181,6 +184,7 @@ struct NotificationOptionsView: View {
 
         return notificationOptionRow(
             title: "settings.notifications.low-battery.title",
+            help: "settings.notifications.low-battery.title.help",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { notificationSettings.setLowBatteryEnabled($0) }
@@ -201,6 +205,7 @@ struct NotificationOptionsView: View {
 
         return notificationOptionRow(
             title: "settings.notifications.keep-alive-limit.title",
+            help: "settings.notifications.keep-alive-limit.title.help",
             isOn: Binding(
                 get: { isDisplayedOn },
                 set: { notificationSettings.setKeepAliveLimitEnabled($0) }
@@ -214,28 +219,25 @@ struct NotificationOptionsView: View {
     }
 
     private var tuiNotificationRow: some View {
-        VStack(spacing: 0) {
-            optionRow(
-                title: "settings.notifications.codex-tui.title",
-                isOn: Binding(
-                    get: { tuiNotificationSettings.isEnabled },
-                    set: { tuiNotificationSettings.setEnabled($0) }
-                ),
-                isEnabled: !tuiNotificationSettings.isUpdating
-            ) {
-                if tuiNotificationSettings.isUpdating {
-                    ProgressView()
-                        .controlSize(.mini)
-                        .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
-                } else if let errorMessage = tuiNotificationSettings.errorMessage {
-                    Image(systemName: "exclamationmark.circle")
-                        .foregroundStyle(.orange)
-                        .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
-                        .help(errorMessage)
-                }
+        optionRow(
+            title: "settings.notifications.codex-tui.title",
+            help: "settings.notifications.codex-tui.title.help",
+            isOn: Binding(
+                get: { tuiNotificationSettings.isEnabled },
+                set: { tuiNotificationSettings.setEnabled($0) }
+            ),
+            isEnabled: !tuiNotificationSettings.isUpdating
+        ) {
+            if tuiNotificationSettings.isUpdating {
+                ProgressView()
+                    .controlSize(.mini)
+                    .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
+            } else if let errorMessage = tuiNotificationSettings.errorMessage {
+                Image(systemName: "exclamationmark.circle")
+                    .foregroundStyle(.orange)
+                    .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
+                    .help(errorMessage)
             }
-
-            captionRow("settings.notifications.codex-tui.caption")
         }
     }
 
@@ -243,22 +245,24 @@ struct NotificationOptionsView: View {
 
     private func optionRow(
         title: LocalizedStringResource,
+        help: LocalizedStringResource,
         isOn: Binding<Bool>,
         isEnabled: Bool = true
     ) -> some View {
-        optionRow(title: title, isOn: isOn, isEnabled: isEnabled) {
+        optionRow(title: title, help: help, isOn: isOn, isEnabled: isEnabled) {
             EmptyView()
         }
     }
 
     private func optionRow(
         title: LocalizedStringResource,
+        help: LocalizedStringResource,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
         @ViewBuilder accessory: () -> some View
     ) -> some View {
         HStack(spacing: 10) {
-            Text(title)
+            SettingsHelpLabel(title: title, help: help)
                 .font(SettingsRowMetrics.captionFont)
                 .foregroundStyle(.secondary)
 
@@ -275,25 +279,16 @@ struct NotificationOptionsView: View {
         .frame(height: Metrics.rowHeight)
     }
 
-    private func captionRow(_ caption: LocalizedStringResource) -> some View {
-        HStack(spacing: 0) {
-            Text(caption)
-                .font(SettingsRowMetrics.captionFont)
-                .foregroundStyle(.tertiary)
-
-            Spacer(minLength: 0)
-        }
-        .frame(height: Metrics.secondaryRowHeight)
-    }
-
     private func notificationOptionRow(
         title: LocalizedStringResource,
+        help: LocalizedStringResource,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
         sound: Binding<NotificationSoundOption>
     ) -> some View {
         notificationOptionRow(
             title: title,
+            help: help,
             isOn: isOn,
             isEnabled: isEnabled,
             sound: sound
@@ -304,6 +299,7 @@ struct NotificationOptionsView: View {
 
     private func notificationOptionRow(
         title: LocalizedStringResource,
+        help: LocalizedStringResource,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
         sound: Binding<NotificationSoundOption>,
@@ -314,7 +310,7 @@ struct NotificationOptionsView: View {
 
         return VStack(spacing: 0) {
             HStack(spacing: Metrics.notificationControlSpacing) {
-                Text(title)
+                SettingsHelpLabel(title: title, help: help)
                     .font(SettingsRowMetrics.captionFont)
                     .foregroundStyle(.secondary)
                     .layoutPriority(1)
@@ -449,14 +445,12 @@ struct NotificationOptionsView: View {
         static let horizontalPadding = SettingsOptionsPanelMetrics.horizontalPadding
         static let verticalPadding = SettingsOptionsPanelMetrics.verticalPadding
         static let notificationRowCount = 8
-        static let captionedRowCount = 2
-        static let totalRowCount = notificationRowCount + captionedRowCount
+        static let optionRowCount = 2
+        static let totalRowCount = notificationRowCount + optionRowCount
         static let rowSpacing = SettingsOptionsPanelMetrics.rowSpacing
         static let rowHeight = SettingsOptionsPanelMetrics.rowHeight
-        static let secondaryRowHeight = SettingsOptionsPanelMetrics.secondaryRowHeight
-        static let soundRowHeight = secondaryRowHeight
+        static let soundRowHeight = SettingsOptionsPanelMetrics.secondaryRowHeight
         static let notificationRowHeight = rowHeight + soundRowHeight
-        static let captionedRowHeight = rowHeight + secondaryRowHeight
         static let notificationControlSpacing = SettingsOptionsPanelMetrics.controlSpacing
         static let pickerWidth: CGFloat = 68
         static let soundMenuWidth: CGFloat = 160

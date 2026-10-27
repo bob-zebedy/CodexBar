@@ -12,7 +12,7 @@ struct MainPanelLayoutSettingsRow: View {
                 .frame(width: SettingsRowMetrics.iconWidth)
                 .foregroundStyle(.tint)
 
-            Text("settings.main-panel.layout.title")
+            SettingsHelpLabel(title: "settings.main-panel.layout.title", help: "settings.main-panel.layout.title.help")
                 .font(SettingsRowMetrics.bodyFont)
 
             Spacer()

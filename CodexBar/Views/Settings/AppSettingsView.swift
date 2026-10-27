@@ -4,6 +4,8 @@ import SwiftUI
 
 /// 设置窗口根视图, 按通用, 高级和关于分页汇总设置与版本信息
 struct AppSettingsView: View {
+    static let preferredContentWidth: CGFloat = 470
+
     @EnvironmentObject private var statusViewModel: CodexStatusViewModel
     @EnvironmentObject private var appUpdater: AppUpdater
     @EnvironmentObject private var animationState: SettingsWindowAnimationState
@@ -65,7 +67,7 @@ struct AppSettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .font(SettingsRowMetrics.bodyFont)
-        .frame(width: Metrics.windowWidth)
+        .frame(width: Self.preferredContentWidth)
         .frame(maxHeight: .infinity, alignment: .top)
         .liquidGlassSurface(
             cornerRadii: RectangleCornerRadii(
@@ -178,14 +180,13 @@ struct AppSettingsView: View {
 private extension AppSettingsView {
     enum Metrics {
         static let padding: CGFloat = 12
-        static let windowWidth: CGFloat = 430
         static let sectionSpacing: CGFloat = 18
         static let rowSpacing: CGFloat = 14
         static let panelPadding: CGFloat = 12
         static let githubIconSize: CGFloat = 16
         static let surfaceCornerRadius: CGFloat = 16
         static let panelCornerRadius: CGFloat = 10
-        static let tabBarWidth = windowWidth - padding * 2
+        static let tabBarWidth = AppSettingsView.preferredContentWidth - padding * 2
         static let tabBarHeight: CGFloat = 38
         static let tabBarPadding: CGFloat = 4
         static let tabSpacing: CGFloat = 4
@@ -357,7 +358,7 @@ private extension AppSettingsView {
             Image(systemName: "circle.lefthalf.filled")
                 .frame(width: SettingsRowMetrics.iconWidth)
                 .foregroundStyle(.tint)
-            Text("settings.appearance.theme.title")
+            SettingsHelpLabel(title: "settings.appearance.theme.title", help: "settings.appearance.theme.title.help")
             Spacer()
             SettingsOptionsPicker(
                 title: "settings.appearance.theme.title",
@@ -389,6 +390,7 @@ private extension AppSettingsView {
             SettingsToggleRow(
                 icon: "power",
                 title: "settings.general.launch-at-login",
+                help: "settings.general.launch-at-login.help",
                 isOn: Binding(
                     get: { loginItemSettings.isEnabled },
                     set: { loginItemSettings.setEnabled($0) }
@@ -410,6 +412,7 @@ private extension AppSettingsView {
         SettingsToggleRow(
             icon: "arrow.triangle.2.circlepath",
             title: "settings.general.automatic-update-checks",
+            help: "settings.general.automatic-update-checks.help",
             isOn: Binding(
                 get: { appUpdater.automaticallyChecksForUpdates },
                 set: { appUpdater.setAutomaticallyChecksForUpdates($0) }
@@ -428,6 +431,7 @@ private extension AppSettingsView {
         return SettingsToggleRow(
             icon: "gauge.with.dots.needle.50percent",
             title: "settings.menu-bar-quota.title",
+            help: "settings.menu-bar-quota.title.help",
             isOn: Binding(
                 get: { isMenuBarQuotaEnabled },
                 set: { menuBarQuotaSettings.setEnabled($0) }
@@ -497,7 +501,7 @@ private extension AppSettingsView {
             Image(systemName: "timer")
                 .frame(width: SettingsRowMetrics.iconWidth)
                 .foregroundStyle(.tint)
-            Text("settings.data-update.interval.title")
+            SettingsHelpLabel(title: "settings.data-update.interval.title", help: "settings.data-update.interval.title.help")
             Spacer()
             SettingsOptionsPicker(
                 title: "settings.data-update.interval.title",
@@ -522,6 +526,7 @@ private extension AppSettingsView {
             SettingsToggleRow(
                 icon: "arrow.counterclockwise.circle",
                 title: "settings.auto-reset.title",
+                help: "settings.auto-reset.title.help",
                 isOn: Binding(
                     get: { autoResetSettings.isEnabled },
                     set: { enabled in
@@ -600,6 +605,7 @@ private extension AppSettingsView {
             SettingsToggleRow(
                 icon: "moon.zzz",
                 title: "settings.keep-alive.title",
+                help: "settings.keep-alive.title.help",
                 isOn: Binding(
                     get: { keepAliveController.isEnabled },
                     set: { enabled in
@@ -712,6 +718,7 @@ private extension AppSettingsView {
             SettingsToggleRow(
                 icon: "icloud",
                 title: "settings.sync.title",
+                help: "settings.sync.title.help",
                 isOn: Binding(
                     get: { state.isActive },
                     set: { enabled in
@@ -782,7 +789,7 @@ private extension AppSettingsView {
                 .frame(width: SettingsRowMetrics.iconWidth)
                 .foregroundStyle(.tint)
 
-            Text("history.rebuild.title")
+            SettingsHelpLabel(title: "history.rebuild.title", help: "history.rebuild.title.help")
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
 
@@ -910,6 +917,7 @@ private extension AppSettingsView {
             SettingsToggleRow(
                 icon: "bell.badge",
                 title: "settings.notifications.system.title",
+                help: "settings.notifications.system.title.help",
                 isOn: Binding(
                     get: { notificationSettings.isEnabled },
                     set: { notificationSettings.setEnabled($0) }

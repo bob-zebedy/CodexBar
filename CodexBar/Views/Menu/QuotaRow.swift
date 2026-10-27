@@ -114,9 +114,9 @@ private extension QuotaRow {
 
     static let resetFormatter: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = .autoupdatingCurrent
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = .autoupdatingCurrent
-        formatter.setLocalizedDateFormatFromTemplate("MMddjmm")
+        formatter.dateFormat = "MM/dd HH:mm"
         return formatter
     }()
 }

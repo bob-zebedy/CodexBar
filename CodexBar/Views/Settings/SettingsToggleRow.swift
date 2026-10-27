@@ -49,7 +49,7 @@ enum SettingsOptionsPanelMetrics {
     static let verticalPadding: CGFloat = 10
     static let rowSpacing: CGFloat = 5
     static let rowHeight: CGFloat = 22
-    /// 第二行的高度, 通知面板用于音效子行, 防睡眠面板用于固定说明
+    /// 通知面板音效子行的高度
     static let secondaryRowHeight: CGFloat = 18
     static let controlSpacing: CGFloat = 6
     static let cornerRadius: CGFloat = 12
@@ -83,6 +83,7 @@ struct SettingsOptionsPicker<Option: Hashable>: View {
 struct SettingsToggleRow<Accessory: View>: View {
     let icon: String
     let title: LocalizedStringResource
+    let help: LocalizedStringResource
     let isOn: Binding<Bool>
     let isEnabled: Bool
     private let accessory: Accessory
@@ -90,12 +91,14 @@ struct SettingsToggleRow<Accessory: View>: View {
     init(
         icon: String,
         title: LocalizedStringResource,
+        help: LocalizedStringResource,
         isOn: Binding<Bool>,
         isEnabled: Bool = true,
         @ViewBuilder accessory: () -> Accessory
     ) {
         self.icon = icon
         self.title = title
+        self.help = help
         self.isOn = isOn
         self.isEnabled = isEnabled
         self.accessory = accessory()
@@ -107,7 +110,7 @@ struct SettingsToggleRow<Accessory: View>: View {
                 .frame(width: SettingsRowMetrics.iconWidth)
                 .foregroundStyle(.tint)
 
-            Text(title)
+            SettingsHelpLabel(title: title, help: help)
                 .font(SettingsRowMetrics.bodyFont)
 
             Spacer()
@@ -127,10 +130,11 @@ extension SettingsToggleRow where Accessory == EmptyView {
     init(
         icon: String,
         title: LocalizedStringResource,
+        help: LocalizedStringResource,
         isOn: Binding<Bool>,
         isEnabled: Bool = true
     ) {
-        self.init(icon: icon, title: title, isOn: isOn, isEnabled: isEnabled) {
+        self.init(icon: icon, title: title, help: help, isOn: isOn, isEnabled: isEnabled) {
             EmptyView()
         }
     }

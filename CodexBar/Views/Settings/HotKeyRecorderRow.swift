@@ -14,7 +14,7 @@ struct HotKeyRecorderRow: View {
                     .frame(width: SettingsRowMetrics.iconWidth)
                     .foregroundStyle(.tint)
 
-                Text("settings.hotkey.title")
+                SettingsHelpLabel(title: "settings.hotkey.title", help: "settings.hotkey.title.help")
                     .font(SettingsRowMetrics.bodyFont)
 
                 Spacer()

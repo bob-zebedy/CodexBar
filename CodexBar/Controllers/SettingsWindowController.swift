@@ -144,7 +144,7 @@ final class SettingsWindowController: HostingWindowController {
 
     private enum Metrics {
         static let minimumContentSize = NSSize(width: 420, height: 240)
-        static let initialContentSize = NSSize(width: 430, height: 270)
+        static let initialContentSize = NSSize(width: AppSettingsView.preferredContentWidth, height: 270)
         static let maximumFallbackContentSize = NSSize(width: 560, height: 720)
         /// 只用于首次定位的稳定顶边基准 不限制页面自适应高度
         static let topEdgeReferenceContentHeight: CGFloat = 500

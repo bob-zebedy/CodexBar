@@ -29,7 +29,7 @@ struct KeepAliveOptionsView: View {
         CGSize(
             width: Metrics.panelWidth,
             height: Metrics.verticalPadding * 2
-                + (Metrics.rowHeight + Metrics.captionRowHeight) * CGFloat(Metrics.maximumRowCount)
+                + Metrics.rowHeight * CGFloat(Metrics.maximumRowCount)
                 + Metrics.rowSpacing * CGFloat(Metrics.maximumRowCount - 1)
         )
     }
@@ -37,7 +37,7 @@ struct KeepAliveOptionsView: View {
     private var maximumDurationRow: some View {
         pickerRow(
             title: "keep-alive.duration-limit.title",
-            caption: "keep-alive.duration-limit.caption",
+            help: "keep-alive.duration-limit.title.help",
             selection: Binding(
                 get: { keepAliveController.maximumDuration },
                 set: { keepAliveController.setMaximumDuration($0) }
@@ -50,7 +50,7 @@ struct KeepAliveOptionsView: View {
     private var protectionRow: some View {
         pickerRow(
             title: "protection.title",
-            caption: "protection.caption",
+            help: "protection.title.help",
             selection: Binding(
                 get: { protectionSettings.inactivityDuration },
                 set: { protectionSettings.setInactivityDuration($0) }
@@ -64,7 +64,7 @@ struct KeepAliveOptionsView: View {
     private var waitingApprovalRow: some View {
         toggleRow(
             title: "keep-alive.waiting.title",
-            caption: "keep-alive.waiting.caption",
+            help: "keep-alive.waiting.title.help",
             isOn: Binding(
                 get: { keepAliveController.keepsAwakeWhileWaiting },
                 set: { keepAliveController.setKeepsAwakeWhileWaiting($0) }
@@ -76,7 +76,7 @@ struct KeepAliveOptionsView: View {
     private var displayAwakeRow: some View {
         toggleRow(
             title: "keep-alive.display.title",
-            caption: "keep-alive.display.caption",
+            help: "keep-alive.display.title.help",
             isOn: Binding(
                 get: { keepAliveController.keepsDisplayAwake },
                 set: { keepAliveController.setKeepsDisplayAwake($0) }
@@ -87,7 +87,7 @@ struct KeepAliveOptionsView: View {
     private var lowBatteryRow: some View {
         pickerRow(
             title: "keep-alive.low-battery.title",
-            caption: "keep-alive.low-battery.caption",
+            help: "keep-alive.low-battery.title.help",
             selection: Binding(
                 get: { keepAliveController.lowBatteryThreshold },
                 set: { keepAliveController.setLowBatteryThreshold($0) }
@@ -99,12 +99,12 @@ struct KeepAliveOptionsView: View {
 
     private func pickerRow<Option: Hashable>(
         title: LocalizedStringResource,
-        caption: LocalizedStringResource,
+        help: LocalizedStringResource,
         selection: Binding<Option>,
         options: [Option],
         label: KeyPath<Option, String>
     ) -> some View {
-        row(title: title, caption: caption) {
+        row(title: title, help: help) {
             SettingsOptionsPicker(
                 title: title,
                 selection: selection,
@@ -119,10 +119,10 @@ struct KeepAliveOptionsView: View {
     /// 开关的修饰链与通知子面板的 optionRow 保持一致, 两个面板才是同一套控件
     private func toggleRow(
         title: LocalizedStringResource,
-        caption: LocalizedStringResource,
+        help: LocalizedStringResource,
         isOn: Binding<Bool>
     ) -> some View {
-        row(title: title, caption: caption) {
+        row(title: title, help: help) {
             Toggle(title, isOn: isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
@@ -130,44 +130,31 @@ struct KeepAliveOptionsView: View {
         }
     }
 
-    /// 面板里每一行都是控件行加一句固定说明, 说明那行与通知子面板的音效子行同一套字号和层级
     private func row(
         title: LocalizedStringResource,
-        caption: LocalizedStringResource,
+        help: LocalizedStringResource,
         @ViewBuilder control: () -> some View
     ) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: Metrics.controlSpacing) {
-                Text(title)
-                    .font(SettingsRowMetrics.captionFont)
-                    .foregroundStyle(.secondary)
+        HStack(spacing: Metrics.controlSpacing) {
+            SettingsHelpLabel(title: title, help: help)
+                .font(SettingsRowMetrics.captionFont)
+                .foregroundStyle(.secondary)
 
-                Spacer(minLength: 8)
+            Spacer(minLength: 8)
 
-                control()
-            }
-            .frame(height: Metrics.rowHeight)
-
-            HStack(spacing: 0) {
-                Text(caption)
-                    .font(SettingsRowMetrics.captionFont)
-                    .foregroundStyle(.tertiary)
-
-                Spacer(minLength: 0)
-            }
-            .frame(height: Metrics.captionRowHeight)
+            control()
         }
+        .frame(height: Metrics.rowHeight)
     }
 
     private enum Metrics {
-        static let panelWidth: CGFloat = 250
+        static let panelWidth: CGFloat = 280
         /// 有内置电池的设备时行数, 无内置电池设备少一行低电量保护
         static let maximumRowCount = 5
         static let horizontalPadding = SettingsOptionsPanelMetrics.horizontalPadding
         static let verticalPadding = SettingsOptionsPanelMetrics.verticalPadding
         static let rowSpacing = SettingsOptionsPanelMetrics.rowSpacing
         static let rowHeight = SettingsOptionsPanelMetrics.rowHeight
-        static let captionRowHeight = SettingsOptionsPanelMetrics.secondaryRowHeight
         static let controlSpacing = SettingsOptionsPanelMetrics.controlSpacing
         static let pickerWidth: CGFloat = 88
         static let cornerRadius = SettingsOptionsPanelMetrics.cornerRadius

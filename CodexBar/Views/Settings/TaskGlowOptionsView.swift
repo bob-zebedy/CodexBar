@@ -6,7 +6,7 @@ struct TaskGlowOptionsView: View {
     var body: some View {
         VStack(spacing: SettingsOptionsPanelMetrics.rowSpacing) {
             ForEach(TaskGlowColorRole.allCases, id: \.self) { role in
-                optionRow(role.title) {
+                optionRow(role.title, help: "task-glow.color.help") {
                     TaskGlowColorHexField(settings: settings, role: role)
                 }
             }
@@ -14,7 +14,7 @@ struct TaskGlowOptionsView: View {
             LiquidGlassDivider()
                 .padding(.vertical, 4)
 
-            optionRow("task-glow.speed.title") {
+            optionRow("task-glow.speed.title", help: "task-glow.speed.title.help") {
                 SettingsOptionsPicker(
                     title: "task-glow.speed.title",
                     selection: Binding(
@@ -27,7 +27,7 @@ struct TaskGlowOptionsView: View {
                     alignment: .trailing
                 )
             }
-            optionRow("task-glow.duration.title") {
+            optionRow("task-glow.duration.title", help: "task-glow.duration.title.help") {
                 SettingsOptionsPicker(
                     title: "task-glow.duration.title",
                     selection: Binding(
@@ -40,7 +40,7 @@ struct TaskGlowOptionsView: View {
                     alignment: .trailing
                 )
             }
-            optionRow("task-glow.brightness.title") {
+            optionRow("task-glow.brightness.title", help: "task-glow.brightness.title.help") {
                 TaskGlowBrightnessControl(value: Binding(
                     get: { settings.appearance.brightness },
                     set: { settings.setBrightness($0) }
@@ -61,9 +61,9 @@ struct TaskGlowOptionsView: View {
         CGSize(width: panelWidth, height: 220)
     }
 
-    private func optionRow(_ title: LocalizedStringResource, @ViewBuilder content: () -> some View) -> some View {
+    private func optionRow(_ title: LocalizedStringResource, help: LocalizedStringResource, @ViewBuilder content: () -> some View) -> some View {
         HStack(spacing: SettingsOptionsPanelMetrics.controlSpacing) {
-            Text(title)
+            SettingsHelpLabel(title: title, help: help)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 8)
             content()
@@ -193,7 +193,6 @@ private struct TaskGlowColorHexField: View {
                 .onTapGesture(count: 2) {
                     settings.previewColor(for: role)
                 }
-                .help("task-glow.color.preview-help")
 
             Text(verbatim: "#")
                 .font(SettingsRowMetrics.captionFont.monospaced())
