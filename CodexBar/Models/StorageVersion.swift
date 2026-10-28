@@ -5,7 +5,6 @@ nonisolated enum StorageCompatibilityError: Error, Equatable {
     case unsupportedFormat(String, Int)
     case unsupportedAlgorithm(String, Int)
     case incompleteSource
-    case sourceConflict
 }
 
 nonisolated enum StorageVersion {

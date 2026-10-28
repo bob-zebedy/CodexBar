@@ -29,8 +29,10 @@ nonisolated enum AccountRequests {
     }
 
     static func setTUINotifications(_ enabled: Bool) -> AppServerRequest<ConfigWriteResponse> {
-        let edit = ConfigBatchEdit(keyPath: "tui.notifications", value: enabled, mergeStrategy: "upsert")
-        return AppServerRequest(method: "config/batchWrite", params: ["edits": [edit.appServerObject], "reloadUserConfig": true])
+        AppServerRequest(method: "config/batchWrite", params: [
+            "edits": [["keyPath": "tui.notifications", "value": enabled, "mergeStrategy": "upsert"]],
+            "reloadUserConfig": true
+        ])
     }
 }
 

@@ -127,7 +127,7 @@ final class AppUpdater: NSObject, ObservableObject {
         }
     }
 
-    /// 手动与自动检查共用 Sparkle 的几个回调, 触发来源只能从当前是不是手动态推出来
+    /// 手动与自动检查共用 Sparkle 回调, 触发来源由当前手动检查状态判断
     private var checkTrigger: LogTrigger {
         isManualCheckInProgress ? .manual : .auto
     }

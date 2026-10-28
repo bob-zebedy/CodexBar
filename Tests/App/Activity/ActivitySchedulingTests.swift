@@ -46,7 +46,7 @@ struct ActivitySchedulingTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         #expect(ready)
-        #expect(await reader.drainNow().status == .partial)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .partial)
         #expect(lifecycle.graph.tasks[.init(thread: "thread", turn: "turn")]?.state == .waitingApproval)
         await reader.stop()
         release.signal()
@@ -123,6 +123,62 @@ struct ActivitySchedulingTests {
         try server.finish()
     }
 
+    @Test(arguments: [false, true])
+    func historicalParentsUseIdleCadenceUntilAChildStarts(parentLoaded: Bool) async throws {
+        let directory = try TestDirectory()
+        defer { await #expect(throws: Never.self) { try await directory.removeAfterClosingHistory() } }
+        let state = Mutex(ParentScheduleScenario())
+        let initial = ContinuousClock.now
+        let clock = Mutex(initial)
+        let server = try SharedServerFixture { try Self.serveParentSchedule($0, parentLoaded: parentLoaded, state: state) }
+        defer { server.close() }
+        var ready = false
+        let reader = AppServerActivityReader(
+            socketURL: server.url, logStorage: nil,
+            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url),
+            activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url),
+            reconciliationClock: { clock.withLock { $0 } },
+            onBatch: { update in
+                if update.phase == .bootstrapEnd {
+                    ready = true
+                }
+            }
+        )
+        defer { await reader.stop() }
+        await reader.start()
+        try #require(await waitForCondition(timeout: .seconds(5), pollInterval: .milliseconds(10)) { ready })
+
+        func advance(to seconds: Int) async throws {
+            let previous = state.withLock { $0.discoveries }
+            clock.withLock { $0 = initial.advanced(by: .seconds(seconds)) }
+            // 下一轮发现到达时, 上一轮核对及其读取计数已经完成
+            try #require(await waitForCondition(timeout: .seconds(6), pollInterval: .milliseconds(10)) {
+                state.withLock { $0.discoveries >= previous + 2 }
+            })
+        }
+
+        // 通过日常发现触发调度, 强制排空和恢复读取会跳过已结束任务的历史依赖
+        for seconds in [0, 5, 59, 60] {
+            try await advance(to: seconds)
+            let expected = seconds == 60 ? 2 : 1
+            #expect(state.withLock { $0.reads } == ["parent": expected, "child": expected])
+        }
+        state.withLock { $0.startsChild = true }
+        try await advance(to: 61)
+        let child = await reader.lifecycleSnapshot.lifecycleStates(for: [.init(threadID: "child", turnID: "new-child-turn")]).first
+        #expect(child?.turnStatus == .running)
+        #expect(state.withLock { $0.reads } == ["parent": 2, "child": 2])
+        // 父线程仍为 idle, 但运行中的子任务使父关联重新采用快速核对
+        try await advance(to: 65)
+        #expect(state.withLock { $0.reads } == ["parent": 3, "child": 3])
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
+        #expect(state.withLock { $0.reads } == ["parent": 4, "child": 4])
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
+        #expect(state.withLock { $0.reads } == ["parent": 5, "child": 5])
+        #expect(await reader.stop())
+        try server.finish()
+    }
+
     @Test func missingRolloutDoesNotDisconnectOtherThreadsAndCanRecover() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
@@ -164,7 +220,7 @@ struct ActivitySchedulingTests {
         #expect(tools == 1)
         #expect(discoveries.withLock { $0 } == 2)
         if ready, !disconnected {
-            #expect(await reader.drainNow().status == .completed)
+            #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
             let key = ActivityTaskKey(thread: "a-missing", turn: "turn")
             #expect(lifecycle.graph.tasks[key]?.lifecycleCoverageCheckedAt != nil)
             #expect(!lifecycle.graph.unavailableTurns.contains(key))
@@ -219,6 +275,71 @@ struct ActivitySchedulingTests {
         try server.finish()
         let recorded = try directory.historyRecords().filter { $0.activityData != nil }.count
         #expect(recorded == 1)
+    }
+
+    private nonisolated struct ParentScheduleScenario {
+        var reads: [String: Int] = [:]
+        var discoveries = 0
+        var startsChild = false
+        var childStartedAt: Double?
+        let timestamp = Date().addingTimeInterval(-60).timeIntervalSince1970
+
+        func turns(_ id: String) -> [[String: Any]] {
+            var result: [[String: Any]] = [[
+                "id": id == "parent" ? "root-turn" : "child-turn", "rootTurnId": "root-turn",
+                "status": "completed", "startedAt": timestamp, "completedAt": timestamp + 1
+            ]]
+            if id == "child", let childStartedAt {
+                result.insert([
+                    "id": "new-child-turn", "rootTurnId": "root-turn", "status": "inProgress", "startedAt": childStartedAt
+                ], at: 0)
+            }
+            return result
+        }
+    }
+
+    private nonisolated static func serveParentSchedule(
+        _ peer: SharedServerFixture.Peer, parentLoaded: Bool, state: borrowing Mutex<ParentScheduleScenario>
+    ) throws {
+        while let request = try? peer.readMessage() {
+            let method = request["method"] as? String ?? ""
+            let params = request["params"] as? [String: Any] ?? [:]
+            let id = params["threadId"] as? String ?? ""
+            let snapshot = state.withLock {
+                if method == "thread/read" {
+                    $0.reads[id, default: 0] += 1
+                }
+                if method == "thread/loaded/list" {
+                    $0.discoveries += 1
+                    if $0.startsChild {
+                        $0.childStartedAt = Date().timeIntervalSince1970
+                    }
+                }
+                return $0
+            }
+            switch method {
+            case "initialize": try peer.reply(to: request, result: ["userAgent": "codex/0.165.0"])
+            case "initialized": break
+            case "thread/loaded/list":
+                if snapshot.startsChild {
+                    try peer.send(["method": "turn/started", "params": ["threadId": "child", "turn": snapshot.turns("child")[0]]])
+                    state.withLock { $0.startsChild = false }
+                }
+                try peer.reply(to: request, result: ["data": parentLoaded ? ["parent", "child"] : ["child"]])
+            case "thread/read", "thread/resume":
+                var thread: [String: Any] = [
+                    "id": id, "source": "vscode", "status": ["type": id == "child" && snapshot.childStartedAt != nil ? "active" : "idle"]
+                ]
+                if id == "child" {
+                    thread["parentThreadId"] = "parent"
+                }
+                try peer.reply(to: request, result: ["thread": thread])
+            case "thread/turns/list":
+                #expect(params["itemsView"] as? String == "notLoaded")
+                try peer.reply(to: request, result: ["data": snapshot.turns(id)])
+            default: Issue.record("Unexpected request: \(method)")
+            }
+        }
     }
 
     private nonisolated static func serveMissingRollout(
@@ -341,7 +462,7 @@ extension ActivitySchedulingTests {
         for _ in 0 ..< 200 where !ready {
             try await Task.sleep(for: .milliseconds(5))
         }
-        #expect(await reader.drainNow().status == .partial)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .partial)
         let state = await reader.lifecycleSnapshot.lifecycleStates(for: [.init(threadID: "thread", turnID: "turn")]).first
         #expect(state?.presentation?.summary.waiting != nil)
         await reader.stop()
@@ -389,7 +510,7 @@ extension ActivitySchedulingTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         #expect(ready)
-        #expect(await reader.drainNow().status == .partial)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .partial)
         #expect(probe.graph.tasks[.init(thread: "thread", turn: "turn")] == nil)
         #expect(probe.graph.tasks[.init(thread: "thread", turn: "new-turn")]?.state == .running)
         #expect(probe.graph.completions.count == 1)
@@ -443,7 +564,7 @@ extension ActivitySchedulingTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         for _ in 0 ..< 3 {
-            #expect(await reader.drainNow().status == .completed)
+            #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         }
         for _ in 0 ..< 100 where probe.graph.tasks[.init(thread: "thread", turn: "turn")]?.tokenUsage?.totalTokens != 80 {
             try await Task.sleep(for: .milliseconds(5))
@@ -515,9 +636,9 @@ extension ActivitySchedulingTests {
         }
         try #require(ready)
         let key = ActivityTaskKey(thread: "thread", turn: "turn")
-        #expect(await reader.drainNow().status == .partial)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .partial)
         #expect(cache.graph.unavailableTurns.contains(key))
-        #expect(await reader.drainNow().status == .completed)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         #expect(cache.graph.tasks[key] == nil)
         #expect(cache.graph.completions.count == 1)
         #expect(cache.graph.recentlyEndedTaskAt[key] != nil)

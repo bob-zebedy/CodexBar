@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import os
 
-/// 应用级对象装配点, 持有服务和 ViewModel 生命周期
+/// 创建并持有应用级服务和 ViewModel
 @MainActor
 final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     private lazy var codexStatusService = CodexStatusService(logStorage: .shared, startup: appServerStartup)
@@ -200,7 +200,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
-    /// 启动时把各开关的初始值记成一条基线, 之后的变更日志都是相对这条基线的增量
+    /// 启动时记录各开关的初始值, 后续日志只记录变化
     private func logLaunchState() {
         // 先拼成普通字符串再交给 Logger, 避免在日志 autoclosure 中直接捕获属性
         let state = LogFields.joined(

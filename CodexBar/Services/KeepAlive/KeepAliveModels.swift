@@ -52,7 +52,7 @@ extension KeepAliveController {
             )
         }
 
-        /// 日志用的小时数, 与 LowBatteryThreshold 的百分比同一种可读形式, 无限制同样记 -1
+        /// 日志以小时记录时限, 与 LowBatteryThreshold 一样用 -1 表示无限制或未启用
         /// rawValue 使用秒数, 日志转换为小时便于阅读
         var loggedHours: Int {
             self == .unlimited ? -1 : rawValue / 3600
@@ -112,7 +112,7 @@ extension KeepAliveController {
         }
     }
 
-    /// 防睡眠没生效时缺的是哪一项, 同时充当日志里的 reason= 取值
+    /// 防睡眠未生效的原因, 同时用作日志中的 reason= 取值
     enum SleepBlockReason: String {
         case notStarted
         case userOff
@@ -125,7 +125,7 @@ extension KeepAliveController {
     }
 
     /// shouldDisableSleep 的求值结果与它依赖的各项, 只用于变化检测与日志
-    /// blockReason 与 shouldDisableSleep 同源, 不会出现"字段都满足却报某项缺失"
+    /// blockReason 与 shouldDisableSleep 共用判定规则, 保持结果与依赖状态一致
     /// battery 只保存布尔状态, 避免电量每次变化都触发日志
     struct SleepConditions: Equatable {
         let blockReason: SleepBlockReason?

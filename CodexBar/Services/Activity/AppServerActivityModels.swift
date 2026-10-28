@@ -9,6 +9,7 @@ private nonisolated struct WireActivityThread: Decodable {
     var source: WireActivityThreadSource?
     var parentThreadId: String?
     var createdAt: Double?
+    var threadSource: String?
 
     var origin: ActivityDataOrigin {
         source?.origin ?? .unknown
@@ -22,9 +23,6 @@ private nonisolated struct WireActivityThread: Decodable {
 private nonisolated struct WireActivityThreadStatus: Decodable {
     let type: String
     var activeFlags: [String]?
-    var isWaiting: Bool {
-        activeFlags?.contains("waitingOnApproval") == true
-    }
 }
 
 private nonisolated struct WireActivityThreadSource: Decodable {
@@ -366,7 +364,8 @@ private nonisolated extension WireActivityThread {
             status: status.map(ActivityThread.status),
             origin: origin,
             parentThreadID: parentThreadID,
-            createdAt: createdAt.map(Date.init(timeIntervalSince1970:))
+            createdAt: createdAt.map(Date.init(timeIntervalSince1970:)),
+            threadSource: threadSource
         )
     }
 }

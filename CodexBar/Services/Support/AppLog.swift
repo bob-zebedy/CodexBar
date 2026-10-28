@@ -1,9 +1,9 @@
 import Foundation
 import os
 
-/// App 侧统一的系统日志出口, 与 app-server 链路的日志窗口分工明确
+/// 记录 App 系统日志, app-server 交互详情由日志窗口处理
 /// 用户可见的错误文案只留步骤名, 定位问题需要的细节写到这里
-/// subsystem 取 bundle identifier, Debug 与 Release 两套装置的日志因此天然分开
+/// subsystem 使用 bundle identifier 区分 Debug 与 Release 日志
 nonisolated enum AppLog {
     /// App 生命周期, Sparkle 更新, 额度刷新结果与重置次数查询
     static let app = Logger(subsystem: subsystem, category: "app")

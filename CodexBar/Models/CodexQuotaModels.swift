@@ -86,8 +86,7 @@ private nonisolated extension String {
     }
 }
 
-/// primary/secondary 窗口的稳定标识; 这组词汇由模型层拥有
-/// 菜单栏额度指示偏好 (MenuBarQuotaSelection) 与窗口查找都经它互转
+/// 模型层定义的 primary/secondary 窗口标识, 用于转换菜单栏额度偏好 (MenuBarQuotaSelection) 和查找窗口
 nonisolated enum QuotaWindowKind: String, Equatable {
     case primary
     case secondary

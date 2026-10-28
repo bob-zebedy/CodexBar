@@ -11,7 +11,7 @@ nonisolated enum CodexFetchOutcome {
 }
 
 /// 一次刷新里各步的结果分类, 只用于日志
-/// 成功路径压进收尾那一条, 不为每步单独记一行
+/// 成功时将各步结果合并为一条收尾日志
 nonisolated struct CodexFetchTrace {
     enum ConnectionMode: String {
         case reused
@@ -51,7 +51,7 @@ private nonisolated struct CachedSupplementalRead<Value> {
     let value: Value?
     let step: CodexFetchTrace.StepResult
 
-    /// 只驱动 UI 的半透明展示; 新增 step 分支时要确认它算不算"给出的是旧数据"
+    /// 仅控制 UI 的半透明展示, 新增 step 分支时需判断是否使用了缓存数据
     var isStale: Bool {
         step == .cached
     }
@@ -389,7 +389,7 @@ actor CodexStatusService {
 
         // 新建连接已读过 account; 复用连接才刷新账户状态
 
-        // 失败定位随流程推进, 不靠事后从别的字段反推
+        // 随流程更新当前步骤, 供失败日志定位
         trace.failureStage = .account
         if refreshAccountInfo {
             let response = try readWithAuthRefresh {

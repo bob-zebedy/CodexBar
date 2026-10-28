@@ -52,7 +52,7 @@ final class ActivityMonitor: ObservableObject {
     var activityReader: AppServerActivityReader?
     private var activityReaderControlTask: Task<Void, Never>?
     private var activityReaderGeneration: UInt64 = 0
-    private var recoveryTask: Task<Void, Never>?
+    private(set) var recoveryTask: Task<Void, Never>?
     private var recoveryTaskID: UUID?
     private var isSystemSleeping = false
     private var recoveryRetryTask: Task<Void, Never>?
@@ -60,7 +60,7 @@ final class ActivityMonitor: ObservableObject {
     private var cleanupDeadline: Date?
     var inactivityCheckTask: Task<Void, Never>?
     var inactivityCheckDeadline: Date?
-    var suppressedTasks: [ActivityTaskKey: Date] = [:]
+    var suppressedTasks: Set<ActivityTaskKey> = []
     var protectionAttempts: [ActivityTaskKey: ProtectionAttempt] = [:]
     var protectionNoticeAttemptIDs: [UUID: UUID] = [:]
     var protectionRecords: [String: ProtectionRecord] = [:]
@@ -77,8 +77,11 @@ final class ActivityMonitor: ObservableObject {
     @Published var isActivitySourceHealthy = false
     @Published private(set) var sourcePresentation: ActivityLiveLabel? = ActivityLiveLabel("unavailable")
     private var hasConnectedActivitySource = false
-    var isProtectionRecoveryInProgress = false
-    var protectionRecoveryGeneration: UInt64 = 0
+    var activeRecoveryID: UUID?
+    var isProtectionRecoveryInProgress: Bool {
+        activeRecoveryID != nil
+    }
+
     private var cancellables = Set<AnyCancellable>()
     private var isPreparingForTermination = false
     var isStarted = false
@@ -142,6 +145,7 @@ final class ActivityMonitor: ObservableObject {
                     "事件重读已触发: trigger=\(LogTrigger.wake.rawValue, privacy: .public)"
                 )
                 isSystemSleeping = false
+                beginProtectionRecovery()
                 requestActivityRecovery()
             }
             .store(in: &cancellables)
@@ -324,15 +328,14 @@ final class ActivityMonitor: ObservableObject {
     }
 
     /// 恢复结果携带屏障之后发布的同一份快照, 不再跨 actor 查询第二份状态
-    private func requestActivityRecovery() {
-        guard !isSystemSleeping, let reader = activityReader, !isBootstrapping else { return }
+    func requestActivityRecovery() {
+        guard !isSystemSleeping, let reader = activityReader, !isBootstrapping, let recoveryGeneration = activeRecoveryID else { return }
         recoveryTask?.cancel()
-        let recoveryGeneration = beginProtectionRecovery()
         let generation = activityReaderGeneration
         let taskID = UUID()
         recoveryTaskID = taskID
         recoveryTask = Task { @MainActor [weak self] in
-            let result = await reader.drainNow()
+            let result = await reader.drainForRecovery(generation: recoveryGeneration)
             guard let self else { return }
             defer {
                 if recoveryTaskID == taskID {
@@ -341,14 +344,13 @@ final class ActivityMonitor: ObservableObject {
                 }
             }
             guard !Task.isCancelled, generation == activityReaderGeneration,
-                  recoveryGeneration == protectionRecoveryGeneration, !isSystemSleeping else { return }
+                  recoveryGeneration == activeRecoveryID, !isSystemSleeping else { return }
             switch result {
-            case let .completed(update):
+            case let .update(update):
                 consume(update)
-                guard isActivitySourceHealthy, !isBootstrapping else { return }
+                guard update.isComplete, isActivitySourceHealthy, !isBootstrapping, graph.unavailableTurns.isEmpty,
+                      update.recoveryID == recoveryGeneration else { return }
                 finishProtectionRecovery(generation: recoveryGeneration)
-            case let .partial(update):
-                consume(update)
             case .sourceUnavailable, .cancelled: break
             }
         }
@@ -391,7 +393,7 @@ final class ActivityMonitor: ObservableObject {
             turnTransitionNotBefore = nil
             isActivitySourceHealthy = false
             resetTerminalPresentationCutoff()
-            beginProtectionRecovery()
+            beginProtectionRecovery(generation: update.recoveryID)
             publishSnapshot(.empty)
         case .snapshotEvents:
             if isBootstrapping {
@@ -405,7 +407,7 @@ final class ActivityMonitor: ObservableObject {
             turnTransitionNotBefore = Date()
             resetTerminalPresentationCutoff()
             if !isSystemSleeping, update.isComplete, graph.unavailableTurns.isEmpty {
-                finishProtectionRecovery(generation: protectionRecoveryGeneration)
+                finishProtectionRecovery(generation: update.recoveryID)
             }
             applyPersistedProtection(now: Date())
             reconcileProtection(now: Date(), sendsNotification: false)
@@ -483,7 +485,7 @@ final class ActivityMonitor: ObservableObject {
 
     private func sortedTasks(in state: ActivityTaskState) -> [ActivityTask] {
         tasks.values
-            .filter { $0.state == state && suppressedTasks[$0.key] == nil && !graph.unavailableTurns.contains($0.key) }
+            .filter { $0.state == state && !suppressedTasks.contains($0.key) && !graph.unavailableTurns.contains($0.key) }
             .sorted(by: Self.recentFirst(\.lastActivityAt, \.displayID))
     }
 

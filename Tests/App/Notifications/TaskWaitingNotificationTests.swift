@@ -9,7 +9,9 @@ struct TaskWaitingNotificationTests {
         defer { fixture.cleanUp() }
         try await fixture.start()
         try fixture.publishWaiting(blockingInput: blockingInput)
-        try await waitUntil { fixture.delivery.delivered == [fixture.identifier] }
+        try #require(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(5)) {
+            fixture.delivery.delivered == [fixture.identifier]
+        }, "Notification operation did not reach the expected state")
         #expect(fixture.delivery.attempts == [fixture.identifier])
         try fixture.resolveWaiting()
         #expect(fixture.delivery.delivered.isEmpty)
@@ -40,7 +42,9 @@ struct TaskWaitingNotificationTests {
         try await fixture.start()
         fixture.delivery.suspendsSubmissions = true
         let submission = try fixture.enterWaiting(blockingInput: blockingInput)
-        try await waitUntil { fixture.delivery.hasPendingSubmission }
+        try #require(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(5)) {
+            fixture.delivery.hasPendingSubmission
+        }, "Notification operation did not reach the expected state")
 
         try fixture.resolveWaiting()
         #expect(fixture.delivery.removals == [[fixture.identifier]])
@@ -94,14 +98,6 @@ struct TaskWaitingNotificationTests {
     }
 }
 
-private func waitUntil(_ condition: () -> Bool) async throws {
-    let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-    while !condition(), ContinuousClock.now < deadline {
-        try await Task.sleep(for: .milliseconds(5))
-    }
-    try #require(condition(), "Notification operation did not reach the expected state")
-}
-
 private final class Fixture {
     let directory: TestDirectory
     let preferences: TestPreferences
@@ -146,7 +142,9 @@ private final class Fixture {
 
     func start() async throws {
         service.start()
-        try await waitUntil { self.settings.canDeliver }
+        try #require(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(5)) {
+            self.settings.canDeliver
+        }, "Notification operation did not reach the expected state")
     }
 
     func enterWaiting(blockingInput: Bool) throws -> Task<Bool, Never> {

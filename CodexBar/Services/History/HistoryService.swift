@@ -4,18 +4,17 @@ import os
 nonisolated struct HistoryMaintenanceCounts {
     var events = 0
     var written = 0
-    var skipped = 0
     var failed = 0
     var pruned = 0
     var dateRange = "-"
-    /// 这条之前连续空转了多少轮, 用来确认静默期是没事干而不是没跑
+    /// 此前连续无变化的轮数, 用于确认日志静默期间维护仍在执行
     var idle = 0
 
     var dates: Int {
-        written + skipped + failed
+        written + failed
     }
 
-    /// 这一轮有没有真的改变过状态
+    /// 本轮是否改变了状态
     var hasWork: Bool {
         dates > 0 || pruned > 0
     }

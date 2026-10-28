@@ -41,30 +41,4 @@ nonisolated enum AppServerTUINotifications: Decodable {
     }
 }
 
-/// config/batchWrite 的单条编辑, 直接转成 app-server 期望的 JSON 对象
-nonisolated struct ConfigBatchEdit: Sendable {
-    let keyPath: String
-    let mergeStrategy: String
-
-    private let value: Bool
-
-    init(
-        keyPath: String,
-        value: Bool,
-        mergeStrategy: String
-    ) {
-        self.keyPath = keyPath
-        self.value = value
-        self.mergeStrategy = mergeStrategy
-    }
-
-    var appServerObject: [String: Any] {
-        [
-            "keyPath": keyPath,
-            "value": value,
-            "mergeStrategy": mergeStrategy
-        ]
-    }
-}
-
 nonisolated struct ConfigWriteResponse: Decodable {}

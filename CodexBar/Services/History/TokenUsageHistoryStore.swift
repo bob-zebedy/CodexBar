@@ -130,6 +130,7 @@ nonisolated struct TokenUsageRebuildResult {
     static let empty = Self()
 }
 
+/// 调用方持有文件锁, 每次核对磁盘字节后复用解码结果, 不依赖 mtime 判断跨进程修改
 nonisolated struct TokenUsageFileCache<Value: Codable & Equatable> {
     let url: URL
     private var data: Data?
@@ -139,7 +140,7 @@ nonisolated struct TokenUsageFileCache<Value: Codable & Equatable> {
         self.url = url
     }
 
-    mutating func load(validate: (Data) throws -> Void = { _ in }) throws -> Value? {
+    mutating func load() throws -> Value? {
         guard FileManager.default.fileExists(atPath: url.path) else {
             data = nil
             value = nil
@@ -149,7 +150,6 @@ nonisolated struct TokenUsageFileCache<Value: Codable & Equatable> {
         if current == data {
             return value
         }
-        try validate(current)
         let decoded = try JSONLines.decoder.decode(Value.self, from: current)
         data = current
         value = decoded

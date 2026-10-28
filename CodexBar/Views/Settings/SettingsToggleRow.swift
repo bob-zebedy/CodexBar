@@ -42,8 +42,7 @@ struct SettingsOptionsButton: View {
     }
 }
 
-/// 设置窗口右侧子选项面板共用的度量
-/// 各面板要看起来是同一套控件, 所以除了面板宽度和 picker 宽度以外都从这里取
+/// 设置子选项面板共用的尺寸, 仅面板和 picker 的宽度由各面板定义
 enum SettingsOptionsPanelMetrics {
     static let horizontalPadding: CGFloat = 12
     static let verticalPadding: CGFloat = 10
@@ -56,7 +55,7 @@ enum SettingsOptionsPanelMetrics {
 }
 
 /// 子选项面板共用的下拉选择器
-/// 只有宽度和对齐各自定义, 其余样式必须同源, 否则各面板看起来就不是同一套控件
+/// 各面板仅定义宽度和对齐方式, 其余样式共用
 struct SettingsOptionsPicker<Option: Hashable>: View {
     let title: LocalizedStringResource
     @Binding var selection: Option

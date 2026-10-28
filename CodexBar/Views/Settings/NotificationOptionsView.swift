@@ -175,9 +175,9 @@ struct NotificationOptionsView: View {
     }
 
     /// 防睡眠关着或低电量保护关着时显示为关闭并置灰, 不修改持久化的 isLowBatteryEnabled
-    /// 保护默认就是关的, 不置灰会让这一行在任何默认安装上都亮着, 而对应通知永远发不出来
-    /// "保护是不是真的在起作用"由 KeepAliveController 判定, 这里只读结论
-    /// 它同时覆盖了台式机: 那时防睡眠面板整行隐藏低电量保护, 而阈值可能是从笔记本迁移过来的非 off 值
+    /// 保护默认关闭, 此时通知无法触发, 选项也应置灰
+    /// 可用性由 KeepAliveController 判定, 包括台式机从笔记本迁入非 off 阈值的情况
+    /// 台式机的防睡眠面板隐藏低电量保护行
     private var lowBatteryRow: some View {
         let isProtectionOn = keepAliveController.isLowBatteryProtectionEnabled
         let isDisplayedOn = isProtectionOn && notificationSettings.isLowBatteryEnabled
@@ -198,7 +198,7 @@ struct NotificationOptionsView: View {
     }
 
     /// 防睡眠关着或选了无限制时显示为关闭并置灰, 不修改持久化的 isKeepAliveLimitEnabled
-    /// 与低电量那一行同一个做法, "上限会不会到点"由 KeepAliveController 判定, 这里只读结论
+    /// 与低电量通知一样, 可用性由 KeepAliveController 判定
     private var keepAliveLimitRow: some View {
         let hasLimit = keepAliveController.isMaximumDurationEnabled
         let isDisplayedOn = hasLimit && notificationSettings.isKeepAliveLimitEnabled

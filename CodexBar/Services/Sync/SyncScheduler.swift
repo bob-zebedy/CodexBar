@@ -17,8 +17,8 @@ final class SyncScheduler {
     private var pendingRebuild: RebuildRequest?
     private var cooldownTask: Task<Void, Never>?
     private var lastSyncFinishedAt: Date?
-    /// 请求会被合并成一次执行, 触发来源跟着一起排队, 非 nil 即代表有一个请求在等
-    /// 合并时保留先到的那个, 它才是这一轮真正的起因
+    /// 待执行请求的触发来源, 非 nil 表示已有请求排队
+    /// 多个请求合并执行时保留最早的触发来源
     private var pendingSyncTrigger: LogTrigger?
     private var pendingMaintenanceTrigger: LogTrigger?
 
@@ -226,7 +226,7 @@ final class SyncScheduler {
     }
 
     /// 空转轮次不记录日志, 避免周期刷新产生重复信息
-    /// 同步自身的起止由 SyncService 记, 这里只承载维护结果, 不给 sync 开后门
+    /// 此处只记录维护结果, 同步起止由 SyncService 记录
     private func logMaintenanceOutcome(
         synchronize: Bool,
         trigger: LogTrigger,
@@ -249,7 +249,6 @@ final class SyncScheduler {
             "range=\(range)",
             "events=\(counts.events)",
             "written=\(counts.written)",
-            "skipped=\(counts.skipped)",
             "failed=\(counts.failed)",
             "pruned=\(counts.pruned)",
             "elapsed=\(elapsed)"
@@ -266,9 +265,8 @@ final class SyncScheduler {
         return max(0, Self.syncCooldown - elapsed)
     }
 
-    /// 冷却延后只在真的排上队时记一条
-    /// drain 一轮会被多个入口调用, 无条件记会把一次延后刷成好几条
-    /// 标题与 requestSync 的 已跳过 分开: 这里的请求冷却结束后照常执行, 不是被丢弃
+    /// 冷却延后仅在入队时记录, 避免多个入口调用 drain 产生重复日志
+    /// 请求会在冷却结束后执行, 日志标题需与 requestSync 的 已跳过 区分
     private func scheduleCooldownDrain(after delay: TimeInterval) {
         guard cooldownTask == nil else {
             return

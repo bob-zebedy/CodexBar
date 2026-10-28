@@ -28,7 +28,7 @@ python3 -m Scripts.performance \
 | `standard` | 10 分钟 | 日常测试，默认预设 |
 | `extended` | 30 分钟 | 长时间观察 |
 
-时长为各阶段的计划采集时间之和，不含预热、Instruments 启停和数据导出；实际运行时间更长。
+时长是各阶段计划采集时间之和。预热、Instruments 启停和数据导出需要额外时间。
 
 ## 参数
 
@@ -63,7 +63,7 @@ Performance/4.1.1(111)-extended-20261024140000/
 
 `performance.html` 用于查看报告，`performance.json` 用于基线比较和重新生成报告，`*.trace` 可用 Instruments 打开。目录内同时保存采样 XML、命令日志和工具源码快照。
 
-已有同名目录时，脚本会报错而不覆盖已有结果。采集时可用 `--label` 为本次测试添加标签，在默认目录名后追加 `-{标签}`，标签不能为空或包含 `/`：
+已有同名目录时，脚本会报错，保留已有结果。用 `--label` 添加测试标签，脚本会在默认目录名后追加 `-{标签}`。标签不能为空或包含 `/`：
 
 ```sh
 python3 -m Scripts.performance --preset quick --label idle

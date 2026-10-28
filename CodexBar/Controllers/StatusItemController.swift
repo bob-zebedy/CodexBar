@@ -59,7 +59,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     ) { [weak self] in
         self?.statusItem.button?.window?.screen
     } onSyncChanged: { [weak self] _ in
-        // setEnabled 在回调之前已经写回属性, 现场求值就是新结论
+        // setEnabled 在回调前已更新属性, 此时可以读取新值
         self?.syncScheduler.requestSync(trigger: .settings)
     } onRebuildHistoryData: { [weak self] dateKeys, completion in
         guard let self else {
@@ -779,7 +779,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         scheduleAuxiliaryWindowKeyFocusRestore()
     }
 
-    /// 侧边面板互斥名册: 新增面板只需要加入这里, 显隐与点击区域判定即可覆盖
+    /// 侧边面板列表, 新增面板后共用互斥显隐和点击区域判定
     private var sideDetailPanels: [MenuSideDetailPanel] {
         [heatmapDetailPanelController, resetCreditsPanelController, activityCenterPanelController]
     }
@@ -981,7 +981,7 @@ extension StatusItemController: NSPopoverDelegate {
     }
 }
 
-/// 菜单侧边面板的互斥名册接口; 面板间互斥和点击区域判定统一走名册遍历
+/// 菜单侧边面板接口, 供列表遍历时处理互斥显隐和点击区域判定
 private protocol MenuSideDetailPanel: AnyObject {
     func hide(immediate: Bool)
     func containsScreenPoint(_ screenPoint: NSPoint) -> Bool

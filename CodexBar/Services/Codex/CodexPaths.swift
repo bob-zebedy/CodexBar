@@ -154,7 +154,7 @@ nonisolated enum CodexPaths {
         canonicalPath(lhs) == canonicalPath(rhs)
     }
 
-    /// "两个路径是否指向同一文件"的统一口径
+    /// 归一化路径, 用于判断两个路径是否指向同一文件
     static func canonicalPath(_ path: String) -> String {
         URL(fileURLWithPath: path)
             .resolvingSymlinksInPath()

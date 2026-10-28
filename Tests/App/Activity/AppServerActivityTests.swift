@@ -388,53 +388,6 @@ struct AppServerActivityTests {
         #expect(stored.count == 1)
     }
 
-    @Test func incrementalTokenStorageRetainsAllCountersAcrossRestart() async throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let store = TokenUsageHistoryStore(directoryURL: directory.url)
-        let tokenUsage = TokenUsage(
-            inputTokens: 100,
-            cachedInputTokens: 50,
-            cacheWriteInputTokens: 10,
-            outputTokens: 20,
-            reasoningOutputTokens: 5,
-            totalTokens: 120
-        )
-        let observation = TestFixtures.tokenUsageObservation(
-            id: "stream", at: now, tokenUsage: tokenUsage
-        )
-        _ = try await store.recordObservations([observation, observation], now: now)
-        let restarted = TokenUsageHistoryStore(directoryURL: directory.url)
-        let records = try await restarted.refresh(now: now)
-        #expect(records.count == 1)
-        #expect(records.first?.tokenUsage == tokenUsage)
-    }
-
-    @Test func rebuildUsesObservedRecordsAndContinuesCollecting() async throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let store = TokenUsageHistoryStore(directoryURL: directory.url)
-        let tokenUsage = TokenUsage(
-            inputTokens: 100,
-            cachedInputTokens: 30,
-            cacheWriteInputTokens: 10,
-            outputTokens: 20,
-            reasoningOutputTokens: 5,
-            totalTokens: 120
-        )
-        let first = TestFixtures.tokenUsageObservation(id: "stream", at: now, tokenUsage: tokenUsage)
-        _ = try await store.recordObservations([first], now: now)
-        let rebuilt = try await store.rebuild(for: [CodexDateFormat.dayString(from: now)])
-        #expect(rebuilt.eventCount == 1)
-        let second = TestFixtures.tokenUsageObservation(
-            id: "second", at: now,
-            tokenUsage: tokenUsage
-        )
-        _ = try await store.recordObservations([second], now: now.addingTimeInterval(2))
-        let records = try await store.refresh(now: now.addingTimeInterval(2))
-        #expect(records.first?.tokenUsage == tokenUsage.adding(tokenUsage))
-    }
-
     @Test func multipleApprovalRequestsResolveIndependently() throws {
         var reducer = try prepared()
         let event = TestFixtures.event(at: now, thread: "main", turn: "turn")

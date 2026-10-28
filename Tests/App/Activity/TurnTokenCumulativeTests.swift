@@ -1,16 +1,6 @@
 import Foundation
 import Testing
 
-extension TestFixtures {
-    static func tokenUsage(_ total: Int64) -> TokenUsage {
-        TokenUsage(inputTokens: total, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0, totalTokens: total)
-    }
-
-    static func tokenSample(_ total: Int64, thread: String = "main", turn: String = "root", at: Date = now, start: Date? = nil) -> TokenUsageSample {
-        TokenUsageSample(observedAt: at, threadID: thread, turnID: turn, turnStartedAt: start, current: TokenUsageUpdate(total: tokenUsage(total), last: tokenUsage(1)))
-    }
-}
-
 struct TurnTokenCumulativeTests {
     private let now = TestFixtures.now
 

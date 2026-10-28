@@ -39,7 +39,7 @@ final class KeepAliveController: ObservableObject {
     /// 与注册类错误分开存储: refreshPowerHelperStatus 每次 App 激活都会跑, 不能抹掉操作结果
     @Published private var operationErrorMessage: String?
 
-    /// 注册不成功时操作类错误只是下游噪音, 优先展示注册问题
+    /// 注册失败时优先展示注册错误, 操作错误可能由此引起
     var errorMessage: String? {
         (isEnabled ? powerHelperRegistrationErrorMessage : nil) ?? operationErrorMessage
     }
@@ -84,8 +84,8 @@ final class KeepAliveController: ObservableObject {
     private let systemSleepService = SystemSleepService()
     private let powerSourceMonitor = PowerSourceMonitor()
     private let durationLimiter: KeepAliveDurationLimiter
-    /// 不加 @Published: 设置页在根上观察整个控制器, 任务每起停一次都会重算整页 body
-    /// 需要跟着它刷新的只有派生出去的 isLowBatteryBlocking 与 canShowOptions
+    /// 设置页观察整个控制器, 加 @Published 会让每次任务起停都重算整页 body
+    /// 只需发布派生状态 isLowBatteryBlocking 与 canShowOptions 的变化
     private var runningTaskIDs = Set<UUID>()
     /// 开着 keepsAwakeWhileWaiting 时, 等待任务也参与防睡眠判定
     private var waitingTaskIDs = Set<UUID>()
@@ -108,16 +108,15 @@ final class KeepAliveController: ObservableObject {
     private var retryAttempt = 0
     private var powerHelperRegistrationTask: Task<Void, Never>?
     private let powerHelperPackageValidation = PowerHelperPackageValidation()
-    /// 只经由派生状态影响 UI, 自己不发信号
+    /// 仅通过派生状态更新 UI, 此属性不发布变化
     private var isRefreshingPowerHelper = false
     private var isAutoResetRequested = false
     private let autoResetWakeScheduler = AutoResetWakeScheduler()
     /// 已排队但还没发出的低电量通知, 值是触及阈值时的电量
-    /// 恢复睡眠真的成功才发得出去: 恢复失败时机器仍不会睡, 那时说已恢复会把用户骗去合盖
+    /// 仅在睡眠恢复成功后发送, 避免用户在机器仍不允许睡眠时误以为可以合盖
     private var pendingLowBatteryPercent: Int?
-    /// 本轮低电量已经通知过
-    /// 只看是否接电不足以收口: 适配器接触不良时供电状态会反复翻转, 每翻一次都会重发一条
-    /// 由电量回到解除门槛以上清除, 也就是电量真的回来了才算下一轮
+    /// 本轮低电量是否已通知, 电量回到解除门槛以上才清除
+    /// 按供电状态重置会在适配器接触不良时重复提醒
     private var hasNotifiedLowBattery = false
     /// 达到时长上限后等待睡眠恢复成功再发送, 恢复失败时保留给重试路径
     private var pendingKeepAliveLimit: MaximumDuration?
@@ -141,7 +140,7 @@ final class KeepAliveController: ObservableObject {
             .flatMap(LowBatteryThreshold.init(rawValue:)) ?? .off
         // 默认关闭: 等待回应可能持续到用户返回, 避免无人值守时持续防睡眠
         keepsAwakeWhileWaiting = defaults.bool(forKey: Self.keepsAwakeWhileWaitingKey)
-        // 默认关闭: 它会让人离开后机器一直停在解锁状态, 这个取舍只能由用户自己做
+        // 默认关闭, 保持屏幕常亮会让用户离开后机器仍处于解锁状态, 需由用户自行开启
         keepsDisplayAwake = defaults.bool(forKey: Self.keepsDisplayAwakeKey)
         activityMonitor.setProtectionEnabled(isEnabled)
         powerHelperPackageValidation.onValidated = { [weak self] in
@@ -177,7 +176,7 @@ final class KeepAliveController: ObservableObject {
         durationLimiter.onStateChanged = { [weak self] trigger in
             self?.reconcileSleepState(trigger: trigger)
         }
-        // duration 与 hasReached 由计算属性转发, 变化要接力发出去才能刷新 UI
+        // duration 与 hasReached 由计算属性转发, 需同时转发变化通知才能刷新 UI
         durationLimiter.objectWillChange
             .sink { [weak self] in
                 self?.objectWillChange.send()
@@ -292,8 +291,8 @@ final class KeepAliveController: ObservableObject {
         publishNotificationDependencies()
     }
 
-    /// 只改"哪些任务算数", 不参与拦截判定
-    /// 所以它不进 sleepBlockReason: 关着它时等待中的任务报的仍然是 noTasks, 与没有任务同一回事
+    /// 仅决定等待任务是否计入防睡眠, 不新增 sleepBlockReason
+    /// 关闭时, 只有等待任务与没有任务均返回 noTasks
     func setKeepsAwakeWhileWaiting(_ enabled: Bool) {
         guard enabled != keepsAwakeWhileWaiting else {
             return
@@ -306,7 +305,7 @@ final class KeepAliveController: ObservableObject {
         reconcileSleepState(trigger: .settings)
     }
 
-    /// 与防睡眠的实际效果绑在一起: 只在真的挡住睡眠时留住屏幕, 低电量或达到上限解除时一并放开
+    /// 仅在防睡眠生效时保持屏幕常亮, 低电量或达到时限解除防睡眠时一并停止
     func setKeepsDisplayAwake(_ enabled: Bool) {
         guard enabled != keepsDisplayAwake else {
             return
@@ -328,8 +327,7 @@ final class KeepAliveController: ObservableObject {
         )
         lowBatteryThreshold = threshold
         defaults.set(threshold.rawValue, forKey: Self.lowBatteryThresholdKey)
-        // 换了阈值就是新的一轮: 旧阈值下打的锁存对新阈值不成立
-        // 留着它会让提高阈值后第一次真正触发的低电量不提醒
+        // 更换阈值后重置去重状态, 避免旧记录阻止提高阈值后的首次低电量提醒
         clearPendingLowBatteryNotification()
         updateBatteryState()
         reconcileSleepState(trigger: .settings)
@@ -358,7 +356,7 @@ final class KeepAliveController: ObservableObject {
         // 电池状态可能单独变化, 不能等到低电量阻断状态变化后才刷新派生值
         publishNotificationDependencies()
 
-        // 保护关掉了就没有可维持的状态, 这一条要排在读数判断之前
+        // 保护关闭后立即清除状态, 不受电量读数是否有效影响
         guard let threshold = lowBatteryThreshold.percent else {
             assign(false, to: \.isLowBatteryActive)
             clearPendingLowBatteryNotification()
@@ -470,7 +468,7 @@ final class KeepAliveController: ObservableObject {
         reconcileSleepState(trigger: .taskChanged)
     }
 
-    /// 还没真正挡住睡眠时只清零不起表, 等禁用成功后由 begin 补上
+    /// 防睡眠未生效时只清零, 禁用睡眠成功后再由 begin 开始计时
     private func restartMaximumDurationPeriod() {
         guard isEnabled else {
             return
@@ -600,10 +598,9 @@ final class KeepAliveController: ObservableObject {
         }
     }
 
-    /// @Published 在 willSet 无条件发信号, 不比较新旧值
-    /// refreshPowerHelperStatus 每次 App 激活跑, releaseSleepPrevention 每条活动快照都会经过
-    /// 同值赋值会让菜单面板和设置页反复空转, 所以反复求值路径上的写入都走这里
-    /// 用户动作与一次性的操作结果本来就不会重复, 直接赋值即可
+    /// @Published 在 willSet 无条件发布变化, 同值赋值也会刷新菜单面板和设置页
+    /// refreshPowerHelperStatus 每次 App 激活时执行, releaseSleepPrevention 每条活动快照都会调用
+    /// 这些重复求值路径通过此方法跳过同值写入, 用户动作和一次性操作结果仍直接赋值
     private func assign<Value: Equatable>(
         _ value: Value,
         to keyPath: ReferenceWritableKeyPath<KeepAliveController, Value>
@@ -635,7 +632,7 @@ final class KeepAliveController: ObservableObject {
         isPowerHelperStatusAvailable = true
         let previousStatus = powerHelperStatus
         assign(PowerHelperStatus(status), to: \.powerHelperStatus)
-        // 每次 App 激活都会跑, 只记真正的迁移, 否则日志会被无变化的求值淹没
+        // 每次 App 激活都会查询, 仅记录状态变化
         // 取局部量再插值: Logger 的插值是 autoclosure, 直接写属性会被要求显式 self, 与 --self remove 冲突
         let currentStatus = powerHelperStatus
         if currentStatus != previousStatus {
@@ -646,7 +643,7 @@ final class KeepAliveController: ObservableObject {
             AppLog.keepAlive.notice("Power Helper 注册状态变化: \(details, privacy: .public)")
         }
         if powerHelperStatus == .enabled {
-            // 注册已正常, 只撤回注册类抱怨
+            // 注册恢复正常后只清除注册错误
             // 操作类结果 (例如重试耗尽) 必须留到下一次操作有结论为止
             assign(nil, to: \.registrationErrorMessage)
         } else {
@@ -670,7 +667,7 @@ final class KeepAliveController: ObservableObject {
         let wantsSleepDisabled = blockReason == nil
         updatePendingKeepAliveLimitNotification(for: blockReason)
         publishDerivedState(blockReason: blockReason)
-        // 挂在这条所有输入都会经过的路上, 否则关掉防睡眠开关要等 XPC 回复绕回来才放开屏幕
+        // 所有输入变化都经过此处, 关闭防睡眠后立即解除屏幕常亮, 无需等待 XPC 回复
         reconcileDisplayAwake()
         logSleepConditionsIfChanged(blockReason: blockReason, trigger: trigger)
 
@@ -1190,7 +1187,7 @@ final class KeepAliveController: ObservableObject {
         connection?.interruptionHandler = nil
         connection?.invalidate()
         completePendingRequest(success: false)
-        // 无连接时也会走到这里, 只记真的断掉了一条, 避免空转刷屏
+        // 无连接时也可能调用, 仅在断开已有连接时记日志
         if connection != nil {
             let mayHaveLease = mayHavePowerHelperLease ? 1 : 0
             AppLog.keepAlive.notice("Power Helper XPC 已断开: mayHaveLease=\(mayHaveLease)")
@@ -1374,7 +1371,7 @@ final class KeepAliveController: ObservableObject {
     }
 
     /// 按顺序返回第一个不满足的条件, 全部满足时为 nil
-    /// 判定与日志共用这一份顺序, 新增条件不会漏进日志
+    /// 判定与日志共用此顺序, 新增条件也参与日志记录
     private var sleepBlockReason: SleepBlockReason? {
         if !isStarted {
             return .notStarted

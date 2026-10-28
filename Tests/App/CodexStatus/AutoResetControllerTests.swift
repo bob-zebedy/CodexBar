@@ -14,7 +14,9 @@ struct AutoResetControllerTests {
         try fixture.outcomes.send(.data(fixture.snapshot()))
         for (index, offset) in [0.0, 15, 45, 105, 225].enumerated() {
             fixture.clock.advance(to: fixture.start.addingTimeInterval(offset))
-            try await eventually { fixture.controller.scheduledDate != nil && fixture.state.readCount >= index + 1 }
+            try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) {
+                fixture.controller.scheduledDate != nil && fixture.state.readCount >= index + 1
+            })
             for _ in 0 ..< 10 {
                 try fixture.outcomes.send(.data(fixture.snapshot()))
             }
@@ -35,7 +37,7 @@ struct AutoResetControllerTests {
         let newConsume = ResetGate<ResetCreditConsumeResult>()
         fixture.state.readOverride = { await oldRead.wait() }
         fixture.controller.start()
-        try await eventually { fixture.state.readCount == 1 }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.readCount == 1 })
         #expect(fixture.state.activeAssertions.count == 1)
         fixture.settings.setEnabled(false)
         fixture.state.readOverride = nil
@@ -44,11 +46,11 @@ struct AutoResetControllerTests {
         await settle()
         #expect(fixture.state.readCount == 1)
         oldRead.release(fixture.state.read)
-        try await eventually { fixture.state.consumeCount == 1 }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.consumeCount == 1 })
         #expect(fixture.state.createdAssertions == 2)
         #expect(fixture.state.activeAssertions == [2])
         newConsume.release(ResetCreditConsumeResult(outcome: .nothingToReset, refreshedRead: fixture.state.read))
-        try await eventually { fixture.state.activeAssertions.isEmpty }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.activeAssertions.isEmpty })
         #expect(fixture.state.releasedAssertions == [1, 2])
     }
 
@@ -58,15 +60,15 @@ struct AutoResetControllerTests {
         let consume = ResetGate<ResetCreditConsumeResult>()
         fixture.state.consumeOverride = { await consume.wait() }
         fixture.controller.start()
-        try await eventually { fixture.state.consumeCount == 1 }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.consumeCount == 1 })
         fixture.settings.setEnabled(false)
         consume.release(ResetCreditConsumeResult(outcome: .reset, refreshedRead: fixture.state.read))
-        try await eventually { fixture.state.activeAssertions.isEmpty }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.activeAssertions.isEmpty })
         #expect(fixture.state.successes == 1)
         #expect(fixture.controller.scheduledDate == nil)
         #expect(fixture.controller.wakeDate == nil)
         fixture.settings.setEnabled(true)
-        try await eventually { fixture.state.readCount >= 2 && fixture.state.activeAssertions.isEmpty }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.readCount >= 2 && fixture.state.activeAssertions.isEmpty })
         #expect(fixture.state.consumeCount == 1)
     }
 
@@ -74,7 +76,7 @@ struct AutoResetControllerTests {
         let fixture = try ResetFixture()
         defer { fixture.stop() }
         fixture.controller.start()
-        try await eventually { fixture.controller.scheduledDate != nil }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.controller.scheduledDate != nil })
         #expect(fixture.controller.scheduledDate == fixture.start.addingTimeInterval(300))
         #expect(fixture.controller.wakeDate == fixture.start.addingTimeInterval(720))
         fixture.controller.handleSleep()
@@ -83,7 +85,7 @@ struct AutoResetControllerTests {
         #expect(fixture.state.consumeCount == 1)
         #expect(fixture.controller.scheduledDate == nil)
         fixture.controller.handleWake()
-        try await eventually { fixture.state.consumeCount == 2 && fixture.state.activeAssertions.isEmpty }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.consumeCount == 2 && fixture.state.activeAssertions.isEmpty })
         #expect(fixture.controller.scheduledDate == nil)
         #expect(fixture.controller.wakeDate == nil)
         for _ in 0 ..< 10 {
@@ -98,7 +100,7 @@ struct AutoResetControllerTests {
         defer { fixture.stop() }
         fixture.clock.advance(to: fixture.expiration.addingTimeInterval(-50))
         fixture.controller.start()
-        try await eventually { fixture.state.readCount == 1 && fixture.state.activeAssertions.isEmpty }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.readCount == 1 && fixture.state.activeAssertions.isEmpty })
         #expect(fixture.state.consumeCount == 0)
         #expect(fixture.controller.scheduledDate == nil)
     }
@@ -110,13 +112,13 @@ struct AutoResetControllerTests {
         fixture.state.readOverride = { await gate.wait() }
         try fixture.outcomes.send(.data(fixture.snapshot()))
         fixture.controller.start()
-        try await eventually { fixture.state.readCount == 1 }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.readCount == 1 })
         fixture.controller.handleSleep()
         fixture.clock.advance(to: fixture.start.addingTimeInterval(730))
         fixture.state.readOverride = nil
         fixture.controller.handleWake()
         gate.release(fixture.state.read)
-        try await eventually { fixture.state.consumeCount == 1 && fixture.state.activeAssertions.isEmpty }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.consumeCount == 1 && fixture.state.activeAssertions.isEmpty })
         #expect(fixture.controller.scheduledDate == nil)
     }
 
@@ -124,7 +126,7 @@ struct AutoResetControllerTests {
         let fixture = try ResetFixture()
         defer { fixture.stop() }
         fixture.controller.start()
-        try await eventually { fixture.controller.scheduledDate != nil }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.controller.scheduledDate != nil })
         fixture.controller.prepareForTermination()
         fixture.clock.advance(to: fixture.start.addingTimeInterval(400))
         try fixture.outcomes.send(.data(fixture.snapshot()))
@@ -132,7 +134,7 @@ struct AutoResetControllerTests {
         #expect(fixture.state.consumeCount == 1)
         #expect(fixture.controller.wakeDate == nil)
         fixture.controller.resumeAfterTerminationCancellation()
-        try await eventually { fixture.state.consumeCount == 2 && fixture.state.activeAssertions.isEmpty }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.consumeCount == 2 && fixture.state.activeAssertions.isEmpty })
     }
 
     @Test(arguments: [false, true])
@@ -144,12 +146,12 @@ struct AutoResetControllerTests {
         try fixture.outcomes.send(.data(fixture.snapshot()))
         fixture.state.readOverride = { await gate.wait() }
         fixture.controller.start()
-        try await eventually { fixture.state.readCount == 1 }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.readCount == 1 })
         fixture.state.account = CodexAccount(type: "chatgpt", email: "other@example.com", planType: "plus")
         fixture.state.readOverride = nil
         try fixture.outcomes.send(.data(fixture.snapshot(isStale: stale)))
         gate.release(old)
-        try await eventually { fixture.state.consumeCount == 1 && fixture.state.activeAssertions.isEmpty }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.consumeCount == 1 && fixture.state.activeAssertions.isEmpty })
         #expect(fixture.state.consumedAccounts == [AutoResetIdentity.accountIdentity(for: fixture.state.account)])
     }
 
@@ -161,28 +163,28 @@ struct AutoResetControllerTests {
         try fixture.outcomes.send(.data(fixture.snapshot()))
         fixture.state.readOverride = { await gate.wait() }
         fixture.controller.start()
-        try await eventually { fixture.state.readCount == 1 }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.readCount == 1 })
         #expect(fixture.controller.wakeDate != nil)
         fixture.outcomes.send(signedOut ? .notLoggedIn : .authenticationRequired)
         #expect(fixture.controller.wakeDate == nil)
         #expect(fixture.controller.scheduledDate == nil)
         fixture.controller.handleWake()
         gate.release(fixture.state.read)
-        try await eventually { fixture.state.activeAssertions.isEmpty }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.activeAssertions.isEmpty })
         #expect(fixture.state.consumeCount == 0)
         #expect(fixture.controller.wakeDate == nil)
         fixture.state.readOverride = nil
         try fixture.outcomes.send(.data(fixture.snapshot()))
         let retry = try #require(fixture.controller.scheduledDate)
         fixture.clock.advance(to: retry)
-        try await eventually { fixture.state.consumeCount == 1 }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.consumeCount == 1 })
     }
 
     @Test func failedAccountReadPreservesExistingPlan() async throws {
         let fixture = try ResetFixture()
         defer { fixture.stop() }
         fixture.controller.start()
-        try await eventually { fixture.controller.scheduledDate != nil }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.controller.scheduledDate != nil })
         let wake = fixture.controller.wakeDate
         let scheduled = fixture.controller.scheduledDate
         fixture.outcomes.send(.initializationFailed)
@@ -197,26 +199,18 @@ struct AutoResetControllerTests {
         let consume = ResetGate<ResetCreditConsumeResult>()
         fixture.state.consumeOverride = { await consume.wait() }
         fixture.controller.start()
-        try await eventually { fixture.state.consumeCount == 1 }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.consumeCount == 1 })
         fixture.outcomes.send(.notLoggedIn)
         consume.release(ResetCreditConsumeResult(outcome: .reset, refreshedRead: fixture.state.read))
-        try await eventually { fixture.state.activeAssertions.isEmpty }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.activeAssertions.isEmpty })
         #expect(fixture.state.successes == 1)
         #expect(fixture.controller.wakeDate == nil)
         fixture.state.consumeOverride = nil
         try fixture.outcomes.send(.data(fixture.snapshot()))
         fixture.controller.handleWake()
-        try await eventually { fixture.state.readCount >= 2 && fixture.state.activeAssertions.isEmpty }
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(1)) { fixture.state.readCount >= 2 && fixture.state.activeAssertions.isEmpty })
         #expect(fixture.state.consumeCount == 1)
     }
-}
-
-private func eventually(_ predicate: () -> Bool) async throws {
-    let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-    while !predicate(), ContinuousClock.now < deadline {
-        try await Task.sleep(for: .milliseconds(1))
-    }
-    try #require(predicate())
 }
 
 private func settle() async {

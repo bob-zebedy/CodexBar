@@ -666,14 +666,12 @@ private extension AppSettingsView {
         }
     }
 
-    /// 判定收在 KeepAliveController 里由 sleepBlockReason 派生, 这里只读结论
-    /// 在 View 里手抄那几个条件会漏掉后来新增的阻断项, 入口会亮着但点开不生效
+    /// 使用 KeepAliveController 从 sleepBlockReason 派生的结果, 避免视图重复判定时漏掉新增阻断条件
     var canShowKeepAliveOptions: Bool {
         keepAliveController.canShowOptions
     }
 
-    /// 返回 nil 表示这一行整个收起
-    /// 正常运行时不必占一行说"一切正常", 是否正在防睡眠由主面板的太阳标记呈现
+    /// 返回 nil 时隐藏此行, 正常防睡眠状态由主面板的太阳标记显示
     var keepAliveCaption: SettingsStatusCaption? {
         guard keepAliveController.isEnabled else {
             return nil
@@ -692,15 +690,15 @@ private extension AppSettingsView {
             )
         }
 
-        // 低电量拦下时开关开着却不防睡眠, 不留一句无从解释
-        // 判定用 isLowBatteryBlocking 而不是 isLowBatteryActive: 后者在没有任务时也成立, 那时无话可说
-        // 它成立即意味着 Power Helper 已就绪, 所以排在下面那个 switch 之前不影响 Power Helper 类问题的呈现
+        // 低电量阻断时说明开关已开启但防睡眠未生效的原因
+        // 使用 isLowBatteryBlocking, 避免 isLowBatteryActive 在无任务时也显示阻断提示
+        // 此状态要求 Power Helper 已就绪, 不会遮住后续 switch 中的 Power Helper 错误
         // 提示不写具体电量, 因为滞回会让保护持续到电量超过恢复阈值
         if keepAliveController.isLowBatteryBlocking {
             return SettingsStatusCaption(message: String(localized: "keep-alive.status.low-battery"))
         }
 
-        // 上限之外的运行态都收起; 达到上限要留一句, 否则开关开着却没生效无从解释
+        // 仅在达到时限时解释防睡眠未生效的原因, 其他运行状态隐藏此行
         guard keepAliveController.hasReachedMaximumDuration else {
             return nil
         }
@@ -836,8 +834,8 @@ private extension AppSettingsView {
         }
     }
 
-    /// 防睡眠不在这里刷: 控制器自己订阅了 didBecomeActive, 窗口打开也走 refreshSettingsState
-    /// 再调一次会让每次激活都多跑一遍电源读取 Power Helper 状态查询和 Power Helper 二进制哈希
+    /// 防睡眠控制器通过 didBecomeActive 和窗口打开时的 refreshSettingsState 刷新
+    /// 此处再次调用会重复读取电源, 查询 Power Helper 状态并计算其二进制哈希
     func refreshStatusRows() {
         refreshCodexVersionSection()
         refreshRebuildableDates()
@@ -941,7 +939,7 @@ private extension AppSettingsView {
         .background {
             ScreenFrameReader(provider: notificationAnchorProvider)
         }
-        // 关掉总开关或被系统拒绝授权都会让 canShowOptions 转假, 收面板只需要认这一个信号
+        // canShowOptions 已包含总开关和系统授权状态, 变为 false 时收起面板
         .onChange(of: notificationSettings.canShowOptions) { _, canShowOptions in
             guard !canShowOptions else {
                 return
@@ -1128,7 +1126,7 @@ private struct SettingsPageHeightPreferenceKey: PreferenceKey {
 }
 
 private struct SyncRowState {
-    /// 由 SyncSettings.isEffectivelyActive 统一判定, 视图层不再拼接业务谓词
+    /// 同步可用性由 SyncSettings.isEffectivelyActive 判定
     let isActive: Bool
     let isSyncAvailable: Bool
     let isSyncing: Bool

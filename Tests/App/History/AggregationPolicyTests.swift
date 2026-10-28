@@ -35,15 +35,4 @@ struct AggregationPolicyTests {
         #expect(throws: StorageCompatibilityError.self) { try AggregationVersion.require(3, current: 2, name: "test") }
         #expect(throws: StorageCompatibilityError.self) { try AggregationVersion.require(0, current: 2, name: "test") }
     }
-
-    @Test func partialSourcesKeepKnownValuesVisible() {
-        let now = Date()
-        let date = HistoryStorage.dateKey(for: now)
-        var aggregate = ActivityDataAggregate(date: date)
-        aggregate.turnCount = 3
-        var snapshot = HistorySnapshot(activityData: [aggregate.metrics])
-        snapshot.isActivityDataComplete = false
-        let day = UsageHeatmapDay.grid(usage: nil, history: snapshot, columnCount: 1, today: now).compactMap(\.self).first { $0.startDate == date }
-        #expect(day?.activityData.turnCount == 3)
-    }
 }

@@ -91,6 +91,7 @@ nonisolated struct ActivityThread {
     var origin: ActivityDataOrigin = .unknown
     var parentThreadID: String?
     var createdAt: Date?
+    var threadSource: String?
 }
 
 nonisolated struct ActivityThreadStatus {

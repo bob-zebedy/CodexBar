@@ -24,16 +24,12 @@ struct SystemSleepServiceTests {
             displayReleaseRetryDelays: [.milliseconds(1)]
         )
         #expect(service.beginPreventingDisplaySleep() == kIOReturnSuccess)
-        for _ in 0 ..< 100 where !didDeclare {
-            try await Task.sleep(for: .milliseconds(1))
-        }
+        #expect(try await waitForCondition(timeout: .milliseconds(100), pollInterval: .milliseconds(1)) { didDeclare })
         #expect(didDeclare)
         #expect(service.endPreventingDisplaySleep() == kIOReturnError)
         #expect(!service.isPreventingDisplaySleep)
         #expect(service.hasDisplaySleepResources)
-        for _ in 0 ..< 100 where service.hasDisplaySleepResources {
-            try await Task.sleep(for: .milliseconds(1))
-        }
+        #expect(try await waitForCondition(timeout: .milliseconds(100), pollInterval: .milliseconds(1)) { !service.hasDisplaySleepResources })
         #expect(!service.hasDisplaySleepResources)
         #expect(releaseCounts[failedID] == 2)
         #expect(releaseCounts[userActivityFails ? 1 : 2] == 1)
@@ -54,9 +50,7 @@ struct SystemSleepServiceTests {
         )
         #expect(service.beginPreventingDisplaySleep() == kIOReturnSuccess)
         #expect(service.endPreventingDisplaySleep() == kIOReturnError)
-        for _ in 0 ..< 100 where releases < 3 {
-            try await Task.sleep(for: .milliseconds(1))
-        }
+        #expect(try await waitForCondition(timeout: .milliseconds(100), pollInterval: .milliseconds(1)) { releases >= 3 })
         try await Task.sleep(for: .milliseconds(10))
         #expect(releases == 3)
         #expect(service.hasDisplaySleepResources)

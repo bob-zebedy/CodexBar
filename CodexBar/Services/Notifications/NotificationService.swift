@@ -50,14 +50,13 @@ final class NotificationService: NSObject {
     private var lowQuotaObservations: [String: LowQuotaObservation] = [:]
 
     /// 低额度判定依据的两个设置项
-    /// 订阅回调跑在 @Published 的 willSet, 那时属性还是旧值, 只有回调参数是新的
-    /// 所以由调用方给出而不是在判定处回读 settings
+    /// @Published 在 willSet 中回调, settings 属性尚未更新, 需使用调用方传入的回调参数
     private struct LowQuotaConditions {
         let isEnabled: Bool
         let thresholdPercent: Int
     }
 
-    /// 额度刷新那条路径上设置没有在变, 现场取值就是最新的
+    /// 额度刷新期间设置不变, 可以直接读取当前值
     private var currentLowQuotaConditions: LowQuotaConditions {
         LowQuotaConditions(
             isEnabled: settings.isLowQuotaEnabled,
@@ -313,7 +312,7 @@ final class NotificationService: NSObject {
     }
 
     /// 设置刚变就按新值重判一次, 不必等下一个刷新周期
-    /// 清掉上一帧观察是为了让新阈值能立刻穿越, 所以这里必须用新值判断, 否则清了也白清
+    /// 清除上次观察后使用新阈值判定, 使当前额度达到新阈值时立即触发提醒
     private func reevaluateLowQuota(_ conditions: LowQuotaConditions) {
         guard settings.canDeliver,
               conditions.isEnabled,
@@ -365,7 +364,7 @@ final class NotificationService: NSObject {
             return
         }
 
-        // 阈值是用户设置值不是用量数据, 记它才能解释这条通知为什么会发出来
+        // 记录用户设置的阈值以说明通知原因, 不记录用量数据
         let threshold = lowQuota.thresholdPercent
         let details = LogFields.joined(
             "kind=lowQuota",
@@ -468,9 +467,9 @@ final class NotificationService: NSObject {
     // MARK: - 低电量保护
 
     /// 由 KeepAliveController 在低电量导致睡眠恢复成功之后调用, 恢复失败不会走到这里
-    /// 不做去重: 调用方自己保证同一轮低电量只发一次, 电量回到解除门槛以上才算下一轮
+    /// 调用方保证同一轮低电量只发一次, 电量回到解除门槛以上才开始下一轮, 此处无需再次去重
     /// 调用方在提交完成前保留空闲断言, 避免系统先进入空闲睡眠
-    /// 返回是否真的发出去了: 调用方据此决定这一轮算不算已通知, 提交失败就不该占掉这一轮
+    /// 返回提交结果, 调用方仅在成功时标记本轮已通知
     func notifyLowBatteryProtection(percent: Int) async -> Bool {
         guard settings.canDeliver, settings.isLowBatteryEnabled else {
             return false
@@ -638,7 +637,7 @@ final class NotificationService: NSObject {
         }
     }
 
-    /// 返回值是"这条通知真的提交出去了", 调用方据此决定要不要记下已通知
+    /// 返回通知是否提交成功, 调用方据此标记已通知
     private func deliver(
         _ request: UNNotificationRequest,
         kind: String,

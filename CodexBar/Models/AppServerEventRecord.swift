@@ -70,15 +70,7 @@ nonisolated struct AppServerEventRecord: Codable, Equatable {
     }
 
     static func decode(from data: Data) throws -> Self {
-        try decode(Self.self, from: data)
-    }
-
-    static func decode<Value: Decodable>(_ type: Value.Type, from data: Data) throws -> Value {
-        try decoder.decode(type, from: data)
-    }
-
-    static func encode(_ value: some Encodable) throws -> Data {
-        try encoder.encode(value)
+        try decoder.decode(Self.self, from: data)
     }
 
     private static let encoder = JSONLines.stableEncoder

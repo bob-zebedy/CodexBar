@@ -2,7 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
-/// 快捷键录制行, 隐藏 NSView 负责真正捕获 keyDown
+/// 快捷键录制行, 由隐藏的 NSView 捕获 keyDown
 struct HotKeyRecorderRow: View {
     @ObservedObject var settings: GlobalHotKeySettings
     @State private var isRecording = false

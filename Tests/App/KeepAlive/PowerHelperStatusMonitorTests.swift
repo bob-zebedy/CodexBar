@@ -6,7 +6,7 @@ struct PowerHelperStatusMonitorTests {
     @Test func observationCanRestartAfterCancellationBeforeFirstTick() async {
         let monitor = PowerHelperStatusMonitor()
         defer { monitor.cancelObservation() }
-        let finished = MonitorCheckpoint()
+        let finished = TestCheckpoint()
         monitor.startObservation(interval: .seconds(60)) {
             Issue.record("Cancelled observation ran")
         }
@@ -21,10 +21,10 @@ struct PowerHelperStatusMonitorTests {
     @Test func cancelledObservationCannotClearReplacementWhileItsActionFinishes() async {
         let monitor = PowerHelperStatusMonitor()
         defer { monitor.cancelObservation() }
-        let oldEntered = MonitorCheckpoint()
-        let oldRelease = MonitorCheckpoint()
-        let oldReturned = MonitorCheckpoint()
-        let replacementFinished = MonitorCheckpoint()
+        let oldEntered = TestCheckpoint()
+        let oldRelease = TestCheckpoint()
+        let oldReturned = TestCheckpoint()
+        let replacementFinished = TestCheckpoint()
         var replacementTicks = 0
         monitor.startObservation(interval: .zero) {
             oldEntered.signal()
@@ -130,8 +130,8 @@ private final nonisolated class MonitorConnection: NSXPCConnection {
 
 @MainActor
 private final class MonitorPowerHelper: NSObject, CodexBarPowerHelperProtocol {
-    let statusRequested = MonitorCheckpoint()
-    let wakeRequested = MonitorCheckpoint()
+    let statusRequested = TestCheckpoint()
+    let wakeRequested = TestCheckpoint()
     var statusReply: (@Sendable (Int32, Int, Int, Bool) -> Void)?
     var wakeReply: (@Sendable (Int32) -> Void)?
 
@@ -162,21 +162,5 @@ private final class MonitorPowerHelper: NSObject, CodexBarPowerHelperProtocol {
     nonisolated func resetSleepAfterUpdate(_: String, reply: @escaping @Sendable (Int32) -> Void) {
         Issue.record("Unexpected update reset request")
         reply(-1)
-    }
-}
-
-private final class MonitorCheckpoint {
-    private var isSignaled = false
-    private var waiter: CheckedContinuation<Void, Never>?
-
-    func wait() async {
-        guard !isSignaled else { return }
-        await withCheckedContinuation { waiter = $0 }
-    }
-
-    func signal() {
-        isSignaled = true
-        waiter?.resume()
-        waiter = nil
     }
 }

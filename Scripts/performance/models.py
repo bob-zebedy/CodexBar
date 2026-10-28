@@ -1,4 +1,4 @@
-"""Types for the existing capture and report dictionaries"""
+"""Types for capture and report dictionaries"""
 
 from typing import Literal, NotRequired, TypedDict
 

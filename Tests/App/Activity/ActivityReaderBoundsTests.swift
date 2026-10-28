@@ -82,7 +82,7 @@ struct ActivityReaderBoundsTests {
         }
         #expect(ready)
         let start = Date()
-        #expect(await reader.drainNow().status == .sourceUnavailable)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .sourceUnavailable)
         #expect(Date().timeIntervalSince(start) < 2)
         await reader.stop()
         release.signal()
@@ -155,7 +155,7 @@ struct ActivityReaderBoundsTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         #expect(ready)
-        #expect(await reader.drainNow().status == .completed)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         for _ in 0 ..< 200 {
             let current = await reader.lifecycleSnapshot.lifecycleStates(for: [.init(threadID: "child", turnID: "child-turn")])
             if current.first?.effort == "low" {
@@ -233,7 +233,7 @@ extension ActivityReaderBoundsTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         #expect(ready)
-        let result = await reader.drainNow()
+        let result = await reader.drainForRecovery(generation: UUID())
         let key = ActivityTaskKey(thread: "healthy", turn: "healthy-turn")
         #expect(lifecycle.graph.tasks[key]?.lifecycleCoverageCheckedAt != nil)
         #expect(!lifecycle.graph.unavailableTurns.contains(key))

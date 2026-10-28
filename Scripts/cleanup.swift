@@ -246,13 +246,11 @@ private final class KeepAliveCleanupCommand {
             candidates.append(projectURL.appending(path: "Build/CodexBar.app"))
         }
 
-        for candidate in candidates {
-            if try appBundleIdentifier(at: candidate) == bundleIdentifier {
-                return candidate
-            }
+        for candidate in candidates where try appBundleIdentifier(at: candidate) == bundleIdentifier {
+            return candidate
         }
 
-        // xcodebuild 定位不到是"查不到"而不是数据损坏, 保持非致命
+        // xcodebuild 未找到目标不表示数据损坏, 按非致命失败处理
         guard let builtAppURL = try? resolveBuiltAppURL(configuration: configuration) else {
             return nil
         }

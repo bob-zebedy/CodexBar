@@ -12,17 +12,17 @@ enum SettingsOptionsPanel: CaseIterable, Hashable {
 }
 
 /// 子选项面板动作, 由 AppSettingsView 发出并在 SettingsWindowController 中路由
-/// 展开时带上主开关行的 anchor, 面板顶边要对齐那一行而不是设置窗口底边
+/// 展开时传入主开关行的 anchor, 用于对齐面板顶边
 enum SettingsOptionsPanelAction {
     case toggle(panel: SettingsOptionsPanel, anchorProvider: ScreenFrameProvider)
     case close(panel: SettingsOptionsPanel)
-    /// 切换分页时一次收掉全部; 视图不必知道一共有几个面板
+    /// 切换分页时收起全部子面板, 视图无需逐个处理
     case closeAll
 }
 
 /// 子面板入场时的内容重建信号
-/// 原生 Switch 的 thumb 由 WindowPortal 投射, 面板首次布局那一轮建不起来也不会自愈, 只有重建补得上
-/// bump 排在 present 之后, 那时动画效果已经把内容 translation 到可视区外, 重建才看不见
+/// 原生 Switch 的 thumb 由 WindowPortal 投射, 首次布局失败后需要重建内容才能显示
+/// bump 在 present 之后执行, 此时动画已将内容移出可视区, 重建过程不可见
 @MainActor
 private final class SidePanelEntryCue: ObservableObject {
     @Published private(set) var pass = 0
@@ -32,7 +32,7 @@ private final class SidePanelEntryCue: ObservableObject {
     }
 }
 
-/// 把重建信号接到内容外面, 于是内容视图不必为这个宿主层的问题多带一个属性
+/// 在内容外层接收重建信号, 内容视图无需保存宿主的重建状态
 private struct SidePanelEntryRebuildHost<Content: View>: View {
     @ObservedObject var cue: SidePanelEntryCue
     let content: Content
@@ -44,12 +44,12 @@ private struct SidePanelEntryRebuildHost<Content: View>: View {
 
 /// 设置窗口右侧子选项面板的公共装配
 /// 各子面板只差内容视图与高度变化来源, 窗口组关闭规则由 SettingsWindowController 统一维护
-/// 与重置次数面板不同: 内容是交互控件, 用常驻 hosting controller + ObservableObject 驱动更新, 不替换 rootView
+/// 设置面板包含交互控件, 使用常驻 hosting controller 和 ObservableObject 更新, 不像重置次数面板那样替换 rootView
 @MainActor
 final class OptionsPanelController {
     private let animationKey: String
     private let initialPanelSize: CGSize
-    /// 展开前的准备动作, 例如刷新只在这个面板里露面的设置项
+    /// 展开前的准备动作, 例如刷新仅在此面板显示的设置项
     private let willShow: (() -> Void)?
     private let willHide: (() -> Void)?
     private let contentControllerProvider: (SidePanelEntryCue) -> NSViewController
@@ -137,7 +137,7 @@ final class OptionsPanelController {
     }
 
     private func scheduleResize() {
-        // isVisible 也在同步守卫里: 收着的面板不必为每次内容变化排一个 Task 再让出两轮 runloop
+        // 同步检查 isVisible, 隐藏时跳过 Task 创建及两轮 runloop 等待
         guard panel?.isVisible == true, !isEntryAnimationRunning else {
             return
         }
@@ -170,12 +170,12 @@ final class OptionsPanelController {
         }
 
         willShow?()
-        // 只有刚构造出来的那一次需要重建, hosting controller 之后常驻, portal 已经建好
+        // 仅首次构造后需要重建, 后续复用常驻 hosting controller 和已创建的 portal
         let needsEntryRebuild = panel == nil
         let panel = ensurePanel()
         (panel as? KeyableBorderlessPanel)?.sharedUndoManager = window.undoManager
-        // 这里不必先布局: 下面 measuredPanelSize 走的 validFittingSize 第一句就是 layoutSubtreeIfNeeded
-        // 而中间两句只碰设置窗口那棵树, 不会把面板弄脏
+        // measuredPanelSize 会通过 validFittingSize 调用 layoutSubtreeIfNeeded, 无需提前布局
+        // 此前的操作只影响设置窗口, 不会使面板布局失效
         let windowSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: window) ?? window.frame
         let screen = window.screen ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? windowSurfaceFrame
@@ -184,7 +184,7 @@ final class OptionsPanelController {
             menuSurfaceFrame: windowSurfaceFrame
         )
         let panelSize = measuredPanelSize()
-        // clampsToSurfaceBottom 传 false: 顶边要对齐主开关行, 放不下时底边探出窗口也不能把整个面板上推
+        // clampsToSurfaceBottom 设为 false, 保持顶边对齐主开关行, 允许底边超出设置窗口
         let position = SidePanelSupport.anchoredPosition(
             panelSize: panelSize,
             menuSurfaceFrame: windowSurfaceFrame,
@@ -206,7 +206,7 @@ final class OptionsPanelController {
             isEntryAnimationRunning = false
             scheduleResize()
         }
-        // 排在 present 之后: 动画效果先把内容 translation 到可视区外, 这一次重建落在那段里, 看不见
+        // present 已将内容移出可视区, 此时重建不会出现在画面中
         if needsEntryRebuild {
             entryCue.bump()
         }
@@ -243,14 +243,14 @@ final class OptionsPanelController {
             return
         }
 
-        // 面板顶边对齐主开关行, 所以增删内容行时要向下生长
-        // 直接改 size 会保持底边不动而把顶边顶上去, 那样就跟主开关行错开了
+        // 增删内容时固定顶边, 让高度向下变化, 保持与主开关行对齐
+        // 直接修改 size 会固定底边, 导致顶边偏移
         var targetFrame = panel.frame
         let topEdge = targetFrame.maxY
         targetFrame.size = size
         targetFrame.origin.y = topEdge - targetFrame.height
         if let visibleFrame = panel.screen?.visibleFrame {
-            // 与初次展开走同一条夹紧规则, 否则放不下时重算的位置会和 position 给的位置对不上
+            // 复用初次展开的夹紧规则, 保持重算位置与 position 的结果一致
             targetFrame = SidePanelSupport.clampedVertically(targetFrame, in: visibleFrame)
         }
 

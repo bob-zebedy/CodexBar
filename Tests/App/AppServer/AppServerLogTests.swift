@@ -14,6 +14,8 @@ struct AppServerLogTests {
         _ = try await storage.page()
         #expect(try !directory.openFilePaths().isEmpty)
         storage.recordFailure(message: "queued before cleanup")
+        let requestID = storage.beginRequest(method: "last", payload: "{}")
+        storage.finishRequest(requestID, response: "saved")
         try await storage.close()
         try await storage.close()
         #expect(try directory.openFilePaths().isEmpty)
@@ -26,7 +28,9 @@ struct AppServerLogTests {
         let reopened = AppServerLogStore(directoryURL: directory.url)
         defer { await #expect(throws: Never.self) { try await reopened.close() } }
         let page = try await reopened.page()
-        #expect(page.entries.map(\.detail) == ["queued before cleanup", "before cleanup"])
+        #expect(page.total == 3)
+        #expect(page.entries.first { $0.id == requestID }?.detail == "saved")
+        #expect(page.entries.filter { $0.id != requestID }.map(\.detail) == ["queued before cleanup", "before cleanup"])
     }
 
     @Test func closePersistsSkippedWriteCountBeforeReleasingConnection() async throws {
@@ -406,22 +410,6 @@ struct AppServerLogTests {
         storage.recordFailure(message: "new failure")
         await store.refresh()
         #expect(store.entries.count == 1)
-    }
-
-    @Test func terminationDrainsQueuedWritesAndRejectsLateCallbacks() async throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let storage = AppServerLogStore(directoryURL: directory.url)
-        defer { await #expect(throws: Never.self) { try await storage.close() } }
-        let id = storage.beginRequest(method: "last", payload: "{}")
-        storage.finishRequest(id, response: "saved")
-        try await storage.close()
-        storage.recordFailure(message: "after shutdown")
-        let reopened = AppServerLogStore(directoryURL: directory.url)
-        defer { await #expect(throws: Never.self) { try await reopened.close() } }
-        let page = try await reopened.page()
-        #expect(page.total == 1)
-        #expect(page.entries.first?.detail == "saved")
     }
 
     @Test func storageFailureIsVisibleAndDoesNotBreakRequestRecordingCallers() async throws {

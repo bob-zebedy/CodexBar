@@ -44,8 +44,8 @@ final class HistoryViewModel: ObservableObject {
         )
     }
 
-    /// 由 SyncScheduler 串行调度, 无需自行判断并发, 只执行一次明确的维护刷新
-    /// 返回这一轮的维护计数, 空转为 nil; 收尾日志由调用方按它决定记不记
+    /// SyncScheduler 串行调度每次维护刷新, 此处无需检查并发
+    /// 返回本轮维护计数, 无变化时返回 nil, 调用方据此决定是否记录收尾日志
     func refreshMaintenance(
         synchronize: Bool,
         trigger: LogTrigger

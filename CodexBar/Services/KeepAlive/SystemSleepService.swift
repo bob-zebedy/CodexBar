@@ -60,7 +60,7 @@ final class SystemSleepService {
     /// 复用同一个 ID 重新触发, 每次传 null 会新建一条, pmset -g assertions 里会堆成一串同名断言
     private var userActivityAssertionID = IOPMAssertionID(kIOPMNullAssertionID)
     private var userActivityTask: Task<Void, Never>?
-    /// 上一拍声明成功没有, 用来只在成败翻转时记日志; 每轮起表时归位成"成功"
+    /// 上次声明是否成功, 仅在结果变化时记日志, 每轮计时开始时重置为成功
     private var didDeclareUserActivity = true
 
     var isPreventingDisplaySleep: Bool {
@@ -101,7 +101,7 @@ final class SystemSleepService {
         sleepAssertion.end(release: releaseAssertion)
     }
 
-    /// 屏幕不睡与不进屏保是两件事, 后者要靠节拍声明用户活动, 所以两者收在同一对方法里
+    /// 保持屏幕常亮还需要定期声明用户活动来阻止屏保, 两者在同一对方法中启停
     func beginPreventingDisplaySleep() -> IOReturn {
         displayReleaseRetryTask?.cancel()
         displayReleaseRetryTask = nil
@@ -158,7 +158,7 @@ final class SystemSleepService {
 
     /// 屏保与闲置锁屏跟的是系统 idle 计时, 显示断言只保证屏幕不睡, 挡不住它们
     private func startUserActivityTicks() {
-        // 断言已在而节拍断了的那一轮会重新走到这里, 不先收掉旧的会留下一个空转的 Task
+        // 断言仍有效但定时声明中断时也会重新调用, 先取消旧 Task 以免空转
         userActivityTask?.cancel()
         userActivityTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {

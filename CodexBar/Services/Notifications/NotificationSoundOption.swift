@@ -167,8 +167,8 @@ struct NotificationSoundOption: Identifiable, Hashable {
     /// 系统声音列表只在首次访问时加载并缓存
     private static let systemSounds: [NotificationSoundOption] = loadSystemSounds()
 
-    /// 打包声音的 id 先占位, 系统同名文件不再生成第二个同 id 的选项
-    /// 否则用户在 System 组里选中的声音, 下次读取会被解析成打包组里那个同名资源
+    /// 打包声音优先占用 id, 跳过同 id 的系统声音
+    /// 避免 System 组选项在下次读取时被解析为同名打包资源
     private static let reservedIDs: Set<String> = Set((modernSounds + materialSounds).map(\.id))
 
     private static func bundled(

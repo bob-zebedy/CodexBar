@@ -214,7 +214,7 @@ struct AppServerSessionTests {
         if supported {
             #expect(bootstrapped)
             for _ in 0 ..< 3 {
-                #expect(await reader.drainNow().status == .completed)
+                #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
             }
             #expect(!disconnected)
         } else {

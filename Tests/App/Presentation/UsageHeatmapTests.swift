@@ -275,4 +275,68 @@ struct UsageHeatmapTests {
             totalTokens: input + output
         )
     }
+
+    @Test func weekGridStartsSundayAndLeavesFutureDaysBlankAcrossDST() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        calendar.firstWeekday = 2
+        let today = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 10, hour: 12)))
+        let grid = CodexWeekGrid.dates(columnCount: 2, today: today, calendar: calendar)
+        #expect(grid.count == 14)
+        #expect(grid.compactMap(\.self).count == 10)
+        #expect(try calendar.component(.weekday, from: #require(grid[0])) == 1)
+        #expect(try calendar.component(.weekday, from: #require(grid[7])) == 1)
+        #expect(grid.suffix(4).allSatisfy { $0 == nil })
+        #expect(CodexWeekGrid.dates(columnCount: 0, today: today, calendar: calendar).isEmpty)
+    }
+
+    @Test func heatmapDistinguishesTodayPendingFromUnavailableAndHistoricalZero() throws {
+        let today = try #require(CodexDateFormat.dayDate(from: "2026-09-15"))
+        let summary = try TestFixtures.decode(UsageSummary.self, "{}")
+        let usage = CodexUsageSnapshot(summary: summary, dailyBuckets: [])
+        let grid = UsageHeatmapDay.grid(usage: usage, history: .empty, columnCount: 2, today: today).compactMap(\.self)
+        #expect(grid.last?.tokenState == .pending)
+        #expect(grid.first?.tokenState == .available(0))
+        let unavailable = UsageHeatmapDay.grid(usage: nil, history: .empty, columnCount: 2, today: today).compactMap(\.self)
+        #expect(unavailable.allSatisfy { $0.tokenState == .unavailable })
+    }
+
+    @Test func heatmapSelectionReadsLatestDayDataByDate() {
+        let date = "2026-09-15"
+        let selection = UsageHeatmapSelection(dateID: date)
+        let initial = UsageHeatmapDay(startDate: date, tokenState: .pending, activityData: .empty(startDate: date))
+        let updated = UsageHeatmapDay(
+            startDate: date, tokenState: .available(120), activityData: .unavailable(startDate: date), tokenUsage: .zero
+        )
+        let unrelated = UsageHeatmapDay(startDate: "2026-09-14", tokenState: .available(5), activityData: .empty(startDate: "2026-09-14"))
+        #expect(selection.day(in: [initial, unrelated]) == initial)
+        #expect(selection.day(in: [nil, unrelated, updated]) == updated)
+        #expect(selection.day(in: [nil, unrelated]) == nil)
+        #expect(selection.day(in: []) == nil)
+    }
+
+    @Test func partialSourcesKeepKnownValuesVisible() {
+        let now = Date()
+        let date = HistoryStorage.dateKey(for: now)
+        var aggregate = ActivityDataAggregate(date: date)
+        aggregate.turnCount = 3
+        var snapshot = HistorySnapshot(activityData: [aggregate.metrics])
+        snapshot.isActivityDataComplete = false
+        let day = UsageHeatmapDay.grid(usage: nil, history: snapshot, columnCount: 1, today: now).compactMap(\.self).first { $0.startDate == date }
+        #expect(day?.activityData.turnCount == 3)
+    }
+
+    @Test func heatmapSeparatesAccountIntensityFromLocalDailyMetrics() throws {
+        let day = HistoryStorage.dateKey(for: TestFixtures.now)
+        var history = HistorySnapshot.empty
+        history.tokenUsageByDate = [day: TokenUsage(
+            inputTokens: 100, cachedInputTokens: 20, cacheWriteInputTokens: 5,
+            outputTokens: 10, reasoningOutputTokens: 2, totalTokens: 110
+        )]
+        let grid = UsageHeatmapDay.grid(usage: nil, history: history, columnCount: 2, today: TestFixtures.now)
+        let today = try #require(grid.compactMap(\.self).first { $0.startDate == day })
+        #expect(today.tokenState == .unavailable)
+        #expect(today.tokenUsage?.totalTokens == 110)
+        #expect(today.activityData.turnCount == 0)
+    }
 }

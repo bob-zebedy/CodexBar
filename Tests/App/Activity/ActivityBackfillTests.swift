@@ -120,7 +120,7 @@ struct ActivityBackfillTests {
         }
         #expect(ready)
         #expect(probe.graph.tasks[key]?.tokenUsage?.totalTokens == 50)
-        #expect(await reader.drainNow().status == .completed)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         #expect(!unavailable)
         #expect(probe.graph.tasks[key]?.state == .running)
         let progress = probe.graph.tasks[key]?.progressGeneration
@@ -153,7 +153,7 @@ struct ActivityBackfillTests {
             #expect(probe.graph.tasks[key]?.progressGeneration == progress)
             #expect(probe.graph.tasks[key]?.state == .running)
             #expect(probe.graph.tasks[key]?.tokenUsage?.totalTokens == 50)
-            #expect(await reader.drainNow().status == .completed)
+            #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
             #expect(!unavailable)
             try await Self.waitForItemReads(logs, count: 2)
             await reader.stop()
@@ -562,7 +562,7 @@ extension ActivityBackfillTests {
         }
         #expect(ready)
         startTask.withLock { $0 = true }
-        #expect(await reader.drainNow().status == .completed)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         #expect(probe.graph.tasks[.init(thread: "main", turn: "root")]?.state == .running)
         #expect(await reader.stop())
         #expect(try await !logs.page().entries.contains { $0.method == "thread/items/list" })

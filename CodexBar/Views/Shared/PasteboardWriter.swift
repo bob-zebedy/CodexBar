@@ -1,6 +1,6 @@
 import AppKit
 
-/// 统一收口剪贴板写入
+/// 共用的剪贴板写入方法
 enum PasteboardWriter {
     static func copy(_ text: String) {
         NSPasteboard.general.clearContents()

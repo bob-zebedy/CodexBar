@@ -24,7 +24,7 @@ final class SettingsWindowController: HostingWindowController {
     private let animationState = SettingsWindowAnimationState()
     private var windowFocusObserver: AnyCancellable?
     private var windowVisibilityObserver: AnyCancellable?
-    /// 只在真的要展开时构造: hosting controller 与动态面板订阅会常驻到 App 结束, 而用户可能一次子面板都没开过
+    /// 首次展开时才构造, 避免未使用的子面板持有 hosting controller 和订阅直到 App 退出
     private var optionsPanelControllers: [SettingsOptionsPanel: OptionsPanelController] = [:]
     private var optionsDismissEventMonitor: Any?
     private var optionsDismissFocusObserver: AnyCancellable?
@@ -176,7 +176,7 @@ final class SettingsWindowController: HostingWindowController {
         return controller
     }
 
-    /// 没建过就说明它不可能开着, 收起动作不必为此把它构造出来
+    /// 收起时只处理已创建的子面板
     private func existingOptionsPanelController(
         _ panel: SettingsOptionsPanel
     ) -> OptionsPanelController? {
@@ -344,9 +344,8 @@ final class SettingsWindowController: HostingWindowController {
         optionsDismissedByClick = nil
     }
 
-    /// 子面板占设置窗口右侧同一位置, 展开一个必须先收掉其余的
-    /// 收旧面板用 immediate, 否则滑回与滑出在同一处交叠
-    /// 互斥规则只写在这里, 再加一个面板也不会漏掉某一对
+    /// 子面板共用设置窗口右侧的位置, 展开前用 immediate 收起其他面板, 避免出入场动画交叠
+    /// 所有子面板共用此互斥规则
     private func handleOptionsAction(_ action: SettingsOptionsPanelAction) {
         switch action {
         case let .toggle(panel, anchorProvider):

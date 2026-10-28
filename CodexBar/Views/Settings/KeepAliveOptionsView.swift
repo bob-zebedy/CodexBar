@@ -13,7 +13,7 @@ struct KeepAliveOptionsView: View {
             maximumDurationRow
             protectionRow
 
-            // 台式机读不到电池, 这一行整个收起而不是置灰
+            // 无内置电池时隐藏低电量保护行
             if keepAliveController.hasBattery {
                 lowBatteryRow
             }
@@ -60,7 +60,7 @@ struct KeepAliveOptionsView: View {
         )
     }
 
-    /// 只改"哪些任务算数", 没有额外依赖, 所以不置灰也不隐藏
+    /// 仅决定等待任务是否计入防睡眠, 无额外依赖, 始终可用
     private var waitingApprovalRow: some View {
         toggleRow(
             title: "keep-alive.waiting.title",
@@ -72,7 +72,7 @@ struct KeepAliveOptionsView: View {
         )
     }
 
-    /// 只在防睡眠真的生效时留住屏幕, 所以和上面那一行一样没有额外依赖
+    /// 屏幕常亮随防睡眠生效, 此选项无额外依赖, 始终可用
     private var displayAwakeRow: some View {
         toggleRow(
             title: "keep-alive.display.title",
@@ -116,7 +116,7 @@ struct KeepAliveOptionsView: View {
         }
     }
 
-    /// 开关的修饰链与通知子面板的 optionRow 保持一致, 两个面板才是同一套控件
+    /// 开关沿用通知子面板 optionRow 的修饰链, 保持样式一致
     private func toggleRow(
         title: LocalizedStringResource,
         help: LocalizedStringResource,

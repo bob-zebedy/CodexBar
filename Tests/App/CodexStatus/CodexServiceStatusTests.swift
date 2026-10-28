@@ -130,7 +130,7 @@ struct CodexServiceStatusTests {
         defer { monitor.setEnabled(false) }
         monitor.setEnabled(true)
         let first = Task { await monitor.refresh() }
-        try await wait { await probe.calls == 1 }
+        #expect(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(5)) { await probe.calls == 1 })
         let second = Task { await monitor.refresh() }
         try await Task.sleep(for: .milliseconds(20))
         #expect(await probe.calls == 1)
@@ -164,7 +164,7 @@ struct CodexServiceStatusTests {
         defer { monitor.setEnabled(false) }
         monitor.setEnabled(true)
         let first = Task { await monitor.refresh() }
-        try await wait { await probe.calls == 1 }
+        #expect(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(5)) { await probe.calls == 1 })
         monitor.setEnabled(false)
         monitor.setEnabled(true)
         await monitor.refresh()
@@ -189,12 +189,12 @@ struct CodexServiceStatusTests {
             defaults: preferences.defaults
         )
         model.refresh(trigger: .manual)
-        try await wait { await probe.calls == 1 }
+        #expect(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(5)) { await probe.calls == 1 })
         #expect(model.isRefreshing)
         #expect(model.autoRefreshCountdownStartedAt == nil)
         model.refresh(trigger: .manual)
         await probe.releaseFirst()
-        try await wait { !model.isRefreshing }
+        #expect(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(5)) { !model.isRefreshing })
         #expect(monitor.state == .available(.operational))
         #expect(model.autoRefreshCountdownStartedAt != nil)
         #expect(await probe.calls == 1)
@@ -203,7 +203,7 @@ struct CodexServiceStatusTests {
         let observation = monitor.$state.sink { states.append($0) }
         defer { observation.cancel() }
         model.refresh(trigger: .manual)
-        try await wait { !model.isRefreshing }
+        #expect(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(5)) { !model.isRefreshing })
         let outage = CodexServiceStatus(level: .fullOutage, componentNames: ["CLI"])
         #expect(states == [.available(.operational), .checking, .available(outage)])
         #expect(await probe.calls == 2)
@@ -221,16 +221,16 @@ struct CodexServiceStatusTests {
             defaults: preferences.defaults
         )
         model.refresh(trigger: .manual)
-        try await wait { !model.isRefreshing }
+        #expect(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(5)) { !model.isRefreshing })
         let updatedAt = try #require(model.autoRefreshCountdownStartedAt)
         await probe.fail()
         model.refresh(trigger: .accountNotification)
-        try await wait { !model.isRefreshing }
+        #expect(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(5)) { !model.isRefreshing })
         #expect(model.autoRefreshCountdownStartedAt == updatedAt)
         #expect(monitor.state == .available(.operational))
         #expect(await probe.calls == 1)
         model.refresh(trigger: .manual)
-        try await wait { !model.isRefreshing }
+        #expect(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(5)) { !model.isRefreshing })
         #expect(try #require(model.autoRefreshCountdownStartedAt) > updatedAt)
         #expect(monitor.state == .unavailable)
         #expect(await probe.calls == 2)
@@ -247,14 +247,6 @@ struct CodexServiceStatusTests {
         } else {
             await #expect(throws: (any Error).self) { try await service.fetch() }
         }
-    }
-
-    private func wait(_ condition: () async -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
-        while await !condition(), ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        #expect(await condition())
     }
 
     fileprivate nonisolated static func response(

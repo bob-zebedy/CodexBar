@@ -6,12 +6,12 @@ struct RefreshTaskCoordinatorTests {
     @Test func supersededResultCannotCommitOrEndNewerRefresh() async {
         let coordinator = RefreshTaskCoordinator()
         defer { coordinator.cancel() }
-        let oldEntered = RefreshCheckpoint()
-        let oldRelease = RefreshCheckpoint()
-        let oldReturned = RefreshCheckpoint()
-        let newEntered = RefreshCheckpoint()
-        let newRelease = RefreshCheckpoint()
-        let newFinished = RefreshCheckpoint()
+        let oldEntered = TestCheckpoint()
+        let oldRelease = TestCheckpoint()
+        let oldReturned = TestCheckpoint()
+        let newEntered = TestCheckpoint()
+        let newRelease = TestCheckpoint()
+        let newFinished = TestCheckpoint()
         var committed: [Int] = []
         var refreshing: [Bool] = []
         coordinator.run(
@@ -52,9 +52,9 @@ struct RefreshTaskCoordinatorTests {
 
     @Test func cancellationInvalidatesGenerationEvenIfOperationReturns() async {
         let coordinator = RefreshTaskCoordinator()
-        let entered = RefreshCheckpoint()
-        let release = RefreshCheckpoint()
-        let returned = RefreshCheckpoint()
+        let entered = TestCheckpoint()
+        let release = TestCheckpoint()
+        let returned = TestCheckpoint()
         var committed = false
         let generation = coordinator.start { generation in
             entered.signal()
@@ -72,23 +72,5 @@ struct RefreshTaskCoordinatorTests {
         let didFinish = coordinator.finish(generation) { finished = true }
         #expect(!didFinish)
         #expect(!finished)
-    }
-}
-
-@MainActor
-private final class RefreshCheckpoint {
-    private var isSignaled = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func wait() async {
-        guard !isSignaled else { return }
-        await withCheckedContinuation { waiters.append($0) }
-    }
-
-    func signal() {
-        isSignaled = true
-        let pending = waiters
-        waiters.removeAll()
-        pending.forEach { $0.resume() }
     }
 }

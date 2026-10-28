@@ -416,7 +416,7 @@ struct ActivityTaskTests {
         monitor.acceptFixtureGraph(graph, phase: .live, transitions: transitions)
         #expect(monitor.isProtectionCandidateRelevant(candidate, now: now) == (offset <= 0))
         monitor.finishProtectionAttempt(task.key, attemptID: attemptID, taskID: task.displayID, notificationWasSubmitted: false)
-        #expect((monitor.suppressedTasks[task.key] != nil) == (offset <= 0))
+        #expect(monitor.suppressedTasks.contains(task.key) == (offset <= 0))
         #expect(monitor.protectionAttempts.isEmpty)
     }
 
@@ -454,7 +454,7 @@ struct ActivityTaskTests {
         )
         monitor.finishProtectionAttempt(task.key, attemptID: attemptID, taskID: task.displayID, notificationWasSubmitted: false)
         #expect(monitor.graph.tasks[task.key]?.state == .running)
-        #expect((monitor.suppressedTasks[task.key] != nil) == (scenario == "unchanged"))
+        #expect(monitor.suppressedTasks.contains(task.key) == (scenario == "unchanged"))
         #expect(monitor.protectionAttempts.isEmpty)
     }
 
@@ -482,7 +482,7 @@ struct ActivityTaskTests {
         monitor.protectionSettings.setInactivityDuration(previousDuration)
         monitor.reconcileProtection(now: hiddenAt, sendsNotification: false)
         #expect(monitor.graph.tasks[key]?.state == .running)
-        #expect(monitor.suppressedTasks[key] != nil)
+        #expect(monitor.suppressedTasks.contains(key))
         #expect(monitor.protectionRecords[identifier] != nil)
 
         let checkedAt = expiredObservation ? changedAt.addingTimeInterval(-5) : changedAt
@@ -491,7 +491,7 @@ struct ActivityTaskTests {
         monitor.handleProtectionTimingChange()
         #expect(monitor.graph.tasks[key]?.state == .running)
         #expect(monitor.protectionRecords[identifier] == nil)
-        #expect(monitor.suppressedTasks[key] == nil)
+        #expect(!monitor.suppressedTasks.contains(key))
         #expect(monitor.graph.tasks[key]?.lastProgressAt == task.lastProgressAt)
         #expect(monitor.graph.tasks[key]?.hasFreshLifecycle(at: changedAt) == !expiredObservation)
 
@@ -502,7 +502,7 @@ struct ActivityTaskTests {
         #expect(monitor.graph.tasks[key]?.state == .running)
         monitor.reconcileProtection(now: newDeadline, sendsNotification: false)
         #expect(monitor.graph.tasks[key]?.state == .running)
-        #expect(monitor.suppressedTasks[key] != nil)
+        #expect(monitor.suppressedTasks.contains(key))
         #expect(monitor.protectionRecords[identifier] != nil)
         monitor.cancelInactivityCheck()
         await monitor.protectionPersistenceTask?.value

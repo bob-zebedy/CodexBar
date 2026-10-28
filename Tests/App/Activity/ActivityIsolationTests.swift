@@ -124,7 +124,7 @@ struct ActivityIsolationTests {
         #expect(lifecycle.graph.tasks[keys[1]]?.lifecycleCoverageCheckedAt != nil)
         #expect(lifecycle.graph.tasks[keys[0]]?.lifecycleCoverageCheckedAt == nil)
         repaired.withLock { $0 = true }
-        #expect(await reader.drainNow().status == .completed)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         #expect(keys.allSatisfy { lifecycle.graph.tasks[$0]?.lifecycleCoverageCheckedAt != nil })
         #expect(lifecycle.graph.unavailableTurns.isDisjoint(with: keys))
         #expect(!disconnected)
@@ -182,7 +182,7 @@ struct ActivityIsolationTests {
         }
         #expect(failures == 0)
         #expect(observed == 3)
-        #expect(await reader.drainNow().status == .completed)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         try FileManager.default.removeItem(at: blocker)
         await reader.stop()
         let recorded = try directory.historyRecords().filter { $0.activityData != nil }.count
@@ -230,7 +230,7 @@ extension ActivityIsolationTests {
         #expect(observed == 1)
         phase.withLock { $0 = 1 }
         let started = ContinuousClock.now
-        #expect(await reader.drainNow().status == .completed)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         #expect(ContinuousClock.now - started < .seconds(1))
         #expect(observed == 2 && !disconnected)
         try database.execute("COMMIT")
@@ -333,11 +333,11 @@ extension ActivityIsolationTests {
             try corruptHistory()
         }
         phase.withLock { $0 = 1 }
-        #expect(await reader.drainNow().status == .completed)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         #expect(observed == 2)
         // 给周期缓存刷新一次触发机会, 失败不能使实时连接失效
         try await Task.sleep(for: .milliseconds(1200))
-        #expect(await reader.drainNow().status == .completed)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         #expect(!disconnected)
         let key = ActivityTaskKey(thread: "healthy", turn: "turn")
         #expect(lifecycle.graph.tasks[key]?.lifecycleCoverageCheckedAt != nil)
@@ -437,15 +437,15 @@ extension ActivityIsolationTests {
         }
         #expect(observed == 1)
         phase.withLock { $0 = 1 }
-        #expect(await reader.drainNow().status == .completed)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         #expect(observed == 2)
         try FileManager.default.removeItem(at: blocker)
         for _ in 0 ..< 200 where !FileManager.default.fileExists(atPath: directory.url.appendingPathComponent("event.db").path) {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(await reader.drainNow().status == .completed)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         phase.withLock { $0 = 2 }
-        #expect(await reader.drainNow().status == .completed)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .completed)
         #expect(observed == 3)
         #expect(!disconnected)
         #expect(await reader.stop())

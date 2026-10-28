@@ -4,7 +4,7 @@
 
 # CodexBar
 
-**Codex at a glance, right from your macOS menu bar**
+View Codex status in your macOS menu bar
 
 [简体中文](README.md) | English
 
@@ -15,48 +15,45 @@
 [![Downloads](https://img.shields.io/github/downloads/bob-zebedy/CodexBar/total?style=flat&label=Downloads&labelColor=E4F3E7&color=2EA043&logo=data:image%2Fsvg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMkVBMDQzIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI%2BPHBhdGggZD0iTTEyIDN2MTJtLTUtNSA1IDUgNS01TTQgMTZ2NWgxNnYtNSIvPjwvc3ZnPg%3D%3D)](https://github.com/bob-zebedy/CodexBar/releases)
 [![License](https://img.shields.io/github/license/bob-zebedy/CodexBar?style=flat&label=License&labelColor=F7EFCF&color=A67C00&logo=data:image%2Fsvg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjQTY3QzAwIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI%2BPHBhdGggZD0iTTEyIDN2MThtLTQgMGg4TTMgN2gxOE01IDdsLTMgOGg2TDUgN1ptMTQgMC0zIDhoNmwtMy04WiIvPjwvc3ZnPg%3D%3D)](LICENSE)
 
-[Features](#features) | [Installation](#installation) | [Privacy](#privacy) | [Runtime Architecture](https://codexbar.zabrian.app/architecture) | [Performance Report](https://codexbar.zabrian.app/performance) | [Protocol](Protocol.en.md)
+[Features](#features) | [Installation](#installation) | [Privacy](#privacy) | [Runtime architecture](https://codexbar.zabrian.app/architecture) | [Performance report](https://codexbar.zabrian.app/performance) | [Protocol](Protocol.en.md)
 
 <img src="Images/preview.gif" width="640" alt="CodexBar preview">
 
 </div>
 
----
-
-CodexBar is a menu bar app for macOS that displays your Codex account information, usage limits, token usage, and real-time task status in one place.
+CodexBar is a macOS menu bar app for viewing your Codex account, rate limits, token usage, and live task status.
 
 ## Features
 
-### Account and rate limits at a glance
+### Account and rate limits
 
 - View your account, plan, credits, and the remaining percentage and reset time for each rate-limit window
 - Show your preferred allowance directly in the menu bar
 - Track banked resets and their expiry dates, with automatic use before they expire
 
-### Follow your tasks in real time
+### Task progress
 
 - See each task's project, model, reasoning effort, duration, and token usage
 - Track execution states, tasks awaiting a response, task progress, and recent events
 - Review concurrent tasks and recent completions, failures, and interruptions in Task Center
 
-### Review your usage
+### Usage statistics
 
 - Track total usage, daily peaks, usage streaks, and your longest task duration
-- Explore daily token usage and activity statistics in a heatmap
+- View daily token usage and activity statistics in a heatmap
 - Combine usage records across Macs through iCloud
 
-### Get timely alerts
+### Notifications and task glow
 
 - Receive alerts for task completions, tasks awaiting a response, allowance changes, and protection events
 - Choose notification types, sounds, and task haptic feedback
 - Follow status changes through customizable task glow at the top of your displays
 
-### Keep long tasks running
+### Keep awake
 
 - Keep your Mac awake while tasks run, then allow normal sleep when they finish
 - Optionally stay awake while awaiting a response or keep the display on as well
 - Set a keep-awake time limit, low-battery protection, and stalled task protection
-
 
 ## Installation
 
@@ -79,7 +76,7 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 
 ## Privacy
 
-Raw activity events and live tasks are processed locally. Enabling cross-device sync uploads daily activity aggregates and token usage records to your private iCloud database.
+CodexBar processes raw activity events and live tasks on your Mac. When you enable cross-device sync, it uploads daily activity aggregates and token usage records to your private iCloud database.
 
 ## Feedback
 

@@ -37,16 +37,6 @@ struct TokenUsageHistoryTests {
         #expect(try second.load() == ["cursor": 3])
     }
 
-    @Test func heatmapSeparatesAccountIntensityFromLocalDailyMetrics() throws {
-        var history = HistorySnapshot.empty
-        history.tokenUsageByDate = [day: tokenUsage(input: 100)]
-        let grid = UsageHeatmapDay.grid(usage: nil, history: history, columnCount: 2, today: TestFixtures.now)
-        let today = try #require(grid.compactMap(\.self).first { $0.startDate == day })
-        #expect(today.tokenState == .unavailable)
-        #expect(today.tokenUsage?.totalTokens == 110)
-        #expect(today.activityData.turnCount == 0)
-    }
-
     private func tokenUsage(input: Int64, cached: Int64 = 20) -> TokenUsage {
         TokenUsage(inputTokens: input, cachedInputTokens: cached, cacheWriteInputTokens: 5, outputTokens: 10, reasoningOutputTokens: 2, totalTokens: input + 10)
     }

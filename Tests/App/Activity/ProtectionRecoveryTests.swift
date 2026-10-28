@@ -12,11 +12,11 @@ struct ProtectionRecoveryTests {
         let monitor = makeMonitor(directory: directory, preferences: preferences)
         monitor.isStarted = true
         monitor.loadProtectionState()
-        try await wait { monitor.protectionLoadState == .blocked }
+        #expect(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(10)) { monitor.protectionLoadState == .blocked })
         #expect(!monitor.isProtectionStoreAvailable)
         try FileManager.default.removeItem(at: bad)
         monitor.setProtectionEnabled(true)
-        try await wait { monitor.isProtectionStoreAvailable }
+        #expect(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(10)) { monitor.isProtectionStoreAvailable })
         #expect(monitor.isProtectionRecoveryInProgress)
         monitor.stop()
     }
@@ -31,9 +31,9 @@ struct ProtectionRecoveryTests {
         let monitor = makeMonitor(directory: directory, preferences: preferences)
         monitor.isStarted = true
         monitor.loadProtectionState()
-        try await wait { monitor.protectionLoadState == .retryableFailure }
+        #expect(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(10)) { monitor.protectionLoadState == .retryableFailure })
         try FileManager.default.removeItem(at: path)
-        try await wait { monitor.isProtectionStoreAvailable }
+        #expect(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(10)) { monitor.isProtectionStoreAvailable })
         monitor.stop()
         monitor.protectionLoadState = .idle
         monitor.isStarted = true
@@ -57,15 +57,5 @@ struct ProtectionRecoveryTests {
         ) { _ in }
         monitor.isBootstrapping = true
         return monitor
-    }
-
-    private func wait(until condition: () -> Bool) async throws {
-        for _ in 0 ..< 200 {
-            if condition() {
-                return
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(condition())
     }
 }

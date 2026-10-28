@@ -6,6 +6,18 @@ import Foundation
     var graph = ActivityTaskGraph()
 }
 
+extension ActivityEventDrainResult {
+    enum Status { case completed, partial, sourceUnavailable, cancelled }
+
+    var status: Status {
+        switch self {
+        case let .update(update): update.isComplete ? .completed : .partial
+        case .sourceUnavailable: .sourceUnavailable
+        case .cancelled: .cancelled
+        }
+    }
+}
+
 @MainActor
 extension AppServerActivityReader {
     init(
@@ -61,6 +73,7 @@ enum ActivityFixtureBatch {
 extension ActivityMonitor {
     private static var fixtureRevision: UInt64 = 0
     private static let fixtureReaderID = UUID()
+    private static let fixtureRecoveryID = UUID()
 
     /// 展示和保护测试从任务图产生真实 update, 每次经过 monitor 的正式消费接口
     func acceptFixtureGraph(_ graph: ActivityTaskGraph, phase: ActivityUpdate.Phase = .lifecycleChanged, transitions: [ActivityTransition] = []) {
@@ -72,7 +85,8 @@ extension ActivityMonitor {
             graph: graph,
             transitions: transitions,
             terminalEvents: graph.terminalEvents,
-            backfilledTasks: graph.backfilledTasks
+            backfilledTasks: graph.backfilledTasks,
+            recoveryID: Self.fixtureRecoveryID
         ))
         self.graph.terminalEvents.removeAll()
         self.graph.backfilledTasks.removeAll()

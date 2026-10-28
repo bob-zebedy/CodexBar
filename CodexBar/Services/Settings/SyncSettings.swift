@@ -218,7 +218,7 @@ final class SyncSettings: ObservableObject {
     private nonisolated static let enabledKey = "Sync.isEnabled"
 }
 
-/// 同步没生效时缺的是哪一项, 同时充当日志里的 reason= 取值
+/// 同步未生效的原因, 同时用作日志中的 reason= 取值
 nonisolated enum SyncActivation: String {
     case active
     case syncOff

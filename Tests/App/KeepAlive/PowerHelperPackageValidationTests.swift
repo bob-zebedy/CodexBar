@@ -13,9 +13,7 @@ struct PowerHelperPackageValidationTests {
         try await probe.waitForRequests(1)
         #expect(validation.fingerprint == nil)
         await probe.finish(0, fingerprint: "current")
-        for _ in 0 ..< 100 where completions == 0 {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        #expect(try await waitForCondition(timeout: .milliseconds(500), pollInterval: .milliseconds(5)) { completions != 0 })
         #expect(await probe.count == 1)
         #expect(completions == 1)
         #expect(validation.fingerprint == "current")
@@ -33,9 +31,7 @@ struct PowerHelperPackageValidationTests {
         validation.refresh()
         try await probe.waitForRequests(2)
         await probe.finish(1, fingerprint: "new")
-        for _ in 0 ..< 100 where completions == 0 {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        #expect(try await waitForCondition(timeout: .milliseconds(500), pollInterval: .milliseconds(5)) { completions != 0 })
         await probe.finish(0, fingerprint: "old")
         try await Task.sleep(for: .milliseconds(20))
         #expect(validation.fingerprint == "new")
@@ -49,17 +45,13 @@ struct PowerHelperPackageValidationTests {
         validation.refresh()
         try await probe.waitForRequests(1)
         await probe.finish(0, fingerprint: "valid")
-        for _ in 0 ..< 100 where validation.fingerprint == nil {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        #expect(try await waitForCondition(timeout: .milliseconds(500), pollInterval: .milliseconds(5)) { validation.fingerprint != nil })
         #expect(validation.fingerprint == "valid")
         validation.refresh()
         #expect(validation.fingerprint == nil)
         try await probe.waitForRequests(2)
         await probe.finish(1, fingerprint: "invalid", issue: .invalid)
-        for _ in 0 ..< 100 where validation.issue == nil {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        #expect(try await waitForCondition(timeout: .milliseconds(500), pollInterval: .milliseconds(5)) { validation.issue != nil })
         #expect(validation.issue == .invalid)
         #expect(validation.fingerprint == nil)
     }

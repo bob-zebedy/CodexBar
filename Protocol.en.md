@@ -1,8 +1,8 @@
-# app-server API Inventory
+# app-server API inventory
 
 Codex version: `0.162.0`
 
-## Outgoing Requests
+## Outgoing requests
 
 | API | Purpose |
 | --- | --- |
@@ -19,22 +19,22 @@ Codex version: `0.162.0`
 | `thread/turns/list` | Read paginated turn information for a thread; `threadId` identifies the thread, and `itemsView: "notLoaded"` omits item content |
 | `thread/items/list` | Read paginated items for a turn; `threadId` and `turnId` identify the target turn |
 
-## Outgoing Notifications
+## Outgoing notifications
 
 | API | Purpose |
 | --- | --- |
 | `initialized` | Notify the server that initialization is complete |
 
-## Incoming Notifications
+## Incoming notifications
 
-### Account Notifications
+### Account notifications
 
 | API | Purpose |
 | --- | --- |
 | `account/updated` | Receive account change notifications |
 | `account/rateLimits/updated` | Receive rate limit change notifications |
 
-### Threads, Turns, and Items
+### Threads, turns, and items
 
 | API | Purpose |
 | --- | --- |
@@ -46,7 +46,7 @@ Codex version: `0.162.0`
 | `item/started` | Receive item start notifications, including asynchronous questions and user responses |
 | `item/completed` | Receive item end notifications, including asynchronous questions and user responses |
 
-### Progress Notifications
+### Progress notifications
 
 | API | Purpose |
 | --- | --- |
@@ -55,7 +55,7 @@ Codex version: `0.162.0`
 | `item/reasoning/summaryTextDelta` | Track reasoning summary output progress |
 | `item/commandExecution/outputDelta` | Track command output progress |
 
-### Status and Presentation Notifications
+### Status and presentation notifications
 
 | API | Purpose |
 | --- | --- |
@@ -72,7 +72,7 @@ Codex version: `0.162.0`
 | `error` | Receive error notifications |
 | `warning` | Log server warnings |
 
-## Server Requests
+## Server requests
 
 | API | Purpose |
 | --- | --- |

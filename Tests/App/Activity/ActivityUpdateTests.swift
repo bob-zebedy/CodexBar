@@ -256,26 +256,30 @@ struct ActivityUpdateTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         try #require(ready)
-        let first = Task { await reader.drainNow() }
+        let firstRecovery = UUID()
+        let first = Task { await reader.drainForRecovery(generation: firstRecovery) }
         for _ in 0 ..< 200 where !entered.withLock({ $0 }) {
             try await Task.sleep(for: .milliseconds(5))
         }
         try #require(entered.withLock { $0 })
-        let second = Task { await reader.drainNow() }
+        let secondRecovery = UUID()
+        let second = Task { await reader.drainForRecovery(generation: secondRecovery) }
         try await Task.sleep(for: .milliseconds(20))
         release.signal()
         let firstResult = await first.value
         let secondResult = await second.value
         #expect(firstResult.status == .completed)
         #expect(secondResult.status == .completed)
-        if case let .completed(a) = firstResult, case let .completed(b) = secondResult {
+        if case let .update(a) = firstResult, case let .update(b) = secondResult {
             #expect(a.readerID == b.readerID && a.revision < b.revision)
+            #expect(a.recoveryID == firstRecovery)
+            #expect(b.recoveryID == secondRecovery)
             #expect(a.graph.tasks.keys.map(\.turnID) == ["turn-2"])
             #expect(b.graph.tasks.keys.map(\.turnID) == ["turn-3"])
             #expect(published.contains { $0.readerID == b.readerID && $0.revision == b.revision })
         }
         #expect(await reader.stop())
-        #expect(await reader.drainNow().status == .cancelled)
+        #expect(await reader.drainForRecovery(generation: UUID()).status == .cancelled)
         try server.finish()
     }
 
@@ -371,7 +375,9 @@ struct ActivityUpdateTests {
         let now = Date()
         monitor.isActivitySourceHealthy = scenario != "unavailable"
         monitor.isBootstrapping = scenario == "bootstrap"
-        monitor.isProtectionRecoveryInProgress = scenario == "recovery"
+        if scenario == "recovery" {
+            monitor.beginProtectionRecovery()
+        }
         monitor.turnTransitionNotBefore = now.addingTimeInterval(scenario == "before-cutoff" ? 0 : -60)
         var reducer = try approvalReducer(at: now)
         var graph = ActivityTaskGraph()
@@ -444,7 +450,8 @@ struct ActivityUpdateTests {
             graph: graph,
             transitions: transitions,
             terminalEvents: graph.terminalEvents,
-            backfilledTasks: graph.backfilledTasks
+            backfilledTasks: graph.backfilledTasks,
+            recoveryID: readerID
         )
     }
 }

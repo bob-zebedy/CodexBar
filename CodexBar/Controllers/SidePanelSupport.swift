@@ -100,7 +100,7 @@ enum SidePanelSupport {
     /// 水平方向优先贴在请求侧, 空间不足时换边, 最后夹紧到屏幕可见区域
     /// 纵向由调用方给出期望位置, 这里统一夹紧
     /// clampsToSurfaceBottom 为 true 时面板底边不低于宿主内容区底边, 适合锚点行随内容滚动的菜单面板
-    /// 设置窗口的子面板要严格贴住主开关行, 放不下时宁可让底边探出窗口, 所以传 false
+    /// 设置子面板传 false, 固定顶边与主开关行对齐, 允许底边超出窗口
     static func position(
         panelSize: CGSize,
         menuSurfaceFrame: CGRect,
@@ -299,7 +299,7 @@ enum SidePanelSupport {
     }
 
     /// 面板竖向夹回可见区域, 与 position 用同一条内边距和越界规则
-    /// 高度变化后重新定位要走这里, 否则重算出的位置会和初次展开的位置对不上
+    /// 高度变化后也调用此方法, 保持重算位置与初次展开一致
     static func clampedVertically(_ frame: CGRect, in visibleFrame: CGRect) -> CGRect {
         var frame = frame
         frame.origin.y = clamped(

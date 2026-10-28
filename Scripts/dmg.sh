@@ -161,8 +161,8 @@ tell application "Finder"
     set arrangement of theViewOptions to not arranged
     set icon size of theViewOptions to 96
     set text size of theViewOptions to 13
-    set position of item "${APP_NAME}.app" of mountFolder to {170, 80}
-    set position of item "Applications" of mountFolder to {350, 80}
+    set position of item "${APP_NAME}.app" of mountFolder to {170, 110}
+    set position of item "Applications" of mountFolder to {350, 110}
     update mountFolder without registering applications
     delay 2
     try

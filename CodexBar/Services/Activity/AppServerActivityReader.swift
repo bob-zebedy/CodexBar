@@ -18,28 +18,20 @@ nonisolated struct ActivityUpdate {
     let terminalEvents: [ActivityTerminalEvent]
     let backfilledTasks: Set<ActivityTaskKey>
     var isComplete = true
+    let recoveryID: UUID
 }
 
 nonisolated enum ActivityEventDrainResult: Sendable {
-    case completed(ActivityUpdate)
-    case partial(ActivityUpdate)
+    case update(ActivityUpdate)
     case sourceUnavailable
     case cancelled
-
-    enum Status { case completed, partial, sourceUnavailable, cancelled }
-
-    var status: Status {
-        switch self {
-        case .completed: .completed
-        case .partial: .partial
-        case .sourceUnavailable: .sourceUnavailable
-        case .cancelled: .cancelled
-        }
-    }
 }
 
 /// actor 独占连接与解析状态, UI 仅消费任务图和本次状态变化
 actor AppServerActivityReader {
+    /// 只排除已确认无需采集的来源, 缺失或未知来源继续正常处理
+    private static let ignoredThreadSources: Set<String> = ["thread_title"]
+
     nonisolated static var defaultSocketURL: URL {
         CodexPaths.codexHomeDirectory().appendingPathComponent("app-server-control/app-server-control.sock")
     }
@@ -60,6 +52,7 @@ actor AppServerActivityReader {
     private var connectedAt = Date.distantFuture
     private var reducer = AppServerActivityReducer()
     private var subscribed = Set<String>()
+    private var ignoredThreads = Set<String>()
     private var loop: Task<Void, Never>?
     private var storageTask: Task<Void, Never>?
     private var tokenUsageRefreshTask: Task<[TokenUsageAggregate], Error>?
@@ -73,7 +66,8 @@ actor AppServerActivityReader {
     private var lastPublished = Date.distantPast
     private var isTokenUsageWriter = false
     private var writerRetryAfter = Date.distantPast
-    private var drainWaiters: [CheckedContinuation<ActivityEventDrainResult, Never>] = []
+    private var drainWaiters: [DrainWaiter] = []
+    private var recoveryID = UUID()
     private var pendingEvents: [(event: ActivityDataRecord, bytes: Int)] = []
     private var pendingPublication: [ActivityDataRecord] = []
     private var pendingSamples: [(sample: TokenUsageSample, bytes: Int)] = []
@@ -104,6 +98,48 @@ actor AppServerActivityReader {
         let turns: [ActivityTurnReference: Int]
     }
 
+    private struct DrainWaiter {
+        let recoveryID: UUID
+        let continuation: CheckedContinuation<ActivityEventDrainResult, Never>
+    }
+
+    private struct ThreadCheck {
+        var checkedAt: ContinuousClock.Instant
+        var verifiedRevision: Int?
+        var recoveryID: UUID?
+        var failures = 0
+        var failureStartedAt: ContinuousClock.Instant?
+        var retryAfter: ContinuousClock.Instant?
+
+        mutating func record(verifiedRevision: Int?, failed: Bool, recoveryID: UUID, now: ContinuousClock.Instant) {
+            checkedAt = now
+            self.verifiedRevision = verifiedRevision
+            if self.recoveryID != recoveryID {
+                failures = 0
+                failureStartedAt = nil
+            }
+            self.recoveryID = recoveryID
+            guard failed else {
+                failures = 0
+                failureStartedAt = nil
+                retryAfter = verifiedRevision == nil ? now.advanced(by: .seconds(5)) : nil
+                return
+            }
+            failures = min(failures + 1, 4)
+            let started = failureStartedAt ?? now
+            failureStartedAt = started
+            // 快速重试同时受次数和时间限制, 随后保留低频探测以发现延迟落盘的线程
+            let delays: [Duration] = [.seconds(5), .seconds(15), .seconds(30), .seconds(60)]
+            let delay = now - started < .seconds(60) ? delays[failures - 1] : .seconds(60)
+            retryAfter = now.advanced(by: delay)
+        }
+
+        mutating func expedite(at now: ContinuousClock.Instant) {
+            guard let retryAfter else { return }
+            self.retryAfter = min(retryAfter, max(now, checkedAt.advanced(by: .seconds(5))))
+        }
+    }
+
     private struct BackfillScan {
         var completed = false
         var cursor: String?
@@ -114,7 +150,7 @@ actor AppServerActivityReader {
         var checkedAt = Date.distantPast
     }
 
-    private var checkedThreads: [String: Date] = [:]
+    private var threadChecks: [String: ThreadCheck] = [:]
     private var revisions: [String: Int] = [:]
     private var preparingThread: String?
     private var invalidThreads = Set<String>()
@@ -125,6 +161,7 @@ actor AppServerActivityReader {
     private let maximumPendingBytes: Int
     private let maximumLoadedPages: Int
     private let reconciliationTimeout: TimeInterval
+    private let reconciliationClock: @Sendable () -> ContinuousClock.Instant
 
     init(
         socketURL: URL = AppServerActivityReader.defaultSocketURL,
@@ -135,6 +172,7 @@ actor AppServerActivityReader {
         maximumPendingBytes: Int = 8 * 1024 * 1024,
         maximumLoadedPages: Int = 100,
         reconciliationTimeout: TimeInterval = 30,
+        reconciliationClock: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
         onAccountChange: @escaping @MainActor @Sendable (AccountChange) -> Void = { _ in },
         onBatch: @escaping @MainActor @Sendable (ActivityUpdate) -> Void
     ) {
@@ -147,6 +185,7 @@ actor AppServerActivityReader {
         self.maximumPendingBytes = maximumPendingBytes
         self.maximumLoadedPages = maximumLoadedPages
         self.reconciliationTimeout = reconciliationTimeout
+        self.reconciliationClock = reconciliationClock
         self.onAccountChange = onAccountChange
         self.onBatch = onBatch
     }
@@ -185,6 +224,7 @@ actor AppServerActivityReader {
         session = nil
         subscribed.removeAll()
         await previous?.value
+        ignoredThreads.removeAll()
         pendingAccountChange = nil
         pendingPublication.removeAll()
         deferredNotifications.removeAll()
@@ -192,7 +232,7 @@ actor AppServerActivityReader {
         turnScans.removeAll()
         turnRevisions.removeAll()
         cancelBackfill()
-        checkedThreads.removeAll()
+        threadChecks.removeAll()
         invalidThreads.removeAll()
         if storageTask == nil, !pendingEvents.isEmpty || !pendingSamples.isEmpty {
             startStorageWorker()
@@ -209,10 +249,13 @@ actor AppServerActivityReader {
     }
 
     /// 每次调用执行本次请求之后的查询, 不复用正在进行的旧快照
-    func drainNow() async -> ActivityEventDrainResult {
+    /// 同一轮恢复只补读未核对成功的线程, 新一轮恢复仍执行完整读取屏障
+    func drainForRecovery(generation: UUID) async -> ActivityEventDrainResult {
         guard isRunning, !Task.isCancelled else { return .cancelled }
         guard session != nil else { return .sourceUnavailable }
-        let result = await withCheckedContinuation { drainWaiters.append($0) }
+        let result = await withCheckedContinuation {
+            drainWaiters.append(DrainWaiter(recoveryID: generation, continuation: $0))
+        }
         return Task.isCancelled ? .cancelled : result
     }
 
@@ -226,26 +269,27 @@ actor AppServerActivityReader {
                 if !drainWaiters.isEmpty || Date().timeIntervalSince(reconciledAt) >= 2 {
                     let waiters = drainWaiters
                     drainWaiters.removeAll()
+                    let requestedRecovery = waiters.last?.recoveryID
+                    let forced = requestedRecovery != nil && requestedRecovery != recoveryID
+                    if forced, let requestedRecovery {
+                        recoveryID = requestedRecovery
+                    }
                     do {
-                        let covered = try await reconcile(bootstrap: false, forced: !waiters.isEmpty, generation: current)
+                        try await reconcile(bootstrap: false, forced: forced, recovering: requestedRecovery != nil, generation: current)
                         try await consumeAvailable(generation: current)
                         let result: ActivityEventDrainResult = if !isRunning || generation != current || Task.isCancelled {
                             .cancelled
                         } else if let latestUpdate {
-                            if covered {
-                                .completed(latestUpdate)
-                            } else {
-                                .partial(latestUpdate)
-                            }
+                            .update(latestUpdate)
                         } else {
                             .sourceUnavailable
                         }
                         for waiter in waiters {
-                            waiter.resume(returning: result)
+                            waiter.continuation.resume(returning: result)
                         }
                     } catch {
                         for waiter in waiters {
-                            waiter.resume(returning: .sourceUnavailable)
+                            waiter.continuation.resume(returning: .sourceUnavailable)
                         }
                         throw error
                     }
@@ -266,6 +310,7 @@ actor AppServerActivityReader {
         // 首批通知到达前确认采集租约, 避免连接和存储任务的启动顺序决定是否记账
         try acquireTokenUsageWriter(generation: current)
         isReconciliationComplete = false
+        recoveryID = UUID()
         reducer.reconnect()
         reducer.setTokenUsageRecordingEnabled(isTokenUsageWriter && !isHistoryRecordingPaused)
         try checkGeneration(current)
@@ -280,7 +325,7 @@ actor AppServerActivityReader {
         }
         session = connection
         connectedAt = Date()
-        _ = try await reconcile(bootstrap: true, forced: true, generation: current)
+        try await reconcile(bootstrap: true, forced: true, generation: current)
         try checkGeneration(current)
         await publish(.bootstrapEnd)
     }
@@ -319,7 +364,7 @@ actor AppServerActivityReader {
         let pending = drainWaiters
         drainWaiters.removeAll()
         for waiter in pending {
-            waiter.resume(returning: result)
+            waiter.continuation.resume(returning: result)
         }
     }
 
@@ -328,6 +373,7 @@ actor AppServerActivityReader {
         session?.close()
         session = nil
         subscribed.removeAll()
+        ignoredThreads.removeAll()
         deferredNotifications.removeAll()
         pendingAccountChange = nil
         verifiedTurns.removeAll()
@@ -335,14 +381,14 @@ actor AppServerActivityReader {
         turnRevisions.removeAll()
         cancelBackfill()
         invalidThreads.removeAll()
-        checkedThreads.removeAll()
+        threadChecks.removeAll()
         await publish(.sourceUnavailable)
     }
 
-    private func reconcile(bootstrap: Bool, forced: Bool, generation current: Int) async throws -> Bool {
+    private func reconcile(bootstrap: Bool, forced: Bool, recovering: Bool = false, generation current: Int) async throws {
         let budget = AppServerRequestBudget(deadline: Date().addingTimeInterval(reconciliationTimeout))
-        return try await AppServerRequestBudget.$current.withValue(budget) {
-            try await reconcileWithinBudget(bootstrap: bootstrap, forced: forced, generation: current)
+        try await AppServerRequestBudget.$current.withValue(budget) {
+            try await reconcileWithinBudget(bootstrap: bootstrap, forced: forced, recovering: recovering, generation: current)
         }
     }
 
@@ -362,43 +408,52 @@ actor AppServerActivityReader {
         throw CodexStatusError.invalidServerResponse
     }
 
-    private func reconcileWithinBudget(bootstrap: Bool, forced: Bool, generation current: Int) async throws -> Bool {
+    private func reconcileWithinBudget(bootstrap: Bool, forced: Bool, recovering: Bool, generation current: Int) async throws {
         let loaded = try await loadThreads(generation: current)
+        ignoredThreads.formIntersection(loaded)
         let knownActive = Set(reducer.states.keys.filter {
             reducer.states[$0]?.terminal == nil && reducer.threads[$0.threadID]?.status?.type != .notLoaded
         }.map(\.threadID))
-        let now = Date()
-        let dependencies = Set(reducer.missingRootTurns(liveOnly: forced).keys)
-            .union(reducer.missingSubagentParents(liveOnly: forced)).union(backfillThreads)
-        let required = loaded.union(knownActive).union(reducer.missingRootTurns(liveOnly: true).keys)
+        let now = reconciliationClock()
+        let dependencies = Set(reducer.missingRootTurns(liveOnly: forced || recovering).keys)
+            .union(reducer.missingSubagentParents(liveOnly: forced || recovering)).union(backfillThreads)
+        // 历史关联保留补读资格, 只有实时依赖需要快速核对
+        let liveDependencies = Set(reducer.missingRootTurns(liveOnly: true).keys)
             .union(reducer.missingSubagentParents(liveOnly: true))
-        let candidates = loaded.union(knownActive).union(dependencies).filter { id in
+        let required = loaded.union(knownActive).union(liveDependencies)
+        let candidates = loaded.union(knownActive).union(dependencies).subtracting(ignoredThreads).filter { id in
             let interval: TimeInterval = invalidThreads.contains(id) || knownActive.contains(id)
-                || dependencies.contains(id) || reducer.threads[id]?.status?.type == .active ? 5 : 60
-            return forced || now.timeIntervalSince(checkedThreads[id] ?? .distantPast) >= interval
+                || liveDependencies.contains(id) || reducer.threads[id]?.status?.type == .active ? 5 : 60
+            guard !forced, let check = threadChecks[id] else { return true }
+            if let retryAfter = check.retryAfter {
+                return now >= retryAfter
+            }
+            if recovering, !isThreadVerified(id) {
+                return true
+            }
+            return now - check.checkedAt >= .seconds(interval)
         }.sorted {
             if required.contains($0) != required.contains($1) {
                 return required.contains($0)
             }
-            return (checkedThreads[$0] ?? .distantPast, $0) < (checkedThreads[$1] ?? .distantPast, $1)
+            if (threadChecks[$0] == nil) != (threadChecks[$1] == nil) {
+                return threadChecks[$0] == nil
+            }
+            return (threadChecks[$0]?.checkedAt ?? now, $0) < (threadChecks[$1]?.checkedAt ?? now, $1)
         }
         let deadline = ContinuousClock.now.advanced(by: .seconds(1))
-        var covered = true
         for id in candidates {
             try checkGeneration(current)
-            let verified = try await reconcileThread(id, loaded: loaded, bootstrap: bootstrap, forced: forced, generation: current)
-            if loaded.contains(id) || knownActive.contains(id) {
-                covered = covered && verified
-            }
+            try await reconcileThread(id, loaded: loaded, bootstrap: bootstrap, forced: forced || (recovering && !isThreadVerified(id)), generation: current)
             // 日常核对分轮执行, 强制排空则等待本轮完整覆盖
             if !forced, ContinuousClock.now >= deadline {
                 break
             }
         }
-        reducer.maintain(loadedThreads: loaded, now: Date())
+        reducer.maintain(loadedThreads: loaded.subtracting(ignoredThreads), now: Date())
         subscribed.formIntersection(loaded)
-        let retained = loaded.union(knownActive).union(dependencies)
-        checkedThreads = checkedThreads.filter { retained.contains($0.key) }
+        let retained = loaded.union(knownActive).union(dependencies).subtracting(ignoredThreads)
+        threadChecks = threadChecks.filter { retained.contains($0.key) }
         revisions = revisions.filter { retained.contains($0.key) }
         verifiedTurns = verifiedTurns.filter { reducer.states[$0.key] != nil && retained.contains($0.key.threadID) }
         turnScans = turnScans.filter { retained.contains($0.key) }
@@ -408,16 +463,22 @@ actor AppServerActivityReader {
         invalidThreads.formIntersection(retained)
         reconciledAt = Date()
         try checkGeneration(current)
-        isReconciliationComplete = covered && !reducer.states.values.contains {
-            $0.terminal == nil && ($0.rootThreadID == nil || $0.rootTurnID == nil)
-        }
+        isReconciliationComplete = loaded.union(knownActive).subtracting(ignoredThreads).allSatisfy(isThreadVerified)
+            && !reducer.states.values.contains {
+                $0.terminal == nil && ($0.rootThreadID == nil || $0.rootTurnID == nil)
+            }
         if !bootstrap {
             await publish(.lifecycleChanged)
         }
-        return isReconciliationComplete
     }
 
-    private func reconcileThread(_ id: String, loaded: Set<String>, bootstrap: Bool, forced: Bool, generation current: Int) async throws -> Bool {
+    private func isThreadVerified(_ id: String) -> Bool {
+        guard let check = threadChecks[id] else { return false }
+        return check.verifiedRevision == revisions[id, default: 0] && check.recoveryID == recoveryID
+    }
+
+    private func reconcileThread(_ id: String, loaded: Set<String>, bootstrap: Bool, forced: Bool, generation current: Int) async throws {
+        guard !ignoredThreads.contains(id) else { return }
         let checkpoint = ReadCheckpoint(threadRevision: revisions[id, default: 0], turns: turnRevisions)
         let active = Set(reducer.states.keys.filter { $0.threadID == id && reducer.states[$0]?.terminal == nil }.map(\.turnID))
         var remaining = active.union(reducer.missingRootTurns(liveOnly: forced)[id] ?? [])
@@ -427,12 +488,19 @@ actor AppServerActivityReader {
         }
         defer { preparingThread = nil }
         var covered = false
+        var failed = true
         do {
             let read: ActivityThreadRead = try await request(ActivityRequests.thread(id), generation: current)
             var thread = read.thread
+            if ignoreIfNeeded(thread) {
+                return
+            }
             if loaded.contains(id), newSubscription, thread.status?.type != .notLoaded {
                 let joined: ActivityThreadResume = try await request(ActivityRequests.subscribe(id), generation: current)
                 thread = joined.thread
+                if ignoreIfNeeded(thread) {
+                    return
+                }
                 subscribed.insert(id)
             }
             if newSubscription {
@@ -468,6 +536,7 @@ actor AppServerActivityReader {
                 reducer.invalidateThread(id)
             }
             covered = unchanged && remaining.isDisjoint(with: active) && thread.status?.type != .notLoaded
+            failed = thread.status?.type == .notLoaded || (result.exhausted && !remaining.isDisjoint(with: active))
             try await flushPending(generation: current)
         } catch CodexStatusError.invalidResponsePayload {
             consumeDeferred(for: id)
@@ -483,8 +552,11 @@ actor AppServerActivityReader {
             consumeDeferred(for: id)
             throw error
         }
-        checkedThreads[id] = checkpoint.started
-        return covered
+        try checkGeneration(current)
+        let now = reconciliationClock()
+        var check = threadChecks[id] ?? ThreadCheck(checkedAt: now)
+        check.record(verifiedRevision: covered ? checkpoint.threadRevision : nil, failed: failed, recoveryID: recoveryID, now: now)
+        threadChecks[id] = check
     }
 
     private func readRemainingTurns(
@@ -732,16 +804,53 @@ actor AppServerActivityReader {
             notification = try JSONDecoder().decode(ActivityInput.self, from: data)
         } catch is DecodingError {
             guard let threadID = AppServerActivityProtocol.recoveryThreadID(from: data) else { throw CodexStatusError.invalidServerResponse }
+            guard !ignoredThreads.contains(threadID) else { return }
             invalidateThread(threadID, method: method)
             return
         }
         let id = notification.params.threadId ?? notification.params.thread?.id
+        if let thread = notification.params.thread, ignoreIfNeeded(thread) {
+            return
+        }
+        if let id, ignoredThreads.contains(id) {
+            return
+        }
+        if let id, preparingThread != id {
+            expediteRetry(for: notification, threadID: id)
+        }
         if let id, preparingThread == id || (reducer.threads[id] == nil && notification.params.thread == nil) {
             guard deferredNotifications.count < 4096 else { throw CodexStatusError.invalidServerResponse }
             deferredNotifications.append(notification)
             return
         }
         consume(notification)
+    }
+
+    private func expediteRetry(for notification: ActivityInput, threadID: String) {
+        guard threadChecks[threadID]?.retryAfter != nil else { return }
+        let hasActivity: Bool = switch notification.kind {
+        case .threadDiscovered: notification.params.thread?.status?.type == .active
+        case .threadStatusChanged: notification.params.status?.type == .active
+        case .turnStarted, .turnFinished: notification.params.turn?.id.isEmpty == false
+        case .itemStarted, .itemFinished, .usageUpdated, .replyProgress, .reasoningProgress, .reasoningSummaryProgress, .commandProgress:
+            notification.params.turnId?.isEmpty == false
+        default: false
+        }
+        guard hasActivity else { return }
+        let now = reconciliationClock()
+        // 有效活动可提前触发单线程探测, 重复通知不重置失败预算且重试至少间隔 5 秒
+        threadChecks[threadID]?.expedite(at: now)
+        if let retryAfter = threadChecks[threadID]?.retryAfter, retryAfter <= now {
+            reconciledAt = .distantPast
+        }
+    }
+
+    private func ignoreIfNeeded(_ thread: ActivityThread) -> Bool {
+        guard let source = thread.threadSource, Self.ignoredThreadSources.contains(source) else { return ignoredThreads.contains(thread.id) }
+        ignoredThreads.insert(thread.id)
+        invalidThreads.remove(thread.id)
+        deferredNotifications.removeAll { ($0.params.threadId ?? $0.params.thread?.id) == thread.id }
+        return true
     }
 
     private func consume(_ notification: ActivityInput) {
@@ -758,6 +867,7 @@ actor AppServerActivityReader {
 
     private func recordStateChange(_ notification: ActivityInput) {
         guard let id = notification.params.threadId ?? notification.params.thread?.id else { return }
+        let previousRevision = revisions[id, default: 0]
         switch notification.kind {
         case .threadDiscovered, .threadStatusChanged, .turnStarted, .turnFinished,
              .commandApprovalRequested, .fileApprovalRequested, .permissionsRequested, .inputRequested, .userInputRequested, .requestResolved:
@@ -767,6 +877,9 @@ actor AppServerActivityReader {
                 revisions[id, default: 0] += 1
             }
         default: break
+        }
+        if previousRevision != revisions[id, default: 0] {
+            isReconciliationComplete = false
         }
         if notification.kind == .turnStarted, let turn = notification.params.turn, turn.startedAt.map({ $0 >= connectedAt }) ?? true {
             liveStartedTurns.insert(ActivityTurnReference(threadID: id, turnID: turn.id))
@@ -929,7 +1042,8 @@ actor AppServerActivityReader {
             transitions: transitions,
             terminalEvents: terminalEvents,
             backfilledTasks: backfilledTasks,
-            isComplete: isReconciliationComplete
+            isComplete: isReconciliationComplete,
+            recoveryID: recoveryID
         )
         latestUpdate = update
         await onBatch(update)
@@ -969,6 +1083,7 @@ actor AppServerActivityReader {
     }
 
     private func invalidateThread(_ id: String, method: String) {
+        isReconciliationComplete = false
         let firstFailure = invalidThreads.insert(id).inserted
         verifiedTurns = verifiedTurns.filter { $0.key.threadID != id }
         turnScans[id] = nil

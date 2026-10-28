@@ -18,11 +18,11 @@ final class KeepAliveDurationLimiter: ObservableObject {
 
     private let defaults: UserDefaults
     private var task: Task<Void, Never>?
-    /// 已经收表的累计时长
+    /// 已结束计时段的累计时长
     private var accumulated: TimeInterval = 0
     /// 当前这一段的起点, nil 表示没在累加
     private var runningSince: SuspendingClock.Instant?
-    /// 避免 stop 之后在途回调又把计时器支起来
+    /// 防止在途回调在 stop 后重新启动计时器
     private var isRunning = false
 
     init(defaults: UserDefaults = .standard) {
@@ -49,13 +49,12 @@ final class KeepAliveDurationLimiter: ObservableObject {
         self.duration = duration
         defaults.set(duration.rawValue, forKey: Self.durationKey)
 
-        // 这一轮没累计过就没有可解除的状态, 条件没变也就不必让外面重新求值
+        // 本轮未计时则没有可解除的上限状态, 无需触发外部重新求值
         guard hasAccumulated else {
             return
         }
 
-        // 走 fireReached 而不是直接 markReached: 这一轮可能已经达过上限
-        // 把上限调大但仍然不够时不该再记一条已达上限, 也不该重复通知外面
+        // fireReached 会检查本轮是否已达上限, 避免调大后仍超限时重复记日志和通知外部
         if let limit = duration.timeInterval, elapsed >= limit {
             fireReached()
             return
@@ -66,7 +65,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
         onStateChanged?(.settings)
     }
 
-    /// 防睡眠真正生效后起表; 已经在走就保持这一段不变
+    /// 防睡眠生效后开始计时, 已在计时则保留当前段
     func begin() {
         if runningSince == nil {
             runningSince = .now
@@ -75,8 +74,8 @@ final class KeepAliveDurationLimiter: ObservableObject {
         schedule()
     }
 
-    /// 防睡眠解除时收表, 把这一段并进累计值
-    /// 收表之后的时间一律不算: 机器睡着, 低电量拦着, Power Helper 断开都不该占用户的上限
+    /// 防睡眠解除时停止计时, 将当前段计入累计值
+    /// 系统睡眠, 低电量阻断或 Power Helper 断开期间不累计时长
     func pause() {
         guard let runningSince else {
             return
@@ -88,7 +87,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
     }
 
     /// 有新任务或等待任务恢复运行时重新计时
-    /// isPreventingSleep 由调用方给出: 还没真正挡住睡眠时只清零, 等 begin 起表
+    /// 调用方传入 isPreventingSleep, 尚未生效时只清零, 等 begin 开始计时
     func restart(isPreventingSleep: Bool) {
         cancelTask()
         accumulated = 0
@@ -108,8 +107,8 @@ final class KeepAliveDurationLimiter: ObservableObject {
         clearReached()
     }
 
-    /// @Published 在 willSet 无条件发信号, 而这里的 objectWillChange 被转发进 KeepAliveController
-    /// 同值赋值会让整个高级设置页和活动卡片跟着空转, 所以 hasReached 的清零都走这里
+    /// objectWillChange 会转发给 KeepAliveController, @Published 同值赋值也会刷新高级设置页和活动卡片
+    /// 重置 hasReached 时跳过同值写入
     private func clearReached() {
         guard hasReached else {
             return
@@ -118,7 +117,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
         hasReached = false
     }
 
-    /// 这一轮已经挡住睡眠的总时长, 含当前还没收表的这一段
+    /// 本轮防睡眠总时长, 包括当前计时段
     private var elapsed: TimeInterval {
         guard let runningSince else {
             return accumulated
@@ -127,7 +126,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
         return accumulated + TimeInterval(runningSince.duration(to: .now))
     }
 
-    /// 这一轮有没有真的累计过, 没累计过就没有可解除的上限状态
+    /// 本轮是否累计过时长, 未累计则没有可解除的上限状态
     private var hasAccumulated: Bool {
         runningSince != nil || accumulated > 0
     }
@@ -148,7 +147,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
             return
         }
 
-        // 计时器同样走 SuspendingClock, 否则机器睡一夜醒来会当场判定到期
+        // 计时器也使用 SuspendingClock, 避免将系统睡眠时间计入上限
         let deadline = SuspendingClock.Instant.now.advanced(by: .seconds(remaining))
         task = Task { @MainActor [weak self] in
             try? await Task.sleep(until: deadline, clock: SuspendingClock())

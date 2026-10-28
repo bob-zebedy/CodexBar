@@ -32,7 +32,9 @@ struct ActivityPresentationTests {
         monitor.isActivitySourceHealthy = true
         monitor.turnTransitionNotBefore = startedAt
         monitor.terminalPresentationNotBefore = startedAt
-        monitor.isProtectionRecoveryInProgress = scenario == "recovering"
+        if scenario == "recovering" {
+            monitor.beginProtectionRecovery()
+        }
         var notices = 0
         let subscription = monitor.transitionPublisher.sink { transition in
             if case .completed = transition {
@@ -165,5 +167,46 @@ struct ActivityPresentationTests {
             #expect(updates.last?.terminalEvents.isEmpty == true)
             #expect(glow.state != .hidden)
         }
+    }
+
+    @Test func statusItemTerminalExpiresAtTenSecondsWhileCardKeepsHistory() {
+        let completion = ActivityCompletion(id: UUID(), projectName: nil, modelName: nil, effort: nil, completedAt: TestFixtures.now, duration: 30)
+        let snapshot = ActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])
+        #expect(snapshot.statusItemActivity(at: TestFixtures.now.addingTimeInterval(9.999)) == .completed(completion))
+        #expect(snapshot.statusItemActivity(at: TestFixtures.now.addingTimeInterval(10)) == .idle)
+        #expect(snapshot.primaryActivity == .completed(completion))
+        #expect(snapshot.hasTaskCenterContent)
+        #expect(!snapshot.hasActiveTasks)
+    }
+
+    @Test func waitingTaskTakesPriorityOverRunningTask() {
+        let waiting = task()
+        let running = task()
+        let snapshot = ActivitySnapshot(waitingTasks: [waiting], runningTasks: [running], recentCompletions: [], recentTerminations: [])
+        #expect(snapshot.primaryActivity == .waiting(waiting))
+        #expect(snapshot.activeCount == 2)
+        #expect(snapshot.statusItemActivityExpiration == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func accountFailureKeepsLiveTaskIcon(waiting: Bool) {
+        let task = task()
+        let activity = ActivitySnapshot(
+            waitingTasks: waiting ? [task] : [], runningTasks: waiting ? [] : [task],
+            recentCompletions: [], recentTerminations: []
+        )
+        let state = StatusIconState(usesErrorImage: true, ordinaryUsageAllowed: nil, progress: nil, activity: activity)
+        #expect(state.symbolName(at: TestFixtures.now) == (waiting ? "person.badge.key.fill" : "person.badge.clock.fill"))
+        let idle = StatusIconState(usesErrorImage: true, ordinaryUsageAllowed: nil, progress: nil, activity: .empty)
+        #expect(idle.symbolName(at: TestFixtures.now) == "person.slash.fill")
+    }
+
+    private func task() -> ActivityTaskSnapshot {
+        ActivityTaskSnapshot(
+            id: UUID(),
+            projectName: nil, modelName: nil, effort: nil,
+            startedAt: TestFixtures.now, stateChangedAt: TestFixtures.now,
+            activeSubagentCount: nil
+        )
     }
 }

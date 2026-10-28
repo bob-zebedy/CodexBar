@@ -118,7 +118,7 @@ enum PowerHelperConfiguration {
         requiresSleepReset: Bool,
         fingerprint: String
     ) -> String {
-        // 待完成重置是跨 Power Helper 版本的欠账, 后续更新只能转交给新指纹, 不能清除
+        // 待完成重置必须跨 Power Helper 版本保留, 后续更新只能转交给新指纹
         let hasPendingSleepReset = defaults.string(forKey: pendingUpdateIdentifierKey) != nil
         if requiresSleepReset || hasPendingSleepReset {
             defaults.set(fingerprint, forKey: pendingUpdateIdentifierKey)

@@ -276,7 +276,7 @@ final class CodexStatusViewModel: ObservableObject {
         }
     }
 
-    /// 成功路径把各步结果压进一条, 失败才带上定位到哪一步
+    /// 成功时合并各步结果为一条日志, 失败时附上出错步骤
     private func logRefreshOutcome(
         trigger: LogTrigger,
         trace: CodexFetchTrace,
