@@ -121,6 +121,23 @@ nonisolated struct ActivityItem {
     }
 
     struct CommandAction { let type: String }
+    struct CommandSummary: Equatable {
+        let toolNames: [String]
+        let hasMoreTools: Bool
+
+        static func tool(_ name: String) -> Self {
+            Self(toolNames: [name], hasMoreTools: false)
+        }
+
+        func appending(_ other: Self) -> Self {
+            var names: [String] = []
+            for name in toolNames + other.toolNames where !names.contains(name) {
+                names.append(name)
+            }
+            return Self(toolNames: Array(names.prefix(2)), hasMoreTools: hasMoreTools || other.hasMoreTools || names.count > 2)
+        }
+    }
+
     struct WebAction { var type: String? }
     struct AgentState { var status: String? }
     struct QuestionReply: Equatable {
@@ -138,6 +155,7 @@ nonisolated struct ActivityItem {
     var model: String?
     var reasoningEffort: String?
     var commandActions: [CommandAction]?
+    var commandSummary: CommandSummary?
     var phase: String?
     var action: WebAction?
     var success: Bool?

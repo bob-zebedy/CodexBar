@@ -10,14 +10,32 @@ nonisolated extension ActivityLiveLabel {
             return String(localized: "activity.live.action-failed", defaultValue: "\(detail)")
         case "action-declined":
             return String(localized: "activity.live.action-declined", defaultValue: "\(detail)")
+        case "action-interrupted":
+            return String(localized: "activity.live.action-interrupted", defaultValue: "\(detail)")
         case "tool-completed":
             return String(localized: "activity.live.named-tool-completed", defaultValue: "\(detail)")
         case "tool-failed":
             return String(localized: "activity.live.named-tool-failed", defaultValue: "\(detail)")
         case "tool-declined":
             return String(localized: "activity.live.named-tool-declined", defaultValue: "\(detail)")
+        case "command-completed":
+            return String(localized: "activity.live.named-command-completed", defaultValue: "\(detail)")
+        case "command-failed":
+            return String(localized: "activity.live.named-command-failed", defaultValue: "\(detail)")
+        case "command-declined":
+            return String(localized: "activity.live.named-command-declined", defaultValue: "\(detail)")
         case "calling-tool":
             return String(localized: "activity.live.calling-named-tool", defaultValue: "\(detail)")
+        case "executing-tool":
+            return String(localized: "activity.live.executing-named-tool", defaultValue: "\(detail)")
+        case "executing-tools":
+            return String(localized: "activity.live.executing-tools", defaultValue: "\(detail)")
+        case "tools-completed":
+            return String(localized: "activity.live.tools-completed", defaultValue: "\(detail)")
+        case "tools-declined":
+            return String(localized: "activity.live.tools-declined", defaultValue: "\(detail)")
+        case "tools-failed":
+            return String(localized: "activity.live.tools-failed", defaultValue: "\(detail)")
         case "command":
             return String(localized: "activity.live.command-with-actions", defaultValue: "\(detail)")
         case "model-changed":
@@ -80,6 +98,14 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.calling-tool")
         case "command":
             String(localized: "activity.live.command")
+        case "command-completed", "tools-completed":
+            String(localized: "activity.live.command-completed")
+        case "command-declined", "tools-declined":
+            String(localized: "activity.live.command-declined")
+        case "command-failed", "tools-failed":
+            String(localized: "activity.live.command-failed")
+        case "executing-tool", "executing-tools":
+            String(localized: "activity.live.command")
         case "command-listfiles":
             String(localized: "activity.live.command-listfiles")
         case "command-listfiles-search":
@@ -136,7 +162,7 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.image-declined")
         case "image-failed":
             String(localized: "activity.live.image-failed")
-        case "interrupted":
+        case "interrupted", "action-interrupted":
             String(localized: "activity.live.interrupted")
         case "model-changed":
             String(localized: "activity.live.model-changed")

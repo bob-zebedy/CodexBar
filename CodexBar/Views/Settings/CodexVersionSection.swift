@@ -19,7 +19,6 @@ struct CodexVersionSection: View {
                     .foregroundStyle(.tint)
 
                 Text("settings.codex.version.title")
-                    .font(SettingsRowMetrics.titleFont)
 
                 reconnectButton
 
@@ -67,7 +66,7 @@ struct CodexVersionSection: View {
                     icon.symbolEffect(.wiggle.clockwise.byLayer, options: .repeat(.continuous))
                 }
             }
-            .frame(width: SettingsRowMetrics.optionsButtonSize, height: SettingsRowMetrics.optionsButtonSize)
+            .imageScale(.small)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -82,14 +81,15 @@ struct CodexVersionSection: View {
     }
 
     private var daemonRow: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "cpu")
-                .frame(width: Metrics.iconWidth)
-                .foregroundStyle(.tint)
-            Text("settings.codex.daemon.title")
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 28)
-            VStack(alignment: .trailing, spacing: 3) {
+        VStack(alignment: .trailing, spacing: 3) {
+            HStack(alignment: .top, spacing: Metrics.controlSpacing) {
+                Image(systemName: "cpu")
+                    .frame(width: Metrics.iconWidth)
+                    .foregroundStyle(.tint)
+                Text("settings.codex.daemon.title")
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 28)
+
                 if let info = connectionInfo {
                     HStack(spacing: 12) {
                         Text("settings.codex.daemon.in-use")
@@ -104,48 +104,51 @@ struct CodexVersionSection: View {
                             .foregroundStyle(Color.codexSecondaryLabel)
                             .numericTransition(value: info.version)
                     }
-                    CopyablePathText(path: info.socketPath, isCopied: copiedPathResetTasks["shared"] != nil)
-                        .onTapGesture { copyPathToPasteboard(info.socketPath, key: "shared") }
                 } else {
                     Text("settings.codex.daemon.disconnected")
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(maxWidth: Metrics.versionColumnWidth, alignment: .trailing)
+
+            if let info = connectionInfo {
+                CopyablePathText(path: info.socketPath, isCopied: copiedPathResetTasks["shared"] != nil)
+                    .padding(.leading, Metrics.iconWidth + Metrics.controlSpacing)
+                    .onTapGesture { copyPathToPasteboard(info.socketPath, key: "shared") }
+            }
         }
     }
 
     private func codexVersionRow(icon: String, item: CodexVersionItem) -> some View {
         let hasVersion = item.version != nil
 
-        return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
-                .frame(width: Metrics.iconWidth)
-                .foregroundStyle(.tint)
+        return VStack(alignment: .trailing, spacing: 3) {
+            HStack(alignment: .top, spacing: Metrics.controlSpacing) {
+                Image(systemName: icon)
+                    .frame(width: Metrics.iconWidth)
+                    .foregroundStyle(.tint)
 
-            Text(item.source.displayName)
-                .foregroundStyle(.secondary)
+                Text(item.source.displayName)
+                    .foregroundStyle(.secondary)
 
-            Spacer(minLength: 28)
+                Spacer(minLength: 28)
 
-            VStack(alignment: .trailing, spacing: 3) {
                 Text(item.displayVersion)
                     .font(hasVersion ? SettingsRowMetrics.bodyFont.monospacedDigit() : SettingsRowMetrics.bodyFont)
                     .foregroundStyle(Color(nsColor: hasVersion ? .secondaryLabelColor : .tertiaryLabelColor))
                     .lineLimit(1)
                     .numericTransition(value: item.displayVersion)
-
-                if let path = item.path {
-                    CopyablePathText(path: path, isCopied: copiedPathResetTasks[item.source.rawValue] != nil)
-                        .onTapGesture {
-                            copyPathToPasteboard(path, key: item.source.rawValue)
-                        }
-                        .transition(.opacity)
-                }
             }
-            .frame(maxWidth: Metrics.versionColumnWidth, alignment: .trailing)
-            .animation(Metrics.statusAnimation, value: item.path)
+
+            if let path = item.path {
+                CopyablePathText(path: path, isCopied: copiedPathResetTasks[item.source.rawValue] != nil)
+                    .padding(.leading, Metrics.iconWidth + Metrics.controlSpacing)
+                    .onTapGesture {
+                        copyPathToPasteboard(path, key: item.source.rawValue)
+                    }
+                    .transition(.opacity)
+            }
         }
+        .animation(Metrics.statusAnimation, value: item.path)
     }
 
     private func copyPathToPasteboard(_ path: String, key: String) {
@@ -163,8 +166,8 @@ struct CodexVersionSection: View {
     private enum Metrics {
         static let rowSpacing: CGFloat = 14
         static let iconWidth = SettingsRowMetrics.iconWidth
+        static let controlSpacing: CGFloat = 10
         static let childIndent: CGFloat = 28
-        static let versionColumnWidth: CGFloat = 270
         static let statusAnimation = Animation.codexStatus
     }
 }

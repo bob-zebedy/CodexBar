@@ -119,9 +119,7 @@ actor AppServerActivityReader {
     private var preparingThread: String?
     private var invalidThreads = Set<String>()
     private var storageRetryAfter = Date.distantPast
-    private var storageFailed = false
     private var isHistoryRecordingPaused = false
-    private var tokenUsageRefreshFailed = false
     private var tokenUsageRetryAfter = Date.distantPast
     private let maximumPendingEvents: Int
     private let maximumPendingBytes: Int
@@ -803,7 +801,7 @@ actor AppServerActivityReader {
         while isRunning, generation == current, !Task.isCancelled {
             do {
                 try acquireTokenUsageWriter(generation: current)
-                _ = await retryStorage()
+                await retryStorage()
                 try checkGeneration(current)
                 await refreshTokenUsageHistory(generation: current)
                 try await Task.sleep(for: .milliseconds(100))
@@ -869,17 +867,15 @@ actor AppServerActivityReader {
         do {
             _ = try await refresh.value
             guard generation == current, isRunning, !Task.isCancelled else { return }
-            tokenUsageRefreshFailed = false
             tokenUsageRetryAfter = .distantPast
             lastTokenUsageRefresh = Date()
         } catch is CancellationError {
             return
         } catch {
             guard generation == current, isRunning else { return }
-            if !tokenUsageRefreshFailed {
+            if tokenUsageRetryAfter == .distantPast {
                 logStorage?.recordFailure(method: "activity/storage", message: error.localizedDescription, connection: "activity")
             }
-            tokenUsageRefreshFailed = true
             tokenUsageRetryAfter = Date().addingTimeInterval(1)
         }
     }
@@ -984,28 +980,24 @@ actor AppServerActivityReader {
         }
     }
 
-    private func retryStorage() async -> Bool {
-        guard Date() >= storageRetryAfter else { return false }
+    private func retryStorage() async {
+        guard Date() >= storageRetryAfter else { return }
         do {
             try await persistPending()
-            storageFailed = false
             storageRetryAfter = .distantPast
             if isHistoryRecordingPaused, pendingEvents.isEmpty, pendingSamples.isEmpty, isRunning, !Task.isCancelled {
                 isHistoryRecordingPaused = false
                 reducer.setTokenUsageRecordingEnabled(isTokenUsageWriter)
             }
-            return true
         } catch {
             recordStorageFailure(error)
-            return false
         }
     }
 
     private func recordStorageFailure(_ error: Error) {
-        if !storageFailed {
+        if storageRetryAfter == .distantPast {
             logStorage?.recordFailure(method: "activity/storage", message: error.localizedDescription, connection: "activity")
         }
-        storageFailed = true
         storageRetryAfter = Date().addingTimeInterval(1)
     }
 

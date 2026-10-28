@@ -39,7 +39,6 @@ struct ActivityCard: View {
         guard snapshot.hasTaskCenterContent || showsUnavailableState else { return nil }
         var value = content(at: timelineDate)
         value.showsKeepAliveBadge = showsKeepAliveBadge
-        value.statusTextEffect = statusTextEffect
         return value
     }
 
@@ -152,12 +151,20 @@ struct ActivityCard: View {
                 statusHeader(content)
 
                 if let detail = content.detail {
-                    ActivityStatusText(
-                        text: detail, tint: content.tint, effect: allowsAnimations ? content.statusTextEffect : .none,
-                        lineLimit: nil, supplement: content.detailSupplement
-                    )
+                    HStack(alignment: .firstTextBaseline, spacing: 0) {
+                        if content.showsCurrentEvent {
+                            Text(verbatim: String(localized: "activity.live.current-event") + ": ")
+                                .foregroundStyle(Color.codexSecondaryLabel)
+                                .fixedSize()
+                        }
+                        ActivityStatusText(
+                            text: detail, tint: content.tint, effect: allowsAnimations ? content.statusTextEffect : .none,
+                            lineLimit: nil, supplement: content.detailSupplement
+                        )
+                        .numericTransition(value: [detail, content.detailSupplement])
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
                     .font(MenuMetrics.bodyFont)
-                    .numericTransition(value: [detail, content.detailSupplement])
                     .fixedSize(horizontal: false, vertical: true)
                     .clipped()
                 }
@@ -370,21 +377,14 @@ struct ActivityCard: View {
                 ActivityDisplayFormat.modelMetadata(modelName: task.modelName, effort: task.effort)
             ].compactMap(\.self) + summary.prefix(1),
             recent: ActivityDisplayFormat.recentEvent(for: task),
-            detailSupplement: summary.dropFirst().first
+            detailSupplement: summary.dropFirst().first,
+            showsCurrentEvent: true,
+            statusTextEffect: allowsAnimations ? (waiting ? .ionizing(taskID: task.id) : .shimmer) : .none
         )
     }
 
     private var otherTaskCount: Int {
         max(0, snapshot.activeCount - 1)
-    }
-
-    private var statusTextEffect: ActivityStatusText.Effect {
-        guard allowsAnimations else { return .none }
-        switch snapshot.panelPrimaryActivity {
-        case .running: return .shimmer
-        case let .waiting(task): return .ionizing(taskID: task.id)
-        case .completed, .terminated, .idle: return .none
-        }
     }
 
     private enum Metrics {
@@ -427,6 +427,7 @@ private struct ActivityCardContent: Equatable {
     let header: [String]
     var recent: String?
     var detailSupplement: String?
+    var showsCurrentEvent = false
     var showsKeepAliveBadge = false
     var statusTextEffect = ActivityStatusText.Effect.none
 

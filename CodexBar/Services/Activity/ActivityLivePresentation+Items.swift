@@ -27,7 +27,10 @@ nonisolated extension ActivityItem {
     private var commandLabel: ActivityLiveLabel {
         let types = Set((commandActions ?? []).map(\.type))
         let actions = orderedCommandActions
-        guard !actions.isEmpty else { return ActivityLiveLabel("command") }
+        guard !actions.isEmpty else {
+            guard let commandSummary else { return ActivityLiveLabel("command") }
+            return ActivityLiveLabel(commandSummary.hasMoreTools ? "executing-tools" : "executing-tool", detail: commandToolNames)
+        }
         let key = "command-" + actions.map { $0.lowercased() }.joined(separator: "-")
         if types.isSubset(of: Set(actions)) {
             return ActivityLiveLabel(key)
@@ -41,6 +44,10 @@ nonisolated extension ActivityItem {
 
     private var commandActionDetail: String? {
         ActivityDisplayFormat.commandActionText((commandActions ?? []).map(\.type))
+    }
+
+    private var commandToolNames: String? {
+        commandSummary?.toolNames.joined(separator: ", ")
     }
 
     private var webLabel: String {
@@ -60,6 +67,10 @@ nonisolated extension ActivityItem {
         if type == .contextCompaction {
             return ActivityLiveLabel("compaction-completed")
         }
+        if type == .collabAgentToolCall, status == "interrupted" {
+            // 中断描述本次协作调用, 子 Agent 的状态快照不能覆盖它
+            return ActivityLiveLabel("action-interrupted", detail: String(localized: ActivityDisplayFormat.agentAction(tool: tool).action))
+        }
         if type == .collabAgentToolCall, agentsStates?.values.contains(where: { $0.status == "errored" }) == true {
             return ActivityLiveLabel("agent-failed")
         }
@@ -74,6 +85,10 @@ nonisolated extension ActivityItem {
             outcome = "completed"
         } else {
             return nil
+        }
+        if type == .commandExecution, orderedCommandActions.isEmpty {
+            guard let commandSummary else { return ActivityLiveLabel("command-" + outcome) }
+            return ActivityLiveLabel((commandSummary.hasMoreTools ? "tools-" : "command-") + outcome, detail: commandToolNames)
         }
         let detail = switch type {
         case .commandExecution: commandActionDetail

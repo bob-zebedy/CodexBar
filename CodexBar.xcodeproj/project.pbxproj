@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A91000000000000000000001 /* SwiftTreeSitter in Frameworks */ = {isa = PBXBuildFile; productRef = A91000000000000000000011 /* SwiftTreeSitter */; };
+		A91000000000000000000002 /* TreeSitterBash in Frameworks */ = {isa = PBXBuildFile; productRef = A91000000000000000000012 /* TreeSitterBash */; };
+		A91000000000000000000003 /* SwiftTreeSitter in Frameworks */ = {isa = PBXBuildFile; productRef = A91000000000000000000011 /* SwiftTreeSitter */; };
+		A91000000000000000000004 /* TreeSitterBash in Frameworks */ = {isa = PBXBuildFile; productRef = A91000000000000000000012 /* TreeSitterBash */; };
 		B10000000000000000000005 /* CodexBarPowerHelper in Embed CodexBar Power Helper */ = {isa = PBXBuildFile; fileRef = B10000000000000000000014 /* CodexBarPowerHelper */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		C42A52F12FDACDEC004A2B53 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C42A52F02FDACDEC004A2B53 /* Sparkle */; };
 		D10000000000000000000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = C42A52F02FDACDEC004A2B53 /* Sparkle */; };
@@ -218,12 +222,16 @@
 		C4A0FD922FD9302E000263A7 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				A91000000000000000000001 /* SwiftTreeSitter in Frameworks */,
+				A91000000000000000000002 /* TreeSitterBash in Frameworks */,
 				C42A52F12FDACDEC004A2B53 /* Sparkle in Frameworks */,
 			);
 		};
 		D10000000000000000000005 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				A91000000000000000000003 /* SwiftTreeSitter in Frameworks */,
+				A91000000000000000000004 /* TreeSitterBash in Frameworks */,
 				D10000000000000000000001 /* Sparkle in Frameworks */,
 			);
 		};
@@ -315,6 +323,8 @@
 			);
 			name = CodexBar;
 			packageProductDependencies = (
+				A91000000000000000000011 /* SwiftTreeSitter */,
+				A91000000000000000000012 /* TreeSitterBash */,
 				C42A52F02FDACDEC004A2B53 /* Sparkle */,
 			);
 			productName = CodexBar;
@@ -338,6 +348,8 @@
 			);
 			name = CodexBarTests;
 			packageProductDependencies = (
+				A91000000000000000000011 /* SwiftTreeSitter */,
+				A91000000000000000000012 /* TreeSitterBash */,
 				C42A52F02FDACDEC004A2B53 /* Sparkle */,
 			);
 			productName = CodexBarTests;
@@ -413,6 +425,8 @@
 			mainGroup = C4A0FD8C2FD9302E000263A7;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				A91000000000000000000021 /* XCRemoteSwiftPackageReference "swift-tree-sitter" */,
+				A91000000000000000000022 /* XCRemoteSwiftPackageReference "tree-sitter-bash" */,
 				C42A52EF2FDACDEC004A2B53 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 110;
@@ -882,6 +896,22 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		A91000000000000000000021 /* XCRemoteSwiftPackageReference "swift-tree-sitter" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/tree-sitter/swift-tree-sitter";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.25.0;
+			};
+		};
+		A91000000000000000000022 /* XCRemoteSwiftPackageReference "tree-sitter-bash" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/tree-sitter/tree-sitter-bash";
+			requirement = {
+				kind = upToNextMinorVersion;
+				minimumVersion = 0.25.1;
+			};
+		};
 		C42A52EF2FDACDEC004A2B53 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
@@ -893,6 +923,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A91000000000000000000011 /* SwiftTreeSitter */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A91000000000000000000021 /* XCRemoteSwiftPackageReference "swift-tree-sitter" */;
+			productName = SwiftTreeSitter;
+		};
+		A91000000000000000000012 /* TreeSitterBash */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A91000000000000000000022 /* XCRemoteSwiftPackageReference "tree-sitter-bash" */;
+			productName = TreeSitterBash;
+		};
 		C42A52F02FDACDEC004A2B53 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C42A52EF2FDACDEC004A2B53 /* XCRemoteSwiftPackageReference "Sparkle" */;

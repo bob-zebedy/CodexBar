@@ -4,6 +4,30 @@ import Testing
 struct AppServerActivityTests {
     private let now = TestFixtures.now
 
+    @Test(arguments: ["item/started", "item/completed"], [[], ["synthetic reasoning"]] as [[String]])
+    func reasoningContentPreservesActivity(method: String, content: [String]) throws {
+        var reducer = try prepared()
+        let text = try #require(String(data: JSONEncoder().encode(content), encoding: .utf8))
+        let input = try message(method, params: """
+        {"threadId":"main","turnId":"turn","item":{"id":"reasoning","type":"reasoning","summary":[],"content":\(text)}}
+        """)
+        #expect(input.params.item?.type == .reasoning)
+        #expect(input.params.item?.questionReplies == nil)
+        #expect(reducer.consume(input, now: now).isEmpty)
+        #expect(reducer.states.values.first?.presentation?.summary.current.key == (method == "item/started" ? "thinking" : "processing"))
+    }
+
+    @Test func paginatedReasoningContentDecodes() throws {
+        let page = try TestFixtures.decode(ActivityItemsPage.self, #"""
+        {"data":[{"turnId":"turn","item":{"id":"reasoning","type":"reasoning","summary":[],"content":["synthetic reasoning"]}}]}
+        """#)
+        #expect(page.data.first?.item.type == .reasoning)
+        let turn = try TestFixtures.decode(ActivityTurn.self, #"""
+        {"id":"turn","status":"inProgress","items":[{"id":"reasoning","type":"reasoning","summary":[],"content":["synthetic reasoning"]}]}
+        """#)
+        #expect(turn.items?.first?.type == .reasoning)
+    }
+
     @Test func protocolBoundaryNormalizesStatusAndTimeUnits() throws {
         let input = try TestFixtures.decode(ActivityInput.self, """
         {"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"turn","status":"completed","startedAt":1000,"completedAt":1002,"durationMs":1500}}}
@@ -201,6 +225,23 @@ struct AppServerActivityTests {
         )
         #expect(event.toolName == nil)
         #expect(approval.actionText == String(localized: "activity.action.command"))
+    }
+
+    @Test(arguments: ["item/started", "item/completed"])
+    func parsedCommandSummaryStaysOutOfHistory(_ method: String) throws {
+        var reducer = try prepared()
+        let input = try message(method, params: #"""
+        {"threadId":"main","turnId":"turn","item":{"id":"command","type":"commandExecution",
+        "commandActions":[{"type":"unknown","command":"/private/path/private_tool private_argument"}]}}
+        """#)
+        #expect(input.params.item?.commandSummary == .tool("private_tool"))
+        let event = try #require(reducer.consume(input, now: now).first)
+        #expect(event.toolName == nil)
+        #expect(event.commandActionTypes == ["unknown"])
+        let data = try AppServerEventRecord(activityData: event).jsonLineData()
+        let text = try #require(String(data: data, encoding: .utf8))
+        #expect(!text.contains("private"))
+        #expect(!text.contains("commandSummary"))
     }
 
     @Test(arguments: ["actual_tool", "search/read"])

@@ -339,7 +339,7 @@ struct ActivityLivePresentationTests {
             id: "cmd", type: .commandExecution, status: "failed",
             commandActions: actions.map { .init(type: $0) }
         )
-        #expect(item.liveCompletionLabel?.key == (detailKey == nil ? "tool-failed" : "action-failed"))
+        #expect(item.liveCompletionLabel?.key == (detailKey == nil ? "command-failed" : "action-failed"))
         #expect(item.liveCompletionLabel?.detail == detailKey.map { ActivityLiveLabel($0).text })
     }
 
@@ -360,6 +360,65 @@ struct ActivityLivePresentationTests {
         }
         #expect(recent.label.text == expected)
         #expect(!recent.label.text.contains(" • "))
+    }
+
+    struct CommandPresentationCase {
+        let command: String
+        let started: ActivityLiveLabel
+        let completionPrefix: String
+    }
+
+    @Test(arguments: [
+        CommandPresentationCase(command: "python3 - <<'PY'\nprint('test')\nPY", started: .init("executing-tool", detail: "python3"), completionPrefix: "command-"),
+        CommandPresentationCase(command: "git status; ls", started: .init("executing-tool", detail: "git, ls"), completionPrefix: "command-"),
+        CommandPresentationCase(command: "git status; ls; pwd", started: .init("executing-tools", detail: "git, ls"), completionPrefix: "tools-"),
+        CommandPresentationCase(command: "sed -n 1p a; sed -n 2p a; sed -n 3p a", started: .init("executing-tool", detail: "sed"), completionPrefix: "command-"),
+        CommandPresentationCase(command: "sed -n 1p a; sed -n 2p a; git status", started: .init("executing-tool", detail: "sed, git"), completionPrefix: "command-"),
+        CommandPresentationCase(command: "sed -n 1p a; sed -n 2p a; git status; ls", started: .init("executing-tools", detail: "sed, git"), completionPrefix: "tools-"),
+        CommandPresentationCase(command: "\"$CMD\" status", started: .init("command"), completionPrefix: "command-"),
+        CommandPresentationCase(command: "python3 'unfinished", started: .init("command"), completionPrefix: "command-")
+    ], ["completed", "failed", "declined"])
+    func parsedCommandsKeepStartedProgressAndCompletedConsistent(example: CommandPresentationCase, status: String) throws {
+        var item: [String: Any] = [
+            "id": "cmd", "type": "commandExecution", "commandActions": [["type": "unknown", "command": example.command]]
+        ]
+        func fields() throws -> String {
+            let data = try JSONSerialization.data(withJSONObject: ["item": item])
+            let text = try #require(String(data: data, encoding: .utf8))
+            return String(text.dropFirst().dropLast())
+        }
+        var reducer = try prepared()
+        _ = try reducer.consume(message("item/started", fields()), now: now)
+        #expect(try summary(reducer).current == example.started)
+        _ = try reducer.consume(message("item/commandExecution/outputDelta", #""itemId":"cmd""#), now: now.addingTimeInterval(1))
+        #expect(try summary(reducer).current == example.started)
+        item["status"] = status
+        _ = try reducer.consume(message("item/completed", fields()), now: now.addingTimeInterval(2))
+        #expect(try summary(reducer).recent?.label == ActivityLiveLabel(example.completionPrefix + status, detail: example.started.detail))
+        #expect(try summary(reducer).current.key == "processing")
+    }
+
+    @Test func knownCommandClassificationsTakePrecedenceOverParsing() throws {
+        let item = try TestFixtures.decode(ActivityItem.self, #"""
+        {"id":"cmd","type":"commandExecution","status":"completed","commandActions":[
+        {"type":"read","command":"cat file"},{"type":"unknown","command":"pwd; git status"}]}
+        """#)
+        #expect(item.commandSummary == nil)
+        #expect(item.liveLabel == ActivityLiveLabel("command", detail: ActivityLiveLabel("actions-read").text))
+        #expect(item.liveCompletionLabel == ActivityLiveLabel("action-completed", detail: ActivityLiveLabel("actions-read").text))
+    }
+
+    @Test(arguments: ["git", "git, ls"])
+    func parsedCommandLabelsAreLocalized(names: String) {
+        #expect(ActivityLiveLabel("executing-tool", detail: "python3").text == String(localized: "activity.live.executing-named-tool", defaultValue: "\("python3")"))
+        #expect(ActivityLiveLabel("executing-tool", detail: names).text == String(localized: "activity.live.executing-named-tool", defaultValue: "\(names)"))
+        #expect(ActivityLiveLabel("command-completed", detail: names).text == String(localized: "activity.live.named-command-completed", defaultValue: "\(names)"))
+        #expect(ActivityLiveLabel("command-failed", detail: names).text == String(localized: "activity.live.named-command-failed", defaultValue: "\(names)"))
+        #expect(ActivityLiveLabel("command-declined", detail: names).text == String(localized: "activity.live.named-command-declined", defaultValue: "\(names)"))
+        #expect(ActivityLiveLabel("executing-tools", detail: names).text == String(localized: "activity.live.executing-tools", defaultValue: "\(names)"))
+        #expect(ActivityLiveLabel("tools-completed", detail: names).text == String(localized: "activity.live.tools-completed", defaultValue: "\(names)"))
+        #expect(ActivityLiveLabel("tools-failed", detail: names).text == String(localized: "activity.live.tools-failed", defaultValue: "\(names)"))
+        #expect(ActivityLiveLabel("tools-declined", detail: names).text == String(localized: "activity.live.tools-declined", defaultValue: "\(names)"))
     }
 
     @Test(arguments: ["mcpToolCall", "dynamicToolCall"], [nil, "server"] as [String?])
@@ -397,7 +456,7 @@ struct ActivityLivePresentationTests {
         #expect(label.detail == route)
     }
 
-    @Test(arguments: ["tool-completed", "tool-failed", "tool-declined", "calling-tool", "command", "model-changed"])
+    @Test(arguments: ["tool-completed", "tool-failed", "tool-declined", "command-completed", "command-failed", "command-declined", "calling-tool", "command", "model-changed"])
     func missingDetailsKeepStandaloneLabels(key: String) {
         #expect(ActivityLiveLabel(key).text == ActivityLiveLabel(key).localizedText)
         #expect(ActivityLiveLabel(key, detail: "").text == ActivityLiveLabel(key).localizedText)
@@ -426,7 +485,7 @@ struct ActivityLivePresentationTests {
         #expect(ActivityDisplayFormat.toolActionText(itemType: item.type.rawValue, toolName: operation.tool) == item.liveCompletionLabel?.detail)
     }
 
-    @Test(arguments: ["completed", "failed", "declined"])
+    @Test(arguments: ["completed", "failed", "declined", "interrupted"])
     func subagentCompletionPreservesOutcome(status: String) {
         let item = ActivityItem(
             id: "agent", type: .collabAgentToolCall, status: status, tool: "spawnAgent",
@@ -434,6 +493,24 @@ struct ActivityLivePresentationTests {
         )
         #expect(item.liveCompletionLabel?.key == "action-" + status)
         #expect(item.liveCompletionLabel?.detail == String(localized: "activity.action.start-subagent"))
+    }
+
+    @Test(arguments: ["spawnAgent", "wait", "sendInput", "future"], ["running", "errored"])
+    func interruptedCollabUpdatesRecentEvent(tool: String, childStatus: String) throws {
+        var reducer = try prepared()
+        for (method, status) in [("item/started", "inProgress"), ("item/completed", "interrupted")] {
+            _ = try reducer.consume(message(method, """
+            "item":{"id":"collab","type":"collabAgentToolCall","tool":"\(tool)","status":"\(status)",
+            "agentsStates":{"child":{"status":"\(childStatus)"}}}
+            """), now: now)
+        }
+        let presentation = try summary(reducer)
+        let detail = String(localized: ActivityDisplayFormat.agentAction(tool: tool).action)
+        #expect(presentation.current.key == "processing")
+        #expect(presentation.toolCount == 0)
+        #expect(presentation.recent?.label == ActivityLiveLabel("action-interrupted", detail: detail))
+        #expect(presentation.recent?.label.text == String(localized: "activity.live.action-interrupted", defaultValue: "\(detail)"))
+        #expect(ActivityItem(id: "child", type: .subAgentActivity, kind: "interrupted").liveCompletionLabel?.key == "agent-interrupted")
     }
 
     @Test(arguments: [

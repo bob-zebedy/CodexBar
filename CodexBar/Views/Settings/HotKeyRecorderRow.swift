@@ -32,11 +32,8 @@ struct HotKeyRecorderRow: View {
                 .disabled(!canStartRecording)
                 .background {
                     HotKeyCaptureView(
-                        isRecording: $isRecording,
+                        isRecording: isRecording,
                         onCapture: captureShortcut,
-                        onCancel: {
-                            stopRecording()
-                        },
                         onWindowClose: {
                             resetTransientState()
                         }
@@ -151,27 +148,28 @@ struct HotKeyRecorderRow: View {
 
 /// SwiftUI 到 AppKit first responder 的桥接层
 private struct HotKeyCaptureView: NSViewRepresentable {
-    @Binding var isRecording: Bool
+    let isRecording: Bool
     let onCapture: (NSEvent) -> Void
-    let onCancel: () -> Void
     let onWindowClose: () -> Void
 
     func makeNSView(context _: Context) -> HotKeyCaptureNSView {
         let view = HotKeyCaptureNSView()
         view.onCapture = onCapture
-        view.onCancel = onCancel
         view.onWindowClose = onWindowClose
         return view
     }
 
     func updateNSView(_ nsView: HotKeyCaptureNSView, context _: Context) {
+        nsView.isRecording = isRecording
         nsView.onCapture = onCapture
-        nsView.onCancel = onCancel
         nsView.onWindowClose = onWindowClose
 
         if isRecording {
             Task { @MainActor [weak nsView] in
-                nsView?.window?.makeFirstResponder(nsView)
+                guard let nsView, nsView.isRecording else {
+                    return
+                }
+                nsView.window?.makeFirstResponder(nsView)
             }
         } else if nsView.window?.firstResponder === nsView {
             nsView.window?.makeFirstResponder(nil)
@@ -181,12 +179,17 @@ private struct HotKeyCaptureView: NSViewRepresentable {
 
 /// 捕获下一次按键并监听窗口关闭, 关闭时清理录制态
 private final class HotKeyCaptureNSView: NSView {
+    var isRecording = false
     var onCapture: ((NSEvent) -> Void)?
-    var onCancel: (() -> Void)?
     var onWindowClose: (() -> Void)?
 
     override var acceptsFirstResponder: Bool {
-        true
+        isRecording
+    }
+
+    /// 隐藏控件只由录制操作获取焦点, 不参与 Tab 导航
+    override var canBecomeKeyView: Bool {
+        false
     }
 
     override func viewDidMoveToWindow() {
@@ -195,11 +198,12 @@ private final class HotKeyCaptureNSView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == UInt16(kVK_Escape) {
-            onCancel?()
-        } else {
-            onCapture?(event)
+        guard isRecording else {
+            super.keyDown(with: event)
+            return
         }
+
+        onCapture?(event)
     }
 
     private func updateWindowCloseObserver() {

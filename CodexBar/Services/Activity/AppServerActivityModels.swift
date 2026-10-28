@@ -116,8 +116,23 @@ private nonisolated struct WireActivityTurn: Decodable {
 }
 
 private nonisolated struct WireActivityItem: Decodable {
+    private enum CodingKeys: String, CodingKey {
+        case id, type, status, tool, server, agentThreadId, kind, model, reasoningEffort
+        case commandActions, phase, action, success, agentsStates, delivery, questions, content
+    }
+
+    private enum CommandActionCodingKeys: String, CodingKey { case type, command }
+
     struct CommandAction: Decodable {
         let type: String
+        var command: String?
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CommandActionCodingKeys.self)
+            type = try container.decode(String.self, forKey: .type)
+            // 展示字段异常不能影响已有的活动分类和生命周期
+            command = try? container.decodeIfPresent(String.self, forKey: .command)
+        }
     }
 
     let id: String
@@ -137,6 +152,28 @@ private nonisolated struct WireActivityItem: Decodable {
     var delivery: String?
     var questions: [Question]?
     var content: [Content]?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        type = try container.decode(String.self, forKey: .type)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        tool = try container.decodeIfPresent(String.self, forKey: .tool)
+        server = try container.decodeIfPresent(String.self, forKey: .server)
+        agentThreadId = try container.decodeIfPresent(String.self, forKey: .agentThreadId)
+        kind = try container.decodeIfPresent(String.self, forKey: .kind)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        reasoningEffort = try container.decodeIfPresent(String.self, forKey: .reasoningEffort)
+        commandActions = try container.decodeIfPresent([CommandAction].self, forKey: .commandActions)
+        phase = try container.decodeIfPresent(String.self, forKey: .phase)
+        action = try container.decodeIfPresent(WebAction.self, forKey: .action)
+        success = try container.decodeIfPresent(Bool.self, forKey: .success)
+        agentsStates = try container.decodeIfPresent([String: AgentState].self, forKey: .agentsStates)
+        delivery = try container.decodeIfPresent(String.self, forKey: .delivery)
+        questions = try container.decodeIfPresent([Question].self, forKey: .questions)
+        // 同名 content 字段随事件类型改变结构, 这里只读取用户消息中的问题回复
+        content = type == "userMessage" ? try container.decodeIfPresent([Content].self, forKey: .content) : nil
+    }
 
     struct WebAction: Decodable { var type: String? }
     struct AgentState: Decodable { var status: String? }
@@ -367,6 +404,7 @@ private nonisolated extension WireActivityItem {
             model: model,
             reasoningEffort: reasoningEffort,
             commandActions: commandActions?.map { .init(type: $0.type) },
+            commandSummary: commandSummary,
             phase: phase,
             action: action.map { .init(type: $0.type) },
             success: success,
@@ -374,6 +412,13 @@ private nonisolated extension WireActivityItem {
             asyncQuestionCount: type == "agentMessage" && delivery == "async" ? questions?.count ?? 0 : 0,
             questionReplies: questionReplies
         )
+    }
+
+    private var commandSummary: ActivityItem.CommandSummary? {
+        guard type == "commandExecution", let commandActions, !commandActions.isEmpty,
+              !commandActions.contains(where: { ["read", "listFiles", "search"].contains($0.type) }),
+              commandActions.allSatisfy({ $0.command != nil }) else { return nil }
+        return ActivityCommandParser.summarize(commandActions.compactMap(\.command))
     }
 
     private var questionReplies: [ActivityItem.QuestionReply]? {

@@ -465,6 +465,22 @@
         }
       }
     },
+    "activity.live.action-interrupted" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ interrupted"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 已中断"
+          }
+        }
+      }
+    },
     "activity.live.actions-listfiles" : {
       "localizations" : {
         "en" : {
@@ -881,6 +897,54 @@
         }
       }
     },
+    "activity.live.command-completed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command completed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "命令执行完成"
+          }
+        }
+      }
+    },
+    "activity.live.command-declined" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command execution denied"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "命令被拒绝执行"
+          }
+        }
+      }
+    },
+    "activity.live.command-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Command failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "命令执行失败"
+          }
+        }
+      }
+    },
     "activity.live.command-listfiles" : {
       "localizations" : {
         "en" : {
@@ -1073,6 +1137,23 @@
         }
       }
     },
+    "activity.live.current-event" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current event"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "当前事件"
+          }
+        }
+      }
+    },
     "activity.live.diff-updated" : {
       "localizations" : {
         "en" : {
@@ -1133,6 +1214,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已等待"
+          }
+        }
+      }
+    },
+    "activity.live.executing-named-tool" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在执行 %@"
+          }
+        }
+      }
+    },
+    "activity.live.executing-tools" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Running %@ and other commands"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在执行 %@ 等多个命令"
           }
         }
       }
@@ -1389,6 +1502,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "模型已切换 %@"
+          }
+        }
+      }
+    },
+    "activity.live.named-command-completed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ command execution completed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 命令执行完成"
+          }
+        }
+      }
+    },
+    "activity.live.named-command-declined" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Execution of %@ denied"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 命令被拒绝执行"
+          }
+        }
+      }
+    },
+    "activity.live.named-command-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ command execution failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 命令执行失败"
           }
         }
       }
@@ -1805,6 +1966,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "工具执行失败"
+          }
+        }
+      }
+    },
+    "activity.live.tools-completed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ and other commands completed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 等多个命令执行完成"
+          }
+        }
+      }
+    },
+    "activity.live.tools-declined" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Execution of %@ and other commands denied"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 等多个命令被拒绝执行"
+          }
+        }
+      }
+    },
+    "activity.live.tools-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ and other commands failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 等多个命令执行失败"
           }
         }
       }
