@@ -195,6 +195,8 @@ struct QuotaLimitsSection: View {
             HStack(spacing: 8) {
                 Text(limit.title)
                     .font(MenuMetrics.titleFont)
+                    // 主额度标题预留标签的上下空间, 标签显隐时不改变标题栏高度
+                    .padding(.vertical, showsPrimaryMetadata ? Metrics.metadataVerticalPadding : 0)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -271,8 +273,12 @@ struct QuotaLimitsSection: View {
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.vertical, Metrics.metadataVerticalPadding)
             .liquidGlassCapsule(tint: tint)
+    }
+
+    private enum Metrics {
+        static let metadataVerticalPadding: CGFloat = 2
     }
 }
 

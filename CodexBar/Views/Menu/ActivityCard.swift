@@ -117,22 +117,19 @@ struct ActivityCard: View {
     }
 
     private func cardContent(_ content: ActivityCardContent) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 8) {
             statusRow(content)
-                // 换行只向下增加高度, 避免居中留白改变首行和图标的位置
-                .frame(minHeight: content.detail == nil ? nil : Metrics.height, alignment: .top)
                 // 切换任务时重新建立文本状态, 不让前一个任务的数字过渡穿过新布局
                 .id(content.taskID)
                 .transition(.identity)
             if let tokenUsage = content.tokenUsage {
-                VStack(spacing: 8) {
-                    LiquidGlassDivider()
-                    tokenUsageMetrics(tokenUsage)
-                }
-                .frame(height: Metrics.usageHeight - Metrics.height, alignment: .top)
+                LiquidGlassDivider()
+                tokenUsageMetrics(tokenUsage)
             }
         }
         .padding(.horizontal, MenuMetrics.panelPadding)
+        // 外侧留白跟随自然内容, 区域伸缩时保持顶部锚定, 不重新分配空白
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
         .fixedSize(horizontal: false, vertical: true)
         // 内容只上报自然高度, 显示和尺寸变化都由区域容器统一驱动
@@ -179,8 +176,6 @@ struct ActivityCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.top, 12)
-        .padding(.bottom, content.detail == nil ? 8 : 12)
     }
 
     private func statusHeader(_ content: ActivityCardContent) -> some View {
@@ -194,6 +189,8 @@ struct ActivityCard: View {
                 wrappedLayout: wrappedHeaderLayout(for: content.taskID)
             )
             .font(MenuMetrics.titleFont)
+            // 标题与数量徽标预留相同的上下空间, 显隐徽标时保持首行基线稳定
+            .padding(.vertical, Metrics.headerVerticalPadding)
             .foregroundStyle(Color.codexLabel)
             .numericTransition(value: content.header)
             .fixedSize(horizontal: false, vertical: true)
@@ -235,7 +232,7 @@ struct ActivityCard: View {
                     .foregroundStyle(Color.codexSecondaryLabel)
                     .numericTransition(value: content.otherTaskCount, comparison: Double(content.otherTaskCount))
                     .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
+                    .padding(.vertical, Metrics.headerVerticalPadding)
                     .background(.secondary.opacity(0.12), in: Capsule())
                     .transition(.opacity)
                     .help(String(localized: "activity.summary.other-task-count", defaultValue: "\(content.otherTaskCount, specifier: "%lld")"))
@@ -260,24 +257,26 @@ struct ActivityCard: View {
     }
 
     private func tokenUsageMetrics(_ tokenUsage: TokenUsage) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            tokenMetric("usage.token-usage.total", tokens: tokenUsage.totalTokens)
-            tokenMetric("usage.token-usage.output", tokens: tokenUsage.outputTokens)
-            tokenMetric("usage.token-usage.input", tokens: tokenUsage.inputTokens)
-            tokenMetric("usage.token-usage.reasoning-output", tokens: tokenUsage.reasoningOutputTokens)
-            tokenMetric("usage.token-usage.cache-write-input", tokens: tokenUsage.cacheWriteInputTokens)
-            tokenMetric("usage.token-usage.cached-input", tokens: tokenUsage.cachedInputTokens)
-            VStack(spacing: 3) {
-                Text("usage.token-usage.cache-hit-rate")
-                    .font(MenuMetrics.bodyFont)
-                    .foregroundStyle(Color.codexSecondaryLabel)
-                    .minimumScaleFactor(0.65)
-                Text(tokenUsage.cacheHitRate.map { $0.formatted(.percent.precision(.fractionLength(0 ... 1))) } ?? "—")
-                    .font(MenuMetrics.valueFont)
-                    .foregroundStyle(Color.codexLabel)
-                    .numericTransition(value: tokenUsage.cacheHitRate, comparison: tokenUsage.cacheHitRate ?? 0)
+        ActivityTokenRowLayout {
+            HStack(alignment: .top, spacing: 0) {
+                tokenMetric("usage.token-usage.total", tokens: tokenUsage.totalTokens)
+                tokenMetric("usage.token-usage.output", tokens: tokenUsage.outputTokens)
+                tokenMetric("usage.token-usage.input", tokens: tokenUsage.inputTokens)
+                tokenMetric("usage.token-usage.reasoning-output", tokens: tokenUsage.reasoningOutputTokens)
+                tokenMetric("usage.token-usage.cache-write-input", tokens: tokenUsage.cacheWriteInputTokens)
+                tokenMetric("usage.token-usage.cached-input", tokens: tokenUsage.cachedInputTokens)
+                VStack(spacing: 3) {
+                    Text("usage.token-usage.cache-hit-rate")
+                        .font(MenuMetrics.bodyFont)
+                        .foregroundStyle(Color.codexSecondaryLabel)
+                        .minimumScaleFactor(0.65)
+                    Text(tokenUsage.cacheHitRate.map { $0.formatted(.percent.precision(.fractionLength(0 ... 1))) } ?? "—")
+                        .font(MenuMetrics.valueFont)
+                        .foregroundStyle(Color.codexLabel)
+                        .numericTransition(value: tokenUsage.cacheHitRate, comparison: tokenUsage.cacheHitRate ?? 0)
+                }
+                .frame(minWidth: 0, maxWidth: .infinity)
             }
-            .frame(minWidth: 0, maxWidth: .infinity)
         }
         .lineLimit(1)
         .animation(allowsAnimations ? .codexStatus : nil, value: tokenUsage)
@@ -388,10 +387,9 @@ struct ActivityCard: View {
     }
 
     private enum Metrics {
-        // 单行排版为时间文案增长预留宽度
+        static let headerVerticalPadding: CGFloat = 3
+        /// 单行排版为时间文案增长预留宽度
         static let headerWidthReserve: CGFloat = 32
-        static let height: CGFloat = 58
-        static let usageHeight: CGFloat = 108
     }
 }
 
@@ -409,6 +407,23 @@ private struct RotatingKeepAliveSun: View {
 }
 
 // MARK: - 辅助视图与展示模型
+
+/// 使用父容器给定的宽度, 防止等分列的浮点累加误差改变卡片的像素对齐
+private struct ActivityTokenRowLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        let size = content.sizeThatFits(ProposedViewSize(width: width, height: nil))
+        return CGSize(width: width ?? size.width, height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
+        subviews.first?.place(
+            at: bounds.origin, anchor: .topLeading,
+            proposal: ProposedViewSize(width: bounds.width, height: nil)
+        )
+    }
+}
 
 /// 悬停和选中效果由卡片绘制, 按钮样式保留原有颜色和透明度
 private struct ActivityCardButtonStyle: ButtonStyle {
