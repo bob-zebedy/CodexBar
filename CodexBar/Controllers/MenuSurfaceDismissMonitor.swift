@@ -275,7 +275,7 @@ final class MenuSurfaceDismissMonitor {
             return
         }
 
-        // 只有真正点到菜单和状态按钮之外才关闭
+        // 点击位置在菜单和状态按钮之外时才关闭
         dismiss()
     }
 

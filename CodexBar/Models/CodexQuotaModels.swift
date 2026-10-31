@@ -92,7 +92,7 @@ nonisolated enum QuotaWindowKind: String, Equatable {
     case secondary
 }
 
-/// primary/secondary 窗口的 UI 友好表示, 统一计算剩余额度百分比
+/// 供 UI 使用的 primary/secondary 窗口模型, 统一计算剩余额度百分比
 nonisolated struct QuotaWindow: Equatable, Identifiable {
     let kind: QuotaWindowKind
     let windowDurationMins: Int?

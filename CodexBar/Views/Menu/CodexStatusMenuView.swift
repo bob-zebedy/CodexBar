@@ -43,9 +43,10 @@ struct CodexStatusMenuView: View {
     @ObservedObject var menuSurfaceVisibility: MenuSurfaceVisibilityState
     @ObservedObject var animationState: MenuSurfaceAnimationState
     let activityCenterPresentationState: ActivityCenterPresentationState
+    let activityCardPresentationState: ActivityCardPresentationState
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
     let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
-    let onActivityCenterTap: (ActivityCenterPanelContext) -> Void
+    let onActivityCenterTap: (ActivityCenterPanelAnchor) -> Void
     @EnvironmentObject private var appUpdater: AppUpdater
     @State private var activitySectionVisibility: Bool?
 
@@ -158,16 +159,10 @@ private extension CodexStatusMenuView {
     var activitySection: some View {
         ActivityCard(
             activityMonitor: activityMonitor,
-            presentationState: activityCenterPresentationState,
+            centerPresentation: activityCenterPresentationState,
+            cardPresentation: activityCardPresentationState,
             keepAliveController: keepAliveController,
-            onTaskCenterTap: { anchorProvider in
-                onActivityCenterTap(
-                    ActivityCenterPanelContext(
-                        anchorProvider: anchorProvider,
-                        preferredSide: .right
-                    )
-                )
-            }
+            onTaskCenterTap: onActivityCenterTap
         )
     }
 

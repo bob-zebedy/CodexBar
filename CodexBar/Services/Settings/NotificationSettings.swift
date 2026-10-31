@@ -346,7 +346,7 @@ final class NotificationSettings: ObservableObject {
         return value
     }
 
-    /// 存量值可能指向已移除或不再支持的声音, 这时回落默认音
+    /// 已保存的选项可能指向已移除或不再支持的声音, 此时回退到默认音
     private static func sound(from defaults: UserDefaults, key: String) -> NotificationSoundOption {
         guard let id = defaults.string(forKey: key),
               let sound = NotificationSoundOption.option(forID: id) else {

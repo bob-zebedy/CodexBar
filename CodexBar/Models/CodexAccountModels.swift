@@ -26,7 +26,7 @@ nonisolated struct CodexAccount: Decodable, Equatable {
     }
 }
 
-/// account/read 允许 account 为空, 由上层转换为`未登录`状态
+/// account/read 允许 account 为空, 上层将其转换为 `未登录` 状态
 nonisolated struct AccountReadResponse: Decodable {
     let account: CodexAccount?
 

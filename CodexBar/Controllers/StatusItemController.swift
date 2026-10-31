@@ -26,6 +26,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let popoverAnimationState = MenuSurfaceAnimationState()
     private let fallbackPanelAnimationState = MenuSurfaceAnimationState()
     private let activityCenterPresentationState = ActivityCenterPresentationState()
+    private lazy var activityCardPresentationState = ActivityCardPresentationState(activityMonitor: activityMonitor)
     private lazy var heatmapDetailPanelController = HeatmapPanelController(mainPanelSettings: mainPanelSettings)
     private lazy var resetCreditsPanelController = ResetCreditsPanelController(mainPanelSettings: mainPanelSettings)
     private lazy var activityCenterPanelController = ActivityPanelController(
@@ -254,14 +255,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             menuSurfaceVisibility: menuSurfaceVisibility,
             animationState: animationState,
             activityCenterPresentationState: activityCenterPresentationState,
+            activityCardPresentationState: activityCardPresentationState,
             onUsageHeatmapHoverChange: { [weak self] context in
                 self?.updateHeatmapDetailPanel(context)
             },
             onResetCreditsTap: { [weak self] context in
                 self?.toggleResetCreditsPanel(context)
             },
-            onActivityCenterTap: { [weak self] context in
-                self?.toggleActivityCenterPanel(context)
+            onActivityCenterTap: { [weak self] anchor in
+                self?.toggleActivityCenterPanel(anchor)
             }
         )
         .environmentObject(appUpdater)
@@ -269,6 +271,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         .fixedSize(horizontal: false, vertical: true)
 
         let rootView = MenuPanelLayout { menuContent }
+            .coordinateSpace(name: ActivityCenterPanelAnchor.coordinateSpace)
             .onGeometryChange(for: CGFloat.self) { geometry in
                 geometry.size.height
             } action: { [weak self] height in
@@ -302,21 +305,22 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .map(\.hasTaskCenterContent)
             .removeDuplicates()
 
-        let isTaskCenterVisible = mainPanelSettings.$layout
+        let isActivitySectionEnabled = mainPanelSettings.$layout
             .map { $0.isVisible(.activity) }
             .removeDuplicates()
 
         Publishers.CombineLatest3(
             menuSurfaceVisibility.$isVisible,
             hasTaskCenterContent,
-            isTaskCenterVisible
+            isActivitySectionEnabled
         )
-        .map { isMenuVisible, hasActivity, isTaskCenterVisible in
-            isMenuVisible && hasActivity && isTaskCenterVisible
+        .map { isMenuVisible, hasActivity, isActivitySectionEnabled in
+            isMenuVisible && hasActivity && isActivitySectionEnabled
         }
         .removeDuplicates()
         .sink { [weak self] isActive in
             self?.activityCenterPresentationState.setTimelineActive(isActive)
+            self?.activityCardPresentationState.setVisible(isActive)
         }
         .store(in: &cancellables)
 
@@ -486,7 +490,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    /// toggle 将走"打开"分支的状态谓词, 与 toggleMenuSurface 的分支口径一致
+    /// 判断 toggle 是否会打开面板, 条件与 toggleMenuSurface 一致
     private var menuSurfaceWillOpenOnToggle: Bool {
         menuSurfaceState == .hidden || menuSurfaceState == .closing
     }
@@ -826,7 +830,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func refreshHistory(performMaintenance: Bool) {
         if performMaintenance {
             syncSettings.refreshAvailabilityIfNeeded()
-            // 统计维护挂在额度刷新完成事件上, 触发来源继承那一次刷新
+            // 额度刷新完成后触发统计维护, 沿用本次刷新的触发来源
             syncScheduler.requestMaintenance(
                 allowsSync: true,
                 trigger: viewModel.lastRefreshTrigger
@@ -878,7 +882,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
     }
 
-    private func toggleActivityCenterPanel(_ context: ActivityCenterPanelContext) {
+    private func toggleActivityCenterPanel(_ anchor: ActivityCenterPanelAnchor) {
         guard isActiveMenuSurfaceVisible,
               let menuSurfaceContentView = activeMenuSurfaceContentView,
               let menuSurfaceWindow = activeMenuSurfaceWindow else {
@@ -888,7 +892,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         hideSideDetailPanels(except: activityCenterPanelController)
         activityCenterPanelController.toggle(
-            context: context,
+            anchor: anchor,
             relativeTo: menuSurfaceWindow,
             contentView: menuSurfaceContentView
         )

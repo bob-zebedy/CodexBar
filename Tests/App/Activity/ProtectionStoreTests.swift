@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+@Suite(.tags(.integration))
 struct ProtectionStoreTests {
     @Test func expiredRecordsArePrunedAtExactDeadline() async throws {
         let directory = try TestDirectory()

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+@Suite(.tags(.integration))
 struct AppServerEventStorageTests {
     private let now = TestFixtures.now
 

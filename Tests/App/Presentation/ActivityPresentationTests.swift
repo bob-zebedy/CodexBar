@@ -104,7 +104,7 @@ struct ActivityPresentationTests {
             id: UUID(),
             projectName: hasProject ? "CodexBar" : nil, modelName: nil, effort: nil,
             startedAt: TestFixtures.now, stateChangedAt: TestFixtures.now,
-            activeSubagentCount: nil, approvalActionText: approval.actionText
+            activeSubagentCount: nil, approvalActionText: approval.actionText, threadID: "waiting-thread"
         )
         let expected = String(localized: operation.action)
         let notice = NotificationContent.taskWaiting(project: task.projectName, actionText: task.approvalActionText)
@@ -170,7 +170,10 @@ struct ActivityPresentationTests {
     }
 
     @Test func statusItemTerminalExpiresAtTenSecondsWhileCardKeepsHistory() {
-        let completion = ActivityCompletion(id: UUID(), projectName: nil, modelName: nil, effort: nil, completedAt: TestFixtures.now, duration: 30)
+        let completion = ActivityCompletion(
+            id: UUID(), projectName: nil, modelName: nil, effort: nil,
+            completedAt: TestFixtures.now, duration: 30, threadID: "completed-thread"
+        )
         let snapshot = ActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])
         #expect(snapshot.statusItemActivity(at: TestFixtures.now.addingTimeInterval(9.999)) == .completed(completion))
         #expect(snapshot.statusItemActivity(at: TestFixtures.now.addingTimeInterval(10)) == .idle)
@@ -180,8 +183,8 @@ struct ActivityPresentationTests {
     }
 
     @Test func waitingTaskTakesPriorityOverRunningTask() {
-        let waiting = task()
-        let running = task()
+        let waiting = task(thread: "waiting-thread")
+        let running = task(thread: "running-thread")
         let snapshot = ActivitySnapshot(waitingTasks: [waiting], runningTasks: [running], recentCompletions: [], recentTerminations: [])
         #expect(snapshot.primaryActivity == .waiting(waiting))
         #expect(snapshot.activeCount == 2)
@@ -190,7 +193,7 @@ struct ActivityPresentationTests {
 
     @Test(arguments: [false, true])
     func accountFailureKeepsLiveTaskIcon(waiting: Bool) {
-        let task = task()
+        let task = task(thread: "thread-a")
         let activity = ActivitySnapshot(
             waitingTasks: waiting ? [task] : [], runningTasks: waiting ? [] : [task],
             recentCompletions: [], recentTerminations: []
@@ -201,12 +204,12 @@ struct ActivityPresentationTests {
         #expect(idle.symbolName(at: TestFixtures.now) == "person.slash.fill")
     }
 
-    private func task() -> ActivityTaskSnapshot {
+    private func task(thread: String) -> ActivityTaskSnapshot {
         ActivityTaskSnapshot(
             id: UUID(),
             projectName: nil, modelName: nil, effort: nil,
             startedAt: TestFixtures.now, stateChangedAt: TestFixtures.now,
-            activeSubagentCount: nil
+            activeSubagentCount: nil, threadID: thread
         )
     }
 }

@@ -2,6 +2,7 @@ import Foundation
 import Synchronization
 import Testing
 
+@Suite(.tags(.integration))
 struct ActivitySchedulingTests {
     @Test func slowQueryDoesNotBlockPushOrOverwriteNewerApproval() async throws {
         let directory = try TestDirectory()
@@ -137,6 +138,7 @@ struct ActivitySchedulingTests {
             socketURL: server.url, logStorage: nil,
             tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url),
             activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url),
+            discoveryInterval: 0,
             reconciliationClock: { clock.withLock { $0 } },
             onBatch: { update in
                 if update.phase == .bootstrapEnd {

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+@Suite(.tags(.integration))
 struct ActivityReaderBoundsTests {
     @Test(arguments: [["repeat", "repeat"], ["a", "b", "a"], ["a", "b", "c"]])
     func invalidPaginationCannotCompleteBootstrap(cursors: [String]) async throws {

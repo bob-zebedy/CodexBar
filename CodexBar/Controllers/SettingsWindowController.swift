@@ -29,7 +29,7 @@ final class SettingsWindowController: HostingWindowController {
     private var optionsDismissEventMonitor: Any?
     private var optionsDismissFocusObserver: AnyCancellable?
     private var optionsDismissedByClick: (panel: SettingsOptionsPanel, event: NSEvent)?
-    /// 首次构造窗口时 SwiftUI 可能先于 window 赋值上报高度 因此必须保留最近一次测量
+    /// 首次构造窗口时, SwiftUI 可能在 window 赋值前上报高度, 因此必须保留最近一次测量结果
     private var preferredContentHeight: CGFloat?
 
     init(
@@ -146,7 +146,7 @@ final class SettingsWindowController: HostingWindowController {
         static let minimumContentSize = NSSize(width: 420, height: 240)
         static let initialContentSize = NSSize(width: AppSettingsView.preferredContentWidth, height: 270)
         static let maximumFallbackContentSize = NSSize(width: 560, height: 720)
-        /// 只用于首次定位的稳定顶边基准 不限制页面自适应高度
+        /// 顶边基准只用于首次定位, 不限制页面自适应高度
         static let topEdgeReferenceContentHeight: CGFloat = 500
         static let screenInset: CGFloat = 80
     }
@@ -345,7 +345,6 @@ final class SettingsWindowController: HostingWindowController {
     }
 
     /// 子面板共用设置窗口右侧的位置, 展开前用 immediate 收起其他面板, 避免出入场动画交叠
-    /// 所有子面板共用此互斥规则
     private func handleOptionsAction(_ action: SettingsOptionsPanelAction) {
         switch action {
         case let .toggle(panel, anchorProvider):

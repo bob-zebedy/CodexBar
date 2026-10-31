@@ -2,6 +2,7 @@ import Foundation
 import SQLite3
 import Testing
 
+@Suite(.tags(.integration))
 struct StorageRetentionTests {
     @Test func cacheCleanupRunsDailyAndRetriesOnlyFailedStore() async throws {
         let directory = try TestDirectory()

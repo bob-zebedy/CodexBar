@@ -1,6 +1,6 @@
 import Foundation
 
-/// JSON-RPC 交互日志: 带 id 的请求先记录为进行
+/// JSON-RPC 交互日志: 带 id 的请求先记录为进行中
 /// 响应或错误到达后回填到同一条
 /// 无需配对的消息单独记录, request 和 detail 分别保留发送与接收内容
 nonisolated struct AppServerLogEntry: Identifiable, Equatable, Codable, Sendable {

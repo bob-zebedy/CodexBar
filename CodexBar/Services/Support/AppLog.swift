@@ -8,7 +8,7 @@ nonisolated enum AppLog {
     /// App 生命周期, Sparkle 更新, 额度刷新结果与重置次数查询
     static let app = Logger(subsystem: subsystem, category: "app")
     static let keepAlive = Logger(subsystem: subsystem, category: "keepalive")
-    /// 本地 活动事件聚合与维护
+    /// 本地活动事件聚合与维护
     static let history = Logger(subsystem: subsystem, category: "history")
     /// CloudKit 同步
     static let sync = Logger(subsystem: subsystem, category: "sync")

@@ -2,6 +2,7 @@ import CloudKit
 import Foundation
 import Testing
 
+@Suite(.tags(.integration))
 struct HistoryServiceTests {
     @Test func sameSourceRecalculationCanReduceCountsWithoutDeletingRecord() async throws {
         let fixture = try await HistoryRebuildFixture()

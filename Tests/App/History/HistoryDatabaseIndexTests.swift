@@ -2,6 +2,7 @@ import Foundation
 import SQLite3
 import Testing
 
+@Suite(.tags(.integration))
 struct HistoryDatabaseIndexTests {
     @Test(arguments: [false, true])
     func existingDatabaseUpdatesIndexesWithoutChangingHistory(newIndexExists: Bool) throws {

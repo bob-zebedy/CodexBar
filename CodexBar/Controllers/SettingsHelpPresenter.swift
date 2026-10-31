@@ -51,7 +51,7 @@ final class SettingsHelpPresenter {
         hostingView.frame = contentFrame
         hostingView.autoresizingMask = [.width, .height]
 
-        // 普通容器拥有窗口尺寸, SwiftUI 只绘制已测量的固定区域, 不反向更新窗口约束
+        // 普通容器控制窗口尺寸, SwiftUI 只绘制已测量的固定区域, 不反向更新窗口约束
         let container = NSView(frame: contentFrame)
         container.addSubview(hostingView)
         panel.contentView = container

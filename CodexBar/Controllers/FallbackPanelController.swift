@@ -1,11 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// 全局快捷键无法信任 status item 锚点时使用的无箭头菜单面板
+/// 全局快捷键无法通过 status item 锚点可靠定位时使用的无箭头菜单面板
 @MainActor
 final class FallbackPanelController {
     private let makeContentController: () -> NSHostingController<AnyView>
     private var panel: KeyableBorderlessPanel?
+    private var resizeTask: Task<Void, Never>?
 
     init(makeContentController: @escaping () -> NSHostingController<AnyView>) {
         self.makeContentController = makeContentController
@@ -24,6 +25,7 @@ final class FallbackPanelController {
     }
 
     func prepareForDisplay(on screen: NSScreen?) {
+        cancelPendingResize()
         let panel = makePanelIfNeeded()
         let contentSize = contentSize(for: panel)
         panel.setFrame(frame(for: contentSize, on: screen), display: false)
@@ -38,19 +40,32 @@ final class FallbackPanelController {
     }
 
     func orderOut() {
+        cancelPendingResize()
         panel?.orderOut(nil)
         AppearanceTransition.dismissSnapshots(in: panel)
     }
 
     func resizeIfVisible(contentHeight: CGFloat) {
         guard let panel, panel.isVisible,
-              contentHeight.isFinite, contentHeight > 0,
-              panel.frame.height != contentHeight else { return }
-        var frame = panel.frame
-        frame.origin.y = frame.maxY - contentHeight
-        frame.size.height = contentHeight
-        // 高度已由 SwiftUI 逐帧插值, 再启动窗口动画会让宿主滞后于内容
-        panel.setFrame(frame, display: true)
+              contentHeight.isFinite, contentHeight > 0 else { return }
+        cancelPendingResize()
+        guard panel.frame.height != contentHeight else { return }
+        resizeTask = Task { @MainActor [weak self] in
+            // 几何回调可能仍在 NSHostingView.layout 中, 等本轮布局退出后再调整窗口
+            await Task.yield()
+            guard let self, !Task.isCancelled, let panel = self.panel, panel.isVisible else { return }
+            resizeTask = nil
+            var frame = panel.frame
+            frame.origin.y = frame.maxY - contentHeight
+            frame.size.height = contentHeight
+            // 高度由 SwiftUI 逐帧插值, 窗口直接跟随, 避免叠加动画
+            panel.setFrame(frame, display: true)
+        }
+    }
+
+    private func cancelPendingResize() {
+        resizeTask?.cancel()
+        resizeTask = nil
     }
 
     private func makePanelIfNeeded() -> KeyableBorderlessPanel {

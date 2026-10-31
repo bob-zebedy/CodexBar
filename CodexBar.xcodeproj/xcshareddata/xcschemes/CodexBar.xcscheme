@@ -6,6 +6,24 @@
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES"
       buildArchitectures = "Automatic">
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Increment Build Number"
+               scriptText = '/usr/bin/perl "${PROJECT_DIR}/Scripts/build-number.pl" "${PROJECT_DIR}/Config/BuildNumber.xcconfig"'>
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "C4A0FD942FD9302E000263A7"
+                     BuildableName = "CodexBar.app"
+                     BlueprintName = "CodexBar"
+                     ReferencedContainer = "container:CodexBar.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "NO"
@@ -24,14 +42,20 @@
       </BuildActionEntries>
    </BuildAction>
    <TestAction
-      buildConfiguration = "Debug"
+      buildConfiguration = "DebugTest"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES">
       <TestPlans>
          <TestPlanReference
-            reference = "container:Config/Standard.xctestplan"
+            reference = "container:Config/Unit.xctestplan"
             default = "YES">
+         </TestPlanReference>
+         <TestPlanReference
+            reference = "container:Config/Integration.xctestplan">
+         </TestPlanReference>
+         <TestPlanReference
+            reference = "container:Config/Standard.xctestplan">
          </TestPlanReference>
          <TestPlanReference
             reference = "container:Config/Sanitizers.xctestplan">

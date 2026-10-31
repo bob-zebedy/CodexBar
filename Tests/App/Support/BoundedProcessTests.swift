@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import Testing
 
+@Suite(.tags(.integration))
 struct BoundedProcessTests {
     @Test nonisolated func preservesArgumentsEnvironmentAndMergedOutput() {
         let result = BoundedProcess.run(

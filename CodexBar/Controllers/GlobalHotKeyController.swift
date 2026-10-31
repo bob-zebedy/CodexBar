@@ -44,7 +44,7 @@ final class GlobalHotKeyController {
         )
 
         guard status == noErr else {
-            // 注册失败最常见的原因是快捷键被其他 App 占用, 此时按键不会触发操作
+            // 新快捷键注册失败时清理本次 handler, 保留已有注册
             let details = LogFields.joined(
                 "stage=register",
                 "code=\(status)"

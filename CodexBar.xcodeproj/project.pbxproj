@@ -66,8 +66,11 @@
 /* Begin PBXFileReference section */
 		A82000000000000000000001 /* Standard.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Standard.xctestplan; sourceTree = "<group>"; };
 		A82000000000000000000002 /* Sanitizers.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Sanitizers.xctestplan; sourceTree = "<group>"; };
+		A82000000000000000000003 /* Unit.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Unit.xctestplan; sourceTree = "<group>"; };
+		A82000000000000000000004 /* Integration.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Integration.xctestplan; sourceTree = "<group>"; };
 		B10000000000000000000014 /* CodexBarPowerHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = CodexBarPowerHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		C449FB5030203E0000ED2123 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
+		C449FB5030203E0000ED2124 /* BuildNumber.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = BuildNumber.xcconfig; sourceTree = "<group>"; };
 		C4A0FD952FD9302E000263A7 /* CodexBar Debug.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "CodexBar Debug.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		D10000000000000000000002 /* CodexBarTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E10000000000000000000002 /* CodexBarPowerHelperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexBarPowerHelperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -252,6 +255,9 @@
 			isa = PBXGroup;
 			children = (
 				C449FB5030203E0000ED2123 /* Version.xcconfig */,
+				C449FB5030203E0000ED2124 /* BuildNumber.xcconfig */,
+				A82000000000000000000003 /* Unit.xctestplan */,
+				A82000000000000000000004 /* Integration.xctestplan */,
 				A82000000000000000000001 /* Standard.xctestplan */,
 				A82000000000000000000002 /* Sanitizers.xctestplan */,
 			);
@@ -503,6 +509,180 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A82900000000000000000001 /* DebugTest configuration for PBXNativeTarget "CodexBarPowerHelper" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.helper.power.debug;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+			};
+			name = DebugTest;
+		};
+		A82900000000000000000002 /* DebugTest configuration for PBXProject "CodexBar" */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = C449FB5030203E0000ED2123 /* Version.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODEXBAR_AUTO_INCREMENT_BUILD_NUMBER = NO;
+				CODEXBAR_POWER_HELPER_MANAGER_WRAPPER_NAME = "CodexBar Power Helper Debug.app";
+				COMPILATION_CACHE_ENABLE_CACHING = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 4KJ362VJW5;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = DebugTest;
+		};
+		A82900000000000000000003 /* DebugTest configuration for PBXNativeTarget "CodexBar" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = CodexBar/Resources/CodexBar.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = NO;
+				EXCLUDED_SOURCE_FILE_NAMES = CodexBarPowerHelper.plist;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = CodexBar/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "CodexBar Debug";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.debug;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				WRAPPER_NAME = "CodexBar Debug.app";
+			};
+			name = DebugTest;
+		};
+		A82900000000000000000004 /* DebugTest configuration for PBXNativeTarget "CodexBarTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../Frameworks",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+			};
+			name = DebugTest;
+		};
+		A82900000000000000000005 /* DebugTest configuration for PBXNativeTarget "CodexBarPowerHelperTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.helper.power.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+			};
+			name = DebugTest;
+		};
+		A82900000000000000000006 /* DebugTest configuration for PBXNativeTarget "CodexBarPowerHelperManager" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				EXCLUDED_SOURCE_FILE_NAMES = CodexBarPowerHelper.plist;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "CodexBar Power Helper Debug";
+				INFOPLIST_KEY_LSUIElement = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = app.zabrian.codexbar.helper.power.manager.debug;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				WRAPPER_NAME = "$(CODEXBAR_POWER_HELPER_MANAGER_WRAPPER_NAME)";
+			};
+			name = DebugTest;
+		};
 		B10000000000000000000033 /* Debug configuration for PBXNativeTarget "CodexBarPowerHelper" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -849,6 +1029,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				B10000000000000000000033 /* Debug configuration for PBXNativeTarget "CodexBarPowerHelper" */,
+				A82900000000000000000001 /* DebugTest configuration for PBXNativeTarget "CodexBarPowerHelper" */,
 				B10000000000000000000034 /* Release configuration for PBXNativeTarget "CodexBarPowerHelper" */,
 			);
 			defaultConfigurationName = Release;
@@ -857,6 +1038,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C4A0FD9E2FD9302E000263A7 /* Debug configuration for PBXProject "CodexBar" */,
+				A82900000000000000000002 /* DebugTest configuration for PBXProject "CodexBar" */,
 				C4A0FD9F2FD9302E000263A7 /* Release configuration for PBXProject "CodexBar" */,
 			);
 			defaultConfigurationName = Release;
@@ -865,6 +1047,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C4A0FDA12FD9302E000263A7 /* Debug configuration for PBXNativeTarget "CodexBar" */,
+				A82900000000000000000003 /* DebugTest configuration for PBXNativeTarget "CodexBar" */,
 				C4A0FDA22FD9302E000263A7 /* Release configuration for PBXNativeTarget "CodexBar" */,
 			);
 			defaultConfigurationName = Release;
@@ -873,6 +1056,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				D10000000000000000000012 /* Debug configuration for PBXNativeTarget "CodexBarTests" */,
+				A82900000000000000000004 /* DebugTest configuration for PBXNativeTarget "CodexBarTests" */,
 				D10000000000000000000013 /* Release configuration for PBXNativeTarget "CodexBarTests" */,
 			);
 			defaultConfigurationName = Release;
@@ -881,6 +1065,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				E10000000000000000000012 /* Debug configuration for PBXNativeTarget "CodexBarPowerHelperTests" */,
+				A82900000000000000000005 /* DebugTest configuration for PBXNativeTarget "CodexBarPowerHelperTests" */,
 				E10000000000000000000013 /* Release configuration for PBXNativeTarget "CodexBarPowerHelperTests" */,
 			);
 			defaultConfigurationName = Release;
@@ -889,6 +1074,7 @@
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F10000000000000000000012 /* Debug configuration for PBXNativeTarget "CodexBarPowerHelperManager" */,
+				A82900000000000000000006 /* DebugTest configuration for PBXNativeTarget "CodexBarPowerHelperManager" */,
 				F10000000000000000000013 /* Release configuration for PBXNativeTarget "CodexBarPowerHelperManager" */,
 			);
 			defaultConfigurationName = Release;

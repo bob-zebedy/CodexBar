@@ -2,6 +2,7 @@ import Foundation
 import Synchronization
 import Testing
 
+@Suite(.tags(.integration))
 struct ActivityThreadFilteringTests {
     @Test(arguments: [false, true])
     func titleThreadsDoNotBlockRecoveryOrProduceActivity(discoveredByNotification: Bool) async throws {

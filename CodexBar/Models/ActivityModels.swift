@@ -1,11 +1,13 @@
 import Foundation
 
-/// 活动状态, 任务历史和子 Agent 关联共用的保留窗口
 nonisolated enum ActivityRetention {
+    /// 活动状态, 任务历史和子 Agent 关联共用的保留窗口
     static let window: TimeInterval = 24 * 60 * 60
+    /// 已结束任务在快照和界面中的展示保留窗口
+    static let terminalDisplayWindow: TimeInterval = 10 * 60
 }
 
-/// 正在运行或等待回应的任务摘要, 不对 UI 暴露原始会话 ID
+/// 正在运行或等待回应的任务摘要
 nonisolated struct ActivityTaskSnapshot: Equatable, Identifiable {
     let id: UUID
     let projectName: String?
@@ -18,6 +20,7 @@ nonisolated struct ActivityTaskSnapshot: Equatable, Identifiable {
     var tokenUsage: TokenUsage?
     var approvalActionText: String?
     var presentation: ActivityLiveSummary?
+    let threadID: String
 }
 
 /// 最近确认结束的任务; 完成只表示一轮任务结束, 不代表执行成功
@@ -31,6 +34,7 @@ nonisolated struct ActivityCompletion: Equatable, Identifiable {
     let completedAt: Date
     let duration: TimeInterval?
     var tokenUsage: TokenUsage?
+    let threadID: String
 }
 
 /// 本轮确认的终态和快照一起发布, 历史恢复只发布快照
@@ -69,6 +73,7 @@ nonisolated struct ActivityTermination: Equatable, Identifiable {
     let duration: TimeInterval?
     var tokenUsage: TokenUsage?
     var isFailure = false
+    let threadID: String
 }
 
 /// 实时越过静默阈值时交给通知服务的最小信息, 不包含原始 thread 或 turn ID
@@ -79,7 +84,7 @@ nonisolated struct ProtectionNotice: Equatable, Sendable {
     let inactivityDurationText: String
 }
 
-/// UI 只消费该快照, 不直接读取或解释 活动事件
+/// UI 只读取该快照, 不直接读取或解释活动事件
 nonisolated struct ActivitySnapshot: Equatable {
     /// 仅包含审批等待, 其他交互等待由 panelWaitingTasks 合并展示
     let waitingTasks: [ActivityTaskSnapshot]
@@ -112,16 +117,6 @@ nonisolated struct ActivitySnapshot: Equatable {
     var keepAliveTaskIDs: (running: Set<UUID>, waiting: Set<UUID>) {
         let waiting = blockingWaitingTaskIDs
         return (Set(runningTasks.map(\.id)).subtracting(waiting), waiting)
-    }
-
-    var panelPrimaryActivity: CodexPrimaryActivity {
-        if let task = panelWaitingTasks.first {
-            return .waiting(task)
-        }
-        if let task = panelRunningTasks.first {
-            return .running(task)
-        }
-        return primaryActivity
     }
 
     var primaryWaitingTask: ActivityTaskSnapshot? {

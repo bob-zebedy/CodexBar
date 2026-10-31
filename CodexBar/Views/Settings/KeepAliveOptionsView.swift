@@ -149,7 +149,7 @@ struct KeepAliveOptionsView: View {
 
     private enum Metrics {
         static let panelWidth: CGFloat = 280
-        /// 有内置电池的设备时行数, 无内置电池设备少一行低电量保护
+        /// 有内置电池设备的行数, 无内置电池时少一行低电量保护
         static let maximumRowCount = 5
         static let horizontalPadding = SettingsOptionsPanelMetrics.horizontalPadding
         static let verticalPadding = SettingsOptionsPanelMetrics.verticalPadding

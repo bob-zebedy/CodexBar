@@ -1,5 +1,5 @@
 nonisolated enum SyncCancellation {
-    /// Task 的取消标记不会随开关重新启用而复活
+    /// 重新开启同步不会清除 Task 已有的取消标记
     static func check(isEnabled: () -> Bool) throws {
         try Task.checkCancellation()
         guard isEnabled() else { throw CancellationError() }

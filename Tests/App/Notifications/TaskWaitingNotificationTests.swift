@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import UserNotifications
 
+@Suite(.tags(.integration))
 struct TaskWaitingNotificationTests {
     @Test(arguments: [false, true])
     func monitorTransitionDeliversAndSnapshotWithdrawsNotification(blockingInput: Bool) async throws {

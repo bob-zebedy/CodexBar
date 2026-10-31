@@ -215,7 +215,7 @@ final class KeepAliveController: ObservableObject {
     }
 
     /// App 退出时先等 root 侧取消唤醒计划并把已取得的睡眠所有权恢复为 0
-    /// 如果本轮没有对应所有权, 两条清理请求都会收敛成无操作成功
+    /// 本轮没有对应所有权时, 两条清理请求均返回成功, 不执行实际清理
     func prepareForTermination() async -> Bool {
         guard isStarted else {
             return true
@@ -237,7 +237,7 @@ final class KeepAliveController: ObservableObject {
             return true
         }
 
-        // 退出被取消时恢复正常状态, 不能让一次失败把运行中的任务永久放开
+        // 退出被取消时恢复正常状态, 避免因退出失败而停止为运行中的任务防睡眠
         autoResetWakeScheduler.resumeAfterTerminationCancellation()
         isPreparingForTermination = false
         reconcileSleepState(trigger: .termination, force: true)
@@ -287,12 +287,11 @@ final class KeepAliveController: ObservableObject {
 
     func setMaximumDuration(_ duration: MaximumDuration) {
         durationLimiter.setDuration(duration)
-        // limiter 只在这一轮累计过时才回调, 所以派生值不能等 reconcileSleepState 来带
+        // limiter 只在本轮累计过时长时回调, 因此必须在这里更新派生值, 不能等待 reconcileSleepState
         publishNotificationDependencies()
     }
 
-    /// 仅决定等待任务是否计入防睡眠, 不新增 sleepBlockReason
-    /// 关闭时, 只有等待任务与没有任务均返回 noTasks
+    /// 开关关闭时, 等待任务不计入活动任务数, 沿用 noTasks 判定
     func setKeepsAwakeWhileWaiting(_ enabled: Bool) {
         guard enabled != keepsAwakeWhileWaiting else {
             return
@@ -1127,7 +1126,7 @@ final class KeepAliveController: ObservableObject {
         )
     }
 
-    /// 断连和超时统一先复核授权, retrying 为 nil 时只收敛状态, 不重试租约
+    /// 断连和超时后先断开连接并复核授权, retrying 为 nil 时只更新状态, 不重试租约
     private func handlePowerHelperFailure(_ message: String?, retrying requested: Bool?) {
         invalidateConnection()
         guard powerHelperFailureTask == nil else { return }

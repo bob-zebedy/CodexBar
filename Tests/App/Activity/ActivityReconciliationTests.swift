@@ -3,6 +3,7 @@ import Synchronization
 import Testing
 
 @MainActor
+@Suite(.tags(.integration))
 struct ActivityReconciliationTests {
     @Test(arguments: [false, true])
     func bootstrapCannotFinishARecoveryStartedAfterItsBarrier(restarted: Bool) throws {

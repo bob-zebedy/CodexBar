@@ -216,7 +216,7 @@ final nonisolated class HistoryDatabase {
     func tokenUsageSnapshot(threadID: String) throws -> TokenUsageThreadSnapshot {
         let result = try tokenUsageSnapshot(threadSnapshots[threadID]?.snapshot ?? TokenUsageThreadSnapshot(threadID: threadID))
         threadSnapshots[threadID] = CachedThreadSnapshot(snapshot: result, accessedAt: Date())
-        if threadSnapshots.count > 128, let oldest = threadSnapshots.min(by: { $0.value.accessedAt < $1.value.accessedAt })?.key {
+        if threadSnapshots.count > 256, let oldest = threadSnapshots.min(by: { $0.value.accessedAt < $1.value.accessedAt })?.key {
             threadSnapshots[oldest] = nil
         }
         return result
@@ -428,7 +428,7 @@ final nonisolated class HistoryDatabase {
 
     func prune(now: Date) throws -> Int {
         let cutoff = HistoryStorage.dateKey(for: HistoryStorage.retentionCutoffDate(today: now))
-        return try transaction {
+        let removed = try transaction {
             try execute("DELETE FROM days WHERE date < ?", [.text(cutoff)])
             let removed = Int(sqlite3_changes(connection))
             for aggregate in try activityDataAggregates() {
@@ -438,6 +438,9 @@ final nonisolated class HistoryDatabase {
             }
             return removed
         }
+        // 其他进程也可能已清理旧记录, 每轮保留期维护后都从剩余数据重建缓存
+        threadSnapshots.removeAll()
+        return removed
     }
 
     func execute(_ sql: String, _ values: [Value] = []) throws {

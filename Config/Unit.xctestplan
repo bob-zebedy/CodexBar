@@ -1,0 +1,52 @@
+{
+  "configurations" : [
+    {
+      "id" : "413EC0D7-5F78-4C9D-954C-3FCDCAADDE6D",
+      "name" : "Unit",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : true,
+    "language" : "zh-Hans",
+    "mainThreadCheckerDetectionPolicy" : {
+      "severity" : "warning"
+    },
+    "region" : "CN",
+    "testTimeoutsEnabled" : true,
+    "threadPerformanceCheckerRuntimeIssueDetection" : {
+      "severity" : "warning"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "skippedTags" : {
+        "tags" : [
+          "integration"
+        ]
+      },
+      "target" : {
+        "containerPath" : "container:CodexBar.xcodeproj",
+        "identifier" : "D10000000000000000000010",
+        "name" : "CodexBarTests"
+      }
+    },
+    {
+      "parallelizable" : false,
+      "skippedTags" : {
+        "tags" : [
+          "integration"
+        ]
+      },
+      "target" : {
+        "containerPath" : "container:CodexBar.xcodeproj",
+        "identifier" : "E10000000000000000000010",
+        "name" : "CodexBarPowerHelperTests"
+      }
+    }
+  ],
+  "version" : 1
+}

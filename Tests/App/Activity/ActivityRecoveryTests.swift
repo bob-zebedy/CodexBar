@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+@Suite(.tags(.integration))
 struct ActivityRecoveryTests {
     @Test(arguments: ["item/started", "item/completed"])
     func reasoningContentDoesNotInvalidateLivePresentation(method: String) async throws {

@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import Testing
 
+@Suite(.tags(.integration))
 struct JSONFileStorageTests {
     @Test nonisolated func nonblockingLockRejectsAnotherOwnerAndCanBeReacquired() throws {
         let directory = try TestDirectory()

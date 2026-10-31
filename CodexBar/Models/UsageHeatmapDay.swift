@@ -14,7 +14,7 @@ nonisolated enum UsageHeatmapTokenState: Equatable {
     }
 }
 
-/// 热力图单元格模型, 合并 app-server token 数据和本地 活动统计
+/// 热力图单元格模型, 合并 app-server token 数据和本地活动统计
 nonisolated struct UsageHeatmapDay: Equatable, Identifiable {
     let startDate: String
     let tokenState: UsageHeatmapTokenState

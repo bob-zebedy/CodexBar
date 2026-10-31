@@ -4,15 +4,33 @@ import SwiftUI
 /// 活动和防睡眠状态由卡片自行观察, 避免刷新整个菜单树
 struct ActivityCard: View {
     @ObservedObject var activityMonitor: ActivityMonitor
-    @ObservedObject var presentationState: ActivityCenterPresentationState
+    @ObservedObject var centerPresentation: ActivityCenterPresentationState
+    @ObservedObject var cardPresentation: ActivityCardPresentationState
     @ObservedObject var keepAliveController: KeepAliveController
-    let onTaskCenterTap: (ScreenFrameProvider) -> Void
+    let onTaskCenterTap: (ActivityCenterPanelAnchor) -> Void
     @Environment(\.contentAnimationsEnabled) private var allowsAnimations
-    @State private var frameProvider = ScreenFrameProvider()
+    @State private var frameProvider = ActivityCenterPanelAnchor()
     @State private var isHovered = false
-    @State private var wrappedHeaderTaskIDs: Set<UUID> = []
+    @State private var wrappedHeaderKeys: Set<HeaderWrappingKey> = []
     @State private var retainedContent: ActivityCardContent?
     @State private var outgoingContent: ActivityCardContent?
+    @State private var cardSize = CGSize.zero
+    @State private var swipe = ActivityCardSwipe()
+    @State private var swipeContent: ActivityCardSwipeContent?
+    @State private var gestureOwner = UUID()
+    @State private var incomingOffset: CGFloat = 0
+    @State private var outgoingOffset: CGFloat = 0
+    @State private var incomingOpacity = 1.0
+    @State private var outgoingOpacity = 1.0
+    @State private var animationGeneration = 0
+
+    private var selection: ActivityCardSelection {
+        cardPresentation.selection
+    }
+
+    private var cardWidth: CGFloat {
+        cardSize.width
+    }
 
     private var snapshot: ActivitySnapshot {
         activityMonitor.snapshot
@@ -23,11 +41,11 @@ struct ActivityCard: View {
     }
 
     private var timelineDate: Date {
-        presentationState.timelineDate
+        centerPresentation.timelineDate
     }
 
     private var isTaskCenterPresented: Bool {
-        presentationState.isPresented
+        centerPresentation.isPresented
     }
 
     /// 活动源不可用时隐藏防睡眠徽标, 保持状态一致
@@ -36,9 +54,17 @@ struct ActivityCard: View {
     }
 
     private var currentContent: ActivityCardContent? {
-        guard snapshot.hasTaskCenterContent || showsUnavailableState else { return nil }
-        var value = content(at: timelineDate)
+        guard selection.current != nil || showsUnavailableState else { return nil }
+        return displayContent(for: showsUnavailableState ? .idle : (selection.current ?? .idle))
+    }
+
+    private func displayContent(for activity: CodexPrimaryActivity) -> ActivityCardContent {
+        var value = content(for: activity, at: timelineDate)
+        value.selectionID = activity.cardSelectionID
         value.showsKeepAliveBadge = showsKeepAliveBadge
+        value.positionText = selection.positionText(for: value.selectionID)
+        value.hasPin = selection.pinnedID != nil && selection.current != nil
+        value.isPinned = selection.pinnedID != nil && selection.pinnedID == value.selectionID
         return value
     }
 
@@ -49,7 +75,7 @@ struct ActivityCard: View {
         Button {
             onTaskCenterTap(frameProvider)
         } label: {
-            if let content = currentContent ?? retainedContent {
+            if let content = retainedContent ?? currentContent {
                 card(content)
             }
         }
@@ -57,46 +83,212 @@ struct ActivityCard: View {
         .disabled(!snapshot.hasTaskCenterContent)
         .contentShape(Rectangle())
         .background {
-            ScreenFrameReader(provider: frameProvider)
-        }
-        .onHover { isHovered = $0 }
-        .onChange(of: currentContent, initial: true) { _, content in
-            // 退场期间保留最后一份展示内容, 不把正在收回的任务替换成空状态
-            if let content {
-                if allowsAnimations, let previous = retainedContent, content.requiresCrossfade(from: previous) {
-                    outgoingContent = previous
+            ActivityCenterPanelAnchorReader(anchor: frameProvider)
+            ActivityCardEvents(
+                isEnabled: selection.isVisible && selection.current != nil && !showsUnavailableState,
+                onSwipe: handleSwipe,
+                onTogglePin: {
+                    cancelSwipe()
+                    cardPresentation.togglePin()
                 }
-                retainedContent = content
+            )
+        }
+        .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.frame(in: .named(ActivityCenterPanelAnchor.coordinateSpace)).minY
+        } action: { frameProvider.updateTopOffset($0) }
+        .onHover { isHovered = $0 }
+        .onChange(of: currentContent, initial: true) { _, content in updateContent(content) }
+        .onChange(of: allowsAnimations) { _, enabled in
+            if !enabled {
+                completeSwipe()
+                settleTransition()
+                cardPresentation.setGestureActive(false, owner: gestureOwner)
+                retainedContent = currentContent
             }
         }
-        .task(id: outgoingContent) {
-            guard outgoingContent != nil else { return }
-            // 先保留旧内容的完整一帧, 下一次更新只交接透明度, 不参与自然高度测量
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            withAnimation(allowsAnimations ? .easeInOut(duration: 0.2) : nil) {
-                outgoingContent = nil
+        .onChange(of: selection.isVisible) { _, visible in
+            if !visible {
+                cancelSwipe()
             }
+        }
+        .onChange(of: selection.isGestureActive) { _, active in
+            if !active {
+                cancelSwipe()
+            }
+        }
+        .onDisappear { cancelSwipe() }
+        .task(id: swipe.settlement) {
+            guard let settlement = swipe.settlement else { return }
+            do {
+                try await Task.sleep(for: .seconds(max(0, settlement.duration - Date().timeIntervalSince(settlement.startedAt))))
+            } catch { return }
+            guard swipe.settlement == settlement else { return }
+            completeSwipe()
         }
         .onChange(of: retainedHeaderTaskIDs) { _, retainedIDs in
-            wrappedHeaderTaskIDs.formIntersection(retainedIDs)
+            wrappedHeaderKeys = wrappedHeaderKeys.filter { retainedIDs.contains($0.taskID) }
+        }
+    }
+
+    // MARK: - 交互翻页
+
+    private func handleSwipe(_ event: ActivityCardEvents.SwipeEvent) {
+        switch event {
+        case .began:
+            beginSwipe()
+        case let .changed(delta):
+            swipe.move(by: delta, width: cardWidth)
+        case let .ended(velocity):
+            swipe.end(velocity: velocity, width: cardWidth, cancelled: false, now: Date())
+            if !allowsAnimations {
+                completeSwipe()
+            }
+        case .cancelled:
+            swipe.end(velocity: 0, width: cardWidth, cancelled: true, now: Date())
+            if !allowsAnimations {
+                completeSwipe()
+            }
+        case let .step(direction):
+            completeSwipe()
+            guard selection.carouselActivities.count > 1 else { return }
+            cardPresentation.setGestureActive(true, owner: gestureOwner)
+            cardPresentation.swipe(direction)
+            updateContent(currentContent)
+        }
+    }
+
+    private func beginSwipe() {
+        guard selection.isVisible, selection.carouselActivities.count > 1, cardWidth > 0, cardSize.height > 0 else { return }
+        cardPresentation.setGestureActive(true, owner: gestureOwner)
+        let previous = swipeContent
+        let step = swipe.begin(width: cardWidth, now: Date())
+        if step != 0, let id = previous?.content(at: step).selectionID {
+            cardPresentation.selectAfterSwipe(id, owner: gestureOwner)
+        }
+        let carousel = selection.carouselActivities
+        guard let index = carousel.firstIndex(where: { $0.cardSelectionID == selection.selectedID }) else {
+            cancelSwipe()
+            return
+        }
+        func page(_ step: Int) -> ActivityCardContent {
+            let activity = carousel[(index + step + carousel.count) % carousel.count]
+            return previous?.matching(activity.cardSelectionID) ?? displayContent(for: activity)
+        }
+        swipeContent = ActivityCardSwipeContent(
+            previous: page(-1), current: page(0), next: page(1)
+        )
+        settleTransition()
+    }
+
+    private func completeSwipe() {
+        guard let pages = swipeContent else { return }
+        let step = swipe.settlement?.step ?? 0
+        if step != 0, let id = pages.content(at: step).selectionID {
+            cardPresentation.selectAfterSwipe(id, owner: gestureOwner)
+        }
+        clearSwipe()
+        cardPresentation.setGestureActive(false, owner: gestureOwner)
+        retainedContent = currentContent
+    }
+
+    private func cancelSwipe() {
+        guard swipe.isActive || swipeContent != nil || outgoingContent != nil || selection.isGestureActive else { return }
+        clearSwipe()
+        settleTransition()
+        cardPresentation.setGestureActive(false, owner: gestureOwner)
+    }
+
+    private func clearSwipe() {
+        swipe = ActivityCardSwipe()
+        swipeContent = nil
+    }
+
+    private func settleTransition() {
+        animationGeneration += 1
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            outgoingContent = nil
+            incomingOffset = 0
+            outgoingOffset = 0
+            incomingOpacity = 1
+            outgoingOpacity = 1
+        }
+    }
+
+    private func updateContent(_ content: ActivityCardContent?) {
+        if let pages = swipeContent {
+            let available = Set(selection.activities.compactMap(\.cardSelectionID))
+            if selection.isGestureActive, !showsUnavailableState, selection.selectedID == pages.current.selectionID,
+               [pages.previous, pages.current, pages.next].allSatisfy({ $0.selectionID.map(available.contains) == true }) {
+                return
+            }
+            cancelSwipe()
+        }
+        // 退场期间保留最后一份内容, 避免正在收回的区域变为空卡片
+        guard let content else { return }
+        guard let previous = retainedContent, content.requiresContentTransition(from: previous) else {
+            retainedContent = content
+            if outgoingContent == nil {
+                cardPresentation.setGestureActive(false, owner: gestureOwner)
+            }
+            return
+        }
+        settleTransition()
+        guard allowsAnimations, cardWidth > 0 else {
+            retainedContent = content
+            cardPresentation.setGestureActive(false, owner: gestureOwner)
+            return
+        }
+        let generation = animationGeneration
+        // 手动切换的方向只用于不同轮播项之间, 同一 thread 的新 turn 仍沿用淡入淡出
+        let slides = selection.transitionDirection != nil
+            && content.selectionID != nil && previous.selectionID != nil && content.selectionID != previous.selectionID
+        let distance = CGFloat(selection.transitionDirection ?? 0) * cardWidth
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            outgoingContent = previous
+            retainedContent = content
+            incomingOffset = slides ? distance : 0
+            incomingOpacity = slides ? 1 : 0
+        }
+        Task { @MainActor in
+            await Task.yield()
+            guard generation == animationGeneration else { return }
+            let animation = slides
+                ? Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.3)
+                : .easeInOut(duration: 0.2)
+            withAnimation(animation, completionCriteria: .removed) {
+                incomingOffset = 0
+                incomingOpacity = 1
+                outgoingOffset = slides ? -distance : 0
+                outgoingOpacity = slides ? 1 : 0
+            } completion: {
+                guard generation == animationGeneration else { return }
+                outgoingContent = nil
+                if slides {
+                    cardPresentation.setGestureActive(false, owner: gestureOwner)
+                }
+            }
         }
     }
 
     private func card(_ content: ActivityCardContent) -> some View {
-        cardContent(content)
+        cardPages(content)
             .background {
                 GeometryReader { geometry in
-                    Color.clear.preference(key: ActivityCardNaturalHeightKey.self, value: geometry.size.height)
+                    Color.clear.preference(
+                        key: ActivityCardNaturalHeightKey.self,
+                        value: .init(height: geometry.size.height, isInteractive: swipeContent != nil)
+                    )
                 }
             }
-            .opacity(outgoingContent == nil ? 1 : 0)
-            .overlay(alignment: .topLeading) {
-                if let outgoingContent {
-                    cardContent(outgoingContent)
-                        .transition(.opacity)
-                        .allowsHitTesting(false)
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                if cardWidth != size.width {
+                    cancelSwipe()
                 }
+                cardSize = size
             }
             // 外层可以收起整个区域, 内部文字始终按自然高度排版
             .frame(minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
@@ -114,12 +306,43 @@ struct ActivityCard: View {
                     .animation(.codexStatus, value: isHovered)
                     .animation(.codexStatus, value: isTaskCenterPresented)
             }
+            .overlay {
+                ActivityCardWaitingEdges(
+                    left: selection.waitingSides.left,
+                    right: selection.waitingSides.right,
+                    animates: allowsAnimations
+                )
+                .clipShape(RoundedRectangle(cornerRadius: MenuMetrics.panelCornerRadius))
+                .allowsHitTesting(false)
+            }
+    }
+
+    @ViewBuilder
+    private func cardPages(_ content: ActivityCardContent) -> some View {
+        if let pages = swipeContent {
+            ActivityCardSwipePages(swipe: swipe, width: cardWidth) { step in
+                cardContent(pages.content(at: step))
+            }
+        } else {
+            cardContent(content)
+                .offset(x: incomingOffset)
+                .opacity(incomingOpacity)
+                .overlay(alignment: .topLeading) {
+                    if let outgoingContent {
+                        cardContent(outgoingContent)
+                            .frame(width: cardWidth)
+                            .offset(x: outgoingOffset)
+                            .opacity(outgoingOpacity)
+                            .allowsHitTesting(false)
+                    }
+                }
+        }
     }
 
     private func cardContent(_ content: ActivityCardContent) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             statusRow(content)
-                // 切换任务时重新建立文本状态, 不让前一个任务的数字过渡穿过新布局
+                // 切换任务时重建文本状态, 避免前一个任务的数字动画影响新布局
                 .id(content.taskID)
                 .transition(.identity)
             if let tokenUsage = content.tokenUsage {
@@ -132,8 +355,10 @@ struct ActivityCard: View {
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
         .fixedSize(horizontal: false, vertical: true)
-        // 内容只上报自然高度, 显示和尺寸变化都由区域容器统一驱动
+        // 文字保持自然排版, 页间位移和可见高度由外层控制
         .transaction { $0.animation = nil }
+        // 在内容事务之外统一处理位移, 避免内部文字动画覆盖整张卡片的推入推出
+        .geometryGroup()
     }
 
     private func statusRow(_ content: ActivityCardContent) -> some View {
@@ -179,28 +404,15 @@ struct ActivityCard: View {
     }
 
     private func statusHeader(_ content: ActivityCardContent) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            ActivitySummaryText(
-                components: content.headerLines,
-                primaryLineLimit: 1,
-                primaryTruncationMode: .middle,
-                supplementaryLineLimit: 1,
-                singleLineWidthReserve: Metrics.headerWidthReserve,
-                wrappedLayout: wrappedHeaderLayout(for: content.taskID)
-            )
-            .font(MenuMetrics.titleFont)
-            // 标题与数量徽标预留相同的上下空间, 显隐徽标时保持首行基线稳定
-            .padding(.vertical, Metrics.headerVerticalPadding)
-            .foregroundStyle(Color.codexLabel)
-            .numericTransition(value: content.header)
-            .fixedSize(horizontal: false, vertical: true)
-            .clipped()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if content.otherTaskCount > 0 || content.showsKeepAliveBadge {
-                statusBadges(content)
-                    .fixedSize()
-            }
-        }
+        ActivityCardHeader(
+            components: content.headerLines,
+            projectName: content.projectName,
+            positionText: content.positionText,
+            hasPin: content.hasPin,
+            isPinned: content.isPinned,
+            showsKeepAliveBadge: content.showsKeepAliveBadge,
+            usesWrappedLayout: wrappedHeaderLayout(for: content)
+        )
     }
 
     private var retainedHeaderTaskIDs: Set<UUID> {
@@ -211,49 +423,30 @@ struct ActivityCard: View {
             .union([retainedContent?.taskID].compactMap(\.self))
     }
 
-    private func wrappedHeaderLayout(for taskID: UUID?) -> Binding<Bool>? {
-        guard let taskID else { return nil }
+    /// 徽标组合变化会改变剩余宽度, 相同组合仍保留任务的换行状态
+    private struct HeaderWrappingKey: Hashable {
+        let taskID: UUID
+        let hasPin: Bool
+        let positionLength: Int
+        let showsKeepAliveBadge: Bool
+    }
+
+    private func wrappedHeaderLayout(for content: ActivityCardContent) -> Binding<Bool>? {
+        guard let taskID = content.taskID else { return nil }
+        let key = HeaderWrappingKey(
+            taskID: taskID,
+            hasPin: content.hasPin,
+            positionLength: content.positionText?.count ?? 0,
+            showsKeepAliveBadge: content.showsKeepAliveBadge
+        )
         return Binding(
-            get: { wrappedHeaderTaskIDs.contains(taskID) },
+            get: { wrappedHeaderKeys.contains(key) },
             set: { isWrapped in
                 if isWrapped {
-                    wrappedHeaderTaskIDs.insert(taskID)
+                    wrappedHeaderKeys.insert(key)
                 }
             }
         )
-    }
-
-    private func statusBadges(_ content: ActivityCardContent) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            if content.otherTaskCount > 0 {
-                Text(verbatim: "+\(content.otherTaskCount)")
-                    .font(MenuMetrics.badgeFont)
-                    // 必须是具体 Color, 层级样式在 numericText 的过渡层里会被重新解析成别的层级
-                    .foregroundStyle(Color.codexSecondaryLabel)
-                    .numericTransition(value: content.otherTaskCount, comparison: Double(content.otherTaskCount))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, Metrics.headerVerticalPadding)
-                    .background(.secondary.opacity(0.12), in: Capsule())
-                    .transition(.opacity)
-                    .help(String(localized: "activity.summary.other-task-count", defaultValue: "\(content.otherTaskCount, specifier: "%lld")"))
-            }
-            // 防睡眠由任务状态驱动, 徽标跟随活动卡片展示
-            if content.showsKeepAliveBadge {
-                // 隐藏或关闭动画效果时移除整个旋转视图, 避免保留持续渲染调度
-                Group {
-                    if allowsAnimations {
-                        RotatingKeepAliveSun()
-                    } else {
-                        Image(systemName: "sun.max.fill")
-                    }
-                }
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.teal)
-                .transition(.opacity)
-            }
-        }
-        .animation(.codexStatus, value: content.showsKeepAliveBadge)
-        .animation(.codexStatus, value: content.otherTaskCount)
     }
 
     private func tokenUsageMetrics(_ tokenUsage: TokenUsage) -> some View {
@@ -296,8 +489,8 @@ struct ActivityCard: View {
 
     // MARK: - 展示内容
 
-    private func content(at now: Date) -> ActivityCardContent {
-        switch snapshot.panelPrimaryActivity {
+    private func content(for activity: CodexPrimaryActivity, at now: Date) -> ActivityCardContent {
+        switch activity {
         case let .waiting(task):
             return activeContent(
                 for: task,
@@ -319,10 +512,10 @@ struct ActivityCard: View {
             )
             return ActivityCardContent(
                 taskID: completion.taskID ?? completion.id,
+                projectName: completion.projectName,
                 symbolName: "checkmark.circle.fill",
                 tint: .green,
                 detail: nil,
-                otherTaskCount: 0,
                 tokenUsage: completion.tokenUsage,
                 header: [
                     completion.projectName ?? String(localized: "common.codex"),
@@ -336,10 +529,10 @@ struct ActivityCard: View {
             )
             return ActivityCardContent(
                 taskID: termination.taskID ?? termination.id,
+                projectName: termination.projectName,
                 symbolName: "xmark.circle.fill",
                 tint: .red,
                 detail: ActivityLiveLabel(termination.isFailure ? "failed" : "interrupted").text,
-                otherTaskCount: 0,
                 tokenUsage: termination.tokenUsage,
                 header: [
                     termination.projectName ?? String(localized: "common.codex"),
@@ -351,7 +544,6 @@ struct ActivityCard: View {
                 symbolName: "bubble.left.and.exclamationmark.bubble.right",
                 tint: .red,
                 detail: activityMonitor.sourcePresentation?.text,
-                otherTaskCount: 0,
                 header: [String(localized: "common.codex")]
             )
         }
@@ -366,10 +558,10 @@ struct ActivityCard: View {
         let summary = ActivityDisplayFormat.liveSummaryComponents(for: task, now: timelineDate, waiting: waiting)
         return ActivityCardContent(
             taskID: task.id,
+            projectName: task.projectName,
             symbolName: symbolName,
             tint: tint,
             detail: ActivityDisplayFormat.liveStatus(for: task, waiting: waiting),
-            otherTaskCount: otherTaskCount,
             tokenUsage: task.tokenUsage,
             header: [
                 task.projectName ?? String(localized: "common.codex"),
@@ -380,29 +572,6 @@ struct ActivityCard: View {
             showsCurrentEvent: true,
             statusTextEffect: allowsAnimations ? (waiting ? .ionizing(taskID: task.id) : .shimmer) : .none
         )
-    }
-
-    private var otherTaskCount: Int {
-        max(0, snapshot.activeCount - 1)
-    }
-
-    private enum Metrics {
-        static let headerVerticalPadding: CGFloat = 3
-        /// 单行排版为时间文案增长预留宽度
-        static let headerWidthReserve: CGFloat = 32
-    }
-}
-
-// MARK: - 动画
-
-private struct RotatingKeepAliveSun: View {
-    @State private var isRotating = false
-
-    var body: some View {
-        Image(systemName: "sun.max.fill")
-            .rotationEffect(.degrees(isRotating ? 360 : 0))
-            .animation(.linear(duration: 2).repeatForever(autoreverses: false), value: isRotating)
-            .onAppear { isRotating = true }
     }
 }
 
@@ -432,21 +601,39 @@ private struct ActivityCardButtonStyle: ButtonStyle {
     }
 }
 
+private struct ActivityCardSwipeContent {
+    let previous: ActivityCardContent
+    let current: ActivityCardContent
+    let next: ActivityCardContent
+
+    func content(at step: Int) -> ActivityCardContent {
+        step == 0 ? current : (step < 0 ? previous : next)
+    }
+
+    func matching(_ id: String?) -> ActivityCardContent? {
+        [current, previous, next].first { $0.selectionID == id }
+    }
+}
+
 private struct ActivityCardContent: Equatable {
     var taskID: UUID?
+    var selectionID: String?
+    var projectName: String?
     let symbolName: String
     let tint: Color
     let detail: String?
-    let otherTaskCount: Int
     var tokenUsage: TokenUsage?
     let header: [String]
     var recent: String?
     var detailSupplement: String?
     var showsCurrentEvent = false
     var showsKeepAliveBadge = false
+    var positionText: String?
+    var hasPin = false
+    var isPinned = false
     var statusTextEffect = ActivityStatusText.Effect.none
 
-    func requiresCrossfade(from previous: Self) -> Bool {
+    func requiresContentTransition(from previous: Self) -> Bool {
         taskID != previous.taskID || symbolName != previous.symbolName
             || (tokenUsage == nil) != (previous.tokenUsage == nil)
             || (detail == nil) != (previous.detail == nil)

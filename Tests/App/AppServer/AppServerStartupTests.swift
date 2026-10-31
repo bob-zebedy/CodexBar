@@ -3,6 +3,7 @@ import Foundation
 import os
 import Testing
 
+@Suite(.tags(.integration))
 struct AppServerStartupTests {
     @Test func reusesRunningServiceWithoutAnInstalledCLI() async throws {
         let server = try SharedServerFixture { _ in }

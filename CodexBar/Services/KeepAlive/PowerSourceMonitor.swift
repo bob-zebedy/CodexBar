@@ -36,7 +36,7 @@ nonisolated enum BatteryReading: Equatable {
 
 nonisolated struct BatteryStatus: Equatable {
     let percent: Int
-    /// 正在靠电池供电; 接着电源时为 false, 此时电量不会被耗干
+    /// 系统报告当前由电池供电时为 true
     let isOnBattery: Bool
 }
 
@@ -52,8 +52,7 @@ final class PowerSourceMonitor {
     private var pollTask: Task<Void, Never>?
     /// 独立记录启动状态, 注册失败时 runLoopSource 为 nil, 但唤醒观察者已安装
     private var isMonitoring = false
-    /// 这台机器确认装着内置电池
-    /// 硬件不会中途消失, 所以见过之后再读到空列表只能是枚举缺口, 不能当成台式机
+    /// 曾检测到内置电池后, 空列表按读取失败处理, 避免暂时枚举不到电池时解除保护
     private var hasSeenBattery = false
 
     /// 回调里持有的是 unretained 指针, 停止监听必须显式做, 由持有者在 stop 时调用

@@ -1,6 +1,6 @@
 import Foundation
 
-/// reader 独占任务事实, 发布值快照后 UI 不再消费原始事件或补查另一份缓存
+/// reader 独占任务状态, UI 只读取发布的值快照, 不处理原始事件或补查其他缓存
 nonisolated struct ActivityTaskGraph {
     var tasks: [ActivityTaskKey: ActivityTask] = [:]
     var pendingTerminalTasks: [ActivityTaskKey: PendingTerminalTask] = [:]
@@ -84,7 +84,7 @@ nonisolated struct ActivityTaskGraph {
 
     mutating func prune(now: Date) {
         pendingTerminalTasks = pendingTerminalTasks.filter { $0.value.expiresAt > now }
-        let cutoff = now.addingTimeInterval(-600)
+        let cutoff = now.addingTimeInterval(-ActivityRetention.terminalDisplayWindow)
         completions.removeAll { $0.completedAt <= cutoff }
         terminations.removeAll { $0.terminatedAt <= cutoff }
         let retained = Set(completions.map(\.id)).union(terminations.map(\.id))
@@ -302,7 +302,8 @@ nonisolated struct ActivityTaskGraph {
                 modelName: task.modelName,
                 effort: task.effort,
                 completedAt: completedAt,
-                duration: duration ?? at.flatMap { task.preciseDuration(until: $0) }
+                duration: duration ?? at.flatMap { task.preciseDuration(until: $0) },
+                threadID: task.key.threadID
             )
             completions.append(completion)
             registerTerminalTokenUsage(id: completion.id, task: task)
@@ -321,7 +322,8 @@ nonisolated struct ActivityTaskGraph {
                 effort: task.effort,
                 terminatedAt: terminatedAt,
                 duration: duration ?? at.flatMap { task.preciseDuration(until: $0) },
-                isFailure: task.terminalFailed
+                isFailure: task.terminalFailed,
+                threadID: task.key.threadID
             )
             terminations.append(termination)
             registerTerminalTokenUsage(id: termination.id, task: task)

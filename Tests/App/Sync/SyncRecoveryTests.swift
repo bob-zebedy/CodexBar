@@ -2,6 +2,7 @@ import CloudKit
 import Foundation
 import Testing
 
+@Suite(.tags(.integration))
 struct SyncRecoveryTests {
     @Test func expiredTokenUsageCacheStaysBoundedWhenCloudDeletionFailsAndRetries() async throws {
         let directory = try TestDirectory()

@@ -39,7 +39,7 @@ nonisolated enum BoundedProcess {
         var standardError = Output(reachedEOF: true)
         var terminationStatus: Int32?
         var terminationReason: Process.TerminationReason?
-        /// 返回后由调用方接管, 内核不再访问该进程
+        /// 返回后由调用方接管, BoundedProcess 不再访问该进程
         var runningProcess: Process?
 
         var exitCode: Int32 {

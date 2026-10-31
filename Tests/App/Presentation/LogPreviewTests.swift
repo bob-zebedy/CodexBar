@@ -1,6 +1,7 @@
 import AppKit
 import Testing
 
+@Suite(.tags(.integration))
 struct LogPreviewTests {
     @Test func jsonFormattingAndHighlightingPreserveUnicodeAndOriginalText() async throws {
         let raw = #"{"z":null,"🙂":"é 汉字","a":true,"n":-1.25,"url":"https://example.com"}"#

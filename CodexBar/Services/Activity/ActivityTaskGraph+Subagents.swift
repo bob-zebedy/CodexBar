@@ -6,7 +6,7 @@ nonisolated struct PendingSubagentEvent {
 }
 
 nonisolated extension ActivityTaskGraph {
-    /// 生命周期和工具事件 都携带子轮次, 已结束或未确认的归属不回退到当前根任务
+    /// 生命周期和工具事件都携带子轮次, 已结束或未确认的归属不回退到当前根任务
     func matchingSubagentParentTaskKey(
         for event: ActivityDataRecord
     ) -> ActivityTaskKey? {

@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 import Testing
 
+@Suite(.tags(.integration))
 struct AppServerSessionTests {
     @Test func acceptsResponseLargerThanSixteenMiB() throws {
         let server = try SharedServerFixture { peer in

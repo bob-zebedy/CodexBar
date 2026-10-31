@@ -46,9 +46,6 @@ final class NotificationService: NSObject {
     private var sentDedupKeys: [String]
     private var submittingDedupKeys = Set<String>()
 
-    /// 阈值观察随额度周期重置, key 为 account|limitId|windowId
-    private var lowQuotaObservations: [String: LowQuotaObservation] = [:]
-
     /// 低额度判定依据的两个设置项
     /// @Published 在 willSet 中回调, settings 属性尚未更新, 需使用调用方传入的回调参数
     private struct LowQuotaConditions {
@@ -64,8 +61,8 @@ final class NotificationService: NSObject {
         )
     }
 
-    /// 可信快照中每个额度窗口的重置观察状态; 窗口消失后重现会获得新的生命周期标记
-    private var quotaWindowResetObservations: [String: QuotaWindowResetObservation] = [:]
+    /// 可信快照中每个额度窗口的观察状态; 窗口消失后重现会获得新的生命周期标记
+    private var quotaWindowObservations: [String: QuotaWindowObservation] = [:]
 
     init(
         settings: NotificationSettings,
@@ -256,7 +253,7 @@ final class NotificationService: NSObject {
     private func handleSnapshot(_ snapshot: CodexQuotaSnapshot?) {
         guard let snapshot else {
             latestQuotaSnapshot = nil
-            quotaWindowResetObservations.removeAll()
+            quotaWindowObservations.removeAll()
             scheduleNextCreditExpiryCheck(dates: [])
             return
         }
@@ -283,17 +280,17 @@ final class NotificationService: NSObject {
         var observedWindowKeys = Set<String>()
         forEachQuotaWindowWithData(in: snapshot) { window, limit, stateKey in
             observedWindowKeys.insert(stateKey)
-            if quotaWindowResetObservations[stateKey] == nil {
-                quotaWindowResetObservations[stateKey] = QuotaWindowResetObservation()
+            if quotaWindowObservations[stateKey] == nil {
+                quotaWindowObservations[stateKey] = QuotaWindowObservation()
             }
             processQuotaWindow(window, limit: limit, stateKey: stateKey, lowQuota: lowQuota)
         }
-        quotaWindowResetObservations = quotaWindowResetObservations.filter {
+        quotaWindowObservations = quotaWindowObservations.filter {
             observedWindowKeys.contains($0.key)
         }
     }
 
-    /// 枚举可信快照中有数据的额度窗口, 窗口过滤与 stateKey 口径的唯一定义处
+    /// 枚举可信快照中有数据的额度窗口, 在此统一定义窗口过滤和 stateKey 生成规则
     private func forEachQuotaWindowWithData(
         in snapshot: CodexQuotaSnapshot,
         _ body: (QuotaWindow, CodexQuotaLimitSnapshot, String) -> Void
@@ -327,7 +324,7 @@ final class NotificationService: NSObject {
 
     private func resetLowQuotaObservation(for snapshot: CodexQuotaSnapshot) {
         forEachQuotaWindowWithData(in: snapshot) { _, _, stateKey in
-            lowQuotaObservations.removeValue(forKey: stateKey)
+            quotaWindowObservations[stateKey]?.lowQuota = LowQuotaObservation()
         }
     }
 
@@ -352,14 +349,14 @@ final class NotificationService: NSObject {
             return
         }
 
-        let crossedThreshold = lowQuotaObservations[stateKey, default: LowQuotaObservation()].observe(
+        let crossedThreshold = quotaWindowObservations[stateKey]?.lowQuota.observe(
             remainingPercent: window.remainingPercent,
             resetsAt: window.resetsAt,
             thresholdPercent: lowQuota.thresholdPercent
         )
 
         guard let resetsAt = window.resetsAt,
-              crossedThreshold,
+              crossedThreshold == true,
               lowQuota.isEnabled else {
             return
         }
@@ -374,6 +371,7 @@ final class NotificationService: NSObject {
         AppLog.notification.notice("阈值已穿越: \(details, privacy: .public)")
 
         let dedupKey = lowQuotaDedupKey(stateKey: stateKey, resetsAt: resetsAt)
+        let lifecycleToken = quotaWindowObservations[stateKey]?.lifecycleToken
         send(
             .lowQuota(
                 limitTitle: limit.title,
@@ -383,7 +381,8 @@ final class NotificationService: NSObject {
             sound: settings.lowQuotaSound,
             dedupKey: dedupKey,
             onSubmissionFailure: { [weak self] in
-                self?.lowQuotaObservations.removeValue(forKey: stateKey)
+                guard let self, quotaWindowObservations[stateKey]?.lifecycleToken == lifecycleToken else { return }
+                quotaWindowObservations[stateKey]?.lowQuota = LowQuotaObservation()
             }
         )
     }
@@ -397,14 +396,14 @@ final class NotificationService: NSObject {
         window: QuotaWindow
     ) {
         if usedPercent > 0 {
-            quotaWindowResetObservations[stateKey]?.hasObservedConsumption = true
+            quotaWindowObservations[stateKey]?.hasObservedConsumption = true
         } else if usedPercent == 0,
-                  quotaWindowResetObservations[stateKey]?.hasObservedConsumption == true {
+                  quotaWindowObservations[stateKey]?.hasObservedConsumption == true {
             // 归零即消费待重置状态; 开关或授权此刻不可用时不保留补发
-            quotaWindowResetObservations[stateKey]?.hasObservedConsumption = false
+            quotaWindowObservations[stateKey]?.hasObservedConsumption = false
             guard settings.canDeliver,
                   settings.isQuotaResetEnabled,
-                  let lifecycleToken = quotaWindowResetObservations[stateKey]?.lifecycleToken else {
+                  let lifecycleToken = quotaWindowObservations[stateKey]?.lifecycleToken else {
                 return
             }
 
@@ -422,11 +421,11 @@ final class NotificationService: NSObject {
                 dedupKey: dedupKey,
                 onSubmissionFailure: { [weak self] in
                     guard let self,
-                          quotaWindowResetObservations[stateKey]?.lifecycleToken == lifecycleToken else {
+                          quotaWindowObservations[stateKey]?.lifecycleToken == lifecycleToken else {
                         return
                     }
 
-                    quotaWindowResetObservations[stateKey]?.hasObservedConsumption = true
+                    quotaWindowObservations[stateKey]?.hasObservedConsumption = true
                 }
             )
         }
@@ -512,7 +511,7 @@ final class NotificationService: NSObject {
             Self.creditExpiryReminderDay(expirationDate: $0, now: now) != nil
         }
 
-        // 相同过期时间的机会合并成一条通知; 按秒分组与去重键口径保持一致
+        // 将过期时间相同的机会合并成一条通知, 分组和去重键均精确到秒
         for (epochSecond, groupedDates) in Dictionary(grouping: dueDates, by: { Self.epoch($0) }) {
             guard let date = groupedDates.first,
                   let reminderDay = Self.creditExpiryReminderDay(expirationDate: date, now: now) else {
@@ -683,7 +682,7 @@ final class NotificationService: NSObject {
             }
         }
 
-        // 重试全部用尽才记, 循环内的单次失败会重试
+        // 重试耗尽后才记录失败日志, 单次失败继续重试
         let details = LogFields.joined(
             "kind=\(kind)",
             "reason=retryExhausted"
@@ -781,10 +780,10 @@ final class NotificationService: NSObject {
         }
     }
 
-    /// 单个额度窗口的重置观察状态: 记录大于 0 的消耗, 归零时消费并发送
-    private struct QuotaWindowResetObservation {
+    private struct QuotaWindowObservation {
         /// 窗口生命周期标记, 迟到的发送失败回调据此丢弃
         let lifecycleToken = UUID()
+        var lowQuota = LowQuotaObservation()
         var hasObservedConsumption = false
     }
 }

@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 import Testing
 
-@Suite(.timeLimit(.minutes(1)))
+@Suite(.tags(.integration), .timeLimit(.minutes(1)))
 struct AppServerRequestBudgetTests {
     @Test func expiredBudgetNeverSendsRequest() async throws {
         let server = try SharedServerFixture { peer in

@@ -23,7 +23,7 @@ final nonisolated class RefreshTaskCoordinator: Sendable {
         return generation
     }
 
-    /// ViewModel 共用的刷新流程: 设置刷新标记后取数, 仅在代际未过期时提交
+    /// ViewModel 共用的刷新流程: 设置刷新标记后读取数据, 仅在当前代次仍有效时提交
     /// 过期刷新结果直接丢弃, 避免慢请求覆盖后启动的新状态
     @MainActor
     func run<Value>(

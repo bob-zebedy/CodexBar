@@ -52,7 +52,7 @@ final class CodexStatusViewModel: ObservableObject {
     @Published private(set) var autoRefreshCountdownStartedAt: Date?
     @Published private(set) var dataUpdateInterval: DataUpdateInterval
 
-    /// 统计维护挂在额度刷新完成事件上, 由它继承本次刷新的触发来源
+    /// 额度刷新完成后触发统计维护, 沿用本次刷新的触发来源
     private(set) var lastRefreshTrigger: LogTrigger = .launch
 
     @Published private(set) var isReconnecting = false

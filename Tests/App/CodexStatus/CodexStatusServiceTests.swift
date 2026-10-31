@@ -2,7 +2,7 @@ import Foundation
 import os
 import Testing
 
-@Suite(.timeLimit(.minutes(1)))
+@Suite(.tags(.integration), .timeLimit(.minutes(1)))
 struct CodexStatusServiceTests {
     @Test(arguments: ["business", "unsupported", "invalidPayload"], [false, true])
     func supplementalFailurePreservesCacheAndUnsupportedMethodPolicy(failure: String, hasCache: Bool) async throws {

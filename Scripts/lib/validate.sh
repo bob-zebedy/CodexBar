@@ -44,7 +44,7 @@ validate_power_helper_manager_distribution() {
             validation_fail "Power Helper manager ${architecture} entitlements" "codesign could not read the entitlements"
             return 1
         fi
-        # 没有 entitlements 的管理 App 同样符合发布要求
+        # The manager app can ship without entitlements
         if [[ -s "${entitlements}" ]]; then
             if ! plutil -lint "${entitlements}" >/dev/null 2>&1; then
                 validation_fail "Power Helper manager ${architecture} entitlements" "Invalid entitlements plist"

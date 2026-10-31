@@ -61,7 +61,9 @@ CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, Swi
 ## 构建、测试与开发命令
 
 - `xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'generic/platform=macOS' build` 执行代码变更后的构建验证
-- `env -u CC -u CXX xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'platform=macOS' -testPlan Standard test` 执行日常无宿主单元测试
+- `env -u CC -u CXX xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'platform=macOS' -testPlan Unit test` 执行日常快速单元测试，也是 scheme 的默认测试计划
+- `env -u CC -u CXX xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'platform=macOS' -testPlan Integration test` 执行协议、存储、进程及跨模块生命周期集成测试
+- `env -u CC -u CXX xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'platform=macOS' -testPlan Standard test` 执行全部单元测试和集成测试
 - `env -u CC -u CXX xcodebuild -project CodexBar.xcodeproj -scheme CodexBar -destination 'platform=macOS' -testPlan Sanitizers test` 分别运行 TSan 和 ASan 诊断；使用 `-only-test-configuration ThreadSanitizer` 或 `-only-test-configuration AddressSanitizer` 可单独运行对应配置
 - `swiftformat .` 按 `.swiftformat` 格式化全部 Swift，使用 Swift 6 和 4 空格缩进
 - `swiftlint` 按 `.swiftlint.yml` 检查
@@ -150,8 +152,10 @@ CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, Swi
 
 - 测试围绕可观察行为、关键边界和失败恢复设计，优先复用现有测试；新增测试应能发现实际回归，避免只重复实现或为简单改名机械补测
 - 单元测试使用独立临时数据和可控依赖，测试结束后清理资源；不得读写真实用户数据、调用真实外部服务、启动特权服务或修改系统设置
+- 单元测试不得显示窗口、面板或 popover，也不得激活 App 或抢占焦点，透明窗口和屏幕外窗口同样不允许显示；布局使用离屏宿主验证，依赖真实窗口显示的交互另行手动验证
 - 代码改动需完成受影响目标的构建、相关自动化测试及项目配置的格式和静态检查；涉及共享逻辑、构建配置或跨模块行为时，扩大验证范围；纯文档改动检查内容和格式即可
-- 日常代码改动默认运行 `Standard` 测试计划，按影响范围选择相关测试
+- 日常代码改动默认运行 `Unit` 测试计划，并按影响范围补充相关 `Integration` 用例；涉及共享逻辑、构建配置或交付前运行完整 `Standard` 计划
+- 集成测试通过 `.tags(.integration)` 标记，按测试的主要依赖和职责归类，混合测试套件可以只标记对应函数；`Unit` 排除该标签，`Integration` 仅包含该标签，`Standard` 和 `Sanitizers` 均保留完整覆盖
 - 修改共享可变状态、锁或跨线程访问时，追加运行 `Sanitizers` 中的 `ThreadSanitizer` 配置；修改 SQLite、Darwin、C 接口或指针相关的内存访问与资源生命周期时，追加运行 `AddressSanitizer` 配置；同时涉及两类风险时，分别运行两种配置
 - 测试完成后同时检查失败用例和运行期警告，定位并处理新增的 Sanitizer、Main Thread Checker 和 Thread Performance Checker 报告
 - 自动化测试无法覆盖的交互、系统集成和生命周期行为，补充手动验证；验证前确认运行产物、构建配置和测试环境，避免混用不同版本
@@ -165,6 +169,7 @@ CodexBar 是面向 macOS 的 `LSUIElement` 菜单栏应用，使用 Swift 6, Swi
 
 - 标题概括本次提交最主要的问题或目标，不用次要交互细节或局部实现代替核心目的
 - body 围绕核心目的解释必要的原因、关键行为变化和影响；实现细节仅在有助于理解目的或评估影响时保留
+- 只保留代码最终的行为以及状态，不要把代码变化的中间的状态作为变更记录
 - 不把文件清单、函数改动清单或开发过程直接作为提交说明，也不为覆盖每一处 diff 而堆砌条目
 
 提交标题使用 `<type>: <中文描述>` 格式：

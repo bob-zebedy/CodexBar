@@ -6,7 +6,7 @@ Codex version: `0.162.0`
 
 | API | Purpose |
 | --- | --- |
-| `initialize` | Initialize the connection and retrieve the server version |
+| `initialize` | Initialize the connection and get the server version |
 | `account/read` | Read account information; `refreshToken` specifies whether to refresh authentication |
 | `account/rateLimits/read` | Read rate limits, credit balance, and reset credits |
 | `account/usage/read` | Read account usage summaries and daily token usage |
@@ -16,8 +16,8 @@ Codex version: `0.162.0`
 | `thread/loaded/list` | List loaded threads |
 | `thread/read` | Read thread information and status; `threadId` identifies the thread, and `includeTurns: false` omits turn content |
 | `thread/resume` | Subscribe to messages from a loaded thread; `threadId` identifies the thread, and `excludeTurns: true` omits turn content |
-| `thread/turns/list` | Read paginated turn information for a thread; `threadId` identifies the thread, and `itemsView: "notLoaded"` omits item content |
-| `thread/items/list` | Read paginated items for a turn; `threadId` and `turnId` identify the target turn |
+| `thread/turns/list` | Read a thread's turn information in pages; `threadId` identifies the thread, and `itemsView: "notLoaded"` omits item content |
+| `thread/items/list` | Read a turn's items in pages; `threadId` and `turnId` identify the target turn |
 
 ## Outgoing notifications
 
@@ -63,12 +63,12 @@ Codex version: `0.162.0`
 | `turn/diff/updated` | Observe code diff updates |
 | `model/rerouted` | Receive model change information |
 | `model/verification` | Observe model verification requirements |
-| `modelProvider/authRecoveryStarted` | Observe the start of authentication recovery |
-| `modelProvider/authRecoveryCompleted` | Observe the end of authentication recovery |
+| `modelProvider/authRecoveryStarted` | Receive notifications when authentication recovery starts |
+| `modelProvider/authRecoveryCompleted` | Receive notifications when authentication recovery ends |
 | `model/safetyBuffering/updated` | Receive safety buffering display status |
-| `hook/started` | Observe the start of hook execution |
+| `hook/started` | Receive notifications when a hook starts |
 | `hook/completed` | Receive hook execution results |
-| `serverRequest/resolved` | Receive notifications that server requests, such as approvals or questions, have ended |
+| `serverRequest/resolved` | Receive notifications when server requests, such as approvals or questions, end |
 | `error` | Receive error notifications |
 | `warning` | Log server warnings |
 

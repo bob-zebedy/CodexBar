@@ -13,7 +13,7 @@ final class KeepAliveDurationLimiter: ObservableObject {
     @Published private(set) var hasReached = false
 
     /// 状态变化后需要重新求值一次防睡眠条件, 参数是这次变化的来源
-    /// begin pause restart reset 不走这里: 它们的调用方本来就会紧接着求值
+    /// begin pause restart reset 的调用方会立即重新求值, 无需触发此回调
     var onStateChanged: ((LogTrigger) -> Void)?
 
     private let defaults: UserDefaults

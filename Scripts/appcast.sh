@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 低于此构建号时优先提供旧分支补丁, 无可用补丁时提示手动升级
-# 发布不兼容更新时同步调整构建号和升级指南版本, 后续兼容更新保持不变
+# For builds below this threshold, provide patches from older branches when available
+# Otherwise, prompt users to upgrade manually
+#
+# For incompatible releases, update both the build threshold and upgrade guide version
+# Keep both values unchanged for subsequent compatible releases
 readonly MINIMUM_COMPATIBLE_BUILD=200
 readonly UPGRADE_GUIDE_VERSION=5.0.0
 
@@ -17,8 +20,6 @@ RELEASE_NOTES_BASE_URL="${RELEASE_NOTES_BASE_URL:-https://codexbar.zabrian.app/n
 MINIMUM_SYSTEM_VERSION="${MINIMUM_SYSTEM_VERSION:-15.0}"
 INCLUDE_RELEASE_NOTES="${INCLUDE_RELEASE_NOTES:-1}"
 SIGN_UPDATE="${SIGN_UPDATE:-}"
-XCODE_PROJECT="${XCODE_PROJECT:-}"
-XCODE_SCHEME="${XCODE_SCHEME:-CodexBar}"
 
 if [[ "${BUILD_DIR}" != /* ]]; then
     BUILD_DIR="${PROJECT_DIR}/${BUILD_DIR}"
@@ -42,8 +43,6 @@ Environment:
   INCLUDE_RELEASE_NOTES   Set to 0 to omit sparkle:releaseNotesLink.
   MINIMUM_SYSTEM_VERSION  Defaults to 15.0.
   SIGN_UPDATE             Optional path to Sparkle's sign_update tool.
-  XCODE_PROJECT           Optional .xcodeproj path.
-  XCODE_SCHEME            Defaults to CodexBar.
 USAGE
 }
 
@@ -62,23 +61,10 @@ xml_escape() {
         -e 's/"/\&quot;/g'
 }
 
-read_build_setting() {
-    local name="$1"
-    printf '%s\n' "${BUILD_SETTINGS}" |
-        awk -F= -v key="${name}" '
-          $1 ~ key {
-            value = $2
-            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-            print value
-            exit
-          }
-        '
-}
-
 # Print the single entry matching a glob in a directory, or fail
 # $1 noun for "no X found" $2 find -type $3 -name glob
 # $4 noun for "multiple X found" $5 hint appended to the multiple-match error
-# $6 directory to search. Exits 1 when nothing matches, 2 when more than one
+# $6 directory to search. Returns 1 when nothing matches, 2 when more than one
 # matches (printing the list)
 find_single() {
     local search_dir="$6"
@@ -135,40 +121,53 @@ if [[ ! -f "${APPCAST_PATH}" ]]; then
     exit 1
 fi
 
-if [[ -z "${XCODE_PROJECT}" ]]; then
-    XCODE_PROJECT="$(find_single .xcodeproj d '*.xcodeproj' '.xcodeproj files' 'set XCODE_PROJECT' "${PROJECT_DIR}")" || exit 1
-elif [[ "${XCODE_PROJECT}" != /* ]]; then
-    XCODE_PROJECT="${PROJECT_DIR}/${XCODE_PROJECT}"
-fi
-
-require_command xcodebuild
+require_command diskutil
 require_command perl
 require_command stat
 
-BUILD_SETTINGS="$(
-    xcodebuild \
-        -project "${XCODE_PROJECT}" \
-        -scheme "${XCODE_SCHEME}" \
-        -configuration Release \
-        -showBuildSettings 2>/dev/null
-)"
+WORK_DIR="$(mktemp -d)"
+MOUNT_POINT="${WORK_DIR}/volume"
+APPCAST_TMP="${WORK_DIR}/appcast.xml"
+DMG_MOUNTED=0
 
-SHORT_VERSION="$(read_build_setting MARKETING_VERSION)"
-BUILD_VERSION="$(read_build_setting CURRENT_PROJECT_VERSION)"
-PRODUCT_NAME="$(read_build_setting PRODUCT_NAME)"
+cleanup() {
+    if [[ "${DMG_MOUNTED}" == "1" ]]; then
+        if ! diskutil eject "${MOUNT_POINT}" >/dev/null; then
+            echo "error: unable to unmount ${MOUNT_POINT}" >&2
+            return
+        fi
+    fi
+    rm -f "${APPCAST_TMP}"
+    if [[ -d "${MOUNT_POINT}" ]]; then
+        rmdir "${MOUNT_POINT}"
+    fi
+    rmdir "${WORK_DIR}"
+}
+trap cleanup EXIT
+
+mkdir "${MOUNT_POINT}"
+diskutil image attach --readOnly --mountOptions nobrowse --mountPoint "${MOUNT_POINT}" "${DMG_PATH}" >/dev/null
+DMG_MOUNTED=1
+APP_PATH="$(find_single App d '*.app' Apps 'package a single App:' "${MOUNT_POINT}")" || exit 1
+INFO_PLIST="${APP_PATH}/Contents/Info.plist"
+SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${INFO_PLIST}" 2>/dev/null || true)"
+BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${INFO_PLIST}" 2>/dev/null || true)"
+PRODUCT_NAME="$(basename "${APP_PATH}" .app)"
+diskutil eject "${MOUNT_POINT}" >/dev/null
+DMG_MOUNTED=0
 
 if [[ -z "${SHORT_VERSION}" || -z "${BUILD_VERSION}" ]]; then
-    echo "error: unable to read MARKETING_VERSION or CURRENT_PROJECT_VERSION" >&2
+    echo "error: unable to read CFBundleShortVersionString or CFBundleVersion" >&2
     exit 1
 fi
 
 if [[ ! "${BUILD_VERSION}" =~ ^[1-9][0-9]*$ || ! "${MINIMUM_COMPATIBLE_BUILD}" =~ ^[1-9][0-9]*$ ]]; then
-    echo "error: CURRENT_PROJECT_VERSION and MINIMUM_COMPATIBLE_BUILD must be positive integer build numbers" >&2
+    echo "error: CFBundleVersion and MINIMUM_COMPATIBLE_BUILD must be positive integer build numbers" >&2
     echo "       configure MINIMUM_COMPATIBLE_BUILD in Scripts/appcast.sh" >&2
     exit 1
 fi
 if ! perl -e 'exit($ARGV[0] > $ARGV[1] ? 1 : 0)' "${MINIMUM_COMPATIBLE_BUILD}" "${BUILD_VERSION}"; then
-    echo "error: MINIMUM_COMPATIBLE_BUILD must not exceed CURRENT_PROJECT_VERSION" >&2
+    echo "error: MINIMUM_COMPATIBLE_BUILD must not exceed CFBundleVersion" >&2
     exit 1
 fi
 
@@ -181,12 +180,6 @@ if [[ "${RELEASE_NOTES_URL_PREFIX}" == *\?* ]]; then
     RELEASE_NOTES_URL_PREFIX+="&lang="
 else
     RELEASE_NOTES_URL_PREFIX+="?lang="
-fi
-
-if [[ -z "${PRODUCT_NAME}" || "${PRODUCT_NAME}" == '$(TARGET_NAME)' ]]; then
-    PRODUCT_NAME="$(basename "${DMG_PATH}")"
-    PRODUCT_NAME="${PRODUCT_NAME%%-v*}"
-    PRODUCT_NAME="${PRODUCT_NAME%.dmg}"
 fi
 
 if [[ -z "${SIGN_UPDATE}" ]]; then
@@ -267,8 +260,6 @@ APPCAST_ITEM="        <item>
 
 echo "==> Updating appcast"
 # Write through a temp file so a perl die leaves appcast.xml untouched
-APPCAST_TMP="$(mktemp)"
-trap 'rm -f "${APPCAST_TMP}"' EXIT
 APPCAST_ITEM="${APPCAST_ITEM}" APPCAST_VERSION="${BUILD_VERSION}" perl -0p -e '
   my $item = $ENV{"APPCAST_ITEM"};
   my $version = $ENV{"APPCAST_VERSION"};

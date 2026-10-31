@@ -81,7 +81,7 @@ actor AppServerActivityReader {
     private var backfillEpoch = UUID()
     private var backfillScans: [ActivityTurnReference: BackfillScan] = [:]
     private var backfillRoots = Set<ActivityTurnReference>()
-    private var backfillThreads = Set<String>()
+    private var backfillThreads: [String: Date] = [:]
     private var liveStartedTurns = Set<ActivityTurnReference>()
     private var tokenUsageRestorations: [String: Task<Void, Never>] = [:]
 
@@ -142,6 +142,7 @@ actor AppServerActivityReader {
 
     private struct BackfillScan {
         var completed = false
+        let createdAt = Date()
         var cursor: String?
         var limit = 20
         var visitedCursors = Set<String>()
@@ -161,6 +162,7 @@ actor AppServerActivityReader {
     private let maximumPendingBytes: Int
     private let maximumLoadedPages: Int
     private let reconciliationTimeout: TimeInterval
+    private let discoveryInterval: TimeInterval
     private let reconciliationClock: @Sendable () -> ContinuousClock.Instant
 
     init(
@@ -172,6 +174,7 @@ actor AppServerActivityReader {
         maximumPendingBytes: Int = 8 * 1024 * 1024,
         maximumLoadedPages: Int = 100,
         reconciliationTimeout: TimeInterval = 30,
+        discoveryInterval: TimeInterval = 2,
         reconciliationClock: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
         onAccountChange: @escaping @MainActor @Sendable (AccountChange) -> Void = { _ in },
         onBatch: @escaping @MainActor @Sendable (ActivityUpdate) -> Void
@@ -185,6 +188,7 @@ actor AppServerActivityReader {
         self.maximumPendingBytes = maximumPendingBytes
         self.maximumLoadedPages = maximumLoadedPages
         self.reconciliationTimeout = reconciliationTimeout
+        self.discoveryInterval = discoveryInterval
         self.reconciliationClock = reconciliationClock
         self.onAccountChange = onAccountChange
         self.onBatch = onBatch
@@ -266,7 +270,7 @@ actor AppServerActivityReader {
                     try await connect(generation: current)
                 }
                 try await consumeAvailable(generation: current)
-                if !drainWaiters.isEmpty || Date().timeIntervalSince(reconciledAt) >= 2 {
+                if !drainWaiters.isEmpty || Date().timeIntervalSince(reconciledAt) >= discoveryInterval {
                     let waiters = drainWaiters
                     drainWaiters.removeAll()
                     let requestedRecovery = waiters.last?.recoveryID
@@ -410,13 +414,14 @@ actor AppServerActivityReader {
 
     private func reconcileWithinBudget(bootstrap: Bool, forced: Bool, recovering: Bool, generation current: Int) async throws {
         let loaded = try await loadThreads(generation: current)
+        pruneBackfill(now: Date())
         ignoredThreads.formIntersection(loaded)
         let knownActive = Set(reducer.states.keys.filter {
             reducer.states[$0]?.terminal == nil && reducer.threads[$0.threadID]?.status?.type != .notLoaded
         }.map(\.threadID))
         let now = reconciliationClock()
         let dependencies = Set(reducer.missingRootTurns(liveOnly: forced || recovering).keys)
-            .union(reducer.missingSubagentParents(liveOnly: forced || recovering)).union(backfillThreads)
+            .union(reducer.missingSubagentParents(liveOnly: forced || recovering)).union(backfillThreads.keys)
         // 历史关联保留补读资格, 只有实时依赖需要快速核对
         let liveDependencies = Set(reducer.missingRootTurns(liveOnly: true).keys)
             .union(reducer.missingSubagentParents(liveOnly: true))
@@ -451,6 +456,7 @@ actor AppServerActivityReader {
             }
         }
         reducer.maintain(loadedThreads: loaded.subtracting(ignoredThreads), now: Date())
+        pruneBackfill(now: Date())
         subscribed.formIntersection(loaded)
         let retained = loaded.union(knownActive).union(dependencies).subtracting(ignoredThreads)
         threadChecks = threadChecks.filter { retained.contains($0.key) }
@@ -458,7 +464,6 @@ actor AppServerActivityReader {
         verifiedTurns = verifiedTurns.filter { reducer.states[$0.key] != nil && retained.contains($0.key.threadID) }
         turnScans = turnScans.filter { retained.contains($0.key) }
         turnRevisions = turnRevisions.filter { reducer.states[$0.key] != nil && retained.contains($0.key.threadID) }
-        backfillScans = backfillScans.filter { !$0.value.completed || reducer.states[$0.key] != nil }
         liveStartedTurns = liveStartedTurns.filter { reducer.states[$0] != nil }
         invalidThreads.formIntersection(retained)
         reconciledAt = Date()
@@ -509,7 +514,7 @@ actor AppServerActivityReader {
             let first = try await request(ActivityRequests.turns(id, limit: 10), generation: current)
             await applySnapshot(thread: thread, turns: first.data, checkpoint: checkpoint, bootstrap: bootstrap || newSubscription)
             remaining.subtract(first.data.map(\.id))
-            // 首个小页建立轮次身份后立即处理通知, 深页查询不再延迟实时事件
+            // 首个小页建立轮次身份后立即处理通知, 避免后续分页查询延迟实时事件
             preparingThread = nil
             consumeDeferred(for: id)
             if newSubscription {
@@ -531,6 +536,7 @@ actor AppServerActivityReader {
             let unchanged = checkpoint.threadRevision == revisions[id, default: 0]
             if unchanged {
                 invalidThreads.remove(id)
+                finishBackfillDiscovery(threadID: id, turns: first.data, remaining: remaining)
             }
             if invalidThreads.contains(id) {
                 reducer.invalidateThread(id)
@@ -616,6 +622,23 @@ actor AppServerActivityReader {
         if !events.isEmpty {
             await publish(.snapshotEvents, events: events)
         }
+    }
+
+    private func finishBackfillDiscovery(threadID: String, turns: [ActivityTurn], remaining: Set<String>) {
+        guard !turns.isEmpty, remaining.isEmpty, turns.allSatisfy({
+            reducer.states[ActivityTurnReference(threadID: threadID, turnID: $0.id)]?.readStatus == .complete
+        }) else { return }
+        // 轮次身份已交给 reducer 和补查队列, 不再为历史发现单独轮询会话
+        backfillThreads[threadID] = nil
+    }
+
+    private func pruneBackfill(now: Date) {
+        let cutoff = now.addingTimeInterval(-ActivityRetention.window)
+        backfillScans = backfillScans.filter {
+            reducer.states[$0.key] != nil || (!$0.value.completed && $0.value.createdAt > cutoff)
+        }
+        backfillRoots = backfillRoots.filter { reducer.states[$0] != nil || backfillScans[$0] != nil }
+        backfillThreads = backfillThreads.filter { $0.value > cutoff }
     }
 
     private func cancelBackfill() {
@@ -706,23 +729,23 @@ actor AppServerActivityReader {
     }
 
     private func finishBackfill(_ result: Result<AppServerActivityBackfill.Page, Error>, reference: ActivityTurnReference, epoch: UUID, generation current: Int) async {
-        guard isRunning, generation == current, backfillEpoch == epoch, !Task.isCancelled,
-              var scan = backfillScans[reference] else { return }
+        guard isRunning, generation == current, backfillEpoch == epoch else { return }
         defer {
             if backfillEpoch == epoch {
                 backfillTask = nil
             }
         }
+        guard !Task.isCancelled, var scan = backfillScans[reference] else { return }
         do {
             let page = try result.get()
             guard page.nextCursor.map({ !scan.visitedCursors.contains($0) }) ?? true else { throw CodexStatusError.invalidServerResponse }
             let events = reducer.historicalEvents(page.items, reference: reference, now: Date())
                 + reducer.historicalTurnEvents(reference)
             try await activityDataRecorder.record(events: events)
-            guard isRunning, generation == current, backfillEpoch == epoch, !Task.isCancelled else { return }
+            guard isRunning, generation == current, backfillEpoch == epoch, !Task.isCancelled, backfillScans[reference] != nil else { return }
             for entry in page.items where entry.item.type == .subAgentActivity && entry.item.kind == "started" {
                 if let child = entry.item.agentThreadId, backfillThreads.count < 10000 {
-                    backfillThreads.insert(child)
+                    backfillThreads[child] = backfillThreads[child] ?? Date()
                 }
             }
             scan.limit = page.limit
@@ -732,10 +755,10 @@ actor AppServerActivityReader {
             scan.cursor = page.nextCursor
             scan.failures = 0
             scan.completed = page.nextCursor == nil
-            backfillScans[reference] = scan
+            backfillScans[reference] = scan.completed ? BackfillScan(completed: true) : scan
             await publish(.lifecycleChanged)
         } catch {
-            guard isRunning, generation == current, backfillEpoch == epoch, !Task.isCancelled else { return }
+            guard isRunning, generation == current, backfillEpoch == epoch, !Task.isCancelled, backfillScans[reference] != nil else { return }
             scan.failures += 1
             scan.retryAfter = Date().addingTimeInterval(scan.failures == 1 ? 5 : 15)
             let status = error as? CodexStatusError
@@ -745,7 +768,7 @@ actor AppServerActivityReader {
                 false
             }
             scan.completed = scan.failures >= 3 || status?.isProtocolOrParameterFailure == true || oversized
-            backfillScans[reference] = scan
+            backfillScans[reference] = scan.completed ? BackfillScan(completed: true) : scan
             logStorage?.recordFailure(method: "activity/backfill", message: error.localizedDescription, connection: "activity/backfill")
         }
     }

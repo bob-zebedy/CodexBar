@@ -1,7 +1,7 @@
 import Foundation
 import ServiceManagement
 
-/// 管理进程只在查询或变更注册时启动, 输出与执行时间由共用进程内核约束
+/// 管理进程只在查询或变更注册时启动, 输出与执行时间由 BoundedProcess 限制
 actor PowerHelperManagerClient {
     private let executeCommand: @Sendable (PowerHelperManagement.Command) async throws -> SMAppService.Status
     private let retryDelay: Duration

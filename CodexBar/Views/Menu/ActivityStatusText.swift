@@ -174,29 +174,51 @@ struct ActivitySummaryText: View {
     var primaryTruncationMode: Text.TruncationMode = .tail
     var supplementaryLineLimit: Int?
     var singleLineWidthReserve: CGFloat = 0
-    var wrappedLayout: Binding<Bool>?
+    var usesWrappedLayout: Binding<Bool>?
+    var primaryHelp: String?
 
     var body: some View {
-        if wrappedLayout?.wrappedValue == true {
+        if usesWrappedLayout?.wrappedValue == true {
             wrappedContent
         } else {
             ViewThatFits(in: .horizontal) {
-                Text(components.joined(separator: " • "))
+                singleLineContent
                     .fixedSize()
                     .padding(.trailing, singleLineWidthReserve)
                 wrappedContent
                     // 只在换行布局被选中后锁定, 不让候选布局的预先测量改变状态
                     .onAppear {
-                        wrappedLayout?.wrappedValue = true
+                        usesWrappedLayout?.wrappedValue = true
                     }
             }
+        }
+    }
+
+    @ViewBuilder private var singleLineContent: some View {
+        if let primaryHelp, let primary = components.first {
+            HStack(spacing: 0) {
+                Text(primary).help(primaryHelp)
+                if components.count > 1 {
+                    Text(" • " + components.dropFirst().joined(separator: " • "))
+                }
+            }
+        } else {
+            Text(components.joined(separator: " • "))
+        }
+    }
+
+    @ViewBuilder private func componentText(_ component: String, index: Int) -> some View {
+        if index == 0, let primaryHelp {
+            Text(component).help(primaryHelp)
+        } else {
+            Text(component)
         }
     }
 
     private var wrappedContent: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(Array(components.enumerated()), id: \.offset) { index, component in
-                Text(component)
+                componentText(component, index: index)
                     .lineLimit(index == 0 ? primaryLineLimit : supplementaryLineLimit)
                     .truncationMode(index == 0 ? primaryTruncationMode : .tail)
                     .fixedSize(horizontal: false, vertical: true)

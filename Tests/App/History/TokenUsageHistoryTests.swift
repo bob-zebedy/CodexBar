@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+@Suite(.tags(.integration))
 struct TokenUsageHistoryTests {
     private let day = HistoryStorage.dateKey(for: TestFixtures.now)
     @Test func cachedTokenUsageFileChecksBytesAcrossExternalWritesAndDeletion() throws {

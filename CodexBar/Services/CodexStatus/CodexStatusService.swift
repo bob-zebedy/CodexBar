@@ -537,7 +537,7 @@ actor CodexStatusService {
             session.close()
             throw CodexStatusError.unsupportedVersion(minimum: minimum)
         } catch {
-            // app-server 链路的细节按既有分工进日志窗口, 不重复写系统日志
+            // app-server 交互细节写入日志窗口, 不重复写入系统日志
             logStorage?.recordFailure(
                 message: String(
                     localized: "log.app-server.error.initialization-failed",

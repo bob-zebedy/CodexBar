@@ -4,7 +4,7 @@ nonisolated struct MenuSectionVisibilityKey: LayoutValueKey {
     static let defaultValue: CGFloat = 1
 }
 
-/// 区域高度和相邻间距使用同一展开进度, 移除零高度区域时不再改变总高度
+/// 区域高度和相邻间距使用同一展开进度, 移除零高度区域时总高度保持不变
 struct MenuSectionLayout: Layout {
     var spacing: CGFloat
 

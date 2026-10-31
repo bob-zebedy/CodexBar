@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+@Suite(.tags(.integration))
 struct CodexVersionProcessTests {
     @Test(arguments: [
         ("printf 'codex-cli 0.157.0\\nignored'; printf 'codex-cli 0.156.0' >&2", "0.157.0"),

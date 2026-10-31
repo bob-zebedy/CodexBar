@@ -306,7 +306,7 @@ private struct TaskGlowHexInput: NSViewRepresentable {
         }
 
         private func setText(_ value: String, in field: NSTextField) {
-            // 结束编辑通知发出时 field editor 可能仍存在, 与控件及绑定一起收敛
+            // 结束编辑通知发出时 field editor 可能仍存在, 需与控件和绑定同步更新文本
             field.currentEditor()?.string = value
             field.stringValue = value
             parent.text = value

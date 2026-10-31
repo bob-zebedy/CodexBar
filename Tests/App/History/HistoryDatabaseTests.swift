@@ -2,6 +2,7 @@ import Foundation
 import SQLite3
 import Testing
 
+@Suite(.tags(.integration))
 struct HistoryDatabaseTests {
     @Test func storedCommandActionsPreserveDuplicatesAndDoNotCountCompletionTwice() throws {
         let directory = try TestDirectory()

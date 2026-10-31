@@ -1,7 +1,7 @@
 import CloudKit
 import Foundation
 
-/// 只有已确认的局部错误允许继续, 未识别的云端错误保持停止当前轮次
+/// 遇到已确认的局部错误时可以继续, 遇到未识别的云端错误时停止当前轮次
 nonisolated enum SyncRecovery {
     enum Failure: Error {
         case invalidCursor

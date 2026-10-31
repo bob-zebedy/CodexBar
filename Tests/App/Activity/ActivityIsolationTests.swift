@@ -2,6 +2,7 @@ import Foundation
 import Synchronization
 import Testing
 
+@Suite(.tags(.integration))
 struct ActivityIsolationTests {
     @Test func cumulativeTokenNotificationsReachLogsStorageAndLiveTasks() async throws {
         let directory = try TestDirectory()

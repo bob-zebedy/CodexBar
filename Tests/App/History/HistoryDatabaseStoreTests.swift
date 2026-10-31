@@ -2,6 +2,7 @@ import Foundation
 import SQLite3
 import Testing
 
+@Suite(.tags(.integration))
 struct HistoryDatabaseStoreTests {
     @Test func releasingConnectionPreservesCommittedData() async throws {
         let directory = try TestDirectory()
@@ -163,7 +164,7 @@ struct HistoryDatabaseStoreTests {
         defer { try? directory.remove() }
         let tokens = TokenUsageHistoryStore(directoryURL: directory.url)
         let now = Date()
-        for index in 0 ..< 129 {
+        for index in 0 ..< 257 {
             let threadID = "thread-\(index)"
             try await tokens.appendObservation(Self.observation(tokens: 5, at: now, threadID: threadID))
             #expect(try await tokens.snapshot(threadID: threadID).turns["turn"]?.totalTokens == 5)
@@ -173,7 +174,7 @@ struct HistoryDatabaseStoreTests {
             current: Self.observation(tokens: 9, at: now).current
         ))
         #expect(updated.turns["turn"]?.totalTokens == 9)
-        for index in 0 ..< 129 {
+        for index in 0 ..< 257 {
             #expect(try await tokens.snapshot(threadID: "thread-\(index)").turns["turn"]?.totalTokens == (index == 0 ? 9 : 5))
         }
     }

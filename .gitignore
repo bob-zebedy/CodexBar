@@ -38,6 +38,9 @@ codesign2
 # Logs
 *.log
 
+# Lock files
+*.lock
+
 # Performance reports
 /Performance/
 

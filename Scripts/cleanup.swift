@@ -106,9 +106,9 @@ private enum CleanupError: LocalizedError {
         case let .message(message):
             message
         case let .commandFailed(executable, arguments, status, output):
-            "命令执行失败, status=\(status), command=\(([executable] + arguments).joined(separator: " "))\n\(output)"
+            "Command failed, status=\(status), command=\(([executable] + arguments).joined(separator: " "))\n\(output)"
         case let .codeSigningValidationFailed(reason):
-            "签名校验失败, \(reason)"
+            "Code signature validation failed, \(reason)"
         }
     }
 }
@@ -137,14 +137,14 @@ private final class KeepAliveCleanupCommand {
         let targets = try makeTargets(options: options)
 
         guard !targets.isEmpty else {
-            print("清理完成: 没有可用目标")
+            print("Cleanup complete: no targets found")
             return
         }
 
         let runningTargets = runningTargets(in: targets)
         if !options.isCheckOnly, !runningTargets.isEmpty {
             let bundleIdentifiers = runningTargets.map(\.bundleIdentifier).joined(separator: ", ")
-            throw CleanupError.message("CodexBar 仍在运行, bundle=\(bundleIdentifiers)")
+            throw CleanupError.message("CodexBar is still running, bundle=\(bundleIdentifiers)")
         }
 
         let temporaryRoot = fileManager.temporaryDirectory
@@ -184,7 +184,7 @@ private final class KeepAliveCleanupCommand {
                 printUsage()
                 Darwin.exit(EXIT_SUCCESS)
             default:
-                throw CleanupError.message("未知选项, value=\(argument)")
+                throw CleanupError.message("Unknown option, value=\(argument)")
             }
         }
 
@@ -196,17 +196,17 @@ private final class KeepAliveCleanupCommand {
             """
             usage: Scripts/cleanup.swift [options]
 
-            仅注销 CodexBar 的 Release 和 Debug KeepAlive LaunchDaemon
+            Unregister only the Release and Debug KeepAlive LaunchDaemons for CodexBar
 
             Options:
-              --release       只移除 Release Power Helper
-              --debug         只移除 Debug Power Helper
-              --check         只检查目标
-              -h, --help      显示帮助
+              --release       Remove only the Release Power Helper
+              --debug         Remove only the Debug Power Helper
+              --check         Check targets without removing them
+              -h, --help      Show help
 
-            仅支持 Contents/Helpers 中的 Power Helper 管理 App
-            不指定 --release 或 --debug 时同时处理两个目标
-            实际清理前请先退出待清理的 CodexBar 实例
+            Requires the Power Helper manager app in Contents/Helpers
+            Processes both targets when neither --release nor --debug is specified
+            Quit the CodexBar instances you want to clean up before running cleanup
             """
         )
     }
@@ -217,11 +217,11 @@ private final class KeepAliveCleanupCommand {
             .compactMap { configuration in
                 let bundleIdentifier = configuration.bundleIdentifier
                 guard let appURL = try resolveAppURL(configuration: configuration) else {
-                    print("清理跳过: bundle=\(bundleIdentifier), reason=未找到 App")
+                    print("Cleanup skipped: bundle=\(bundleIdentifier), reason=App not found")
                     return nil
                 }
 
-                print("清理目标: bundle=\(bundleIdentifier), path=\(appURL.path)")
+                print("Cleanup target: bundle=\(bundleIdentifier), path=\(appURL.path)")
                 return CleanupTarget(
                     appURL: appURL,
                     bundleIdentifier: bundleIdentifier,
@@ -230,7 +230,7 @@ private final class KeepAliveCleanupCommand {
             }
     }
 
-    /// 按候选顺序查找, 通过 Info.plist 中的 CFBundleIdentifier 确认目标 App
+    /// Check candidates in order and verify the App using CFBundleIdentifier in Info.plist
     private func resolveAppURL(configuration: CleanupBuildConfiguration) throws -> URL? {
         let bundleIdentifier = configuration.bundleIdentifier
         var candidates: [URL] = []
@@ -250,15 +250,15 @@ private final class KeepAliveCleanupCommand {
             return candidate
         }
 
-        // xcodebuild 未找到目标不表示数据损坏, 按非致命失败处理
+        // Treat an xcodebuild lookup failure as nonfatal since it does not imply a corrupt installation
         guard let builtAppURL = try? resolveBuiltAppURL(configuration: configuration) else {
             return nil
         }
         return try appBundleIdentifier(at: builtAppURL) == bundleIdentifier ? builtAppURL : nil
     }
 
-    /// 缺少 Info.plist 或字符串类型的 CFBundleIdentifier 时返回 nil
-    /// 文件读取或解析失败时抛出错误, 避免将损坏的安装静默跳过
+    /// Return nil if Info.plist is missing or CFBundleIdentifier is not a string
+    /// Throw on read or parse errors so corrupt installations are not silently skipped
     private func appBundleIdentifier(at appURL: URL) throws -> String? {
         let infoURL = appURL.appending(path: "Contents/Info.plist")
         guard fileManager.fileExists(atPath: infoURL.path) else {
@@ -284,7 +284,7 @@ private final class KeepAliveCleanupCommand {
         guard let targetBuildDirectory = buildSetting("TARGET_BUILD_DIR", in: output),
               let wrapperName = buildSetting("WRAPPER_NAME", in: output) else {
             throw CleanupError.message(
-                "无法从 Xcode 构建设置定位 App, configuration=\(configuration.rawValue)"
+                "Cannot locate App from Xcode build settings, configuration=\(configuration.rawValue)"
             )
         }
         return URL(fileURLWithPath: targetBuildDirectory).appending(path: wrapperName)
@@ -319,16 +319,16 @@ private final class KeepAliveCleanupCommand {
         let daemonPlistURL = managerURL.appending(path: "Contents/Library/LaunchDaemons/\(target.plistName)")
         guard fileManager.isExecutableFile(atPath: managerExecutableURL.path),
               fileManager.fileExists(atPath: daemonPlistURL.path) else {
-            throw CleanupError.message("Power Helper 管理 App 缺失或结构无效, path=\(managerURL.path)")
+            throw CleanupError.message("Power Helper manager app is missing or has an invalid structure, path=\(managerURL.path)")
         }
 
         let teamIdentifier = try signingTeamIdentifier(for: target.appURL)
-        try runCodeSigningChecked(["--verify", "--deep", "--strict", managerURL.path], failureReason: "验证管理 App 签名失败")
+        try runCodeSigningChecked(["--verify", "--deep", "--strict", managerURL.path], failureReason: "Cannot verify manager app signature")
         guard try signingTeamIdentifier(for: managerURL) == teamIdentifier else {
-            throw CleanupError.codeSigningValidationFailed("管理 App 与主 App 的 Team ID 不匹配")
+            throw CleanupError.codeSigningValidationFailed("Manager app and main App have different Team IDs")
         }
 
-        // 清理进程必须使用主 App 的签名身份, 才能通过 Power Helper 的 XPC 校验
+        // The cleanup process needs the main App's signing identity to pass Power Helper XPC validation
         let cleanupAppURL = temporaryRoot
             .appending(path: "\(target.bundleIdentifier).app", directoryHint: .isDirectory)
         let contentsURL = cleanupAppURL.appending(path: "Contents", directoryHint: .isDirectory)
@@ -352,22 +352,22 @@ private final class KeepAliveCleanupCommand {
                 "--sign", signingIdentity,
                 cleanupAppURL.path
             ],
-            failureReason: "签名 App 失败"
+            failureReason: "Cannot sign App"
         )
 
         let cleanupTeamIdentifier = try signingTeamIdentifier(for: cleanupAppURL)
         guard cleanupTeamIdentifier == teamIdentifier else {
             throw CleanupError.codeSigningValidationFailed(
-                "Team ID 不匹配, actual=\(cleanupTeamIdentifier), expected=\(teamIdentifier)"
+                "Team ID mismatch, actual=\(cleanupTeamIdentifier), expected=\(teamIdentifier)"
             )
         }
         try runCodeSigningChecked(
             ["--verify", "--strict", "--verbose=2", cleanupAppURL.path],
-            failureReason: "验证 App 签名失败"
+            failureReason: "Cannot verify App signature"
         )
 
         if isCheckOnly {
-            print("目标验证完成: bundle=\(target.bundleIdentifier)")
+            print("Target verified: bundle=\(target.bundleIdentifier)")
             return
         }
 
@@ -393,7 +393,7 @@ private final class KeepAliveCleanupCommand {
             capturesOutput: true
         )
         guard serviceStatus.status != 0 else {
-            throw CleanupError.message("后台服务仍在运行, service=\(target.serviceIdentifier)")
+            throw CleanupError.message("Background service is still running, service=\(target.serviceIdentifier)")
         }
     }
 
@@ -401,7 +401,7 @@ private final class KeepAliveCleanupCommand {
         let data = try Data(contentsOf: url)
         guard let dictionary = try PropertyListSerialization.propertyList(from: data, format: nil)
             as? [String: Any] else {
-            throw CleanupError.message("plist 内容无效, path=\(url.path)")
+            throw CleanupError.message("Invalid plist contents, path=\(url.path)")
         }
         return dictionary
     }
@@ -418,24 +418,24 @@ private final class KeepAliveCleanupCommand {
     private func signingTeamIdentifier(for appURL: URL) throws -> String {
         let output = try runCodeSigningChecked(
             ["-dvv", appURL.path],
-            failureReason: "读取签名信息失败, path=\(appURL.path)",
+            failureReason: "Cannot read code signature, path=\(appURL.path)",
             capturesOutput: true
         ).text
         guard let line = output.split(whereSeparator: \.isNewline)
             .first(where: { $0.hasPrefix("TeamIdentifier=") }) else {
             throw CleanupError.codeSigningValidationFailed(
-                "Team ID 缺失, path=\(appURL.path)"
+                "Missing Team ID, path=\(appURL.path)"
             )
         }
         let teamIdentifier = String(line.dropFirst("TeamIdentifier=".count))
         guard !teamIdentifier.isEmpty else {
             throw CleanupError.codeSigningValidationFailed(
-                "Team ID 为空, path=\(appURL.path)"
+                "Empty Team ID, path=\(appURL.path)"
             )
         }
         guard teamIdentifier.unicodeScalars.allSatisfy(CharacterSet.alphanumerics.contains) else {
             throw CleanupError.codeSigningValidationFailed(
-                "Team ID 格式错误, actual=\(teamIdentifier), expected=alphanumeric"
+                "Invalid Team ID format, actual=\(teamIdentifier), expected=alphanumeric"
             )
         }
         return teamIdentifier
@@ -523,17 +523,17 @@ private func runUnregisterChild(serviceIdentifier: String, managerExecutable: St
     do {
         let initialStatus = try runPowerHelperManager(command: "status", executable: managerExecutable)
         if initialStatus == .notRegistered || initialStatus == .notFound {
-            print("后台服务未注册: service=\(serviceIdentifier)")
+            print("Background service is not registered: service=\(serviceIdentifier)")
             Darwin.exit(EXIT_SUCCESS)
         }
         let status = try runPowerHelperManager(command: "unregister", executable: managerExecutable)
         guard status == .notRegistered || status == .notFound else {
-            throw CleanupError.message("管理 App 未确认 Power Helper 已注销, status=\(status.rawValue)")
+            throw CleanupError.message("Manager app did not confirm Power Helper was unregistered, status=\(status.rawValue)")
         }
-        print("后台服务已注销: service=\(serviceIdentifier)")
+        print("Background service unregistered: service=\(serviceIdentifier)")
         Darwin.exit(EXIT_SUCCESS)
     } catch {
-        FileHandle.standardError.write(Data("Power Helper 注销失败: \(error.localizedDescription)\n".utf8))
+        FileHandle.standardError.write(Data("Failed to unregister Power Helper: \(error.localizedDescription)\n".utf8))
         Darwin.exit(EXIT_FAILURE)
     }
 }
@@ -548,31 +548,31 @@ private func runPowerHelperManager(command: String, executable: String) throws -
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
     guard process.terminationStatus == 0 else {
-        throw CleanupError.message("管理 App 进程失败, command=\(command), exit=\(process.terminationStatus)")
+        throw CleanupError.message("Manager app process failed, command=\(command), exit=\(process.terminationStatus)")
     }
 
     let reply: PowerHelperManagerReply
     do {
         reply = try JSONDecoder().decode(PowerHelperManagerReply.self, from: data)
     } catch {
-        throw CleanupError.message("管理 App 响应无效, command=\(command), detail=\(error.localizedDescription)")
+        throw CleanupError.message("Invalid manager app response, command=\(command), detail=\(error.localizedDescription)")
     }
     if let domain = reply.errorDomain, let code = reply.errorCode {
         throw CleanupError.message(
-            "管理 App 执行失败, command=\(command), status=\(reply.status), domain=\(domain), code=\(code)"
+            "Manager app command failed, command=\(command), status=\(reply.status), domain=\(domain), code=\(code)"
         )
     }
     guard reply.errorDomain == nil, reply.errorCode == nil else {
-        throw CleanupError.message("管理 App 错误信息不完整, command=\(command)")
+        throw CleanupError.message("Incomplete manager app error details, command=\(command)")
     }
     guard let status = SMAppService.Status(rawValue: reply.status) else {
-        throw CleanupError.message("管理 App 状态无效, command=\(command), status=\(reply.status)")
+        throw CleanupError.message("Invalid manager app status, command=\(command), status=\(reply.status)")
     }
     switch status {
     case .notRegistered, .enabled, .requiresApproval, .notFound:
         return status
     @unknown default:
-        throw CleanupError.message("管理 App 状态未知, command=\(command), status=\(reply.status)")
+        throw CleanupError.message("Unknown manager app status, command=\(command), status=\(reply.status)")
     }
 }
 
@@ -592,10 +592,10 @@ private func cancelAutoResetWakeScheduleBeforeUnregister(serviceIdentifier: Stri
         }
     }
     connection.interruptionHandler = {
-        finish("连接中断")
+        finish("Connection interrupted")
     }
     connection.invalidationHandler = {
-        finish("连接失效")
+        finish("Connection invalidated")
     }
     connection.resume()
 
@@ -605,7 +605,7 @@ private func cancelAutoResetWakeScheduleBeforeUnregister(serviceIdentifier: Stri
     guard let powerHelper = connection.remoteObjectProxyWithErrorHandler(errorHandler)
         as? CleanupPowerHelperProtocol else {
         connection.invalidate()
-        reportWakeScheduleCancellationFailure(owner: owner, detail: "服务接口无效")
+        reportWakeScheduleCancellationFailure(owner: owner, detail: "Invalid service interface")
         return false
     }
 
@@ -618,17 +618,17 @@ private func cancelAutoResetWakeScheduleBeforeUnregister(serviceIdentifier: Stri
     connection.invalidate()
 
     let errorMessage = waitResult == .timedOut
-        ? "请求超时"
+        ? "Request timed out"
         : state.completedErrorMessage()
     guard !hasScheduledWakeEvent(owner: owner) else {
         reportWakeScheduleCancellationFailure(
             owner: owner,
-            detail: errorMessage ?? "系统回读仍存在事件"
+            detail: errorMessage ?? "Wake event is still present in the system schedule"
         )
         return false
     }
 
-    print("自动重置唤醒计划已取消: owner=\(owner)")
+    print("Auto-reset wake schedule canceled: owner=\(owner)")
     return true
 }
 
@@ -649,7 +649,7 @@ private func hasScheduledWakeEvent(owner: String) -> Bool {
 private func reportWakeScheduleCancellationFailure(owner: String, detail: String) {
     FileHandle.standardError.write(
         Data(
-            "自动重置唤醒计划取消失败, 已停止注销: owner=\(owner), detail=\(detail)\n".utf8
+            "Cannot cancel auto-reset wake schedule; unregister aborted: owner=\(owner), detail=\(detail)\n".utf8
         )
     )
 }
@@ -658,7 +658,7 @@ let arguments = Array(CommandLine.arguments.dropFirst())
 if arguments.first == "--unregister-child" {
     guard arguments.count == 3 else {
         FileHandle.standardError.write(
-            Data("内部参数无效: expected=3, actual=\(arguments.count)\n".utf8)
+            Data("Invalid internal arguments: expected=3, actual=\(arguments.count)\n".utf8)
         )
         Darwin.exit(EXIT_FAILURE)
     }
@@ -668,6 +668,6 @@ if arguments.first == "--unregister-child" {
 do {
     try KeepAliveCleanupCommand().run(arguments: arguments)
 } catch {
-    FileHandle.standardError.write(Data("清理失败: \(error.localizedDescription)\n".utf8))
+    FileHandle.standardError.write(Data("Cleanup failed: \(error.localizedDescription)\n".utf8))
     Darwin.exit(EXIT_FAILURE)
 }

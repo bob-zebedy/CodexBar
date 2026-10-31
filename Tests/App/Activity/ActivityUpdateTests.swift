@@ -3,6 +3,7 @@ import Foundation
 import Synchronization
 import Testing
 
+@Suite(.tags(.integration))
 struct ActivityUpdateTests {
     @Test(arguments: ["resolved", "pending", "replaced", "unknown", "ended"], [false, true])
     func approvalPublicationUsesFinalState(scenario: String, deferred: Bool) throws {

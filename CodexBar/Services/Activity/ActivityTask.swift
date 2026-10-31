@@ -125,7 +125,8 @@ nonisolated struct ActivityTask {
             activeSubagentCount: activeSubagentCount,
             tokenUsage: tokenUsage,
             approvalActionText: displayedApproval?.actionText,
-            presentation: livePresentation
+            presentation: livePresentation,
+            threadID: key.threadID
         )
     }
 
@@ -172,7 +173,7 @@ nonisolated struct ActivityTask {
         lastProgressAt
     }
 
-    /// 隐藏还要求 Codex 后台服务提供的新鲜生命周期覆盖
+    /// 隐藏任务前需从 Codex 后台服务完整读取生命周期, 且读取结果仍在有效期内
     func protectionDeadline(at now: Date, inactivityDuration: TimeInterval) -> Date? {
         guard hasFreshLifecycle(at: now) else { return nil }
         return protectionReferenceAt.addingTimeInterval(inactivityDuration)

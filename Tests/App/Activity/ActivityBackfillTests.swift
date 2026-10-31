@@ -2,6 +2,7 @@ import Foundation
 import Synchronization
 import Testing
 
+@Suite(.tags(.integration))
 struct ActivityBackfillTests {
     nonisolated enum BackfillOutcome: CaseIterable { case complete, stop, invalidResponse, liveCreation }
 
@@ -294,6 +295,8 @@ extension ActivityBackfillTests {
         }
         let cursors = Mutex<[String?]>([])
         let queriedThreads = Mutex<Set<String>>([])
+        let completedChild = Mutex(false)
+        let childReads = Mutex(0)
         let timestamp = Date().addingTimeInterval(-60).timeIntervalSince1970
         let server = try SharedServerFixture(connections: 4, concurrentConnections: true) { peer in
             if try Self.initialize(peer) == "codex_bar_activity_backfill" {
@@ -326,7 +329,7 @@ extension ActivityBackfillTests {
                     try peer.reply(to: request, result: ["data": items])
                 }
             } else {
-                try Self.serveNewSubagent(peer, timestamp: timestamp, firstPage: firstPage)
+                try Self.serveNewSubagent(peer, timestamp: timestamp, firstPage: firstPage, completedChild: completedChild, childReads: childReads)
             }
         }
         defer { server.close() }
@@ -352,27 +355,46 @@ extension ActivityBackfillTests {
         }
         #expect(await reader.lifecycleSnapshot.lifecycleStates(for: references).allSatisfy { $0.effort == "low" })
         #expect(cursors.withLock { $0 } == [nil, "older"])
+        completedChild.withLock { $0 = true }
+        _ = await reader.drainForRecovery(generation: UUID())
+        let readsAfterCompletion = childReads.withLock { $0 }
+        _ = await reader.drainForRecovery(generation: UUID())
+        #expect(childReads.withLock { $0 } == readsAfterCompletion)
         await reader.stop()
         try server.finish()
         #expect(queriedThreads.withLock { $0 } == ["parent", "child"])
     }
 
-    private nonisolated static func serveNewSubagent(_ peer: SharedServerFixture.Peer, timestamp: Double, firstPage: DispatchSemaphore) throws {
+    private nonisolated static func serveNewSubagent(
+        _ peer: SharedServerFixture.Peer, timestamp: Double, firstPage: DispatchSemaphore,
+        completedChild: borrowing Mutex<Bool>, childReads: borrowing Mutex<Int>
+    ) throws {
         var sent = false
         while let request = try? peer.readMessage() {
             let id = (request["params"] as? [String: Any])?["threadId"] as? String ?? ""
             switch request["method"] as? String {
-            case "thread/loaded/list": try peer.reply(to: request, result: ["data": ["parent", "child"]])
+            case "thread/loaded/list": try peer.reply(to: request, result: ["data": completedChild.withLock { $0 } ? ["parent"] : ["parent", "child"]])
             case "thread/read", "thread/resume":
                 var thread: [String: Any] = ["id": id, "source": "cli", "status": ["type": "active"]]
+                if id == "child" {
+                    childReads.withLock { $0 += 1 }
+                    if completedChild.withLock({ $0 }) {
+                        thread["status"] = ["type": "notLoaded"]
+                    }
+                }
                 if id != "parent" {
                     thread["parentThreadId"] = "parent"
                 }
                 try peer.reply(to: request, result: ["thread": thread])
             case "thread/turns/list":
-                try peer.reply(to: request, result: ["data": [[
+                var turn: [String: Any] = [
                     "id": id == "parent" ? "root" : id + "-turn", "rootTurnId": "root", "status": "inProgress", "startedAt": timestamp
-                ]]])
+                ]
+                if id == "child", completedChild.withLock({ $0 }) {
+                    turn["status"] = "completed"
+                    turn["completedAt"] = timestamp + 30
+                }
+                try peer.reply(to: request, result: ["data": [turn]])
                 if id == "parent", !sent {
                     sent = true
                     #expect(firstPage.wait(timeout: .now() + 3) == .success)

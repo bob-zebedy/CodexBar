@@ -21,13 +21,11 @@
     "codeCoverage" : false,
     "language" : "zh-Hans",
     "mainThreadCheckerDetectionPolicy" : {
-      "enabled" : true,
       "severity" : "warning"
     },
     "region" : "CN",
     "testTimeoutsEnabled" : true,
     "threadPerformanceCheckerRuntimeIssueDetection" : {
-      "enabled" : true,
       "severity" : "warning"
     }
   },

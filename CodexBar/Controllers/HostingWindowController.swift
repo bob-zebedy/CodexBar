@@ -43,7 +43,7 @@ final class AuxiliaryHostingWindow: NSWindow {
     }
 }
 
-/// 承载 SwiftUI 内容的单窗口控制器基类, 统一懒创建, 居中与窗口管理逻辑
+/// 承载 SwiftUI 内容的单窗口控制器基类, 按需创建窗口并统一处理居中和窗口管理
 @MainActor
 class HostingWindowController {
     let screenProvider: () -> NSScreen?

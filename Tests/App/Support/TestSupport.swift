@@ -2,6 +2,10 @@ import Darwin
 import Foundation
 import Testing
 
+extension Tag {
+    @Tag static var integration: Self
+}
+
 nonisolated enum TestFixtures {
     static let now = Date(timeIntervalSince1970: 1789459200)
 

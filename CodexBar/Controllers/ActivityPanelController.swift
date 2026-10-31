@@ -13,10 +13,10 @@ final class ActivityPanelController {
         sizingOptions: [],
         cornerRadius: ActivityCenterView.panelCornerRadius
     )
-    private var currentContext: ActivityCenterPanelContext?
+    private var currentAnchor: ActivityCenterPanelAnchor?
     private weak var menuSurfaceWindow: NSWindow?
-    private weak var menuContentView: NSView?
     private var cancellables = Set<AnyCancellable>()
+    private var layoutSubscriptions = Set<AnyCancellable>()
     private var presentationTask: Task<Void, Never>?
     private var panelUpdateTask: Task<Void, Never>?
     private lazy var presenter = SidePanelDrawerPresenter(
@@ -36,12 +36,17 @@ final class ActivityPanelController {
         self.mainPanelSettings = mainPanelSettings
 
         activityMonitor.$snapshot
+            .map { snapshot -> CGSize? in
+                guard snapshot.hasTaskCenterContent else { return nil }
+                return ActivityCenterView.panelSize(maximumHeight: .greatestFiniteMagnitude, snapshot: snapshot)
+            }
+            .removeDuplicates()
             .dropFirst()
-            .sink { [weak self] snapshot in
+            .sink { [weak self] size in
                 guard let self, presentationState.isPresented else {
                     return
                 }
-                schedulePanelUpdate(hasContent: snapshot.hasTaskCenterContent)
+                schedulePanelUpdate(hasContent: size != nil)
             }
             .store(in: &cancellables)
     }
@@ -55,7 +60,7 @@ final class ActivityPanelController {
     }
 
     func toggle(
-        context: ActivityCenterPanelContext,
+        anchor: ActivityCenterPanelAnchor,
         relativeTo menuSurfaceWindow: NSWindow?,
         contentView: NSView?
     ) {
@@ -65,7 +70,7 @@ final class ActivityPanelController {
         }
 
         schedulePresentation(
-            context: context,
+            anchor: anchor,
             relativeTo: menuSurfaceWindow,
             contentView: contentView
         )
@@ -73,6 +78,9 @@ final class ActivityPanelController {
 
     func hide(immediate: Bool = false) {
         cancelScheduledPresentation()
+        layoutSubscriptions.removeAll()
+        currentAnchor = nil
+        menuSurfaceWindow = nil
         // 热力图 hover 等高频路径会反复调用 hide, 已隐藏时跳过 @Published 写入以免整个菜单重算
         if presentationState.isPresented || presenter.isVisible {
             cancelScheduledPanelUpdate()
@@ -84,7 +92,7 @@ final class ActivityPanelController {
     }
 
     private func schedulePresentation(
-        context: ActivityCenterPanelContext,
+        anchor: ActivityCenterPanelAnchor,
         relativeTo menuSurfaceWindow: NSWindow?,
         contentView: NSView?
     ) {
@@ -95,10 +103,7 @@ final class ActivityPanelController {
 
             contentView?.layoutSubtreeIfNeeded()
             if let menuSurfaceWindow,
-               context.anchorProvider.currentScreenFrame(
-                   in: menuSurfaceWindow,
-                   allowingCachedFrame: false
-               ) == nil {
+               anchor.screenFrame(in: menuSurfaceWindow) == nil {
                 await Task.yield()
             }
 
@@ -107,7 +112,7 @@ final class ActivityPanelController {
             }
             presentationTask = nil
             show(
-                context: context,
+                anchor: anchor,
                 relativeTo: menuSurfaceWindow,
                 contentView: contentView
             )
@@ -120,7 +125,7 @@ final class ActivityPanelController {
     }
 
     private func show(
-        context: ActivityCenterPanelContext,
+        anchor: ActivityCenterPanelAnchor,
         relativeTo menuSurfaceWindow: NSWindow?,
         contentView: NSView?
     ) {
@@ -133,16 +138,17 @@ final class ActivityPanelController {
 
         let panel = contentHost.ensurePanel()
         cancelScheduledPanelUpdate()
-        currentContext = context
+        currentAnchor = anchor
         self.menuSurfaceWindow = menuSurfaceWindow
-        menuContentView = contentView
-        let layout = panelLayout(
-            context: context,
+        contentView?.layoutSubtreeIfNeeded()
+        guard let layout = panelLayout(
+            anchor: anchor,
             menuSurfaceWindow: menuSurfaceWindow,
-            contentView: contentView,
-            snapshot: snapshot,
-            allowsCachedAnchor: false
-        )
+            snapshot: snapshot
+        ) else {
+            hide(immediate: true)
+            return
+        }
 
         updateContent(panelSize: layout.size)
         panel.level = menuSurfaceWindow.level
@@ -151,32 +157,24 @@ final class ActivityPanelController {
             SidePanelSupport.restoreMenuSurfaceKeyWindow(menuSurfaceWindow)
         }
         presenter.present(panel, at: layout.position, relativeTo: menuSurfaceWindow)
+        observeLayout(anchor: anchor, window: menuSurfaceWindow)
     }
 
     private func panelLayout(
-        context: ActivityCenterPanelContext,
+        anchor: ActivityCenterPanelAnchor,
         menuSurfaceWindow: NSWindow,
-        contentView: NSView?,
-        snapshot: ActivitySnapshot,
-        allowsCachedAnchor: Bool = true
-    ) -> (size: CGSize, position: SidePanelPosition) {
-        let menuSurfaceFrame = SidePanelSupport.contentScreenFrame(
-            for: contentView,
-            in: menuSurfaceWindow
-        ) ?? menuSurfaceWindow.frame
+        snapshot: ActivitySnapshot
+    ) -> (size: CGSize, position: SidePanelPosition)? {
+        let menuSurfaceFrame = menuSurfaceWindow.contentRect(forFrameRect: menuSurfaceWindow.frame)
         let screen = menuSurfaceWindow.screen ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? menuSurfaceFrame
-        let alignmentScreenFrame = SidePanelSupport.validatedAlignmentScreenFrame(
-            context.anchorProvider.currentScreenFrame(
-                in: menuSurfaceWindow,
-                allowingCachedFrame: allowsCachedAnchor
-            ),
+        guard let alignmentScreenFrame = SidePanelSupport.validatedAlignmentScreenFrame(
+            anchor.screenFrame(in: menuSurfaceWindow),
             menuSurfaceFrame: menuSurfaceFrame
-        )
+        ) else { return nil }
         let screenMaximumHeight = visibleFrame.height - SidePanelSupport.Metrics.screenPadding * 2
-        let menuMaximumHeight = alignmentScreenFrame.map {
-            $0.maxY - menuSurfaceFrame.minY
-        } ?? screenMaximumHeight
+        let menuMaximumHeight = alignmentScreenFrame.maxY - menuSurfaceFrame.minY
+        guard min(screenMaximumHeight, menuMaximumHeight) > 0 else { return nil }
         let panelSize = ActivityCenterView.panelSize(
             maximumHeight: min(screenMaximumHeight, menuMaximumHeight),
             snapshot: snapshot
@@ -187,7 +185,7 @@ final class ActivityPanelController {
             visibleFrame: visibleFrame,
             screenFrame: screen?.frame,
             alignmentScreenFrame: alignmentScreenFrame,
-            preferredSide: context.preferredSide
+            preferredSide: .right
         )
 
         return (panelSize, position)
@@ -196,25 +194,42 @@ final class ActivityPanelController {
     private func updateVisibleLayout(for snapshot: ActivitySnapshot) {
         guard let panel = contentHost.panel,
               panel.isVisible,
-              let currentContext,
+              let currentAnchor,
               let menuSurfaceWindow else {
             return
         }
 
-        let layout = panelLayout(
-            context: currentContext,
+        guard let layout = panelLayout(
+            anchor: currentAnchor,
             menuSurfaceWindow: menuSurfaceWindow,
-            contentView: menuContentView,
             snapshot: snapshot
-        )
+        ) else {
+            hide()
+            return
+        }
         guard panel.frame != layout.position.frame else {
             return
         }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Metrics.contentUpdateDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            panel.animator().setFrame(layout.position.frame, display: true)
+        // 宿主随 SwiftUI 布局逐帧伸缩, 窗口位置同步更新, 避免叠加动画
+        panel.setFrame(layout.position.frame, display: true)
+    }
+
+    private func observeLayout(anchor: ActivityCenterPanelAnchor, window: NSWindow) {
+        layoutSubscriptions.removeAll()
+        anchor.$topOffset
+            .dropFirst()
+            .sink { [weak self] _ in self?.scheduleGeometryUpdate() }
+            .store(in: &layoutSubscriptions)
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didChangeScreenNotification] {
+            NotificationCenter.default.publisher(for: name, object: window)
+                .sink { [weak self] _ in self?.scheduleGeometryUpdate() }
+                .store(in: &layoutSubscriptions)
         }
+    }
+
+    private func scheduleGeometryUpdate() {
+        guard presentationState.isPresented, activityMonitor.snapshot.hasTaskCenterContent else { return }
+        schedulePanelUpdate(hasContent: true)
     }
 
     private func schedulePanelUpdate(hasContent: Bool) {

@@ -607,7 +607,9 @@ struct ActivityLivePresentationTests {
         #expect(snapshot.panelWaitingTasks.count == 1)
         #expect(snapshot.panelRunningTasks.isEmpty)
         #expect(snapshot.primaryActivity == .running(task.snapshot))
-        #expect(snapshot.panelPrimaryActivity == .waiting(task.snapshot))
+        var selection = ActivityCardSelection()
+        selection.update(snapshot: snapshot, isHealthy: true, now: now)
+        #expect(selection.current == .waiting(task.snapshot))
         #expect(snapshot.keepAliveTaskIDs.waiting == (isBlocking ? [task.displayID] : []))
         #expect(snapshot.keepAliveTaskIDs.running == (isBlocking ? [] : [task.displayID]))
         let summary = ActivityDisplayFormat.liveSummaryComponents(for: task.snapshot, now: now)
@@ -640,7 +642,7 @@ struct ActivityLivePresentationTests {
 
         let concurrent = ActivityTaskSnapshot(
             id: UUID(), projectName: nil, modelName: nil, effort: nil,
-            startedAt: now, stateChangedAt: now, activeSubagentCount: nil
+            startedAt: now, stateChangedAt: now, activeSubagentCount: nil, threadID: "concurrent-thread"
         )
         let mixed = ActivitySnapshot(waitingTasks: [], runningTasks: [waiting, concurrent], recentCompletions: [], recentTerminations: [])
         #expect(mixed.keepAliveTaskIDs.running == [concurrent.id])

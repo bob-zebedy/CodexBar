@@ -745,7 +745,7 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
                 _ = restoreOwnedSleep(trigger: .powerHelperStartup)
             }
         case let .unreadable(error):
-            // 损坏记录无法证明所有权, 启动时按最安全的默认值 0 收敛
+            // 损坏记录无法证明所有权, 启动时将睡眠控制恢复为默认值 0
             let details = LogFields.joined(
                 "detail=\(error.localizedDescription)",
                 "action=forceRestore"

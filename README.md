@@ -15,7 +15,7 @@
 [![Downloads](https://img.shields.io/github/downloads/bob-zebedy/CodexBar/total?style=flat&label=Downloads&labelColor=E4F3E7&color=2EA043&logo=data:image%2Fsvg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMkVBMDQzIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI%2BPHBhdGggZD0iTTEyIDN2MTJtLTUtNSA1IDUgNS01TTQgMTZ2NWgxNnYtNSIvPjwvc3ZnPg%3D%3D)](https://github.com/bob-zebedy/CodexBar/releases)
 [![License](https://img.shields.io/github/license/bob-zebedy/CodexBar?style=flat&label=License&labelColor=F7EFCF&color=A67C00&logo=data:image%2Fsvg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjQTY3QzAwIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI%2BPHBhdGggZD0iTTEyIDN2MThtLTQgMGg4TTMgN2gxOE01IDdsLTMgOGg2TDUgN1ptMTQgMC0zIDhoNmwtMy04WiIvPjwvc3ZnPg%3D%3D)](LICENSE)
 
-[功能](#功能) | [安装](#安装) | [隐私](#隐私) | [运行架构](https://codexbar.zabrian.app/architecture) | [性能报告](https://codexbar.zabrian.app/performance) | [协议](Protocol.md)
+[功能](#功能) | [安装](#安装) | [隐私](#隐私) | [运行架构](https://codexbar.zabrian.app/architecture) | [协议](Protocol.md)
 
 <img src="Images/preview.gif" width="640" alt="CodexBar 预览">
 
@@ -29,13 +29,13 @@ CodexBar 是 macOS 菜单栏 App，可查看 Codex 账户、额度、Token 用�
 
 - 查看账户、套餐、积分，以及各额度窗口的剩余比例和重置时间
 - 在菜单栏直接显示关注的额度
-- 查看留存重置及到期时间，支持到期前自动使用
+- 查看留存重置和到期时间，可在到期前自动使用
 
 ### 任务进展
 
 - 查看项目、模型、推理强度、任务耗时和 Token 用量
 - 实时显示执行状态、等待回应、任务进度和最近事件
-- 在任务中心集中查看并发任务及最近完成、失败和中断的记录
+- 在任务中心查看并发任务，以及最近完成、失败或中断的任务
 
 ### 使用统计
 
@@ -46,7 +46,7 @@ CodexBar 是 macOS 菜单栏 App，可查看 Codex 账户、额度、Token 用�
 ### 通知与任务流光
 
 - 接收任务完成、等待回应、额度变化和保护提醒
-- 按需选择通知类型、音效和任务触觉反馈
+- 选择需要的通知类型、音效和任务触觉反馈
 - 用屏幕顶部的任务流光显示状态变化，支持自定义外观
 
 ### 防睡眠
@@ -65,18 +65,18 @@ brew install --cask bob-zebedy/tap/codexbar@5
 
 ### DMG
 
-从 [GitHub Releases](https://github.com/bob-zebedy/CodexBar/releases) 下载最新版本并拖入 Applications。
+从 [GitHub Releases](https://github.com/bob-zebedy/CodexBar/releases) 下载最新版本，将 CodexBar 拖入 Applications。
 
 ## 运行要求
 
 - macOS 15.0 或更高版本
-- 已安装并登录 [Codex CLI](https://github.com/openai/codex) 或安装了内置 Codex 的 ChatGPT App 或 Codex App
+- 已安装 [Codex CLI](https://github.com/openai/codex) 0.162.0+ 版本并登录
 - Codex 后台服务版本为 `0.162.0` 或更高版本
-- 使用跨设备同步时，需要登录可用的 iCloud 账户
+- 跨设备同步需要登录可用的 iCloud 账户
 
 ## 隐私
 
-活动原始事件和实时任务在本机处理。开启跨设备同步后，日级活动聚合和 Token 用量记录会上传到 iCloud private database。
+CodexBar 在本机处理活动原始事件和实时任务。开启跨设备同步后，会将按天汇总的活动数据和 Token 用量记录上传到 iCloud 私有数据库。
 
 ## 反馈
 

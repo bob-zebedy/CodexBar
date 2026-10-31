@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @MainActor
+@Suite(.tags(.integration))
 struct ProtectionRecoveryTests {
     @Test func repairedStoreReloadsWhenProtectionIsEnabled() async throws {
         let directory = try TestDirectory()

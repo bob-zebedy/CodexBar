@@ -327,7 +327,7 @@ final class ActivityMonitor: ObservableObject {
         }
     }
 
-    /// 恢复结果携带屏障之后发布的同一份快照, 不再跨 actor 查询第二份状态
+    /// 恢复结果携带屏障之后发布的快照, 避免跨 actor 查询时读到另一份状态
     func requestActivityRecovery() {
         guard !isSystemSleeping, let reader = activityReader, !isBootstrapping, let recoveryGeneration = activeRecoveryID else { return }
         recoveryTask?.cancel()
@@ -509,10 +509,10 @@ final class ActivityMonitor: ObservableObject {
 
     private func scheduleNextCleanup(now: Date) {
         var deadlines = completions.map {
-            $0.completedAt.addingTimeInterval(Self.recentHistoryRetention)
+            $0.completedAt.addingTimeInterval(ActivityRetention.terminalDisplayWindow)
         }
         deadlines.append(contentsOf: terminations.map {
-            $0.terminatedAt.addingTimeInterval(Self.recentHistoryRetention)
+            $0.terminatedAt.addingTimeInterval(ActivityRetention.terminalDisplayWindow)
         })
         deadlines.append(contentsOf: pendingTerminalTasks.values.map(\.expiresAt))
         deadlines.append(contentsOf: recentlyEndedTaskAt.values.map {
@@ -543,7 +543,6 @@ final class ActivityMonitor: ObservableObject {
         }
     }
 
-    private static let recentHistoryRetention: TimeInterval = 10 * 60
     static let endedTaskRetention: TimeInterval = 24 * 60 * 60
     static let protectionNotificationSubmissionGrace: Duration = .seconds(3)
     private static let recoveryRetryInterval: TimeInterval = 1

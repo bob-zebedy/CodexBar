@@ -1,10 +1,18 @@
 import SwiftUI
 
 nonisolated struct ActivityCardNaturalHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
+    struct Value: Equatable {
+        var height: CGFloat
+        var isInteractive = false
+    }
 
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
+    static let defaultValue = Value(height: 0)
+
+    static func reduce(value: inout Value, nextValue: () -> Value) {
+        let next = nextValue()
+        if next.height >= value.height {
+            value = next
+        }
     }
 }
 
@@ -13,7 +21,7 @@ struct ActivitySection<Content: View>: View {
     @ViewBuilder let content: () -> Content
     @Environment(\.contentAnimationsEnabled) private var allowsAnimations
     @State private var retainsContent: Bool
-    @State private var naturalHeight: CGFloat = 0
+    @State private var measurement = ActivityCardNaturalHeightKey.defaultValue
     @State private var height: CGFloat
     @State private var progress: CGFloat
     @State private var transitionGeneration = 0
@@ -38,13 +46,14 @@ struct ActivitySection<Content: View>: View {
         }
         .modifier(ActivitySectionReveal(height: height, progress: progress))
         .allowsHitTesting(isVisible)
-        .onPreferenceChange(ActivityCardNaturalHeightKey.self) { measuredHeight in
-            guard measuredHeight > 0 else { return }
-            naturalHeight = measuredHeight
+        .onPreferenceChange(ActivityCardNaturalHeightKey.self) { next in
+            guard next.height > 0 else { return }
+            let followsGesture = measurement.isInteractive || next.isInteractive
+            measurement = next
             guard isVisible else { return }
-            // 初次打开直接采用自然高度, 后续变化统一从当前可见高度继续
-            withAnimation(height < 0 ? nil : animation) {
-                height = measuredHeight
+            // 手势已逐帧计算高度, 结束时直接采用最终自然高度, 避免额外的收尾动画
+            withAnimation(height < 0 || followsGesture ? nil : animation) {
+                height = next.height
                 progress = 1
             }
         }
@@ -57,7 +66,7 @@ struct ActivitySection<Content: View>: View {
                 return
             }
             withAnimation(animation, completionCriteria: .removed) {
-                height = visible ? naturalHeight : 0
+                height = visible ? measurement.height : 0
                 progress = visible ? 1 : 0
             } completion: {
                 if transitionGeneration == generation, !isVisible {
@@ -68,7 +77,7 @@ struct ActivitySection<Content: View>: View {
     }
 }
 
-struct ActivitySectionReveal: ViewModifier, Animatable {
+private struct ActivitySectionReveal: ViewModifier, Animatable {
     var height: CGFloat
     var progress: CGFloat
 

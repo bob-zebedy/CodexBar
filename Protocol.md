@@ -50,23 +50,23 @@ Codex 版本：`0.162.0`
 
 | 接口 | 作用 |
 | --- | --- |
-| `item/agentMessage/delta` | 感知回答输出进展 |
-| `item/reasoning/textDelta` | 感知思考文本输出进展 |
-| `item/reasoning/summaryTextDelta` | 感知思考摘要输出进展 |
-| `item/commandExecution/outputDelta` | 感知命令输出进展 |
+| `item/agentMessage/delta` | 跟踪回答输出进展 |
+| `item/reasoning/textDelta` | 跟踪思考文本输出进展 |
+| `item/reasoning/summaryTextDelta` | 跟踪思考摘要输出进展 |
+| `item/commandExecution/outputDelta` | 跟踪命令输出进展 |
 
 ### 状态与展示通知
 
 | 接口 | 作用 |
 | --- | --- |
 | `turn/plan/updated` | 接收计划进度更新 |
-| `turn/diff/updated` | 感知代码差异更新 |
+| `turn/diff/updated` | 跟踪代码差异更新 |
 | `model/rerouted` | 接收模型切换信息 |
-| `model/verification` | 感知模型验证需求 |
-| `modelProvider/authRecoveryStarted` | 感知认证恢复开始 |
-| `modelProvider/authRecoveryCompleted` | 感知认证恢复结束 |
+| `model/verification` | 接收模型验证需求 |
+| `modelProvider/authRecoveryStarted` | 接收认证恢复开始通知 |
+| `modelProvider/authRecoveryCompleted` | 接收认证恢复结束通知 |
 | `model/safetyBuffering/updated` | 接收安全缓冲展示状态 |
-| `hook/started` | 感知 hook 执行开始 |
+| `hook/started` | 接收 hook 执行开始通知 |
 | `hook/completed` | 接收 hook 执行结果 |
 | `serverRequest/resolved` | 接收审批、提问等服务端请求的结束通知 |
 | `error` | 接收错误通知 |

@@ -393,7 +393,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
     private func pruneIfNeeded() throws {
         let cutoff = HistoryStorage.retentionCutoffDate(today: now())
         if lastRetentionCutoff != cutoff {
-            // 复用正文中的时间, 保持现有数据库结构; 损坏正文仍由条数和容量限制兜底
+            // 按正文中的时间清理过期日志, 正文损坏时仍受条数和容量限制
             try execute("""
             DELETE FROM entries WHERE CASE WHEN json_valid(CAST(payload AS TEXT))
                 THEN json_extract(CAST(payload AS TEXT), '$.requestedAt') END < \(cutoff.timeIntervalSinceReferenceDate)

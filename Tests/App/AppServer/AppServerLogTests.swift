@@ -4,6 +4,7 @@ import os
 import SQLite3
 import Testing
 
+@Suite(.tags(.integration))
 struct AppServerLogTests {
     @Test func closeDrainsWritesAndPermanentlyClosesDatabase() async throws {
         let directory = try TestDirectory()
@@ -116,7 +117,7 @@ struct AppServerLogTests {
         let model = AppServerLogViewModel(storage: storage)
         defer { model.stop() }
 
-        // 确定性复现视图先读取, 窗口随后开始观察的调用顺序
+        // 固定调用顺序, 复现视图先读取, 窗口随后开始观察的情况
         var didStart = false
         let subscription = model.$isLoading.sink { isLoading in
             guard isLoading, !didStart else { return }

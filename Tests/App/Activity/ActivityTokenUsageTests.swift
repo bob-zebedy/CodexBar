@@ -356,13 +356,17 @@ struct ActivityTokenUsageTests {
         #expect(monitor.snapshot.activeCount == 1)
     }
 
-    @Test(arguments: [false, true])
-    func terminalUsageContinuesUntilCardIsRemoved(clearExplicitly: Bool) throws {
+    @Test(arguments: [false, true], [false, true])
+    func terminalUsageContinuesUntilCardIsRemoved(clearExplicitly: Bool, aborted: Bool) throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let preferences = try TestPreferences()
         defer { preferences.remove() }
         let monitor = try makeMonitor(directory: directory, preferences: preferences)
+        defer {
+            monitor.clearCollectedActivityState()
+            monitor.refreshSnapshot(now: Date())
+        }
         let now = Date()
         let event = TestFixtures.event(at: now)
         let key = try #require(ActivityTaskKey(event: event))
@@ -371,18 +375,29 @@ struct ActivityTokenUsageTests {
             startedAt: now, progressGeneration: 1
         )
         var transitions: [ActivityTransition] = []
-        monitor.graph.resolveTerminal(.completed(at: now, duration: 1), task: task, key: key, abortFallback: now, into: &transitions)
+        let terminal: TurnTerminalState = aborted ? .aborted(at: now, duration: 1) : .completed(at: now, duration: 1)
+        monitor.graph.resolveTerminal(terminal, task: task, key: key, abortFallback: now, into: &transitions)
         let root = reference("thread-a", "turn-a")
         #expect(monitor.graph.terminalTokenUsageReferences().contains(root))
-        #expect(monitor.graph.terminalTokenUsageReferences().contains(root))
         monitor.graph.applyTerminalTokenUsage([state(root, input: 500)])
-        #expect(monitor.graph.completions.first?.tokenUsage?.totalTokens == 510)
+        monitor.refreshSnapshot(now: now.addingTimeInterval(599))
+        #expect(monitor.snapshot.recentCompletions.count == (aborted ? 0 : 1))
+        #expect(monitor.snapshot.recentTerminations.count == (aborted ? 1 : 0))
+        let tokenUsage = aborted
+            ? monitor.snapshot.recentTerminations.first?.tokenUsage
+            : monitor.snapshot.recentCompletions.first?.tokenUsage
+        #expect(tokenUsage?.totalTokens == 510)
+        #expect(monitor.graph.terminalTokenUsageReferences().contains(root))
         if clearExplicitly {
             monitor.clearCollectedActivityState()
+            monitor.refreshSnapshot(now: now.addingTimeInterval(599))
         } else {
-            monitor.refreshSnapshot(now: now.addingTimeInterval(601))
+            monitor.refreshSnapshot(now: now.addingTimeInterval(600))
         }
+        #expect(monitor.snapshot.recentCompletions.isEmpty)
+        #expect(monitor.snapshot.recentTerminations.isEmpty)
         #expect(monitor.graph.completions.isEmpty)
+        #expect(monitor.graph.terminations.isEmpty)
         #expect(monitor.graph.terminalTokenUsageRequests.isEmpty)
         #expect(monitor.graph.terminalTokenUsageReferences().isEmpty)
     }

@@ -30,9 +30,11 @@ nonisolated extension Bundle {
         object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
     }
 
-    /// `v1.2.3` 形式的版本文案; 缺失时回退 `--`
+    /// 版本文案包含构建号; 版本缺失时回退 `--`
     var displayVersionLabel: String {
         guard let version = shortVersionString else { return "--" }
-        return "v\(version)"
+        let label = "v\(version)"
+        guard let build = object(forInfoDictionaryKey: "CFBundleVersion") as? String, !build.isEmpty else { return label }
+        return "\(label) (Build \(build))"
     }
 }

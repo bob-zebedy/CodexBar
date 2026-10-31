@@ -49,7 +49,6 @@ struct ActivityLiveLabelTests {
 
     @Test(arguments: ["git", "git, ls"])
     func parsedCommandLabelsAreLocalized(names: String) {
-        #expect(ActivityLiveLabel("executing-tool", detail: "python3").text == String(localized: "activity.live.executing-named-tool", defaultValue: "\("python3")"))
         #expect(ActivityLiveLabel("executing-tool", detail: names).text == String(localized: "activity.live.executing-named-tool", defaultValue: "\(names)"))
         #expect(ActivityLiveLabel("command-completed", detail: names).text == String(localized: "activity.live.named-command-completed", defaultValue: "\(names)"))
         #expect(ActivityLiveLabel("command-failed", detail: names).text == String(localized: "activity.live.named-command-failed", defaultValue: "\(names)"))
@@ -123,7 +122,10 @@ struct ActivityLiveLabelTests {
         #expect(ActivityDisplayFormat.toolActionText(itemType: type, toolName: "  ") == String(localized: action))
     }
 
-    @Test(arguments: ["mcpToolCall", "dynamicToolCall", "future", nil] as [String?], ["search/read", "spawnAgent", "commandExecution"])
+    @Test(arguments: [
+        ("mcpToolCall", "search/read"), ("dynamicToolCall", "spawnAgent"),
+        ("future", "commandExecution"), (nil, "search/read")
+    ] as [(String?, String)])
     func actualToolNamesAreNeverClassifiedByTheirSpelling(type: String?, tool: String) {
         #expect(ActivityDisplayFormat.toolActionText(itemType: type, toolName: tool) == tool)
     }

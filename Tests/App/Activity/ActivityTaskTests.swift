@@ -3,6 +3,31 @@ import Testing
 
 struct ActivityTaskTests {
     @Test(arguments: [ActivityDataEventKind.turnCompleted, .turnAborted])
+    func realTaskSnapshotsPreserveThreadIDAcrossTurnsAndTerminalRecords(terminal: ActivityDataEventKind) throws {
+        let now = Date(timeIntervalSince1970: 1800000000)
+        var graph = ActivityTaskGraph()
+        let start = TestFixtures.event(at: now)
+        _ = graph.consume([start], source: .live)
+        let first = try #require(graph.tasks[ActivityTaskKey(thread: "thread-a", turn: "turn-a")])
+        let threadID = first.snapshot.threadID
+        #expect(threadID == "thread-a")
+        _ = graph.consume([TestFixtures.event(terminal, at: now.addingTimeInterval(1))], source: .live)
+        if terminal == .turnCompleted {
+            #expect(graph.completions.first?.threadID == threadID)
+        } else {
+            #expect(graph.terminations.first?.threadID == threadID)
+        }
+        _ = graph.consume([TestFixtures.event(at: now.addingTimeInterval(2), turn: "turn-b")], source: .live)
+        let next = try #require(graph.tasks[ActivityTaskKey(thread: "thread-a", turn: "turn-b")])
+        #expect(next.snapshot.threadID == threadID)
+        #expect(next.displayID != first.displayID)
+        _ = graph.consume([TestFixtures.event(at: now.addingTimeInterval(3), thread: "another-thread", turn: "turn-b")], source: .live)
+        let other = try #require(graph.tasks[ActivityTaskKey(thread: "another-thread", turn: "turn-b")])
+        #expect(other.snapshot.threadID == "another-thread")
+        #expect(other.snapshot.threadID != threadID)
+    }
+
+    @Test(arguments: [ActivityDataEventKind.turnCompleted, .turnAborted])
     func terminalSnapshotPreservesTaskIdentityAcrossTurns(terminal: ActivityDataEventKind) throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

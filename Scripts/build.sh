@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 避免外部编译器干扰 Xcode 工具链
+# Use the Xcode toolchain without compiler overrides from the environment
 unset CC CXX
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -611,7 +611,8 @@ configure_archive_signing() {
         exit 1
     fi
 
-    # exportArchive 不会下载缺失的手动 profile, 在 archive 阶段解析才能触发 Xcode 账户同步
+    # exportArchive does not download missing manual profiles
+    # Resolve the profile during archive to trigger Xcode account sync
     ARCHIVE_SIGNING_FLAGS=(
     "CODE_SIGN_STYLE=Manual"
     "CODEXBAR_PROVISIONING_PROFILE_SPECIFIER=${provisioning_profile}"

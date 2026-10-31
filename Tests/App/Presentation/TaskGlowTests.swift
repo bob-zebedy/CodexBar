@@ -199,7 +199,7 @@ struct TaskGlowTests {
     @Test func liveInputWaitMatchesPanelAndReturnsToRunningAfterResponse() {
         var task = ActivityTaskSnapshot(
             id: UUID(), projectName: nil, modelName: nil, effort: nil, startedAt: TestFixtures.now,
-            stateChangedAt: TestFixtures.now, activeSubagentCount: nil
+            stateChangedAt: TestFixtures.now, activeSubagentCount: nil, threadID: "input-thread"
         )
         var presentation = TaskGlowPresentationState()
         for waiting in [false, true, false] {
@@ -223,7 +223,7 @@ struct TaskGlowTests {
         var running = ActivityTaskSnapshot(
             id: UUID(), projectName: nil,
             modelName: nil, effort: nil, startedAt: TestFixtures.now,
-            stateChangedAt: TestFixtures.now, activeSubagentCount: nil
+            stateChangedAt: TestFixtures.now, activeSubagentCount: nil, threadID: "running-thread"
         )
         if waiting {
             running.presentation = ActivityLiveSummary(
@@ -250,7 +250,7 @@ struct TaskGlowTests {
     private func completedSnapshot() -> ActivitySnapshot {
         let completion = ActivityCompletion(
             id: UUID(), projectName: nil, modelName: nil,
-            effort: nil, completedAt: TestFixtures.now, duration: 60
+            effort: nil, completedAt: TestFixtures.now, duration: 60, threadID: "completed-thread"
         )
         return ActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])
     }

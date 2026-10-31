@@ -278,7 +278,7 @@ nonisolated struct ActivityLivePresentation {
     }
 
     private mutating func boundStorage() {
-        // 异常服务端不能通过无限未结束的 item 或 request 扩大内存
+        // 限制未结束的 item 和 request 数量, 避免异常服务端使内存持续增长
         if items.count > 128 {
             items = Dictionary(uniqueKeysWithValues: items.sorted { $0.value.at > $1.value.at }.prefix(128).map { ($0.key, $0.value) })
             inventoryKnown = false

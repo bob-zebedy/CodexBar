@@ -4,7 +4,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/Build}"
-VERSION_CONFIG="${PROJECT_DIR}/Config/Version.xcconfig"
 
 APP_PATH="${1:-}"
 OUTPUT_PATH="${2:-}"
@@ -15,7 +14,7 @@ fi
 
 if [[ -z "${APP_PATH}" ]]; then
     if [[ ! -d "${BUILD_DIR}" ]]; then
-        echo "error: build 目录不存在: ${BUILD_DIR}" >&2
+        echo "error: build directory does not exist: ${BUILD_DIR}" >&2
         echo "usage: Scripts/dmg.sh [App.app] [Output.dmg]" >&2
         exit 1
     fi
@@ -26,13 +25,13 @@ if [[ -z "${APP_PATH}" ]]; then
     done < <(find "${BUILD_DIR}" -maxdepth 1 -type d -name "*.app" | sort)
 
     if [[ "${#apps[@]}" -eq 0 ]]; then
-        echo "error: build 目录没有找到 .app: ${BUILD_DIR}" >&2
+        echo "error: no .app found in build directory: ${BUILD_DIR}" >&2
         echo "usage: Scripts/dmg.sh [App.app] [Output.dmg]" >&2
         exit 1
     fi
 
     if [[ "${#apps[@]}" -gt 1 ]]; then
-        echo "error: build 目录找到多个 .app, 请指定要打包的 app 路径: " >&2
+        echo "error: multiple apps found in build directory; specify the app path to package:" >&2
         printf '  %s\n' "${apps[@]}" >&2
         exit 1
     fi
@@ -43,34 +42,17 @@ elif [[ "${APP_PATH}" != /* ]]; then
 fi
 
 if [[ ! -d "${APP_PATH}" || "${APP_PATH}" != *.app ]]; then
-    echo "error: app 路径无效: ${APP_PATH}" >&2
+    echo "error: invalid app path: ${APP_PATH}" >&2
     exit 1
 fi
 
 APP_NAME="$(basename "${APP_PATH}" .app)"
-VERSION="$(
-    awk -F= '
-      $1 ~ /^[[:space:]]*MARKETING_VERSION[[:space:]]*$/ {
-        value = $2
-        gsub(/^[[:space:]]+|[[:space:];]+$/, "", value)
-        print value
-        exit
-      }
-    ' "${VERSION_CONFIG}" 2>/dev/null || true
-)"
-BUILD="$(
-    awk -F= '
-      $1 ~ /^[[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*$/ {
-        value = $2
-        gsub(/^[[:space:]]+|[[:space:];]+$/, "", value)
-        print value
-        exit
-      }
-    ' "${VERSION_CONFIG}" 2>/dev/null || true
-)"
+INFO_PLIST="${APP_PATH}/Contents/Info.plist"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${INFO_PLIST}" 2>/dev/null || true)"
+BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${INFO_PLIST}" 2>/dev/null || true)"
 
 if [[ -z "${VERSION}" || -z "${BUILD}" ]]; then
-    echo "error: 无法从 Config/Version.xcconfig 读取 MARKETING_VERSION 或 CURRENT_PROJECT_VERSION" >&2
+    echo "error: cannot read version information" >&2
     exit 1
 fi
 
@@ -99,7 +81,7 @@ trap cleanup EXIT
 
 require_command() {
     if ! command -v "$1" >/dev/null 2>&1; then
-        echo "error: 缺少命令: $1" >&2
+        echo "error: missing command: $1" >&2
         exit 1
     fi
 }
@@ -136,7 +118,7 @@ run_quietly diskutil image attach \
     "${RW_DMG}"
 
 if [[ -z "${MOUNT_POINT}" || ! -d "${MOUNT_POINT}" ]]; then
-    echo "error: 挂载 DMG 失败" >&2
+    echo "error: failed to mount DMG" >&2
     exit 1
 fi
 
@@ -173,7 +155,7 @@ APPLESCRIPT
 
 DS_STORE="${MOUNT_POINT}/.DS_Store"
 if [[ ! -s "${DS_STORE}" ]]; then
-    echo "warning: 没有写入 .DS_Store 窗口布局不会生效" >&2
+    echo "warning: .DS_Store was not written; the Finder window layout will not take effect" >&2
 else
     echo "==> Finder layout saved"
 fi

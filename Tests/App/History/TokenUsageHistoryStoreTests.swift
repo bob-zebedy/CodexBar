@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+@Suite(.tags(.integration))
 struct TokenUsageHistoryStoreTests {
     @Test func recordingLeaseTransfersWithoutTwoWriters() throws {
         let directory = try TestDirectory()
@@ -194,14 +195,25 @@ struct TokenUsageHistoryStoreTests {
         let now = Date()
         let expired = HistoryStorage.retentionCutoffDate(today: now).addingTimeInterval(-86400)
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
-        _ = try await store.recordObservations([
-            TestFixtures.tokenUsageObservation(at: expired, tokenUsage: tokenUsage(20)),
-            TestFixtures.tokenUsageObservation(at: now, tokenUsage: tokenUsage(30))
-        ], now: now)
+        let observations = [(expired, "expired", Int64(20)), (now, "current", Int64(30))].map { date, turn, count in
+            TokenUsageObservation(
+                observedAt: date, threadID: "thread", turnID: turn, previous: .zero,
+                current: TokenUsageUpdate(total: tokenUsage(count), last: tokenUsage(count))
+            )
+        }
+        _ = try await store.recordObservations(observations, now: now)
         let database = try HistoryDatabase(directoryURL: directory.url)
+        #expect(try database.tokenUsageSnapshot(threadID: "thread").turns.count == 2)
         #expect(try database.prune(now: now) == 1)
         #expect(try database.tokenUsageAggregates().count == 1)
         #expect(try database.tokenUsageAggregates().first?.tokenUsage == tokenUsage(30))
+        let retained = try database.tokenUsageSnapshot(threadID: "thread")
+        #expect(retained.turns["expired"] == nil)
+        #expect(retained.turns["current"] == tokenUsage(30))
+        let future = now.addingTimeInterval(212 * 86400)
+        #expect(try HistoryDatabase(directoryURL: directory.url).prune(now: future) == 1)
+        #expect(try database.prune(now: future) == 0)
+        #expect(try database.tokenUsageSnapshot(threadID: "thread").turns.isEmpty)
     }
 
     private func tokenUsage(_ count: Int64) -> TokenUsage {

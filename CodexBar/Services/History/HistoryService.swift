@@ -14,7 +14,7 @@ nonisolated struct HistoryMaintenanceCounts {
         written + failed
     }
 
-    /// 本轮是否改变了状态
+    /// 本轮是否有聚合处理结果或过期清理, 包括处理失败的情况
     var hasWork: Bool {
         dates > 0 || pruned > 0
     }

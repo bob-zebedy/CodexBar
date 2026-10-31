@@ -2274,22 +2274,6 @@
         }
       }
     },
-    "activity.summary.other-task-count" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Other tasks: %lld"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "另有 %lld 个任务"
-          }
-        }
-      }
-    },
     "app.action.quit" : {
       "localizations" : {
         "en" : {

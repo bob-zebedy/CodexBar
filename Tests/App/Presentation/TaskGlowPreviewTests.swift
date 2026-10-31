@@ -85,7 +85,7 @@ struct TaskGlowPreviewTests {
         state.suspend(now: time(10.1))
         let termination = ActivityTermination(
             id: UUID(), projectName: nil, modelName: nil,
-            effort: nil, terminatedAt: time(10.2), duration: 60
+            effort: nil, terminatedAt: time(10.2), duration: 60, threadID: "terminated-thread"
         )
         let snapshot = ActivitySnapshot(
             waitingTasks: [], runningTasks: [], recentCompletions: completed(at: 0).recentCompletions,
@@ -222,7 +222,7 @@ struct TaskGlowPreviewTests {
     private func completed(at seconds: TimeInterval) -> ActivitySnapshot {
         let completion = ActivityCompletion(
             id: UUID(), projectName: nil, modelName: nil,
-            effort: nil, completedAt: time(seconds), duration: 60
+            effort: nil, completedAt: time(seconds), duration: 60, threadID: "completed-thread"
         )
         return ActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])
     }
@@ -231,7 +231,7 @@ struct TaskGlowPreviewTests {
         let task = ActivityTaskSnapshot(
             id: UUID(), projectName: nil,
             modelName: nil, effort: nil, startedAt: now,
-            stateChangedAt: now, activeSubagentCount: nil
+            stateChangedAt: now, activeSubagentCount: nil, threadID: "active-thread"
         )
         return ActivitySnapshot(
             waitingTasks: waiting ? [task] : [], runningTasks: waiting ? [] : [task], recentCompletions: [], recentTerminations: []

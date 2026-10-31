@@ -15,7 +15,7 @@ View Codex status in your macOS menu bar
 [![Downloads](https://img.shields.io/github/downloads/bob-zebedy/CodexBar/total?style=flat&label=Downloads&labelColor=E4F3E7&color=2EA043&logo=data:image%2Fsvg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMkVBMDQzIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI%2BPHBhdGggZD0iTTEyIDN2MTJtLTUtNSA1IDUgNS01TTQgMTZ2NWgxNnYtNSIvPjwvc3ZnPg%3D%3D)](https://github.com/bob-zebedy/CodexBar/releases)
 [![License](https://img.shields.io/github/license/bob-zebedy/CodexBar?style=flat&label=License&labelColor=F7EFCF&color=A67C00&logo=data:image%2Fsvg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjQTY3QzAwIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI%2BPHBhdGggZD0iTTEyIDN2MThtLTQgMGg4TTMgN2gxOE01IDdsLTMgOGg2TDUgN1ptMTQgMC0zIDhoNmwtMy04WiIvPjwvc3ZnPg%3D%3D)](LICENSE)
 
-[Features](#features) | [Installation](#installation) | [Privacy](#privacy) | [Runtime architecture](https://codexbar.zabrian.app/architecture) | [Performance report](https://codexbar.zabrian.app/performance) | [Protocol](Protocol.en.md)
+[Features](#features) | [Installation](#installation) | [Privacy](#privacy) | [Runtime architecture](https://codexbar.zabrian.app/architecture) | [Protocol](Protocol.en.md)
 
 <img src="Images/preview.gif" width="640" alt="CodexBar preview">
 
@@ -29,13 +29,13 @@ CodexBar is a macOS menu bar app for viewing your Codex account, rate limits, to
 
 - View your account, plan, credits, and the remaining percentage and reset time for each rate-limit window
 - Show your preferred allowance directly in the menu bar
-- Track banked resets and their expiry dates, with automatic use before they expire
+- View banked resets and their expiry dates, and have CodexBar use them automatically before they expire
 
 ### Task progress
 
 - See each task's project, model, reasoning effort, duration, and token usage
 - Track execution states, tasks awaiting a response, task progress, and recent events
-- Review concurrent tasks and recent completions, failures, and interruptions in Task Center
+- Use Task Center to view concurrent tasks and tasks that recently completed, failed, or were interrupted
 
 ### Usage statistics
 
@@ -47,13 +47,13 @@ CodexBar is a macOS menu bar app for viewing your Codex account, rate limits, to
 
 - Receive alerts for task completions, tasks awaiting a response, allowance changes, and protection events
 - Choose notification types, sounds, and task haptic feedback
-- Follow status changes through customizable task glow at the top of your displays
+- See status changes in the task glow at the top of your displays, and customize its appearance
 
 ### Keep awake
 
 - Keep your Mac awake while tasks run, then allow normal sleep when they finish
-- Optionally stay awake while awaiting a response or keep the display on as well
-- Set a keep-awake time limit, low-battery protection, and stalled task protection
+- Choose whether to keep your Mac awake while tasks await a response and whether to keep the display on
+- Set a keep-awake time limit and enable low-battery and stalled task protection
 
 ## Installation
 
@@ -70,9 +70,9 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 ## Requirements
 
 - macOS 15.0 or later
-- [Codex CLI](https://github.com/openai/codex) installed and signed in, or ChatGPT App or Codex App with bundled Codex installed
+- [Codex CLI](https://github.com/openai/codex) version 0.162.0 or later installed and signed in
 - Codex background service version `0.162.0` or later
-- Cross-device sync requires an available iCloud account signed in on the Mac
+- For cross-device sync, the Mac must be signed in to an available iCloud account
 
 ## Privacy
 

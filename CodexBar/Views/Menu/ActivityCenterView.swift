@@ -34,11 +34,59 @@ final class ActivityCenterPresentationState: ObservableObject {
     }
 }
 
-/// 点击活动卡片时传给 AppKit 控制器的定位信息
+/// 卡片只报告主面板内的顶部位置, 屏幕坐标由窗口的实际内容区计算
 @MainActor
-struct ActivityCenterPanelContext {
-    let anchorProvider: ScreenFrameProvider
-    let preferredSide: UsageHeatmapDetailSide
+final class ActivityCenterPanelAnchor {
+    nonisolated static let coordinateSpace = "CodexBar.activityCenterAnchor"
+    @Published private(set) var topOffset: CGFloat?
+    private weak var view: NSView?
+
+    func bind(to view: NSView) {
+        self.view = view
+    }
+
+    func unbind(from view: NSView) {
+        guard self.view === view else { return }
+        self.view = nil
+        updateTopOffset(nil)
+    }
+
+    func updateTopOffset(_ offset: CGFloat?) {
+        let offset = offset.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+        guard offset != topOffset else { return }
+        topOffset = offset
+    }
+
+    func screenFrame(in window: NSWindow) -> CGRect? {
+        guard view?.window === window, let topOffset else { return nil }
+        // Popover 的 hosting view 会先于窗口更新尺寸, 不从该视图转换屏幕坐标
+        let contentFrame = window.contentRect(forFrameRect: window.frame)
+        guard contentFrame.isValidScreenRect, topOffset < contentFrame.height else { return nil }
+        return CGRect(x: contentFrame.minX, y: contentFrame.maxY - topOffset - 1, width: contentFrame.width, height: 1)
+    }
+}
+
+/// 只绑定宿主身份, 不在 AppKit 布局回调中重复测量屏幕坐标
+struct ActivityCenterPanelAnchorReader: NSViewRepresentable {
+    let anchor: ActivityCenterPanelAnchor
+
+    func makeCoordinator() -> ActivityCenterPanelAnchor {
+        anchor
+    }
+
+    func makeNSView(context _: Context) -> NSView {
+        let view = NSView()
+        anchor.bind(to: view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context _: Context) {
+        anchor.bind(to: nsView)
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: ActivityCenterPanelAnchor) {
+        coordinator.unbind(from: nsView)
+    }
 }
 
 // MARK: - 任务中心面板
