@@ -394,22 +394,19 @@ final class CodexStatusViewModel: ObservableObject {
 /// 首条通知固定合并截止时间, 后续通知不能无限延后刷新
 nonisolated struct AccountNotificationSchedule {
     private(set) var readyAt: ContinuousClock.Instant?
-    private var pending: AccountChange?
     private var lastRefreshStartedAt: ContinuousClock.Instant?
 
     mutating func receive(_ change: AccountChange, at now: ContinuousClock.Instant) {
         let deadline = now.advanced(by: .seconds(1))
         if change == .account {
             readyAt = min(readyAt ?? deadline, deadline)
-        } else if pending == nil {
+        } else if readyAt == nil {
             readyAt = max(deadline, lastRefreshStartedAt?.advanced(by: .seconds(10)) ?? deadline)
         }
-        pending = change.merging(pending)
     }
 
     mutating func didStartRefresh(at now: ContinuousClock.Instant) {
         readyAt = nil
-        pending = nil
         lastRefreshStartedAt = now
     }
 }

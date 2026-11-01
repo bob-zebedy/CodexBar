@@ -62,155 +62,55 @@ USAGE
 }
 
 parse_args() {
+    local option=""
+    local value=""
+    local shift_count=0
+
     while [[ "$#" -gt 0 ]]; do
         case "$1" in
             -h|--help)
                 usage
                 exit 0
             ;;
-            --project)
-                if [[ "$#" -lt 2 || -z "$2" ]]; then
-                    echo "error: --project requires a value" >&2
+            --project|--project=*|\
+            --scheme|--scheme=*|\
+            --configuration|--configuration=*|\
+            --build-dir|--build-dir=*|\
+            --derived-data|--derived-data=*|\
+            --archive-path|--archive-path=*|\
+            --export-options|--export-options=*|\
+            --team-id|--team-id=*|\
+            --notary-profile|--notary-profile=*|\
+            --apple-id|--apple-id=*|\
+            --notary-password|--notary-password=*|\
+            --app-specific-password|--app-specific-password=*)
+                option="${1%%=*}"
+                if [[ "$1" == *=* ]]; then
+                    value="${1#*=}"
+                    shift_count=1
+                else
+                    value="${2-}"
+                    shift_count=2
+                fi
+                if [[ -z "${value}" ]]; then
+                    echo "error: ${option} requires a value" >&2
                     usage
                     exit 1
                 fi
-                XCODE_PROJECT="$2"
-                shift 2
-            ;;
-            --project=*)
-                XCODE_PROJECT="${1#*=}"
-                if [[ -z "${XCODE_PROJECT}" ]]; then
-                    echo "error: --project requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                shift
-            ;;
-            --scheme)
-                if [[ "$#" -lt 2 || -z "$2" ]]; then
-                    echo "error: --scheme requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                XCODE_SCHEME="$2"
-                shift 2
-            ;;
-            --scheme=*)
-                XCODE_SCHEME="${1#*=}"
-                if [[ -z "${XCODE_SCHEME}" ]]; then
-                    echo "error: --scheme requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                shift
-            ;;
-            --configuration)
-                if [[ "$#" -lt 2 || -z "$2" ]]; then
-                    echo "error: --configuration requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                CONFIGURATION="$2"
-                shift 2
-            ;;
-            --configuration=*)
-                CONFIGURATION="${1#*=}"
-                if [[ -z "${CONFIGURATION}" ]]; then
-                    echo "error: --configuration requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                shift
-            ;;
-            --build-dir)
-                if [[ "$#" -lt 2 || -z "$2" ]]; then
-                    echo "error: --build-dir requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                BUILD_DIR="$2"
-                shift 2
-            ;;
-            --build-dir=*)
-                BUILD_DIR="${1#*=}"
-                if [[ -z "${BUILD_DIR}" ]]; then
-                    echo "error: --build-dir requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                shift
-            ;;
-            --derived-data)
-                if [[ "$#" -lt 2 || -z "$2" ]]; then
-                    echo "error: --derived-data requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                DERIVED_DATA_PATH="$2"
-                shift 2
-            ;;
-            --derived-data=*)
-                DERIVED_DATA_PATH="${1#*=}"
-                if [[ -z "${DERIVED_DATA_PATH}" ]]; then
-                    echo "error: --derived-data requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                shift
-            ;;
-            --archive-path)
-                if [[ "$#" -lt 2 || -z "$2" ]]; then
-                    echo "error: --archive-path requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                ARCHIVE_PATH="$2"
-                shift 2
-            ;;
-            --archive-path=*)
-                ARCHIVE_PATH="${1#*=}"
-                if [[ -z "${ARCHIVE_PATH}" ]]; then
-                    echo "error: --archive-path requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                shift
-            ;;
-            --export-options)
-                if [[ "$#" -lt 2 || -z "$2" ]]; then
-                    echo "error: --export-options requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                EXPORT_OPTIONS_PLIST="$2"
-                shift 2
-            ;;
-            --export-options=*)
-                EXPORT_OPTIONS_PLIST="${1#*=}"
-                if [[ -z "${EXPORT_OPTIONS_PLIST}" ]]; then
-                    echo "error: --export-options requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                shift
-            ;;
-            --team-id)
-                if [[ "$#" -lt 2 || -z "$2" ]]; then
-                    echo "error: --team-id requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                TEAM_ID="$2"
-                shift 2
-            ;;
-            --team-id=*)
-                TEAM_ID="${1#*=}"
-                if [[ -z "${TEAM_ID}" ]]; then
-                    echo "error: --team-id requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                shift
+                case "${option}" in
+                    --project) XCODE_PROJECT="${value}" ;;
+                    --scheme) XCODE_SCHEME="${value}" ;;
+                    --configuration) CONFIGURATION="${value}" ;;
+                    --build-dir) BUILD_DIR="${value}" ;;
+                    --derived-data) DERIVED_DATA_PATH="${value}" ;;
+                    --archive-path) ARCHIVE_PATH="${value}" ;;
+                    --export-options) EXPORT_OPTIONS_PLIST="${value}" ;;
+                    --team-id) TEAM_ID="${value}" ;;
+                    --notary-profile) NOTARYTOOL_PROFILE="${value}" ;;
+                    --apple-id) APPLE_ID="${value}" ;;
+                    --notary-password|--app-specific-password) NOTARYTOOL_PASSWORD="${value}" ;;
+                esac
+                shift "${shift_count}"
             ;;
             --allow-provisioning-updates)
                 ALLOW_PROVISIONING_UPDATES="1"
@@ -218,60 +118,6 @@ parse_args() {
             ;;
             --no-provisioning-updates)
                 ALLOW_PROVISIONING_UPDATES="0"
-                shift
-            ;;
-            --notary-profile)
-                if [[ "$#" -lt 2 || -z "$2" ]]; then
-                    echo "error: --notary-profile requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                NOTARYTOOL_PROFILE="$2"
-                shift 2
-            ;;
-            --notary-profile=*)
-                NOTARYTOOL_PROFILE="${1#*=}"
-                if [[ -z "${NOTARYTOOL_PROFILE}" ]]; then
-                    echo "error: --notary-profile requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                shift
-            ;;
-            --apple-id)
-                if [[ "$#" -lt 2 || -z "$2" ]]; then
-                    echo "error: --apple-id requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                APPLE_ID="$2"
-                shift 2
-            ;;
-            --apple-id=*)
-                APPLE_ID="${1#*=}"
-                if [[ -z "${APPLE_ID}" ]]; then
-                    echo "error: --apple-id requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                shift
-            ;;
-            --notary-password|--app-specific-password)
-                if [[ "$#" -lt 2 || -z "$2" ]]; then
-                    echo "error: $1 requires a value" >&2
-                    usage
-                    exit 1
-                fi
-                NOTARYTOOL_PASSWORD="$2"
-                shift 2
-            ;;
-            --notary-password=*|--app-specific-password=*)
-                NOTARYTOOL_PASSWORD="${1#*=}"
-                if [[ -z "${NOTARYTOOL_PASSWORD}" ]]; then
-                    echo "error: ${1%%=*} requires a value" >&2
-                    usage
-                    exit 1
-                fi
                 shift
             ;;
             --skip-notarization)

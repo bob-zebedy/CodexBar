@@ -71,7 +71,7 @@ private struct CleanupTarget {
         case .release:
             "CodexBarPowerHelper.plist"
         case .debug:
-            "CodexBarPowerHelper.Debug.plist"
+            "CodexBarPowerHelperDebug.plist"
         }
     }
 

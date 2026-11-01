@@ -4,7 +4,7 @@ nonisolated enum CodexBarPowerHelperIPC {
     #if DEBUG
         static let clientAppBundleIdentifier = "app.zabrian.codexbar.debug"
         static let serviceIdentifier = "app.zabrian.codexbar.helper.power.debug"
-        static let daemonPlistName = "CodexBarPowerHelper.Debug.plist"
+        static let daemonPlistName = "CodexBarPowerHelperDebug.plist"
     #else
         static let clientAppBundleIdentifier = "app.zabrian.codexbar"
         static let serviceIdentifier = "app.zabrian.codexbar.helper.power"

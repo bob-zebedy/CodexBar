@@ -69,7 +69,7 @@ validate_final_app() {
     local daemon_plist_name="CodexBarPowerHelper.plist"
     if [[ "${CONFIGURATION}" == "Debug" ]]; then
         manager_name="CodexBar Power Helper Debug"
-        daemon_plist_name="CodexBarPowerHelper.Debug.plist"
+        daemon_plist_name="CodexBarPowerHelperDebug.plist"
     fi
     local manager_path="${contents_path}/Helpers/${manager_name}.app"
     local manager_executable="${manager_path}/Contents/MacOS/CodexBarPowerHelperManager"
