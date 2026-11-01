@@ -70,8 +70,7 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 ## Requirements
 
 - macOS 15.0 or later
-- [Codex CLI](https://github.com/openai/codex) version 0.162.0 or later installed and signed in
-- Codex background service version `0.162.0` or later
+- [Codex CLI](https://github.com/openai/codex) version `0.162.0` or later installed and signed in with OpenAI
 - For cross-device sync, the Mac must be signed in to an available iCloud account
 
 ## Privacy

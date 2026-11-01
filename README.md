@@ -70,8 +70,7 @@ brew install --cask bob-zebedy/tap/codexbar@5
 ## 运行要求
 
 - macOS 15.0 或更高版本
-- 已安装 [Codex CLI](https://github.com/openai/codex) 0.162.0+ 版本并登录
-- Codex 后台服务版本为 `0.162.0` 或更高版本
+- 已安装 [Codex CLI](https://github.com/openai/codex) `0.162.0` 或更高版本并使用 OpenAI 登录
 - 跨设备同步需要登录可用的 iCloud 账户
 
 ## 隐私
