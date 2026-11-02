@@ -270,14 +270,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         .frame(width: CodexStatusMenuView.menuWidth)
         .fixedSize(horizontal: false, vertical: true)
 
-        let rootView = MenuPanelLayout { menuContent }
-            .coordinateSpace(name: ActivityCenterPanelAnchor.coordinateSpace)
-            .onGeometryChange(for: CGFloat.self) { geometry in
-                geometry.size.height
-            } action: { [weak self] height in
+        let rootView = MenuPanelLayout(
+            onHeightChange: { [weak self] height in
                 guard !usesPreferredContentSize else { return }
                 self?.fallbackPanelController.resizeIfVisible(contentHeight: height)
-            }
+            },
+            content: { menuContent }
+        )
+        .coordinateSpace(name: ActivityCenterPanelAnchor.coordinateSpace)
 
         let hostingController = NSHostingController(rootView: AnyView(rootView))
         if usesPreferredContentSize {

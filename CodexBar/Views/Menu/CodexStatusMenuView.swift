@@ -49,6 +49,8 @@ struct CodexStatusMenuView: View {
     let onActivityCenterTap: (ActivityCenterPanelAnchor) -> Void
     @EnvironmentObject private var appUpdater: AppUpdater
     @State private var activitySectionVisibility: Bool?
+    @State private var contentHeight: CGFloat = -1
+    @State private var animatesContentHeight = false
 
     private var showsActivitySection: Bool {
         // 订阅建立前直接读取当前状态, 避免首次打开时先显示空卡片再收回
@@ -57,6 +59,7 @@ struct CodexStatusMenuView: View {
     }
 
     var body: some View {
+        let loadState = viewModel.loadState
         MenuSectionLayout(spacing: Metrics.verticalSpacing) {
             content
         }
@@ -64,13 +67,25 @@ struct CodexStatusMenuView: View {
             \.mainPanelEntranceAnimationsEnabled,
             mainPanelSettings.areAnimationsEnabled
         )
-        .padding(Metrics.padding)
-        .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, isOuterSurface: true)
-        .animation(Metrics.statusAnimation, value: viewModel.loadState)
+        .animation(Metrics.statusAnimation, value: loadState)
         .animation(Metrics.statusAnimation, value: mainPanelSettings.layout)
         .animation(Metrics.statusAnimation, value: syncSettings.isEnabled)
         .animation(Metrics.statusAnimation, value: syncSettings.isSyncing)
         .animation(Metrics.statusAnimation, value: syncSettings.hasSyncFailure)
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: ContentGeometry.self) { geometry in
+            ContentGeometry(height: geometry.size.height, loadState: loadState)
+        } action: { oldValue, newValue in
+            // 活动区域自行逐帧改变高度, 这里只对账户加载状态切换插值, 避免叠加动画
+            animatesContentHeight = contentHeight >= 0 && oldValue.loadState != newValue.loadState
+            contentHeight = newValue.height
+        }
+        .modifier(MenuContentHeight(height: contentHeight))
+        .animation(animatesContentHeight ? Metrics.statusAnimation : nil, value: contentHeight)
+        .padding(Metrics.padding)
+        .clipped()
+        // 外层表面直接跟随当前高度, 不参与内容事务中的独立尺寸和位置插值
+        .liquidGlassSurface(cornerRadius: Metrics.surfaceCornerRadius, isOuterSurface: true)
         .onReceive(
             activityMonitor.$snapshot
                 .combineLatest(activityMonitor.$isActivitySourceHealthy)
@@ -82,6 +97,11 @@ struct CodexStatusMenuView: View {
 }
 
 private extension CodexStatusMenuView {
+    nonisolated struct ContentGeometry: Equatable {
+        let height: CGFloat
+        let loadState: CodexLoadState
+    }
+
     enum Metrics {
         static let padding: CGFloat = 12
         static let surfaceCornerRadius: CGFloat = 14
@@ -91,6 +111,17 @@ private extension CodexStatusMenuView {
 
     @ViewBuilder
     var content: some View {
+        if viewModel.loadState == .loading, viewModel.snapshot == nil {
+            // 本地历史可能先于账户快照就绪, 首次加载仍统一占位, 避免展开不完整的数据区域
+            accountSection
+            LoadingDataPanel()
+        } else {
+            configuredContent
+        }
+    }
+
+    @ViewBuilder
+    var configuredContent: some View {
         let visibleSections = mainPanelSettings.layout.visibleSections.filter { section in
             section != .activity || showsActivitySection
         }

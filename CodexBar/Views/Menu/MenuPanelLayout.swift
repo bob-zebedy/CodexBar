@@ -4,6 +4,20 @@ nonisolated struct MenuSectionVisibilityKey: LayoutValueKey {
     static let defaultValue: CGFloat = 1
 }
 
+/// 将插值高度反馈给宿主尺寸测量, 内容始终从顶部布局
+struct MenuContentHeight: Animatable, ViewModifier {
+    var height: CGFloat
+
+    var animatableData: CGFloat {
+        get { height }
+        set { height = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content.frame(height: height < 0 ? nil : height, alignment: .topLeading)
+    }
+}
+
 /// 区域高度和相邻间距使用同一展开进度, 移除零高度区域时总高度保持不变
 struct MenuSectionLayout: Layout {
     var spacing: CGFloat
@@ -35,8 +49,25 @@ struct MenuSectionLayout: Layout {
     }
 }
 
-/// 宿主窗口和内容共用整点高度, 保持顶部位置稳定
-struct MenuPanelLayout: Layout {
+/// 菜单宿主统一测量内容高度, 并在窗口尺寸尚未收敛时保持顶部对齐
+struct MenuPanelLayout<Content: View>: View {
+    var onHeightChange: (CGFloat) -> Void = { _ in }
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        MenuPanelSizingLayout { content() }
+            .onGeometryChange(for: CGFloat.self) { geometry in
+                geometry.size.height
+            } action: { height in
+                onHeightChange(height)
+            }
+            // 测量发生在填满宿主之前, 避免将旧窗口高度当成内容高度而无法收起
+            .frame(maxHeight: .infinity, alignment: .top)
+    }
+}
+
+/// 宿主窗口和内容共用整点高度, 取整留下的空间放在底部
+private struct MenuPanelSizingLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
         guard let subview = subviews.first else { return .zero }
         let size = subview.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))

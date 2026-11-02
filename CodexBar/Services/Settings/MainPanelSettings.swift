@@ -114,7 +114,7 @@ final class MainPanelSettings: ObservableObject {
         }
 
         AppLog.settings.notice(
-            "主面板区域显隐变更: section=\(section.rawValue, privacy: .public); visible=\(isVisible ? 1 : 0)"
+            "主面板区域显示变更: section=\(section.rawValue, privacy: .public); visible=\(isVisible ? 1 : 0)"
         )
         applyUndoableLayout(
             MainPanelLayout(

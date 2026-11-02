@@ -148,6 +148,45 @@ struct StatusAccountCard: View {
     }
 }
 
+struct LoadingDataPanel: View {
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("common.status.loading")
+                .font(MenuMetrics.bodyFont)
+                .foregroundStyle(.secondary)
+
+            if allowsAnimations {
+                skeleton.phaseAnimator([false, true]) { content, isDimmed in
+                    content.opacity(isDimmed ? 0.5 : 1)
+                } animation: { _ in
+                    .easeInOut(duration: 1.2)
+                }
+            } else {
+                skeleton
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(MenuMetrics.panelPadding)
+        .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
+        .allowsHitTesting(false)
+    }
+
+    private var skeleton: some View {
+        GeometryReader { geometry in
+            VStack(alignment: .leading, spacing: 12) {
+                Capsule()
+                    .frame(width: geometry.size.width * 0.6, height: 10)
+                Capsule()
+                    .frame(width: geometry.size.width * 0.38, height: 10)
+            }
+            .foregroundStyle(Color.primary.opacity(0.08))
+        }
+        .frame(height: 32)
+    }
+}
+
 /// 额度和用量均无数据时的统一占位面板
 struct EmptyDataPanel: View {
     var body: some View {

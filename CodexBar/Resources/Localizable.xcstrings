@@ -3122,6 +3122,22 @@
         }
       }
     },
+    "common.status.loading" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载"
+          }
+        }
+      }
+    },
     "common.status.not-set" : {
       "localizations" : {
         "en" : {
