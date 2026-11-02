@@ -7111,13 +7111,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Click to install v%@"
+            "value" : "Click to install %@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "点击安装 v%@"
+            "value" : "点击安装 %@"
           }
         }
       }
@@ -7143,13 +7143,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "New version: v%@"
+            "value" : "New version: %@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "发现新版本: v%@"
+            "value" : "发现新版本: %@"
           }
         }
       }

@@ -7,7 +7,7 @@ import Sparkle
 @MainActor
 final class AppUpdater: NSObject, ObservableObject {
     @Published private var settingsCheckMessage: String?
-    @Published private var pendingInstallation: (version: String, install: () -> Void)?
+    @Published private var pendingInstallation: (versionLabel: String, install: () -> Void)?
     @Published private(set) var availableUpdateMessage: String?
     @Published private(set) var automaticallyChecksForUpdates = false
 
@@ -15,7 +15,7 @@ final class AppUpdater: NSObject, ObservableObject {
         if let pendingInstallation {
             return String(
                 localized: "updater.status.ready-to-install.settings",
-                defaultValue: "\(pendingInstallation.version)"
+                defaultValue: "\(pendingInstallation.versionLabel)"
             )
         }
         return settingsCheckMessage
@@ -175,7 +175,10 @@ extension AppUpdater: SPUUpdaterDelegate {
         immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
     ) -> Bool {
         // 保留当前安装会话, 避免重新检查时恢复已下载更新的信息
-        pendingInstallation = (item.displayVersionString, immediateInstallHandler)
+        pendingInstallation = (
+            Bundle.displayVersionLabel(version: item.displayVersionString, build: item.versionString),
+            immediateInstallHandler
+        )
         return true
     }
 
@@ -204,9 +207,10 @@ extension AppUpdater: SPUUpdaterDelegate {
 
     func updater(_: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         let version = item.displayVersionString
+        let versionLabel = Bundle.displayVersionLabel(version: version, build: item.versionString)
         let message = String(
             localized: "updater.status.update-available",
-            defaultValue: "\(version)"
+            defaultValue: "\(versionLabel)"
         )
         availableUpdateMessage = message
         let trigger = checkTrigger.rawValue
