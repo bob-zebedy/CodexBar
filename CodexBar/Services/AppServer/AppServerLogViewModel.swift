@@ -8,15 +8,18 @@ final class AppServerLogViewModel: ObservableObject {
     @Published private(set) var hasMore = false
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var selectedMethods: Set<String> = []
 
     private let storage: AppServerLogStore
     private let pageSize: Int
     private let maximumEntries: Int
-    private var browsingHistory = false
+    private var isFollowingLatest = true
+    private var needsLatestReload = false
     private var revision: Int64 = 0
     private var generation: Int64 = 0
     private var isLoaded = false
     private var isReading = false
+    private var isPaging = false
     private var observation: Task<Void, Never>?
     private var observationGeneration = 0
 
@@ -45,8 +48,11 @@ final class AppServerLogViewModel: ObservableObject {
         entries = []
         totalCount = 0
         hasMore = false
+        isFollowingLatest = true
+        needsLatestReload = false
         isLoaded = false
         isReading = false
+        isPaging = false
         isLoading = false
     }
 
@@ -69,21 +75,27 @@ final class AppServerLogViewModel: ObservableObject {
             if !isLoaded {
                 try await loadFirst(current: current)
             } else {
-                let changes = try await storage.changes(since: revision)
+                let changes = try await storage.changes(since: revision, methods: selectedMethods)
                 guard current == observationGeneration else { return }
-                if changes.generation != generation || changes.hasMore {
+                let invalidated = changes.generation != generation || changes.hasMore
+                if invalidated, isFollowingLatest {
                     try await loadFirst(current: current)
                 } else if changes.revision != revision {
+                    needsLatestReload = needsLatestReload || invalidated
+                    let previousOldest = entries.last?.position
                     mergeEntries(changes.entries)
-                    let oldest = try await storage.page(before: entries.last?.position, limit: 1)
-                    guard current == observationGeneration else { return }
+                    if invalidated || entries.last?.position != previousOldest {
+                        let oldest = try await storage.page(before: entries.last?.position, limit: 1, methods: selectedMethods)
+                        guard current == observationGeneration else { return }
+                        let more = !oldest.entries.isEmpty
+                        if hasMore != more {
+                            hasMore = more
+                        }
+                    }
                     revision = changes.revision
+                    generation = changes.generation
                     if totalCount != changes.total {
                         totalCount = changes.total
-                    }
-                    let more = !oldest.entries.isEmpty
-                    if hasMore != more {
-                        hasMore = more
                     }
                 }
             }
@@ -97,11 +109,34 @@ final class AppServerLogViewModel: ObservableObject {
         }
     }
 
+    func setSelectedMethods(_ methods: Set<String>) {
+        guard selectedMethods != methods else { return }
+        // 切换筛选使旧分页失效, 轮询任务继续读取新的筛选结果
+        observationGeneration += 1
+        selectedMethods = methods
+        entries = []
+        hasMore = false
+        isFollowingLatest = true
+        needsLatestReload = false
+        isLoaded = false
+        isReading = false
+        isPaging = false
+        isLoading = true
+        errorMessage = nil
+    }
+
+    func availableMethods() async throws -> [String] {
+        try await storage.methods()
+    }
+
     private func mergeEntries(_ updates: [AppServerLogEntry]) {
         guard !updates.isEmpty else { return }
         let newest = entries.first?.position ?? 0
+        if !isFollowingLatest, updates.contains(where: { $0.position > newest }) {
+            needsLatestReload = true
+        }
         var byID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
-        for entry in updates where byID[entry.id] != nil || (!browsingHistory && entry.position > newest) {
+        for entry in updates where byID[entry.id] != nil || (isFollowingLatest && entry.position > newest) {
             byID[entry.id] = entry
         }
         let updated = Array(byID.values.sorted { $0.position > $1.position }.prefix(maximumEntries))
@@ -110,13 +145,39 @@ final class AppServerLogViewModel: ObservableObject {
         }
     }
 
+    func pauseFollowingLatest() {
+        isFollowingLatest = false
+    }
+
+    func resumeFollowingLatest() async {
+        let current = observationGeneration
+        while isReading {
+            do { try await Task.sleep(for: .milliseconds(25)) } catch { return }
+            guard current == observationGeneration else { return }
+        }
+        guard !Task.isCancelled, isLoaded else { return }
+        isFollowingLatest = true
+        guard needsLatestReload else { return }
+        // 历史分页会移除较新的缓存, 增量游标也已越过浏览期间的新日志
+        isLoaded = false
+        await refresh()
+    }
+
     func loadMore() async {
+        guard !Task.isCancelled, !isPaging, hasMore, let cursor = entries.last?.position else { return }
         let waitingGeneration = observationGeneration
+        // 等待后台刷新时也标记为正在分页, 避免重复请求排队加载后续页
+        isPaging = true
+        defer {
+            if waitingGeneration == observationGeneration {
+                isPaging = false
+            }
+        }
         while isReading {
             do { try await Task.sleep(for: .milliseconds(25)) } catch { return }
             guard waitingGeneration == observationGeneration else { return }
         }
-        guard !Task.isCancelled, hasMore, let cursor = entries.last?.position else { return }
+        guard !Task.isCancelled, hasMore, entries.last?.position == cursor else { return }
         let current = observationGeneration
         isReading = true
         isLoading = true
@@ -127,16 +188,20 @@ final class AppServerLogViewModel: ObservableObject {
             }
         }
         do {
-            let page = try await storage.page(before: cursor, limit: pageSize)
+            let page = try await storage.page(before: cursor, limit: pageSize, methods: selectedMethods)
             guard current == observationGeneration else { return }
-            if page.generation != generation {
+            if page.generation != generation, isFollowingLatest {
                 try await loadFirst(current: current)
             } else {
+                if page.generation != generation {
+                    needsLatestReload = true
+                }
                 let existing = Set(entries.map(\.id))
                 entries.append(contentsOf: page.entries.filter { !existing.contains($0.id) })
                 if entries.count > maximumEntries {
                     entries.removeFirst(entries.count - maximumEntries)
-                    browsingHistory = true
+                    isFollowingLatest = false
+                    needsLatestReload = true
                 }
                 hasMore = page.hasMore
                 totalCount = page.total
@@ -167,6 +232,8 @@ final class AppServerLogViewModel: ObservableObject {
         }
         do {
             try await storage.clear()
+            guard current == observationGeneration else { return }
+            isLoaded = false
             try await loadFirst(current: current)
             if current == observationGeneration {
                 errorMessage = nil
@@ -179,10 +246,16 @@ final class AppServerLogViewModel: ObservableObject {
     }
 
     private func loadFirst(current: Int) async throws {
-        let page = try await storage.page(limit: pageSize)
+        let page = try await storage.page(limit: pageSize, methods: selectedMethods)
         guard current == observationGeneration else { return }
+        // 读取最新页期间可能已开始浏览, 后台重载不能替换正在阅读的内容
+        if isLoaded, !isFollowingLatest {
+            needsLatestReload = true
+            return
+        }
         entries = page.entries
-        browsingHistory = false
+        isFollowingLatest = true
+        needsLatestReload = false
         revision = page.revision
         generation = page.generation
         totalCount = page.total

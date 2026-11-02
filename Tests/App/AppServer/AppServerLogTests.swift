@@ -228,7 +228,173 @@ struct AppServerLogTests {
         #expect(publications == 1)
     }
 
-    @Test func retentionChangeReloadsVisibleHistory() async throws {
+    @Test(arguments: [false, true])
+    func retentionKeepsBrowsedEntriesUntilReturningToLatest(loadNextPage: Bool) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let storage = AppServerLogStore(directoryURL: directory.url, limits: .init(entries: 6))
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
+        for index in 0 ..< 6 {
+            storage.recordFailure(message: "old-\(index)")
+        }
+        let model = AppServerLogViewModel(storage: storage, pageSize: 2, maximumEntries: 2)
+        await model.refresh()
+        await model.loadMore()
+        let browsedEntries = model.entries
+        #expect(browsedEntries.map(\.detail) == ["old-3", "old-2"])
+        for index in 0 ..< 4 {
+            storage.recordFailure(message: "new-\(index)")
+        }
+        let retained = try await storage.page()
+        #expect(Set(retained.entries.map(\.id)).isDisjoint(with: browsedEntries.map(\.id)))
+        #expect(retained.total <= 6)
+        if loadNextPage {
+            await model.loadMore()
+        } else {
+            await model.refresh()
+        }
+        #expect(model.entries == browsedEntries)
+        #expect(!model.hasMore)
+        await model.refresh()
+        #expect(model.entries == browsedEntries)
+        #expect(model.totalCount == retained.total)
+        await model.resumeFollowingLatest()
+        #expect(model.entries.first?.detail == "new-3")
+        #expect(model.entries.count == 2)
+    }
+
+    @Test(arguments: [false, true])
+    func retentionPreservesUntrimmedBrowsingAndExplicitClearStillEmptiesIt(filtered: Bool) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let storage = AppServerLogStore(directoryURL: directory.url, limits: .init(entries: 6))
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
+        for index in 0 ..< 6 {
+            storage.recordFailure(method: "kept", message: "old-\(index)")
+        }
+        let model = AppServerLogViewModel(storage: storage, pageSize: 2)
+        if filtered {
+            model.setSelectedMethods(["kept"])
+        }
+        await model.refresh()
+        model.pauseFollowingLatest()
+        await model.loadMore()
+        let browsedEntries = model.entries
+        #expect(browsedEntries.count == 4)
+        for index in 0 ..< 4 {
+            storage.recordFailure(method: "kept", message: "new-\(index)")
+        }
+        await model.refresh()
+        #expect(model.entries == browsedEntries)
+        #expect(!model.hasMore)
+        #expect(model.totalCount <= 6)
+        #expect(try await storage.page().entries != browsedEntries)
+        await model.clear()
+        #expect(model.entries.isEmpty)
+        #expect(model.totalCount == 0)
+        #expect(!model.hasMore)
+        storage.recordFailure(method: "kept", message: "after clear")
+        await model.refresh()
+        #expect(model.entries.first?.detail == "after clear")
+    }
+
+    @Test func expiredBrowsingSnapshotCanStillBeExplicitlyCleared() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let time = OSAllocatedUnfairLock(initialState: Date())
+        let storage = AppServerLogStore(directoryURL: directory.url, now: { time.withLock { $0 } })
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
+        storage.recordFailure(message: "expires while reading")
+        let model = AppServerLogViewModel(storage: storage)
+        await model.refresh()
+        model.pauseFollowingLatest()
+        let browsedEntries = model.entries
+        time.withLock { $0 = $0.addingTimeInterval(366 * 86400) }
+        await model.refresh()
+        #expect(model.totalCount == 0)
+        #expect(model.entries == browsedEntries)
+        #expect(!model.hasMore)
+        await model.clear()
+        #expect(model.entries.isEmpty)
+        #expect(model.totalCount == 0)
+    }
+
+    @Test(arguments: [2, 1000])
+    func browsingKeepsLoadedEntriesWhenLiveChangesAccumulate(changeLimit: Int) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let storage = AppServerLogStore(directoryURL: directory.url, limits: .init(pageEntries: changeLimit))
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
+        for index in 0 ..< 6 {
+            storage.recordFailure(message: "old-\(index)")
+        }
+        let model = AppServerLogViewModel(storage: storage, pageSize: 2, maximumEntries: 6)
+        await model.refresh()
+        model.pauseFollowingLatest()
+        await model.loadMore()
+        let browsedEntries = model.entries
+        for index in 0 ..< 5 {
+            storage.recordFailure(message: "new-\(index)")
+        }
+        await model.refresh()
+        #expect(model.entries == browsedEntries)
+        #expect(model.hasMore)
+        await model.resumeFollowingLatest()
+        #expect(model.entries.first?.detail == "new-4")
+        #expect(model.entries.count == 2)
+        storage.recordFailure(message: "following again")
+        await model.refresh()
+        #expect(model.entries.first?.detail == "following again")
+    }
+
+    @Test func beginningToBrowseDuringRetentionReloadPreservesTheCurrentPage() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let blocked = OSAllocatedUnfairLock(initialState: (readsUntilBlock: 0, didBlock: false))
+        let release = DispatchSemaphore(value: 0)
+        let storage = AppServerLogStore(directoryURL: directory.url, limits: .init(entries: 4), now: {
+            let shouldBlock = blocked.withLock { state in
+                guard state.readsUntilBlock > 0 else { return false }
+                state.readsUntilBlock -= 1
+                guard state.readsUntilBlock == 0 else { return false }
+                state.didBlock = true
+                return true
+            }
+            if shouldBlock {
+                #expect(release.wait(timeout: .now() + 5) == .success)
+            }
+            return Date()
+        })
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
+        defer { release.signal() }
+        for index in 0 ..< 4 {
+            storage.recordFailure(message: "old-\(index)")
+        }
+        let model = AppServerLogViewModel(storage: storage, pageSize: 2)
+        await model.refresh()
+        let browsedEntries = model.entries
+        for index in 0 ..< 4 {
+            storage.recordFailure(message: "new-\(index)")
+        }
+        _ = try await storage.page()
+        blocked.withLock { $0.readsUntilBlock = 2 }
+        let refresh = Task { await model.refresh() }
+        defer { refresh.cancel() }
+        try #require(try await waitForCondition(timeout: .seconds(1), pollInterval: .milliseconds(5)) {
+            blocked.withLock { $0.didBlock }
+        })
+        model.pauseFollowingLatest()
+        release.signal()
+        await refresh.value
+        #expect(model.entries == browsedEntries)
+        await model.refresh()
+        #expect(model.entries == browsedEntries)
+        #expect(!model.hasMore)
+        await model.resumeFollowingLatest()
+        #expect(model.entries.first?.detail == "new-3")
+    }
+
+    @Test func retentionChangeReloadsWhenFollowingLatest() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let storage = AppServerLogStore(directoryURL: directory.url, limits: .init(entries: 4))
@@ -515,6 +681,108 @@ extension AppServerLogTests {
         let size = try directory.url.appendingPathComponent(AppServerLogStore.databaseName)
             .resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         #expect(size < 128 * 1024)
+    }
+
+    @Test(arguments: [false, true])
+    func returningToTopRestoresLatestAfterHistoryEviction(addNewEntry: Bool) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
+        for index in 0 ..< 9 {
+            storage.recordFailure(message: "entry-\(index)")
+        }
+        let model = AppServerLogViewModel(storage: storage, pageSize: 3, maximumEntries: 6)
+        await model.refresh()
+        await model.loadMore()
+        await model.loadMore()
+        #expect(model.entries.first?.detail == "entry-5")
+        if addNewEntry {
+            storage.recordFailure(message: "latest")
+        }
+        await model.refresh()
+        #expect(model.entries.first?.detail == "entry-5")
+        await model.resumeFollowingLatest()
+        #expect(model.entries.first?.detail == (addNewEntry ? "latest" : "entry-8"))
+        #expect(model.entries.count == 3)
+        #expect(model.hasMore)
+        #expect(model.totalCount == (addNewEntry ? 10 : 9))
+        #expect(!model.isLoading)
+        #expect(model.errorMessage == nil)
+
+        storage.recordFailure(message: "following again")
+        await model.refresh()
+        #expect(model.entries.first?.detail == "following again")
+        #expect(model.entries.count == 4)
+        await model.loadMore()
+        #expect(model.entries.count == 6)
+        #expect(Set(model.entries.map(\.id)).count == 6)
+    }
+
+    @Test func returningToTopPreservesHistoryWhenLatestIsStillLoaded() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let storage = AppServerLogStore(directoryURL: directory.url)
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
+        for index in 0 ..< 9 {
+            storage.recordFailure(message: "entry-\(index)")
+        }
+        let model = AppServerLogViewModel(storage: storage, pageSize: 3, maximumEntries: 6)
+        await model.refresh()
+        await model.loadMore()
+        let entries = model.entries
+        model.pauseFollowingLatest()
+        await model.resumeFollowingLatest()
+        #expect(model.entries == entries)
+        #expect(model.entries.count == 6)
+        #expect(model.entries.first?.detail == "entry-8")
+    }
+
+    @Test(arguments: [false, true])
+    func returningToTopWaitsForPagingAndDiscardsStoppedObservation(stopWhileWaiting: Bool) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let readGate = AppServerLogReadGate()
+        let storage = AppServerLogStore(directoryURL: directory.url, now: { readGate.now() })
+        defer { await #expect(throws: Never.self) { try await storage.close() } }
+        defer { readGate.release() }
+        for index in 0 ..< 9 {
+            storage.recordFailure(message: "entry-\(index)")
+        }
+        let model = AppServerLogViewModel(storage: storage, pageSize: 3, maximumEntries: 6)
+        defer { model.stop() }
+        await model.refresh()
+        await model.loadMore()
+        readGate.arm()
+        let pagination = Task { await model.loadMore() }
+        defer { pagination.cancel() }
+        try #require(try await waitForCondition(timeout: .seconds(1), pollInterval: .milliseconds(5)) {
+            readGate.didBlock
+        })
+        var didRequestLatest = false
+        let returnToTop = Task {
+            didRequestLatest = true
+            await model.resumeFollowingLatest()
+        }
+        defer { returnToTop.cancel() }
+        try #require(try await waitForCondition(timeout: .seconds(1), pollInterval: .milliseconds(5)) {
+            didRequestLatest
+        })
+        if stopWhileWaiting {
+            model.stop()
+        }
+        readGate.release()
+        await pagination.value
+        await returnToTop.value
+        #expect(!model.isLoading)
+        if stopWhileWaiting {
+            #expect(model.entries.isEmpty)
+            #expect(model.totalCount == 0)
+        } else {
+            #expect(model.entries.first?.detail == "entry-8")
+            #expect(model.entries.count == 3)
+            #expect(model.totalCount == 9)
+        }
     }
 
     @Test func changeOverflowReloadsAndHistoryWindowRemainsBounded() async throws {

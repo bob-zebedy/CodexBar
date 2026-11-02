@@ -1,0 +1,127 @@
+name: Bug 报告 / Bug report
+description: 界面异常、功能故障、报错 / UI problems, broken features, or errors
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请阅读 [README](https://github.com/bob-zebedy/CodexBar#readme)，并搜索[现有 Issue](https://github.com/bob-zebedy/CodexBar/issues)，确认是否已有相关报告。
+
+        Before submitting, read the [README](https://github.com/bob-zebedy/CodexBar#readme) and search for similar reports in [existing issues](https://github.com/bob-zebedy/CodexBar/issues)
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述 / Description
+      description: |
+        描述实际发生的现象或报错。
+
+        Describe what happened or the error you encountered.
+    validations:
+      required: true
+
+  - type: input
+    id: codexbar-version
+    attributes:
+      label: CodexBar 版本 / CodexBar version
+      description: |
+        在 "菜单栏 CodexBar 图标右键 → 设置 → 关于选项卡" 中查看。
+
+        Right-click the CodexBar menu bar icon → Settings → About tab.
+    validations:
+      required: true
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS 版本 / macOS version
+      description: |
+        在“Apple 系统设置 → 通用 → 关于本机”中查看，请填写完整版本号。
+
+        Find the full version in System Settings → General → About.
+    validations:
+      required: true
+
+  - type: input
+    id: codex-environment
+    attributes:
+      label: Codex 来源 / Codex source
+      description: |
+        填写出现问题时使用的 Codex 来源（未安装或不确定时请注明）。
+
+        List the Codex sources in use when the problem occurred (if Codex is not installed or you are unsure, say so).
+      placeholder: Codex App / Codex CLI / VS Code extension / App + CLI
+    validations:
+      required: true
+
+  - type: input
+    id: codex-cli-version
+    attributes:
+      label: Codex CLI 版本 / Codex CLI version
+      description: |
+        在 "菜单栏 CodexBar 图标右键 → 设置 → 关于选项卡" 中查看，或在终端运行 `codex --version`（未安装可留空）。
+
+        Right-click the CodexBar menu bar icon → Settings → About tab. You can also run `codex --version` in Terminal (leave blank if not installed).
+    validations:
+      required: false
+
+  - type: input
+    id: codex-app-version
+    attributes:
+      label: Codex App 版本 / Codex App version
+      description: |
+        在 "菜单栏 CodexBar 图标右键 → 设置 → 关于选项卡" 或 Codex App 中查看（未使用可留空）。
+
+        Right-click the CodexBar menu bar icon → Settings → About tab, or check Codex App (leave blank if not used).
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: |
+        如果知道如何触发，请填写操作步骤和出现频率。
+
+        If known, list the steps and how often the problem occurs.
+      placeholder: |
+        1. 打开的页面或功能 / Page or feature opened
+        2. 执行的操作 / Actions taken
+        3. 观察到的现象 / Observed behavior
+    validations:
+      required: false
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为 / Expected behavior
+      description: |
+        描述你期望的结果。
+
+        Describe what you expected to happen.
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志 / Relevant logs
+      description: |
+        粘贴日志窗口中的相关记录（请隐藏凭证和个人信息等敏感数据）。
+
+        Paste relevant entries from the log window (redact sensitive data, such as credentials and personal information).
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 截图、录屏、补充信息 / Screenshots, recordings, and additional information
+      description: |
+        可附截图、录屏或其他有助于排查的信息。
+
+        Add screenshots, recordings, or other information that may help diagnose the problem.
+    validations:
+      required: false

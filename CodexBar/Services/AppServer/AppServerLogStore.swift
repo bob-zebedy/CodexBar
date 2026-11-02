@@ -169,13 +169,13 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
         return entry.id
     }
 
-    func page(before position: Int64? = nil, limit: Int = 100) async throws -> AppServerLogPage {
+    func page(before position: Int64? = nil, limit: Int = 100, methods: Set<String> = []) async throws -> AppServerLogPage {
         try await perform { storage in
             let limit = min(max(1, limit), storage.limits.pageEntries)
             let stats = try storage.stats()
             let entries = try storage.read(
-                "SELECT position, payload, id FROM entries WHERE position < ? ORDER BY position DESC LIMIT ?",
-                values: [position ?? Int64.max, Int64(limit + 1)]
+                "SELECT position, payload, id FROM entries WHERE position < ?1\(methods.isEmpty ? "" : Self.methodCondition) ORDER BY position DESC LIMIT ?2",
+                values: [position ?? Int64.max, Int64(limit + 1)], methods: methods
             )
             return AppServerLogPage(
                 entries: Array(entries.prefix(max(1, limit))), revision: stats.revision,
@@ -184,11 +184,12 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
         }
     }
 
-    func changes(since revision: Int64) async throws -> AppServerLogPage {
+    func changes(since revision: Int64, methods: Set<String> = []) async throws -> AppServerLogPage {
         try await perform { storage in
             let stats = try storage.stats()
             let entries = stats.revision == revision ? [] : try storage.read(
-                "SELECT position, payload, id FROM entries WHERE revision > ? ORDER BY position DESC LIMIT ?", values: [revision, Int64(storage.limits.pageEntries + 1)]
+                "SELECT position, payload, id FROM entries WHERE revision > ?1\(methods.isEmpty ? "" : Self.methodCondition) ORDER BY position DESC LIMIT ?2",
+                values: [revision, Int64(storage.limits.pageEntries + 1)], methods: methods
             )
             return AppServerLogPage(
                 entries: Array(entries.prefix(storage.limits.pageEntries)),
@@ -197,6 +198,20 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
                 total: stats.total,
                 hasMore: entries.count > storage.limits.pageEntries
             )
+        }
+    }
+
+    func methods() async throws -> [String] {
+        try await perform { storage in
+            let statement = try storage.prepare("SELECT DISTINCT \(Self.methodExpression) AS method FROM entries WHERE method IS NOT NULL AND method != '' ORDER BY method")
+            defer { sqlite3_finalize(statement) }
+            var methods: [String] = []
+            while try storage.step(statement) == SQLITE_ROW {
+                if let text = sqlite3_column_text(statement, 0) {
+                    methods.append(String(cString: text))
+                }
+            }
+            return methods
         }
     }
 
@@ -451,11 +466,20 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
         return Statistics(revision: sqlite3_column_int64(statement, 0), generation: sqlite3_column_int64(statement, 1), total: Int(sqlite3_column_int64(statement, 2)))
     }
 
-    private func read(_ sql: String, values: [Int64], skipCorrupt: Bool = false) throws -> [AppServerLogEntry] {
+    // 正文以 BLOB 保存, 查询时显式转为文本再读取 JSON 字段
+    private static let methodExpression = "CASE WHEN json_valid(CAST(payload AS TEXT)) THEN json_extract(CAST(payload AS TEXT), '$.method') ELSE 'log/corrupt' END"
+    private static let methodCondition = " AND (\(methodExpression)) IN (SELECT value FROM json_each(?3))"
+
+    private func read(_ sql: String, values: [Int64], methods: Set<String> = [], skipCorrupt: Bool = false) throws -> [AppServerLogEntry] {
         let statement = try prepare(sql)
         defer { sqlite3_finalize(statement) }
         for (index, value) in values.enumerated() {
             guard sqlite3_bind_int64(statement, Int32(index + 1), value) == SQLITE_OK else { throw failure() }
+        }
+        if !methods.isEmpty {
+            let data = try JSONEncoder().encode(methods.sorted())
+            guard let json = String(data: data, encoding: .utf8) else { throw failure() }
+            try bind(json, to: statement, at: 3)
         }
         var entries: [AppServerLogEntry] = []
         while try step(statement) == SQLITE_ROW {

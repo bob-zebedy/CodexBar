@@ -312,25 +312,23 @@ nonisolated struct ActivityTask {
         executions[owner] = execution
         if lifecycle.terminal != nil {
             finishExecution(owner, at: lifecycle.lastProgressAt ?? lastProgressAt)
-        } else {
-            if let waiting = lifecycle.isWaitingApproval, let changedAt = lifecycle.approvalChangedAt {
-                var execution = executions[owner] ?? ActivityExecution()
-                if waiting {
-                    let approval = lifecycle.pendingApprovals.min {
-                        if $0.value.requestedAt != $1.value.requestedAt {
-                            return $0.value.requestedAt < $1.value.requestedAt
-                        }
-                        return $0.key < $1.key
-                    }?.value ?? ActivityApproval(
-                        requestedAt: changedAt, toolName: nil, sequence: progressGeneration
-                    )
-                    execution.approval = approval
-                } else {
-                    execution.approval = nil
-                }
-                executions[owner] = execution
-                refreshApprovalState(at: changedAt)
+        } else if let waiting = lifecycle.isWaitingApproval, let changedAt = lifecycle.approvalChangedAt {
+            var execution = executions[owner] ?? ActivityExecution()
+            if waiting {
+                let approval = lifecycle.pendingApprovals.min {
+                    if $0.value.requestedAt != $1.value.requestedAt {
+                        return $0.value.requestedAt < $1.value.requestedAt
+                    }
+                    return $0.key < $1.key
+                }?.value ?? ActivityApproval(
+                    requestedAt: changedAt, toolName: nil, sequence: progressGeneration
+                )
+                execution.approval = approval
+            } else {
+                execution.approval = nil
             }
+            executions[owner] = execution
+            refreshApprovalState(at: changedAt)
         }
     }
 

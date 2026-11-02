@@ -20,6 +20,7 @@ struct LogView: View {
     let mainPanelSettings: MainPanelSettings
     @State private var preview = LogPreviewPresentation()
     @State private var scrollPosition = ScrollPosition(idType: UUID.self, edge: .top)
+    @State private var isShowingClearConfirmation = false
 
     var body: some View {
         // 每轮渲染只取一次发布快照复用
@@ -44,6 +45,10 @@ struct LogView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 480)
+        .task(id: store.selectedMethods) {
+            scrollPosition.scrollTo(edge: .top)
+            await store.refresh()
+        }
         .task(id: preview.request?.id) {
             if let request = preview.request {
                 await preview.prepare(request)
@@ -53,7 +58,10 @@ struct LogView: View {
             FullLogTextView(item: item)
                 .onDisappear { preview.dismiss(item) }
         }
-        .onDisappear { preview.cancel() }
+        .onDisappear {
+            isShowingClearConfirmation = false
+            preview.cancel()
+        }
         .contentAnimations(settings: mainPanelSettings)
     }
 
@@ -75,16 +83,25 @@ struct LogView: View {
                     Capsule().fill(.quaternary)
                 }
 
-            Spacer()
+            LogMethodFilter(store: store)
+                .frame(maxWidth: .infinity)
 
             Button {
-                Task { await store.clear() }
+                isShowingClearConfirmation = true
             } label: {
                 Label("common.action.clear", systemImage: "trash")
             }
             .controlSize(.small)
             .font(LogTypography.controlFont)
-            .disabled(store.totalCount == 0 || store.isLoading)
+            .disabled((store.totalCount == 0 && store.entries.isEmpty) || store.isLoading)
+            .alert("log.clear.confirmation.title", isPresented: $isShowingClearConfirmation) {
+                Button("common.action.cancel", role: .cancel) {}
+                Button("common.action.clear", role: .destructive) {
+                    Task { await store.clear() }
+                }
+            } message: {
+                Text("log.clear.confirmation.message")
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -114,22 +131,39 @@ struct LogView: View {
                 }
                 if store.hasMore {
                     ProgressView()
+                        .controlSize(.small)
                         .frame(maxWidth: .infinity)
-                        .padding()
-                        .task(id: entries.last?.id) { await store.loadMore() }
+                        .padding(.vertical, 8)
                 }
             }
             .scrollTargetLayout()
         }
         .scrollPosition($scrollPosition, anchor: .top)
-        .onScrollPhaseChange { _, phase, context in
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top > 1
+        } action: { _, isBrowsingHistory in
+            if isBrowsingHistory {
+                store.pauseFollowingLatest()
+            }
+        }
+        .onScrollPhaseChange { previousPhase, phase, context in
             // 浏览时按日志身份保持位置, 回到顶部后才重新跟随新日志
-            if phase == .idle, context.geometry.contentOffset.y + context.geometry.contentInsets.top <= 1 {
+            if store.hasMore, Self.shouldLoadMore(from: previousPhase, to: phase, geometry: context.geometry) {
+                Task { await store.loadMore() }
+            } else if phase == .idle, context.geometry.contentOffset.y + context.geometry.contentInsets.top <= 1 {
                 scrollPosition.scrollTo(edge: .top)
+                Task { await store.resumeFollowingLatest() }
             }
         }
         .onDisappear { scrollPosition = ScrollPosition(idType: UUID.self, edge: .top) }
         .background(Color(nsColor: .textBackgroundColor))
+    }
+
+    static func shouldLoadMore(from previousPhase: ScrollPhase, to phase: ScrollPhase, geometry: ScrollGeometry) -> Bool {
+        // 列表重排和程序滚动不会产生新的手动滚动结束事件
+        guard phase == .idle, previousPhase == .interacting || previousPhase == .decelerating else { return false }
+        let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height - geometry.contentInsets.bottom
+        return visibleBottom >= geometry.contentSize.height - 1
     }
 }
 

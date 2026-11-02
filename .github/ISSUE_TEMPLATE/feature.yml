@@ -1,0 +1,66 @@
+name: 功能请求 / Feature request
+description: 新功能、改进建议、体验优化 / New features, improvements, or usability enhancements
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请搜索[现有 Issue](https://github.com/bob-zebedy/CodexBar/issues)，确认是否已有相同需求。
+
+        Before submitting, search for similar requests in [existing issues](https://github.com/bob-zebedy/CodexBar/issues)
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 需求描述 / Description
+      description: |
+        描述希望新增或改进的功能，以及要解决的问题。
+
+        Describe the feature or improvement and the problem it would solve.
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: 使用场景 / Use case
+      description: |
+        说明何时会用到这个功能，可举一个具体例子。
+
+        Explain when you would use this feature, with an example if possible.
+    validations:
+      required: false
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: 期望方案 / Proposed solution
+      description: |
+        说明你希望这个功能如何工作，或界面如何显示。
+
+        Describe how the feature should work or look.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 替代方案 / Alternatives considered
+      description: |
+        如果考虑过其他方案或临时解决办法，请说明。
+
+        Describe any alternatives or workarounds you have considered.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 补充信息 / Additional information
+      description: |
+        可附截图、录屏、相关配置、相似产品参考或具体工作流。
+
+        Add screenshots, recordings, relevant settings, examples from other products, or workflows.
+    validations:
+      required: false
