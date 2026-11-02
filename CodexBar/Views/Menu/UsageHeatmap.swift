@@ -32,7 +32,7 @@ nonisolated struct UsageHeatmapSelection: Equatable {
         guard let index = days.firstIndex(where: { $0?.id == dateID }) else { return nil }
         switch mode {
         case .daily:
-            return days[index].flatMap { UsageHeatmapPeriod(days: [$0]) }
+            return days[index].map { UsageHeatmapPeriod(day: $0) }
         case .weekly:
             let column = index / CodexWeekGrid.rowCount
             return weeks.indices.contains(column) ? weeks[column] : nil

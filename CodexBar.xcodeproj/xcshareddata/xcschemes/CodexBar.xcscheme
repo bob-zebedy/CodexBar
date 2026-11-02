@@ -11,7 +11,7 @@
             ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
             <ActionContent
                title = "Increment Build Number"
-               scriptText = '/usr/bin/perl "${PROJECT_DIR}/Scripts/build-number.pl" "${PROJECT_DIR}/Config/BuildNumber.xcconfig"'>
+               scriptText = "/usr/bin/perl &quot;${PROJECT_DIR}/Scripts/build-number.pl&quot; &quot;${PROJECT_DIR}/Config/BuildNumber.xcconfig&quot;&#10;">
                <EnvironmentBuildable>
                   <BuildableReference
                      BuildableIdentifier = "primary"
@@ -86,7 +86,7 @@
       </BuildableProductRunnable>
    </LaunchAction>
    <ProfileAction
-      buildConfiguration = "Release"
+      buildConfiguration = "Debug"
       shouldUseLaunchSchemeArgsEnv = "YES"
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"
@@ -97,7 +97,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "C4A0FD942FD9302E000263A7"
             BuildableName = "CodexBar.app"
-            BlueprintName = "CodexBar"
             ReferencedContainer = "container:CodexBar.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

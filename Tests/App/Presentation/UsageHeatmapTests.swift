@@ -120,7 +120,7 @@ struct UsageHeatmapTests {
 
     @Test(arguments: [(0, 0), (1, 1), (100, 1), (101, 2), (300, 3), (301, 4), (699, 7), (700, 7), (800, 7)])
     func histogramHeightUsesWeeklyTokensRelativeToPeak(tokens: Int, expectedRows: Int) throws {
-        let week = try #require(UsageHeatmapPeriod(days: [day("2026-10-18", tokens: tokens)]))
+        let week = try #require(UsageHeatmapPeriod.weeks(in: [day("2026-10-18", tokens: tokens)]).first ?? nil)
         #expect(week.filledRowCount(peakTokens: 700) == expectedRows)
         #expect(week.filledRowCount(peakTokens: 0) == 0)
     }
@@ -150,16 +150,76 @@ struct UsageHeatmapTests {
         let known = day("2026-10-18", tokens: 100, usage: usage(input: 100))
         let pending = UsageHeatmapDay(startDate: "2026-10-19", tokenState: .pending, activityData: .unavailable(startDate: "2026-10-19"))
         let unavailable = UsageHeatmapDay(startDate: "2026-10-20", tokenState: .unavailable, activityData: .empty(startDate: "2026-10-20"))
-        let period = try #require(UsageHeatmapPeriod(days: [known, pending]))
+        let period = try #require(UsageHeatmapPeriod.weeks(in: [known, pending]).first ?? nil)
         #expect(period.tokenState == .available(100))
-        #expect(period.activityData.threadCount == nil)
-        #expect(period.activityData.toolCallCount == nil)
+        #expect(period.activityData == known.activityData)
         #expect(period.tokenUsage == known.tokenUsage)
-        #expect(UsageHeatmapPeriod(days: [pending])?.tokenState == .pending)
-        #expect(UsageHeatmapPeriod(days: [pending, unavailable])?.tokenState == .unavailable)
-        #expect(UsageHeatmapPeriod(days: [unavailable, known])?.tokenState == .unavailable)
-        #expect(UsageHeatmapPeriod(days: [unavailable])?.tokenUsage == nil)
-        #expect(UsageHeatmapPeriod(days: []) == nil)
+        #expect((UsageHeatmapPeriod.weeks(in: [pending]).first ?? nil)?.tokenState == .pending)
+        #expect((UsageHeatmapPeriod.weeks(in: [pending, unavailable]).first ?? nil)?.tokenState == .unavailable)
+        #expect((UsageHeatmapPeriod.weeks(in: [unavailable, known]).first ?? nil)?.tokenState == .unavailable)
+        #expect((UsageHeatmapPeriod.weeks(in: [unavailable]).first ?? nil)?.tokenUsage == nil)
+        #expect(UsageHeatmapPeriod.weeks(in: []).isEmpty)
+        #expect(UsageHeatmapPeriod.weeks(in: Array(repeating: nil, count: CodexWeekGrid.rowCount)) == [nil])
+    }
+
+    @Test(arguments: [0, 50])
+    func weeklyMetricsWaitForTodayAccountUsage(todayTokens: Int) throws {
+        let today = try #require(CodexDateFormat.dayDate(from: "2026-11-02"))
+        let first = day("2026-11-01", tokens: 100, count: 2, models: ["previous": 1], usage: usage(input: 100, cached: 50, output: 10))
+        let current = day("2026-11-02", tokens: todayTokens, count: 3, models: ["current": 2], usage: usage(input: 200, cached: 190, output: 20))
+        var history = HistorySnapshot(activityData: [first.activityData, current.activityData])
+        history.tokenUsageByDate = try [first.startDate: #require(first.tokenUsage), current.startDate: #require(current.tokenUsage)]
+        let summary = try TestFixtures.decode(UsageSummary.self, "{}")
+        let buckets = [DailyUsageBucket(startDate: first.startDate, tokens: 100)]
+        let account = CodexUsageSnapshot(summary: summary, dailyBuckets: buckets)
+        let days = UsageHeatmapDay.grid(usage: account, history: history, columnCount: 1, today: today)
+        let selection = try #require(UsageHeatmapSelection.at(column: 0, row: 1, in: days, mode: .weekly))
+        let week = try #require(selection.period(in: days, weeks: UsageHeatmapPeriod.weeks(in: days), mode: .weekly))
+
+        #expect(week.tokenState == .available(100))
+        #expect(week.activityData == first.activityData)
+        #expect(week.tokenUsage == first.tokenUsage)
+        #expect(week.tokenUsage?.cacheHitRate == 0.5)
+        #expect(week.startDate == "2026-11-01")
+        #expect(week.endDate == "2026-11-07")
+        let dailySelection = UsageHeatmapSelection(dateID: current.startDate)
+        let daily = try #require(dailySelection.period(in: days, weeks: [], mode: .daily))
+        #expect(daily.tokenState == .pending)
+        #expect(daily.activityData == current.activityData)
+        #expect(daily.tokenUsage == current.tokenUsage)
+
+        let updatedAccount = CodexUsageSnapshot(
+            summary: summary,
+            dailyBuckets: buckets + [DailyUsageBucket(startDate: current.startDate, tokens: todayTokens)]
+        )
+        let updatedDays = UsageHeatmapDay.grid(usage: updatedAccount, history: history, columnCount: 1, today: today)
+        let updatedWeek = try #require(selection.period(in: updatedDays, weeks: UsageHeatmapPeriod.weeks(in: updatedDays), mode: .weekly))
+        #expect(updatedWeek.tokenState == .available(100 + todayTokens))
+        #expect(updatedWeek.activityData == first.activityData.adding(current.activityData))
+        #expect(updatedWeek.activityData.mostUsedModel == "current")
+        #expect(try updatedWeek.tokenUsage == first.tokenUsage?.adding(#require(current.tokenUsage)))
+        #expect(updatedWeek.tokenUsage?.cacheHitRate == 0.8)
+    }
+
+    @Test(arguments: [true, false])
+    func weekWithoutAccountUsagePreservesMetricsOnlyInDailyView(hasDailyBuckets: Bool) throws {
+        let today = try #require(CodexDateFormat.dayDate(from: "2026-11-01"))
+        let current = day("2026-11-01", tokens: 30, count: 4, models: ["current": 1], usage: usage(input: 30))
+        var history = HistorySnapshot(activityData: [current.activityData])
+        history.tokenUsageByDate = try [current.startDate: #require(current.tokenUsage)]
+        let summary = try TestFixtures.decode(UsageSummary.self, "{}")
+        let account = CodexUsageSnapshot(summary: summary, dailyBuckets: hasDailyBuckets ? [] : nil)
+        let days = UsageHeatmapDay.grid(usage: account, history: history, columnCount: 1, today: today)
+        let selection = UsageHeatmapSelection(dateID: current.startDate)
+        let week = try #require(selection.period(in: days, weeks: UsageHeatmapPeriod.weeks(in: days), mode: .weekly))
+        #expect(week.tokenState == (hasDailyBuckets ? .pending : .unavailable))
+        #expect(week.activityData == .unavailable(startDate: current.startDate))
+        #expect(week.tokenUsage == nil)
+        #expect(week.endDate == "2026-11-07")
+        let daily = try #require(selection.period(in: days, weeks: [], mode: .daily))
+        #expect(daily.tokenState == week.tokenState)
+        #expect(daily.activityData == current.activityData)
+        #expect(daily.tokenUsage == current.tokenUsage)
     }
 
     @Test(arguments: [("2026-01-01", "2025-12-28", "2026-01-03"), ("2026-03-31", "2026-03-29", "2026-04-04")])
@@ -236,7 +296,7 @@ struct UsageHeatmapTests {
     @Test func overflowDoesNotPublishWrappedWeeklyTotals() throws {
         let first = day("2026-10-18", tokens: Int.max, usage: usage(input: Int64.max))
         let second = day("2026-10-19", tokens: 1, usage: usage(input: 1))
-        let week = try #require(UsageHeatmapPeriod(days: [first, second]))
+        let week = try #require(UsageHeatmapPeriod.weeks(in: [first, second]).first ?? nil)
         #expect(week.tokenState == .unavailable)
         #expect(week.tokenUsage == nil)
     }

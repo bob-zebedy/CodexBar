@@ -81,7 +81,7 @@ nonisolated enum UsageHeatmapMode: String {
     case weekly
 }
 
-/// 展示期间的汇总, 周视图只合并已有日期, 区间仍覆盖完整的一周
+/// 日详情保留已采集数据, 周汇总只累计接口总量已知的日期
 nonisolated struct UsageHeatmapPeriod: Equatable {
     let startDate: String
     let endDate: String
@@ -93,14 +93,28 @@ nonisolated struct UsageHeatmapPeriod: Equatable {
         tokenState.count ?? 0
     }
 
-    init?(days: [UsageHeatmapDay], endDate: String? = nil) {
-        guard let first = days.first, let last = days.last else { return nil }
+    init(day: UsageHeatmapDay) {
+        startDate = day.startDate
+        endDate = day.startDate
+        tokenState = day.tokenState
+        activityData = day.activityData
+        tokenUsage = day.tokenUsage
+    }
+
+    private init?(weekDays days: [UsageHeatmapDay]) {
+        guard let first = days.first,
+              let weekStart = CodexDateFormat.dayDate(from: first.startDate),
+              let weekEnd = CodexDateFormat.localGregorianCalendar.date(byAdding: .day, value: CodexWeekGrid.rowCount - 1, to: weekStart) else {
+            return nil
+        }
         startDate = first.startDate
-        self.endDate = endDate ?? last.startDate
+        endDate = CodexDateFormat.dayString(from: weekEnd)
         tokenState = Self.totalTokenState(days)
+        let countedDays = days.filter { $0.tokenCount != nil }
         // 每日快照不含会话标识, 周计数沿用每日统计之和
-        activityData = days.dropFirst().reduce(first.activityData) { $0.adding($1.activityData) }
-        let usages = days.compactMap(\.tokenUsage)
+        let firstActivityData = countedDays.first?.activityData ?? .unavailable(startDate: first.startDate)
+        activityData = countedDays.dropFirst().reduce(firstActivityData) { $0.adding($1.activityData) }
+        let usages = countedDays.compactMap(\.tokenUsage)
         tokenUsage = usages.dropFirst().reduce(usages.first) { total, usage in
             total?.adding(usage)
         }
@@ -115,12 +129,7 @@ nonisolated struct UsageHeatmapPeriod: Equatable {
     static func weeks(in days: [UsageHeatmapDay?]) -> [UsageHeatmapPeriod?] {
         stride(from: 0, to: days.count, by: CodexWeekGrid.rowCount).map { start in
             let weekDays = days[start ..< min(start + CodexWeekGrid.rowCount, days.count)].compactMap(\.self)
-            guard let first = weekDays.first,
-                  let startDate = CodexDateFormat.dayDate(from: first.startDate),
-                  let endDate = CodexDateFormat.localGregorianCalendar.date(byAdding: .day, value: CodexWeekGrid.rowCount - 1, to: startDate) else {
-                return nil
-            }
-            return UsageHeatmapPeriod(days: weekDays, endDate: CodexDateFormat.dayString(from: endDate))
+            return UsageHeatmapPeriod(weekDays: weekDays)
         }
     }
 
