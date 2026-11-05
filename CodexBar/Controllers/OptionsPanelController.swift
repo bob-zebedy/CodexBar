@@ -66,6 +66,7 @@ final class OptionsPanelController {
     private lazy var presenter = SidePanelDrawerPresenter(
         animationKey: animationKey,
         usesUntranslatedInitialLayout: true,
+        areAnimationsEnabled: { [weak self] in self?.mainPanelSettings.areAnimationsEnabled ?? false },
         contentViewProvider: { [weak self] in
             self?.hostingController?.view
         }

@@ -1,6 +1,30 @@
 import Foundation
 import ServiceManagement
 
+/// 失败预算跟随期望睡眠状态, 普通快照不能替代定时重试
+nonisolated struct SleepPreventionRetry {
+    private(set) var requested: Bool?
+    private(set) var attempt = 0
+
+    func allowsRequest(isRetry: Bool) -> Bool {
+        requested == nil || isRetry
+    }
+
+    mutating func recordFailure(for requested: Bool) {
+        if self.requested != requested {
+            self = Self()
+        }
+        self.requested = requested
+    }
+
+    mutating func nextDelay(for requested: Bool, delays: [Duration]) -> Duration? {
+        recordFailure(for: requested)
+        guard attempt < delays.count else { return nil }
+        defer { attempt += 1 }
+        return delays[attempt]
+    }
+}
+
 extension KeepAliveController {
     /// 低电量保护阈值, rawValue 就是百分比; off 用 -1 与合法百分比区分
     enum LowBatteryThreshold: Int, CaseIterable, Identifiable {

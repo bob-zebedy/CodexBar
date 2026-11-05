@@ -4,6 +4,27 @@ import Testing
 
 @Suite(.tags(.integration))
 struct SyncRecoveryTests {
+    @Test(arguments: [false, true])
+    func expiredRemoteRecordsKeepCursorWhileLocalRecordsRequireDeletionRetry(local: Bool) throws {
+        let now = Date()
+        let expiredDate = HistoryStorage.dateKey(for: HistoryStorage.retentionCutoffDate(today: now).addingTimeInterval(-86400))
+        let current = TokenUsageSyncRecord(deviceID: "device", date: HistoryStorage.dateKey(for: now), tokenUsage: .zero)
+        let expired = TokenUsageSyncRecord(deviceID: local ? "device" : "offline-device", date: expiredDate, tokenUsage: .zero)
+        let cursor = Data("saved-server-cursor".utf8)
+        var cache = TokenUsageSyncCache(state: TokenUsageSyncState(deviceID: "device"))
+        cache.records = [current.id: current, expired.id: expired]
+        cache.cursor = cursor
+        let didPrune = cache.prune(now: now)
+        #expect(didPrune)
+        #expect(cache.records == [current.id: current])
+        #expect(cache.cursor == (local ? nil : cursor))
+        let reopened = try JSONLines.decoder.decode(TokenUsageSyncCache.self, from: JSONLines.stableEncoder.encode(cache))
+        #expect(reopened == cache)
+        let prunedAgain = cache.prune(now: now)
+        #expect(!prunedAgain)
+        #expect(cache.cursor == (local ? nil : cursor))
+    }
+
     @Test func expiredTokenUsageCacheStaysBoundedWhenCloudDeletionFailsAndRetries() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

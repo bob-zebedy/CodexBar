@@ -3,6 +3,20 @@ import Testing
 
 @Suite(.tags(.integration))
 struct ActivityDataSyncStoreTests {
+    @Test func uploadTimeReadDoesNotWaitForCacheWriter() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let store = ActivityDataSyncStore(directoryURL: directory.url)
+        let uploadedAt = JSONLines.storageDate(Date())
+        try store.saveState(ActivityDataSyncState(lastUploadAt: uploadedAt))
+        do {
+            let lock = try #require(try JSONFileStorage.acquireLock(at: AppStorage(rootURL: directory.url).lockURL(.activityDataSyncCache)))
+            defer { JSONFileStorage.releaseLock(lock) }
+            await #expect(throws: POSIXError.self) { try await SyncService.loadLastUploadAt(in: directory.url) }
+        }
+        #expect(try await SyncService.loadLastUploadAt(in: directory.url) == uploadedAt)
+    }
+
     @Test func activityDataCacheCommitsRecordsAndCursorTogether() throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

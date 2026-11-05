@@ -5,6 +5,61 @@ import UserNotifications
 @Suite(.tags(.integration))
 struct TaskWaitingNotificationTests {
     @Test(arguments: [false, true])
+    func disablingNotificationsDuringFailedSubmissionStopsRetry(categoryOnly: Bool) async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try await fixture.start()
+        fixture.delivery.suspendsSubmissions = true
+        let submission = try fixture.enterWaiting(blockingInput: false)
+        try #require(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(5)) { fixture.delivery.hasPendingSubmission })
+        if categoryOnly {
+            fixture.settings.setTaskWaitingEnabled(false)
+        } else {
+            fixture.settings.setEnabled(false)
+        }
+        fixture.delivery.resumeSubmission(failing: true)
+        #expect(await submission.value == false)
+        #expect(fixture.delivery.attempts.count == 1)
+        #expect(fixture.delivery.delivered.isEmpty)
+        try fixture.resolveWaiting()
+        #expect(fixture.delivery.removals.isEmpty)
+
+        fixture.settings.setTaskWaitingEnabled(true)
+        fixture.settings.setEnabled(true)
+        try #require(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(5)) { fixture.settings.canDeliver })
+        fixture.delivery.suspendsSubmissions = false
+        let next = try fixture.enterWaiting(blockingInput: false)
+        #expect(await next.value)
+        try fixture.resolveWaiting()
+        #expect(fixture.delivery.delivered.isEmpty)
+    }
+
+    @Test(arguments: [false, true])
+    func oldWaitingSubmissionCannotOverwriteOrUntrackTheNextWait(oldFails: Bool) async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        try await fixture.start()
+        fixture.delivery.suspendsSubmissions = true
+        let first = try fixture.enterWaiting(blockingInput: false)
+        try #require(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(5)) { fixture.delivery.attempts.count == 1 })
+        let firstID = fixture.identifier
+        try fixture.resolveWaiting()
+        let second = try fixture.enterWaiting(blockingInput: true)
+        try #require(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(5)) { fixture.delivery.attempts.count == 2 })
+        let secondID = fixture.identifier
+        #expect(firstID != secondID)
+        fixture.delivery.resumeSubmission(at: 1)
+        #expect(await second.value)
+        fixture.delivery.resumeSubmission(failing: oldFails)
+        #expect(await first.value == false)
+        #expect(fixture.delivery.attempts.count == 2)
+        #expect(fixture.delivery.delivered == [secondID])
+        try fixture.resolveWaiting()
+        #expect(fixture.delivery.delivered.isEmpty)
+        #expect(fixture.delivery.removals.last == [secondID])
+    }
+
+    @Test(arguments: [false, true])
     func monitorTransitionDeliversAndSnapshotWithdrawsNotification(blockingInput: Bool) async throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
@@ -112,7 +167,7 @@ private final class Fixture {
     private var graph = ActivityTaskGraph()
 
     var identifier: String {
-        "taskWaiting|\(taskID.uuidString)"
+        delivery.attempts.last ?? delivery.removals.first?.first ?? "not-submitted"
     }
 
     init() throws {
@@ -199,10 +254,10 @@ private final class TestNotificationDelivery {
     private(set) var attempts: [String] = []
     private(set) var delivered = Set<String>()
     private(set) var removals: [Set<String>] = []
-    private var pending: CheckedContinuation<Void, any Error>?
+    private var pending: [CheckedContinuation<Void, any Error>] = []
 
     var hasPendingSubmission: Bool {
-        pending != nil
+        !pending.isEmpty
     }
 
     var client: NotificationService.Delivery {
@@ -211,7 +266,7 @@ private final class TestNotificationDelivery {
             add: { [self] request in
                 attempts.append(request.identifier)
                 if suspendsSubmissions {
-                    try await withCheckedThrowingContinuation { pending = $0 }
+                    try await withCheckedThrowingContinuation { pending.append($0) }
                 }
                 if failuresRemaining > 0 {
                     failuresRemaining -= 1
@@ -226,17 +281,22 @@ private final class TestNotificationDelivery {
         )
     }
 
-    func resumeSubmission() {
-        let continuation = pending
-        pending = nil
-        continuation?.resume()
+    func resumeSubmission(at index: Int = 0, failing: Bool = false) {
+        let continuation = pending.remove(at: index)
+        if failing {
+            continuation.resume(throwing: CocoaError(.fileWriteUnknown))
+        } else {
+            continuation.resume()
+        }
     }
 
     func cancelPendingSubmissions() {
         suspendsSubmissions = false
         failuresRemaining = 2
-        let continuation = pending
-        pending = nil
-        continuation?.resume(throwing: CancellationError())
+        let continuations = pending
+        pending.removeAll()
+        for continuation in continuations {
+            continuation.resume(throwing: CancellationError())
+        }
     }
 }

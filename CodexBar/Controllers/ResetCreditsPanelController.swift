@@ -13,6 +13,7 @@ final class ResetCreditsPanelController {
     )
     private lazy var presenter = SidePanelDrawerPresenter(
         animationKey: Metrics.drawerTransformAnimationKey,
+        areAnimationsEnabled: { [weak self] in self?.mainPanelSettings.areAnimationsEnabled ?? false },
         contentViewProvider: { [weak self] in
             self?.contentHost.contentView
         }

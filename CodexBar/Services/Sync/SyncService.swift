@@ -818,8 +818,9 @@ private extension SyncService {
 
 extension SyncService {
     /// 设置页读取最近上传时间时, 与内部 loadState 使用相同的 schemaVersion 校验规则
-    nonisolated static func loadLastUploadAt() -> Date? {
-        ActivityDataSyncStore(directoryURL: AppStorage.directoryURL()).loadState().lastUploadAt
+    @concurrent nonisolated static func loadLastUploadAt(in directoryURL: URL = AppStorage.directoryURL()) async throws -> Date? {
+        try Task.checkCancellation()
+        return try ActivityDataSyncStore(directoryURL: directoryURL).load(nonblocking: true).state.lastUploadAt
     }
 }
 

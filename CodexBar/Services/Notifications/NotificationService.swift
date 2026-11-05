@@ -38,7 +38,7 @@ final class NotificationService: NSObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var taskHapticFeedbackTask: Task<Void, Never>?
-    private var taskWaitingNotificationIdentifiers = Set<String>()
+    private var taskWaitingNotificationIdentifiers: [UUID: String] = [:]
     private let creditExpiryReminderScheduler = ReminderCheckScheduler()
     private var latestQuotaSnapshot: CodexQuotaSnapshot?
 
@@ -147,17 +147,23 @@ final class NotificationService: NSObject {
                 return nil
             }
             let taskID = task.id
-            let identifier = Self.taskWaitingNotificationIdentifier(for: taskID)
-            taskWaitingNotificationIdentifiers.insert(identifier)
+            // 同一任务的每次等待使用独立通知身份, 旧提交完成后只能撤回自己
+            let identifier = "taskWaiting|\(UUID().uuidString)"
+            if let previous = taskWaitingNotificationIdentifiers.updateValue(identifier, forKey: taskID) {
+                removeNotifications(withIdentifiers: [previous])
+            }
             return send(
                 .taskWaiting(project: task.projectName, actionText: task.approvalActionText),
                 sound: settings.taskWaitingSound,
+                enabledWhen: \.isTaskWaitingEnabled,
                 identifier: identifier,
                 isStillRelevant: { [weak self] in
-                    self?.activityMonitor.snapshot.blockingWaitingTaskIDs.contains(taskID) ?? false
+                    self?.taskWaitingNotificationIdentifiers[taskID] == identifier
+                        && self?.activityMonitor.snapshot.blockingWaitingTaskIDs.contains(taskID) == true
                 },
                 onSubmissionFailure: { [weak self] in
-                    self?.taskWaitingNotificationIdentifiers.remove(identifier)
+                    guard self?.taskWaitingNotificationIdentifiers[taskID] == identifier else { return }
+                    self?.taskWaitingNotificationIdentifiers.removeValue(forKey: taskID)
                 }
             )
         case let .completed(completion):
@@ -168,23 +174,24 @@ final class NotificationService: NSObject {
             }
             return send(
                 .taskCompleted(project: completion.projectName, duration: duration),
-                sound: settings.taskCompletionSound
+                sound: settings.taskCompletionSound,
+                enabledWhen: \.isTaskCompletionEnabled
             )
         }
     }
 
     private func reconcileTaskWaitingNotifications(with snapshot: ActivitySnapshot) {
-        let activeIdentifiers = Set(snapshot.blockingWaitingTaskIDs.map {
-            Self.taskWaitingNotificationIdentifier(for: $0)
-        })
-        let obsoleteIdentifiers = taskWaitingNotificationIdentifiers.subtracting(activeIdentifiers)
+        let activeTaskIDs = snapshot.blockingWaitingTaskIDs
+        let obsoleteIdentifiers = taskWaitingNotificationIdentifiers.filter { !activeTaskIDs.contains($0.key) }
         guard !obsoleteIdentifiers.isEmpty else {
             return
         }
 
-        let identifiers = Array(obsoleteIdentifiers)
+        let identifiers = Array(obsoleteIdentifiers.values)
         removeNotifications(withIdentifiers: identifiers)
-        taskWaitingNotificationIdentifiers.subtract(obsoleteIdentifiers)
+        for taskID in obsoleteIdentifiers.keys {
+            taskWaitingNotificationIdentifiers.removeValue(forKey: taskID)
+        }
     }
 
     private func performTaskHapticFeedbackIfEnabled() {
@@ -379,6 +386,7 @@ final class NotificationService: NSObject {
                 thresholdPercent: lowQuota.thresholdPercent
             ),
             sound: settings.lowQuotaSound,
+            enabledWhen: \.isLowQuotaEnabled,
             dedupKey: dedupKey,
             onSubmissionFailure: { [weak self] in
                 guard let self, quotaWindowObservations[stateKey]?.lifecycleToken == lifecycleToken else { return }
@@ -418,9 +426,11 @@ final class NotificationService: NSObject {
                     windowLabel: window.label
                 ),
                 sound: settings.quotaResetSound,
+                enabledWhen: \.isQuotaResetEnabled,
                 dedupKey: dedupKey,
                 onSubmissionFailure: { [weak self] in
                     guard let self,
+                          settings.canDeliver, settings.isQuotaResetEnabled,
                           quotaWindowObservations[stateKey]?.lifecycleToken == lifecycleToken else {
                         return
                     }
@@ -444,6 +454,7 @@ final class NotificationService: NSObject {
         send(
             .autoResetSucceeded(remainingCount: remainingCount),
             sound: settings.autoResetSound,
+            enabledWhen: \.isAutoResetEnabled,
             dedupKey: "autoResetSucceeded|\(dedupToken)"
         )
     }
@@ -459,6 +470,7 @@ final class NotificationService: NSObject {
         send(
             .autoResetFailed(reason: reason),
             sound: settings.autoResetSound,
+            enabledWhen: \.isAutoResetEnabled,
             dedupKey: "autoResetFailed|\(dedupToken)|\(reason.rawValue)"
         )
     }
@@ -476,7 +488,8 @@ final class NotificationService: NSObject {
 
         return await send(
             .lowBattery(percent: percent),
-            sound: settings.lowBatterySound
+            sound: settings.lowBatterySound,
+            enabledWhen: \.isLowBatteryEnabled
         )?.value ?? false
     }
 
@@ -491,7 +504,8 @@ final class NotificationService: NSObject {
 
         return await send(
             .keepAliveLimit(durationText: durationText),
-            sound: settings.keepAliveLimitSound
+            sound: settings.keepAliveLimitSound,
+            enabledWhen: \.isKeepAliveLimitEnabled
         )?.value ?? false
     }
 
@@ -522,6 +536,7 @@ final class NotificationService: NSObject {
             send(
                 .creditExpiry(count: groupedDates.count, expirationDate: date),
                 sound: settings.creditExpirySound,
+                enabledWhen: \.isCreditExpiryEnabled,
                 dedupKey: dedupKey
             )
         }
@@ -595,6 +610,7 @@ final class NotificationService: NSObject {
     private func send(
         _ notification: NotificationContent,
         sound: NotificationSoundOption,
+        enabledWhen: KeyPath<NotificationSettings, Bool>? = nil,
         identifier: String = UUID().uuidString,
         dedupKey: String? = nil,
         isStillRelevant: (() -> Bool)? = nil,
@@ -628,6 +644,7 @@ final class NotificationService: NSObject {
             await self?.deliver(
                 request,
                 kind: kind,
+                enabledWhen: enabledWhen,
                 dedupKey: dedupKey,
                 isStillRelevant: isStillRelevant,
                 onSubmissionFailure: onSubmissionFailure,
@@ -640,6 +657,7 @@ final class NotificationService: NSObject {
     private func deliver(
         _ request: UNNotificationRequest,
         kind: String,
+        enabledWhen: KeyPath<NotificationSettings, Bool>?,
         dedupKey: String?,
         isStillRelevant: (() -> Bool)?,
         onSubmissionFailure: (() -> Void)?,
@@ -652,12 +670,17 @@ final class NotificationService: NSObject {
         }
 
         for _ in 0 ... max(0, retryCount) {
+            guard settings.canDeliver, enabledWhen.map({ settings[keyPath: $0] }) ?? true else {
+                onSubmissionFailure?()
+                return false
+            }
             guard isStillRelevant?() != false else {
                 let details = LogFields.joined(
                     "kind=\(kind)",
                     "reason=obsolete"
                 )
                 AppLog.notification.notice("通知已跳过: \(details, privacy: .public)")
+                onSubmissionFailure?()
                 return false
             }
             do {
@@ -702,10 +725,6 @@ final class NotificationService: NSObject {
 
     private nonisolated static func epoch(_ date: Date) -> Int {
         Int(date.timeIntervalSince1970)
-    }
-
-    private nonisolated static func taskWaitingNotificationIdentifier(for taskID: UUID) -> String {
-        "taskWaiting|\(taskID.uuidString)"
     }
 
     private nonisolated static func protectionNotificationIdentifier(

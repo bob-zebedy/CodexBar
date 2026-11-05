@@ -12,8 +12,12 @@ nonisolated struct ActivityDataSyncStore {
         AppStorage(rootURL: directoryURL).lockURL(.activityDataSyncCache)
     }
 
-    func load() throws -> ActivityDataSyncCache {
-        try JSONFileStorage.withLock(at: lockURL) { try read() }
+    func load(nonblocking: Bool = false) throws -> ActivityDataSyncCache {
+        guard let lock = try JSONFileStorage.acquireLock(at: lockURL, nonblocking: nonblocking) else {
+            throw POSIXError(.EWOULDBLOCK)
+        }
+        defer { JSONFileStorage.releaseLock(lock) }
+        return try read()
     }
 
     func loadState() -> ActivityDataSyncState {

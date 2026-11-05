@@ -34,6 +34,11 @@ final class MenuSurfaceFadeCoordinator {
 
     func fadeIn(duration: TimeInterval, completion: @escaping () -> Void) {
         cancel()
+        guard duration > 0 else {
+            resetAlpha()
+            completion()
+            return
+        }
         fade(to: 1, duration: duration)
 
         completionTask = Task { @MainActor [weak self] in
@@ -53,7 +58,6 @@ final class MenuSurfaceFadeCoordinator {
         guard let contentView else {
             return false
         }
-
         let activeMenuSurfaceWindow = contentView.window
         fade(to: 0, duration: duration)
 

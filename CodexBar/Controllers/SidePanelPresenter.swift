@@ -8,15 +8,18 @@ final class SidePanelDrawerAnimator {
     private let contentViewProvider: @MainActor () -> NSView?
     private let animationKey: String
     private let overscan: CGFloat
+    private let areAnimationsEnabled: () -> Bool
 
     init(
         contentViewProvider: @escaping @MainActor () -> NSView?,
         animationKey: String,
-        overscan: CGFloat
+        overscan: CGFloat,
+        areAnimationsEnabled: @escaping () -> Bool
     ) {
         self.contentViewProvider = contentViewProvider
         self.animationKey = animationKey
         self.overscan = overscan
+        self.areAnimationsEnabled = areAnimationsEnabled
     }
 
     func hiddenTranslation(for side: UsageHeatmapDetailSide, panelWidth: CGFloat) -> CGFloat {
@@ -49,6 +52,11 @@ final class SidePanelDrawerAnimator {
         timing: CAMediaTimingFunctionName,
         completion: (() -> Void)? = nil
     ) {
+        guard areAnimationsEnabled() else {
+            setTranslation(translationX)
+            completion?()
+            return
+        }
         guard let layer = contentViewProvider()?.layer else {
             completion?()
             return
@@ -79,6 +87,12 @@ final class SidePanelDrawerAnimator {
         isCurrent: @escaping @MainActor () -> Bool,
         completion: @escaping @MainActor () -> Void
     ) {
+        guard areAnimationsEnabled() else {
+            guard isCurrent() else { return }
+            resetVisualState(for: panel)
+            completion()
+            return
+        }
         panel.contentView?.layoutSubtreeIfNeeded()
         panel.displayIfNeeded()
         CATransaction.flush()
@@ -129,6 +143,7 @@ final class SidePanelDrawerAnimator {
 @MainActor
 final class SidePanelDrawerPresenter {
     private let usesUntranslatedInitialLayout: Bool
+    private let areAnimationsEnabled: () -> Bool
     private let drawerAnimator: SidePanelDrawerAnimator
     private weak var panel: NSPanel?
     private var visibilityGeneration = 0
@@ -139,13 +154,16 @@ final class SidePanelDrawerPresenter {
     init(
         animationKey: String,
         usesUntranslatedInitialLayout: Bool = false,
+        areAnimationsEnabled: @escaping () -> Bool,
         contentViewProvider: @escaping @MainActor () -> NSView?
     ) {
         self.usesUntranslatedInitialLayout = usesUntranslatedInitialLayout
+        self.areAnimationsEnabled = areAnimationsEnabled
         drawerAnimator = SidePanelDrawerAnimator(
             contentViewProvider: contentViewProvider,
             animationKey: animationKey,
-            overscan: SidePanelSupport.Metrics.drawerOverscan
+            overscan: SidePanelSupport.Metrics.drawerOverscan,
+            areAnimationsEnabled: areAnimationsEnabled
         )
     }
 
@@ -168,8 +186,9 @@ final class SidePanelDrawerPresenter {
 
         let generation = visibilityGeneration
         let hidden = drawerAnimator.hiddenTranslation(for: currentSide, panelWidth: panel.frame.width)
-        drawerAnimator.setTranslation(usesUntranslatedInitialLayout ? 0 : hidden)
-        panel.alphaValue = 0
+        let animates = areAnimationsEnabled()
+        drawerAnimator.setTranslation(usesUntranslatedInitialLayout || !animates ? 0 : hidden)
+        panel.alphaValue = animates ? 0 : 1
         self.parentWindow = parentWindow
         SidePanelSupport.attach(panel, to: parentWindow)
         panel.order(.above, relativeTo: parentWindow.windowNumber)
@@ -201,7 +220,7 @@ final class SidePanelDrawerPresenter {
         }
 
         // 不可见的子窗口仍可能挂在父窗口上, 收尾不能只依据 isVisible
-        if immediate || !panel.isVisible {
+        if immediate || !areAnimationsEnabled() || !panel.isVisible {
             visibilityGeneration += 1
             drawerAnimator.resetVisualState(for: panel)
             isExitAnimationRunning = false

@@ -3,6 +3,30 @@ import Foundation
 import Testing
 
 struct SyncAvailabilityTests {
+    @Test func uploadTimeIgnoresOlderReadsAndPreservesValueAfterFailure() async throws {
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        var reads: [CheckedContinuation<Date?, any Error>] = []
+        let settings = SyncSettings(defaults: preferences.defaults, queryAvailability: { .available }, loadLastUpload: {
+            try await withCheckedThrowingContinuation { reads.append($0) }
+        })
+        try await waitUntil { reads.count == 1 }
+        settings.refresh()
+        try await waitUntil { reads.count == 2 }
+        let latest = Date(timeIntervalSince1970: 200)
+        reads[1].resume(returning: latest)
+        try await waitUntil { settings.lastUploadAt == latest }
+        reads[0].resume(returning: Date(timeIntervalSince1970: 100))
+        settings.refresh()
+        try await waitUntil { reads.count == 3 }
+        reads[2].resume(throwing: POSIXError(.EWOULDBLOCK))
+        settings.refresh()
+        try await waitUntil { reads.count == 4 }
+        #expect(settings.lastUploadAt == latest)
+        reads[3].resume(returning: nil)
+        try await waitUntil { settings.lastUploadAt == nil }
+    }
+
     @Test func maintenanceRecoversAvailabilityWithoutOpeningSettings() async throws {
         let preferences = try TestPreferences()
         defer { preferences.remove() }

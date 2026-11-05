@@ -21,6 +21,7 @@ final class ActivityPanelController {
     private var panelUpdateTask: Task<Void, Never>?
     private lazy var presenter = SidePanelDrawerPresenter(
         animationKey: Metrics.drawerTransformAnimationKey,
+        areAnimationsEnabled: { [weak self] in self?.mainPanelSettings.areAnimationsEnabled ?? false },
         contentViewProvider: { [weak self] in
             self?.contentHost.contentView
         }

@@ -584,7 +584,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
         )
 
-        menuSurfaceFadeCoordinator.fadeIn(duration: Metrics.fadeInDuration) { [weak self] in
+        menuSurfaceFadeCoordinator.fadeIn(duration: mainPanelSettings.areAnimationsEnabled ? Metrics.fadeInDuration : 0) { [weak self] in
             guard let self, isActiveMenuSurfaceVisible else { return }
             menuSurfaceState = .shown
             // 展开完成后再刷新共享状态, 避免主面板与设置窗口在淡入期间一起重算
@@ -728,6 +728,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - 关闭流程
 
     private func closeMenuSurface(animated: Bool = true) {
+        let animated = animated && mainPanelSettings.areAnimationsEnabled
         if menuSurfaceState == .closing, animated {
             return
         }

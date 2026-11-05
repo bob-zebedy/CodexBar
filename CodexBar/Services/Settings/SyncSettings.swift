@@ -14,9 +14,10 @@ final class SyncSettings: ObservableObject {
 
     private let defaults: UserDefaults
     private let queryAvailability: () async -> SyncAvailabilityResult
-    private let loadLastUpload: () -> Date?
+    private let loadLastUpload: () async throws -> Date?
     private var cancellables = Set<AnyCancellable>()
     private let accountStatusCoordinator = RefreshTaskCoordinator()
+    private let lastUploadCoordinator = RefreshTaskCoordinator()
     private var isCheckingAvailability = false
     private var lastAvailabilityCheckAt: Date?
     private static let availabilityRetryInterval: TimeInterval = 60
@@ -25,20 +26,20 @@ final class SyncSettings: ObservableObject {
         self.init(
             defaults: defaults,
             queryAvailability: { await Self.querySyncAvailability() },
-            loadLastUpload: Self.loadLastUploadAt
+            loadLastUpload: { try await SyncService.loadLastUploadAt() }
         )
     }
 
     init(
         defaults: UserDefaults,
         queryAvailability: @escaping () async -> SyncAvailabilityResult,
-        loadLastUpload: @escaping () -> Date?
+        loadLastUpload: @escaping () async throws -> Date?
     ) {
         self.defaults = defaults
         self.queryAvailability = queryAvailability
         self.loadLastUpload = loadLastUpload
         isEnabled = Self.isEnabled(defaults: defaults)
-        lastUploadAt = loadLastUpload()
+        refreshLastUploadAt()
         observeSyncNotifications()
         refreshSyncAvailability()
     }
@@ -48,7 +49,7 @@ final class SyncSettings: ObservableObject {
         if !isEnabled {
             clearSyncActivity()
         }
-        lastUploadAt = loadLastUpload()
+        refreshLastUploadAt()
         refreshSyncAvailability()
     }
 
@@ -78,7 +79,7 @@ final class SyncSettings: ObservableObject {
             clearSyncActivity()
         }
         isEnabled = enabled
-        lastUploadAt = loadLastUpload()
+        refreshLastUploadAt()
         return previousValue != enabled
     }
 
@@ -160,6 +161,17 @@ final class SyncSettings: ObservableObject {
         clearSyncFailure()
     }
 
+    private func refreshLastUploadAt() {
+        lastUploadCoordinator.start { [weak self, loadLastUpload, lastUploadCoordinator] generation in
+            defer { lastUploadCoordinator.finish(generation) {} }
+            // 锁忙或读取失败时保留上次结果, 下次刷新再读取
+            let result: Date?
+            do { result = try await loadLastUpload() } catch { return }
+            guard lastUploadCoordinator.canCommit(generation) else { return }
+            self?.lastUploadAt = result
+        }
+    }
+
     private func handleSyncDidFinish(_ notification: Notification) {
         let didSucceed = notification.userInfo?[SyncNotificationKey.didSucceed] as? Bool ?? true
         let failureMessage = notification.userInfo?[SyncNotificationKey.failureMessage] as? String
@@ -170,7 +182,7 @@ final class SyncSettings: ObservableObject {
         } else {
             applySyncFailure(failureMessage)
         }
-        lastUploadAt = loadLastUpload()
+        refreshLastUploadAt()
     }
 
     private func applyAvailabilityResult(_ result: SyncAvailabilityResult) {
@@ -209,10 +221,6 @@ final class SyncSettings: ObservableObject {
                 )
             }
         }
-    }
-
-    private nonisolated static func loadLastUploadAt() -> Date? {
-        SyncService.loadLastUploadAt()
     }
 
     private nonisolated static let enabledKey = "Sync.isEnabled"

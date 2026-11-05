@@ -105,7 +105,7 @@ final class KeepAliveController: ObservableObject {
     private var isPowerHelperStatusAvailable = false
     private var powerHelperFailureTask: Task<Void, Never>?
     private var powerHelperLifecycleGeneration: UInt64 = 0
-    private var retryAttempt = 0
+    private var sleepRetry = SleepPreventionRetry()
     private var powerHelperRegistrationTask: Task<Void, Never>?
     private let powerHelperPackageValidation = PowerHelperPackageValidation()
     /// 仅通过派生状态更新 UI, 此属性不发布变化
@@ -671,23 +671,24 @@ final class KeepAliveController: ObservableObject {
         logSleepConditionsIfChanged(blockReason: blockReason, trigger: trigger)
 
         // Power Helper 未授权或刷新期间不发普通租约请求, 未确认的租约留待恢复后清理
-        guard powerHelperStatus == .enabled, !isRefreshingPowerHelper else {
+        guard isPowerHelperStatusAvailable, powerHelperStatus == .enabled, !isRefreshingPowerHelper else {
             cancelRetryTask()
             releaseSleepPrevention()
             return
         }
 
         guard wantsSleepDisabled else {
-            cancelRetryTask()
             if mayHavePowerHelperLease || isPreventingSleep {
                 applySleepPreventionRequested(false)
             } else {
+                cancelRetryTask()
                 releaseSleepPrevention()
             }
             return
         }
 
         if force {
+            cancelRetryTask()
             appliedSleepPreventionRequested = nil
         }
         applySleepPreventionRequested(true)
@@ -791,8 +792,16 @@ final class KeepAliveController: ObservableObject {
         _ requested: Bool,
         force: Bool = false,
         isObservation: Bool = false,
+        isRetry: Bool = false,
         completion: ((Bool) -> Void)? = nil
     ) {
+        if force || (sleepRetry.requested != nil && sleepRetry.requested != requested) {
+            cancelRetryTask()
+        }
+        guard sleepRetry.allowsRequest(isRetry: isRetry) else {
+            completion?(false)
+            return
+        }
         guard force || appliedSleepPreventionRequested != requested else {
             completion?(true)
             return
@@ -1128,9 +1137,13 @@ final class KeepAliveController: ObservableObject {
 
     /// 断连和超时后先断开连接并复核授权, retrying 为 nil 时只更新状态, 不重试租约
     private func handlePowerHelperFailure(_ message: String?, retrying requested: Bool?) {
+        if let requested {
+            sleepRetry.recordFailure(for: requested)
+        }
         invalidateConnection()
         guard powerHelperFailureTask == nil else { return }
         let lifecycleGeneration = powerHelperLifecycleGeneration
+        let failureGeneration = requestGeneration
         powerHelperFailureTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
@@ -1140,10 +1153,10 @@ final class KeepAliveController: ObservableObject {
             }
             guard await refreshPowerHelperStatus(), isStarted, !Task.isCancelled,
                   powerHelperStatus == .enabled else { return }
-            if let message {
+            if let message, requestGeneration == failureGeneration {
                 operationErrorMessage = message
             }
-            if let requested {
+            if let requested = sleepRetry.requested {
                 scheduleRetryIfNeeded(for: requested)
             }
         }
@@ -1298,7 +1311,7 @@ final class KeepAliveController: ObservableObject {
         retryTask?.cancel()
         retryTask = nil
         // 成功或任务结束都会走到这里, 重试预算随之重置
-        retryAttempt = 0
+        sleepRetry = SleepPreventionRetry()
     }
 
     private func cancelPowerHelperRegistrationTask() {
@@ -1322,7 +1335,7 @@ final class KeepAliveController: ObservableObject {
 
         // 每次重试都会重建特权连接并以 root 拉起 pmset
         // 限制重试次数, 避免 Power Helper 持续失败时反复拉起特权进程
-        guard retryAttempt < PowerHelperConfiguration.sleepToggleRetryDelays.count else {
+        guard let delay = sleepRetry.nextDelay(for: requested, delays: PowerHelperConfiguration.sleepToggleRetryDelays) else {
             AppLog.keepAlive.error(
                 "KeepAlive 切换重试已放弃: attempts=\(PowerHelperConfiguration.sleepToggleRetryDelays.count)"
             )
@@ -1330,9 +1343,7 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
-        let delay = PowerHelperConfiguration.sleepToggleRetryDelays[retryAttempt]
-        retryAttempt += 1
-        let attempt = retryAttempt
+        let attempt = sleepRetry.attempt
         let wait = LogDuration.seconds(delay)
         let details = LogFields.joined(
             "attempt=\(attempt)",
@@ -1352,7 +1363,7 @@ final class KeepAliveController: ObservableObject {
                 return
             }
             appliedSleepPreventionRequested = nil
-            applySleepPreventionRequested(requested)
+            applySleepPreventionRequested(requested, isRetry: true)
         }
     }
 

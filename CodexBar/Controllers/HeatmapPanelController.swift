@@ -17,7 +17,8 @@ final class HeatmapPanelController {
             self?.contentHost.contentView
         },
         animationKey: Metrics.drawerTransformAnimationKey,
-        overscan: SidePanelSupport.Metrics.drawerOverscan
+        overscan: SidePanelSupport.Metrics.drawerOverscan,
+        areAnimationsEnabled: { [weak self] in self?.mainPanelSettings.areAnimationsEnabled ?? false }
     )
     private var hideTask: Task<Void, Never>?
     private var currentSide = UsageHeatmapDetailSide.left
@@ -82,6 +83,12 @@ final class HeatmapPanelController {
                 return
             }
 
+            guard mainPanelSettings.areAnimationsEnabled else {
+                drawerAnimator.resetVisualState(for: panel)
+                orderOut(panel)
+                hideTask = nil
+                return
+            }
             drawerTransition = .exiting
             let hidden = drawerAnimator.hiddenTranslation(for: side, panelWidth: panel.frame.width)
             drawerAnimator.animateTranslation(
@@ -143,6 +150,14 @@ final class HeatmapPanelController {
     }
 
     private func updateVisiblePanel(_ request: PanelRequest, on panel: NSPanel) {
+        guard mainPanelSettings.areAnimationsEnabled else {
+            visibilityGeneration += 1
+            pendingSideSwitchRequest = nil
+            drawerTransition = .idle
+            apply(request, to: panel)
+            drawerAnimator.resetVisualState(for: panel)
+            return
+        }
         if drawerTransition == .switchingSide {
             // 切边动画过程中只保留最新请求
             // 防止连续 hover 造成动画队列堆积
@@ -176,8 +191,9 @@ final class HeatmapPanelController {
     private func showPanelWithDrawerAnimation(_ panel: NSPanel, relativeTo menuSurfaceWindow: NSWindow) {
         let generation = visibilityGeneration
         let hidden = drawerAnimator.hiddenTranslation(for: currentSide, panelWidth: panel.frame.width)
-        drawerAnimator.setTranslation(hidden)
-        panel.alphaValue = 0
+        let animates = mainPanelSettings.areAnimationsEnabled
+        drawerAnimator.setTranslation(animates ? hidden : 0)
+        panel.alphaValue = animates ? 0 : 1
         attach(panel, to: menuSurfaceWindow)
         panel.order(.above, relativeTo: menuSurfaceWindow.windowNumber)
         drawerTransition = .entering

@@ -263,9 +263,12 @@ nonisolated extension SyncCache where Record == TokenUsageSyncRecord, State == T
         let cutoff = HistoryStorage.dateKey(for: HistoryStorage.retentionCutoffDate(today: now))
         let retained = records.filter { $0.value.date >= cutoff }
         guard retained.count != records.count else { return false }
+        let hasExpiredLocalRecords = records.values.contains { $0.deviceID == state.deviceID && $0.date < cutoff }
         records = retained
-        // 本地先过期, 云端删除仍可能失败. 下次完整拉取让过期记录重新进入删除流程
-        cursor = nil
+        // 只有本机旧记录需要重新拉取以重试云端删除, 其他设备不由本机清理
+        if hasExpiredLocalRecords {
+            cursor = nil
+        }
         return true
     }
 }
