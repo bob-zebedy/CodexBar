@@ -13,7 +13,7 @@ struct AppSettingsView: View {
     @StateObject private var codexVersions = CodexVersionViewModel()
     @ObservedObject var syncSettings: SyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
-    @ObservedObject var menuBarQuotaSettings: MenuBarQuotaSettings
+    let menuBarIndicatorSettings: MenuBarIndicatorSettings
     @ObservedObject var appearanceSettings: AppearanceSettings
     let mainPanelSettings: MainPanelSettings
     let taskGlowSettings: TaskGlowSettings
@@ -87,7 +87,7 @@ struct AppSettingsView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             loginItemSettings.refresh()
             syncSettings.refresh()
-            menuBarQuotaSettings.refresh()
+            menuBarIndicatorSettings.refresh()
             appearanceSettings.refresh()
             mainPanelSettings.refresh()
             taskGlowSettings.refresh()
@@ -296,7 +296,7 @@ private extension AppSettingsView {
             LiquidGlassDivider()
             automaticUpdateCheckRow
             LiquidGlassDivider()
-            menuBarQuotaRow
+            menuBarIndicatorRow
             LiquidGlassDivider()
             hotKeyRow
         }
@@ -425,65 +425,8 @@ private extension AppSettingsView {
         HotKeyRecorderRow(settings: globalHotKeySettings)
     }
 
-    var menuBarQuotaRow: some View {
-        let isEnabled = isMenuBarQuotaEnabled
-
-        return SettingsToggleRow(
-            icon: "gauge.with.dots.needle.50percent",
-            title: "settings.menu-bar-quota.title",
-            help: "settings.menu-bar-quota.title.help",
-            isOn: Binding(
-                get: { isMenuBarQuotaEnabled },
-                set: { menuBarQuotaSettings.setEnabled($0) }
-            )
-        ) {
-            if isEnabled {
-                Picker(
-                    "settings.menu-bar-quota.window",
-                    selection: Binding(
-                        get: { menuBarQuotaSettings.activeWindowSelection },
-                        set: { menuBarQuotaSettings.setSelection($0) }
-                    )
-                ) {
-                    ForEach(menuBarQuotaWindowOptions) { option in
-                        Text(option.title).tag(option.selection)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .controlSize(.small)
-                .font(SettingsRowMetrics.controlFont.monospacedDigit())
-                .fixedSize(horizontal: true, vertical: false)
-                .transition(.opacity.combined(with: .move(edge: .trailing)))
-            }
-        }
-        .animation(Metrics.statusAnimation, value: isEnabled)
-    }
-
-    var menuBarQuotaWindowOptions: [MenuBarQuotaOption] {
-        var options = (statusViewModel.snapshot?.codexLimit?.windows ?? [])
-            .map { window in
-                MenuBarQuotaOption(
-                    selection: MenuBarQuotaSelection(windowKind: window.kind),
-                    title: window.label
-                )
-            }
-
-        let selectedWindow = menuBarQuotaSettings.activeWindowSelection
-        if !options.contains(where: { $0.selection == selectedWindow }) {
-            options.append(
-                MenuBarQuotaOption(
-                    selection: selectedWindow,
-                    title: selectedWindow.fallbackTitle
-                )
-            )
-        }
-
-        return options
-    }
-
-    var isMenuBarQuotaEnabled: Bool {
-        menuBarQuotaSettings.selection != .off
+    var menuBarIndicatorRow: some View {
+        MenuBarIndicatorSettingsRow(settings: menuBarIndicatorSettings, onOptionsAction: onOptionsAction)
     }
 
     var mainPanelLayoutRow: some View {
@@ -928,8 +871,8 @@ private extension AppSettingsView {
                 }
             }
 
-            if notificationSettings.needsAuthorization {
-                NotificationAuthorizationRow(settings: notificationSettings)
+            if let message = notificationSettings.authorizationMessage {
+                NotificationAuthorizationRow(settings: notificationSettings, message: message)
                     .transition(.identity)
                     .transaction { transaction in
                         transaction.animation = nil
@@ -1137,14 +1080,5 @@ private struct SyncRowState {
 
     func shouldShowSyncStatus(lastSyncText: String?) -> Bool {
         isActive && (isSyncing || lastSyncText != nil)
-    }
-}
-
-private struct MenuBarQuotaOption: Identifiable {
-    let selection: MenuBarQuotaSelection
-    let title: String
-
-    var id: String {
-        selection.id
     }
 }

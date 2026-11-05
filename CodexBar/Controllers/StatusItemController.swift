@@ -11,7 +11,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let activityMonitor: ActivityMonitor
     private let syncSettings: SyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
-    private let menuBarQuotaSettings: MenuBarQuotaSettings
+    private let menuBarIndicatorSettings: MenuBarIndicatorSettings
     private let appearanceSettings: AppearanceSettings
     private let mainPanelSettings: MainPanelSettings
     private let serviceStatusMonitor: CodexServiceStatusMonitor
@@ -49,7 +49,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         tuiNotificationSettings: tuiNotificationSettings,
         syncSettings: syncSettings,
         globalHotKeySettings: globalHotKeySettings,
-        menuBarQuotaSettings: menuBarQuotaSettings,
+        menuBarIndicatorSettings: menuBarIndicatorSettings,
         appearanceSettings: appearanceSettings,
         mainPanelSettings: mainPanelSettings,
         taskGlowSettings: taskGlowSettings,
@@ -108,7 +108,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private var statusIconState: StatusIconState?
     private let statusIconPresentation = StatusItemIconPresentation()
     private var statusIconHostingView: StatusItemIconHostingView?
-    private var statusIconExpirationTask: Task<Void, Never>?
+    private var statusIconRefreshTask: Task<Void, Never>?
     private var registeredHotKeyShortcut: GlobalHotKeyShortcut?
     private var auxiliaryWindowFocusRestoreTask: Task<Void, Never>?
     private var activeStatusItemMenu: NSMenu?
@@ -121,7 +121,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         activityMonitor: ActivityMonitor,
         syncSettings: SyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
-        menuBarQuotaSettings: MenuBarQuotaSettings,
+        menuBarIndicatorSettings: MenuBarIndicatorSettings,
         appearanceSettings: AppearanceSettings,
         mainPanelSettings: MainPanelSettings,
         serviceStatusMonitor: CodexServiceStatusMonitor,
@@ -137,7 +137,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.activityMonitor = activityMonitor
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
-        self.menuBarQuotaSettings = menuBarQuotaSettings
+        self.menuBarIndicatorSettings = menuBarIndicatorSettings
         self.appearanceSettings = appearanceSettings
         self.mainPanelSettings = mainPanelSettings
         self.serviceStatusMonitor = serviceStatusMonitor
@@ -164,7 +164,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         closeMenuSurface(animated: false)
         serviceStatusMonitor.setEnabled(false)
         auxiliaryWindowFocusRestoreTask?.cancel()
-        statusIconExpirationTask?.cancel()
+        statusIconRefreshTask?.cancel()
         statusIconHostingView?.removeFromSuperview()
         statusIconHostingView = nil
         syncScheduler.cancel()
@@ -218,7 +218,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.refreshStatusIconPresentation(animated: false)
-                self?.scheduleStatusIconExpiration()
+                self?.scheduleStatusIconRefresh()
             }
             .store(in: &cancellables)
     }
@@ -324,19 +324,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         .store(in: &cancellables)
 
-        Publishers.CombineLatest4(
+        Publishers.CombineLatest3(
             viewModel.$loadState,
             viewModel.$snapshot,
-            menuBarQuotaSettings.$selection,
-            activityMonitor.$snapshot
+            menuBarIndicatorSettings.$configuration
         )
-        .map { loadState, snapshot, selection, activity in
-            StatusIconState(
-                usesErrorImage: loadState.isError || snapshot?.hasTrustedData == false,
-                ordinaryUsageAllowed: snapshot?.ordinaryUsageAllowed,
-                progress: StatusIconProgress(snapshot: snapshot, selection: selection),
-                activity: activity
-            )
+        .map { loadState, snapshot, configuration in
+            StatusIconState(loadState: loadState, snapshot: snapshot, configuration: configuration)
         }
         .removeDuplicates()
         .sink { [weak self] state in
@@ -423,29 +417,34 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         guard previousState != state else { return }
         statusIconState = state
         refreshStatusIconPresentation(animated: previousState != nil)
-        scheduleStatusIconExpiration()
+        scheduleStatusIconRefresh()
     }
 
     private func refreshStatusIconPresentation(animated: Bool = true) {
         guard let state = statusIconState else { return }
         let now = Date()
+        statusItem.button?.toolTip = state.toolTip(at: now)
         statusIconPresentation.update(
-            symbolName: state.symbolName(at: now),
+            isUnavailable: state.isUnavailable,
             ordinaryUsageAllowed: state.ordinaryUsageAllowed,
-            percent: state.progress?.percent,
-            isStale: state.progress?.isStale ?? false,
+            indicators: state.progress.map { progress in
+                progress.map {
+                    StatusItemIconPresentation.Indicator(percent: $0.percent(at: now), isStale: $0.isStale)
+                }
+            },
             animated: animated
         )
     }
 
-    /// 终态提示按墙上时间到期, 即使没有后续活动事件也会恢复普通图标
-    private func scheduleStatusIconExpiration() {
-        statusIconExpirationTask?.cancel()
-        statusIconExpirationTask = nil
-        guard let expiration = statusIconState?.activity.statusItemActivityExpiration else { return }
-        let delay = expiration.timeIntervalSinceNow
+    /// 重置进度按墙上时间计算下一次刷新
+    private func scheduleStatusIconRefresh() {
+        statusIconRefreshTask?.cancel()
+        statusIconRefreshTask = nil
+        let now = Date()
+        guard let expiration = statusIconState?.nextRefreshDate(after: now) else { return }
+        let delay = expiration.timeIntervalSince(now)
         guard delay > 0 else { return }
-        statusIconExpirationTask = Task { @MainActor [weak self] in
+        statusIconRefreshTask = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: .seconds(delay))
             } catch {
@@ -453,7 +452,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             }
             guard let self, !Task.isCancelled else { return }
             refreshStatusIconPresentation()
-            scheduleStatusIconExpiration()
+            scheduleStatusIconRefresh()
         }
     }
 

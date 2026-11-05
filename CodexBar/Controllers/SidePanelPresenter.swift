@@ -191,6 +191,10 @@ final class SidePanelDrawerPresenter {
         )
     }
 
+    func updateSide(_ side: UsageHeatmapDetailSide) {
+        currentSide = side
+    }
+
     func hide(immediate: Bool = false) {
         guard let panel else {
             return

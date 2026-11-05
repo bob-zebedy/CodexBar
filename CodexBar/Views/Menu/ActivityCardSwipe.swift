@@ -1,7 +1,11 @@
+import Observation
 import SwiftUI
 
 /// 拖动和收尾共用位移, 新手势可以在收尾途中接管当前画面
-nonisolated struct ActivityCardSwipe: Equatable {
+/// 位移由分页容器单独观察, 不让每次拖动都重新生成整张卡片的内容
+@MainActor
+@Observable
+final class ActivityCardSwipe {
     private(set) var isDragging = false
     private(set) var settlement: Settlement?
     private var dragOffset: CGFloat = 0
@@ -18,7 +22,7 @@ nonisolated struct ActivityCardSwipe: Equatable {
     }
 
     /// 已确认的翻页在下一次拖动开始时换基准, 两侧内容的屏幕位置保持不变
-    mutating func begin(width: CGFloat, now: Date) -> Int {
+    func begin(width: CGFloat, now: Date) -> Int {
         let step = settlement?.step ?? 0
         dragOffset = offset(at: now) + CGFloat(step) * width
         settlement = nil
@@ -26,12 +30,12 @@ nonisolated struct ActivityCardSwipe: Equatable {
         return step
     }
 
-    mutating func move(by delta: CGFloat, width: CGFloat) {
+    func move(by delta: CGFloat, width: CGFloat) {
         guard isDragging, delta.isFinite, width.isFinite, width > 0 else { return }
         dragOffset = min(width, max(-width, dragOffset + delta))
     }
 
-    mutating func end(velocity: CGFloat, width: CGFloat, cancelled: Bool, now: Date) {
+    func end(velocity: CGFloat, width: CGFloat, cancelled: Bool, now: Date) {
         guard isDragging, width.isFinite, width > 0 else { return }
         let velocity = velocity.isFinite ? min(width * 5, max(-width * 5, velocity)) : 0
         let projected = dragOffset + velocity * 0.15
@@ -46,7 +50,7 @@ nonisolated struct ActivityCardSwipe: Equatable {
         isDragging = false
     }
 
-    struct Settlement: Hashable {
+    nonisolated struct Settlement: Hashable {
         let origin: CGFloat
         let target: CGFloat
         let step: Int

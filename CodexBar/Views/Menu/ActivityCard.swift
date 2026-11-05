@@ -14,7 +14,9 @@ struct ActivityCard: View {
     @State private var wrappedHeaderKeys: Set<HeaderWrappingKey> = []
     @State private var retainedContent: ActivityCardContent?
     @State private var outgoingContent: ActivityCardContent?
-    @State private var cardSize = CGSize.zero
+    @State private var cardWidth: CGFloat = 0
+    // 高度仅用于开始手势前的校验, 不让逐帧高度变化使读取宽度的卡片重算
+    @State private var cardHeight: CGFloat = 0
     @State private var swipe = ActivityCardSwipe()
     @State private var swipeContent: ActivityCardSwipeContent?
     @State private var gestureOwner = UUID()
@@ -26,10 +28,6 @@ struct ActivityCard: View {
 
     private var selection: ActivityCardSelection {
         cardPresentation.selection
-    }
-
-    private var cardWidth: CGFloat {
-        cardSize.width
     }
 
     private var snapshot: ActivitySnapshot {
@@ -158,7 +156,7 @@ struct ActivityCard: View {
     }
 
     private func beginSwipe() {
-        guard selection.isVisible, selection.carouselActivities.count > 1, cardWidth > 0, cardSize.height > 0 else { return }
+        guard selection.isVisible, selection.carouselActivities.count > 1, cardWidth > 0, cardHeight > 0 else { return }
         cardPresentation.setGestureActive(true, owner: gestureOwner)
         let previous = swipeContent
         let step = swipe.begin(width: cardWidth, now: Date())
@@ -288,7 +286,8 @@ struct ActivityCard: View {
                 if cardWidth != size.width {
                     cancelSwipe()
                 }
-                cardSize = size
+                cardWidth = size.width
+                cardHeight = size.height
             }
             // 外层可以收起整个区域, 内部文字始终按自然高度排版
             .frame(minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
@@ -373,34 +372,36 @@ struct ActivityCard: View {
                 statusHeader(content)
 
                 if let detail = content.detail {
-                    HStack(alignment: .firstTextBaseline, spacing: 0) {
-                        if content.showsCurrentEvent {
-                            Text(verbatim: String(localized: "activity.live.current-event") + ": ")
-                                .foregroundStyle(Color.codexSecondaryLabel)
-                                .fixedSize()
+                    if let symbolName = content.detailSymbolName {
+                        ActivityEventRow(symbolName: symbolName) {
+                            eventDetail(detail, content: content)
                         }
-                        ActivityStatusText(
-                            text: detail, tint: content.tint, effect: allowsAnimations ? content.statusTextEffect : .none,
-                            lineLimit: nil, supplement: content.detailSupplement
-                        )
-                        .numericTransition(value: [detail, content.detailSupplement])
-                        .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        eventDetail(detail, content: content)
+                            .font(MenuMetrics.bodyFont)
+                            .clipped()
                     }
-                    .font(MenuMetrics.bodyFont)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .clipped()
                 }
                 if let recent = content.recent {
-                    Text(recent)
-                        .font(MenuMetrics.bodyFont)
-                        .foregroundStyle(Color.codexSecondaryLabel)
-                        .numericTransition(value: recent)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .clipped()
+                    ActivityEventRow(symbolName: recent.symbolName) {
+                        Text(recent.text)
+                            .foregroundStyle(Color.codexSecondaryLabel)
+                            .numericTransition(value: recent.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private func eventDetail(_ detail: String, content: ActivityCardContent) -> some View {
+        ActivityStatusText(
+            text: detail, tint: content.tint, effect: allowsAnimations ? content.statusTextEffect : .none,
+            lineLimit: nil, supplement: content.detailSupplement
+        )
+        .numericTransition(value: [detail, content.detailSupplement])
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func statusHeader(_ content: ActivityCardContent) -> some View {
@@ -556,20 +557,21 @@ struct ActivityCard: View {
         waiting: Bool
     ) -> ActivityCardContent {
         let summary = ActivityDisplayFormat.liveSummaryComponents(for: task, now: timelineDate, waiting: waiting)
+        let current = task.presentation?.current ?? ActivityLiveLabel(waiting ? "waiting-approval" : "processing")
         return ActivityCardContent(
             taskID: task.id,
             projectName: task.projectName,
             symbolName: symbolName,
             tint: tint,
-            detail: ActivityDisplayFormat.liveStatus(for: task, waiting: waiting),
+            detail: current.text,
             tokenUsage: task.tokenUsage,
             header: [
                 task.projectName ?? String(localized: "common.codex"),
                 ActivityDisplayFormat.modelMetadata(modelName: task.modelName, effort: task.effort)
             ].compactMap(\.self) + summary.prefix(1),
-            recent: ActivityDisplayFormat.recentEvent(for: task),
+            recent: task.presentation?.recent?.label,
             detailSupplement: summary.dropFirst().first,
-            showsCurrentEvent: true,
+            detailSymbolName: current.symbolName,
             statusTextEffect: allowsAnimations ? (waiting ? .ionizing(taskID: task.id) : .shimmer) : .none
         )
     }
@@ -624,9 +626,9 @@ private struct ActivityCardContent: Equatable {
     let detail: String?
     var tokenUsage: TokenUsage?
     let header: [String]
-    var recent: String?
+    var recent: ActivityLiveLabel?
     var detailSupplement: String?
-    var showsCurrentEvent = false
+    var detailSymbolName: String?
     var showsKeepAliveBadge = false
     var positionText: String?
     var hasPin = false

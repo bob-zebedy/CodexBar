@@ -119,14 +119,6 @@ nonisolated struct ActivitySnapshot: Equatable {
         return (Set(runningTasks.map(\.id)).subtracting(waiting), waiting)
     }
 
-    var primaryWaitingTask: ActivityTaskSnapshot? {
-        waitingTasks.first
-    }
-
-    var primaryRunningTask: ActivityTaskSnapshot? {
-        runningTasks.first
-    }
-
     var mostRecentCompletion: ActivityCompletion? {
         recentCompletions.first
     }
@@ -161,43 +153,6 @@ nonisolated struct ActivitySnapshot: Equatable {
 
     var hasTaskCenterContent: Bool {
         hasActiveTasks || !recentCompletions.isEmpty || !recentTerminations.isEmpty
-    }
-
-    /// 主活动优先展示等待回应和运行中任务, 空闲时保留最近完成或终止记录
-    var primaryActivity: CodexPrimaryActivity {
-        if let task = primaryWaitingTask {
-            return .waiting(task)
-        }
-        if let task = primaryRunningTask {
-            return .running(task)
-        }
-        switch latestTerminalEvent {
-        case let .terminated(termination):
-            return .terminated(termination)
-        case let .completed(completion):
-            return .completed(completion)
-        case nil:
-            return .idle
-        }
-    }
-
-    /// 菜单栏只短暂显示最新终态, 不改变活动卡片的历史展示规则
-    func statusItemActivity(at now: Date) -> CodexPrimaryActivity {
-        let activity = primaryActivity
-        switch activity {
-        case .completed, .terminated:
-            guard let expiration = statusItemActivityExpiration, now < expiration else {
-                return .idle
-            }
-            return activity
-        case .waiting, .running, .idle:
-            return activity
-        }
-    }
-
-    var statusItemActivityExpiration: Date? {
-        guard !hasActiveTasks else { return nil }
-        return latestTerminalEvent?.endedAt.addingTimeInterval(10)
     }
 }
 

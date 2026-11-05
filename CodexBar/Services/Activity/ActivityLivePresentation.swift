@@ -3,10 +3,12 @@ import Foundation
 nonisolated struct ActivityLiveLabel: Equatable {
     let key: String
     var detail: String?
+    var symbolName: String
 
-    init(_ key: String, detail: String? = nil) {
+    init(_ key: String, detail: String? = nil, symbolName: String? = nil) {
         self.key = key
         self.detail = detail.map { String($0.prefix(160)) }
+        self.symbolName = symbolName ?? Self.symbolName(for: key)
     }
 }
 
@@ -143,8 +145,8 @@ nonisolated struct ActivityLivePresentation {
              .inputRequested, .userInputRequested:
             consumeRequest(notification, at: date)
         case .requestResolved:
-            if let id = params.requestId, requests.removeValue(forKey: id) != nil {
-                record("request-ended", at: date)
+            if let id = params.requestId, let request = requests.removeValue(forKey: id) {
+                record("request-ended", symbolName: request.label.symbolName, at: date)
             }
         default:
             consumeSupplement(notification, at: date)
@@ -191,7 +193,9 @@ nonisolated struct ActivityLivePresentation {
                 phase = Entry(label: ActivityLiveLabel("processing"), at: items.isEmpty ? date : .distantPast)
                 phaseItemID = nil
             }
-            if let label = item.liveCompletionLabel {
+            if var label = item.liveCompletionLabel {
+                // 完成消息可能省略命令动作, 沿用同一个 item 已确认的操作图标
+                label.symbolName = removed?.label.symbolName ?? label.symbolName
                 recent = ActivityLiveEvent(label: label, at: date)
             }
         }
@@ -273,8 +277,8 @@ nonisolated struct ActivityLivePresentation {
         }
     }
 
-    private mutating func record(_ key: String, detail: String? = nil, at date: Date) {
-        recent = ActivityLiveEvent(label: ActivityLiveLabel(key, detail: detail), at: date)
+    private mutating func record(_ key: String, detail: String? = nil, symbolName: String? = nil, at date: Date) {
+        recent = ActivityLiveEvent(label: ActivityLiveLabel(key, detail: detail, symbolName: symbolName), at: date)
     }
 
     private mutating func boundStorage() {

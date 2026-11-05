@@ -7,7 +7,7 @@ struct ActivityCardSwipeTests {
     private let now = Date(timeIntervalSince1970: 1800000000)
 
     @Test func draggingFollowsSmallDeltasAndCanReverseBeforeCommitting() {
-        var swipe = ActivityCardSwipe()
+        let swipe = ActivityCardSwipe()
         _ = swipe.begin(width: 400, now: now)
         swipe.move(by: -3, width: 400)
         #expect(swipe.offset(at: now) == -3)
@@ -38,10 +38,11 @@ struct ActivityCardSwipeTests {
         swipe.move(by: delta * 300, width: 400)
         swipe.end(velocity: delta * 1200, width: 400, cancelled: true, now: now)
         #expect(swipe.settlement?.step == 0)
+        #expect(swipe.offset(at: now.addingTimeInterval(1)) == 0)
     }
 
     @Test func reversingVelocityCanCancelButCannotChooseAnUnseenOppositePage() {
-        var swipe = ActivityCardSwipe()
+        let swipe = ActivityCardSwipe()
         _ = swipe.begin(width: 400, now: now)
         swipe.move(by: -140, width: 400)
         swipe.end(velocity: 1800, width: 400, cancelled: false, now: now)
@@ -49,7 +50,7 @@ struct ActivityCardSwipeTests {
     }
 
     @Test func newGestureRebasesUnfinishedPageWithoutChangingItsVisiblePosition() {
-        var swipe = ActivityCardSwipe()
+        let swipe = ActivityCardSwipe()
         _ = swipe.begin(width: 400, now: now)
         swipe.move(by: -120, width: 400)
         swipe.end(velocity: 0, width: 400, cancelled: false, now: now)
@@ -62,29 +63,9 @@ struct ActivityCardSwipeTests {
         #expect(swipe.settlement == nil)
     }
 
-    @Test func offscreenHeightTracksBothDirectionsAndReturnsWithThePages() {
-        var swipe = ActivityCardSwipe()
-        #expect(renderedHeight(swipe) == 100)
-        _ = swipe.begin(width: 400, now: now)
-        // 使用整点高度, 避免离屏宿主的 backing scale 影响断言
-        swipe.move(by: -40, width: 400)
-        #expect(renderedHeight(swipe) == 108)
-        swipe.move(by: 20, width: 400)
-        #expect(renderedHeight(swipe) == 104)
-        swipe.move(by: 220, width: 400)
-        #expect(abs(renderedHeight(swipe) - 80) < 0.5)
-        swipe.end(velocity: 0, width: 400, cancelled: true, now: now)
-        var returned = ActivityCardSwipe()
-        _ = returned.begin(width: 400, now: now)
-        returned.move(by: swipe.offset(at: now.addingTimeInterval(1)), width: 400)
-        #expect(abs(renderedHeight(returned) - 100) < 0.5)
-        returned.move(by: -160, width: 320)
-        #expect(abs(renderedHeight(returned, width: 320) - 140) < 0.5)
-    }
-
     @Test(arguments: [-1, 1])
     func offscreenRebasingPreservesInterpolatedHeight(direction: Int) {
-        var swipe = ActivityCardSwipe()
+        let swipe = ActivityCardSwipe()
         _ = swipe.begin(width: 400, now: now)
         swipe.move(by: CGFloat(direction) * 200, width: 400)
         let height = renderedHeight(swipe)
@@ -96,11 +77,39 @@ struct ActivityCardSwipeTests {
         #expect(abs(renderedHeight(swipe, pageHeights: heights) - heights[1]) < 0.5)
     }
 
-    private func renderedHeight(_ swipe: ActivityCardSwipe, pageHeights: [CGFloat] = [60, 100, 180], width: CGFloat = 400) -> CGFloat {
+    @Test(arguments: [CGFloat(320), 400])
+    func mountedPagesFollowEveryDragWithoutReplacingTheRootView(width: CGFloat) {
+        let swipe = ActivityCardSwipe()
+        var currentPageX: CGFloat = 0
+        let root = ActivityCardSwipePages(swipe: swipe, width: 400) { step in
+            Color.clear.frame(height: [60.0, 100, 180][step + 1])
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: {
+                    if step == 0 {
+                        currentPageX = $0
+                    }
+                }
+        }
+        .frame(width: width)
+        let host = NSHostingView(rootView: root)
+        host.setFrameSize(host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        #expect(host.frame.height == 100)
+        _ = swipe.begin(width: width, now: now)
+        for (delta, offset, height) in [(-0.1, -0.1, 108.0), (0.05, -0.05, 104), (0.55, 0.5, 80), (-1, -0.5, 140)] {
+            swipe.move(by: delta * width, width: width)
+            host.layoutSubtreeIfNeeded()
+            host.setFrameSize(host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            #expect(abs(host.frame.height - height) < 0.5)
+            #expect(abs(currentPageX - offset * width) < 0.5)
+        }
+    }
+
+    private func renderedHeight(_ swipe: ActivityCardSwipe, pageHeights: [CGFloat] = [60, 100, 180]) -> CGFloat {
         let root = ActivityCardSwipePages(swipe: swipe, width: 400) { step in
             Color.clear.frame(height: pageHeights[step + 1])
         }
-        .frame(width: width)
+        .frame(width: 400)
         return NSHostingView(rootView: root).fittingSize.height
     }
 }

@@ -20,32 +20,27 @@ struct AutoResetOptionsView: View {
                 ),
                 options: AutoResetLeadTime.allCases,
                 label: { $0.title },
-                width: Metrics.pickerWidth,
                 alignment: .trailing
             )
         }
         .frame(height: Metrics.rowHeight)
         .padding(.horizontal, Metrics.horizontalPadding)
         .padding(.vertical, Metrics.verticalPadding)
-        .frame(width: Metrics.panelWidth, alignment: .topLeading)
+        .frame(
+            minWidth: SettingsOptionsPanelMetrics.minimumWidth,
+            maxWidth: SettingsOptionsPanelMetrics.maximumWidth,
+            alignment: .topLeading
+        )
+        .fixedSize(horizontal: true, vertical: true)
         .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
     }
 
-    static var initialPanelSize: CGSize {
-        CGSize(
-            width: Metrics.panelWidth,
-            height: Metrics.verticalPadding * 2
-                + Metrics.rowHeight
-        )
-    }
-
     private enum Metrics {
-        static let panelWidth: CGFloat = 250
         static let horizontalPadding = SettingsOptionsPanelMetrics.horizontalPadding
         static let verticalPadding = SettingsOptionsPanelMetrics.verticalPadding
         static let rowHeight = SettingsOptionsPanelMetrics.rowHeight
         static let controlSpacing = SettingsOptionsPanelMetrics.controlSpacing
-        static let pickerWidth: CGFloat = 88
+
         static let cornerRadius = SettingsOptionsPanelMetrics.cornerRadius
     }
 }

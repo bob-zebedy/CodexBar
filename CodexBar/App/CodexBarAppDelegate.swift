@@ -21,7 +21,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     )
     let syncSettings = SyncSettings()
     let globalHotKeySettings = GlobalHotKeySettings()
-    let menuBarQuotaSettings = MenuBarQuotaSettings()
+    let menuBarIndicatorSettings = MenuBarIndicatorSettings()
     let appearanceSettings = AppearanceSettings()
     let mainPanelSettings = MainPanelSettings()
     let serviceStatusMonitor = CodexServiceStatusMonitor()
@@ -52,7 +52,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             activityMonitor: activityMonitor,
             syncSettings: syncSettings,
             globalHotKeySettings: globalHotKeySettings,
-            menuBarQuotaSettings: menuBarQuotaSettings,
+            menuBarIndicatorSettings: menuBarIndicatorSettings,
             appearanceSettings: appearanceSettings,
             mainPanelSettings: mainPanelSettings,
             serviceStatusMonitor: serviceStatusMonitor,
@@ -219,7 +219,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             "notification=\(notificationSettings.isEnabled ? 1 : 0)",
             "autoReset=\(autoResetSettings.isEnabled ? 1 : 0)",
             "autoResetLeadTimeSeconds=\(autoResetSettings.leadTime.rawValue)",
-            "menuBarQuota=\(menuBarQuotaSettings.selection.rawValue)",
+            "menuBarIndicators=\(menuBarIndicatorSettings.configuration.visibleMetrics(in: viewModel.snapshot?.codexLimit?.windows ?? []).map(\.rawValue).joined(separator: ","))",
             "mainPanel=\(mainPanelSettings.layout.visibleSections.map(\.rawValue).joined(separator: ","))",
             "usageHeatmapMode=\(mainPanelSettings.usageHeatmapMode.rawValue)",
             "hotKey=\(globalHotKeySettings.shortcut == nil ? 0 : 1)"

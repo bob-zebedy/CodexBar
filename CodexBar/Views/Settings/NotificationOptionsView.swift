@@ -8,6 +8,7 @@ struct NotificationOptionsView: View {
     @ObservedObject var tuiNotificationSettings: TUINotificationSettings
     @ObservedObject var autoResetSettings: AutoResetSettings
     @ObservedObject var keepAliveController: KeepAliveController
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
     @State private var previewSound: NSSound?
 
     var body: some View {
@@ -25,22 +26,38 @@ struct NotificationOptionsView: View {
         }
         .padding(.horizontal, Metrics.horizontalPadding)
         .padding(.vertical, Metrics.verticalPadding)
-        .frame(width: Metrics.panelWidth, alignment: .topLeading)
-        .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(
+            minWidth: SettingsOptionsPanelMetrics.minimumWidth,
+            maxWidth: SettingsOptionsPanelMetrics.maximumWidth,
+            alignment: .topLeading
+        )
+        .fixedSize(horizontal: true, vertical: true)
+        .settingsOptionsPanel(height: SettingsOptionsPanelMetrics.height(
+            rowCount: soundRowVisibility.count + 2,
+            secondaryRowCount: soundRowVisibility.filter(\.self).count
+        ))
+        .animation(
+            allowsAnimations ? SettingsOptionsPanelMetrics.contentAnimation : nil,
+            value: soundRowVisibility
+        )
         .onDisappear(perform: stopPreview)
     }
 
-    static var initialPanelSize: CGSize {
-        CGSize(
-            width: Metrics.panelWidth,
-            height: Metrics.verticalPadding * 2
-                + Metrics.notificationRowHeight * CGFloat(Metrics.notificationRowCount)
-                + Metrics.rowHeight * CGFloat(Metrics.optionRowCount)
-                + Metrics.rowSpacing * CGFloat(Metrics.totalRowCount - 1)
-        )
-    }
-
     // MARK: - 各通知行
+
+    private var soundRowVisibility: [Bool] {
+        [
+            notificationSettings.isTaskCompletionEnabled,
+            notificationSettings.isTaskWaitingEnabled,
+            notificationSettings.isLowQuotaEnabled,
+            notificationSettings.isQuotaResetEnabled,
+            notificationSettings.isCreditExpiryEnabled,
+            autoResetSettings.isEnabled && notificationSettings.isAutoResetEnabled,
+            keepAliveController.isLowBatteryProtectionEnabled && notificationSettings.isLowBatteryEnabled,
+            keepAliveController.isMaximumDurationEnabled && notificationSettings.isKeepAliveLimitEnabled
+        ]
+    }
 
     private var lowQuotaRow: some View {
         notificationOptionRow(
@@ -317,9 +334,10 @@ struct NotificationOptionsView: View {
 
                 Spacer(minLength: 0)
 
-                if showsSoundControls {
-                    accessory()
-                }
+                accessory()
+                    .opacity(showsSoundControls ? 1 : 0)
+                    .disabled(!showsSoundControls)
+                    .allowsHitTesting(showsSoundControls)
 
                 Toggle(title, isOn: isOn)
                     .labelsHidden()
@@ -329,32 +347,30 @@ struct NotificationOptionsView: View {
             }
             .frame(height: Metrics.rowHeight)
 
-            if showsSoundControls {
-                HStack(spacing: Metrics.notificationControlSpacing) {
-                    Text("settings.notifications.sound.title")
-                        .font(SettingsRowMetrics.captionFont)
-                        .foregroundStyle(.tertiary)
+            HStack(spacing: Metrics.notificationControlSpacing) {
+                Text("settings.notifications.sound.title")
+                    .font(SettingsRowMetrics.captionFont)
+                    .foregroundStyle(.tertiary)
 
-                    Spacer(minLength: 8)
+                Spacer(minLength: 8)
 
-                    soundMenu(selection: sound)
+                soundMenu(selection: sound)
 
-                    Button {
-                        playPreview(for: sound.wrappedValue)
-                    } label: {
-                        Image(systemName: "play.circle")
-                            .font(.system(size: Metrics.soundPreviewIconSize))
-                            .frame(
-                                width: Metrics.soundPreviewButtonSize,
-                                height: Metrics.soundPreviewButtonSize
-                            )
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(canPreviewSound ? .secondary : .tertiary)
-                    .disabled(!canPreviewSound)
+                Button {
+                    playPreview(for: sound.wrappedValue)
+                } label: {
+                    Image(systemName: "play.circle")
+                        .font(.system(size: Metrics.soundPreviewIconSize))
+                        .frame(
+                            width: Metrics.soundPreviewButtonSize,
+                            height: Metrics.soundPreviewButtonSize
+                        )
                 }
-                .frame(height: Metrics.soundRowHeight)
+                .buttonStyle(.borderless)
+                .foregroundStyle(canPreviewSound ? .secondary : .tertiary)
+                .disabled(!canPreviewSound)
             }
+            .settingsOptionsReveal(isExpanded: showsSoundControls, height: Metrics.soundRowHeight)
         }
     }
 
@@ -368,8 +384,7 @@ struct NotificationOptionsView: View {
             title: title,
             selection: selection,
             options: options,
-            label: label,
-            width: Metrics.pickerWidth
+            label: label
         )
     }
 
@@ -390,17 +405,29 @@ struct NotificationOptionsView: View {
                 }
             }
         } label: {
-            Text(selection.wrappedValue.localizedTitle)
+            Text(Self.soundMenuSizingTitle)
                 .font(SettingsRowMetrics.captionFont)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .hidden()
+                .overlay(alignment: .trailing) {
+                    Text(selection.wrappedValue.localizedTitle)
+                        .font(SettingsRowMetrics.captionFont)
+                        .foregroundStyle(.secondary)
+                }
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .controlSize(.small)
-        .frame(width: Metrics.soundMenuWidth, alignment: .trailing)
     }
+
+    private static let soundMenuSizingTitle: String = {
+        let sounds = [NotificationSoundOption.systemDefault, .silent]
+            + NotificationSoundOption.categories.flatMap(\.sounds)
+        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        return sounds.map(\.localizedTitle).max {
+            ($0 as NSString).size(withAttributes: [.font: font]).width
+                < ($1 as NSString).size(withAttributes: [.font: font]).width
+        } ?? ""
+    }()
 
     private func soundMenuButton(
         _ sound: NotificationSoundOption,
@@ -441,44 +468,39 @@ struct NotificationOptionsView: View {
     }
 
     private enum Metrics {
-        static let panelWidth: CGFloat = 320
         static let horizontalPadding = SettingsOptionsPanelMetrics.horizontalPadding
         static let verticalPadding = SettingsOptionsPanelMetrics.verticalPadding
-        static let notificationRowCount = 8
-        static let optionRowCount = 2
-        static let totalRowCount = notificationRowCount + optionRowCount
         static let rowSpacing = SettingsOptionsPanelMetrics.rowSpacing
         static let rowHeight = SettingsOptionsPanelMetrics.rowHeight
         static let soundRowHeight = SettingsOptionsPanelMetrics.secondaryRowHeight
-        static let notificationRowHeight = rowHeight + soundRowHeight
         static let notificationControlSpacing = SettingsOptionsPanelMetrics.controlSpacing
-        static let pickerWidth: CGFloat = 68
-        static let soundMenuWidth: CGFloat = 160
         static let soundPreviewButtonSize: CGFloat = 18
         static let soundPreviewIconSize: CGFloat = 13
         static let statusIconSize: CGFloat = 16
-        static let cornerRadius = SettingsOptionsPanelMetrics.cornerRadius
     }
 }
 
 struct NotificationAuthorizationRow: View {
     let settings: NotificationSettings
+    let message: String
 
     var body: some View {
         SettingsIndentedRow {
-            Text("settings.notifications.system.permission-disabled")
+            Text(message)
                 .font(SettingsRowMetrics.captionFont)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 8)
 
-            Button("common.action.open-system-settings") {
-                settings.openSystemNotificationSettings()
+            if settings.needsAuthorization {
+                Button("common.action.open-system-settings") {
+                    settings.openSystemNotificationSettings()
+                }
+                .controlSize(.small)
+                .font(SettingsRowMetrics.controlFont)
+                .fixedSize()
             }
-            .controlSize(.small)
-            .font(SettingsRowMetrics.controlFont)
-            .fixedSize()
         }
     }
 }

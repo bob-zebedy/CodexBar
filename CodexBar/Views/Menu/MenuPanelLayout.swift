@@ -5,7 +5,7 @@ nonisolated struct MenuSectionVisibilityKey: LayoutValueKey {
 }
 
 /// 将插值高度反馈给宿主尺寸测量, 内容始终从顶部布局
-struct MenuContentHeight: Animatable, ViewModifier {
+private struct MenuContentHeight: Animatable, ViewModifier {
     var height: CGFloat
 
     var animatableData: CGFloat {
@@ -15,6 +15,31 @@ struct MenuContentHeight: Animatable, ViewModifier {
 
     func body(content: Content) -> some View {
         content.frame(height: height < 0 ? nil : height, alignment: .topLeading)
+    }
+}
+
+/// 高度反馈限制在尺寸修饰器内, 避免活动卡片逐帧伸缩时重算整个菜单
+struct MenuContentSizing: ViewModifier {
+    let loadState: CodexLoadState
+    @State private var contentHeight: CGFloat = -1
+    @State private var animatesContentHeight = false
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: ContentGeometry.self) { geometry in
+                ContentGeometry(height: geometry.size.height, loadState: loadState)
+            } action: { oldValue, newValue in
+                // 活动区域自行逐帧改变高度, 这里只对账户加载状态切换插值, 避免叠加动画
+                animatesContentHeight = contentHeight >= 0 && oldValue.loadState != newValue.loadState
+                contentHeight = newValue.height
+            }
+            .modifier(MenuContentHeight(height: contentHeight))
+            .animation(animatesContentHeight ? .codexStatus : nil, value: contentHeight)
+    }
+
+    private nonisolated struct ContentGeometry: Equatable {
+        let height: CGFloat
+        let loadState: CodexLoadState
     }
 }
 

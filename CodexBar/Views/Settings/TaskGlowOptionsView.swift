@@ -23,7 +23,6 @@ struct TaskGlowOptionsView: View {
                     ),
                     options: TaskGlowAnimationSpeed.allCases,
                     label: { $0.title },
-                    width: 100,
                     alignment: .trailing
                 )
             }
@@ -36,7 +35,6 @@ struct TaskGlowOptionsView: View {
                     ),
                     options: TaskGlowSettings.terminalDurationOptions,
                     label: { String(localized: "duration.seconds", defaultValue: "\(Int($0), specifier: "%lld")") },
-                    width: 100,
                     alignment: .trailing
                 )
             }
@@ -51,14 +49,13 @@ struct TaskGlowOptionsView: View {
         .controlSize(.small)
         .padding(.horizontal, SettingsOptionsPanelMetrics.horizontalPadding)
         .padding(.vertical, SettingsOptionsPanelMetrics.verticalPadding)
-        .frame(width: Self.panelWidth)
+        .frame(
+            minWidth: SettingsOptionsPanelMetrics.minimumWidth,
+            maxWidth: SettingsOptionsPanelMetrics.maximumWidth,
+            alignment: .topLeading
+        )
+        .fixedSize(horizontal: true, vertical: true)
         .sidePanelChrome(cornerRadius: SettingsOptionsPanelMetrics.cornerRadius)
-    }
-
-    private static let panelWidth: CGFloat = 280
-
-    static var initialPanelSize: CGSize {
-        CGSize(width: panelWidth, height: 220)
     }
 
     private func optionRow(_ title: LocalizedStringResource, help: LocalizedStringResource, @ViewBuilder content: () -> some View) -> some View {
@@ -78,12 +75,18 @@ private struct TaskGlowBrightnessControl: View {
     var body: some View {
         HStack(spacing: 7) {
             TaskGlowBrightnessSlider(value: $value)
-                .frame(width: 88, height: 22)
-            Text(value, format: .percent.precision(.fractionLength(0)))
+                .frame(minWidth: 88, maxWidth: .infinity)
+                .frame(height: 22)
+            Text(1.0, format: .percent.precision(.fractionLength(0)))
                 .font(SettingsRowMetrics.captionFont.monospacedDigit())
-                .foregroundStyle(Color.codexSecondaryLabel)
-                .numericTransition(value: Int((value * 100).rounded()), comparison: value)
-                .frame(width: 32, alignment: .trailing)
+                .hidden()
+                .overlay(alignment: .trailing) {
+                    Text(value, format: .percent.precision(.fractionLength(0)))
+                        .font(SettingsRowMetrics.captionFont.monospacedDigit())
+                        .foregroundStyle(Color.codexSecondaryLabel)
+                        .numericTransition(value: Int((value * 100).rounded()), comparison: value)
+                }
+                .fixedSize()
         }
         .padding(.horizontal, 8)
         .frame(height: 22)
@@ -197,7 +200,7 @@ private struct TaskGlowColorHexField: View {
             Text(verbatim: "#")
                 .font(SettingsRowMetrics.captionFont.monospaced())
                 .foregroundStyle(.secondary)
-                .frame(width: 8)
+                .fixedSize()
 
             TaskGlowHexInput(
                 text: $draft,
@@ -216,7 +219,7 @@ private struct TaskGlowColorHexField: View {
                     .strokeBorder(isValid ? .clear : .red, lineWidth: 1)
                     .allowsHitTesting(false)
             }
-            .frame(width: 74)
+            .fixedSize(horizontal: true, vertical: false)
         }
         .onChange(of: settings.appearance.colors[role]) { _, _ in
             if !isFocused {
@@ -233,6 +236,15 @@ private struct TaskGlowHexInput: NSViewRepresentable {
     let onChange: (String) -> Void
     let onEndEditing: (String) -> String
     let onCancel: () -> String
+
+    func sizeThatFits(_: ProposedViewSize, nsView: NSTextField, context _: Context) -> CGSize? {
+        let sizingField = NSTextField(string: "FFFFFF")
+        sizingField.controlSize = nsView.controlSize
+        sizingField.font = nsView.font
+        sizingField.bezelStyle = nsView.bezelStyle
+        // NSTextField 默认没有固有宽度, 用完整颜色值的 cell 尺寸保留编辑空间
+        return sizingField.cell?.cellSize
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)

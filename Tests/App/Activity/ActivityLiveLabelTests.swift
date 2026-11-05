@@ -44,7 +44,7 @@ struct ActivityLiveLabelTests {
         """#)
         #expect(item.commandSummary == nil)
         #expect(item.liveLabel == ActivityLiveLabel("command", detail: ActivityLiveLabel("actions-read").text))
-        #expect(item.liveCompletionLabel == ActivityLiveLabel("action-completed", detail: ActivityLiveLabel("actions-read").text))
+        #expect(item.liveCompletionLabel == ActivityLiveLabel("action-completed", detail: ActivityLiveLabel("actions-read").text, symbolName: "terminal"))
     }
 
     @Test(arguments: ["git", "git, ls"])
@@ -133,6 +133,23 @@ struct ActivityLiveLabelTests {
     @Test func unknownUnnamedToolsDoNotExposeInternalTypes() {
         #expect(ActivityDisplayFormat.toolActionText(itemType: "futureInternalType", toolName: nil) == nil)
         #expect(ActivityDisplayFormat.toolActionText(itemType: nil, toolName: nil) == nil)
+    }
+
+    @Test(arguments: [
+        (#""type":"webSearch","action":{"type":"search"}"#, "web-search"),
+        (#""type":"webSearch","action":{"type":"openPage"}"#, "web-open"),
+        (#""type":"webSearch","action":{"type":"findInPage"}"#, "web-find"),
+        (#""type":"webSearch""#, "web-browse"),
+        (#""type":"webSearch","action":{"type":"future"}"#, "web-browse"),
+        (#""type":"imageView""#, "image-view")
+    ], ["completed", "failed", "declined"])
+    func namedOperationsPreserveResultText(example: (fields: String, actionKey: String), status: String) throws {
+        let item = try TestFixtures.decode(ActivityItem.self, """
+        {"id":"operation",\(example.fields),"status":"\(status)"}
+        """)
+        let expected = ActivityLiveLabel("action-" + status, detail: ActivityLiveLabel(example.actionKey).text)
+        #expect(item.liveCompletionLabel?.detail == expected.detail)
+        #expect(item.liveCompletionLabel?.text == expected.text)
     }
 
     @Test(arguments: ["completed", "failed", "declined", "unknown"])

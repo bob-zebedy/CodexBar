@@ -162,6 +162,8 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.image-declined")
         case "image-failed":
             String(localized: "activity.live.image-failed")
+        case "image-view":
+            String(localized: "activity.live.image-view")
         case "interrupted", "action-interrupted":
             String(localized: "activity.live.interrupted")
         case "model-changed":
@@ -176,8 +178,6 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.plan-updated")
         case "processing":
             String(localized: "activity.live.processing")
-        case "recent-event":
-            String(localized: "activity.live.recent-event")
         case "reconnecting":
             String(localized: "activity.live.reconnecting")
         case "recovering-auth":
@@ -202,6 +202,12 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.sleeping")
         case "thinking":
             String(localized: "activity.live.thinking")
+        case "timer-completed":
+            String(localized: "activity.live.timer-completed")
+        case "timer-declined":
+            String(localized: "activity.live.timer-declined")
+        case "timer-failed":
+            String(localized: "activity.live.timer-failed")
         case "tool-completed", "action-completed":
             String(localized: "activity.live.tool-completed")
         case "tool-declined", "action-declined":
@@ -228,6 +234,14 @@ nonisolated extension ActivityLiveLabel {
             String(localized: "activity.live.waiting-input")
         case "waiting-service":
             String(localized: "activity.live.waiting-service")
+        case "web-search":
+            String(localized: "activity.live.web-search")
+        case "web-open":
+            String(localized: "activity.live.web-open")
+        case "web-find":
+            String(localized: "activity.live.web-find")
+        case "web-browse":
+            String(localized: "activity.live.web-browse")
         default:
             String(localized: "activity.live.processing")
         }

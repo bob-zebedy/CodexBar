@@ -10,7 +10,7 @@ final class SettingsWindowController: HostingWindowController {
     private let tuiNotificationSettings: TUINotificationSettings
     private let syncSettings: SyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
-    private let menuBarQuotaSettings: MenuBarQuotaSettings
+    private let menuBarIndicatorSettings: MenuBarIndicatorSettings
     private let appearanceSettings: AppearanceSettings
     private let mainPanelSettings: MainPanelSettings
     private let taskGlowSettings: TaskGlowSettings
@@ -38,7 +38,7 @@ final class SettingsWindowController: HostingWindowController {
         tuiNotificationSettings: TUINotificationSettings,
         syncSettings: SyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
-        menuBarQuotaSettings: MenuBarQuotaSettings,
+        menuBarIndicatorSettings: MenuBarIndicatorSettings,
         appearanceSettings: AppearanceSettings,
         mainPanelSettings: MainPanelSettings,
         taskGlowSettings: TaskGlowSettings,
@@ -55,7 +55,7 @@ final class SettingsWindowController: HostingWindowController {
         self.tuiNotificationSettings = tuiNotificationSettings
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
-        self.menuBarQuotaSettings = menuBarQuotaSettings
+        self.menuBarIndicatorSettings = menuBarIndicatorSettings
         self.appearanceSettings = appearanceSettings
         self.mainPanelSettings = mainPanelSettings
         self.taskGlowSettings = taskGlowSettings
@@ -83,7 +83,7 @@ final class SettingsWindowController: HostingWindowController {
             rootView: AppSettingsView(
                 syncSettings: syncSettings,
                 globalHotKeySettings: globalHotKeySettings,
-                menuBarQuotaSettings: menuBarQuotaSettings,
+                menuBarIndicatorSettings: menuBarIndicatorSettings,
                 appearanceSettings: appearanceSettings,
                 mainPanelSettings: mainPanelSettings,
                 taskGlowSettings: taskGlowSettings,
@@ -155,7 +155,7 @@ final class SettingsWindowController: HostingWindowController {
         notificationSettings.refreshAuthorizationStatus()
         tuiNotificationSettings.refresh()
         syncSettings.refresh()
-        menuBarQuotaSettings.refresh()
+        menuBarIndicatorSettings.refresh()
         appearanceSettings.refresh()
         mainPanelSettings.refresh()
         taskGlowSettings.refresh()
@@ -189,11 +189,12 @@ final class SettingsWindowController: HostingWindowController {
         switch panel {
         case .mainPanel:
             makeMainPanelOptionsPanelController()
+        case .menuBarIndicator:
+            makeMenuBarIndicatorOptionsPanelController()
         case .taskGlow:
             OptionsPanelController(
                 mainPanelSettings: mainPanelSettings,
                 animationKey: "CodexBar.taskGlowOptionsDrawerTransform",
-                initialPanelSize: TaskGlowOptionsView.initialPanelSize,
                 willHide: { [taskGlowSettings] in taskGlowSettings.endColorPreview() },
                 contentProvider: { [taskGlowSettings] in
                     TaskGlowOptionsView(settings: taskGlowSettings)
@@ -203,7 +204,7 @@ final class SettingsWindowController: HostingWindowController {
             OptionsPanelController(
                 mainPanelSettings: mainPanelSettings,
                 animationKey: "CodexBar.notificationOptionsDrawerTransform",
-                initialPanelSize: NotificationOptionsView.initialPanelSize,
+                resizesWithContent: true,
                 willShow: { [tuiNotificationSettings] in
                     tuiNotificationSettings.refresh()
                 },
@@ -214,27 +215,12 @@ final class SettingsWindowController: HostingWindowController {
                         autoResetSettings: autoResetSettings,
                         keepAliveController: keepAliveController
                     )
-                },
-                // 通知选项的可用性会影响音效子行显隐, 需要订阅各项依赖的派生状态
-                // 防睡眠只订阅相关派生值, 避免每次任务起停都触发面板高度重算
-                contentChanges: Publishers.MergeMany([
-                    notificationSettings.objectWillChange.eraseToAnyPublisher(),
-                    autoResetSettings.$isEnabled
-                        .map { _ in () }
-                        .eraseToAnyPublisher(),
-                    keepAliveController.$isLowBatteryProtectionEnabled
-                        .map { _ in () }
-                        .eraseToAnyPublisher(),
-                    keepAliveController.$isMaximumDurationEnabled
-                        .map { _ in () }
-                        .eraseToAnyPublisher()
-                ]).eraseToAnyPublisher()
+                }
             )
         case .autoReset:
             OptionsPanelController(
                 mainPanelSettings: mainPanelSettings,
                 animationKey: "CodexBar.autoResetOptionsDrawerTransform",
-                initialPanelSize: AutoResetOptionsView.initialPanelSize,
                 contentProvider: { [autoResetSettings] in
                     AutoResetOptionsView(settings: autoResetSettings)
                 }
@@ -243,26 +229,32 @@ final class SettingsWindowController: HostingWindowController {
             OptionsPanelController(
                 mainPanelSettings: mainPanelSettings,
                 animationKey: "CodexBar.keepAliveOptionsDrawerTransform",
-                initialPanelSize: KeepAliveOptionsView.initialPanelSize,
+                resizesWithContent: true,
                 contentProvider: { [keepAliveController, protectionSettings] in
                     KeepAliveOptionsView(
                         keepAliveController: keepAliveController,
                         protectionSettings: protectionSettings
                     )
-                },
-                // 面板里只有 hasBattery 会增删行, 其余各行的取值不改高度
-                contentChanges: keepAliveController.$hasBattery
-                    .map { _ in () }
-                    .eraseToAnyPublisher()
+                }
             )
         }
+    }
+
+    private func makeMenuBarIndicatorOptionsPanelController() -> OptionsPanelController {
+        OptionsPanelController(
+            mainPanelSettings: mainPanelSettings,
+            animationKey: "CodexBar.menuBarIndicatorOptionsDrawerTransform",
+            resizesWithContent: true,
+            contentProvider: { [menuBarIndicatorSettings, viewModel] in
+                MenuBarIndicatorOptionsView(settings: menuBarIndicatorSettings, statusViewModel: viewModel)
+            }
+        )
     }
 
     private func makeMainPanelOptionsPanelController() -> OptionsPanelController {
         OptionsPanelController(
             mainPanelSettings: mainPanelSettings,
             animationKey: "CodexBar.mainPanelOptionsDrawerTransform",
-            initialPanelSize: MainPanelOptionsView.initialPanelSize,
             willShow: { [mainPanelSettings] in
                 mainPanelSettings.refresh()
             },

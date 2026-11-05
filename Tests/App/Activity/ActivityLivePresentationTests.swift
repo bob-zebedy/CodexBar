@@ -155,8 +155,10 @@ struct ActivityLivePresentationTests {
         #expect(try summary(reducer).current.key == (method == "item/tool/requestUserInput" ? "waiting-input" : "waiting-approval"))
         #expect(try summary(reducer).hasBlockingInputRequest == (method == "item/tool/requestUserInput"))
         #expect(reducer.states.values.first?.isWaitingApproval == approval)
+        let symbolName = try summary(reducer).current.symbolName
         _ = try reducer.consume(message("serverRequest/resolved", #""requestId":7"#, turn: false), now: now.addingTimeInterval(3))
         #expect(try summary(reducer).waiting == nil)
+        #expect(try summary(reducer).recent?.label.symbolName == symbolName)
     }
 
     @Test(arguments: ["thread-a", "thread-b"])
@@ -236,6 +238,7 @@ struct ActivityLivePresentationTests {
         #expect(try summary(reducer).current.key == "processing")
         let recent = try summary(reducer).recent
         #expect(recent?.label.key == "action-completed")
+        #expect(recent?.label.symbolName == "book")
         let events = try reducer.consume(message("item/reasoning/summaryTextDelta", #""itemId":"reason","delta":"Test response""#), now: now.addingTimeInterval(2))
         #expect(events.isEmpty)
         #expect(try summary(reducer).current.key == "thinking")
@@ -317,6 +320,7 @@ struct ActivityLivePresentationTests {
         let recent = try #require(try summary(reducer).recent)
         #expect(recent.label.key == "action-" + status)
         #expect(recent.label.detail == String(localized: "activity.live.actions-read-search"))
+        #expect(recent.label.symbolName == "doc.text.magnifyingglass")
         let action = String(localized: "activity.live.actions-read-search")
         let expected = switch status {
         case "completed": String(localized: "activity.live.action-completed", defaultValue: "\(action)")
@@ -325,6 +329,53 @@ struct ActivityLivePresentationTests {
         }
         #expect(recent.label.text == expected)
         #expect(!recent.label.text.contains(" • "))
+    }
+
+    @Test(arguments: [
+        (#""type":"commandExecution","commandActions":[{"type":"read"}]"#, ("book", "action")),
+        (#""type":"commandExecution","commandActions":[{"type":"listFiles"}]"#, ("folder", "action")),
+        (#""type":"commandExecution","commandActions":[{"type":"search"}]"#, ("magnifyingglass", "action")),
+        (#""type":"commandExecution","commandActions":[{"type":"read"},{"type":"search"}]"#, ("doc.text.magnifyingglass", "action")),
+        (#""type":"commandExecution""#, ("terminal", "command")),
+        (#""type":"fileChange""#, ("square.and.pencil", "file")),
+        (#""type":"webSearch","action":{"type":"search"}"#, ("globe", "action")),
+        (#""type":"webSearch","action":{"type":"openPage"}"#, ("globe", "action")),
+        (#""type":"webSearch","action":{"type":"findInPage"}"#, ("globe", "action")),
+        (#""type":"webSearch""#, ("globe", "action")),
+        (#""type":"webSearch","action":{"type":"future"}"#, ("globe", "action")),
+        (#""type":"imageView""#, ("photo", "action")),
+        (#""type":"imageGeneration""#, ("wand.and.stars", "image")),
+        (#""type":"sleep""#, ("hourglass", "timer")),
+        (#""type":"mcpToolCall","server":"server","tool":"tool""#, ("wrench.and.screwdriver", "tool")),
+        (#""type":"mcpToolCall""#, ("wrench.and.screwdriver", "tool")),
+        (#""type":"dynamicToolCall","tool":"tool""#, ("wrench.and.screwdriver", "tool")),
+        (#""type":"dynamicToolCall""#, ("wrench.and.screwdriver", "tool")),
+        (#""type":"collabAgentToolCall","tool":"spawnAgent""#, ("person.2", "action"))
+    ], ["completed", "failed", "declined"])
+    func toolResultsKeepOperationAndOutcome(example: (fields: String, expected: (symbol: String, completionPrefix: String)), status: String) throws {
+        for observesStart in [false, true] {
+            var live = ActivityLivePresentation()
+            if observesStart {
+                try live.consume(message("item/started", """
+                "item":{"id":"operation",\(example.fields),"status":"inProgress"}
+                """), at: now)
+                #expect(live.summary.current.symbolName == example.expected.symbol)
+            }
+            try live.consume(message("item/completed", """
+            "item":{"id":"operation",\(example.fields),"status":"\(status)"}
+            """), at: now.addingTimeInterval(1))
+            #expect(live.summary.recent?.label.symbolName == example.expected.symbol)
+            #expect(live.summary.recent?.label.key == example.expected.completionPrefix + "-" + status)
+        }
+    }
+
+    @Test func partialCompletionKeepsItsOwnOperationSymbolWhileAnotherToolRuns() throws {
+        var live = ActivityLivePresentation()
+        try live.consume(message("item/started", #""item":{"id":"read","type":"commandExecution","commandActions":[{"type":"read"}]}"#), at: now)
+        try live.consume(message("item/started", #""item":{"id":"edit","type":"fileChange"}"#), at: now.addingTimeInterval(1))
+        try live.consume(message("item/completed", #""item":{"id":"read","type":"commandExecution","status":"failed"}"#), at: now.addingTimeInterval(2))
+        #expect(live.summary.current.symbolName == "square.and.pencil")
+        #expect(live.summary.recent?.label.symbolName == "book")
     }
 
     struct CommandPresentationCase {
@@ -399,7 +450,7 @@ struct ActivityLivePresentationTests {
         let detail = String(localized: ActivityDisplayFormat.agentAction(tool: tool).action)
         #expect(presentation.current.key == "processing")
         #expect(presentation.toolCount == 0)
-        #expect(presentation.recent?.label == ActivityLiveLabel("action-interrupted", detail: detail))
+        #expect(presentation.recent?.label == ActivityLiveLabel("action-interrupted", detail: detail, symbolName: "person.2"))
         #expect(presentation.recent?.label.text == String(localized: "activity.live.action-interrupted", defaultValue: "\(detail)"))
         #expect(ActivityItem(id: "child", type: .subAgentActivity, kind: "interrupted").liveCompletionLabel?.key == "agent-interrupted")
     }
@@ -606,7 +657,7 @@ struct ActivityLivePresentationTests {
         #expect(snapshot.waitingCount == 0)
         #expect(snapshot.panelWaitingTasks.count == 1)
         #expect(snapshot.panelRunningTasks.isEmpty)
-        #expect(snapshot.primaryActivity == .running(task.snapshot))
+        #expect(snapshot.runningTasks == [task.snapshot])
         var selection = ActivityCardSelection()
         selection.update(snapshot: snapshot, isHealthy: true, now: now)
         #expect(selection.current == .waiting(task.snapshot))

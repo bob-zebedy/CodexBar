@@ -67,21 +67,17 @@ struct MainPanelOptionsView: View {
         }
         .padding(.horizontal, Metrics.horizontalPadding)
         .padding(.vertical, Metrics.verticalPadding)
-        .frame(width: Metrics.panelWidth, alignment: .topLeading)
+        .frame(
+            minWidth: SettingsOptionsPanelMetrics.minimumWidth,
+            maxWidth: SettingsOptionsPanelMetrics.maximumWidth,
+            alignment: .topLeading
+        )
+        .fixedSize(horizontal: true, vertical: true)
         .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
         .onDisappear {
             dragState = nil
             dragTranslation = 0
         }
-    }
-
-    static var initialPanelSize: CGSize {
-        CGSize(
-            width: Metrics.panelWidth,
-            height: Metrics.verticalPadding * 2
-                + Metrics.rowHeight * CGFloat(MainPanelSection.allCases.count)
-                + Metrics.dividerHeight * CGFloat(MainPanelSection.allCases.count - 1)
-        )
     }
 
     private func sectionRow(_ section: MainPanelSection) -> some View {
@@ -213,7 +209,6 @@ struct MainPanelOptionsView: View {
     }
 
     private enum Metrics {
-        static let panelWidth: CGFloat = 270
         static let horizontalPadding = SettingsOptionsPanelMetrics.horizontalPadding
         static let verticalPadding = SettingsOptionsPanelMetrics.verticalPadding
         static let rowHeight: CGFloat = 28

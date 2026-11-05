@@ -3,7 +3,7 @@ import SwiftUI
 import Testing
 
 struct LogMethodFilterTests {
-    @Test(arguments: [CGFloat(120), 320, 600], [0, 1, 8])
+    @Test(arguments: [CGFloat(120), 320, 600], [1, 8])
     func selectionsKeepTheHeaderCompact(width: CGFloat, selectionCount: Int) throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

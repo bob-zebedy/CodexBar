@@ -81,7 +81,11 @@ nonisolated struct ActivityCardSelection: Equatable {
         if snapshot.hasActiveTasks {
             automaticID = incomingIDs.first
         } else {
-            automaticID = snapshot.primaryActivity.cardSelectionID
+            automaticID = switch snapshot.latestTerminalEvent {
+            case let .completed(completion): completion.threadID
+            case let .terminated(termination): termination.threadID
+            case nil: nil
+            }
         }
         if let gestureActivities,
            !Set(gestureActivities.compactMap(\.cardSelectionID)).isSubset(of: Set(incomingIDs)) {

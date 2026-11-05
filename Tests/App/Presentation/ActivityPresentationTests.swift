@@ -169,15 +169,15 @@ struct ActivityPresentationTests {
         }
     }
 
-    @Test func statusItemTerminalExpiresAtTenSecondsWhileCardKeepsHistory() {
+    @Test func completedTaskRemainsAvailableInCardHistory() {
         let completion = ActivityCompletion(
             id: UUID(), projectName: nil, modelName: nil, effort: nil,
             completedAt: TestFixtures.now, duration: 30, threadID: "completed-thread"
         )
         let snapshot = ActivitySnapshot(waitingTasks: [], runningTasks: [], recentCompletions: [completion], recentTerminations: [])
-        #expect(snapshot.statusItemActivity(at: TestFixtures.now.addingTimeInterval(9.999)) == .completed(completion))
-        #expect(snapshot.statusItemActivity(at: TestFixtures.now.addingTimeInterval(10)) == .idle)
-        #expect(snapshot.primaryActivity == .completed(completion))
+        var selection = ActivityCardSelection()
+        selection.update(snapshot: snapshot, isHealthy: true, now: TestFixtures.now)
+        #expect(selection.current == .completed(completion))
         #expect(snapshot.hasTaskCenterContent)
         #expect(!snapshot.hasActiveTasks)
     }
@@ -186,22 +186,10 @@ struct ActivityPresentationTests {
         let waiting = task(thread: "waiting-thread")
         let running = task(thread: "running-thread")
         let snapshot = ActivitySnapshot(waitingTasks: [waiting], runningTasks: [running], recentCompletions: [], recentTerminations: [])
-        #expect(snapshot.primaryActivity == .waiting(waiting))
+        var selection = ActivityCardSelection()
+        selection.update(snapshot: snapshot, isHealthy: true, now: TestFixtures.now)
+        #expect(selection.current == .waiting(waiting))
         #expect(snapshot.activeCount == 2)
-        #expect(snapshot.statusItemActivityExpiration == nil)
-    }
-
-    @Test(arguments: [false, true])
-    func accountFailureKeepsLiveTaskIcon(waiting: Bool) {
-        let task = task(thread: "thread-a")
-        let activity = ActivitySnapshot(
-            waitingTasks: waiting ? [task] : [], runningTasks: waiting ? [] : [task],
-            recentCompletions: [], recentTerminations: []
-        )
-        let state = StatusIconState(usesErrorImage: true, ordinaryUsageAllowed: nil, progress: nil, activity: activity)
-        #expect(state.symbolName(at: TestFixtures.now) == (waiting ? "person.badge.key.fill" : "person.badge.clock.fill"))
-        let idle = StatusIconState(usesErrorImage: true, ordinaryUsageAllowed: nil, progress: nil, activity: .empty)
-        #expect(idle.symbolName(at: TestFixtures.now) == "person.slash.fill")
     }
 
     private func task(thread: String) -> ActivityTaskSnapshot {

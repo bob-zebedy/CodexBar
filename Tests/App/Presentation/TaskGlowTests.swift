@@ -154,14 +154,13 @@ struct TaskGlowTests {
     }
 
     @Test(arguments: TaskGlowSettings.terminalDurationOptions)
-    func terminalDurationOnlyChangesGlowExpiration(_ duration: TimeInterval) {
+    func terminalDurationControlsGlowExpiration(_ duration: TimeInterval) {
         let snapshot = completedSnapshot()
         var presentation = TaskGlowPresentationState()
         presentation.update(snapshot: snapshot, terminalEvents: [], isEnabled: true, acceptsBriefEvents: true, now: TestFixtures.now)
         presentation.refresh(now: TestFixtures.now, terminalDuration: duration)
         #expect(presentation.state == .completed)
         #expect(presentation.terminal?.expiresAt == TestFixtures.now.addingTimeInterval(duration))
-        #expect(snapshot.statusItemActivityExpiration == TestFixtures.now.addingTimeInterval(10))
         presentation.refresh(now: TestFixtures.now.addingTimeInterval(duration), terminalDuration: duration)
         #expect(presentation.state == .hidden)
         #expect(presentation.terminal == nil)

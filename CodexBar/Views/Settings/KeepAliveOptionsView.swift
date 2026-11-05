@@ -1,36 +1,42 @@
 import SwiftUI
 
 /// 防睡眠子选项面板, 挂在设置窗口右侧, 顶边对齐设置页的防睡眠主开关行
-/// 行样式与度量沿用通知子面板, 只有面板宽度按内容收窄
 struct KeepAliveOptionsView: View {
     @ObservedObject var keepAliveController: KeepAliveController
     @ObservedObject var protectionSettings: ProtectionSettings
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
+        VStack(alignment: .leading, spacing: 0) {
             waitingApprovalRow
             displayAwakeRow
+                .padding(.top, Metrics.rowSpacing)
             maximumDurationRow
+                .padding(.top, Metrics.rowSpacing)
             protectionRow
+                .padding(.top, Metrics.rowSpacing)
 
             // 无内置电池时隐藏低电量保护行
-            if keepAliveController.hasBattery {
-                lowBatteryRow
-            }
+            lowBatteryRow
+                .settingsOptionsReveal(
+                    isExpanded: keepAliveController.hasBattery,
+                    height: Metrics.rowHeight,
+                    spacing: Metrics.rowSpacing
+                )
         }
         .padding(.horizontal, Metrics.horizontalPadding)
         .padding(.vertical, Metrics.verticalPadding)
-        .frame(width: Metrics.panelWidth, alignment: .topLeading)
-        .sidePanelChrome(cornerRadius: Metrics.cornerRadius)
-    }
-
-    /// 按有电池时的最大内容给初始值, 实际高度在展开前由 fitting size 覆盖
-    static var initialPanelSize: CGSize {
-        CGSize(
-            width: Metrics.panelWidth,
-            height: Metrics.verticalPadding * 2
-                + Metrics.rowHeight * CGFloat(Metrics.maximumRowCount)
-                + Metrics.rowSpacing * CGFloat(Metrics.maximumRowCount - 1)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(
+            minWidth: SettingsOptionsPanelMetrics.minimumWidth,
+            maxWidth: SettingsOptionsPanelMetrics.maximumWidth,
+            alignment: .topLeading
+        )
+        .fixedSize(horizontal: true, vertical: true)
+        .settingsOptionsPanel(height: SettingsOptionsPanelMetrics.height(rowCount: keepAliveController.hasBattery ? 5 : 4))
+        .animation(
+            allowsAnimations ? SettingsOptionsPanelMetrics.contentAnimation : nil,
+            value: keepAliveController.hasBattery
         )
     }
 
@@ -110,7 +116,6 @@ struct KeepAliveOptionsView: View {
                 selection: selection,
                 options: options,
                 label: { $0[keyPath: label] },
-                width: Metrics.pickerWidth,
                 alignment: .trailing
             )
         }
@@ -148,15 +153,10 @@ struct KeepAliveOptionsView: View {
     }
 
     private enum Metrics {
-        static let panelWidth: CGFloat = 280
-        /// 有内置电池设备的行数, 无内置电池时少一行低电量保护
-        static let maximumRowCount = 5
         static let horizontalPadding = SettingsOptionsPanelMetrics.horizontalPadding
         static let verticalPadding = SettingsOptionsPanelMetrics.verticalPadding
         static let rowSpacing = SettingsOptionsPanelMetrics.rowSpacing
         static let rowHeight = SettingsOptionsPanelMetrics.rowHeight
         static let controlSpacing = SettingsOptionsPanelMetrics.controlSpacing
-        static let pickerWidth: CGFloat = 88
-        static let cornerRadius = SettingsOptionsPanelMetrics.cornerRadius
     }
 }

@@ -21,10 +21,9 @@ struct CodexQuotaAndIdentityTests {
             #expect(snapshot.ordinaryUsageAllowed == allowed)
             for percent: Int? in [100, 0, nil] {
                 presentation.update(
-                    symbolName: "person.fill",
+                    isUnavailable: false,
                     ordinaryUsageAllowed: snapshot.ordinaryUsageAllowed,
-                    percent: percent,
-                    isStale: false,
+                    indicators: [percent.map { StatusItemIconPresentation.Indicator(percent: Double($0), isStale: false) }],
                     animated: false
                 )
                 #expect(presentation.state.isOrdinaryUsageRestricted == (allowed == false))

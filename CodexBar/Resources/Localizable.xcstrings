@@ -1137,23 +1137,6 @@
         }
       }
     },
-    "activity.live.current-event" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Current event"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "当前事件"
-          }
-        }
-      }
-    },
     "activity.live.diff-updated" : {
       "localizations" : {
         "en" : {
@@ -1319,13 +1302,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Finding in page"
+            "value" : "Searching within page"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在网页查找内容"
+            "value" : "正在检索网页"
           }
         }
       }
@@ -1454,6 +1437,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "图片生成失败"
+          }
+        }
+      }
+    },
+    "activity.live.image-view" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image viewing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片查看"
           }
         }
       }
@@ -1682,22 +1681,6 @@
         }
       }
     },
-    "activity.live.recent-event" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Latest event"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最近事件"
-          }
-        }
-      }
-    },
     "activity.live.reconnecting" : {
       "localizations" : {
         "en" : {
@@ -1869,7 +1852,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在等待计时结束"
+            "value" : "正在等待计时"
           }
         }
       }
@@ -1902,6 +1885,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在思考"
+          }
+        }
+      }
+    },
+    "activity.live.timer-completed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Timer ended"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时结束"
+          }
+        }
+      }
+    },
+    "activity.live.timer-declined" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Timer declined"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时被拒绝"
+          }
+        }
+      }
+    },
+    "activity.live.timer-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Timer failed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "计时失败"
           }
         }
       }
@@ -2174,6 +2205,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "等待回应"
+          }
+        }
+      }
+    },
+    "activity.live.web-browse" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Web browsing"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网页浏览"
+          }
+        }
+      }
+    },
+    "activity.live.web-find" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In-page search"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网页检索"
+          }
+        }
+      }
+    },
+    "activity.live.web-open" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page opening"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网页打开"
+          }
+        }
+      }
+    },
+    "activity.live.web-search" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Web search"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "网页搜索"
           }
         }
       }
@@ -4402,50 +4497,242 @@
         }
       }
     },
-    "menu-bar-quota.selection.off" : {
+    "menu-bar-indicator.layout.dual" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Off"
+            "value" : "Dual"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "关闭"
+            "value" : "双侧"
           }
         }
       }
     },
-    "menu-bar-quota.selection.primary" : {
+    "menu-bar-indicator.layout.single" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Primary"
+            "value" : "Single"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "主额度"
+            "value" : "单侧"
           }
         }
       }
     },
-    "menu-bar-quota.selection.secondary" : {
+    "menu-bar-indicator.layout.title" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Secondary"
+            "value" : "Indicator Layout"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "次额度"
+            "value" : "指示器布局"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.left" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left Content"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左侧内容"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.metric.quota" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quota Data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "额度数据"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.metric.time" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time Data"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置时间"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.metric.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Metric"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "指标"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.right" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right Content"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右侧内容"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.single" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Indicator"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "指示器"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.tooltip.duration" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lldd %2$lldh %3$lldm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld天%2$lld小时%3$lld分钟"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.tooltip.duration-hours" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lldh %2$lldm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld小时%2$lld分钟"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.tooltip.duration-minutes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lldm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld分钟"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.tooltip.quota" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quota remaining: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "额度剩余: %@"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.tooltip.reset" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time remaining: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重置剩余: %@"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.tooltip.reset-now" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Now"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "现在"
           }
         }
       }
@@ -5543,7 +5830,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable or disable automatic use of banked resets that are about to expire"
+            "value" : "Enable/Disable automatic use of banked resets that are about to expire"
           }
         },
         "zh-Hans" : {
@@ -5687,7 +5974,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automatically Check for Updates"
+            "value" : "Auto Update Checks"
           }
         },
         "zh-Hans" : {
@@ -5703,7 +5990,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable or disable automatic checks for new versions of CodexBar. You can still check for updates manually from the About page when this is disabled"
+            "value" : "Enable/Disable automatic checks for new versions of CodexBar. You can still check for updates manually from the About page when this is disabled"
           }
         },
         "zh-Hans" : {
@@ -5767,7 +6054,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable or disable launching CodexBar automatically when you log in to macOS"
+            "value" : "Enable/Disable launching CodexBar automatically when you log in to macOS"
           }
         },
         "zh-Hans" : {
@@ -5863,7 +6150,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable or disable sleep prevention while Codex tasks are running"
+            "value" : "Enable/Disable sleep prevention while Codex tasks are running"
           }
         },
         "zh-Hans" : {
@@ -5895,13 +6182,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable or disable animations in the app"
+            "value" : "Enable/Disable animations in the app"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "启用/禁用 App 内展示动画效果"
+            "value" : "启用/禁用 App 内动画效果"
           }
         }
       }
@@ -6034,50 +6321,34 @@
         }
       }
     },
-    "settings.menu-bar-quota.title" : {
+    "settings.menu-bar-indicator.title" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Menu Bar Quota Indicator"
+            "value" : "Menu Bar Indicators"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "菜单栏额度指示"
+            "value" : "菜单栏指示器"
           }
         }
       }
     },
-    "settings.menu-bar-quota.title.help" : {
+    "settings.menu-bar-indicator.title.help" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable or disable quota display in the menu bar icon"
+            "value" : "Enable/Disable menu bar indicators"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "启用/禁用 菜单栏图标显示额度信息"
-          }
-        }
-      }
-    },
-    "settings.menu-bar-quota.window" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Quota Window"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "额度窗口"
+            "value" : "启用/禁用 菜单栏指示器"
           }
         }
       }
@@ -6354,6 +6625,22 @@
         }
       }
     },
+    "settings.notifications.system.permission-unavailable" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to verify notification permission"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法确认系统通知权限"
+          }
+        }
+      }
+    },
     "settings.notifications.system.title" : {
       "localizations" : {
         "en" : {
@@ -6375,7 +6662,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable or disable CodexBar notifications. The first time you turn this on, you'll need to grant notification permission in macOS"
+            "value" : "Enable/Disable CodexBar notifications. The first time you turn this on, you'll need to grant notification permission in macOS"
           }
         },
         "zh-Hans" : {
@@ -6519,7 +6806,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable or disable data syncing across devices using your iCloud account"
+            "value" : "Enable/Disable data syncing across devices using your iCloud account"
           }
         },
         "zh-Hans" : {
@@ -6599,7 +6886,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable or disable the glow at the top of the screen that shows Codex task status"
+            "value" : "Enable/Disable the glow at the top of the screen that shows Codex task status"
           }
         },
         "zh-Hans" : {

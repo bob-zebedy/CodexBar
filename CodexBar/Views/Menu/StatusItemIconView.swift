@@ -3,24 +3,44 @@ import Combine
 import SwiftUI
 
 final class StatusItemIconPresentation: ObservableObject {
+    struct Indicator: Equatable {
+        let percent: Double
+        let isStale: Bool
+        var isVisible = true
+    }
+
     struct State: Equatable {
-        var symbolName = "person.fill"
+        var isUnavailable = false
         var isOrdinaryUsageRestricted = false
-        var remainingPercent = 0
-        var showsQuota = false
-        var isStale = false
+        var indicators = Array(repeating: Indicator(percent: 0, isStale: false, isVisible: false), count: 2)
+        var usesSplitRingStyle = false
+
+        var showsIndicators: Bool {
+            indicators.contains(where: \.isVisible)
+        }
+
+        var isStale: Bool {
+            showsIndicators && indicators.filter(\.isVisible).allSatisfy(\.isStale)
+        }
     }
 
     @Published private(set) var state = State()
 
-    func update(symbolName: String, ordinaryUsageAllowed: Bool?, percent: Int?, isStale: Bool, animated: Bool) {
-        let next = State(
-            symbolName: symbolName,
-            isOrdinaryUsageRestricted: ordinaryUsageAllowed == false,
-            remainingPercent: percent.map { min(max($0, 0), 100) } ?? state.remainingPercent,
-            showsQuota: percent != nil,
-            isStale: percent == nil ? state.isStale : isStale
-        )
+    func update(isUnavailable: Bool, ordinaryUsageAllowed: Bool?, indicators: [Indicator?], animated: Bool) {
+        var next = state
+        next.isUnavailable = isUnavailable
+        next.isOrdinaryUsageRestricted = ordinaryUsageAllowed == false
+        // 隐藏时保留颜色和几何, 让原来的弧线连续收回至零
+        if !indicators.isEmpty {
+            next.usesSplitRingStyle = indicators.count > 1
+        }
+        for index in next.indicators.indices {
+            if indicators.indices.contains(index), let indicator = indicators[index] {
+                next.indicators[index] = indicator
+            } else {
+                next.indicators[index].isVisible = false
+            }
+        }
         guard next != state else { return }
         var transaction = Transaction()
         transaction.disablesAnimations = !animated
@@ -51,48 +71,66 @@ struct StatusItemIconView: View {
 
     var body: some View {
         let state = presentation.state
+        let symbolName = state.isUnavailable ? "person" : "person.fill"
         ZStack {
-            ZStack {
-                StatusItemQuotaArc()
-                    .stroke(
-                        Color(nsColor: .tertiaryLabelColor).opacity(0.34),
-                        style: StrokeStyle(lineWidth: 2, lineCap: .round)
-                    )
-                    .opacity(state.showsQuota ? 1 : 0)
-                StatusItemQuotaArc(percent: state.showsQuota ? CGFloat(state.remainingPercent) : 0)
-                    .stroke(
-                        QuotaPalette.color(for: state.remainingPercent),
-                        style: StrokeStyle(lineWidth: 2, lineCap: .round)
-                    )
+            ForEach(state.indicators.indices, id: \.self) { index in
+                indicatorArc(state.indicators[index], index: index)
             }
-            .opacity(state.isStale ? 0.55 : 1)
-            .animation(.easeInOut(duration: 0.3), value: state.showsQuota)
 
             ZStack {
-                symbolImage(named: state.symbolName)
-                    .id(state.symbolName)
-                    .transition(.opacity.combined(with: .scale(
-                        scale: 0.75,
-                        anchor: UnitPoint(x: 0.5, y: 18.0 / 22.0)
-                    )))
+                symbolImage(named: symbolName)
+                    .id(symbolName)
+                    .transition(.opacity)
             }
             .foregroundStyle(symbolColor)
-            .animation(.easeInOut(duration: 0.2), value: state.symbolName)
+            .animation(.easeInOut(duration: 0.2), value: state.isUnavailable)
+            .animation(.easeInOut(duration: 0.2), value: state.isOrdinaryUsageRestricted)
             .scaleEffect(
-                state.showsQuota ? 1 : 16.0 / 14.0,
+                state.showsIndicators ? 1 : 16.0 / 14.0,
                 anchor: UnitPoint(x: 0.5, y: 18.0 / 22.0)
             )
-            .offset(y: state.showsQuota ? 0 : -1)
-            .opacity(state.showsQuota && state.isStale ? 0.75 : 1)
+            .offset(y: state.showsIndicators ? 0 : -1)
+            .opacity(state.isStale ? 0.75 : 1)
+            .animation(.easeInOut(duration: 0.2), value: state.showsIndicators)
         }
-        .animation(.easeInOut(duration: 0.2), value: state.showsQuota)
         // 菜单栏跨桌面切换时使用图标快照, 先合成圆弧和人物以保持绘制一致
         .drawingGroup()
         .frame(width: Self.size.width, height: Self.size.height)
         .allowsHitTesting(false)
     }
 
+    private func indicatorArc(_ indicator: StatusItemIconPresentation.Indicator, index: Int) -> some View {
+        let usesSplitRingStyle = index > 0 || presentation.state.usesSplitRingStyle
+        let isRightSide = index > 0
+        let radius = usesSplitRingStyle ? Metrics.splitRadius : Metrics.singleRadius
+        let fullSweepAngle = usesSplitRingStyle ? Metrics.splitSweepAngle : Metrics.singleSweepAngle
+        let startAngle = -90 + (isRightSide ? 1 : -1) * fullSweepAngle / 2
+        let sweepAngle = usesSplitRingStyle
+            ? (isRightSide ? -1 : 1) * (fullSweepAngle / 2 - Metrics.halfGapAngle)
+            : fullSweepAngle
+        let style = StrokeStyle(lineWidth: Metrics.lineWidth, lineCap: .round)
+        return ZStack {
+            StatusItemIndicatorArc(radius: radius, startAngle: startAngle, sweepAngle: sweepAngle)
+                .stroke(Color(nsColor: .tertiaryLabelColor).opacity(0.34), style: style)
+                .opacity(indicator.isVisible ? 1 : 0)
+            StatusItemIndicatorArc(
+                radius: radius,
+                startAngle: startAngle,
+                sweepAngle: sweepAngle,
+                percent: indicator.isVisible ? indicator.percent : 0
+            )
+            .stroke(QuotaPalette.color(for: Int(indicator.percent)), style: style)
+        }
+        .opacity(indicator.isStale ? 0.55 : 1)
+        .animation(.easeInOut(duration: 0.3), value: indicator.isVisible)
+        .animation(.easeInOut(duration: 0.3), value: indicator.percent)
+        .animation(.easeInOut(duration: 0.3), value: usesSplitRingStyle)
+    }
+
     private var symbolColor: Color {
+        if presentation.state.isUnavailable {
+            return .primary
+        }
         guard presentation.state.isOrdinaryUsageRestricted else { return .primary }
         return Color(hex: colorScheme == .dark ? 0xE8B27C : 0xD99858)
     }
@@ -113,7 +151,7 @@ struct StatusItemIconView: View {
             return image
         }
 
-        // 只在符号或屏幕倍率首次出现时栅格化, 缩放过程复用普通图片
+        // 只在图形或屏幕倍率首次出现时栅格化, 缩放过程复用普通图片
         let renderer = ImageRenderer(content: symbolContent(named: name)
             .foregroundStyle(.white)
             .environment(\.displayScale, displayScale))
@@ -126,7 +164,7 @@ struct StatusItemIconView: View {
     }
 
     private static func symbolContent(named name: String) -> some View {
-        // 基线固定人物主体, 徽章的下伸部分不参与居中计算
+        // 固定基线作为缩放锚点, 保持指示器切换时人物主体的位置稳定
         Color.clear
             .frame(width: size.width, height: size.height)
             .alignmentGuide(.firstTextBaseline) { _ in 18 }
@@ -136,29 +174,44 @@ struct StatusItemIconView: View {
                     .symbolRenderingMode(.monochrome)
             }
     }
+
+    private enum Metrics {
+        static let singleRadius: CGFloat = 11
+        static let splitRadius: CGFloat = 11.5
+        static let lineWidth: CGFloat = 2
+        static let centerGap: CGFloat = 1
+        static let singleSweepAngle = 180 + 2 * asin(5.0 / 11.0) * 180 / .pi
+        static let splitSweepAngle = 234.0
+        static let halfGapAngle = asin((lineWidth + centerGap) / (2 * splitRadius)) * 180 / .pi
+    }
 }
 
-private nonisolated struct StatusItemQuotaArc: Shape {
-    var percent: CGFloat = 100
+private nonisolated struct StatusItemIndicatorArc: Shape {
+    var radius: CGFloat
+    var startAngle: Double
+    var sweepAngle: Double
+    var percent: Double = 100
 
-    var animatableData: CGFloat {
-        get { percent }
-        set { percent = newValue }
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, Double>, AnimatablePair<Double, Double>> {
+        get { AnimatablePair(AnimatablePair(radius, startAngle), AnimatablePair(sweepAngle, percent)) }
+        set {
+            radius = newValue.first.first
+            startAngle = newValue.first.second
+            sweepAngle = newValue.second.first
+            percent = newValue.second.second
+        }
     }
 
     func path(in _: CGRect) -> Path {
         guard percent > 0 else { return Path() }
-        let radius: CGFloat = 11
-        let extraAngle = asin(CGFloat(5) / radius) * 180 / .pi
-        let startAngle = 180 + extraAngle
-        let endAngle = startAngle - (180 + 2 * extraAngle) * min(percent, 100) / 100
+        let endAngle = startAngle + sweepAngle * min(percent, 100) / 100
         var path = Path()
         path.addArc(
             center: CGPoint(x: 13, y: 14),
             radius: radius,
-            startAngle: .degrees(-Double(startAngle)),
-            endAngle: .degrees(-Double(endAngle)),
-            clockwise: false
+            startAngle: .degrees(startAngle),
+            endAngle: .degrees(endAngle),
+            clockwise: sweepAngle < 0
         )
         return path
     }

@@ -5,6 +5,7 @@ import SwiftUI
 /// 设置窗口右侧的子选项面板, 同一时刻只展开一个
 enum SettingsOptionsPanel: CaseIterable, Hashable {
     case mainPanel
+    case menuBarIndicator
     case taskGlow
     case notification
     case autoReset
@@ -48,16 +49,19 @@ private struct SidePanelEntryRebuildHost<Content: View>: View {
 @MainActor
 final class OptionsPanelController {
     private let animationKey: String
-    private let initialPanelSize: CGSize
+    private let resizeDuration: TimeInterval
+    private let resizesWithContent: Bool
+    private let mainPanelSettings: MainPanelSettings
     /// 展开前的准备动作, 例如刷新仅在此面板显示的设置项
     private let willShow: (() -> Void)?
     private let willHide: (() -> Void)?
-    private let contentControllerProvider: (SidePanelEntryCue) -> NSViewController
+    private let contentControllerProvider: (SidePanelEntryCue, @escaping @MainActor (CGSize) -> Void) -> NSViewController
     private let entryCue = SidePanelEntryCue()
 
     private var panel: NSPanel?
     private var hostingController: NSViewController?
-    private var cancellables = Set<AnyCancellable>()
+    private weak var anchorContentView: NSView?
+    private var expansionSide = UsageHeatmapDetailSide.right
     /// 展开时保留主设置窗口的键盘焦点, 用户点击输入框后再由面板接管
     private lazy var presenter = SidePanelDrawerPresenter(
         animationKey: animationKey,
@@ -68,38 +72,33 @@ final class OptionsPanelController {
     )
     private var panelResizeTask: Task<Void, Never>?
     private var isEntryAnimationRunning = false
+    private var acceptsContentResize = false
 
     init(
         mainPanelSettings: MainPanelSettings,
         animationKey: String,
-        initialPanelSize: CGSize,
+        resizeDuration: TimeInterval = SettingsOptionsPanelMetrics.resizeDuration,
+        resizesWithContent: Bool = false,
         willShow: (() -> Void)? = nil,
         willHide: (() -> Void)? = nil,
-        contentProvider: @escaping () -> some View,
-        contentChanges: AnyPublisher<Void, Never>? = nil
+        contentProvider: @escaping () -> some View
     ) {
         self.animationKey = animationKey
-        self.initialPanelSize = initialPanelSize
+        self.resizeDuration = resizeDuration
+        self.resizesWithContent = resizesWithContent
+        self.mainPanelSettings = mainPanelSettings
         self.willShow = willShow
         self.willHide = willHide
         // 内容闭包在首次构造面板时才执行, 保留 SwiftUI 状态的创建时机
-        contentControllerProvider = { cue in
+        contentControllerProvider = { cue, onSizeChanged in
             let controller = NSHostingController(
                 rootView: SidePanelEntryRebuildHost(cue: cue, content: contentProvider())
                     .contentAnimations(settings: mainPanelSettings)
+                    .environment(\.settingsOptionsPanelSizeObserver, SettingsOptionsPanelSizeObserver(onChange: onSizeChanged))
             )
-            // 高度重算依赖 preferredContentSize 提交的 fitting size
-            controller.sizingOptions = [.preferredContentSize]
+            // 保留 fittingSize 所需的固有尺寸报告, 窗口动画仍由控制器统一提交
+            controller.sizingOptions = [.intrinsicContentSize]
             return controller
-        }
-        // 只有内容行数会动态增删的面板才传变化源
-        // 面板收着时由 scheduleResize 的守卫过滤变化
-        if let contentChanges {
-            contentChanges
-                .sink { [weak self] in
-                    self?.scheduleResize()
-                }
-                .store(in: &cancellables)
         }
     }
 
@@ -131,6 +130,7 @@ final class OptionsPanelController {
         panelResizeTask?.cancel()
         panelResizeTask = nil
         isEntryAnimationRunning = false
+        acceptsContentResize = false
         // 原生输入框的焦点环不跟随内容层平移, 收起前结束编辑也避免下次展开恢复旧焦点
         panel?.makeFirstResponder(panel)
         presenter.hide(immediate: immediate)
@@ -138,13 +138,13 @@ final class OptionsPanelController {
 
     private func scheduleResize() {
         // 同步检查 isVisible, 隐藏时跳过 Task 创建及两轮 runloop 等待
-        guard panel?.isVisible == true, !isEntryAnimationRunning else {
+        guard !resizesWithContent, panel?.isVisible == true, !isEntryAnimationRunning else {
             return
         }
 
         panelResizeTask?.cancel()
         panelResizeTask = Task { @MainActor [weak self] in
-            // @Published 先于 SwiftUI 布局发出变更, 等待视图提交新的 fitting size
+            // 等待入场重建后的 SwiftUI 布局提交, 再读取 fitting size
             await Task.yield()
             await Task.yield()
             guard let self,
@@ -172,9 +172,12 @@ final class OptionsPanelController {
         willShow?()
         // 仅首次构造后需要重建, 后续复用常驻 hosting controller 和已创建的 portal
         let needsEntryRebuild = panel == nil
-        let panel = ensurePanel()
+        guard let panel = ensurePanel(),
+              let panelSize = hostingController?.view.validFittingSize else {
+            return
+        }
         (panel as? KeyableBorderlessPanel)?.sharedUndoManager = window.undoManager
-        // measuredPanelSize 会通过 validFittingSize 调用 layoutSubtreeIfNeeded, 无需提前布局
+        // validFittingSize 已完成布局, 无需再次测量
         // 此前的操作只影响设置窗口, 不会使面板布局失效
         let windowSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: window) ?? window.frame
         let screen = window.screen ?? NSScreen.main
@@ -183,7 +186,6 @@ final class OptionsPanelController {
             anchorProvider.currentScreenFrame(in: window),
             menuSurfaceFrame: windowSurfaceFrame
         )
-        let panelSize = measuredPanelSize()
         // clampsToSurfaceBottom 设为 false, 保持顶边对齐主开关行, 允许底边超出设置窗口
         let position = SidePanelSupport.anchoredPosition(
             panelSize: panelSize,
@@ -194,17 +196,25 @@ final class OptionsPanelController {
             preferredSide: .right,
             clampsToSurfaceBottom: false
         )
+        anchorContentView = contentView
+        expansionSide = position.side
 
         panel.level = window.level
         panelResizeTask?.cancel()
         isEntryAnimationRunning = true
+        acceptsContentResize = false
         presenter.present(panel, at: position, relativeTo: window) { [weak self] in
             guard let self else {
                 return
             }
 
             isEntryAnimationRunning = false
-            scheduleResize()
+            acceptsContentResize = true
+            if resizesWithContent, let size = hostingController?.view.validFittingSize {
+                resizeFromContent(size)
+            } else {
+                scheduleResize()
+            }
         }
         // present 已将内容移出可视区, 此时重建不会出现在画面中
         if needsEntryRebuild {
@@ -212,17 +222,22 @@ final class OptionsPanelController {
         }
     }
 
-    private func ensurePanel() -> NSPanel {
+    private func ensurePanel() -> NSPanel? {
         if let panel {
             return panel
         }
 
+        let hostingController = contentControllerProvider(entryCue) { [weak self] size in
+            self?.resizeFromContent(size)
+        }
+        guard let size = hostingController.view.validFittingSize else {
+            return nil
+        }
         let panel = SidePanelSupport.makePanel(
-            initialSize: initialPanelSize,
+            initialSize: size,
             ignoresMouseEvents: false,
             keyable: true
         )
-        let hostingController = contentControllerProvider(entryCue)
         panel.contentViewController = hostingController
         SidePanelSupport.configureLayers(
             hostingView: hostingController.view,
@@ -234,11 +249,20 @@ final class OptionsPanelController {
         return panel
     }
 
-    private func measuredPanelSize() -> CGSize {
-        hostingController?.view.validFittingSize ?? initialPanelSize
+    private func resizeFromContent(_ size: CGSize) {
+        guard resizesWithContent,
+              acceptsContentResize,
+              let panel,
+              panel.isVisible,
+              !isEntryAnimationRunning,
+              size.width.isFinite, size.width > 0,
+              size.height.isFinite, size.height > 0 else {
+            return
+        }
+        resizePanel(panel, to: size, animated: false)
     }
 
-    private func resizePanel(_ panel: NSPanel, to size: CGSize) {
+    private func resizePanel(_ panel: NSPanel, to size: CGSize, animated: Bool = true) {
         guard size != panel.frame.size else {
             return
         }
@@ -250,18 +274,33 @@ final class OptionsPanelController {
         targetFrame.size = size
         targetFrame.origin.y = topEdge - targetFrame.height
         if let visibleFrame = panel.screen?.visibleFrame {
-            // 复用初次展开的夹紧规则, 保持重算位置与 position 的结果一致
-            targetFrame = SidePanelSupport.clampedVertically(targetFrame, in: visibleFrame)
+            if size.width != panel.frame.width, let parent = panel.parent {
+                let surfaceFrame = SidePanelSupport.contentScreenFrame(for: anchorContentView, in: parent) ?? parent.frame
+                let position = SidePanelSupport.position(
+                    panelSize: size,
+                    menuSurfaceFrame: surfaceFrame,
+                    visibleFrame: visibleFrame,
+                    preferredSide: expansionSide,
+                    proposedY: targetFrame.minY,
+                    clampsToSurfaceBottom: false
+                )
+                targetFrame = position.frame
+                expansionSide = position.side
+                presenter.updateSide(position.side)
+            } else {
+                targetFrame = SidePanelSupport.clampedVertically(targetFrame, in: visibleFrame)
+            }
+        }
+
+        guard animated, mainPanelSettings.areAnimationsEnabled else {
+            panel.setFrame(targetFrame, display: false)
+            return
         }
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = Metrics.resizeDuration
+            context.duration = resizeDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             panel.animator().setFrame(targetFrame, display: true)
         }
-    }
-
-    private enum Metrics {
-        static let resizeDuration: TimeInterval = 0.16
     }
 }

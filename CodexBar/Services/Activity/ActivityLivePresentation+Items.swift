@@ -9,7 +9,7 @@ nonisolated extension ActivityItem {
         case .contextCompaction: ActivityLiveLabel("compacting")
         case .commandExecution: commandLabel
         case .fileChange: ActivityLiveLabel("editing")
-        case .webSearch: ActivityLiveLabel(webLabel)
+        case .webSearch: ActivityLiveLabel(webLabels.current)
         case .imageView: ActivityLiveLabel("viewing-image")
         case .imageGeneration: ActivityLiveLabel("generating-image")
         case .sleep: ActivityLiveLabel("sleeping")
@@ -50,16 +50,23 @@ nonisolated extension ActivityItem {
         commandSummary?.toolNames.joined(separator: ", ")
     }
 
-    private var webLabel: String {
+    private var webLabels: (current: String, action: String) {
         switch action?.type {
-        case "search": "searching-web"
-        case "openPage": "opening-web"
-        case "findInPage": "finding-web"
-        default: "using-web"
+        case "search": ("searching-web", "web-search")
+        case "openPage": ("opening-web", "web-open")
+        case "findInPage": ("finding-web", "web-find")
+        default: ("using-web", "web-browse")
         }
     }
 
     var liveCompletionLabel: ActivityLiveLabel? {
+        guard var label = completionLabel else { return nil }
+        // 通用完成文案不包含操作类型, 在这里保留原操作的图标
+        label.symbolName = liveLabel?.symbolName ?? label.symbolName
+        return label
+    }
+
+    private var completionLabel: ActivityLiveLabel? {
         if type == .subAgentActivity {
             return ["started": "agent-started", "completed": "agent-completed", "interrupted": "agent-interrupted"][kind ?? ""]
                 .map { ActivityLiveLabel($0) }
@@ -75,7 +82,12 @@ nonisolated extension ActivityItem {
             return ActivityLiveLabel("agent-failed")
         }
         guard isToolCall else { return nil }
-        let prefix = type == .fileChange ? "file" : type == .imageGeneration ? "image" : "tool"
+        let prefix = switch type {
+        case .fileChange: "file"
+        case .imageGeneration: "image"
+        case .sleep: "timer"
+        default: "tool"
+        }
         let outcome: String
         if status == "declined" {
             outcome = "declined"
@@ -92,10 +104,12 @@ nonisolated extension ActivityItem {
         }
         let detail = switch type {
         case .commandExecution: commandActionDetail
+        case .webSearch: ActivityLiveLabel(webLabels.action).text
+        case .imageView: ActivityLiveLabel("image-view").text
         case .collabAgentToolCall: String(localized: ActivityDisplayFormat.agentAction(tool: tool).action)
         default: toolDisplayName
         }
-        if detail != nil, type == .commandExecution || type == .collabAgentToolCall {
+        if detail != nil, [.commandExecution, .collabAgentToolCall, .webSearch, .imageView].contains(type) {
             return ActivityLiveLabel("action-" + outcome, detail: detail)
         }
         return ActivityLiveLabel(prefix + "-" + outcome, detail: prefix == "tool" ? detail : nil)
@@ -183,13 +197,5 @@ nonisolated extension ActivityDisplayFormat {
             nil
         }
         return [running] + (extra.map { [$0] } ?? [])
-    }
-
-    static func liveStatus(for task: ActivityTaskSnapshot, waiting: Bool) -> String {
-        task.presentation?.current.text ?? ActivityLiveLabel(waiting ? "waiting-approval" : "processing").text
-    }
-
-    static func recentEvent(for task: ActivityTaskSnapshot) -> String? {
-        task.presentation?.recent.map { ActivityLiveLabel("recent-event").text + ": " + $0.label.text }
     }
 }
