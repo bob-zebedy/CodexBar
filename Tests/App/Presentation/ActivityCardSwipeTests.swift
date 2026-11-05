@@ -105,6 +105,54 @@ struct ActivityCardSwipeTests {
         }
     }
 
+    @Test(arguments: [-1, 1])
+    func resizingKeepsFooterInsetStableAcrossSmallDragSteps(direction: Int) {
+        let swipe = ActivityCardSwipe()
+        let width: CGFloat = 300
+        var footerBottom: CGFloat = 0
+        let root = MenuPanelLayout {
+            MenuSectionLayout(spacing: 10) {
+                ActivitySection(isVisible: true) {
+                    ActivityCardSwipePages(swipe: swipe, width: width) { step in
+                        Color.clear.frame(height: [80.5, 100.5, 180.5][step + 1])
+                    }
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(
+                                key: ActivityCardNaturalHeightKey.self,
+                                value: .init(height: geometry.size.height, isInteractive: true)
+                            )
+                        }
+                    }
+                    .frame(minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+                }
+                Color.clear.frame(height: 20.5)
+                    .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { footerBottom = $0 }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .modifier(MenuContentSizing(loadState: .loaded))
+            .frame(width: width)
+            .padding(12)
+        }
+        let host = NSHostingView(rootView: root)
+        host.setFrameSize(host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        // 初次自然高度反馈完成后再开始手势
+        host.setFrameSize(host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        let inset = host.frame.height - footerBottom
+        _ = swipe.begin(width: width, now: now)
+
+        for _ in 0 ..< 12 {
+            swipe.move(by: CGFloat(direction), width: width)
+            host.layoutSubtreeIfNeeded()
+            host.setFrameSize(host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            #expect(abs(host.frame.height - footerBottom - inset) < 0.001, "inset=\(inset), height=\(host.frame.height), footerBottom=\(footerBottom)")
+        }
+        #expect(host.window == nil)
+    }
+
     private func renderedHeight(_ swipe: ActivityCardSwipe, pageHeights: [CGFloat] = [60, 100, 180]) -> CGFloat {
         let root = ActivityCardSwipePages(swipe: swipe, width: 400) { step in
             Color.clear.frame(height: pageHeights[step + 1])

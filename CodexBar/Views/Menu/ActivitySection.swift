@@ -93,7 +93,8 @@ private struct ActivitySectionReveal: ViewModifier, Animatable {
         let visibility = min(1, max(0, progress))
         content
             // 卡片按可见高度绘制背景, 内容裁剪由卡片内部负责, 外投影不参与裁剪
-            .frame(height: height < 0 ? nil : max(0, height), alignment: .topLeading)
+            // 在活动区域按窗口精度对齐高度, 让后续卡片和面板底边同步移动
+            .frame(height: height < 0 ? nil : max(0, height.rounded(.up)), alignment: .topLeading)
             // 连同玻璃背景和投影一起淡出, 避免末尾留下被压扁的亮边
             .opacity(visibility * visibility * (3 - 2 * visibility))
             .layoutValue(key: MenuSectionVisibilityKey.self, value: visibility)
