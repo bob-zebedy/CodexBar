@@ -470,7 +470,7 @@ private struct UsageHeatmapSquare: View {
 
     private var borderColor: Color {
         if colorScheme == .dark {
-            return isHovered ? CodexDarkPalette.heatmap.opacity(0.55) : .clear
+            return isHovered ? CodexDarkPalette.heatmap.opacity(0.55) : Color.clear
         }
         guard tokenState.count != nil else {
             return Color.secondary.opacity(isHovered ? 0.42 : 0.12)
@@ -483,6 +483,6 @@ private struct UsageHeatmapSquare: View {
     }
 
     private var shadowColor: Color {
-        colorScheme == .dark || tokenState.count == nil ? .clear : .blue.opacity(0.22)
+        colorScheme == .dark || tokenState.count == nil ? Color.clear : Color.blue.opacity(0.22)
     }
 }

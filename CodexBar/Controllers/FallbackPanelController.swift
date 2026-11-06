@@ -82,7 +82,7 @@ final class FallbackPanelController {
         panel.contentViewController = makeContentController()
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
-        panel.backgroundColor = .clear
+        panel.backgroundColor = NSColor.clear
         panel.hasShadow = true
         panel.level = .popUpMenu
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]

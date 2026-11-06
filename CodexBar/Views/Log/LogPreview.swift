@@ -101,22 +101,22 @@ private nonisolated enum LogCodePreviewFormatter {
 
     private static func color(for token: String, in text: NSString, range: NSRange) -> NSColor {
         if token.hasPrefix("\"") {
-            return isJSONKey(in: text, after: range) ? .systemBlue : .systemGreen
+            return isJSONKey(in: text, after: range) ? NSColor.systemBlue : NSColor.systemGreen
         }
 
         if token == "true" || token == "false" {
-            return .systemOrange
+            return NSColor.systemOrange
         }
 
         if token == "null" {
-            return .secondaryLabelColor
+            return NSColor.secondaryLabelColor
         }
 
         if token.first?.isNumber == true || token.hasPrefix("-") {
-            return .systemPurple
+            return NSColor.systemPurple
         }
 
-        return .tertiaryLabelColor
+        return NSColor.tertiaryLabelColor
     }
 
     private static func isJSONKey(in text: NSString, after range: NSRange) -> Bool {
@@ -289,13 +289,13 @@ final class LogPreviewScrollView: NSScrollView {
         hasHorizontalScroller = true
         autohidesScrollers = false
         drawsBackground = true
-        backgroundColor = .textBackgroundColor
+        backgroundColor = NSColor.textBackgroundColor
         let textView = NSTextView(frame: NSRect(origin: .zero, size: fittedSize), textContainer: document.container)
         textView.isEditable = false
         textView.isSelectable = true
         textView.isRichText = true
         textView.drawsBackground = true
-        textView.backgroundColor = .textBackgroundColor
+        textView.backgroundColor = NSColor.textBackgroundColor
         textView.textContainerInset = Self.textInset
         textView.minSize = .zero
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)

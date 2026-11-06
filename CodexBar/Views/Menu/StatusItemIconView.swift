@@ -111,7 +111,7 @@ struct StatusItemIconView: View {
         let style = StrokeStyle(lineWidth: Metrics.lineWidth, lineCap: .round)
         return ZStack {
             StatusItemIndicatorArc(radius: radius, startAngle: startAngle, sweepAngle: sweepAngle)
-                .stroke(Color(nsColor: .tertiaryLabelColor).opacity(0.34), style: style)
+                .stroke(Color(nsColor: NSColor.tertiaryLabelColor).opacity(0.34), style: style)
                 .opacity(indicator.isVisible ? 1 : 0)
             StatusItemIndicatorArc(
                 radius: radius,
@@ -129,10 +129,10 @@ struct StatusItemIconView: View {
 
     private var symbolColor: Color {
         if presentation.state.isUnavailable {
-            return .primary
+            return Color.primary
         }
-        guard presentation.state.isOrdinaryUsageRestricted else { return .primary }
-        return Color(hex: colorScheme == .dark ? 0xE8B27C : 0xD99858)
+        guard presentation.state.isOrdinaryUsageRestricted else { return Color.primary }
+        return Color(displayP3Hex: colorScheme == .dark ? 0xE0B484 : 0xCF9B62)
     }
 
     @ViewBuilder
@@ -153,7 +153,7 @@ struct StatusItemIconView: View {
 
         // 只在图形或屏幕倍率首次出现时栅格化, 缩放过程复用普通图片
         let renderer = ImageRenderer(content: symbolContent(named: name)
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.white)
             .environment(\.displayScale, displayScale))
         renderer.scale = scale
         guard let image = renderer.cgImage else {

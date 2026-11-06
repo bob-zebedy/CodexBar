@@ -1,18 +1,18 @@
 import SwiftUI
 
-/// 额度颜色按剩余百分比分档, 菜单栏图标与面板额度条共用同一套阈值和色值
+/// Display P3 额度颜色按剩余百分比分档, 菜单栏图标与面板额度条共用同一套阈值和色值
 nonisolated enum QuotaPalette {
     static let tiers: [(lowerBound: Int, hex: Int)] = [
-        (0, 0xE8605B),
-        (10, 0xF57349),
-        (20, 0xFD8733),
-        (30, 0xFD9A10),
-        (40, 0xF2AA06),
-        (50, 0xE0B503),
-        (60, 0xC7BB06),
-        (70, 0xA5BC1A),
-        (80, 0x7CB939),
-        (90, 0x46B250)
+        (0, 0xD86960),
+        (10, 0xE57A54),
+        (20, 0xED8D48),
+        (30, 0xEF9F3C),
+        (40, 0xE7AD3C),
+        (50, 0xD9B73D),
+        (60, 0xBBBE4D),
+        (70, 0x99C266),
+        (80, 0x79C282),
+        (90, 0x5DBE9C)
     ]
 
     static func hex(for percent: Int) -> Int {
@@ -20,6 +20,6 @@ nonisolated enum QuotaPalette {
     }
 
     static func color(for percent: Int) -> Color {
-        Color(hex: hex(for: percent))
+        Color(displayP3Hex: hex(for: percent))
     }
 }

@@ -24,13 +24,13 @@ struct PowerHelperInstallationStatusRow: View {
     private var statusPresentation: (text: LocalizedStringKey, color: Color) {
         switch status {
         case .notInstalled:
-            ("settings.about.power-helper.not-installed", .gray)
+            ("settings.about.power-helper.not-installed", Color.gray)
         case .authorized:
-            ("settings.about.power-helper.authorized", .green)
+            ("settings.about.power-helper.authorized", Color.green)
         case .requiresApproval:
-            ("settings.about.power-helper.requires-approval", .orange)
+            ("settings.about.power-helper.requires-approval", Color.orange)
         case .unavailable:
-            ("settings.about.power-helper.unavailable", .red)
+            ("settings.about.power-helper.unavailable", Color.red)
         }
     }
 }

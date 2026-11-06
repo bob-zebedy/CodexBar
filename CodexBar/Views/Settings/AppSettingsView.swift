@@ -243,8 +243,8 @@ private extension AppSettingsView {
                     .background {
                         if isSelected {
                             shape
-                                .fill(.clear)
-                                .liquidGlassBadge(tint: .accentColor, in: shape, showsTopHighlight: false)
+                                .fill(Color.clear)
+                                .liquidGlassBadge(tint: Color.accentColor, in: shape, showsTopHighlight: false)
                         }
                     }
                 }
@@ -1008,7 +1008,7 @@ private extension AppSettingsView {
         } label: {
             Label("app.action.quit", systemImage: "power.circle")
         }
-        .foregroundStyle(.red)
+        .foregroundStyle(Color.red)
         .keyboardShortcut("q")
     }
 }

@@ -38,8 +38,8 @@ private struct ActivityCardWaitingEdge: View {
 
     private var amber: Color {
         colorScheme == .dark
-            ? Color(red: 1, green: 0.76, blue: 0.40)
-            : Color(red: 0.95, green: 0.58, blue: 0.18)
+            ? Color(displayP3Hex: 0xF6C475)
+            : Color(displayP3Hex: 0xE59846)
     }
 
     private var breathIntensity: Double {
@@ -62,7 +62,7 @@ private struct ActivityCardWaitingEdge: View {
                         .init(color: amber.opacity(0.65), location: 0.20),
                         .init(color: amber.opacity(0.25), location: 0.50),
                         .init(color: amber.opacity(0.05), location: 0.78),
-                        .init(color: .clear, location: 1)
+                        .init(color: Color.clear, location: 1)
                     ]),
                     startPoint: CGPoint(x: isLeading ? 0 : size.width, y: 0),
                     endPoint: CGPoint(x: isLeading ? size.width : 0, y: 0)
@@ -73,9 +73,9 @@ private struct ActivityCardWaitingEdge: View {
         .mask {
             LinearGradient(
                 stops: [
-                    .init(color: .black, location: 0),
-                    .init(color: .black, location: 0.5),
-                    .init(color: .clear, location: 1)
+                    .init(color: Color.black, location: 0),
+                    .init(color: Color.black, location: 0.5),
+                    .init(color: Color.clear, location: 1)
                 ],
                 startPoint: isLeading ? .leading : .trailing,
                 endPoint: isLeading ? .trailing : .leading

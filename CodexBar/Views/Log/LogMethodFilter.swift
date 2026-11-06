@@ -99,7 +99,7 @@ struct LogMethodFilter: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage {
                 Text(errorMessage)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.red)
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if matchingMethods.isEmpty {

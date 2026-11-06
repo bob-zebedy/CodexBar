@@ -195,7 +195,7 @@ enum TaskGlowState {
 
     func color(in appearance: TaskGlowAppearance) -> NSColor {
         switch self {
-        case .hidden: .clear
+        case .hidden: NSColor.clear
         case .running: appearance.color(for: .running)
         case .waiting: appearance.color(for: .waiting)
         case .completed: appearance.color(for: .completed)

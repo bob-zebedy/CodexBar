@@ -496,14 +496,14 @@ struct ActivityCard: View {
             return activeContent(
                 for: task,
                 symbolName: "hand.raised.fill",
-                tint: .orange,
+                tint: Color.orange,
                 waiting: true
             )
         case let .running(task):
             return activeContent(
                 for: task,
                 symbolName: "bolt.fill",
-                tint: .blue,
+                tint: Color.blue,
                 waiting: false
             )
         case let .completed(completion):
@@ -515,7 +515,7 @@ struct ActivityCard: View {
                 taskID: completion.taskID ?? completion.id,
                 projectName: completion.projectName,
                 symbolName: "checkmark.circle.fill",
-                tint: .green,
+                tint: Color.green,
                 detail: nil,
                 tokenUsage: completion.tokenUsage,
                 header: [
@@ -532,7 +532,7 @@ struct ActivityCard: View {
                 taskID: termination.taskID ?? termination.id,
                 projectName: termination.projectName,
                 symbolName: "xmark.circle.fill",
-                tint: .red,
+                tint: Color.red,
                 detail: ActivityLiveLabel(termination.isFailure ? "failed" : "interrupted").text,
                 tokenUsage: termination.tokenUsage,
                 header: [
@@ -543,7 +543,7 @@ struct ActivityCard: View {
         case .idle:
             return ActivityCardContent(
                 symbolName: "bubble.left.and.exclamationmark.bubble.right",
-                tint: .red,
+                tint: Color.red,
                 detail: activityMonitor.sourcePresentation?.text,
                 header: [String(localized: "common.codex")]
             )

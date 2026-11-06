@@ -124,11 +124,11 @@ struct ResetCreditsPanelView: View {
             .fill(
                 LinearGradient(
                     colors: [
-                        .clear,
-                        .primary.opacity(0.18),
-                        .green.opacity(0.16),
-                        .primary.opacity(0.18),
-                        .clear
+                        Color.clear,
+                        Color.primary.opacity(0.18),
+                        Color.green.opacity(0.16),
+                        Color.primary.opacity(0.18),
+                        Color.clear
                     ],
                     startPoint: .leading,
                     endPoint: .trailing
@@ -166,12 +166,12 @@ struct ResetCreditsPanelView: View {
     }
 
     private func availableValue(for group: ResetCreditExpirationGroup) -> some View {
-        let tint: Color = if group.isExpiringUrgently {
-            .red
+        let tint = if group.isExpiringUrgently {
+            Color.red
         } else if group.isExpiringSoon {
-            .orange
+            Color.orange
         } else {
-            .green
+            Color.green
         }
 
         return Text(LocalizedStringResource("banked-reset.available-count", defaultValue: "\(group.count, specifier: "%lld")"))

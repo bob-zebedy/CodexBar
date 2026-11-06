@@ -85,7 +85,7 @@ enum SidePanelSupport {
                 backing: .buffered,
                 defer: false
             )
-        panel.backgroundColor = .clear
+        panel.backgroundColor = NSColor.clear
         panel.collectionBehavior = [.transient, .canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hasShadow = true
         panel.hidesOnDeactivate = false

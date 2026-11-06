@@ -73,22 +73,22 @@ struct AccountCard: View {
     private static func planBadgeTint(for plan: String, colorScheme: ColorScheme) -> Color {
         let normalizedPlan = plan.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let colors = planTints.first { $0.plans.contains(normalizedPlan) }?.colors
-            ?? (light: 0x69717A, dark: 0xB1B7C0)
-        return Color(hex: colorScheme == .dark ? colors.dark : colors.light)
+            ?? (light: 0x6A7179, dark: 0xB2B7BF)
+        return Color(displayP3Hex: colorScheme == .dark ? colors.dark : colors.light)
     }
 
     /// 按完整套餐名归入产品系列, 避免复合名称被其他系列匹配
     private static let planTints: [(plans: [String], colors: (light: Int, dark: Int))] = [
-        (["free"], (0x527566, 0xA3C8B5)),
-        (["go"], (0x237D72, 0x77C9B6)),
-        (["plus"], (0x366FA8, 0x8FBCEB)),
-        (["prolite"], (0x6676AF, 0xB0BCEB)),
-        (["pro"], (0x8055AB, 0xC5A5E8)),
-        (["promax"], (0x986B2F, 0xE2BF7F)),
-        (["team"], (0x287D94, 0x83C9DC)),
-        (["business", "self_serve_business_prolite", "self_serve_business_usage_based"], (0xA1654B, 0xDDAF95)),
-        (["enterprise", "ent26", "enterprise_cbp_automation", "enterprise_cbp_usage_based"], (0x566780, 0xAABBD5)),
-        (["edu", "edu_plus", "edu_pro"], (0xA0567C, 0xDEABC9))
+        (["free"], (0x597467, 0xAAC7B6)),
+        (["go"], (0x3F7B72, 0x8AC7B7)),
+        (["plus"], (0x446EA3, 0x98BBE7)),
+        (["prolite"], (0x6976AB, 0xB2BCE7)),
+        (["pro"], (0x7A57A6, 0xC0A6E3)),
+        (["promax"], (0x916D3A, 0xDCC087)),
+        (["team"], (0x427B91, 0x93C7DA)),
+        (["business", "self_serve_business_prolite", "self_serve_business_usage_based"], (0x986850, 0xD6B199)),
+        (["enterprise", "ent26", "enterprise_cbp_automation", "enterprise_cbp_usage_based"], (0x59667E, 0xADBAD3)),
+        (["edu", "edu_plus", "edu_pro"], (0x965A7A, 0xD6ADC7))
     ]
 }
 
@@ -137,13 +137,13 @@ struct StatusAccountCard: View {
     private var statusDisplay: StatusDisplay {
         switch loadState {
         case .notLoggedIn:
-            StatusDisplay(text: LocalizedStringResource("codex-status.account.not-signed-in"), color: .orange)
+            StatusDisplay(text: LocalizedStringResource("codex-status.account.not-signed-in"), color: Color.orange)
         case let .unsupportedVersion(minimum):
-            StatusDisplay(text: LocalizedStringResource("codex-version.requirement", defaultValue: "\(minimum)"), color: .red)
+            StatusDisplay(text: LocalizedStringResource("codex-version.requirement", defaultValue: "\(minimum)"), color: Color.red)
         case .initializationFailed:
-            StatusDisplay(text: LocalizedStringResource("codex-status.account.initialization-failed"), color: .red)
+            StatusDisplay(text: LocalizedStringResource("codex-status.account.initialization-failed"), color: Color.red)
         case .loading, .loaded:
-            StatusDisplay(text: nil, color: .accentColor)
+            StatusDisplay(text: nil, color: Color.accentColor)
         }
     }
 }
@@ -247,7 +247,7 @@ struct QuotaLimitsSection: View {
                     let value = creditsDisplayValue(credits)
                     metadataCapsule(
                         String(localized: "quota.credits.value", defaultValue: "\(value)"),
-                        tint: credits.unlimited || credits.hasCredits ? .green : .orange
+                        tint: credits.unlimited || credits.hasCredits ? Color.green : Color.orange
                     )
                 }
 
@@ -304,7 +304,7 @@ struct QuotaLimitsSection: View {
         .buttonStyle(.plain)
     }
 
-    private func metadataCapsule(_ text: String, tint: Color = .green) -> some View {
+    private func metadataCapsule(_ text: String, tint: Color = Color.green) -> some View {
         Text(text)
             .font(MenuMetrics.badgeFont)
             .foregroundStyle(tint)
@@ -336,7 +336,7 @@ struct UpdatedAtRow: View {
                     startedAt: updatedAt,
                     interval: countdownInterval,
                     isActive: isCountdownActive,
-                    color: .blue
+                    color: Color.blue
                 )
 
                 HStack(spacing: 5) {
@@ -408,13 +408,13 @@ struct SyncDisplayState: Equatable {
         } else if settings.hasSyncFailure {
             self.init(
                 symbolName: "exclamationmark.icloud",
-                tint: .orange,
+                tint: Color.orange,
                 helpText: settings.syncFailureMessage ?? SyncFailureReason.retryLater.message
             )
         } else {
             self.init(
                 symbolName: "icloud",
-                tint: .codexSecondaryLabel,
+                tint: Color.codexSecondaryLabel,
                 helpText: settings.lastUploadAtText.map { String(localized: "sync.status.last-sync-time", defaultValue: "\($0)") }
                     ?? String(localized: "sync.status.no-history")
             )
@@ -429,13 +429,13 @@ struct SyncDisplayState: Equatable {
 
     private static let disabled = SyncDisplayState(
         symbolName: "icloud.slash",
-        tint: .codexSecondaryLabel,
+        tint: Color.codexSecondaryLabel,
         helpText: String(localized: "sync.status.disabled")
     )
 
     private static let syncing = SyncDisplayState(
         symbolName: "arrow.trianglehead.clockwise.icloud",
-        tint: .blue,
+        tint: Color.blue,
         helpText: String(localized: "sync.status.syncing")
     )
 }

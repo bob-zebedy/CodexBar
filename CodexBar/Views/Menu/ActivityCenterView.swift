@@ -157,7 +157,7 @@ struct ActivityCenterView: View {
                         taskSection(
                             title: "activity-center.section.waiting",
                             symbolName: "hand.raised.fill",
-                            tint: .orange,
+                            tint: Color.orange,
                             tasks: activityMonitor.snapshot.panelWaitingTasks,
                             now: now,
                             isWaiting: true
@@ -168,7 +168,7 @@ struct ActivityCenterView: View {
                         taskSection(
                             title: "activity-center.section.running",
                             symbolName: "bolt.fill",
-                            tint: .blue,
+                            tint: Color.blue,
                             tasks: activityMonitor.snapshot.panelRunningTasks,
                             now: now,
                             isWaiting: false
@@ -291,7 +291,7 @@ struct ActivityCenterView: View {
 
                 Text(verbatim: "\(count)")
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                    .foregroundStyle(Color(nsColor: NSColor.tertiaryLabelColor))
                     .numericTransition(value: count, comparison: Double(count))
             }
             .frame(height: Metrics.sectionHeaderHeight)
@@ -321,7 +321,7 @@ struct ActivityCenterView: View {
     private func completionRow(_ completion: ActivityCompletion, now: Date) -> some View {
         row(
             symbolName: "checkmark.circle.fill",
-            tint: .green,
+            tint: Color.green,
             projectName: completion.projectName,
             modelName: completion.modelName,
             effort: completion.effort,
@@ -339,7 +339,7 @@ struct ActivityCenterView: View {
     private func terminationRow(_ termination: ActivityTermination, now: Date) -> some View {
         row(
             symbolName: termination.isFailure ? "exclamationmark.circle.fill" : "xmark.circle.fill",
-            tint: .red,
+            tint: Color.red,
             projectName: termination.projectName,
             modelName: termination.modelName,
             effort: termination.effort,

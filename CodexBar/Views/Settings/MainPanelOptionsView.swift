@@ -53,7 +53,7 @@ struct MainPanelOptionsView: View {
                     .frame(maxWidth: .infinity)
                     .liquidGlassSurface(cornerRadius: Metrics.draggedCornerRadius)
                     .shadow(
-                        color: .black.opacity(Metrics.draggedShadowOpacity),
+                        color: Color.black.opacity(Metrics.draggedShadowOpacity),
                         radius: Metrics.draggedShadowRadius,
                         y: Metrics.draggedShadowY
                     )

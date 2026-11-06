@@ -21,7 +21,7 @@ struct ActivityStatusText: View {
                     ActivityStatusShimmer()
                         .mask {
                             label
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Color.white)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                         }
                         .allowsHitTesting(false)
@@ -113,8 +113,8 @@ private struct ActivityIonizationParticles: View {
         TimelineView(.animation) { timeline in
             let elapsed = timeline.date.timeIntervalSince(startedAt)
             Canvas { context, _ in
-                context.addFilter(.shadow(color: .orange.opacity(0.9), radius: 4.0 / 3))
-                context.addFilter(.shadow(color: .orange.opacity(0.5), radius: 4))
+                context.addFilter(.shadow(color: Color.orange.opacity(0.9), radius: 4.0 / 3))
+                context.addFilter(.shadow(color: Color.orange.opacity(0.5), radius: 4))
                 for emitter in emitters {
                     for index in 0 ..< 12 {
                         let seed = emitter.seed + index
@@ -128,7 +128,7 @@ private struct ActivityIonizationParticles: View {
                         particleContext.opacity = 1 - life
                         particleContext.fill(
                             Path(ellipseIn: CGRect(x: x - 1.5, y: y - 1.5, width: 3, height: 3)),
-                            with: .color(.orange)
+                            with: .color(Color.orange)
                         )
                     }
                 }
@@ -156,7 +156,7 @@ private struct ActivityStatusShimmer: View {
                 let width = geometry.size.width * 0.4
 
                 LinearGradient(
-                    colors: [.clear, .white, .clear],
+                    colors: [Color.clear, Color.white, Color.clear],
                     startPoint: .leading,
                     endPoint: .trailing
                 )

@@ -16,10 +16,10 @@ enum TaskGlowColorRole: String, CaseIterable {
 
     var defaultColor: NSColor {
         switch self {
-        case .running: .systemCyan
-        case .waiting: .systemOrange
-        case .completed: .systemGreen
-        case .terminated: .systemRed
+        case .running: NSColor.systemCyan
+        case .waiting: NSColor.systemOrange
+        case .completed: NSColor.systemGreen
+        case .terminated: NSColor.systemRed
         }
     }
 }

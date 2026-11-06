@@ -175,7 +175,7 @@ final class AppearanceTransition {
             }
             isReleasedWhenClosed = false
             isOpaque = false
-            backgroundColor = .clear
+            backgroundColor = NSColor.clear
             hasShadow = false
             ignoresMouseEvents = true
             hidesOnDeactivate = false

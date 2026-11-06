@@ -57,7 +57,7 @@ final class TaskGlowPanel: NSPanel {
         super.init(contentRect: geometry.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isReleasedWhenClosed = false
         isOpaque = false
-        backgroundColor = .clear
+        backgroundColor = NSColor.clear
         hasShadow = false
         ignoresMouseEvents = true
         hidesOnDeactivate = false
@@ -400,7 +400,7 @@ final class TaskGlowView: NSView {
             let position = (Double(depth) + 0.5) / Double(Self.segmentsPerSide)
             let intensity = pow(sin(position * .pi / 2), 2)
             let color = glowAppearance.color(for: .running)
-            let tint = color.blended(withFraction: pow(intensity, 8) * 0.8, of: .white) ?? color
+            let tint = color.blended(withFraction: pow(intensity, 8) * 0.8, of: NSColor.white) ?? color
             segment.strokeColor = tint.withAlphaComponent((intensity - previousIntensity) / (1 - previousIntensity)).cgColor
             previousIntensity = intensity
             let tailLength = span * (1 - Double(depth) / Double(Self.segmentsPerSide))

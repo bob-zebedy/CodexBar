@@ -171,8 +171,8 @@ private enum QuotaBarPalette {
             }
 
             let progress = (currentPercent - transitionStart) / colorTransitionSpan
-            return Color(hex: lowerTier.hex).mix(
-                with: Color(hex: upperTier.hex),
+            return Color(displayP3Hex: lowerTier.hex).mix(
+                with: Color(displayP3Hex: upperTier.hex),
                 by: smoothStep(progress),
                 in: .device
             )
@@ -181,7 +181,7 @@ private enum QuotaBarPalette {
         return QuotaPalette.color(for: Int(currentPercent.rounded()))
     }
 
-    static let placeholderColor = Color(hex: 0xE5E7EB)
+    static let placeholderColor = Color(displayP3Hex: 0xE5E7EB)
     private static let colorTransitionSpan = 4.0
 
     private static func smoothStep(_ value: Double) -> Double {

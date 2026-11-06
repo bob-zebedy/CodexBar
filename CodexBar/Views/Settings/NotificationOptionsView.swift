@@ -251,7 +251,7 @@ struct NotificationOptionsView: View {
                     .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
             } else if let errorMessage = tuiNotificationSettings.errorMessage {
                 Image(systemName: "exclamationmark.circle")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.orange)
                     .frame(width: Metrics.statusIconSize, height: Metrics.statusIconSize)
                     .help(errorMessage)
             }

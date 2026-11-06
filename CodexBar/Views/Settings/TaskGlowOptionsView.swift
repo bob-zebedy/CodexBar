@@ -216,7 +216,7 @@ private struct TaskGlowColorHexField: View {
             )
             .overlay {
                 RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(isValid ? .clear : .red, lineWidth: 1)
+                    .strokeBorder(isValid ? Color.clear : Color.red, lineWidth: 1)
                     .allowsHitTesting(false)
             }
             .fixedSize(horizontal: true, vertical: false)

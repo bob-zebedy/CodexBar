@@ -7,15 +7,16 @@ extension Animation {
     static let codexStatus = Animation.easeInOut(duration: 0.20)
 }
 
-/// 共享颜色和十六进制便捷初始化
+/// 共享语义色和 Display P3 十六进制初始化
 extension Color {
     // 某些自定义 View 需要具体 Color
     // 不能直接使用 .primary/.secondary 这类 ShapeStyle
-    static let codexLabel = Color(nsColor: .labelColor)
-    static let codexSecondaryLabel = Color(nsColor: .secondaryLabelColor)
+    static let codexLabel = Color(nsColor: NSColor.labelColor)
+    static let codexSecondaryLabel = Color(nsColor: NSColor.secondaryLabelColor)
 
-    nonisolated init(hex: Int) {
+    nonisolated init(displayP3Hex hex: Int) {
         self.init(
+            .displayP3,
             red: Double((hex >> 16) & 0xFF) / 255.0,
             green: Double((hex >> 8) & 0xFF) / 255.0,
             blue: Double(hex & 0xFF) / 255.0
@@ -25,11 +26,11 @@ extension Color {
 
 /// 深色界面用背景明度区分层级, 强调色只用于数据和交互状态
 enum CodexDarkPalette {
-    static let background = Color(hex: 0x171B22)
-    static let surface = Color(hex: 0x222832)
-    static let raisedSurface = Color(hex: 0x2B3340)
-    static let track = Color(hex: 0x394350)
-    static let heatmap = Color(hex: 0x749DE0)
+    static let background = Color(displayP3Hex: 0x181B21)
+    static let surface = Color(displayP3Hex: 0x232831)
+    static let raisedSurface = Color(displayP3Hex: 0x2D333F)
+    static let track = Color(displayP3Hex: 0x3B434F)
+    static let heatmap = Color(displayP3Hex: 0x7D9CDB)
     static let separator = Color.white.opacity(0.06)
     static let outline = Color.white.opacity(0.08)
 }
@@ -159,13 +160,13 @@ private struct SidePanelChrome: ViewModifier {
     private var backingFill: Color {
         colorScheme == .dark
             ? CodexDarkPalette.background
-            : Color(nsColor: .windowBackgroundColor).opacity(0.86)
+            : Color(nsColor: NSColor.windowBackgroundColor).opacity(0.86)
     }
 
     private var boundaryColor: Color {
         colorScheme == .dark
-            ? .clear
-            : .black.opacity(0.14)
+            ? Color.clear
+            : Color.black.opacity(0.14)
     }
 }
 
@@ -188,10 +189,10 @@ struct LiquidGlassDivider: View {
         .mask {
             LinearGradient(
                 stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .white, location: 0.12),
-                    .init(color: .white, location: 0.88),
-                    .init(color: .clear, location: 1)
+                    .init(color: Color.clear, location: 0),
+                    .init(color: Color.white, location: 0.12),
+                    .init(color: Color.white, location: 0.88),
+                    .init(color: Color.clear, location: 1)
                 ],
                 startPoint: .leading,
                 endPoint: .trailing
@@ -208,11 +209,11 @@ struct LiquidGlassDivider: View {
             .fill(
                 LinearGradient(
                     colors: [
-                        .clear,
-                        Color(hex: 0x8799AE),
-                        Color(hex: 0xE3EBF4),
-                        Color(hex: 0xA9B9CB),
-                        .clear
+                        Color.clear,
+                        Color(displayP3Hex: 0x8A98AC),
+                        Color(displayP3Hex: 0xE4EBF3),
+                        Color(displayP3Hex: 0xACB8C9),
+                        Color.clear
                     ],
                     startPoint: UnitPoint(x: offset, y: 0.5),
                     endPoint: UnitPoint(x: 1 + offset, y: 0.5)
@@ -296,7 +297,7 @@ private struct LiquidGlassSurface: View {
                         shape.strokeBorder(CodexDarkPalette.outline, lineWidth: 0.5)
                     }
                 }
-                .shadow(color: .black.opacity(isOuterSurface ? 0.24 : 0.10), radius: isOuterSurface ? 12 : 4, y: isOuterSurface ? 6 : 1)
+                .shadow(color: Color.black.opacity(isOuterSurface ? 0.24 : 0.10), radius: isOuterSurface ? 12 : 4, y: isOuterSurface ? 6 : 1)
         } else {
             ZStack {
                 shape
@@ -359,23 +360,23 @@ private struct LiquidGlassSurface: View {
     }
 
     private var highlightFill: Color {
-        .white.opacity(isOuterSurface ? 0.12 : 0.14)
+        Color.white.opacity(isOuterSurface ? 0.12 : 0.14)
     }
 
     private var borderColor: Color {
-        .white.opacity(isOuterSurface ? 0.34 : 0.28)
+        Color.white.opacity(isOuterSurface ? 0.34 : 0.28)
     }
 
     private var rimHighlightColor: Color {
-        .white.opacity(isOuterSurface ? 0.36 : 0.50)
+        Color.white.opacity(isOuterSurface ? 0.36 : 0.50)
     }
 
     private var rimLightShadowColor: Color {
-        .white.opacity(0.20)
+        Color.white.opacity(0.20)
     }
 
     private var rimDarkShadowColor: Color {
-        .black.opacity(0.12)
+        Color.black.opacity(0.12)
     }
 
     private var rimLineWidth: CGFloat {
@@ -384,24 +385,24 @@ private struct LiquidGlassSurface: View {
 
     private var baseColor: Color {
         isOuterSurface
-            ? Color(red: 0.97, green: 0.985, blue: 1.0)
+            ? Color(displayP3Hex: 0xF8FBFF)
             : Color.white
     }
 
     private var raisedHighlightShadowColor: Color {
-        .white.opacity(0.46)
+        Color.white.opacity(0.46)
     }
 
     private var ambientShadowColor: Color {
         if isOuterSurface {
-            return .black.opacity(0.16)
+            return Color.black.opacity(0.16)
         }
 
-        return .black.opacity(0.18)
+        return Color.black.opacity(0.18)
     }
 
     private var contactShadowColor: Color {
-        .black.opacity(0.08)
+        Color.black.opacity(0.08)
     }
 }
 
@@ -447,8 +448,8 @@ private struct LiquidGlassFrostedTexture: View {
             for bucket in 0 ..< Self.bucketCount {
                 let strength = (Double(bucket) + 0.5) / Double(Self.bucketCount)
                 let opacity = baseOpacity * strength * outerScale
-                context.fill(highlightPaths[bucket], with: .color(.white.opacity(opacity)))
-                context.fill(shadowPaths[bucket], with: .color(.black.opacity(opacity * shadowFactor)))
+                context.fill(highlightPaths[bucket], with: .color(Color.white.opacity(opacity)))
+                context.fill(shadowPaths[bucket], with: .color(Color.black.opacity(opacity * shadowFactor)))
             }
         }
         .allowsHitTesting(false)
@@ -512,7 +513,7 @@ private struct LiquidGlassBadge<S: InsettableShape>: View {
     }
 
     private var fillColor: Color {
-        Color(red: 0.94, green: 0.96, blue: 0.98)
+        Color(displayP3Hex: 0xF1F5F9)
     }
 
     private var borderColor: Color {
@@ -520,11 +521,11 @@ private struct LiquidGlassBadge<S: InsettableShape>: View {
     }
 
     private var innerRimColor: Color {
-        .white.opacity(0.42)
+        Color.white.opacity(0.42)
     }
 
     private var topHighlightColor: Color {
-        .white.opacity(0.30)
+        Color.white.opacity(0.30)
     }
 }
 
@@ -537,11 +538,11 @@ private struct LiquidGlassSpecular: View {
             .strokeBorder(
                 AngularGradient(
                     colors: [
-                        .white.opacity(0.52),
-                        .white.opacity(0.04),
-                        .white.opacity(0.18),
-                        .clear,
-                        .white.opacity(0.42)
+                        Color.white.opacity(0.52),
+                        Color.white.opacity(0.04),
+                        Color.white.opacity(0.18),
+                        Color.clear,
+                        Color.white.opacity(0.42)
                     ],
                     center: .center,
                     startAngle: .degrees(215),

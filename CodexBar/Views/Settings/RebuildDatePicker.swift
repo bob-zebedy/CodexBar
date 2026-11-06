@@ -63,7 +63,7 @@ struct RebuildDatePicker: View {
             .frame(maxWidth: .infinity, minHeight: RebuildLayoutMetrics.controlHeight)
             .background {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+                    .fill(Color(nsColor: NSColor.controlBackgroundColor).opacity(0.72))
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -72,7 +72,7 @@ struct RebuildDatePicker: View {
                         lineWidth: isPresented ? 1.2 : 0.8
                     )
             }
-            .shadow(color: .black.opacity(0.06), radius: 2, y: 1)
+            .shadow(color: Color.black.opacity(0.06), radius: 2, y: 1)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -291,9 +291,9 @@ struct RebuildDatePicker: View {
         isInCompletedRange: Bool
     ) -> Color {
         if isEndpoint {
-            return .accentColor
+            return Color.accentColor
         }
-        return isInCompletedRange ? Color.accentColor.opacity(0.16) : .clear
+        return isInCompletedRange ? Color.accentColor.opacity(0.16) : Color.clear
     }
 
     private func dayTextColor(
@@ -302,11 +302,11 @@ struct RebuildDatePicker: View {
         isInDisplayedMonth: Bool
     ) -> Color {
         if isEndpoint {
-            return .white
+            return Color.white
         }
         if !isInDisplayedMonth {
-            return .codexSecondaryLabel.opacity(isSelectable ? 0.58 : 0.24)
+            return Color.codexSecondaryLabel.opacity(isSelectable ? 0.58 : 0.24)
         }
-        return isSelectable ? .codexLabel : .codexSecondaryLabel.opacity(0.36)
+        return isSelectable ? Color.codexLabel : Color.codexSecondaryLabel.opacity(0.36)
     }
 }

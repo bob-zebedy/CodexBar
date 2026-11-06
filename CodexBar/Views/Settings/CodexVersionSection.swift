@@ -71,7 +71,7 @@ struct CodexVersionSection: View {
         }
         .buttonStyle(.plain)
         .controlSize(.small)
-        .foregroundStyle(isEnabled ? Color.accentColor : .secondary)
+        .foregroundStyle(isEnabled ? Color.accentColor : Color.secondary)
         .disabled(!isEnabled)
         .help(label)
     }
@@ -94,10 +94,10 @@ struct CodexVersionSection: View {
                     HStack(spacing: 12) {
                         Text("settings.codex.daemon.in-use")
                             .font(SettingsRowMetrics.badgeFont)
-                            .foregroundStyle(.green)
+                            .foregroundStyle(Color.green)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .liquidGlassCapsule(tint: .green)
+                            .liquidGlassCapsule(tint: Color.green)
 
                         Text(info.version)
                             .monospacedDigit()
@@ -134,7 +134,7 @@ struct CodexVersionSection: View {
 
                 Text(item.displayVersion)
                     .font(hasVersion ? SettingsRowMetrics.bodyFont.monospacedDigit() : SettingsRowMetrics.bodyFont)
-                    .foregroundStyle(Color(nsColor: hasVersion ? .secondaryLabelColor : .tertiaryLabelColor))
+                    .foregroundStyle(Color(nsColor: hasVersion ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor))
                     .lineLimit(1)
                     .numericTransition(value: item.displayVersion)
             }
@@ -188,7 +188,7 @@ private struct CopyablePathText: View {
 
             Text("common.status.copied")
                 .font(SettingsRowMetrics.captionFont)
-                .foregroundStyle(.green)
+                .foregroundStyle(Color.green)
                 .lineLimit(1)
                 .opacity(isCopied ? 1 : 0)
         }

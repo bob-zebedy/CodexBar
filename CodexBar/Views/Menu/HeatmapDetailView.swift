@@ -35,7 +35,7 @@ struct HeatmapDetailView: View {
             dateText
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .liquidGlassCapsule(tint: .accentColor)
+                .liquidGlassCapsule(tint: Color.accentColor)
 
             Spacer(minLength: 8)
 
@@ -89,14 +89,14 @@ struct HeatmapDetailView: View {
         let tokenUsage = context.period.tokenUsage
         let cacheHitRate = tokenUsage?.cacheHitRate ?? 0
         return Grid(alignment: .leading, horizontalSpacing: Metrics.metricRowSpacing, verticalSpacing: Metrics.metricSpacing) {
-            tokenUsageRow("usage.token-usage.total", tokens: tokenUsage?.totalTokens, tint: .blue)
-            tokenUsageRow("usage.token-usage.output", tokens: tokenUsage?.outputTokens, tint: .orange)
-            tokenUsageRow("usage.token-usage.input", tokens: tokenUsage?.inputTokens, tint: .indigo)
-            tokenUsageRow("usage.token-usage.reasoning-output", tokens: tokenUsage?.reasoningOutputTokens, tint: .cyan)
-            tokenUsageRow("usage.token-usage.cache-write-input", tokens: tokenUsage?.cacheWriteInputTokens, tint: .purple)
-            tokenUsageRow("usage.token-usage.cached-input", tokens: tokenUsage?.cachedInputTokens, tint: .green)
+            tokenUsageRow("usage.token-usage.total", tokens: tokenUsage?.totalTokens, tint: Color.blue)
+            tokenUsageRow("usage.token-usage.output", tokens: tokenUsage?.outputTokens, tint: Color.orange)
+            tokenUsageRow("usage.token-usage.input", tokens: tokenUsage?.inputTokens, tint: Color.indigo)
+            tokenUsageRow("usage.token-usage.reasoning-output", tokens: tokenUsage?.reasoningOutputTokens, tint: Color.cyan)
+            tokenUsageRow("usage.token-usage.cache-write-input", tokens: tokenUsage?.cacheWriteInputTokens, tint: Color.purple)
+            tokenUsageRow("usage.token-usage.cached-input", tokens: tokenUsage?.cachedInputTokens, tint: Color.green)
             metricRowLayout {
-                metricDot(tint: .teal)
+                metricDot(tint: Color.teal)
                 Text("usage.token-usage.cache-hit-rate")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: true, vertical: false)
@@ -130,7 +130,7 @@ struct HeatmapDetailView: View {
 
     private var mostUsedModelMetricRow: some View {
         metricRowLayout {
-            metricDot(tint: .cyan)
+            metricDot(tint: Color.cyan)
             Text("usage.heatmap.top-model")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: true, vertical: false)
@@ -167,32 +167,32 @@ struct HeatmapDetailView: View {
             ActivityMetricRow(
                 label: String(localized: "history.activity-data.threads"),
                 value: context.period.activityData.threadCount,
-                tint: .green
+                tint: Color.green
             ),
             ActivityMetricRow(
                 label: String(localized: "history.activity-data.turns"),
                 value: context.period.activityData.turnCount,
-                tint: .teal
+                tint: Color.teal
             ),
             ActivityMetricRow(
                 label: String(localized: "history.activity-data.subagents"),
                 value: context.period.activityData.subagentCount,
-                tint: .indigo
+                tint: Color.indigo
             ),
             ActivityMetricRow(
                 label: String(localized: "history.activity-data.tool-calls"),
                 value: context.period.activityData.toolCallCount,
-                tint: .orange
+                tint: Color.orange
             ),
             ActivityMetricRow(
                 label: String(localized: "history.activity-data.approvals"),
                 value: context.period.activityData.approvalRequestedCount,
-                tint: .red
+                tint: Color.red
             ),
             ActivityMetricRow(
                 label: String(localized: "history.activity-data.compactions"),
                 value: context.period.activityData.contextCompactionCount,
-                tint: .purple
+                tint: Color.purple
             )
         ]
     }

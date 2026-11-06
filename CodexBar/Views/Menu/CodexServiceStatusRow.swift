@@ -91,7 +91,7 @@ struct CodexServiceStatusRow: View {
     private var statusColor: Color {
         switch monitor.state {
         case let .available(status): status.level.tint(for: colorScheme)
-        case .checking, .unavailable: .secondary
+        case .checking, .unavailable: Color.secondary
         }
     }
 }
@@ -119,11 +119,11 @@ private extension CodexServiceStatus.Level {
 
     func tint(for colorScheme: ColorScheme) -> Color {
         switch self {
-        case .operational: .green
-        case .degradedPerformance: Color(hex: colorScheme == .dark ? 0xFEF3C7 : 0xC08A00)
-        case .partialOutage: .orange
-        case .fullOutage: .red
-        case .underMaintenance: .blue
+        case .operational: Color.green
+        case .degradedPerformance: Color(displayP3Hex: colorScheme == .dark ? 0xFCF3CC : 0xB88C2E)
+        case .partialOutage: Color.orange
+        case .fullOutage: Color.red
+        case .underMaintenance: Color.blue
         }
     }
 }

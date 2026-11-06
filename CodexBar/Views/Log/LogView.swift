@@ -32,7 +32,7 @@ struct LogView: View {
             if let error = store.errorMessage {
                 Text(error)
                     .font(LogTypography.captionFont)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.red)
                     .padding(8)
             }
 
@@ -156,7 +156,7 @@ struct LogView: View {
             }
         }
         .onDisappear { scrollPosition = ScrollPosition(idType: UUID.self, edge: .top) }
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(Color(nsColor: NSColor.textBackgroundColor))
     }
 
     static func shouldLoadMore(from previousPhase: ScrollPhase, to phase: ScrollPhase, geometry: ScrollGeometry) -> Bool {
@@ -195,7 +195,7 @@ private struct LogRow: View {
                             time: entry.requestedAt,
                             text: request,
                             inline: currentInlinePreview?.request,
-                            color: .primary
+                            color: Color.primary
                         )
                     }
 
@@ -205,7 +205,7 @@ private struct LogRow: View {
                             time: entry.respondedAt,
                             text: detail,
                             inline: currentInlinePreview?.detail,
-                            color: entry.status == .failure ? .red : .primary
+                            color: entry.status == .failure ? Color.red : Color.primary
                         )
                     } else if entry.status == .pending {
                         Text("log.status.waiting-response")
@@ -428,10 +428,10 @@ private extension AppServerLogEntry.Source {
 private extension AppServerLogEntry.Status {
     var tint: Color {
         switch self {
-        case .pending: .orange
-        case .success: .green
-        case .failure: .red
-        case .information: .blue
+        case .pending: Color.orange
+        case .success: Color.green
+        case .failure: Color.red
+        case .information: Color.blue
         }
     }
 }
