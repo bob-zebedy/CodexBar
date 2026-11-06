@@ -12,7 +12,7 @@ protocol AutoResetWakeActivity: AnyObject {
 
 extension SystemSleepService: AutoResetWakeActivity {}
 
-/// 定时器只负责触发, 凭证预算和执行结果由控制器拥有
+/// 定时器只负责触发, 控制器管理凭证的尝试预算和执行结果
 @MainActor
 final class AutoResetController {
     struct Dependencies {

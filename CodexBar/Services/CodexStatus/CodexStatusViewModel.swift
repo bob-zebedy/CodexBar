@@ -26,7 +26,7 @@ nonisolated enum DataUpdateInterval: Int, CaseIterable, Sendable {
     }
 }
 
-/// UI 级状态; 更细的连接和接口错误由服务层归并到日志
+/// UI 展示状态, 具体的连接和接口错误由服务层汇总到日志
 nonisolated enum CodexLoadState: Equatable {
     case loading
     case loaded
@@ -42,7 +42,7 @@ nonisolated enum CodexLoadState: Equatable {
     }
 }
 
-/// 菜单面板主状态模型, 将服务层结果转换为 SwiftUI 可发布状态
+/// 菜单面板主状态模型, 将服务层结果转换为状态并发布给 SwiftUI
 @MainActor
 final class CodexStatusViewModel: ObservableObject {
     @Published private(set) var snapshot: CodexQuotaSnapshot?

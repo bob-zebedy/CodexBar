@@ -297,7 +297,7 @@ final class NotificationService: NSObject {
         }
     }
 
-    /// 枚举可信快照中有数据的额度窗口, 在此统一定义窗口过滤和 stateKey 生成规则
+    /// 枚举可信快照中有数据的额度窗口, 共用窗口过滤和 stateKey 生成规则
     private func forEachQuotaWindowWithData(
         in snapshot: CodexQuotaSnapshot,
         _ body: (QuotaWindow, CodexQuotaLimitSnapshot, String) -> Void
@@ -407,7 +407,7 @@ final class NotificationService: NSObject {
             quotaWindowObservations[stateKey]?.hasObservedConsumption = true
         } else if usedPercent == 0,
                   quotaWindowObservations[stateKey]?.hasObservedConsumption == true {
-            // 归零即消费待重置状态; 开关或授权此刻不可用时不保留补发
+            // 归零时清除待重置状态, 若此时开关或授权不可用, 不再补发通知
             quotaWindowObservations[stateKey]?.hasObservedConsumption = false
             guard settings.canDeliver,
                   settings.isQuotaResetEnabled,
@@ -477,8 +477,8 @@ final class NotificationService: NSObject {
 
     // MARK: - 低电量保护
 
-    /// 由 KeepAliveController 在低电量导致睡眠恢复成功之后调用, 恢复失败不会走到这里
-    /// 调用方保证同一轮低电量只发一次, 电量回到解除门槛以上才开始下一轮, 此处无需再次去重
+    /// 由 KeepAliveController 在低电量触发睡眠恢复且恢复成功后调用
+    /// 调用方负责每轮低电量只通知一次, 电量回到解除门槛以上才开始下一轮, 此处无需再次去重
     /// 调用方在提交完成前保留空闲断言, 避免系统先进入空闲睡眠
     /// 返回提交结果, 调用方仅在成功时标记本轮已通知
     func notifyLowBatteryProtection(percent: Int) async -> Bool {
@@ -824,7 +824,7 @@ extension NotificationService: UNUserNotificationCenterDelegate {
     }
 }
 
-/// 单一待办时刻的重检调度: 目标时刻未变化时不重建 Task, 避免每个快照 tick 都 cancel/respawn
+/// 只调度一个待检查时刻, 目标时刻不变时复用 Task, 避免每次快照更新都取消并重建任务
 @MainActor
 private final class ReminderCheckScheduler {
     private var task: Task<Void, Never>?

@@ -74,7 +74,7 @@ final class KeepAliveController: ObservableObject {
     /// 达到防睡眠时长上限且系统睡眠策略恢复后回调, 每个计时周期触发一次
     var onKeepAliveLimitTriggered: ((MaximumDuration) async -> Bool)?
 
-    /// 同时检查用户开关和实际状态, 覆盖关开关后等待 Power Helper 回复的异步窗口
+    /// 同时检查用户开关和实际状态, 包括关闭开关后仍在等待 Power Helper 回复的阶段
     var isActivelyPreventingSleep: Bool {
         isEnabled && isPreventingSleep
     }
@@ -1369,7 +1369,7 @@ final class KeepAliveController: ObservableObject {
 
     // MARK: - 防睡眠条件判定
 
-    /// 用户意图 (isEnabled) 与依赖可用性在这里汇合
+    /// 同时检查用户开关 isEnabled 和依赖是否可用
     /// 依赖不满足只让效果失效, 不回写 isEnabled
     private var shouldDisableSleep: Bool {
         sleepBlockReason == nil
@@ -1417,7 +1417,7 @@ final class KeepAliveController: ObservableObject {
     private static let lowBatteryThresholdKey = "KeepAlive.lowBatteryThresholdPercent"
     private static let keepsAwakeWhileWaitingKey = "KeepAlive.keepsAwakeWhileWaiting"
     private static let keepsDisplayAwakeKey = "KeepAlive.keepsDisplayAwake"
-    /// 解除门槛比触发门槛高这么多个百分点, 避免电量在阈值附近抖动导致反复切换
+    /// 解除门槛比触发门槛高出的百分点数, 避免电量在阈值附近波动时反复切换
     private static let lowBatteryHysteresis = 5
 }
 

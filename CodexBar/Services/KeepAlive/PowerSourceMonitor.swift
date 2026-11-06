@@ -55,7 +55,7 @@ final class PowerSourceMonitor {
     /// 曾检测到内置电池后, 空列表按读取失败处理, 避免暂时枚举不到电池时解除保护
     private var hasSeenBattery = false
 
-    /// 回调里持有的是 unretained 指针, 停止监听必须显式做, 由持有者在 stop 时调用
+    /// 回调持有 unretained 指针, 持有者必须在 stop 时显式停止监听
     /// 在此释放资源, 因为 Swift 6 的 nonisolated deinit 无法访问这些非 Sendable 属性
     func stop() {
         isMonitoring = false
@@ -142,7 +142,7 @@ final class PowerSourceMonitor {
         onChange?()
     }
 
-    /// 注册失败后的兜底轮询
+    /// 注册失败后改用轮询
     /// 防睡眠生效期间没有唤醒通知, 需通过轮询继续读取电源状态
     private func startPolling() {
         pollTask?.cancel()

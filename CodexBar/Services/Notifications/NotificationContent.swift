@@ -1,7 +1,7 @@
 import Foundation
 
 nonisolated struct NotificationContent: Equatable {
-    /// 只用于日志分类, 由各静态工厂带出, 保证与实际内容不会错位
+    /// 只用于日志分类, 由静态工厂与通知内容一起生成, 避免分类与内容不匹配
     let kind: String
     let title: String
     let body: String

@@ -585,7 +585,7 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
         do {
             try persistOwnership(.restoring)
         } catch {
-            // 写恢复中标记失败也必须继续尝试写回 0, 否则记录故障本身会把机器永久卡在 1
+            // 写入恢复中标记失败后仍需尝试写回 0, 否则记录写入故障会使系统一直禁止睡眠
             logOwnershipWriteFailure(error)
         }
 

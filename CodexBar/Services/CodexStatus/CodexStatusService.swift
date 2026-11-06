@@ -67,7 +67,7 @@ private nonisolated struct SupplementalDataCache {
     var rateLimits: AccountRateLimitsResponse?
     var usage: AccountUsageResponse?
 
-    /// 返回是否因为换账号而丢弃了缓存, 调用方据此记日志, 不必再比一遍账号
+    /// 返回缓存是否因账户变化而被丢弃, 调用方直接据此记录日志
     @discardableResult
     mutating func useAccount(_ account: CodexAccount) -> Bool {
         guard self.account != account else { return false }
@@ -120,7 +120,7 @@ actor CodexStatusService {
             return change
         } catch {
             teardownConnection()
-            // 一次断线触发一次有界重连, 失败后仍由定时刷新兜底
+            // 每次断线触发一次有界重连, 失败后由定时刷新继续重试
             return .account
         }
     }

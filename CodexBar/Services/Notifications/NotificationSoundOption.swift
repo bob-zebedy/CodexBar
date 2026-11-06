@@ -41,7 +41,7 @@ struct NotificationSoundOption: Identifiable, Hashable {
         return categories.lazy.flatMap(\.sounds).first { $0.id == id }
     }
 
-    /// 声音列表会缓存, 文件可能在加载后被删除, 发送通知前检查并显式回退默认音
+    /// 缓存列表中的声音文件可能已被删除, 发送通知前检查文件, 缺失时回退到默认音
     var notificationSound: UNNotificationSound? {
         switch source {
         case .silent:

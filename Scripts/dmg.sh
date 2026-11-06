@@ -15,10 +15,10 @@ usage: Scripts/dmg.sh [options] [App.app] [Output.dmg]
 Options:
   --layout PATH       Layout template to read, or save with --copy-layout
                       Defaults to Scripts/resources/layout
-  --copy-layout   Configure the layout with Finder, save it, and build the DMG
+  --copy-layout       Configure the layout with Finder, save it, and build the DMG
   -h, --help          Show this help
 
-Without --copy-layout, the template is copied without calling Finder
+By default, the script copies the template without calling Finder
 The template must match the App name, volume name, and .background/arrow.tiff path
 Relative paths are resolved from the project directory
 
@@ -308,7 +308,7 @@ if [[ "${COPY_LAYOUT}" == "1" ]]; then
     MOUNT_POINT=""
 fi
 
-echo "==> Compressed DMG"
+echo "==> Compressing DMG"
 run_quietly diskutil image create from \
     --format UDZO \
     "${RW_DMG}" \

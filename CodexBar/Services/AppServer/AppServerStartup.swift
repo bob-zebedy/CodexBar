@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-/// 启动与连接恢复共用的有界准备, 只启动明确缺失的 Codex 后台服务
+/// App 启动和连接恢复共用的准备流程, 有时间上限, 只启动明确缺失的 Codex 后台服务
 actor AppServerStartup {
     private let environment: [String: String]
     private let installations: CodexInstallations?

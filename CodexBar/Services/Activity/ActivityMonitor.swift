@@ -3,7 +3,7 @@ import Combine
 import Foundation
 import os
 
-/// 从 Codex 后台服务维护实时任务状态, 是菜单栏, 活动卡片, 通知和触觉反馈的任务来源
+/// 根据 Codex 后台服务更新实时任务状态, 供菜单栏, 活动卡片, 通知和触觉反馈使用
 @MainActor
 final class ActivityMonitor: ObservableObject {
     @Published private(set) var snapshot = ActivitySnapshot.empty

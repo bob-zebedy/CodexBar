@@ -69,7 +69,7 @@ final class AppearanceTransition {
                 if isPrior {
                     self.capture()
                 } else {
-                    // App 的通知先于窗口外观更新, 等本轮赋值和面板同步完成后再揭示新画面
+                    // App 的通知先于窗口外观更新, 等本轮赋值和面板同步完成后再显示新画面
                     DispatchQueue.main.async { self.reveal() }
                 }
             }

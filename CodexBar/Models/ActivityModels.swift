@@ -15,7 +15,7 @@ nonisolated struct ActivityTaskSnapshot: Equatable, Identifiable {
     let effort: String?
     let startedAt: Date?
     let stateChangedAt: Date
-    /// nil 表示 活动字段不足, 无法可靠统计; 0 表示已确认当前没有活跃子 Agent
+    /// nil 表示活动字段不足, 无法可靠统计; 0 表示已确认当前没有活跃子 Agent
     let activeSubagentCount: Int?
     var tokenUsage: TokenUsage?
     var approvalActionText: String?

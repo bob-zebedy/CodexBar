@@ -45,7 +45,7 @@ struct ZoneRecoveryTests {
             state.lastPrunedDate = nil
             try store.saveState(state)
         }
-        // 保留 salt 可以验证恢复不依赖设备 ID 碰巧变化
+        // 保留 salt, 验证设备 ID 不变时也能恢复
         await database.failOnce(at: point, wrapped: wrapped, preservingSalt: true)
         let snapshot = await service.synchronizeIfEnabled(
             localActivityDataAggregates: [aggregate(0, events: 3)],

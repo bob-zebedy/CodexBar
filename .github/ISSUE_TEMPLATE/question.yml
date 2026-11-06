@@ -37,7 +37,7 @@ body:
     attributes:
       label: CodexBar 版本 / CodexBar version
       description: |
-        在 "菜单栏 CodexBar 图标右键 → 设置 → 关于选项卡" 中查看。
+        右键点击菜单栏中的 CodexBar 图标，在“设置 → 关于”中查看。
 
         Right-click the CodexBar menu bar icon → Settings → About tab.
     validations:
@@ -67,7 +67,7 @@ body:
     attributes:
       label: Codex CLI 版本 / Codex CLI version
       description: |
-        在 "菜单栏 CodexBar 图标右键 → 设置 → 关于选项卡" 中查看，或在终端运行 `codex --version`
+        右键点击菜单栏中的 CodexBar 图标，在“设置 → 关于”中查看，或在终端运行 `codex --version`
 
         Right-click the CodexBar menu bar icon → Settings → About tab. You can also run `codex --version` in Terminal.
     validations:
@@ -78,7 +78,7 @@ body:
     attributes:
       label: Codex App 版本 / Codex App version
       description: |
-        在 "菜单栏 CodexBar 图标右键 → 设置 → 关于选项卡" 或 Codex App 中查看。
+        在 CodexBar 的“设置 → 关于”或 Codex App 中查看。
 
         Right-click the CodexBar menu bar icon → Settings → About tab, or check Codex App.
     validations:

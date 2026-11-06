@@ -181,7 +181,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         openSettings()
     }
 
-    /// 通知点击回调: 面板未展示时按快捷键路径打开(含 fallback 面板兜底)
+    /// 点击通知时, 按快捷键的处理流程打开尚未显示的面板, 必要时使用 fallback 面板
     func openMenuSurfaceFromNotification() {
         guard menuSurfaceWillOpenOnToggle else {
             return

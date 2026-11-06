@@ -33,7 +33,7 @@ jobs:
                   case "$GITHUB_EVENT_NAME" in
                       issues)
                           issue_title="$(jq -r '.issue.title' "$GITHUB_EVENT_PATH")"
-                          title="CodexBar 有新的 Issues"
+                          title="CodexBar 收到新 Issue"
                           body="$issue_title"
                           ;;
                       issue_comment)
@@ -50,11 +50,11 @@ jobs:
                           fi
 
                           issue_title="$(jq -r '.issue.title' "$GITHUB_EVENT_PATH")"
-                          title="CodexBar Issues 有新的评论"
+                          title="CodexBar Issue 收到新评论"
                           body="$issue_title"
                           ;;
                       workflow_dispatch)
-                          title="CodexBar Issues 通知测试"
+                          title="CodexBar Issue 通知测试"
                           body="Bark 配置有效"
                           ;;
                       *)

@@ -253,7 +253,7 @@ private nonisolated struct WireActivityInput: Decodable {
             }
             if kind == .usageUpdated,
                params.tokenUsage == nil || params.threadId?.isEmpty != false {
-                throw DecodingError.dataCorruptedError(forKey: .params, in: container, debugDescription: "Missing token tokenUsage or thread identity")
+                throw DecodingError.dataCorruptedError(forKey: .params, in: container, debugDescription: "Missing tokenUsage or thread identity")
             }
             if [.commandApprovalRequested, .fileApprovalRequested, .permissionsRequested].contains(kind),
                params.itemId == nil || params.startedAtMs == nil {

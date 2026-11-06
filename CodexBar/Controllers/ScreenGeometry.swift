@@ -26,7 +26,7 @@ nonisolated extension CGRect {
 
 @MainActor
 extension NSWindow {
-    /// LSUIElement 应用无 Dock 图标, 把窗口可靠拉到最前依赖这套固定激活序列
+    /// LSUIElement 应用没有 Dock 图标, 需按此顺序激活才能将窗口置于最前
     func bringToFrontActivatingApp() {
         orderFrontRegardless()
         NSRunningApplication.current.activate(options: [])

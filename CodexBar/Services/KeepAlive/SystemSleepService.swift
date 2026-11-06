@@ -156,7 +156,7 @@ final class SystemSleepService {
         }
     }
 
-    /// 屏保与闲置锁屏跟的是系统 idle 计时, 显示断言只保证屏幕不睡, 挡不住它们
+    /// 屏保与闲置锁屏由系统 idle 计时触发, 显示断言只能阻止屏幕睡眠
     private func startUserActivityTicks() {
         // 断言仍有效但定时声明中断时也会重新调用, 先取消旧 Task 以免空转
         userActivityTask?.cancel()
@@ -190,6 +190,6 @@ final class SystemSleepService {
         }
     }
 
-    /// 节拍取得比系统能设的最短屏保等待时间 (1 分钟) 小
+    /// 声明间隔小于系统支持的最短屏保等待时间 (1 分钟)
     private static let userActivityInterval = Duration.seconds(30)
 }

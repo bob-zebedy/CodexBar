@@ -1,6 +1,6 @@
 // MARK: - 每日聚合指标
 
-/// 热力图详情面板直接消费的每日统计
+/// 热力图详情面板直接读取的每日统计
 nonisolated struct ActivityDataMetrics: Equatable {
     let startDate: String
     let threadCount: Int?

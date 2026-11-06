@@ -828,7 +828,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "认证恢复流程已结束"
+            "value" : "认证恢复已结束"
           }
         }
       }
@@ -1228,7 +1228,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在执行 %@ 等多个命令"
+            "value" : "正在执行 %@ 等命令"
           }
         }
       }
@@ -1356,7 +1356,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hook 执行已完成"
+            "value" : "Hook 执行完成"
           }
         }
       }
@@ -1372,7 +1372,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hook 执行已失败"
+            "value" : "Hook 执行失败"
           }
         }
       }
@@ -1388,7 +1388,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hook 执行已停止"
+            "value" : "Hook 已停止执行"
           }
         }
       }
@@ -1510,7 +1510,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ command execution completed"
+            "value" : "%@ command completed"
           }
         },
         "zh-Hans" : {
@@ -1542,7 +1542,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ command execution failed"
+            "value" : "%@ command failed"
           }
         },
         "zh-Hans" : {
@@ -2012,7 +2012,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ 等多个命令执行完成"
+            "value" : "%@ 等命令执行完成"
           }
         }
       }
@@ -2028,7 +2028,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ 等多个命令被拒绝执行"
+            "value" : "%@ 等命令被拒绝执行"
           }
         }
       }
@@ -2044,7 +2044,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@ 等多个命令执行失败"
+            "value" : "%@ 等命令执行失败"
           }
         }
       }
@@ -2444,7 +2444,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "开启后, CodexBar 在手动重置临近过期时, 按设置的临期时间提前自动使用重置; 并可能短暂唤醒 Mac"
+            "value" : "开启后, CodexBar 会按设定的临期时间自动使用即将过期的手动重置, 期间可能短暂唤醒 Mac"
           }
         }
       }
@@ -2668,7 +2668,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "未知过期时间"
+            "value" : "过期时间未知"
           }
         }
       }
@@ -2732,7 +2732,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex app-server 连接已经断开"
+            "value" : "Codex app-server 连接已断开"
           }
         }
       }
@@ -3734,13 +3734,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Recalculate historical statistics for a selected date or date range using the collected source data. This can restore missing or incomplete statistics. Rebuilt results are synced if sync is enabled. Lost source data cannot be recovered"
+            "value" : "Choose a date or date range to recalculate historical statistics from collected source data. This can restore missing or incomplete statistics. Results are synced if sync is enabled. Lost source data cannot be recovered"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "选择指定的日期或者日期范围，根据采集到的原始数据重新计算历史统计。可用于修复缺失或不完整的数据，开启同步时会同步重建结果；已丢失的原始数据无法恢复"
+            "value" : "选择日期或日期范围，用采集到的原始数据重新计算历史统计，可修复缺失或不完整的统计结果。开启同步时，重建结果也会同步。已丢失的原始数据无法恢复"
           }
         }
       }
@@ -4060,7 +4060,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "仅在使用电池供电时生效；电量降至阈值时停止防睡眠，接通电源后自动恢复防睡眠"
+            "value" : "使用电池供电时，电量降至阈值便停止防睡眠；接通电源后自动恢复防睡眠"
           }
         }
       }
@@ -4140,7 +4140,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 任务在等待用户回应期间也防止系统睡眠"
+            "value" : "Codex 任务等待你回应时，继续防止系统睡眠"
           }
         }
       }
@@ -4844,7 +4844,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "有 %1$lld 个重置次数将于 %2$@ 过期"
+            "value" : "%1$lld 次重置将于 %2$@ 过期"
           }
         }
       }
@@ -4876,7 +4876,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已达防睡眠上限 %@, 已停止防睡眠"
+            "value" : "已达到防睡眠上限 %@, 停止防睡眠"
           }
         }
       }
@@ -4956,7 +4956,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 任务已静默 %@, 已隐藏并停止参与防睡眠"
+            "value" : "Codex 任务已连续 %@ 没有进展, 已隐藏并不再计入防睡眠"
           }
         }
       }
@@ -4972,7 +4972,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$@ 已静默 %2$@, 已隐藏并停止参与防睡眠"
+            "value" : "%1$@ 已连续 %2$@ 没有进展, 已隐藏并不再计入防睡眠"
           }
         }
       }
@@ -5110,13 +5110,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex is awaiting a response to continue"
+            "value" : "Codex needs your response to continue"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 正在等待回应以继续"
+            "value" : "Codex 需要你的回应才能继续"
           }
         }
       }
@@ -5142,13 +5142,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A task in \"%@\" is awaiting a response to continue"
+            "value" : "A task in \"%@\" needs your response to continue"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」正在等待回应以继续"
+            "value" : "「%@」中的任务需要你的回应才能继续"
           }
         }
       }
@@ -5324,7 +5324,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要授权允许 CodexBar Power Helper 后台运行"
+            "value" : "请允许 CodexBar Power Helper 在后台运行"
           }
         }
       }
@@ -5340,7 +5340,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要安装并授权 CodexBar Power Helper 后台运行"
+            "value" : "请安装 CodexBar Power Helper 并允许其在后台运行"
           }
         }
       }
@@ -5356,7 +5356,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已安装 CodexBar Power Helper 但需要授权允许后台运行"
+            "value" : "CodexBar Power Helper 已安装, 请允许其在后台运行"
           }
         }
       }
@@ -5430,13 +5430,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hide running tasks that have made no progress for an extended period and stop counting them as tasks that keep your Mac awake. This check does not apply to tasks waiting for your response"
+            "value" : "Hide running tasks that have made no progress for an extended period and exclude them from sleep prevention. Tasks waiting for your response are excluded from this check"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "隐藏长时间未取得进展的运行中任务，并停止将其计入防止睡眠的任务。等待用户回应的任务不参与此判定"
+            "value" : "隐藏长时间没有进展的运行中任务，不再将其计入防睡眠。等待你回应的任务不参与此判定"
           }
         }
       }
@@ -5830,13 +5830,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable/Disable automatic use of banked resets that are about to expire"
+            "value" : "Automatically use banked resets that are about to expire"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "启用/禁用 自动使用临近过期的留存重置"
+            "value" : "自动使用即将过期的留存重置"
           }
         }
       }
@@ -5852,7 +5852,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "重新建立连接"
+            "value" : "重新连接"
           }
         }
       }
@@ -5990,13 +5990,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable/Disable automatic checks for new versions of CodexBar. You can still check for updates manually from the About page when this is disabled"
+            "value" : "Automatically check for new versions of CodexBar. When this is off, you can still check manually from the About page"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "启用/禁用 自动检查是否有新的 CodexBar 版本，关闭后仍可在关于页面手动检查更新"
+            "value" : "自动检查 CodexBar 新版本，关闭后仍可在关于页面手动检查更新"
           }
         }
       }
@@ -6028,7 +6028,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要授权允许 CodexBar 后台运行"
+            "value" : "请允许 CodexBar 在后台运行"
           }
         }
       }
@@ -6054,13 +6054,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable/Disable launching CodexBar automatically when you log in to macOS"
+            "value" : "Launch CodexBar automatically when you log in to macOS"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "启用/禁用 登录 macOS 后自动启动 CodexBar"
+            "value" : "登录 macOS 后自动启动 CodexBar"
           }
         }
       }
@@ -6150,13 +6150,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable/Disable sleep prevention while Codex tasks are running"
+            "value" : "Keep your Mac awake while Codex tasks are running"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "启用/禁用 Codex 任务运行期间防止系统睡眠"
+            "value" : "Codex 任务运行时防止系统睡眠"
           }
         }
       }
@@ -6182,13 +6182,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable/Disable animations in the app"
+            "value" : "Show animations in the app"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "启用/禁用 App 内动画效果"
+            "value" : "显示 App 内动画效果"
           }
         }
       }
@@ -6220,7 +6220,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "调整主面板各模块的显示和顺序，拖动模块左侧图标可调节顺序；需要至少保留一个模块"
+            "value" : "选择主面板中显示的模块，拖动模块左侧图标调整顺序。至少保留一个模块"
           }
         }
       }
@@ -6342,13 +6342,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable/Disable menu bar indicators"
+            "value" : "Show indicators in the menu bar"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "启用/禁用 菜单栏指示器"
+            "value" : "显示菜单栏指示器"
           }
         }
       }
@@ -6444,7 +6444,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex TUI 通知，独立于 CodexBar 的通知类型"
+            "value" : "Codex TUI 的通知与 CodexBar 通知独立控制"
           }
         }
       }
@@ -6470,13 +6470,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Notify you when the keep-awake time limit is reached and normal sleep resumes. Sleep prevention must be enabled and the time limit must be set to a value other than Unlimited"
+            "value" : "Notify you when the keep-awake time limit is reached and normal sleep resumes. Requires sleep prevention to be enabled with a time limit"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "达到最长防睡眠时间并恢复系统睡眠时发送通知。需要启用防睡眠功能，且时长上限不是无限制"
+            "value" : "达到最长防睡眠时间并恢复系统睡眠时发送通知。需要开启防睡眠，并设置时长上限"
           }
         }
       }
@@ -6508,7 +6508,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "因电量过低而停止防睡眠时发送通知，需要启用防睡眠功能，且启用低电量保护"
+            "value" : "因电量过低而停止防睡眠时发送通知。需要同时开启防睡眠和低电量保护"
           }
         }
       }
@@ -6588,7 +6588,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "当额度已重置时发送通知"
+            "value" : "额度重置时发送通知"
           }
         }
       }
@@ -6662,13 +6662,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable/Disable CodexBar notifications. The first time you turn this on, you'll need to grant notification permission in macOS"
+            "value" : "Send CodexBar notifications. The first time you turn this on, you need to grant notification permission in macOS"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "启用/禁用 CodexBar 发送通知，首次开启需要 macOS 通知授权"
+            "value" : "允许 CodexBar 发送通知，首次开启需要 macOS 通知授权"
           }
         }
       }
@@ -6716,7 +6716,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 任务完成时发送通知，运行时长低于设置阈值的 Codex 任务不会发送通知"
+            "value" : "Codex 任务完成且运行时长达到设置阈值时发送通知"
           }
         }
       }
@@ -6748,7 +6748,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "任务完成或等待回应时触发触摸板触觉反馈"
+            "value" : "任务完成或等待回应时触发触控板触觉反馈"
           }
         }
       }
@@ -6780,7 +6780,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 任务需要用户回应时发送通知"
+            "value" : "Codex 任务需要你回应时发送通知"
           }
         }
       }
@@ -6806,13 +6806,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable/Disable data syncing across devices using your iCloud account"
+            "value" : "Sync data across devices through your iCloud account"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "启用/禁用 通过 iCloud 账户同步不同设备的数据"
+            "value" : "通过 iCloud 账户同步不同设备的数据"
           }
         }
       }
@@ -6886,13 +6886,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enable/Disable the glow at the top of the screen that shows Codex task status"
+            "value" : "Show Codex task status with a glow at the top of the screen"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "启用/禁用 屏幕顶部通过流光展示 Codex 任务状态"
+            "value" : "在屏幕顶部用流光显示 Codex 任务状态"
           }
         }
       }
@@ -7116,7 +7116,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "调整流光效果的亮度"
+            "value" : "调整流光亮度"
           }
         }
       }
@@ -7228,7 +7228,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "任务完成或终止后，对应流光效果展示时长"
+            "value" : "设置任务完成或终止后，流光继续显示的时长"
           }
         }
       }
@@ -7308,7 +7308,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "调整流光动画的运动速度"
+            "value" : "调整流光动画速度"
           }
         }
       }

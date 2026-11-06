@@ -39,7 +39,7 @@ final class AppUpdater: NSObject, ObservableObject {
 
     private static let missingUpdateConfigurationMessage = String(localized: "updater.status.missing-configuration")
     /// Sparkle 启动失败时检查请求可能直接返回, 不触发完成回调
-    /// 兜底复位手动检查状态, 避免后续后台结果被误认为手动检查
+    /// 此时也要清除手动检查状态, 避免将后续后台检查结果误认为手动检查结果
     private static let manualCheckTimeout = Duration.seconds(30)
 
     init(bundle: Bundle = .main) {

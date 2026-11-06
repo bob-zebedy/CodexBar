@@ -71,11 +71,11 @@ Download the latest version from [GitHub Releases](https://github.com/bob-zebedy
 
 - macOS 15.0 or later
 - [Codex CLI](https://github.com/openai/codex) version `0.162.0` or later installed and signed in with OpenAI
-- For cross-device sync, the Mac must be signed in to an available iCloud account
+- Sign in to an available iCloud account on your Mac to sync across devices
 
 ## Privacy
 
-CodexBar processes raw activity events and live tasks on your Mac. When you enable cross-device sync, it uploads daily activity aggregates and token usage records to your private iCloud database.
+CodexBar processes raw activity events and live tasks on your Mac. When you enable cross-device sync, it uploads daily activity summaries and token usage records to your private iCloud database.
 
 ## Feedback
 

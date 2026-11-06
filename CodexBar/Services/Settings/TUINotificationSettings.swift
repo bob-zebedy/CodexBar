@@ -47,7 +47,7 @@ final class TUINotificationSettings: ObservableObject {
         }
     }
 
-    /// 集中定义操作文案与日志标题, 两者使用固定字面量, 便于直接 grep 日志标题
+    /// 操作文案和日志阶段在这里定义, 使用固定字面量方便检索
     private enum ConfigOperation {
         case read
         case write
