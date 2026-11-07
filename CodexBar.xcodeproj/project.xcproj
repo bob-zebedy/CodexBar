@@ -35,6 +35,13 @@
   ],
   "files": [
     {
+      "path": "LICENSE",
+      "type": "text",
+      "target-membership": [
+        "CodexBarTests/resources",
+        "CodexBar/resources",
+      ],
+    }, {
       "kind": "folder",
       "path": "CodexBar",
       "target-membership": [

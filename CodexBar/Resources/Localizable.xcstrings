@@ -2684,7 +2684,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex 未登录"
+            "value" : "未登录 Codex"
           }
         }
       }
@@ -2705,6 +2705,22 @@
         }
       }
     },
+    "codex-status.account.not-installed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex is not installed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未安装 Codex"
+          }
+        }
+      }
+    },
     "codex-status.account.not-signed-in" : {
       "localizations" : {
         "en" : {
@@ -2716,7 +2732,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "未登录"
+            "value" : "未登录 Codex"
           }
         }
       }
@@ -4145,6 +4161,54 @@
         }
       }
     },
+    "licenses.category.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "License Category"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "许可类别"
+          }
+        }
+      }
+    },
+    "licenses.load-failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to read the open-source license"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取开源许可"
+          }
+        }
+      }
+    },
+    "licenses.tab.third-party" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Third-Party Components"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "第三方组件"
+          }
+        }
+      }
+    },
     "log.app-server.error.initialization-failed" : {
       "localizations" : {
         "en" : {
@@ -4545,6 +4609,22 @@
         }
       }
     },
+    "menu-bar-indicator.layout.title.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Single shows one indicator. Dual shows two indicators"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "单侧显示一个指示器，双侧显示两个指示器"
+          }
+        }
+      }
+    },
     "menu-bar-indicator.left" : {
       "localizations" : {
         "en" : {
@@ -4557,6 +4637,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "左侧内容"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.left.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose the content for the left indicator. Quota Data shows the remaining quota percentage. Time Data shows the percentage of the current period that has elapsed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择左侧指示器的显示内容，额度数据表示剩余额度比例，重置时间表示当前周期已过去的比例"
           }
         }
       }
@@ -4625,6 +4721,22 @@
         }
       }
     },
+    "menu-bar-indicator.right.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose the content for the right indicator. Quota Data shows the remaining quota percentage. Time Data shows the percentage of the current period that has elapsed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择右侧指示器的显示内容，额度数据表示剩余额度比例，重置时间表示当前周期已过去的比例"
+          }
+        }
+      }
+    },
     "menu-bar-indicator.single" : {
       "localizations" : {
         "en" : {
@@ -4637,6 +4749,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "指示器"
+          }
+        }
+      }
+    },
+    "menu-bar-indicator.single.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose the content for the indicator. Quota Data shows the remaining quota percentage. Time Data shows the percentage of the current period that has elapsed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择指示器的显示内容，额度数据表示剩余额度比例，重置时间表示当前周期已过去的比例"
           }
         }
       }
@@ -5430,13 +5558,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hide running tasks that have made no progress for an extended period and exclude them from sleep prevention. Tasks waiting for your response are excluded from this check"
+            "value" : "Hide running tasks that have made no progress for an extended period and exclude them from sleep prevention. Tasks waiting for a response are excluded from this check"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "隐藏长时间没有进展的运行中任务，不再将其计入防睡眠。等待你回应的任务不参与此判定"
+            "value" : "隐藏长时间没有进展的运行中任务，不再将其计入防睡眠。等待回应的任务不参与此判定"
           }
         }
       }
@@ -5613,6 +5741,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "GitHub 项目"
+          }
+        }
+      }
+    },
+    "settings.about.open-source-licenses" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Source Licenses"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开源许可"
           }
         }
       }

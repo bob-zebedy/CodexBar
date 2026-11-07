@@ -164,6 +164,7 @@ actor AppServerActivityReader {
     private let reconciliationTimeout: TimeInterval
     private let discoveryInterval: TimeInterval
     private let reconciliationClock: @Sendable () -> ContinuousClock.Instant
+    private let waitBeforeReconnect: @Sendable (Duration) async throws -> Void
 
     init(
         socketURL: URL = AppServerActivityReader.defaultSocketURL,
@@ -176,6 +177,7 @@ actor AppServerActivityReader {
         reconciliationTimeout: TimeInterval = 30,
         discoveryInterval: TimeInterval = 2,
         reconciliationClock: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
+        waitBeforeReconnect: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
         onAccountChange: @escaping @MainActor @Sendable (AccountChange) -> Void = { _ in },
         onBatch: @escaping @MainActor @Sendable (ActivityUpdate) -> Void
     ) {
@@ -190,6 +192,7 @@ actor AppServerActivityReader {
         self.reconciliationTimeout = reconciliationTimeout
         self.discoveryInterval = discoveryInterval
         self.reconciliationClock = reconciliationClock
+        self.waitBeforeReconnect = waitBeforeReconnect
         self.onAccountChange = onAccountChange
         self.onBatch = onBatch
     }
@@ -264,6 +267,8 @@ actor AppServerActivityReader {
     }
 
     private func run(generation current: Int) async {
+        var consecutiveFailures = 0
+        var lastFailure: String?
         while isRunning, generation == current, !Task.isCancelled {
             do {
                 if session == nil {
@@ -299,13 +304,23 @@ actor AppServerActivityReader {
                     }
                 }
                 scheduleBackfill(generation: current)
+                consecutiveFailures = 0
+                lastFailure = nil
                 try await Task.sleep(for: .milliseconds(100))
             } catch is CancellationError {
                 completeDrains(.cancelled)
                 return
             } catch {
-                await recover(from: error, generation: current)
-                try? await Task.sleep(for: .seconds(3))
+                let failure = "\(String(reflecting: type(of: error))):\(error.localizedDescription)"
+                await recover(from: error, generation: current, recordsFailure: failure != lastFailure)
+                lastFailure = failure
+                let delays: [Duration] = [.seconds(3), .seconds(6), .seconds(12), .seconds(24), .seconds(60)]
+                consecutiveFailures = min(consecutiveFailures + 1, delays.count)
+                do {
+                    try await waitBeforeReconnect(delays[consecutiveFailures - 1])
+                } catch {
+                    return
+                }
             }
         }
     }
@@ -318,9 +333,7 @@ actor AppServerActivityReader {
         reducer.reconnect()
         reducer.setTokenUsageRecordingEnabled(isTokenUsageWriter && !isHistoryRecordingPaused)
         try checkGeneration(current)
-        await publish(.bootstrapStart)
-        try checkGeneration(current)
-        let connection = try AppServerSession(socketURL: socketURL, logStorage: logStorage)
+        let connection = try AppServerSession(socketURL: socketURL, logStorage: logStorage, recordsConnectionAttempts: false)
         do {
             try connection.initialize(clientName: "codex_bar_activity", minimumVersion: CodexVersionReader.minimumAppServerVersion)
         } catch {
@@ -328,6 +341,9 @@ actor AppServerActivityReader {
             throw error
         }
         session = connection
+        // 连接探测失败时保留不可用状态, 只有握手和版本校验成功后才进入恢复展示
+        await publish(.bootstrapStart)
+        try checkGeneration(current)
         connectedAt = Date()
         try await reconcile(bootstrap: true, forced: true, generation: current)
         try checkGeneration(current)
@@ -355,9 +371,11 @@ actor AppServerActivityReader {
         }
     }
 
-    private func recover(from error: Error, generation current: Int) async {
+    private func recover(from error: Error, generation current: Int, recordsFailure: Bool) async {
         guard generation == current, isRunning else { return }
-        logStorage?.recordFailure(method: "activity/connection", message: error.localizedDescription, connection: "activity")
+        if recordsFailure {
+            logStorage?.recordFailure(method: "activity/connection", message: error.localizedDescription, connection: "activity")
+        }
         // 后续协议错误不能丢掉前面已取得的有效结果, 存储失败时保留队列供下一轮重试
         try? await flushPending(generation: current)
         guard generation == current, isRunning else { return }
@@ -386,7 +404,9 @@ actor AppServerActivityReader {
         cancelBackfill()
         invalidThreads.removeAll()
         threadChecks.removeAll()
-        await publish(.sourceUnavailable)
+        if latestUpdate?.phase != .sourceUnavailable {
+            await publish(.sourceUnavailable)
+        }
     }
 
     private func reconcile(bootstrap: Bool, forced: Bool, recovering: Bool = false, generation current: Int) async throws {
@@ -861,7 +881,7 @@ actor AppServerActivityReader {
         }
         guard hasActivity else { return }
         let now = reconciliationClock()
-        // 有效活动可提前触发单线程探测, 重复通知不重置失败预算且重试至少间隔 5 秒
+        // 有效活动可提前触发单线程探测, 重复通知不重置失败预算, 且仍遵守最小重试间隔
         threadChecks[threadID]?.expedite(at: now)
         if let retryAfter = threadChecks[threadID]?.retryAfter, retryAfter <= now {
             reconciledAt = .distantPast

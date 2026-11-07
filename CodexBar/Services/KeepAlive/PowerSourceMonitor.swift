@@ -158,8 +158,7 @@ final class PowerSourceMonitor {
         }
     }
 
-    /// 电量按 Current/Max 的比例计算
-    /// 实测两者都是百分比 (Max=100), 但历史上某些路径下是 mAh, 按比例算两种情况都对
+    /// 按当前容量与最大容量的比例计算电量, 不依赖容量字段的具体单位
     private func currentReading() -> BatteryReading {
         guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef] else {

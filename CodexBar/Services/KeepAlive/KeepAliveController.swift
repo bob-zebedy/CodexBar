@@ -135,7 +135,7 @@ final class KeepAliveController: ObservableObject {
         self.defaults = defaults
         durationLimiter = KeepAliveDurationLimiter(defaults: defaults)
         isEnabled = defaults.bool(forKey: Self.enabledKey)
-        // 默认关闭: 老版本升上来的用户不该多出一条中断任务的路径
+        // 低电量保护默认关闭, 由用户选择是否允许它解除防睡眠
         lowBatteryThreshold = (defaults.object(forKey: Self.lowBatteryThresholdKey) as? Int)
             .flatMap(LowBatteryThreshold.init(rawValue:)) ?? .off
         // 默认关闭: 等待回应可能持续到用户返回, 避免无人值守时持续防睡眠

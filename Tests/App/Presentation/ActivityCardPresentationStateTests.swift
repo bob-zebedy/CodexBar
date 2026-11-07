@@ -2,6 +2,16 @@ import Foundation
 import Testing
 
 struct ActivityCardPresentationStateTests {
+    @Test(arguments: [CodexLoadState.notInstalled, .initializationFailed, .notLoggedIn, .loaded], [false, true])
+    func unavailableTaskSectionReflectsInstallationState(loadState: CodexLoadState, hasTasks: Bool) {
+        #expect(CodexStatusMenuView.showsActivitySection(
+            loadState: loadState, hasTaskCenterContent: hasTasks, isSourceHealthy: false
+        ) == (loadState != .notInstalled))
+        #expect(CodexStatusMenuView.showsActivitySection(
+            loadState: loadState, hasTaskCenterContent: hasTasks, isSourceHealthy: true
+        ) == hasTasks)
+    }
+
     @Test func presentationUsesCommittedReconnectSnapshotWithoutLosingOrder() throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

@@ -4,7 +4,7 @@ import Testing
 struct TurnTokenCumulativeTests {
     private let now = TestFixtures.now
 
-    @Test func firstObservationIsPersistedAndRepeatedNotificationsCountEachFieldOnce() async throws {
+    @Test(.tags(.integration)) func firstObservationIsPersistedAndRepeatedNotificationsCountEachFieldOnce() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
@@ -38,7 +38,7 @@ struct TurnTokenCumulativeTests {
         #expect(try await store.refresh(now: now).first?.tokenUsage.totalTokens == 200)
     }
 
-    @Test func successiveRestartsIncludeOfflineDifferencesWithoutCountingFirstTotal() async throws {
+    @Test(.tags(.integration)) func successiveRestartsIncludeOfflineDifferencesWithoutCountingFirstTotal() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         for (totals, expected) in [([1000, 1500], 500), ([2200, 2500], 1500), ([3100, 3300], 2300)] {
@@ -55,7 +55,7 @@ struct TurnTokenCumulativeTests {
         #expect(try await restarted.persistedAggregates(now: now).first?.tokenUsage.totalTokens == 2300)
     }
 
-    @Test func newTurnRetainsThreadBaselineAndLateTerminalUsageKeepsItsTurn() async throws {
+    @Test(.tags(.integration)) func newTurnRetainsThreadBaselineAndLateTerminalUsageKeepsItsTurn() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
@@ -68,7 +68,7 @@ struct TurnTokenCumulativeTests {
         #expect(try await store.refresh(now: now).first?.tokenUsage.totalTokens == 270)
     }
 
-    @Test func childThreadsHaveIndependentBaselinesAndRestoreIntoResolvedRoot() async throws {
+    @Test(.tags(.integration)) func childThreadsHaveIndependentBaselinesAndRestoreIntoResolvedRoot() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
@@ -91,7 +91,7 @@ struct TurnTokenCumulativeTests {
         #expect(try await store.refresh(now: now).first?.tokenUsage.totalTokens == 130)
     }
 
-    @Test func crossMidnightUsesKnownTurnStartAndUnknownStartUsesObservationDate() async throws {
+    @Test(.tags(.integration)) func crossMidnightUsesKnownTurnStartAndUnknownStartUsesObservationDate() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
@@ -104,7 +104,7 @@ struct TurnTokenCumulativeTests {
         #expect(daily[HistoryStorage.dateKey(for: now)]?.totalTokens == 30)
     }
 
-    @Test func failedTransactionAndRetriedOldSampleNeverAdvanceOrRollbackBaseline() async throws {
+    @Test(.tags(.integration)) func failedTransactionAndRetriedOldSampleNeverAdvanceOrRollbackBaseline() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
@@ -123,7 +123,7 @@ struct TurnTokenCumulativeTests {
         #expect(try await store.record(TestFixtures.tokenSample(230)).turns["root"]?.totalTokens == 130)
     }
 
-    @Test func contextWindowSentinelOnlyRebaselinesAndDoesNotPolluteFollowingIncrements() async throws {
+    @Test(.tags(.integration)) func contextWindowSentinelOnlyRebaselinesAndDoesNotPolluteFollowingIncrements() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
@@ -147,7 +147,7 @@ struct TurnTokenCumulativeTests {
         #expect(try await store.refresh(now: now).first?.tokenUsage.totalTokens == 50)
     }
 
-    @Test func explicitZeroObservationIsDifferentFromMissingChildUsage() async throws {
+    @Test(.tags(.integration)) func explicitZeroObservationIsDifferentFromMissingChildUsage() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
@@ -155,7 +155,7 @@ struct TurnTokenCumulativeTests {
         #expect(try await store.record(TestFixtures.tokenSample(0, thread: "child", turn: "child-turn")).turns["child-turn"] == .zero)
     }
 
-    @Test func initialBaselineStaysHiddenAfterRestoreAndFirstIncrementIsDisplayed() async throws {
+    @Test(.tags(.integration)) func initialBaselineStaysHiddenAfterRestoreAndFirstIncrementIsDisplayed() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
@@ -173,7 +173,7 @@ struct TurnTokenCumulativeTests {
         #expect(try await store.refresh(now: now).first?.tokenUsage.totalTokens == 2000)
     }
 
-    @Test func knownThreadBaselineKeepsNewTurnZeroAndFirstIncrement() async throws {
+    @Test(.tags(.integration)) func knownThreadBaselineKeepsNewTurnZeroAndFirstIncrement() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
@@ -184,7 +184,7 @@ struct TurnTokenCumulativeTests {
         #expect(try await store.record(TestFixtures.tokenSample(12000, turn: "next")).turns["next"]?.totalTokens == 2000)
     }
 
-    @Test func recordingPauseAndReconnectPreserveCommittedBaseline() async throws {
+    @Test(.tags(.integration)) func recordingPauseAndReconnectPreserveCommittedBaseline() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = TokenUsageHistoryStore(directoryURL: directory.url)

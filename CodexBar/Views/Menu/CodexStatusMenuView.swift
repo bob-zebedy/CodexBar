@@ -53,7 +53,15 @@ struct CodexStatusMenuView: View {
     private var showsActivitySection: Bool {
         // 订阅建立前直接读取当前状态, 避免首次打开时先显示空卡片再收回
         activitySectionVisibility
-            ?? (activityMonitor.snapshot.hasTaskCenterContent || !activityMonitor.isActivitySourceHealthy)
+            ?? Self.showsActivitySection(
+                loadState: viewModel.loadState,
+                hasTaskCenterContent: activityMonitor.snapshot.hasTaskCenterContent,
+                isSourceHealthy: activityMonitor.isActivitySourceHealthy
+            )
+    }
+
+    static func showsActivitySection(loadState: CodexLoadState, hasTaskCenterContent: Bool, isSourceHealthy: Bool) -> Bool {
+        isSourceHealthy ? hasTaskCenterContent : loadState != .notInstalled
     }
 
     var body: some View {
@@ -79,7 +87,10 @@ struct CodexStatusMenuView: View {
         .onReceive(
             activityMonitor.$snapshot
                 .combineLatest(activityMonitor.$isActivitySourceHealthy)
-                .map { snapshot, isHealthy in snapshot.hasTaskCenterContent || !isHealthy }
+                .combineLatest(viewModel.$loadState)
+                .map { activity, loadState in
+                    Self.showsActivitySection(loadState: loadState, hasTaskCenterContent: activity.0.hasTaskCenterContent, isSourceHealthy: activity.1)
+                }
                 .removeDuplicates()
         ) { activitySectionVisibility = $0 }
         .contentAnimations(settings: mainPanelSettings, isVisible: animationState.allowsAnimations)

@@ -18,7 +18,12 @@ final class TestCheckpoint {
     private var isSignaled = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
-    func wait() async {
+    func wait(timeout: Duration = .seconds(3)) async throws -> Bool {
+        try await waitForCondition(timeout: timeout, pollInterval: .milliseconds(5)) { self.isSignaled }
+    }
+
+    /// 模拟取消后仍返回的依赖, 调用方必须在 defer 中释放等待
+    func waitIgnoringCancellation() async {
         guard !isSignaled else { return }
         await withCheckedContinuation { waiters.append($0) }
     }

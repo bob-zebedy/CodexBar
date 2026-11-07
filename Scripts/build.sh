@@ -316,6 +316,8 @@ safe_remove_path() {
     local path="$1"
     local parent=""
     local resolved=""
+    local attempt=0
+    local removal_error=""
 
     if [[ ! -e "${path}" ]]; then
         return
@@ -327,7 +329,18 @@ safe_remove_path() {
     validate_build_path "${resolved}"
     case "${resolved}" in
         "${BUILD_DIR}"/*)
-            rm -rf "${resolved}"
+            # Retry a bounded number of times because other processes may recreate entries during removal
+            for attempt in 1 2 3; do
+                validate_build_path "${resolved}"
+                if removal_error="$(rm -rf "${resolved}" 2>&1)"; then
+                    return 0
+                fi
+                if [[ "${attempt}" -lt 3 ]]; then
+                    sleep 1
+                fi
+            done
+            printf '%s\n' "${removal_error}" >&2
+            return 1
         ;;
         *)
             echo "error: refusing to remove path outside build: ${resolved}" >&2
@@ -396,7 +409,10 @@ clean_intermediate_build_artifacts() {
             ;;
         esac
 
-        safe_remove_path "${entry_resolved}"
+        # The final app has already passed validation, so leftover intermediates are a warning
+        if ! safe_remove_path "${entry_resolved}"; then
+            echo "warning: could not remove intermediate build artifact: ${entry_resolved}" >&2
+        fi
     done < <(find "${BUILD_DIR}" -mindepth 1 -maxdepth 1 -print0)
 }
 

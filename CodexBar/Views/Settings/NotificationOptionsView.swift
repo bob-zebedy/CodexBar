@@ -191,10 +191,8 @@ struct NotificationOptionsView: View {
         )
     }
 
-    /// 防睡眠或低电量保护关闭时, 通知开关显示为关闭并置灰, 不修改持久化的 isLowBatteryEnabled
-    /// 保护默认关闭, 此时通知无法触发, 选项也应置灰
-    /// 可用性由 KeepAliveController 判定, 包括台式机从笔记本迁入非 off 阈值的情况
-    /// 台式机的防睡眠面板隐藏低电量保护行
+    /// 可用性由 KeepAliveController 统一判定, 不可用时将通知开关显示为关闭并禁用交互
+    /// 仅调整展示状态, 保留持久化的 isLowBatteryEnabled
     private var lowBatteryRow: some View {
         let isProtectionOn = keepAliveController.isLowBatteryProtectionEnabled
         let isDisplayedOn = isProtectionOn && notificationSettings.isLowBatteryEnabled
@@ -240,10 +238,10 @@ struct NotificationOptionsView: View {
             title: "settings.notifications.codex-tui.title",
             help: "settings.notifications.codex-tui.title.help",
             isOn: Binding(
-                get: { tuiNotificationSettings.isEnabled },
+                get: { tuiNotificationSettings.isEnabled ?? false },
                 set: { tuiNotificationSettings.setEnabled($0) }
             ),
-            isEnabled: !tuiNotificationSettings.isUpdating
+            isEnabled: tuiNotificationSettings.isAvailable && !tuiNotificationSettings.isUpdating
         ) {
             if tuiNotificationSettings.isUpdating {
                 ProgressView()
@@ -417,6 +415,7 @@ struct NotificationOptionsView: View {
         }
         .menuStyle(.borderlessButton)
         .controlSize(.small)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private static let soundMenuSizingTitle: String = {

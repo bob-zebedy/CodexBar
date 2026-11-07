@@ -3,7 +3,7 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1)))
 struct PowerHelperStatusMonitorTests {
-    @Test func observationCanRestartAfterCancellationBeforeFirstTick() async {
+    @Test func observationCanRestartAfterCancellationBeforeFirstTick() async throws {
         let monitor = PowerHelperStatusMonitor()
         defer { monitor.cancelObservation() }
         let finished = TestCheckpoint()
@@ -15,43 +15,54 @@ struct PowerHelperStatusMonitorTests {
             monitor.cancelObservation()
             finished.signal()
         }
-        await finished.wait()
+        try #require(try await finished.wait())
     }
 
-    @Test func cancelledObservationCannotClearReplacementWhileItsActionFinishes() async {
+    @Test func cancelledObservationCannotClearReplacementWhileItsActionFinishes() async throws {
         let monitor = PowerHelperStatusMonitor()
         defer { monitor.cancelObservation() }
         let oldEntered = TestCheckpoint()
         let oldRelease = TestCheckpoint()
         let oldReturned = TestCheckpoint()
+        let replacementEntered = TestCheckpoint()
+        let replacementRelease = TestCheckpoint()
         let replacementFinished = TestCheckpoint()
+        defer {
+            oldRelease.signal()
+            replacementRelease.signal()
+        }
         var replacementTicks = 0
         monitor.startObservation(interval: .zero) {
             oldEntered.signal()
-            await oldRelease.wait()
+            await oldRelease.waitIgnoringCancellation()
             oldReturned.signal()
         }
-        await oldEntered.wait()
+        try #require(try await oldEntered.wait())
         monitor.cancelObservation()
-        monitor.startObservation(interval: .milliseconds(1)) {
+        monitor.startObservation(interval: .zero) {
             replacementTicks += 1
-            if replacementTicks == 2 {
+            if replacementTicks == 1 {
+                replacementEntered.signal()
+                await replacementRelease.waitIgnoringCancellation()
+            } else {
                 monitor.cancelObservation()
                 replacementFinished.signal()
             }
         }
+        try #require(try await replacementEntered.wait())
         oldRelease.signal()
-        await oldReturned.wait()
+        try #require(try await oldReturned.wait())
         monitor.startObservation(interval: .zero) {
             Issue.record("Replacement observation was overwritten")
             monitor.cancelObservation()
             replacementFinished.signal()
         }
-        await replacementFinished.wait()
+        replacementRelease.signal()
+        try #require(try await replacementFinished.wait())
         #expect(replacementTicks == 2)
     }
 
-    @Test func cancelledStatusReplyCannotFinishNewWakeRequest() async {
+    @Test func cancelledStatusReplyCannotFinishNewWakeRequest() async throws {
         let monitor = PowerHelperStatusMonitor()
         let powerHelper = MonitorPowerHelper()
         let connection = MonitorConnection(powerHelper: powerHelper)
@@ -64,7 +75,7 @@ struct PowerHelperStatusMonitorTests {
                 onTimeout: { Issue.record("Unexpected timeout") }
             )
         }
-        await powerHelper.statusRequested.wait()
+        try #require(try await powerHelper.statusRequested.wait())
         #expect(monitor.isRequestInFlight)
         monitor.cancelRequest()
         #expect(!monitor.isRequestInFlight)
@@ -73,7 +84,7 @@ struct PowerHelperStatusMonitorTests {
         let wakeTask = Task {
             await monitor.setAutoResetWakeSchedule(connection: connection, unixTimestamp: 0, timeout: .seconds(60))
         }
-        await powerHelper.wakeRequested.wait()
+        try #require(try await powerHelper.wakeRequested.wait())
         powerHelper.statusReply?(0, CodexBarSleepOwnershipState.idle.rawValue, 0, false)
         #expect(monitor.isRequestInFlight)
         powerHelper.wakeReply?(0)
@@ -84,7 +95,7 @@ struct PowerHelperStatusMonitorTests {
         #expect(!monitor.isRequestInFlight)
     }
 
-    @Test func timeoutClearsRequestAndLateReplyDoesNotPreventReuse() async {
+    @Test func timeoutClearsRequestAndLateReplyDoesNotPreventReuse() async throws {
         let monitor = PowerHelperStatusMonitor()
         let powerHelper = MonitorPowerHelper()
         let connection = MonitorConnection(powerHelper: powerHelper)
@@ -105,7 +116,7 @@ struct PowerHelperStatusMonitorTests {
                 onTimeout: { Issue.record("Unexpected timeout") }
             )
         }
-        await powerHelper.statusRequested.wait()
+        try #require(try await powerHelper.statusRequested.wait())
         powerHelper.statusReply?(0, CodexBarSleepOwnershipState.owned.rawValue, 1, true)
         let status = await statusTask.value
         #expect(status?.ownership == .owned)

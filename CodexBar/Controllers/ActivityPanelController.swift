@@ -82,7 +82,7 @@ final class ActivityPanelController {
         layoutSubscriptions.removeAll()
         currentAnchor = nil
         menuSurfaceWindow = nil
-        // 热力图 hover 等高频路径会反复调用 hide, 已隐藏时跳过 @Published 写入以免整个菜单重算
+        // 重复隐藏请求不再写入展示状态, 避免触发无效的视图更新
         if presentationState.isPresented || presenter.isVisible {
             cancelScheduledPanelUpdate()
             presentationState.isPresented = false

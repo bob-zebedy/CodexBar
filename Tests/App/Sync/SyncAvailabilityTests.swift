@@ -94,9 +94,6 @@ struct SyncAvailabilityTests {
     }
 
     private func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0 ..< 200 where !condition() {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        try #require(condition())
+        try #require(try await waitForCondition(timeout: .seconds(1), pollInterval: .milliseconds(5), condition))
     }
 }

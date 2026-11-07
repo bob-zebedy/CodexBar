@@ -19,8 +19,7 @@ struct AutoResetOptionsView: View {
                     set: { settings.setLeadTime($0) }
                 ),
                 options: AutoResetLeadTime.allCases,
-                label: { $0.title },
-                alignment: .trailing
+                label: { $0.title }
             )
         }
         .frame(height: Metrics.rowHeight)

@@ -41,17 +41,23 @@ struct MenuBarIndicatorOptionsView: View {
 
         HStack(alignment: .top, spacing: SettingsOptionsPanelMetrics.controlSpacing) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("menu-bar-indicator.layout.title")
-                    .frame(height: SettingsOptionsPanelMetrics.rowHeight)
+                SettingsHelpLabel(
+                    title: "menu-bar-indicator.layout.title",
+                    help: "menu-bar-indicator.layout.title.help"
+                )
+                .frame(height: SettingsOptionsPanelMetrics.rowHeight)
 
                 ForEach(metrics, id: \.offset) { index, _ in
-                    Text(indicatorTitle(at: index))
-                        .contentTransition(.opacity)
-                        .settingsOptionsReveal(
-                            isExpanded: index < settings.configuration.count.rawValue,
-                            height: SettingsOptionsPanelMetrics.rowHeight,
-                            spacing: SettingsOptionsPanelMetrics.rowSpacing
-                        )
+                    SettingsHelpLabel(
+                        title: indicatorTitle(at: index),
+                        help: indicatorHelp(at: index)
+                    )
+                    .contentTransition(.opacity)
+                    .settingsOptionsReveal(
+                        isExpanded: index < settings.configuration.count.rawValue,
+                        height: SettingsOptionsPanelMetrics.rowHeight,
+                        spacing: SettingsOptionsPanelMetrics.rowSpacing
+                    )
                 }
             }
             .font(SettingsRowMetrics.captionFont)
@@ -68,8 +74,7 @@ struct MenuBarIndicatorOptionsView: View {
                         set: { settings.setCount($0) }
                     ),
                     options: MenuBarIndicatorCount.allCases,
-                    label: { $0.title },
-                    alignment: .trailing
+                    label: { $0.title }
                 )
                 .frame(height: SettingsOptionsPanelMetrics.rowHeight)
 
@@ -111,6 +116,12 @@ struct MenuBarIndicatorOptionsView: View {
             : "menu-bar-indicator.right"
     }
 
+    private func indicatorHelp(at index: Int) -> LocalizedStringResource {
+        index == 0
+            ? (settings.configuration.count == .one ? "menu-bar-indicator.single.help" : "menu-bar-indicator.left.help")
+            : "menu-bar-indicator.right.help"
+    }
+
     private func indicatorControls(index: Int, metric: MenuBarIndicatorMetric) -> some View {
         let windows = statusViewModel.snapshot?.codexLimit?.windows ?? []
         var windowKinds = windows.map(\.kind)
@@ -126,10 +137,8 @@ struct MenuBarIndicatorOptionsView: View {
                     set: { settings.setMetric(isResetTime: $0, at: index, windows: windows) }
                 ),
                 options: [false, true],
-                label: { $0 ? String(localized: "menu-bar-indicator.metric.time") : String(localized: "menu-bar-indicator.metric.quota") },
-                alignment: .trailing
+                label: { $0 ? String(localized: "menu-bar-indicator.metric.time") : String(localized: "menu-bar-indicator.metric.quota") }
             )
-            .fixedSize(horizontal: true, vertical: false)
             .settingsOptionsReveal(
                 isExpanded: index < settings.configuration.count.rawValue,
                 height: SettingsOptionsPanelMetrics.rowHeight,

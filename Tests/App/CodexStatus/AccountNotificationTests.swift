@@ -333,7 +333,7 @@ struct AccountNotificationTests {
             delivery: .init(setDelegate: { _ in }, add: { _ in
                 attempts += 1
                 if attempts <= 2 {
-                    await release.wait()
+                    await release.waitIgnoringCancellation()
                     throw CocoaError(.fileWriteUnknown)
                 }
                 delivered += 1

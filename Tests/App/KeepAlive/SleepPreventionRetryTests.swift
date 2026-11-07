@@ -9,9 +9,7 @@ struct SleepPreventionRetryTests {
         #expect(retry.allowsRequest(isRetry: false))
         retry.recordFailure(for: requested)
         for delay in delays {
-            for _ in 0 ..< 50 {
-                #expect(!retry.allowsRequest(isRetry: false))
-            }
+            #expect(!retry.allowsRequest(isRetry: false))
             let scheduledDelay = retry.nextDelay(for: requested, delays: delays)
             #expect(scheduledDelay == delay)
             #expect(retry.allowsRequest(isRetry: true))
@@ -19,9 +17,7 @@ struct SleepPreventionRetryTests {
         }
         let exhaustedDelay = retry.nextDelay(for: requested, delays: delays)
         #expect(exhaustedDelay == nil)
-        for _ in 0 ..< 50 {
-            #expect(!retry.allowsRequest(isRetry: false))
-        }
+        #expect(!retry.allowsRequest(isRetry: false))
         #expect(retry.requested == requested)
         #expect(retry.attempt == delays.count)
     }

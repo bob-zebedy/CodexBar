@@ -4,6 +4,7 @@ import os
 /// 额度刷新结果, 请求响应细节保留在交互日志中
 nonisolated enum CodexFetchOutcome {
     case data(CodexQuotaSnapshot)
+    case notInstalled
     case notLoggedIn
     case authenticationRequired
     case unsupportedVersion(minimum: String)
@@ -99,7 +100,9 @@ actor CodexStatusService {
             try await startup?.ensureStarted()
         } catch {
             trace.failureStage = .connect
-            let outcome: CodexFetchOutcome = if case let CodexStatusError.unsupportedVersion(minimum) = error {
+            let outcome: CodexFetchOutcome = if (error as? AppServerStartup.StartupError)?.isMissingInstallation == true {
+                .notInstalled
+            } else if case let CodexStatusError.unsupportedVersion(minimum) = error {
                 .unsupportedVersion(minimum: minimum)
             } else {
                 .initializationFailed

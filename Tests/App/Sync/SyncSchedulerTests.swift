@@ -25,10 +25,12 @@ struct SyncSchedulerTests {
             },
             rebuild: { _, _ in throw CancellationError() }
         )
-        scheduler.requestSync(trigger: .manual)
-        for _ in 0 ..< 100 where release == nil {
-            try await Task.sleep(for: .milliseconds(5))
+        defer {
+            scheduler.cancel()
+            release?.resume()
         }
+        scheduler.requestSync(trigger: .manual)
+        try #require(try await waitForCondition(timeout: .milliseconds(500), pollInterval: .milliseconds(5)) { release != nil })
         #expect(starts == 1)
         active = false
         scheduler.requestSync(trigger: .settings)
@@ -36,11 +38,9 @@ struct SyncSchedulerTests {
         scheduler.requestSync(trigger: .settings)
         #expect(starts == 1)
         release?.resume()
-        for _ in 0 ..< 100 where starts != 2 {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        release = nil
+        try #require(try await waitForCondition(timeout: .milliseconds(500), pollInterval: .milliseconds(5)) { starts == 2 })
         #expect(cancelled)
         #expect(starts == 2)
-        scheduler.cancel()
     }
 }

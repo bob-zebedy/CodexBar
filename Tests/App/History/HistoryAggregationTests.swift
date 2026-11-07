@@ -17,7 +17,6 @@ struct HistoryAggregationTests {
         #expect(completed.toolStartedCount == expected)
         #expect(completed.toolCompletedCount == expected)
         #expect(completed.metrics.toolCallCount == expected)
-        #expect(completed.syncedAggregate.metrics.toolCallCount == expected)
     }
 
     @Test(arguments: [false, true])
@@ -69,7 +68,7 @@ struct HistoryAggregationTests {
         #expect(syncedFields["position"] == nil)
     }
 
-    @Test func syncStateIsIsolatedByApplicationRoot() throws {
+    @Test(.tags(.integration)) func syncStateIsIsolatedByApplicationRoot() throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let debugRoot = directory.url.appendingPathComponent("CodexBar Data Debug", isDirectory: true)

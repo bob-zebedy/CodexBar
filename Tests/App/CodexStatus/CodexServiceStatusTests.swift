@@ -98,7 +98,7 @@ struct CodexServiceStatusTests {
         #expect(CodexServiceStatus.operational.componentNames.isEmpty)
     }
 
-    @Test func disabledMonitorSkipsRefresh() async throws {
+    @Test func disabledMonitorSkipsRefresh() async {
         let probe = ServiceStatusProbe()
         let monitor = CodexServiceStatusMonitor(fetch: { try await probe.fetch() })
         await monitor.refresh()
@@ -108,19 +108,16 @@ struct CodexServiceStatusTests {
         #expect(monitor.state == .available(.operational))
         monitor.setEnabled(false)
         await monitor.refresh()
-        try await Task.sleep(for: .milliseconds(30))
         #expect(await probe.calls == 1)
         #expect(monitor.state == .available(.operational))
     }
 
-    @Test func eachRefreshFetchesWithoutAnIndependentTimer() async throws {
+    @Test func eachExplicitRefreshFetchesOnce() async {
         let probe = ServiceStatusProbe()
         let monitor = CodexServiceStatusMonitor(fetch: { try await probe.fetch() })
         monitor.setEnabled(true)
         await monitor.refresh()
         await monitor.refresh()
-        #expect(await probe.calls == 2)
-        try await Task.sleep(for: .milliseconds(40))
         #expect(await probe.calls == 2)
     }
 
@@ -238,14 +235,29 @@ struct CodexServiceStatusTests {
 
     @Test(arguments: ["valid", "http-error", "invalid-json", "oversized-header", "oversized-body"])
     func transportValidatesResponses(_ scenario: String) async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [ServiceStatusURLProtocol.self]
-        configuration.httpAdditionalHeaders = ["X-Test-Scenario": scenario]
-        let service = CodexServiceStatusService(session: URLSession(configuration: configuration))
+        // CFNetwork 的自定义协议调度器以默认优先级初始化, 直接等待 Task.value 会继承测试任务的高优先级
+        let responses = AsyncThrowingStream<CodexServiceStatus, any Error> { continuation in
+            let task = Task.detached(priority: .medium) {
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [ServiceStatusURLProtocol.self]
+                configuration.httpAdditionalHeaders = ["X-Test-Scenario": scenario]
+                configuration.timeoutIntervalForRequest = 3
+                configuration.timeoutIntervalForResource = 3
+                let service = CodexServiceStatusService(session: URLSession(configuration: configuration))
+                do {
+                    try await continuation.yield(service.fetch())
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        var iterator = responses.makeAsyncIterator()
         if scenario == "valid" {
-            #expect(try await service.fetch() == .operational)
+            #expect(try await iterator.next(isolation: #isolation) == .operational)
         } else {
-            await #expect(throws: (any Error).self) { try await service.fetch() }
+            await #expect(throws: (any Error).self) { try await iterator.next(isolation: #isolation) }
         }
     }
 

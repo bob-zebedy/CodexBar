@@ -115,13 +115,11 @@ struct KeepAliveOptionsView: View {
                 title: title,
                 selection: selection,
                 options: options,
-                label: { $0[keyPath: label] },
-                alignment: .trailing
+                label: { $0[keyPath: label] }
             )
         }
     }
 
-    /// 开关沿用通知子面板 optionRow 的修饰链, 保持样式一致
     private func toggleRow(
         title: LocalizedStringResource,
         help: LocalizedStringResource,

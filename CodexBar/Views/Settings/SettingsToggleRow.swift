@@ -134,15 +134,13 @@ private struct SettingsOptionsPanelSizeReporter: NSViewRepresentable {
     }
 }
 
-/// 子选项面板共用的下拉选择器
-/// 子面板按最长选项使用固有宽度, 主设置页可显式指定宽度
+/// 设置页共用的下拉选择器
+/// 按最长选项使用固有宽度, 避免随父容器拉伸或切换选项时宽度跳变
 struct SettingsOptionsPicker<Option: Hashable>: View {
     let title: LocalizedStringResource
     @Binding var selection: Option
     let options: [Option]
     let label: (Option) -> String
-    var width: CGFloat?
-    var alignment: Alignment = .center
 
     var body: some View {
         Picker(title, selection: $selection) {
@@ -154,7 +152,7 @@ struct SettingsOptionsPicker<Option: Hashable>: View {
         .pickerStyle(.menu)
         .controlSize(.small)
         .font(SettingsRowMetrics.controlFont.monospacedDigit())
-        .frame(width: width, alignment: alignment)
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 

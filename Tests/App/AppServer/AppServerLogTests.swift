@@ -67,7 +67,7 @@ struct AppServerLogTests {
                 return count == 1
             }
             if firstRead {
-                // 仅暂停存储队列, 让主 actor 能在读取完成前关闭窗口
+                // 仅暂停存储队列, 让主 actor 在读取完成前停止观察, 验证在途读取结果不会再发布
                 #expect(release.wait(timeout: .now() + 5) == .success)
             }
             return Date()

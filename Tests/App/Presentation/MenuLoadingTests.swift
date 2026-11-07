@@ -27,9 +27,9 @@ struct MenuLoadingTests {
         #expect(contentTop == 0)
     }
 
-    @Test func initialLoadingKeepsOneAccountAndPlaceholderAcrossLayouts() throws {
+    @Test func initialLoadingKeepsOneAccountAndPlaceholderAcrossLayouts() async throws {
         let fixture = try Fixture()
-        defer { fixture.cleanUp() }
+        defer { await fixture.cleanUp() }
         let initialSize = fixture.size()
         #expect(initialSize.width == CodexStatusMenuView.menuWidth)
         #expect(initialSize.height > 100 && initialSize.height < 180)
@@ -48,7 +48,7 @@ struct MenuLoadingTests {
 
     @Test(.tags(.integration)) func cachedHistoryDoesNotExpandTheInitialPlaceholder() async throws {
         let fixture = try Fixture()
-        defer { fixture.cleanUp() }
+        defer { await fixture.cleanUp() }
         let initialSize = fixture.size()
         try fixture.directory.seedTokenUsageAggregates([
             TestFixtures.tokenUsageAggregate(at: Date(), tokenUsage: TestFixtures.tokenUsage(100))
@@ -66,7 +66,7 @@ struct MenuLoadingTests {
         let server = try makeServer(signedIn: signedIn)
         defer { server.close() }
         let fixture = try Fixture(socketURL: server.url)
-        defer { fixture.cleanUp() }
+        defer { await fixture.cleanUp() }
         fixture.preferences.defaults.set(
             MainPanelSection.allCases.filter { $0 != .account }.map(\.rawValue),
             forKey: "MainPanel.hiddenSections"
@@ -88,7 +88,7 @@ struct MenuLoadingTests {
         let server = try makeServer(signedIn: signedIn)
         defer { server.close() }
         let fixture = try Fixture(socketURL: server.url)
-        defer { fixture.cleanUp() }
+        defer { await fixture.cleanUp() }
         if !signedIn {
             fixture.preferences.defaults.set(
                 MainPanelSection.allCases.filter { $0 != .account }.map(\.rawValue),
@@ -154,6 +154,7 @@ struct MenuLoadingTests {
         let animationState = MenuSurfaceAnimationState()
 
         init(socketURL: URL? = nil) throws {
+            try #require(NSImage.openAIBlossom.isValid)
             directory = try TestDirectory()
             preferences = try TestPreferences()
             settings = MainPanelSettings(defaults: preferences.defaults)
@@ -190,9 +191,9 @@ struct MenuLoadingTests {
             return NSHostingView(rootView: AnyView(MenuPanelLayout { view }))
         }
 
-        func cleanUp() {
+        func cleanUp() async {
             preferences.remove()
-            try? directory.remove()
+            await #expect(throws: Never.self) { try await directory.removeAfterClosingHistory() }
         }
     }
 }

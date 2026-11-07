@@ -45,7 +45,7 @@ private struct SidePanelEntryRebuildHost<Content: View>: View {
 
 /// 设置窗口右侧子选项面板的公共装配
 /// 各子面板只差内容视图与高度变化来源, 窗口组关闭规则由 SettingsWindowController 统一维护
-/// 设置面板包含交互控件, 使用常驻 hosting controller 和 ObservableObject 更新, 不像重置次数面板那样替换 rootView
+/// 常驻 hosting controller 保留交互状态, 内容通过 ObservableObject 更新
 @MainActor
 final class OptionsPanelController {
     private let animationKey: String

@@ -365,7 +365,7 @@ struct AppServerActivityTests {
         """)
     }
 
-    @Test func eventRecorderDeduplicatesAcrossInstancesAndRestarts() async throws {
+    @Test(.tags(.integration)) func eventRecorderDeduplicatesAcrossInstancesAndRestarts() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let first = ActivityDataRecorder(directoryURL: directory.url)
@@ -607,7 +607,7 @@ extension AppServerActivityTests {
 }
 
 extension AppServerActivityTests {
-    @Test(arguments: [true, false])
+    @Test(.tags(.integration), arguments: [true, false])
     func distinctApprovalCallbacksArePersistedButReplayIsDeduplicated(hasApprovalID: Bool) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

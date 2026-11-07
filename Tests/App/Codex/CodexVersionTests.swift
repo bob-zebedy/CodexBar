@@ -39,8 +39,8 @@ struct CodexVersionTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         _ = try directory.write(#"{"entrypoint":"custom/cli","version":"0.158.0","layoutVersion":1}"#, to: "codex-cli/codex-package.json")
-        let entrypoint = try writeExecutable(in: directory, path: "codex-cli/custom/cli")
-        _ = try writeExecutable(in: directory, path: "codex")
+        let entrypoint = try directory.executable("exit 0", named: "codex-cli/custom/cli")
+        _ = try directory.executable("exit 0", named: "codex")
 
         let installations = CodexPaths.resolveInstallations(environment: ["PATH": ""], bundledResourceURL: directory.url)
         #expect(installations.bundledPath == entrypoint.path)
@@ -56,7 +56,7 @@ struct CodexVersionTests {
         }
         let nonExecutable = try directory.write("", to: "codex-cli/bin/codex")
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: nonExecutable.path)
-        let legacy = try writeExecutable(in: directory, path: "codex")
+        let legacy = try directory.executable("exit 0", named: "codex")
 
         let installations = CodexPaths.resolveInstallations(environment: ["PATH": ""], bundledResourceURL: directory.url)
         #expect(installations.bundledPath == legacy.path)
@@ -70,8 +70,8 @@ struct CodexVersionTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         _ = try directory.write(#"{"entrypoint":"bin/codex"}"#, to: "codex-cli/codex-package.json")
-        let bundled = try writeExecutable(in: directory, path: "codex-cli/bin/codex")
-        let global = try writeExecutable(in: directory, path: "global/codex")
+        let bundled = try directory.executable("exit 0", named: "codex-cli/bin/codex")
+        let global = try directory.executable("exit 0", named: "global/codex")
 
         let installations = CodexPaths.resolveInstallations(
             environment: ["PATH": global.deletingLastPathComponent().path],
@@ -86,8 +86,8 @@ struct CodexVersionTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         _ = try directory.write(#"{"entrypoint":"bin/codex"}"#, to: "codex-cli/codex-package.json")
-        let bundled = try writeExecutable(in: directory, path: "codex-cli/bin/codex")
-        _ = try writeExecutable(in: directory, path: "codex")
+        let bundled = try directory.executable("exit 0", named: "codex-cli/bin/codex")
+        _ = try directory.executable("exit 0", named: "codex")
         let link = directory.url.appendingPathComponent("global/codex")
         try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: directory.url.appendingPathComponent(target))
@@ -98,11 +98,5 @@ struct CodexVersionTests {
         )
         #expect(installations.globalPath == nil)
         #expect(installations.bundledPath == bundled.path)
-    }
-
-    private func writeExecutable(in directory: TestDirectory, path: String) throws -> URL {
-        let url = try directory.write("#!/bin/sh\nexit 0\n", to: path)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-        return url
     }
 }

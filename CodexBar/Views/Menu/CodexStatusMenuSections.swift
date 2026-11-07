@@ -28,7 +28,7 @@ struct AccountCard: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image("OpenAI Blossom")
+            Image(.openAIBlossom)
                 .resizable()
                 .scaledToFit()
                 .frame(width: MenuMetrics.accountIconSize, height: MenuMetrics.accountIconSize)
@@ -101,7 +101,7 @@ struct StatusAccountCard: View {
     var body: some View {
         let display = statusDisplay
         HStack(spacing: 8) {
-            Image("OpenAI Blossom")
+            Image(.openAIBlossom)
                 .resizable()
                 .scaledToFit()
                 .frame(width: MenuMetrics.accountIconSize, height: MenuMetrics.accountIconSize)
@@ -136,6 +136,8 @@ struct StatusAccountCard: View {
 
     private var statusDisplay: StatusDisplay {
         switch loadState {
+        case .notInstalled:
+            StatusDisplay(text: LocalizedStringResource("codex-status.account.not-installed"), color: Color.orange)
         case .notLoggedIn:
             StatusDisplay(text: LocalizedStringResource("codex-status.account.not-signed-in"), color: Color.orange)
         case let .unsupportedVersion(minimum):

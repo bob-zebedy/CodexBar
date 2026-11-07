@@ -11,7 +11,7 @@ actor AppServerStartup {
     enum Trigger { case automatic, manual }
 
     private let now: @Sendable () -> ContinuousClock.Instant
-    private var lastFailure: String?
+    private var lastFailure: (any Error)?
     private var automaticAttempts = 0
     private var retryAfter: ContinuousClock.Instant?
     private var inFlight: (id: UUID, task: Task<Void, any Error>)?
@@ -79,7 +79,7 @@ actor AppServerStartup {
             if inFlight?.id == operation.id {
                 switch error {
                 case is CancellationError, StartupError.retryDeferred, StartupError.retryExhausted: break
-                default: lastFailure = error.localizedDescription
+                default: lastFailure = error
                 }
             }
             throw error
@@ -114,8 +114,8 @@ actor AppServerStartup {
         guard unfinishedProcess?.isRunning != true else { throw StartupError.notReady }
         unfinishedProcess = nil
         if trigger == .automatic {
-            guard automaticAttempts < 3 else { throw StartupError.retryExhausted(lastFailure ?? "") }
-            guard retryAfter.map({ now() >= $0 }) ?? true else { throw StartupError.retryDeferred(lastFailure ?? "") }
+            guard automaticAttempts < 3 else { throw StartupError.retryExhausted(lastFailure) }
+            guard retryAfter.map({ now() >= $0 }) ?? true else { throw StartupError.retryDeferred(lastFailure) }
             automaticAttempts += 1
         }
         retryAfter = now().advanced(by: .seconds(60))
@@ -194,8 +194,17 @@ actor AppServerStartup {
         case timeout
         case commandFailed(Int32)
         case notReady
-        case retryDeferred(String)
-        case retryExhausted(String)
+        case retryDeferred((any Error)?)
+        case retryExhausted((any Error)?)
+
+        var isMissingInstallation: Bool {
+            switch self {
+            case .notInstalled: true
+            case let .retryDeferred(reason), let .retryExhausted(reason):
+                (reason as? StartupError)?.isMissingInstallation == true
+            default: false
+            }
+        }
 
         var errorDescription: String? {
             switch self {
@@ -210,7 +219,7 @@ actor AppServerStartup {
             case .notReady:
                 String(localized: "codex.daemon.not-ready")
             case let .retryDeferred(reason), let .retryExhausted(reason):
-                reason
+                reason?.localizedDescription ?? ""
             }
         }
     }

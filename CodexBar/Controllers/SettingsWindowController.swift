@@ -24,6 +24,7 @@ final class SettingsWindowController: HostingWindowController {
     private let animationState = SettingsWindowAnimationState()
     private var windowFocusObserver: AnyCancellable?
     private var windowVisibilityObserver: AnyCancellable?
+    private lazy var licensesWindowController = LicensesWindowController(screenProvider: screenProvider)
     /// 首次展开时才构造, 避免未使用的子面板持有 hosting controller 和订阅直到 App 退出
     private var optionsPanelControllers: [SettingsOptionsPanel: OptionsPanelController] = [:]
     private var optionsDismissEventMonitor: Any?
@@ -95,6 +96,9 @@ final class SettingsWindowController: HostingWindowController {
                 onOptionsAction: { [weak self] action in
                     self?.handleOptionsAction(action)
                 },
+                onOpenSourceLicenses: { [weak self] in
+                    self?.licensesWindowController.open()
+                },
                 onContentHeightChanged: { [weak self] height in
                     self?.resizeContentHeight(height)
                 }
@@ -140,6 +144,11 @@ final class SettingsWindowController: HostingWindowController {
         targetContentSize.height = preferredContentHeight ?? targetContentSize.height
         window.setContentSize(clampedContentSize(targetContentSize, for: window))
         positionForTabResizing(window)
+    }
+
+    override func setAllowsKeyFocus(_ allowsKeyFocus: Bool) {
+        super.setAllowsKeyFocus(allowsKeyFocus)
+        licensesWindowController.setAllowsKeyFocus(allowsKeyFocus)
     }
 
     private enum Metrics {

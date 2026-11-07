@@ -203,7 +203,7 @@ final class AutoResetController {
             blockAccount(signedOut: true)
         case .authenticationRequired:
             blockAccount(signedOut: false)
-        case .initializationFailed, .unsupportedVersion:
+        case .notInstalled, .initializationFailed, .unsupportedVersion:
             break
         case let .data(snapshot):
             let identity = AutoResetIdentity.accountIdentity(for: snapshot.account)

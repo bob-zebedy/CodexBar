@@ -74,7 +74,7 @@ struct MenuSectionLayout: Layout {
     }
 }
 
-/// 菜单宿主统一测量内容高度, 并在窗口尺寸尚未收敛时保持顶部对齐
+/// 菜单宿主统一测量内容高度, 并在窗口高度尚未更新到内容高度时保持顶部对齐
 struct MenuPanelLayout<Content: View>: View {
     var onHeightChange: (CGFloat) -> Void = { _ in }
     @ViewBuilder let content: () -> Content

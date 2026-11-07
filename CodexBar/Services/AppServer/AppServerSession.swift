@@ -38,6 +38,7 @@ final nonisolated class AppServerSession {
         retainsNotifications: Bool = true,
         logStorage: AppServerLogStore?,
         connectionName: String = "activity",
+        recordsConnectionAttempts: Bool = true,
         maximumMessageSize: Int = AppServerSession.defaultMaximumMessageSize
     ) throws {
         socketPath = socketURL.path
@@ -45,7 +46,9 @@ final nonisolated class AppServerSession {
         self.connectionName = connectionName
         self.retainsNotifications = retainsNotifications
         self.maximumMessageSize = maximumMessageSize
-        let connectionLogID = logStorage?.recordConnection(method: "connection/open", detail: socketPath, connection: connectionName, status: .pending)
+        let connectionLogID = recordsConnectionAttempts
+            ? logStorage?.recordConnection(method: "connection/open", detail: socketPath, connection: connectionName, status: .pending)
+            : nil
         do {
             descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
             guard descriptor >= 0, fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0 else { throw AppServerConnectionError(code: errno) }
@@ -81,25 +84,29 @@ final nonisolated class AppServerSession {
             try handshake()
             if let connectionLogID {
                 logStorage?.finishRequest(connectionLogID, response: socketPath)
+            } else if !recordsConnectionAttempts {
+                logStorage?.recordConnection(method: "connection/open", detail: socketPath, connection: connectionName, status: .success)
             }
         } catch {
             if let connectionLogID {
                 logStorage?.failRequest(connectionLogID, message: error.localizedDescription)
             }
-            close()
+            close(recordsEvent: recordsConnectionAttempts)
             throw error
         }
     }
 
     deinit { close() }
 
-    func close() {
+    func close(recordsEvent: Bool = true) {
         guard descriptor >= 0 else { return }
         Darwin.close(descriptor)
         descriptor = -1
         accountChange = nil
         notifications.removeAll()
-        logStorage?.recordConnection(method: "connection/closed", detail: socketPath, connection: connectionName, status: .information)
+        if recordsEvent {
+            logStorage?.recordConnection(method: "connection/closed", detail: socketPath, connection: connectionName, status: .information)
+        }
     }
 
     /// 按服务端 userAgent 校验当前连接的实际版本, 安装版本不能代替运行中的服务版本

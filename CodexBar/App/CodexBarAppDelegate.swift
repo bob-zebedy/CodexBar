@@ -10,7 +10,8 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
     lazy var viewModel = CodexStatusViewModel(service: codexStatusService, serviceStatusMonitor: serviceStatusMonitor)
     let historyViewModel = HistoryViewModel()
     lazy var tuiNotificationSettings = TUINotificationSettings(
-        codexStatusService: codexStatusService
+        codexStatusService: codexStatusService,
+        connectionAvailability: viewModel.$codexConnectionInfo.map { $0 != nil }.eraseToAnyPublisher()
     )
     let protectionSettings = ProtectionSettings()
     lazy var activityMonitor = ActivityMonitor(
@@ -136,7 +137,7 @@ final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] theme in
                 guard let self,
                       theme == appearanceSettings.theme else { return }
-                // 连续选择只应用最终主题及其来源, 即使外观未变也要消费本次圆心
+                // 连续选择只应用最终主题及其来源, 即使外观未变也要清除本次保存的过渡起点
                 let origin = appearanceSettings.takeTransitionOrigin()
                 guard NSApplication.shared.appearance?.name != theme.appearance?.name else { return }
                 appearanceTransition?.performChange(from: origin) {

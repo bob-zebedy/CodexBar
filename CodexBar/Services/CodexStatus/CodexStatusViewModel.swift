@@ -30,13 +30,14 @@ nonisolated enum DataUpdateInterval: Int, CaseIterable, Sendable {
 nonisolated enum CodexLoadState: Equatable {
     case loading
     case loaded
+    case notInstalled
     case notLoggedIn
     case unsupportedVersion(minimum: String)
     case initializationFailed
 
     var isError: Bool {
         switch self {
-        case .notLoggedIn, .unsupportedVersion, .initializationFailed: true
+        case .notInstalled, .notLoggedIn, .unsupportedVersion, .initializationFailed: true
         case .loading, .loaded: false
         }
     }
@@ -187,6 +188,9 @@ final class CodexStatusViewModel: ObservableObject {
                 case .notLoggedIn:
                     snapshot = nil
                     loadState = .notLoggedIn
+                case .notInstalled:
+                    snapshot = nil
+                    loadState = .notInstalled
                 case let .unsupportedVersion(minimum):
                     snapshot = nil
                     loadState = .unsupportedVersion(minimum: minimum)
@@ -302,11 +306,10 @@ final class CodexStatusViewModel: ObservableObject {
                 "elapsed=\(elapsed)"
             )
             AppLog.app.notice("额度刷新完成: \(details, privacy: .public)")
-        case .notLoggedIn:
-            // 未登录是正常状态, 使用 notice 级别记录刷新跳过原因
+        case .notInstalled, .notLoggedIn:
             let details = LogFields.joined(
                 "trigger=\(triggerName)",
-                "reason=notLoggedIn",
+                "reason=\(state)",
                 "elapsed=\(elapsed)"
             )
             AppLog.app.notice("额度刷新已跳过: \(details, privacy: .public)")
@@ -374,6 +377,7 @@ final class CodexStatusViewModel: ObservableObject {
             didReconnect = true
         } catch {
             loadState = switch error {
+            case let error as AppServerStartup.StartupError where error.isMissingInstallation: .notInstalled
             case CodexStatusError.notLoggedIn: .notLoggedIn
             case let CodexStatusError.unsupportedVersion(minimum): .unsupportedVersion(minimum: minimum)
             default: .initializationFailed

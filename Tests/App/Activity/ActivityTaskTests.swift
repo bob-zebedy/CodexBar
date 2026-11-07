@@ -13,9 +13,15 @@ struct ActivityTaskTests {
         #expect(threadID == "thread-a")
         _ = graph.consume([TestFixtures.event(terminal, at: now.addingTimeInterval(1))], source: .live)
         if terminal == .turnCompleted {
-            #expect(graph.completions.first?.threadID == threadID)
+            let completion = try #require(graph.completions.first)
+            #expect(completion.threadID == threadID)
+            #expect(completion.taskID == first.snapshot.id)
+            #expect(completion.id != first.snapshot.id)
         } else {
-            #expect(graph.terminations.first?.threadID == threadID)
+            let termination = try #require(graph.terminations.first)
+            #expect(termination.threadID == threadID)
+            #expect(termination.taskID == first.snapshot.id)
+            #expect(termination.id != first.snapshot.id)
         }
         _ = graph.consume([TestFixtures.event(at: now.addingTimeInterval(2), turn: "turn-b")], source: .live)
         let next = try #require(graph.tasks[ActivityTaskKey(thread: "thread-a", turn: "turn-b")])
@@ -27,48 +33,9 @@ struct ActivityTaskTests {
         #expect(other.snapshot.threadID != threadID)
     }
 
-    @Test(arguments: [ActivityDataEventKind.turnCompleted, .turnAborted])
-    func terminalSnapshotPreservesTaskIdentityAcrossTurns(terminal: ActivityDataEventKind) throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        let monitor = ActivityMonitor(
-            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
-            protectionStore: ProtectionStore(directoryURL: directory.url), activityDataDirectoryURL: directory.url
-        )
-        defer { monitor.stop() }
-        monitor.isActivitySourceHealthy = true
-        let now = Date()
-        monitor.consume(.live([TestFixtures.event(at: now)]))
-        let firstID = try #require(monitor.graph.tasks.values.first?.snapshot.id)
-        monitor.consume(.live([TestFixtures.event(terminal, at: now.addingTimeInterval(1))]))
-        if terminal == .turnCompleted {
-            let completion = try #require(monitor.graph.completions.first)
-            #expect(completion.taskID == firstID)
-            #expect(completion.id != firstID)
-        } else {
-            let termination = try #require(monitor.graph.terminations.first)
-            #expect(termination.taskID == firstID)
-            #expect(termination.id != firstID)
-        }
-        monitor.consume(.live([TestFixtures.event(at: now.addingTimeInterval(2), turn: "turn-b")]))
-        let nextID = try #require(monitor.graph.tasks.values.first?.snapshot.id)
-        #expect(nextID != firstID)
-    }
-
     @Test(arguments: ["thread", "turn", "both", "empty-thread", "empty-turn"], [false, true])
     func incompleteIdentityCannotCreateOrChangeTasks(missing: String, snapshot: Bool) throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        let monitor = ActivityMonitor(
-            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
-            protectionStore: ProtectionStore(directoryURL: directory.url), activityDataDirectoryURL: directory.url
-        )
-        defer { monitor.stop() }
-        monitor.isActivitySourceHealthy = true
+        var graph = ActivityTaskGraph()
         let now = Date()
         let thread: String? = switch missing {
         case "thread", "both": nil
@@ -83,41 +50,32 @@ struct ActivityTaskTests {
         let events = ActivityDataEventKind.allCases.map {
             TestFixtures.event($0, at: now.addingTimeInterval(1), thread: thread, turn: turn)
         }
-        monitor.consume(snapshot ? .snapshotEvents(events) : .live(events))
-        #expect(monitor.graph.tasks.isEmpty)
-        #expect(monitor.graph.completions.isEmpty)
-        #expect(monitor.graph.terminations.isEmpty)
-        monitor.consume(.live([TestFixtures.event(at: now)]))
-        let original = try #require(monitor.graph.tasks.values.first?.snapshot)
-        monitor.consume(snapshot ? .snapshotEvents(events) : .live(events))
-        #expect(monitor.graph.tasks.count == 1)
-        #expect(monitor.graph.tasks.values.first?.snapshot == original)
-        #expect(monitor.graph.completions.isEmpty)
-        #expect(monitor.graph.terminations.isEmpty)
-        #expect(monitor.graph.pendingTerminalTasks.isEmpty)
-        #expect(monitor.graph.terminalTokenUsageRequests.isEmpty)
+        _ = graph.consume(events, source: snapshot ? .bootstrap : .live)
+        #expect(graph.tasks.isEmpty)
+        #expect(graph.completions.isEmpty)
+        #expect(graph.terminations.isEmpty)
+        _ = graph.consume([TestFixtures.event(at: now)], source: .live)
+        let original = try #require(graph.tasks.values.first?.snapshot)
+        _ = graph.consume(events, source: snapshot ? .bootstrap : .live)
+        #expect(graph.tasks.count == 1)
+        #expect(graph.tasks.values.first?.snapshot == original)
+        #expect(graph.completions.isEmpty)
+        #expect(graph.terminations.isEmpty)
+        #expect(graph.pendingTerminalTasks.isEmpty)
+        #expect(graph.terminalTokenUsageRequests.isEmpty)
     }
 
-    @Test func lateTerminalOnlyCompletesItsOwnTurnOnce() throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        let monitor = ActivityMonitor(
-            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
-            protectionStore: ProtectionStore(directoryURL: directory.url), activityDataDirectoryURL: directory.url
-        )
-        defer { monitor.stop() }
-        monitor.isActivitySourceHealthy = true
+    @Test func lateTerminalOnlyCompletesItsOwnTurnOnce() {
+        var graph = ActivityTaskGraph()
         let now = Date()
-        monitor.consume(.live([TestFixtures.event(at: now)]))
-        monitor.consume(.live([TestFixtures.event(at: now.addingTimeInterval(1), turn: "turn-b")]))
+        _ = graph.consume([TestFixtures.event(at: now)], source: .live)
+        _ = graph.consume([TestFixtures.event(at: now.addingTimeInterval(1), turn: "turn-b")], source: .live)
         let terminal = TestFixtures.event(.turnCompleted, at: now.addingTimeInterval(2))
-        monitor.consume(.live([terminal, terminal]))
-        #expect(Set(monitor.graph.tasks.keys) == [.init(thread: "thread-a", turn: "turn-b")])
-        #expect(monitor.graph.pendingTerminalTasks.isEmpty)
-        #expect(monitor.graph.completions.count == 1)
-        #expect(monitor.graph.terminations.isEmpty)
+        _ = graph.consume([terminal, terminal], source: .live)
+        #expect(Set(graph.tasks.keys) == [.init(thread: "thread-a", turn: "turn-b")])
+        #expect(graph.pendingTerminalTasks.isEmpty)
+        #expect(graph.completions.count == 1)
+        #expect(graph.terminations.isEmpty)
     }
 
     @Test func dailySnapshotDoesNotEnterConnectionRecovery() throws {
@@ -138,28 +96,19 @@ struct ActivityTaskTests {
         #expect(!monitor.isBootstrapping)
     }
 
-    @Test func guardianIsFilteredAtEntryAndAutoReviewedUserTaskRemainsVisible() throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        let monitor = ActivityMonitor(
-            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
-            protectionStore: ProtectionStore(directoryURL: directory.url), activityDataDirectoryURL: directory.url
-        )
-        defer { monitor.stop() }
-        monitor.isActivitySourceHealthy = true
+    @Test func guardianIsFilteredAtEntryAndAutoReviewedUserTaskRemainsVisible() {
+        var graph = ActivityTaskGraph()
         let now = Date()
         for kind in [ActivityDataEventKind.turnStarted, .toolStarted, .approvalRequested, .turnCompleted, .turnAborted] {
-            monitor.consume(.live([TestFixtures.event(kind, at: now, origin: .autoReview)]))
+            _ = graph.consume([TestFixtures.event(kind, at: now, origin: .autoReview)], source: .live)
         }
-        #expect(monitor.graph.tasks.isEmpty)
-        #expect(monitor.graph.pendingTerminalTasks.isEmpty)
-        #expect(monitor.graph.completions.isEmpty)
-        #expect(monitor.graph.terminations.isEmpty)
-        #expect(monitor.graph.recentlyEndedTaskAt.isEmpty)
-        monitor.consume(.live([TestFixtures.event(at: now)]))
-        #expect(monitor.graph.tasks.count == 1)
+        #expect(graph.tasks.isEmpty)
+        #expect(graph.pendingTerminalTasks.isEmpty)
+        #expect(graph.completions.isEmpty)
+        #expect(graph.terminations.isEmpty)
+        #expect(graph.recentlyEndedTaskAt.isEmpty)
+        _ = graph.consume([TestFixtures.event(at: now)], source: .live)
+        #expect(graph.tasks.count == 1)
     }
 
     @Test func subagentLinkRetentionDoesNotDependOnIdentityOrRefreshTime() {
@@ -181,19 +130,11 @@ struct ActivityTaskTests {
         #expect(graph.subagentTurnLinks[child] == nil)
     }
 
-    @Test func incompleteSubagentRootCannotBeGuessedFromQueuedEventsOrPreviousLink() throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        let monitor = ActivityMonitor(
-            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
-            protectionStore: ProtectionStore(directoryURL: directory.url), activityDataDirectoryURL: directory.url
-        )
-        defer { monitor.stop() }
+    @Test func incompleteSubagentRootCannotBeGuessedFromQueuedEventsOrPreviousLink() {
+        var graph = ActivityTaskGraph()
         let now = Date()
         let event = TestFixtures.event(.toolStarted, at: now, agentThreadID: "child", origin: .auxiliary)
-        let observedResult1 = monitor.graph.deferUnassociatedSubagentEvent(event, source: .live)
+        let observedResult1 = graph.deferUnassociatedSubagentEvent(event, source: .live)
         #expect(observedResult1)
         var state = TurnLifecycleState(
             requestedThreadID: "child", turnID: "turn-a", startedAt: now,
@@ -201,14 +142,14 @@ struct ActivityTaskTests {
             rootTurnID: "turn-a", parentThreadID: "thread-a"
         )
         let reference = ActivityTurnReference(threadID: "child", turnID: "turn-a")
-        monitor.applySubagentLifecycle(state)
-        #expect(monitor.graph.subagentTurnLinks[reference] == nil)
-        monitor.graph.subagentTurnLinks[reference] = (.init(thread: "thread-a", turn: "turn-a"), now)
-        monitor.applySubagentLifecycle(state)
-        #expect(monitor.graph.subagentTurnLinks[reference]?.root == .init(thread: "thread-a", turn: "turn-a"))
+        graph.applySubagentLifecycle(state)
+        #expect(graph.subagentTurnLinks[reference] == nil)
+        graph.subagentTurnLinks[reference] = (.init(thread: "thread-a", turn: "turn-a"), now)
+        graph.applySubagentLifecycle(state)
+        #expect(graph.subagentTurnLinks[reference]?.root == .init(thread: "thread-a", turn: "turn-a"))
         state.rootThreadID = "different-thread"
-        monitor.applySubagentLifecycle(state)
-        #expect(monitor.graph.subagentTurnLinks[reference]?.root == .init(thread: "thread-a", turn: "turn-a"))
+        graph.applySubagentLifecycle(state)
+        #expect(graph.subagentTurnLinks[reference]?.root == .init(thread: "thread-a", turn: "turn-a"))
     }
 
     @Test(arguments: [-172800.0, 0.5, 2.0])
@@ -279,21 +220,12 @@ struct ActivityTaskTests {
         #expect(task.snapshot.approvalActionText == expected)
     }
 
-    @Test func unknownSourceCannotReuseAnotherEventsOrigin() throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let preferences = try TestPreferences()
-        defer { preferences.remove() }
-        let monitor = ActivityMonitor(
-            protectionSettings: ProtectionSettings(defaults: preferences.defaults),
-            protectionStore: ProtectionStore(directoryURL: directory.url), activityDataDirectoryURL: directory.url
-        )
-        defer { monitor.stop() }
-        monitor.isActivitySourceHealthy = true
-        monitor.consume(.live([TestFixtures.event(at: Date())]))
-        monitor.consume(.live([TestFixtures.event(.turnCompleted, at: Date(), origin: .unknown)]))
-        #expect(monitor.graph.tasks.count == 1)
-        #expect(monitor.graph.completions.isEmpty)
+    @Test func unknownSourceCannotReuseAnotherEventsOrigin() {
+        var graph = ActivityTaskGraph()
+        _ = graph.consume([TestFixtures.event(at: Date())], source: .live)
+        _ = graph.consume([TestFixtures.event(.turnCompleted, at: Date(), origin: .unknown)], source: .live)
+        #expect(graph.tasks.count == 1)
+        #expect(graph.completions.isEmpty)
     }
 
     @Test func taskIdentityRequiresThreadAndTurnAndSeparatesTheirBoundaries() {

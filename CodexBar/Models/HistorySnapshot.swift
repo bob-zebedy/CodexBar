@@ -118,7 +118,7 @@ nonisolated struct ActivityDataMetrics: Equatable {
 
 // MARK: - 面板快照
 
-/// HistoryService 发布给 UI 的近端快照
+/// HistoryService 发布给 UI 的历史统计快照
 nonisolated struct HistorySnapshot: Equatable {
     let activityData: [ActivityDataMetrics]
     var tokenUsageByDate: [String: TokenUsage] = [:]

@@ -363,6 +363,54 @@ struct AppServerStartupTests {
         #expect(try String(contentsOf: directory.url.appendingPathComponent("calls"), encoding: .utf8) == "start\n")
     }
 
+    @Test func missingInstallationRemainsDistinctDuringCooldownAndAfterRetryLimit() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let clock = OSAllocatedUnfairLock(initialState: ContinuousClock.now)
+        let ready = OSAllocatedUnfairLock(initialState: false)
+        let server = try SharedServerFixture { peer in
+            let initialize = try peer.readMessage()
+            try peer.reply(to: initialize, result: ["userAgent": "codex/0.162.0"])
+            _ = try peer.readMessage()
+            let account = try peer.readMessage()
+            try peer.reply(to: account, result: ["account": NSNull()])
+        }
+        defer { server.close() }
+        let startup = AppServerStartup(
+            environment: [:], installations: .init(globalPath: nil, bundledPath: nil),
+            probeConnection: {
+                if !ready.withLock({ $0 }) {
+                    throw AppServerConnectionError(code: ENOENT)
+                }
+            },
+            now: { clock.withLock { $0 } }
+        )
+        let service = CodexStatusService(socketURL: server.url, logStorage: nil, startup: startup)
+        for _ in 0 ..< 4 {
+            for _ in 0 ..< 2 {
+                guard case .notInstalled = await service.fetchOutcome().outcome else {
+                    Issue.record("Expected missing installation to survive retry throttling")
+                    return
+                }
+            }
+            clock.withLock { $0 = $0.advanced(by: .seconds(60)) }
+        }
+        let model = CodexStatusViewModel(service: service, defaults: preferences.defaults)
+        model.refresh(trigger: .manual)
+        #expect(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(5)) { !model.isRefreshing })
+        #expect(model.loadState == .notInstalled)
+        #expect(model.snapshot == nil)
+        await model.reconnectCodex()
+        #expect(model.loadState == .notInstalled)
+        ready.withLock { $0 = true }
+        model.refresh(trigger: .manual)
+        #expect(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(5)) { !model.isRefreshing })
+        #expect(model.loadState == .notLoggedIn)
+        try server.finish()
+    }
+
     @Test(arguments: [false, true])
     func accountRecoveryCanStartAfterInitialFailure(manual: Bool) async throws {
         let directory = try TestDirectory()

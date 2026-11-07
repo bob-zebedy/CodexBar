@@ -63,8 +63,7 @@ nonisolated enum CodexDateFormat {
         return calendar
     }()
 
-    /// DateFormatter 在 macOS 10.9+ 线程安全
-    /// 此实例配置后不再修改, 可跨并发域缓存共享
+    /// 格式化器初始化后保持只读, 可跨并发域缓存共享
     private static let localDisplayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

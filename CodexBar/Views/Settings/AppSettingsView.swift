@@ -23,6 +23,7 @@ struct AppSettingsView: View {
     let onSyncChanged: (Bool) -> Void
     let onRebuildHistoryData: SyncScheduler.RebuildHandler
     let onOptionsAction: (SettingsOptionsPanelAction) -> Void
+    let onOpenSourceLicenses: () -> Void
     let onContentHeightChanged: (CGFloat) -> Void
     @State private var selectedTab = SettingsTab.general
     @State private var isTabContentSettled = true
@@ -194,8 +195,6 @@ private extension AppSettingsView {
         static let tabVerticalPadding: CGFloat = 7
         static let tabContentSpacing = padding
         static let windowChromeHeight = padding * 2 + tabBarHeight + tabContentSpacing
-        static let dataUpdateIntervalPickerWidth: CGFloat = 90
-        static let themePickerWidth: CGFloat = 140
         static let syncStatusRowHeight: CGFloat = 16
         static let syncStatusValueWidth: CGFloat = 160
         static let tabContentInitialScale = 0.975
@@ -337,6 +336,8 @@ private extension AppSettingsView {
                 releaseNotesRow
                 LiquidGlassDivider()
                 githubProjectRow
+                LiquidGlassDivider()
+                openSourceLicensesRow
             }
             .padding(Metrics.panelPadding)
             .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
@@ -375,9 +376,7 @@ private extension AppSettingsView {
                     }
                 ),
                 options: AppearanceSettings.Theme.allCases,
-                label: { $0.title },
-                width: Metrics.themePickerWidth,
-                alignment: .trailing
+                label: { $0.title }
             )
             .background {
                 ScreenFrameReader(provider: themeAnchorProvider)
@@ -453,8 +452,7 @@ private extension AppSettingsView {
                     set: { statusViewModel.setDataUpdateInterval($0) }
                 ),
                 options: DataUpdateInterval.allCases,
-                label: { $0.title },
-                width: Metrics.dataUpdateIntervalPickerWidth
+                label: { $0.title }
             )
         }
         .frame(minHeight: SettingsRowMetrics.optionsButtonSize)
@@ -965,6 +963,27 @@ private extension AppSettingsView {
                 .frame(width: Metrics.githubIconSize, height: Metrics.githubIconSize),
             destination: Self.githubProjectURL
         )
+    }
+
+    var openSourceLicensesRow: some View {
+        Button(action: onOpenSourceLicenses) {
+            HStack(spacing: SettingsRowMetrics.spacing) {
+                Image(systemName: "scroll")
+                    .frame(width: SettingsRowMetrics.iconWidth)
+                    .foregroundStyle(.tint)
+
+                Text("settings.about.open-source-licenses")
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     func externalLinkRow(title: LocalizedStringKey, icon: some View, destination: URL) -> some View {
