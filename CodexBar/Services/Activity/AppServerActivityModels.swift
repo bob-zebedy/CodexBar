@@ -242,6 +242,9 @@ private nonisolated struct WireActivityInput: Decodable {
             params = Params(threadId: live.threadId, turnId: live.turnId)
         } else {
             params = try container.decode(Params.self, forKey: .params)
+            if kind.isThreadLifecycleChange, params.threadId?.isEmpty != false {
+                throw DecodingError.dataCorruptedError(forKey: .params, in: container, debugDescription: "Missing thread identity")
+            }
             switch kind {
             case .itemStarted, .itemFinished, .usageUpdated,
                  .commandApprovalRequested, .fileApprovalRequested, .permissionsRequested,
@@ -311,6 +314,10 @@ nonisolated enum AppServerActivityProtocol {
         switch method {
         case "thread/started": .threadDiscovered
         case "thread/status/changed": .threadStatusChanged
+        case "thread/closed": .threadClosed
+        case "thread/archived": .threadArchived
+        case "thread/deleted": .threadDeleted
+        case "thread/reverted": .threadReverted
         case "thread/tokenUsage/updated": .usageUpdated
         case "turn/started": .turnStarted
         case "turn/completed": .turnFinished

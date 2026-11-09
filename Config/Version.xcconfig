@@ -1,2 +1,2 @@
 #include "BuildNumber.xcconfig"
-MARKETING_VERSION = 5.2.4
+MARKETING_VERSION = 5.2.5

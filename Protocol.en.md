@@ -40,6 +40,10 @@ Codex version: `0.162.0`
 | --- | --- |
 | `thread/started` | Receive thread start notifications |
 | `thread/status/changed` | Receive thread status changes |
+| `thread/closed` | Receive thread closure or unload notifications; clear local subscription and live execution state while retaining valid history backfill |
+| `thread/archived` | Receive thread archive notifications; clear local subscription and live execution state while retaining valid history backfill |
+| `thread/deleted` | Receive thread deletion notifications; clear live state, stop further queries and history backfill for the thread, and discard invalidated in-flight results |
+| `thread/reverted` | Receive thread revert notifications; retain the subscription, invalidate old pagination and backfill, recheck turns, and remove live state for turns confirmed to no longer exist |
 | `thread/tokenUsage/updated` | Receive thread token usage updates |
 | `turn/started` | Receive turn start notifications |
 | `turn/completed` | Receive turn end notifications |

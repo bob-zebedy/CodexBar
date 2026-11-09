@@ -1,8 +1,102 @@
 import AppKit
+import SwiftUI
 import Testing
 
 @MainActor
 struct ActivityCardEventsTests {
+    @Test(arguments: [true, false])
+    func shrinkingCardRejectsNewGesturesOutsideItsCurrentBounds(precise: Bool) {
+        let panel = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 320))
+        panel.clipsToBounds = true
+        let region = ActivityCardEvents.EventRegion(frame: NSRect(x: 20, y: 20, width: 300, height: 180))
+        panel.addSubview(region)
+        region.isEnabled = true
+        var events: [ActivityCardEvents.SwipeEvent] = []
+        region.onSwipe = { events.append($0) }
+        let point = NSPoint(x: 150, y: 140)
+        #expect(region.scroll(delta: -4, timestamp: 1, phase: precise ? .began : [], precise: precise, inside: region.containsInteractionPoint(point)))
+        #expect(events == (precise ? [.began, .changed(-4)] : [.step(1)]))
+        region.scroll(delta: 0, timestamp: 1.2, phase: .ended)
+        events.removeAll()
+
+        region.setFrameSize(NSSize(width: 300, height: 60))
+        // 未启用自身裁剪的事件视图, 可见区域仍覆盖卡片外的面板区域
+        #expect(region.visibleRect.contains(point))
+        #expect(!region.containsInteractionPoint(point))
+        #expect(!region.scroll(delta: 4, timestamp: 2, phase: precise ? .began : [], precise: precise, inside: region.containsInteractionPoint(point)))
+        #expect(events.isEmpty)
+        let inside = region.containsInteractionPoint(NSPoint(x: 150, y: 30))
+        #expect(region.scroll(delta: 4, timestamp: 3, phase: precise ? .began : [], precise: precise, inside: inside))
+        #expect(events == (precise ? [.began, .changed(4)] : [.step(-1)]))
+        region.scroll(delta: 0, timestamp: 3.2, phase: .ended)
+        #expect(region.window == nil)
+    }
+
+    @Test(arguments: [-1, 1])
+    func shrinkingBelowStationaryPointerDoesNotCancelOwnedGesture(direction: Int) {
+        let region = ActivityCardEvents.EventRegion()
+        let swipe = ActivityCardSwipe()
+        let width: CGFloat = 300
+        var now = Date(timeIntervalSince1970: 1800000000)
+        var events: [ActivityCardEvents.SwipeEvent] = []
+        region.isEnabled = true
+        region.onSwipe = { event in
+            events.append(event)
+            switch event {
+            case .began:
+                _ = swipe.begin(width: width, now: now)
+            case let .changed(delta):
+                swipe.move(by: delta, width: width)
+            case let .ended(velocity):
+                swipe.end(velocity: velocity, width: width, cancelled: false, now: now)
+            case .cancelled:
+                swipe.end(velocity: 0, width: width, cancelled: true, now: now)
+            case .step:
+                Issue.record("Precise gesture unexpectedly switched to discrete navigation")
+            }
+        }
+        let host = NSHostingView(rootView: ActivityCardSwipePages(swipe: swipe, width: width) { step in
+            Color.clear.frame(height: step == 0 ? 180 : 60)
+        }.frame(width: width))
+        var movedOutside = false
+        for index in 0 ..< 8 {
+            host.layoutSubtreeIfNeeded()
+            host.setFrameSize(host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            region.setFrameSize(host.frame.size)
+            // 鼠标停在高卡片底部, 高度变化时按顶部距离重新换算到事件视图
+            let inside = region.containsInteractionPoint(NSPoint(x: 150, y: host.frame.height - 160))
+            movedOutside = movedOutside || !inside
+            now = now.addingTimeInterval(0.02)
+            #expect(region.scroll(delta: CGFloat(direction) * 30, timestamp: now.timeIntervalSince1970, phase: index == 0 ? .began : .changed, inside: inside))
+        }
+        now = now.addingTimeInterval(0.2)
+        #expect(region.scroll(delta: 0, timestamp: now.timeIntervalSince1970, phase: .ended, inside: false))
+        #expect(movedOutside)
+        #expect(!events.contains(.cancelled))
+        #expect(events.filter { $0 == .began }.count == 1)
+        #expect(swipe.settlement?.step == -direction)
+
+        let count = events.count
+        #expect(!region.scroll(delta: CGFloat(direction) * 30, timestamp: now.timeIntervalSince1970 + 1, phase: .began, inside: false))
+        #expect(events.count == count)
+        #expect(host.window == nil)
+    }
+
+    @Test func interactionRequiresCardBoundsAndVisibleAncestorArea() {
+        let panel = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 120))
+        panel.clipsToBounds = true
+        let region = ActivityCardEvents.EventRegion(frame: NSRect(x: 20, y: 20, width: 300, height: 180))
+        panel.addSubview(region)
+        #expect(region.containsInteractionPoint(NSPoint(x: 150, y: 30)))
+        for point in [NSPoint(x: -1, y: 30), NSPoint(x: 301, y: 30), NSPoint(x: 150, y: -1), NSPoint(x: 150, y: 140)] {
+            #expect(!region.containsInteractionPoint(point))
+        }
+        panel.isHidden = true
+        #expect(!region.containsInteractionPoint(NSPoint(x: 150, y: 30)))
+        #expect(region.window == nil)
+    }
+
     @Test func inactiveHostCleanupCannotEndAnotherHostsGesture() async throws {
         let active = ActivityCardEvents.EventRegion()
         let inactive = ActivityCardEvents.EventRegion()
@@ -64,7 +158,7 @@ struct ActivityCardEventsTests {
         }
         #expect(velocity < 0)
         region.scroll(delta: -100, timestamp: 2, phase: .began)
-        region.scroll(delta: 0, timestamp: 2.01, phase: .cancelled)
+        #expect(region.scroll(delta: 0, timestamp: 2.01, phase: .cancelled, inside: false))
         #expect(events.last == .cancelled)
     }
 
@@ -74,7 +168,7 @@ struct ActivityCardEventsTests {
         region.onSwipe = { events.append($0) }
         region.isEnabled = true
         region.scroll(delta: -10, timestamp: 1, phase: [])
-        region.scroll(delta: 4, timestamp: 1.02, phase: [])
+        region.scroll(delta: 4, timestamp: 1.02, phase: [], inside: false)
         try await Task.sleep(for: .milliseconds(220))
         #expect(events == [.began, .changed(-10), .changed(4), .ended(velocity: 0)])
         region.scroll(delta: -10, timestamp: 2, phase: [])

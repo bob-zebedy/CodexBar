@@ -40,6 +40,10 @@ Codex 版本：`0.162.0`
 | --- | --- |
 | `thread/started` | 接收会话启动通知 |
 | `thread/status/changed` | 接收会话状态变化 |
+| `thread/closed` | 接收会话关闭或卸载通知；清理本地订阅和实时执行状态，保留有效的历史补读 |
+| `thread/archived` | 接收会话归档通知；清理本地订阅和实时执行状态，保留有效的历史补读 |
+| `thread/deleted` | 接收会话删除通知；清理实时状态，停止该会话的后续查询和历史补读，丢弃失效的在途结果 |
+| `thread/reverted` | 接收会话回退通知；保留订阅，使旧分页和补读失效，重新核对轮次并移除已确认不存在轮次的实时状态 |
 | `thread/tokenUsage/updated` | 接收会话 Token 用量更新 |
 | `turn/started` | 接收轮次开始通知 |
 | `turn/completed` | 接收轮次结束通知 |

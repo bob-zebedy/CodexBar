@@ -19,7 +19,12 @@ nonisolated struct ActivityTaskGraph {
     ) -> [ActivityTransition] {
         let previouslyWaiting = Set(tasks.values.filter { $0.blockingWaitStartedAt != nil }.map(\.displayID))
         let previouslyAwaitingApproval = Set(tasks.values.filter { $0.state == .waitingApproval }.map(\.displayID))
-        var transitions = consume(events, source: source)
+        let currentEvents = events.filter { event in
+            guard event.eventKind != .turnCompleted, event.eventKind != .turnAborted,
+                  let thread = event.agentThreadID ?? event.threadID, let turn = event.turnID else { return true }
+            return lifecycle.states[ActivityTurnReference(threadID: thread, turnID: turn)]?.tracking ?? .live == .live
+        }
+        var transitions = consume(currentEvents, source: source)
         transitions += reconcile(lifecycle.lifecycleStates(for: lifecycleReferences()))
         for (key, task) in tasks where task.state == .waitingApproval && !previouslyAwaitingApproval.contains(task.displayID) {
             if let approval = task.displayedApproval {
@@ -61,8 +66,17 @@ nonisolated struct ActivityTaskGraph {
     }
 
     mutating func reconcile(_ states: [TurnLifecycleState]) -> [ActivityTransition] {
-        unavailableTurns = Set(states.filter { $0.readStatus != .complete }.map { ActivityTaskKey(thread: $0.requestedThreadID, turn: $0.turnID) })
+        unavailableTurns = Set(states.filter { $0.tracking == .live && $0.readStatus != .complete }
+            .map { ActivityTaskKey(thread: $0.requestedThreadID, turn: $0.turnID) })
+        for state in states where state.tracking == .live && state.readStatus != .complete {
+            if let root = state.rootThreadID, let turn = state.rootTurnID {
+                unavailableTurns.insert(ActivityTaskKey(thread: root, turn: turn))
+            }
+        }
         var transitions: [ActivityTransition] = []
+        let retired = Set(states.filter { $0.tracking != .live }.map { ActivityTurnReference(threadID: $0.requestedThreadID, turnID: $0.turnID) })
+        pendingSubagentEvents = pendingSubagentEvents.filter { subagentReference(for: $0.event).map(retired.contains) != true }
+        mergeExecutionLifecycles(states.filter { $0.tracking != .live })
         for state in states {
             applySubagentLifecycle(state)
             applyLifecycleState(state, into: &transitions)
@@ -178,6 +192,14 @@ nonisolated struct ActivityTaskGraph {
 
     private mutating func applyLifecycleState(_ state: TurnLifecycleState, into transitions: inout [ActivityTransition]) {
         let key = ActivityTaskKey(thread: state.requestedThreadID, turn: state.turnID)
+        if state.tracking != .live {
+            pendingTerminalTasks[key] = nil
+            if var task = tasks[key] {
+                task.lifecycleCoverageCheckedAt = nil
+                tasks[key] = task.executions.values.contains { !$0.isTerminal && !$0.isDetached } ? task : nil
+            }
+            return
+        }
         if var pending = pendingTerminalTasks[key] {
             Self.mergeLifecycleBackfill(from: state, into: &pending.task)
             if state.readStatus == .complete, let terminal = state.terminal {
@@ -225,7 +247,7 @@ nonisolated struct ActivityTaskGraph {
 
     private mutating func mergeExecutionLifecycles(_ states: [TurnLifecycleState]) {
         // 暂存事件补齐后再应用审批状态, 避免已处理的请求恢复等待
-        for state in states where state.readStatus == .complete {
+        for state in states where state.readStatus == .complete || state.tracking != .live {
             let reference = ActivityTurnReference(threadID: state.requestedThreadID, turnID: state.turnID)
             let key: ActivityTaskKey
             let owner: ActivityExecutionKey

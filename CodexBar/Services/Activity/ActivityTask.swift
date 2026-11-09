@@ -131,7 +131,7 @@ nonisolated struct ActivityTask {
     }
 
     private var livePresentation: ActivityLiveSummary? {
-        let live = executions.filter { !$0.value.isTerminal }.compactMap { key, value in
+        let live = executions.filter { !$0.value.isTerminal && !$0.value.isDetached }.compactMap { key, value in
             value.presentation.map { (key, $0.summary) }
         }
         guard !live.isEmpty else { return nil }
@@ -276,7 +276,7 @@ nonisolated struct ActivityTask {
 
     func acceptsExecutionEvent(_ event: ActivityDataRecord) -> Bool {
         let execution = executions[executionKey(for: event)]
-        return execution?.isTerminal != true && event.timestamp >= (execution?.lastEventAt ?? .distantPast)
+        return execution?.isTerminal != true && execution?.isDetached != true && event.timestamp >= (execution?.lastEventAt ?? .distantPast)
     }
 
     mutating func recordExecutionEvent(_ event: ActivityDataRecord) {
@@ -306,8 +306,18 @@ nonisolated struct ActivityTask {
     }
 
     mutating func mergeExecutionLifecycle(_ lifecycle: TurnLifecycleState, owner: ActivityExecutionKey) {
+        if lifecycle.tracking != .live {
+            var execution = executions[owner] ?? ActivityExecution()
+            execution.isDetached = true
+            execution.approval = nil
+            execution.presentation = nil
+            executions[owner] = execution
+            refreshApprovalState(at: lastProgressAt)
+            return
+        }
         guard lifecycle.readStatus == .complete else { return }
         var execution = executions[owner] ?? ActivityExecution()
+        execution.isDetached = false
         execution.presentation = lifecycle.presentation
         executions[owner] = execution
         if lifecycle.terminal != nil {
@@ -376,6 +386,7 @@ nonisolated struct ActivityExecution {
     var lastEventAt: Date = .distantPast
     var approval: ActivityApproval?
     var isTerminal = false
+    var isDetached = false
     var presentation: ActivityLivePresentation?
 }
 

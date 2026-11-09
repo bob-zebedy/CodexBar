@@ -11,7 +11,7 @@ nonisolated struct TaskTokenUsageRequest {
         var total: TokenUsage?
         for reference in references {
             guard let state = states.first(where: { $0.requestedThreadID == reference.threadID && $0.turnID == reference.turnID }),
-                  state.readStatus == .complete,
+                  state.readStatus == .complete || state.tracking != .live,
                   state.rootTurnID == root.turnID,
                   (state.rootThreadID ?? state.requestedThreadID) == root.threadID,
                   !requiresFinalTokenUsage || reference == root || state.terminal != nil,

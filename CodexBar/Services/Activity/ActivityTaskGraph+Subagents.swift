@@ -34,18 +34,12 @@ nonisolated extension ActivityTaskGraph {
         pendingSubagentEvents.removeAll { $0.event.timestamp <= cutoff }
         // 结束后的关联也保留一个回放窗口, 用于拒绝旧 Agent 的迟到生命周期事件
         subagentTurnLinks = subagentTurnLinks.filter { $0.value.retainedAt > cutoff }
-        var references = pendingSubagentEvents.compactMap { subagentReference(for: $0.event) }
-        for task in tasks.values {
-            for (owner, execution) in task.executions where !execution.isTerminal {
-                guard let agentThreadID = owner.agentThreadID, let turnID = owner.turnID else { continue }
-                references.append(ActivityTurnReference(threadID: agentThreadID, turnID: turnID))
-            }
-        }
+        let references = pendingSubagentEvents.compactMap { subagentReference(for: $0.event) }
         return Array(Set(references))
     }
 
     mutating func applySubagentLifecycle(_ state: TurnLifecycleState) {
-        guard state.readStatus == .complete,
+        guard state.readStatus == .complete || state.tracking != .live,
               let rootTurnID = state.rootTurnID,
               let rootThreadID = state.rootThreadID,
               let parentThreadID = state.parentThreadID, parentThreadID != state.requestedThreadID else { return }
@@ -57,8 +51,9 @@ nonisolated extension ActivityTaskGraph {
               eventThreads.isEmpty || eventThreads == [rootThreadID] else { return }
         let rootKey = ActivityTaskKey(thread: rootThreadID, turn: rootTurnID)
         guard subagentTurnLinks[reference].map({ $0.root == rootKey }) ?? true else { return }
+        // 已退出实时跟踪的子轮次仍需保留确认的归属, 用于汇总已知用量
         subagentTurnLinks[reference] = (rootKey, state.startedAt ?? subagentTurnLinks[reference]?.retainedAt ?? Date())
-        guard var task = tasks[rootKey] else { return }
+        guard state.tracking == .live, var task = tasks[rootKey] else { return }
         let key = rootKey
         let owner = ActivityExecutionKey(agentThreadID: state.requestedThreadID, turnID: state.turnID)
         task.mergeEffort(state.effort)
@@ -75,9 +70,11 @@ nonisolated extension ActivityTaskGraph {
             let children = TurnLifecycleState.subagentStates(for: [root], in: states)
             let references = Set(children.map { ActivityTurnReference(threadID: $0.requestedThreadID, turnID: $0.turnID) })
             let agentThreadIDs = Set(children.map(\.requestedThreadID))
-            let hasRoot = states.contains { $0.requestedThreadID == root.threadID && $0.turnID == root.turnID && $0.readStatus == .complete }
+            let hasRoot = states.contains {
+                $0.requestedThreadID == root.threadID && $0.turnID == root.turnID && ($0.readStatus == .complete || $0.tracking != .live)
+            }
             let hasChildren = children.allSatisfy {
-                $0.readStatus == .complete && $0.rootThreadID == root.threadID && $0.rootTurnID == root.turnID
+                ($0.readStatus == .complete || $0.tracking != .live) && $0.rootThreadID == root.threadID && $0.rootTurnID == root.turnID
                     && subagentTurnLinks[ActivityTurnReference(threadID: $0.requestedThreadID, turnID: $0.turnID)]?.root == key
             }
             let hasExecutions = task.executions.keys.allSatisfy { owner in
@@ -92,9 +89,12 @@ nonisolated extension ActivityTaskGraph {
             if task.hasCompleteSubagentCoverage {
                 task.subagentsByThreadID = Dictionary(grouping: children, by: \.requestedThreadID).mapValues { turns in
                     SubagentObservation(
-                        isRunning: turns.contains { $0.terminal == nil },
+                        isRunning: turns.contains { $0.tracking == .live && $0.terminal == nil },
                         timestamp: turns.compactMap { $0.lastProgressAt ?? $0.startedAt }.max() ?? .distantPast
                     )
+                }
+                if states.contains(where: { $0.requestedThreadID == root.threadID && $0.turnID == root.turnID && $0.tracking != .live }) {
+                    task.lifecycleCoverageCheckedAt = children.filter { $0.tracking == .live && $0.terminal == nil }.compactMap(\.verifiedAt).min()
                 }
             }
             tasks[key] = task

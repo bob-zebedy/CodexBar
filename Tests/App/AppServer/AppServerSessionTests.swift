@@ -298,6 +298,7 @@ struct AppServerSessionTests {
         var filtered = try unusedNotifications()
         var retained = try [
             "thread/started", "thread/status/changed", "turn/started", "turn/completed",
+            "thread/closed", "thread/archived", "thread/deleted", "thread/reverted",
             "serverRequest/resolved", "account/updated", "account/rateLimits/updated", "error", "warning",
             "hook/started", "hook/completed", "model/rerouted", "model/verification",
             "modelProvider/authRecoveryStarted", "modelProvider/authRecoveryCompleted", "model/safetyBuffering/updated"

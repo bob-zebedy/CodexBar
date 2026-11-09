@@ -96,51 +96,26 @@ actor AppServerActivityReader {
         let started = Date()
         let threadRevision: Int
         let turns: [ActivityTurnReference: Int]
+        var lifecycleID: UUID?
     }
+
+    private struct ThreadLifecycleChange {
+        let id = UUID()
+        var kind: ActivityInput.Kind?
+    }
+
+    private enum ReadInvalidated: Error { case lifecycle }
+
+    private var lifecycleChanges: [String: ThreadLifecycleChange] = [:]
+    private var discoveryRevision = 0
 
     private struct DrainWaiter {
         let recoveryID: UUID
         let continuation: CheckedContinuation<ActivityEventDrainResult, Never>
     }
 
-    private struct ThreadCheck {
-        var checkedAt: ContinuousClock.Instant
-        var verifiedRevision: Int?
-        var recoveryID: UUID?
-        var failures = 0
-        var failureStartedAt: ContinuousClock.Instant?
-        var retryAfter: ContinuousClock.Instant?
-
-        mutating func record(verifiedRevision: Int?, failed: Bool, recoveryID: UUID, now: ContinuousClock.Instant) {
-            checkedAt = now
-            self.verifiedRevision = verifiedRevision
-            if self.recoveryID != recoveryID {
-                failures = 0
-                failureStartedAt = nil
-            }
-            self.recoveryID = recoveryID
-            guard failed else {
-                failures = 0
-                failureStartedAt = nil
-                retryAfter = verifiedRevision == nil ? now.advanced(by: .seconds(5)) : nil
-                return
-            }
-            failures = min(failures + 1, 4)
-            let started = failureStartedAt ?? now
-            failureStartedAt = started
-            // 快速重试同时受次数和时间限制, 随后保留低频探测以发现延迟落盘的线程
-            let delays: [Duration] = [.seconds(5), .seconds(15), .seconds(30), .seconds(60)]
-            let delay = now - started < .seconds(60) ? delays[failures - 1] : .seconds(60)
-            retryAfter = now.advanced(by: delay)
-        }
-
-        mutating func expedite(at now: ContinuousClock.Instant) {
-            guard let retryAfter else { return }
-            self.retryAfter = min(retryAfter, max(now, checkedAt.advanced(by: .seconds(5))))
-        }
-    }
-
     private struct BackfillScan {
+        let id = UUID()
         var completed = false
         let createdAt = Date()
         var cursor: String?
@@ -432,12 +407,34 @@ actor AppServerActivityReader {
         throw CodexStatusError.invalidServerResponse
     }
 
+    private func loadCurrentThreads(generation current: Int) async throws -> Set<String>? {
+        let discovery = discoveryRevision
+        let discovered = try await loadThreads(generation: current)
+        guard discovery == discoveryRevision else {
+            isReconciliationComplete = false
+            reconciledAt = Date()
+            return nil
+        }
+        let loaded = discovered.filter { lifecycleChanges[$0]?.kind != .threadDeleted }
+        for (id, change) in lifecycleChanges where !loaded.contains(id) && [.threadClosed, .threadArchived].contains(change.kind) {
+            lifecycleChanges[id]?.kind = nil
+        }
+        return loaded
+    }
+
     private func reconcileWithinBudget(bootstrap: Bool, forced: Bool, recovering: Bool, generation current: Int) async throws {
-        let loaded = try await loadThreads(generation: current)
+        guard let loaded = try await loadCurrentThreads(generation: current) else {
+            if !bootstrap {
+                await publish(.lifecycleChanged)
+            }
+            return
+        }
+        let pending = Set(lifecycleChanges.filter { $0.value.kind != nil && $0.value.kind != .threadDeleted }.keys)
         pruneBackfill(now: Date())
         ignoredThreads.formIntersection(loaded)
         let knownActive = Set(reducer.states.keys.filter {
-            reducer.states[$0]?.terminal == nil && reducer.threads[$0.threadID]?.status?.type != .notLoaded
+            reducer.states[$0]?.tracking == .live && reducer.states[$0]?.terminal == nil
+                && reducer.threads[$0.threadID]?.status?.type != .notLoaded
         }.map(\.threadID))
         let now = reconciliationClock()
         let dependencies = Set(reducer.missingRootTurns(liveOnly: forced || recovering).keys)
@@ -446,18 +443,25 @@ actor AppServerActivityReader {
         let liveDependencies = Set(reducer.missingRootTurns(liveOnly: true).keys)
             .union(reducer.missingSubagentParents(liveOnly: true))
         let required = loaded.union(knownActive).union(liveDependencies)
-        let candidates = loaded.union(knownActive).union(dependencies).subtracting(ignoredThreads).filter { id in
+        let candidates = loaded.union(knownActive).union(dependencies).union(pending).subtracting(ignoredThreads).filter { id in
+            guard lifecycleChanges[id]?.kind != .threadDeleted else { return false }
             let interval: TimeInterval = invalidThreads.contains(id) || knownActive.contains(id)
                 || liveDependencies.contains(id) || reducer.threads[id]?.status?.type == .active ? 5 : 60
             guard !forced, let check = threadChecks[id] else { return true }
             if let retryAfter = check.retryAfter {
                 return now >= retryAfter
             }
+            if pending.contains(id) {
+                return true
+            }
             if recovering, !isThreadVerified(id) {
                 return true
             }
             return now - check.checkedAt >= .seconds(interval)
         }.sorted {
+            if pending.contains($0) != pending.contains($1) {
+                return pending.contains($0)
+            }
             if required.contains($0) != required.contains($1) {
                 return required.contains($0)
             }
@@ -478,7 +482,7 @@ actor AppServerActivityReader {
         reducer.maintain(loadedThreads: loaded.subtracting(ignoredThreads), now: Date())
         pruneBackfill(now: Date())
         subscribed.formIntersection(loaded)
-        let retained = loaded.union(knownActive).union(dependencies).subtracting(ignoredThreads)
+        let retained = loaded.union(knownActive).union(dependencies).union(pending).subtracting(ignoredThreads)
         threadChecks = threadChecks.filter { retained.contains($0.key) }
         revisions = revisions.filter { retained.contains($0.key) }
         verifiedTurns = verifiedTurns.filter { reducer.states[$0.key] != nil && retained.contains($0.key.threadID) }
@@ -486,11 +490,13 @@ actor AppServerActivityReader {
         turnRevisions = turnRevisions.filter { reducer.states[$0.key] != nil && retained.contains($0.key.threadID) }
         liveStartedTurns = liveStartedTurns.filter { reducer.states[$0] != nil }
         invalidThreads.formIntersection(retained)
+        lifecycleChanges = lifecycleChanges.filter { reducer.threads[$0.key] != nil || retained.contains($0.key) }
         reconciledAt = Date()
         try checkGeneration(current)
         isReconciliationComplete = loaded.union(knownActive).subtracting(ignoredThreads).allSatisfy(isThreadVerified)
+            && !lifecycleChanges.values.contains { $0.kind != nil && $0.kind != .threadDeleted }
             && !reducer.states.values.contains {
-                $0.terminal == nil && ($0.rootThreadID == nil || $0.rootTurnID == nil)
+                $0.tracking == .live && $0.terminal == nil && ($0.rootThreadID == nil || $0.rootTurnID == nil)
             }
         if !bootstrap {
             await publish(.lifecycleChanged)
@@ -504,39 +510,32 @@ actor AppServerActivityReader {
 
     private func reconcileThread(_ id: String, loaded: Set<String>, bootstrap: Bool, forced: Bool, generation current: Int) async throws {
         guard !ignoredThreads.contains(id) else { return }
-        let checkpoint = ReadCheckpoint(threadRevision: revisions[id, default: 0], turns: turnRevisions)
-        let active = Set(reducer.states.keys.filter { $0.threadID == id && reducer.states[$0]?.terminal == nil }.map(\.turnID))
-        var remaining = active.union(reducer.missingRootTurns(liveOnly: forced)[id] ?? [])
+        let checkpoint = ReadCheckpoint(threadRevision: revisions[id, default: 0], turns: turnRevisions, lifecycleID: lifecycleChanges[id]?.id)
+        let reverting = lifecycleChanges[id]?.kind == .threadReverted
+        let active = Set(reducer.states.keys.filter {
+            $0.threadID == id && reducer.states[$0]?.tracking == .live && reducer.states[$0]?.terminal == nil
+        }.map(\.turnID))
+        var remaining = reconciliationTargets(id, active: active, liveOnly: forced)
         let newSubscription = !subscribed.contains(id)
-        if newSubscription {
-            preparingThread = id
-        }
+        preparingThread = newSubscription ? id : nil
         defer { preparingThread = nil }
         var covered = false
         var failed = true
         do {
-            let read: ActivityThreadRead = try await request(ActivityRequests.thread(id), generation: current)
-            var thread = read.thread
+            let thread = try await readThread(id, loaded: loaded, checkpoint: checkpoint, generation: current)
             if ignoreIfNeeded(thread) {
                 return
             }
-            if loaded.contains(id), newSubscription, thread.status?.type != .notLoaded {
-                let joined: ActivityThreadResume = try await request(ActivityRequests.subscribe(id), generation: current)
-                thread = joined.thread
-                if ignoreIfNeeded(thread) {
-                    return
-                }
-                subscribed.insert(id)
-            }
-            if newSubscription {
-                reducer.threads[id] = thread
-            }
             let first = try await request(ActivityRequests.turns(id, limit: 10), generation: current)
-            await applySnapshot(thread: thread, turns: first.data, checkpoint: checkpoint, bootstrap: bootstrap || newSubscription)
+            try await applySnapshot(thread: thread, turns: first.data, checkpoint: checkpoint, bootstrap: bootstrap || newSubscription)
             remaining.subtract(first.data.map(\.id))
+            if [.threadClosed, .threadArchived].contains(lifecycleChanges[id]?.kind) {
+                lifecycleChanges[id]?.kind = nil
+            }
             // 首个小页建立轮次身份后立即处理通知, 避免后续分页查询延迟实时事件
             preparingThread = nil
             consumeDeferred(for: id)
+            try checkLifecycle(id, checkpoint: checkpoint)
             if newSubscription {
                 restoreTokenUsage(threadID: id, generation: current)
             }
@@ -547,42 +546,106 @@ actor AppServerActivityReader {
                 bootstrap: bootstrap || newSubscription, forced: forced, generation: current
             )
             remaining = result.remaining
-            for turnID in remaining.intersection(active) {
-                let key = ActivityTurnReference(threadID: id, turnID: turnID)
-                guard checkpoint.turns[key, default: 0] == turnRevisions[key, default: 0], reducer.states[key]?.terminal == nil else { continue }
-                verifiedTurns[key] = nil
-                reducer.states[key]?.readStatus = result.exhausted ? .notFound : .unavailable
+            try checkLifecycle(id, checkpoint: checkpoint)
+            if reverting, result.exhausted {
+                reducer.retireTurns(threadID: id, turnIDs: remaining, removed: true)
+                backfillScans = backfillScans.filter { $0.key.threadID != id || !remaining.contains($0.key.turnID) }
+                remaining.removeAll()
             }
+            markMissingTurns(id, remaining: remaining.intersection(active), exhausted: result.exhausted, checkpoint: checkpoint)
             let unchanged = checkpoint.threadRevision == revisions[id, default: 0]
             if unchanged {
                 invalidThreads.remove(id)
                 finishBackfillDiscovery(threadID: id, turns: first.data, remaining: remaining)
+                if remaining.isEmpty {
+                    lifecycleChanges[id]?.kind = nil
+                }
             }
             if invalidThreads.contains(id) {
                 reducer.invalidateThread(id)
             }
-            covered = unchanged && remaining.isDisjoint(with: active) && thread.status?.type != .notLoaded
-            failed = thread.status?.type == .notLoaded || (result.exhausted && !remaining.isDisjoint(with: active))
+            let historyOnly = !loaded.contains(id) && reducer.states.filter { $0.key.threadID == id }.values.allSatisfy { $0.tracking != .live }
+            covered = unchanged && remaining.isDisjoint(with: active) && (thread.status?.type != .notLoaded || historyOnly)
+            failed = (thread.status?.type == .notLoaded && !historyOnly) || (result.exhausted && !remaining.isDisjoint(with: active))
             try await flushPending(generation: current)
+        } catch where error is ReadInvalidated || (checkpoint.lifecycleID != lifecycleChanges[id]?.id
+            && (error as? CodexStatusError)?.isTransportFailure != true) {
+            consumeDeferred(for: id)
+            applyLifecycleChange(id)
+            return
         } catch CodexStatusError.invalidResponsePayload {
             consumeDeferred(for: id)
             invalidateThread(id, method: "activity/thread")
         } catch let error as CodexStatusError where error.isMissingRollout(for: id)
             || (!error.isTransportFailure && !error.isProtocolOrParameterFailure) {
-            reducer.invalidateThread(id)
-            verifiedTurns = verifiedTurns.filter { $0.key.threadID != id }
-            turnScans[id] = nil
-            subscribed.remove(id)
-            consumeDeferred(for: id)
+            handleUnavailableThread(id)
         } catch {
             consumeDeferred(for: id)
             throw error
         }
         try checkGeneration(current)
+        guard checkpoint.lifecycleID == lifecycleChanges[id]?.id else { return }
         let now = reconciliationClock()
         var check = threadChecks[id] ?? ThreadCheck(checkedAt: now)
         check.record(verifiedRevision: covered ? checkpoint.threadRevision : nil, failed: failed, recoveryID: recoveryID, now: now)
         threadChecks[id] = check
+    }
+
+    private func handleUnavailableThread(_ id: String) {
+        reducer.invalidateThread(id)
+        verifiedTurns = verifiedTurns.filter { $0.key.threadID != id }
+        turnScans[id] = nil
+        subscribed.remove(id)
+        consumeDeferred(for: id)
+    }
+
+    private func reconciliationTargets(_ id: String, active: Set<String>, liveOnly: Bool) -> Set<String> {
+        var targets = active.union(reducer.missingRootTurns(liveOnly: liveOnly)[id] ?? [])
+        if lifecycleChanges[id]?.kind == .threadReverted {
+            targets.formUnion(reducer.states.filter {
+                $0.key.threadID == id && $0.value.tracking != .removed && $0.value.terminal == nil
+            }.keys.map(\.turnID))
+            targets.formUnion(backfillScans.filter { $0.key.threadID == id && !$0.value.completed }.keys.map(\.turnID))
+        }
+        return targets
+    }
+
+    private func markMissingTurns(_ id: String, remaining: Set<String>, exhausted: Bool, checkpoint: ReadCheckpoint) {
+        for turnID in remaining {
+            let key = ActivityTurnReference(threadID: id, turnID: turnID)
+            guard checkpoint.turns[key, default: 0] == turnRevisions[key, default: 0], reducer.states[key]?.terminal == nil else { continue }
+            verifiedTurns[key] = nil
+            reducer.states[key]?.readStatus = exhausted ? .notFound : .unavailable
+        }
+    }
+
+    private func readThread(_ id: String, loaded: Set<String>, checkpoint: ReadCheckpoint, generation current: Int) async throws -> ActivityThread {
+        let newSubscription = !subscribed.contains(id)
+        let read: ActivityThreadRead = try await request(ActivityRequests.thread(id), generation: current)
+        if checkpoint.lifecycleID != lifecycleChanges[id]?.id, reducer.threads[id] == nil {
+            // 已接收事实仍需要来源信息, 旧响应只能补身份, 不能恢复运行状态
+            reducer.threads[id] = read.thread
+            consumeDeferred(for: id)
+            applyLifecycleChange(id)
+        }
+        try checkLifecycle(id, checkpoint: checkpoint)
+        var thread = read.thread
+        if ignoreIfNeeded(thread) {
+            return thread
+        }
+        if loaded.contains(id), newSubscription, thread.status?.type != .notLoaded {
+            let joined: ActivityThreadResume = try await request(ActivityRequests.subscribe(id), generation: current)
+            try checkLifecycle(id, checkpoint: checkpoint)
+            thread = joined.thread
+            if ignoreIfNeeded(thread) {
+                return thread
+            }
+            subscribed.insert(id)
+        }
+        if newSubscription {
+            reducer.threads[id] = thread
+        }
+        return thread
     }
 
     private func readRemainingTurns(
@@ -600,19 +663,21 @@ actor AppServerActivityReader {
         turnScans[id] = scan
         for _ in 0 ..< (forced ? 8 : 1) {
             guard !remaining.isEmpty, !scan.exhausted, let cursor = scan.cursor else { break }
-            let pageCheckpoint = ReadCheckpoint(threadRevision: checkpoint.threadRevision, turns: turnRevisions)
+            let pageCheckpoint = ReadCheckpoint(threadRevision: checkpoint.threadRevision, turns: turnRevisions, lifecycleID: checkpoint.lifecycleID)
             let page = try await request(ActivityRequests.turns(id, limit: 100, cursor: cursor), generation: current)
+            try checkLifecycle(id, checkpoint: checkpoint)
             guard page.nextCursor != cursor, page.nextCursor.map({ !scan.visitedCursors.contains($0) }) ?? true else {
                 throw CodexStatusError.invalidServerResponse
             }
             scan.visitedCursors.insert(cursor)
-            await applySnapshot(thread: thread, turns: page.data, checkpoint: pageCheckpoint, bootstrap: bootstrap)
+            try await applySnapshot(thread: thread, turns: page.data, checkpoint: pageCheckpoint, bootstrap: bootstrap)
             scheduleHistoryTargets(threadID: id, turns: page.data, joined: false)
             remaining.subtract(page.data.map(\.id))
             scan.cursor = page.nextCursor
             scan.exhausted = page.nextCursor == nil
             turnScans[id] = scan
             try await flushPending(generation: current)
+            try checkLifecycle(id, checkpoint: checkpoint)
         }
         if scan.cursor == nil {
             scan.exhausted = true
@@ -624,7 +689,12 @@ actor AppServerActivityReader {
         return (remaining, scan.exhausted)
     }
 
-    private func applySnapshot(thread: ActivityThread, turns: [ActivityTurn], checkpoint: ReadCheckpoint, bootstrap: Bool) async {
+    private func checkLifecycle(_ id: String, checkpoint: ReadCheckpoint) throws {
+        guard checkpoint.lifecycleID == lifecycleChanges[id]?.id else { throw ReadInvalidated.lifecycle }
+    }
+
+    private func applySnapshot(thread: ActivityThread, turns: [ActivityTurn], checkpoint: ReadCheckpoint, bootstrap: Bool) async throws {
+        try checkLifecycle(thread.id, checkpoint: checkpoint)
         let threadChanged = checkpoint.threadRevision != revisions[thread.id, default: 0]
         let changedTurns = Set(turns.filter { turn in
             let key = ActivityTurnReference(threadID: thread.id, turnID: turn.id)
@@ -641,12 +711,14 @@ actor AppServerActivityReader {
         }
         if !events.isEmpty {
             await publish(.snapshotEvents, events: events)
+            try checkLifecycle(thread.id, checkpoint: checkpoint)
         }
     }
 
     private func finishBackfillDiscovery(threadID: String, turns: [ActivityTurn], remaining: Set<String>) {
         guard !turns.isEmpty, remaining.isEmpty, turns.allSatisfy({
-            reducer.states[ActivityTurnReference(threadID: threadID, turnID: $0.id)]?.readStatus == .complete
+            let state = reducer.states[ActivityTurnReference(threadID: threadID, turnID: $0.id)]
+            return state?.readStatus == .complete || state?.tracking == .historyOnly
         }) else { return }
         // 轮次身份已交给 reducer 和补查队列, 不再为历史发现单独轮询会话
         backfillThreads[threadID] = nil
@@ -695,9 +767,11 @@ actor AppServerActivityReader {
     }
 
     private func scheduleHistoryTargets(threadID: String, turns: [ActivityTurn], joined: Bool) {
+        guard lifecycleChanges[threadID]?.kind != .threadDeleted else { return }
         for turn in turns {
             let reference = ActivityTurnReference(threadID: threadID, turnID: turn.id)
             let state = reducer.states[reference]
+            guard state?.tracking != .removed else { continue }
             let root = state.flatMap { state -> ActivityTurnReference? in
                 guard let thread = state.rootThreadID, let turn = state.rootTurnID else { return nil }
                 return ActivityTurnReference(threadID: thread, turnID: turn)
@@ -721,14 +795,15 @@ actor AppServerActivityReader {
             }
         }
         for (reference, state) in reducer.states where backfillScans[reference] == nil && backfillScans.count < 10000 {
-            guard !liveStartedTurns.contains(reference), state.startedAt.map({ $0 < connectedAt }) ?? true,
+            guard state.tracking != .removed, lifecycleChanges[reference.threadID]?.kind != .threadDeleted,
+                  !liveStartedTurns.contains(reference), state.startedAt.map({ $0 < connectedAt }) ?? true,
                   let thread = state.rootThreadID, let turn = state.rootTurnID,
                   backfillRoots.contains(ActivityTurnReference(threadID: thread, turnID: turn)) else { continue }
             backfillScans[reference] = BackfillScan()
         }
         guard let reference = backfillScans.keys.filter({
             guard let scan = backfillScans[$0] else { return false }
-            return !scan.completed && scan.retryAfter <= Date()
+            return !scan.completed && scan.retryAfter <= Date() && lifecycleChanges[$0.threadID]?.kind != .threadReverted
         }).min(by: {
             (backfillScans[$0]!.checkedAt, backfillRoots.contains($0) ? 0 : 1, $0.threadID, $0.turnID)
                 < (backfillScans[$1]!.checkedAt, backfillRoots.contains($1) ? 0 : 1, $1.threadID, $1.turnID)
@@ -744,27 +819,27 @@ actor AppServerActivityReader {
             } catch {
                 result = .failure(error)
             }
-            await self?.finishBackfill(result, reference: reference, epoch: epoch, generation: current)
+            await self?.finishBackfill(result, reference: reference, scanID: scan.id, epoch: epoch, generation: current)
         }
     }
 
-    private func finishBackfill(_ result: Result<AppServerActivityBackfill.Page, Error>, reference: ActivityTurnReference, epoch: UUID, generation current: Int) async {
+    private func finishBackfill(_ result: Result<AppServerActivityBackfill.Page, Error>, reference: ActivityTurnReference, scanID: UUID, epoch: UUID, generation current: Int) async {
         guard isRunning, generation == current, backfillEpoch == epoch else { return }
         defer {
             if backfillEpoch == epoch {
                 backfillTask = nil
             }
         }
-        guard !Task.isCancelled, var scan = backfillScans[reference] else { return }
+        guard !Task.isCancelled, var scan = backfillScans[reference], scan.id == scanID else { return }
         do {
             let page = try result.get()
             guard page.nextCursor.map({ !scan.visitedCursors.contains($0) }) ?? true else { throw CodexStatusError.invalidServerResponse }
             let events = reducer.historicalEvents(page.items, reference: reference, now: Date())
                 + reducer.historicalTurnEvents(reference)
             try await activityDataRecorder.record(events: events)
-            guard isRunning, generation == current, backfillEpoch == epoch, !Task.isCancelled, backfillScans[reference] != nil else { return }
+            guard isRunning, generation == current, backfillEpoch == epoch, !Task.isCancelled, backfillScans[reference]?.id == scanID else { return }
             for entry in page.items where entry.item.type == .subAgentActivity && entry.item.kind == "started" {
-                if let child = entry.item.agentThreadId, backfillThreads.count < 10000 {
+                if let child = entry.item.agentThreadId, lifecycleChanges[child]?.kind != .threadDeleted, backfillThreads.count < 10000 {
                     backfillThreads[child] = backfillThreads[child] ?? Date()
                 }
             }
@@ -778,7 +853,7 @@ actor AppServerActivityReader {
             backfillScans[reference] = scan.completed ? BackfillScan(completed: true) : scan
             await publish(.lifecycleChanged)
         } catch {
-            guard isRunning, generation == current, backfillEpoch == epoch, !Task.isCancelled, backfillScans[reference] != nil else { return }
+            guard isRunning, generation == current, backfillEpoch == epoch, !Task.isCancelled, backfillScans[reference]?.id == scanID else { return }
             scan.failures += 1
             scan.retryAfter = Date().addingTimeInterval(scan.failures == 1 ? 5 : 15)
             let status = error as? CodexStatusError
@@ -858,6 +933,10 @@ actor AppServerActivityReader {
         if let id, ignoredThreads.contains(id) {
             return
         }
+        if notification.kind.isThreadLifecycleChange, let id {
+            consumeLifecycleChange(notification.kind, threadID: id)
+            return
+        }
         if let id, preparingThread != id {
             expediteRetry(for: notification, threadID: id)
         }
@@ -867,6 +946,56 @@ actor AppServerActivityReader {
             return
         }
         consume(notification)
+    }
+
+    private func consumeLifecycleChange(_ kind: ActivityInput.Kind, threadID id: String) {
+        discoveryRevision &+= 1
+        guard reducer.threads[id] != nil || preparingThread == id || backfillThreads[id] != nil
+            || backfillScans.keys.contains(where: { $0.threadID == id }) else { return }
+        consumeDeferred(for: id)
+        let previousKind = lifecycleChanges[id]?.kind
+        let effectiveKind: ActivityInput.Kind = if kind == .threadDeleted || previousKind == .threadDeleted {
+            .threadDeleted
+        } else if kind == .threadReverted || previousKind == .threadReverted {
+            .threadReverted
+        } else {
+            kind
+        }
+        lifecycleChanges[id] = ThreadLifecycleChange(kind: effectiveKind)
+        revisions[id, default: 0] += 1
+        verifiedTurns = verifiedTurns.filter { $0.key.threadID != id }
+        turnScans[id] = nil
+        if kind != .threadReverted {
+            subscribed.remove(id)
+        }
+        if effectiveKind == .threadDeleted {
+            backfillScans = backfillScans.filter { $0.key.threadID != id }
+            backfillRoots = backfillRoots.filter { $0.threadID != id }
+            backfillThreads[id] = nil
+        } else if effectiveKind == .threadReverted {
+            for reference in backfillScans.keys where reference.threadID == id && backfillScans[reference]?.completed == false {
+                backfillScans[reference] = BackfillScan()
+            }
+        }
+        applyLifecycleChange(id)
+        if kind == .threadClosed || kind == .threadArchived {
+            reducer.threads[id]?.status = ActivityThreadStatus(type: .notLoaded)
+            reducer.retireTurns(threadID: id, removed: effectiveKind == .threadDeleted)
+        }
+        isReconciliationComplete = false
+        stateChanged = true
+        reconciledAt = .distantPast
+        threadChecks[id]?.expedite(at: reconciliationClock())
+    }
+
+    private func applyLifecycleChange(_ id: String) {
+        guard let kind = lifecycleChanges[id]?.kind else { return }
+        if kind == .threadReverted {
+            reducer.suspendThread(id)
+        } else {
+            reducer.threads[id]?.status = ActivityThreadStatus(type: .notLoaded)
+            reducer.retireTurns(threadID: id, removed: kind == .threadDeleted)
+        }
     }
 
     private func expediteRetry(for notification: ActivityInput, threadID: String) {
@@ -900,6 +1029,9 @@ actor AppServerActivityReader {
         stateChanged = true
         recordStateChange(notification)
         let events = reducer.consume(notification, now: Date())
+        if let id = notification.params.threadId ?? notification.params.thread?.id, lifecycleChanges[id]?.kind == .threadDeleted {
+            applyLifecycleChange(id)
+        }
         pendingPublication += events
         if let id = notification.params.threadId ?? notification.params.thread?.id, invalidThreads.contains(id) {
             reducer.invalidateThread(id)
@@ -1160,4 +1292,43 @@ actor AppServerActivityReader {
     }
 
     private struct MethodEnvelope: Decodable { let method: String }
+}
+
+private extension AppServerActivityReader {
+    struct ThreadCheck {
+        var checkedAt: ContinuousClock.Instant
+        var verifiedRevision: Int?
+        var recoveryID: UUID?
+        var failures = 0
+        var failureStartedAt: ContinuousClock.Instant?
+        var retryAfter: ContinuousClock.Instant?
+
+        mutating func record(verifiedRevision: Int?, failed: Bool, recoveryID: UUID, now: ContinuousClock.Instant) {
+            checkedAt = now
+            self.verifiedRevision = verifiedRevision
+            if self.recoveryID != recoveryID {
+                failures = 0
+                failureStartedAt = nil
+            }
+            self.recoveryID = recoveryID
+            guard failed else {
+                failures = 0
+                failureStartedAt = nil
+                retryAfter = verifiedRevision == nil ? now.advanced(by: .seconds(5)) : nil
+                return
+            }
+            failures = min(failures + 1, 4)
+            let started = failureStartedAt ?? now
+            failureStartedAt = started
+            // 快速重试同时受次数和时间限制, 随后保留低频探测以发现延迟落盘的线程
+            let delays: [Duration] = [.seconds(5), .seconds(15), .seconds(30), .seconds(60)]
+            let delay = now - started < .seconds(60) ? delays[failures - 1] : .seconds(60)
+            retryAfter = now.advanced(by: delay)
+        }
+
+        mutating func expedite(at now: ContinuousClock.Instant) {
+            guard let retryAfter else { return }
+            self.retryAfter = min(retryAfter, max(now, checkedAt.advanced(by: .seconds(5))))
+        }
+    }
 }

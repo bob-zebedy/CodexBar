@@ -20,10 +20,8 @@ struct ActivityCard: View {
     @State private var swipe = ActivityCardSwipe()
     @State private var swipeContent: ActivityCardSwipeContent?
     @State private var gestureOwner = UUID()
-    @State private var incomingOffset: CGFloat = 0
-    @State private var outgoingOffset: CGFloat = 0
-    @State private var incomingOpacity = 1.0
-    @State private var outgoingOpacity = 1.0
+    @State private var transitionProgress = 1.0
+    @State private var transitionDistance: CGFloat = 0
     @State private var animationGeneration = 0
 
     private var selection: ActivityCardSelection {
@@ -207,10 +205,8 @@ struct ActivityCard: View {
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             outgoingContent = nil
-            incomingOffset = 0
-            outgoingOffset = 0
-            incomingOpacity = 1
-            outgoingOpacity = 1
+            transitionProgress = 1
+            transitionDistance = 0
         }
     }
 
@@ -248,8 +244,8 @@ struct ActivityCard: View {
         withTransaction(transaction) {
             outgoingContent = previous
             retainedContent = content
-            incomingOffset = slides ? distance : 0
-            incomingOpacity = slides ? 1 : 0
+            transitionDistance = slides ? distance : 0
+            transitionProgress = 0
         }
         Task { @MainActor in
             await Task.yield()
@@ -258,10 +254,7 @@ struct ActivityCard: View {
                 ? Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.3)
                 : .easeInOut(duration: 0.2)
             withAnimation(animation, completionCriteria: .removed) {
-                incomingOffset = 0
-                incomingOpacity = 1
-                outgoingOffset = slides ? -distance : 0
-                outgoingOpacity = slides ? 1 : 0
+                transitionProgress = 1
             } completion: {
                 guard generation == animationGeneration else { return }
                 outgoingContent = nil
@@ -296,14 +289,11 @@ struct ActivityCard: View {
             .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
             .overlay {
                 RoundedRectangle(cornerRadius: MenuMetrics.panelCornerRadius, style: .continuous)
-                    .strokeBorder(
-                        isTaskCenterPresented
-                            ? Color.accentColor.opacity(0.55)
-                            : Color.primary.opacity(isHovered && snapshot.hasTaskCenterContent ? 0.14 : 0),
-                        lineWidth: 1
-                    )
-                    .animation(.codexStatus, value: isHovered)
-                    .animation(.codexStatus, value: isTaskCenterPresented)
+                    .strokeBorder(isTaskCenterPresented ? Color.accentColor : Color.primary, lineWidth: 1)
+                    // 只对透明度做过渡, 避免悬停变化时描边尺寸落后于卡片高度
+                    .animation(.codexStatus) { border in
+                        border.opacity(isTaskCenterPresented ? 0.55 : (isHovered && snapshot.hasTaskCenterContent ? 0.14 : 0))
+                    }
             }
             .overlay {
                 ActivityCardWaitingEdges(
@@ -324,14 +314,14 @@ struct ActivityCard: View {
             }
         } else {
             cardContent(content)
-                .offset(x: incomingOffset)
-                .opacity(incomingOpacity)
+                .offset(x: transitionDistance * (1 - transitionProgress))
+                .opacity(transitionDistance == 0 ? transitionProgress : 1)
                 .overlay(alignment: .topLeading) {
                     if let outgoingContent {
                         cardContent(outgoingContent)
                             .frame(width: cardWidth)
-                            .offset(x: outgoingOffset)
-                            .opacity(outgoingOpacity)
+                            .offset(x: -transitionDistance * transitionProgress)
+                            .opacity(transitionDistance == 0 ? 1 - transitionProgress : 1)
                             .allowsHitTesting(false)
                     }
                 }

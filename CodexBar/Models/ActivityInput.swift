@@ -7,6 +7,10 @@ nonisolated struct ActivityInput {
     enum Kind: String {
         case threadDiscovered
         case threadStatusChanged
+        case threadClosed
+        case threadArchived
+        case threadDeleted
+        case threadReverted
         case usageUpdated
         case turnStarted
         case turnFinished
@@ -34,9 +38,17 @@ nonisolated struct ActivityInput {
         case errorReported
         case ignored
 
+        var isThreadLifecycleChange: Bool {
+            switch self {
+            case .threadClosed, .threadArchived, .threadDeleted, .threadReverted: true
+            default: false
+            }
+        }
+
         var category: Category {
             switch self {
-            case .threadDiscovered, .threadStatusChanged, .usageUpdated, .turnStarted, .turnFinished, .itemStarted, .itemFinished,
+            case .threadDiscovered, .threadStatusChanged, .threadClosed, .threadArchived, .threadDeleted, .threadReverted,
+                 .usageUpdated, .turnStarted, .turnFinished, .itemStarted, .itemFinished,
                  .commandApprovalRequested, .fileApprovalRequested, .permissionsRequested, .requestResolved: .state
             case .replyProgress, .reasoningProgress, .reasoningSummaryProgress, .commandProgress: .progress
             case .inputRequested, .userInputRequested, .planChanged, .diffChanged, .modelChanged, .verificationRequested,

@@ -23,7 +23,7 @@ nonisolated struct TurnLifecycleSnapshot {
             let verified = verifiedTurns[reference] ?? .distantPast
             state.verifiedAt = verifiedTurns[reference]
             // 已确认终态是事实, 不依赖运行状态的刷新期限
-            if state.terminal == nil, now.timeIntervalSince(verified) > 15 {
+            if state.tracking == .live, state.terminal == nil, now.timeIntervalSince(verified) > 15 {
                 state.readStatus = .unavailable
             }
             return state
@@ -31,14 +31,14 @@ nonisolated struct TurnLifecycleSnapshot {
         var changed = true
         while changed {
             changed = false
-            for child in result where child.terminal == nil && child.readStatus != .complete {
+            for child in result where child.tracking == .live && child.terminal == nil && child.readStatus != .complete {
                 guard let root = child.rootThreadID, let turn = child.rootTurnID else { continue }
                 for index in result.indices {
                     let parent = result[index]
                     let isRoot = parent.requestedThreadID == root && parent.turnID == turn
                     let isAncestor = parent.requestedThreadID == child.parentThreadID
                         && parent.rootThreadID == root && parent.rootTurnID == turn
-                    if isRoot || isAncestor, parent.terminal == nil, parent.readStatus == .complete {
+                    if isRoot || isAncestor, parent.tracking == .live, parent.terminal == nil, parent.readStatus == .complete {
                         result[index].readStatus = .unavailable
                         changed = true
                     }
@@ -50,6 +50,10 @@ nonisolated struct TurnLifecycleSnapshot {
 }
 
 nonisolated struct TurnLifecycleState {
+    enum Tracking {
+        case live, historyOnly, removed
+    }
+
     let requestedThreadID: String
     let turnID: String
     var startedAt: Date?
@@ -70,6 +74,7 @@ nonisolated struct TurnLifecycleState {
     var presentation: ActivityLivePresentation?
     var turnStatus: ActivityTurnStatus?
     var verifiedAt: Date?
+    var tracking: Tracking = .live
 
     /// 保留父会话已知但根轮次尚未确定的子任务, 不能把这部分缺口当成零
     static func subagentStates(for roots: Set<ActivityTurnReference>, in states: [Self]) -> [Self] {

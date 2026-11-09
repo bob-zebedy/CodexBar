@@ -105,7 +105,7 @@ struct ActivityCardEvents: NSViewRepresentable {
                 return event
             }
             let point = convert(event.locationInWindow, from: nil)
-            let inside = !isHiddenOrHasHiddenAncestor && visibleRect.contains(point)
+            let inside = containsInteractionPoint(point)
             if event.type == .rightMouseDown {
                 rightMouseBeganInside = inside
                 return inside ? nil : event
@@ -129,12 +129,18 @@ struct ActivityCardEvents: NSViewRepresentable {
             return consumed ? nil : event
         }
 
+        func containsInteractionPoint(_ point: NSPoint) -> Bool {
+            // visibleRect 可能延伸到整个面板, 命中范围还须限制在卡片当前边界内
+            !isHiddenOrHasHiddenAncestor && bounds.contains(point) && visibleRect.contains(point)
+        }
+
         @discardableResult
         func scroll(delta: CGFloat, timestamp: TimeInterval, phase: NSEvent.Phase, momentum: NSEvent.Phase = [], precise: Bool = true, inside: Bool = true) -> Bool {
-            guard isEnabled else { return false }
-            if phase.contains(.cancelled) || !inside {
+            // 只在接手手势时检查命中, 卡片缩小使鼠标落到外面时仍完成本轮滑动
+            guard isEnabled, ownsGesture || inside else { return false }
+            if phase.contains(.cancelled) {
                 finish(.cancelled)
-                return inside
+                return true
             }
             if phase.contains(.ended) {
                 if ownsGesture, delta.isFinite, delta != 0, timestamp.isFinite {
@@ -142,12 +148,13 @@ struct ActivityCardEvents: NSViewRepresentable {
                 }
                 let recentVelocity = lastTimestamp.map { timestamp - $0 < 0.1 ? velocity : 0 } ?? 0
                 finish(.ended(velocity: recentVelocity))
-                return inside
+                return true
             }
             // 先结束手指拖动阶段, 惯性不能开启新手势, 也不能触发第二次翻页
-            guard momentum.isEmpty, delta.isFinite, timestamp.isFinite, delta != 0 else { return inside }
+            guard momentum.isEmpty, delta.isFinite, timestamp.isFinite, delta != 0 else { return true }
             if !precise, phase.isEmpty {
                 finish(.cancelled)
+                guard inside else { return false }
                 if abs(delta) >= 0.5 {
                     onSwipe?(.step(delta < 0 ? 1 : -1))
                 }

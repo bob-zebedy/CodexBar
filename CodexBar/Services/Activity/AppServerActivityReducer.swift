@@ -45,6 +45,32 @@ nonisolated struct AppServerActivityReducer {
         }
     }
 
+    mutating func retireTurns(threadID: String, turnIDs: Set<String>? = nil, removed: Bool) {
+        let references = Set(states.keys.filter { $0.threadID == threadID && (turnIDs == nil || turnIDs!.contains($0.turnID)) })
+        for reference in references {
+            let tracking: TurnLifecycleState.Tracking = removed || states[reference]?.tracking == .removed ? .removed : .historyOnly
+            states[reference]?.tracking = tracking
+            states[reference]?.presentation = nil
+            states[reference]?.pendingApprovals.removeAll()
+            states[reference]?.isWaitingApproval = false
+        }
+        approvals = approvals.filter { !references.contains($0.value) }
+        if !states.values.contains(where: { $0.requestedThreadID == threadID && $0.tracking == .live && $0.isWaitingApproval == true }) {
+            waitingSince[threadID] = nil
+        }
+    }
+
+    mutating func suspendThread(_ id: String) {
+        for key in states.keys where key.threadID == id && states[key]?.terminal == nil && states[key]?.tracking == .live {
+            states[key]?.readStatus = .unavailable
+            states[key]?.presentation = nil
+            states[key]?.pendingApprovals.removeAll()
+            states[key]?.isWaitingApproval = false
+        }
+        approvals = approvals.filter { $0.value.threadID != id }
+        waitingSince[id] = nil
+    }
+
     mutating func takeTokenUsageSamples() -> [TokenUsageSample] {
         defer { tokenUsageSamples.removeAll(keepingCapacity: true) }
         return tokenUsageSamples
@@ -81,6 +107,10 @@ nonisolated struct AppServerActivityReducer {
                 mergeTurnMetadata(turn, threadID: thread.id)
             } else {
                 updateTurn(turn, threadID: thread.id, now: now, historical: true)
+                let key = reference(thread.id, turn.id)
+                if !preservingThreadState, [.active, .idle].contains(thread.status?.type ?? .unknown) {
+                    states[key]?.tracking = .live
+                }
             }
         }
         mergeSubagentContexts(threadID: thread.id, turns: turns, now: now)
@@ -276,7 +306,8 @@ nonisolated struct AppServerActivityReducer {
         var retained = Set(states.keys.filter { key in
             guard let state = states[key] else { return false }
             return (state.lastProgressAt ?? .distantPast) > cutoff
-                || (state.terminal == nil && state.readStatus != .notFound && (loadedThreads.contains(key.threadID) || state.readStatus == .complete))
+                || (state.tracking == .live && state.terminal == nil && state.readStatus != .notFound
+                    && (loadedThreads.contains(key.threadID) || state.readStatus == .complete))
         })
         // 子会话仍在使用的祖先状态必须保留, 否则迟到用量会失去根轮次归属
         var changed = true
@@ -444,6 +475,7 @@ nonisolated struct AppServerActivityReducer {
             state.lastProgressAt = turn.completedAt ?? state.terminalObservedAt
         }
         state.pendingApprovals = previous?.pendingApprovals ?? [:]
+        state.tracking = previous?.tracking ?? .live
         state.presentation = previous?.presentation
         state.turnStatus = turn.status
         if terminal != nil {
@@ -510,7 +542,8 @@ nonisolated struct AppServerActivityReducer {
     /// 缺少根轮次时只沿已知父链补读, 每次读取的时间和分页由 reader 限制
     func missingRootTurns(liveOnly: Bool = false) -> [String: Set<String>] {
         var result: [String: Set<String>] = [:]
-        for state in states.values where state.rootThreadID == nil && (!liveOnly || state.terminal == nil) {
+        for state in states.values where state.tracking != .removed && state.rootThreadID == nil
+            && (!liveOnly || (state.tracking == .live && state.terminal == nil)) {
             guard let root = state.rootTurnID else { continue }
             for thread in ancestorThreads(of: state.requestedThreadID) {
                 result[thread, default: []].insert(root)
@@ -520,7 +553,7 @@ nonisolated struct AppServerActivityReducer {
     }
 
     func missingSubagentParents(liveOnly: Bool = false) -> Set<String> {
-        let liveThreads = Set(states.values.filter { $0.terminal == nil }.map(\.requestedThreadID))
+        let liveThreads = Set(states.values.filter { $0.tracking == .live && $0.terminal == nil }.map(\.requestedThreadID))
         return Set(threads.values.filter {
             subagentContexts[$0.id] == nil && (!liveOnly || liveThreads.contains($0.id))
         }.compactMap(\.parentThreadID))
