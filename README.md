@@ -81,6 +81,16 @@ CodexBar 在本机处理活动原始事件和实时任务。开启跨设备同�
 
 通过 [GitHub Issues](https://github.com/bob-zebedy/CodexBar/issues) 报告 Bug、提出功能建议或询问使用问题。
 
-## 许可证
+## 赞赏
+
+<div align="center">
+
+如果 CodexBar 对你有帮助，欢迎赞助。
+
+<img src="Images/sponsors-wechat.jpg" width="320">
+
+</div>
+
+## 开源许可
 
 [GNU General Public License v3.0](LICENSE)
