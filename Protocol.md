@@ -1,87 +1,53 @@
 # app-server 接口清单
 
-Codex 版本：`0.162.0`
+Codex 版本: `0.162.0`
 
-## 主动请求
-
-| 接口 | 作用 |
-| --- | --- |
-| `initialize` | 初始化连接，获取服务端版本 |
-| `account/read` | 读取账户信息；`refreshToken` 指定是否刷新认证 |
-| `account/rateLimits/read` | 读取额度、余额和重置凭证 |
-| `account/usage/read` | 读取账户用量汇总和每日 Token 用量 |
-| `account/rateLimitResetCredit/consume` | 消费额度重置凭证；`creditId` 指定凭证，`idempotencyKey` 用于避免重复消费 |
-| `config/read` | 读取 Codex TUI 通知配置 |
-| `config/batchWrite` | 修改 Codex TUI 通知配置；`edits` 指定 `tui.notifications` 的值，`reloadUserConfig: true` 使配置生效 |
-| `thread/loaded/list` | 获取已加载会话列表 |
-| `thread/read` | 读取会话信息和状态；`threadId` 指定会话，`includeTurns: false` 不返回轮次内容 |
-| `thread/resume` | 订阅已加载会话的消息；`threadId` 指定会话，`excludeTurns: true` 不返回轮次内容 |
-| `thread/turns/list` | 分页读取会话的轮次信息；`threadId` 指定会话，`itemsView: "notLoaded"` 不加载执行项正文 |
-| `thread/items/list` | 分页读取轮次的执行项；`threadId` 和 `turnId` 指定目标轮次 |
-
-## 主动通知
-
-| 接口 | 作用 |
-| --- | --- |
-| `initialized` | 告知服务端初始化已完成 |
-
-## 接收通知
-
-### 账户通知
-
-| 接口 | 作用 |
-| --- | --- |
-| `account/updated` | 接收账户变化通知 |
-| `account/rateLimits/updated` | 接收额度变化通知 |
-
-### 会话、轮次和执行项
-
-| 接口 | 作用 |
-| --- | --- |
-| `thread/started` | 接收会话启动通知 |
-| `thread/status/changed` | 接收会话状态变化 |
-| `thread/closed` | 接收会话关闭或卸载通知；清理本地订阅和实时执行状态，保留有效的历史补读 |
-| `thread/archived` | 接收会话归档通知；清理本地订阅和实时执行状态，保留有效的历史补读 |
-| `thread/deleted` | 接收会话删除通知；清理实时状态，停止该会话的后续查询和历史补读，丢弃失效的在途结果 |
-| `thread/reverted` | 接收会话回退通知；保留订阅，使旧分页和补读失效，重新核对轮次并移除已确认不存在轮次的实时状态 |
-| `thread/tokenUsage/updated` | 接收会话 Token 用量更新 |
-| `turn/started` | 接收轮次开始通知 |
-| `turn/completed` | 接收轮次结束通知 |
-| `item/started` | 接收执行项开始通知，包括异步提问和用户回应 |
-| `item/completed` | 接收执行项结束通知，包括异步提问和用户回应 |
-
-### 进展通知
-
-| 接口 | 作用 |
-| --- | --- |
-| `item/agentMessage/delta` | 跟踪回答输出进展 |
-| `item/reasoning/textDelta` | 跟踪思考文本输出进展 |
-| `item/reasoning/summaryTextDelta` | 跟踪思考摘要输出进展 |
-| `item/commandExecution/outputDelta` | 跟踪命令输出进展 |
-
-### 状态与展示通知
-
-| 接口 | 作用 |
-| --- | --- |
-| `turn/plan/updated` | 接收计划进度更新 |
-| `turn/diff/updated` | 跟踪代码差异更新 |
-| `model/rerouted` | 接收模型切换信息 |
-| `model/verification` | 接收模型验证需求 |
-| `modelProvider/authRecoveryStarted` | 接收认证恢复开始通知 |
-| `modelProvider/authRecoveryCompleted` | 接收认证恢复结束通知 |
-| `model/safetyBuffering/updated` | 接收安全缓冲展示状态 |
-| `hook/started` | 接收 hook 执行开始通知 |
-| `hook/completed` | 接收 hook 执行结果 |
-| `serverRequest/resolved` | 接收审批、提问等服务端请求的结束通知 |
-| `error` | 接收错误通知 |
-| `warning` | 记录服务端警告 |
-
-## 服务端请求
-
-| 接口 | 作用 |
-| --- | --- |
-| `item/commandExecution/requestApproval` | 观察命令执行审批请求 |
-| `item/fileChange/requestApproval` | 观察文件修改审批请求 |
-| `item/permissions/requestApproval` | 观察权限审批请求 |
-| `item/tool/requestUserInput` | 观察运行期间的提问；`isBlocking` 表示是否阻塞执行 |
-| `mcpServer/elicitation/request` | 观察 MCP 交互请求 |
+| 接口 | 类型 | 参数 | 响应 | 用途 |
+| --- | --- | --- | --- | --- |
+| `account/rateLimitResetCredit/consume` | 客户端请求 | `creditId: string` (凭证 ID)<br>`idempotencyKey: string` (由凭证 ID 派生, 同一凭证重试时复用) | `$.id` (请求匹配)<br>`$.result.outcome` (重置结果: `"reset"`, `"nothingToReset"`, `"noCredit"`, `"alreadyRedeemed"`)<br>`$.error.code` (错误分类)<br>`$.error.message` (错误展示与恢复判定)<br>`$.error.data` (附加错误数据) | 额度重置凭证消费 |
+| `account/rateLimits/read` | 客户端请求 | - | `$.id` (请求匹配)<br>`$.result.ordinaryUsageAllowed` (是否允许普通用量)<br>`$.result.rateLimits` (主额度与回退数据)<br>`$.result.rateLimits.limitId` (额度 ID)<br>`$.result.rateLimits.limitName` (额度名称与排序)<br>`$.result.rateLimits.planType` (账户套餐回退值)<br>`$.result.rateLimits.primary.usedPercent` (主窗口已用百分比)<br>`$.result.rateLimits.primary.windowDurationMins` (主窗口时长, 单位: 分钟)<br>`$.result.rateLimits.primary.resetsAt` (主窗口重置时间, 单位: Unix 秒)<br>`$.result.rateLimits.secondary.usedPercent` (次窗口已用百分比)<br>`$.result.rateLimits.secondary.windowDurationMins` (次窗口时长, 单位: 分钟)<br>`$.result.rateLimits.secondary.resetsAt` (次窗口重置时间, 单位: Unix 秒)<br>`$.result.rateLimits.credits.balance` (余额展示值)<br>`$.result.rateLimits.credits.hasCredits` (余额可用状态)<br>`$.result.rateLimits.credits.unlimited` (无限额度标志)<br>`$.result.rateLimitsByLimitId.*` (按额度 ID 索引的额度对象)<br>`$.result.rateLimitsByLimitId.*.limitId` (额度 ID)<br>`$.result.rateLimitsByLimitId.*.limitName` (额度名称与排序)<br>`$.result.rateLimitsByLimitId.*.planType` (账户套餐回退值)<br>`$.result.rateLimitsByLimitId.*.primary.usedPercent` (主窗口已用百分比)<br>`$.result.rateLimitsByLimitId.*.primary.windowDurationMins` (主窗口时长, 单位: 分钟)<br>`$.result.rateLimitsByLimitId.*.primary.resetsAt` (主窗口重置时间, 单位: Unix 秒)<br>`$.result.rateLimitsByLimitId.*.secondary.usedPercent` (次窗口已用百分比)<br>`$.result.rateLimitsByLimitId.*.secondary.windowDurationMins` (次窗口时长, 单位: 分钟)<br>`$.result.rateLimitsByLimitId.*.secondary.resetsAt` (次窗口重置时间, 单位: Unix 秒)<br>`$.result.rateLimitsByLimitId.*.credits.balance` (余额展示值)<br>`$.result.rateLimitsByLimitId.*.credits.hasCredits` (余额可用状态)<br>`$.result.rateLimitsByLimitId.*.credits.unlimited` (无限额度标志)<br>`$.result.rateLimitResetCredits.availableCount` (可用重置凭证数量)<br>`$.result.rateLimitResetCredits.credits[*].id` (消费重置凭证时使用的 ID)<br>`$.result.rateLimitResetCredits.credits[*].status` (可用凭证筛选)<br>`$.result.rateLimitResetCredits.credits[*].resetType` (筛选可用于自动重置的凭证)<br>`$.result.rateLimitResetCredits.credits[*].expiresAt` (有效期展示与过期判断, 单位: Unix 秒)<br>`$.error.code` (错误分类)<br>`$.error.message` (错误展示与恢复判定)<br>`$.error.data` (附加错误数据) | 额度, 余额, 重置凭证读取 |
+| `account/read` | 客户端请求 | `refreshToken = false` (常规读取)<br>`refreshToken = true` (认证恢复) | `$.id` (请求匹配)<br>`$.result.account` (登录状态)<br>`$.result.account.type` (账户类型与身份)<br>`$.result.account.email` (账户名称与身份识别)<br>`$.result.account.planType` (套餐名称)<br>`$.error.code` (错误分类)<br>`$.error.message` (错误展示与恢复判定)<br>`$.error.data` (附加错误数据) | 账户信息读取, 认证刷新 |
+| `account/usage/read` | 客户端请求 | - | `$.id` (请求匹配)<br>`$.result.summary.currentStreakDays` (当前连续使用天数)<br>`$.result.summary.lifetimeTokens` (累计 Token 数)<br>`$.result.summary.longestRunningTurnSec` (最长轮次时长, 单位: 秒)<br>`$.result.summary.longestStreakDays` (最长连续使用天数)<br>`$.result.summary.peakDailyTokens` (单日最高 Token 数)<br>`$.result.dailyUsageBuckets[*].startDate` (热力图日期键)<br>`$.result.dailyUsageBuckets[*].tokens` (当日 Token 数)<br>`$.error.code` (错误分类)<br>`$.error.message` (错误展示与恢复判定)<br>`$.error.data` (附加错误数据) | 账户用量汇总, 每日 Token 用量读取 |
+| `config/batchWrite` | 客户端请求 | `edits[0].keyPath = "tui.notifications"`<br>`edits[0].value: boolean`<br>`edits[0].mergeStrategy = "upsert"`<br>`reloadUserConfig = true` | `$.id` (请求匹配)<br>`$.result` (确认配置写入成功)<br>`$.error.code` (错误分类)<br>`$.error.message` (错误展示与恢复判定)<br>`$.error.data` (附加错误数据) | TUI 通知配置写入, 配置重载 |
+| `config/read` | 客户端请求 | `includeLayers = false` | `$.id` (请求匹配)<br>`$.result.config.tui.notifications` (通知开关, `boolean` -> 原值, `string[]` -> `length > 0`, 缺省 -> `true`)<br>`$.error.code` (错误分类)<br>`$.error.message` (错误展示与恢复判定)<br>`$.error.data` (附加错误数据) | TUI 通知配置读取 |
+| `initialize` | 客户端请求 | `clientInfo.name = "codex_bar_account"` (账户连接)<br>`clientInfo.name = "codex_bar_activity"` (活动连接)<br>`clientInfo.name = "codex_bar_activity_backfill"` (历史补读连接)<br>`clientInfo.version: string` (App 短版本号, 缺省或空值: `"1.0.0"`)<br>`clientInfo.title = "Codex Bar"` (仅账户连接)<br>`capabilities.experimentalApi = false` | `$.id` (请求匹配)<br>`$.result.userAgent` (服务端版本识别)<br>`$.error.code` (错误分类)<br>`$.error.message` (错误展示与恢复判定)<br>`$.error.data` (附加错误数据) | 连接初始化, 服务端版本读取 |
+| `thread/items/list` | 客户端请求 | `threadId: string` (会话 ID)<br>`turnId: string` (轮次 ID)<br>`sortDirection = "desc"`<br>`limit = 20` (初始值, 消息过大时减半, 最小值: `1`)<br>`cursor?: string` (首页不发送, 后续页使用上一页返回的游标) | `$.id` (请求匹配)<br>`$.result.data[*].turnId` (轮次归属校验)<br>`$.result.data[*].item.id` (执行项标识与事件去重)<br>`$.result.data[*].item.type` (活动分类)<br>`$.result.data[*].item.status` (执行结果状态)<br>`$.result.data[*].item.tool` (工具名称与协作动作)<br>`$.result.data[*].item.server` (MCP 工具来源)<br>`$.result.data[*].item.agentThreadId` (子会话关联)<br>`$.result.data[*].item.kind` (子 Agent 生命周期)<br>`$.result.data[*].item.model` (子会话模型)<br>`$.result.data[*].item.reasoningEffort` (子会话推理强度)<br>`$.result.data[*].item.commandActions[*].type` (命令操作分类)<br>`$.result.data[*].item.commandActions[*].command` (命令摘要与执行状态)<br>`$.result.data[*].item.phase` (回答阶段)<br>`$.result.data[*].item.action.type` (网页操作分类)<br>`$.result.data[*].item.success` (工具执行结果)<br>`$.result.data[*].item.agentsStates.*.status` (子 Agent 协作状态)<br>`$.result.data[*].item.delivery` (异步提问判定)<br>`$.result.data[*].item.questions[*]` (提问数量)<br>`$.result.data[*].item.questions[*].title` (问题标题解码)<br>`$.result.data[*].item.content[*].type` (用户消息内容分类)<br>`$.result.data[*].item.content[*].text` (匹配异步问题与回复, 解码字段: `$[*].questionItemId`)<br>`$.result.data[*].startedAtMs` (执行项开始时间, 单位: Unix 毫秒)<br>`$.result.data[*].completedAtMs` (执行项结束时间, 单位: Unix 毫秒)<br>`$.result.nextCursor` (下一页游标)<br>`$.error.code` (错误分类)<br>`$.error.message` (错误展示与恢复判定)<br>`$.error.data` (附加错误数据) | 执行项分页查询, 历史活动补读 |
+| `thread/loaded/list` | 客户端请求 | `limit = 100`<br>`cursor?: string` (首页不发送, 后续页使用上一页返回的游标) | `$.id` (请求匹配)<br>`$.result.data[*]` (已加载会话 ID)<br>`$.result.nextCursor` (下一页游标)<br>`$.error.code` (错误分类)<br>`$.error.message` (错误展示与恢复判定)<br>`$.error.data` (附加错误数据) | 已加载会话 ID 分页查询 |
+| `thread/read` | 客户端请求 | `threadId: string` (会话 ID)<br>`includeTurns = false` | `$.id` (请求匹配)<br>`$.result.thread.id` (会话标识)<br>`$.result.thread.cwd` (项目归属与活动记录)<br>`$.result.thread.model` (模型统计与子会话上下文)<br>`$.result.thread.reasoningEffort` (推理强度与子会话上下文)<br>`$.result.thread.status.type` (会话运行状态)<br>`$.result.thread.status.activeFlags[*]` (审批与提问等待状态)<br>`$.result.thread.source` (会话来源分类)<br>`$.result.thread.source['subAgent','subagent']` (辅助会话分类)<br>`$.result.thread.source['subAgent','subagent'].other` (自动审查分类)<br>`$.result.thread.source['subAgent','subagent']['thread_spawn','threadSpawn'].parent_thread_id` (来源中的父会话 ID)<br>`$.result.thread.source.custom` (自定义主会话分类)<br>`$.result.thread.parentThreadId` (父会话关联)<br>`$.result.thread.createdAt` (会话创建时间, 单位: Unix 秒)<br>`$.result.thread.threadSource` (标题生成会话过滤)<br>`$.error.code` (错误分类)<br>`$.error.message` (错误展示与恢复判定)<br>`$.error.data` (附加错误数据) | 会话元数据, 状态读取 |
+| `thread/resume` | 客户端请求 | `threadId: string` (会话 ID)<br>`excludeTurns = true` | `$.id` (请求匹配)<br>`$.result.thread.id` (会话标识)<br>`$.result.thread.cwd` (项目归属与活动记录)<br>`$.result.thread.model` (模型统计与子会话上下文)<br>`$.result.thread.reasoningEffort` (推理强度与子会话上下文)<br>`$.result.thread.status.type` (会话运行状态)<br>`$.result.thread.status.activeFlags[*]` (审批与提问等待状态)<br>`$.result.thread.source` (会话来源分类)<br>`$.result.thread.source['subAgent','subagent']` (辅助会话分类)<br>`$.result.thread.source['subAgent','subagent'].other` (自动审查分类)<br>`$.result.thread.source['subAgent','subagent']['thread_spawn','threadSpawn'].parent_thread_id` (来源中的父会话 ID)<br>`$.result.thread.source.custom` (自定义主会话分类)<br>`$.result.thread.parentThreadId` (父会话关联)<br>`$.result.thread.createdAt` (会话创建时间, 单位: Unix 秒)<br>`$.result.thread.threadSource` (标题生成会话过滤)<br>`$.error.code` (错误分类)<br>`$.error.message` (错误展示与恢复判定)<br>`$.error.data` (附加错误数据) | 已加载会话订阅 |
+| `thread/turns/list` | 客户端请求 | `threadId: string` (会话 ID)<br>`itemsView = "notLoaded"`<br>`limit = 10` (首页)<br>`limit = 100` (后续扫描)<br>`cursor?: string` (首页不发送, 后续页使用上一页返回的游标) | `$.id` (请求匹配)<br>`$.result.data[*].id` (轮次标识)<br>`$.result.data[*].status` (轮次生命周期状态)<br>`$.result.data[*].rootTurnId` (根任务关联)<br>`$.result.data[*].startedAt` (开始时间与耗时计算, 单位: Unix 秒)<br>`$.result.data[*].completedAt` (结束时间, 单位: Unix 秒)<br>`$.result.data[*].durationMs` (轮次时长, 单位: 毫秒)<br>`$.result.data[*].items[*]` (补充子会话关联信息)<br>`$.result.data[*].items[*].id` (执行项标识与事件去重)<br>`$.result.data[*].items[*].type` (活动分类)<br>`$.result.data[*].items[*].status` (执行结果状态)<br>`$.result.data[*].items[*].tool` (工具名称与协作动作)<br>`$.result.data[*].items[*].server` (MCP 工具来源)<br>`$.result.data[*].items[*].agentThreadId` (子会话关联)<br>`$.result.data[*].items[*].kind` (子 Agent 生命周期)<br>`$.result.data[*].items[*].model` (子会话模型)<br>`$.result.data[*].items[*].reasoningEffort` (子会话推理强度)<br>`$.result.data[*].items[*].commandActions[*].type` (命令操作分类)<br>`$.result.data[*].items[*].commandActions[*].command` (命令摘要与执行状态)<br>`$.result.data[*].items[*].phase` (回答阶段)<br>`$.result.data[*].items[*].action.type` (网页操作分类)<br>`$.result.data[*].items[*].success` (工具执行结果)<br>`$.result.data[*].items[*].agentsStates.*.status` (子 Agent 协作状态)<br>`$.result.data[*].items[*].delivery` (异步提问判定)<br>`$.result.data[*].items[*].questions[*]` (提问数量)<br>`$.result.data[*].items[*].questions[*].title` (问题标题解码)<br>`$.result.data[*].items[*].content[*].type` (用户消息内容分类)<br>`$.result.data[*].items[*].content[*].text` (匹配异步问题与回复, 解码字段: `$[*].questionItemId`)<br>`$.result.nextCursor` (下一页游标)<br>`$.error.code` (错误分类)<br>`$.error.message` (错误展示与恢复判定)<br>`$.error.data` (附加错误数据) | 轮次分页查询, 生命周期核对, 根任务关联 |
+| `initialized` | 客户端通知 | - | - | 初始化完成通知 |
+| `item/commandExecution/requestApproval` | 服务端请求 | `$.id` (服务端请求 ID)<br>`$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.itemId` (执行项关联)<br>`$.params.startedAtMs` (执行项开始时间, 单位: Unix 毫秒)<br>`$.params.approvalId` (审批去重标识)<br>`$.params.commandActions[*].type` (命令操作分类) | - | 观察命令执行审批, 显示等待和命令操作类型 |
+| `item/fileChange/requestApproval` | 服务端请求 | `$.id` (服务端请求 ID)<br>`$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.itemId` (执行项关联)<br>`$.params.startedAtMs` (执行项开始时间, 单位: Unix 毫秒)<br>`$.params.approvalId` (审批去重标识) | - | 观察文件修改审批并显示等待 |
+| `item/permissions/requestApproval` | 服务端请求 | `$.id` (服务端请求 ID)<br>`$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.itemId` (执行项关联)<br>`$.params.startedAtMs` (执行项开始时间, 单位: Unix 毫秒)<br>`$.params.approvalId` (审批去重标识) | - | 观察权限审批并显示等待 |
+| `item/tool/requestUserInput` | 服务端请求 | `$.id` (服务端请求 ID)<br>`$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.isBlocking` (阻塞与非阻塞等待分类) | - | 观察运行期间的提问, 区分阻塞与非阻塞等待 |
+| `mcpServer/elicitation/request` | 服务端请求 | `$.id` (服务端请求 ID)<br>`$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.mode` (MCP 交互等待分类) | - | 观察 MCP 交互请求, 根据模式显示等待 |
+| `account/rateLimits/updated` | 服务端通知 | - | - | 重新读取额度信息 |
+| `account/updated` | 服务端通知 | - | - | 重新读取账户信息 |
+| `error` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.willRetry` (重试状态) | - | 重试状态<br>依据: `$.params.willRetry` |
+| `hook/completed` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.run.id` (hook 执行关联)<br>`$.params.run.status` (hook 结果状态) | - | hook 结果展示<br>状态值: `completed`, `failed`, `blocked`, `stopped` |
+| `hook/started` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.run.id` (hook 执行关联)<br>`$.params.run.executionMode` (同步 hook 判定) | - | 同步 hook 执行状态<br>条件: `executionMode == "sync"` |
+| `item/agentMessage/delta` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.itemId` (执行项关联) | - | 更新回答进展和回答阶段 |
+| `item/commandExecution/outputDelta` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.itemId` (执行项关联) | - | 更新命令执行进展 |
+| `item/completed` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.item.id` (执行项标识与事件去重)<br>`$.params.item.type` (活动分类)<br>`$.params.item.status` (执行结果状态)<br>`$.params.item.tool` (工具名称与协作动作)<br>`$.params.item.server` (MCP 工具来源)<br>`$.params.item.agentThreadId` (子会话关联)<br>`$.params.item.kind` (子 Agent 生命周期)<br>`$.params.item.model` (子会话模型)<br>`$.params.item.reasoningEffort` (子会话推理强度)<br>`$.params.item.commandActions[*].type` (命令操作分类)<br>`$.params.item.commandActions[*].command` (命令摘要与执行状态)<br>`$.params.item.phase` (回答阶段)<br>`$.params.item.action.type` (网页操作分类)<br>`$.params.item.success` (工具执行结果)<br>`$.params.item.agentsStates.*.status` (子 Agent 协作状态)<br>`$.params.item.delivery` (异步提问判定)<br>`$.params.item.questions[*]` (提问数量)<br>`$.params.item.questions[*].title` (问题标题解码)<br>`$.params.item.content[*].type` (用户消息内容分类)<br>`$.params.item.content[*].text` (匹配异步问题与回复, 解码字段: `$[*].questionItemId`)<br>`$.params.startedAtMs` (执行项开始时间, 单位: Unix 毫秒)<br>`$.params.completedAtMs` (执行项结束时间, 单位: Unix 毫秒) | - | 记录执行项结束和结果, 更新提问等待 |
+| `item/reasoning/summaryTextDelta` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.itemId` (执行项关联) | - | 更新思考摘要进展 |
+| `item/reasoning/textDelta` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.itemId` (执行项关联) | - | 更新思考进展 |
+| `item/started` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.item.id` (执行项标识与事件去重)<br>`$.params.item.type` (活动分类)<br>`$.params.item.status` (执行结果状态)<br>`$.params.item.tool` (工具名称与协作动作)<br>`$.params.item.server` (MCP 工具来源)<br>`$.params.item.agentThreadId` (子会话关联)<br>`$.params.item.kind` (子 Agent 生命周期)<br>`$.params.item.model` (子会话模型)<br>`$.params.item.reasoningEffort` (子会话推理强度)<br>`$.params.item.commandActions[*].type` (命令操作分类)<br>`$.params.item.commandActions[*].command` (命令摘要与执行状态)<br>`$.params.item.phase` (回答阶段)<br>`$.params.item.action.type` (网页操作分类)<br>`$.params.item.success` (工具执行结果)<br>`$.params.item.agentsStates.*.status` (子 Agent 协作状态)<br>`$.params.item.delivery` (异步提问判定)<br>`$.params.item.questions[*]` (提问数量)<br>`$.params.item.questions[*].title` (问题标题解码)<br>`$.params.item.content[*].type` (用户消息内容分类)<br>`$.params.item.content[*].text` (匹配异步问题与回复, 解码字段: `$[*].questionItemId`)<br>`$.params.startedAtMs` (执行项开始时间, 单位: Unix 毫秒)<br>`$.params.completedAtMs` (执行项结束时间, 单位: Unix 毫秒) | - | 记录执行项开始, 更新活动统计, 子会话关联和提问等待 |
+| `model/rerouted` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.fromModel` (原模型名称)<br>`$.params.toModel` (目标模型名称) | - | 显示模型切换信息 |
+| `model/safetyBuffering/updated` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.showBufferingUi` (安全缓冲展示开关) | - | 安全缓冲展示开关 |
+| `model/verification` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.verifications[*]` (判断是否显示模型验证提示) | - | 验证列表非空时显示提示 |
+| `modelProvider/authRecoveryCompleted` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联) | - | 结束认证恢复展示 |
+| `modelProvider/authRecoveryStarted` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联) | - | 显示认证恢复中 |
+| `serverRequest/resolved` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.requestId` (原请求 ID, 用于清理等待状态) | - | 按原请求 ID 清理审批或提问等待 |
+| `thread/archived` | 服务端通知 | `$.params.threadId` (会话关联) | - | 清理订阅和实时状态, 保留有效历史补读 |
+| `thread/closed` | 服务端通知 | `$.params.threadId` (会话关联) | - | 清理订阅和实时状态, 保留有效历史补读 |
+| `thread/deleted` | 服务端通知 | `$.params.threadId` (会话关联) | - | 清理实时状态, 停止该会话查询和补读 |
+| `thread/reverted` | 服务端通知 | `$.params.threadId` (会话关联) | - | 重新核对轮次和补读进度, 移除已不存在轮次的实时状态 |
+| `thread/started` | 服务端通知 | `$.params.thread.id` (会话标识)<br>`$.params.thread.cwd` (项目归属与活动记录)<br>`$.params.thread.model` (模型统计与子会话上下文)<br>`$.params.thread.reasoningEffort` (推理强度与子会话上下文)<br>`$.params.thread.status.type` (会话运行状态)<br>`$.params.thread.status.activeFlags[*]` (审批与提问等待状态)<br>`$.params.thread.source` (会话来源分类)<br>`$.params.thread.source['subAgent','subagent']` (辅助会话分类)<br>`$.params.thread.source['subAgent','subagent'].other` (自动审查分类)<br>`$.params.thread.source['subAgent','subagent']['thread_spawn','threadSpawn'].parent_thread_id` (来源中的父会话 ID)<br>`$.params.thread.source.custom` (自定义主会话分类)<br>`$.params.thread.parentThreadId` (父会话关联)<br>`$.params.thread.createdAt` (会话创建时间, 单位: Unix 秒)<br>`$.params.thread.threadSource` (标题生成会话过滤) | - | 发现会话, 更新来源和元数据 |
+| `thread/status/changed` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.status.type` (会话运行状态)<br>`$.params.status.activeFlags[*]` (审批与提问等待状态) | - | 更新会话运行和等待状态 |
+| `thread/tokenUsage/updated` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.tokenUsage.total` (累计计数, 聚合依据: 相邻观测差值)<br>`$.params.tokenUsage.total.inputTokens` (输入 Token)<br>`$.params.tokenUsage.total.cachedInputTokens` (缓存命中输入 Token)<br>`$.params.tokenUsage.total.cacheWriteInputTokens` (缓存写入 Token)<br>`$.params.tokenUsage.total.outputTokens` (输出 Token)<br>`$.params.tokenUsage.total.reasoningOutputTokens` (推理输出 Token)<br>`$.params.tokenUsage.total.totalTokens` (总 Token)<br>`$.params.tokenUsage.last` (最近一次计数, 存储: 观测记录)<br>`$.params.tokenUsage.last.inputTokens` (输入 Token)<br>`$.params.tokenUsage.last.cachedInputTokens` (缓存命中输入 Token)<br>`$.params.tokenUsage.last.cacheWriteInputTokens` (缓存写入 Token)<br>`$.params.tokenUsage.last.outputTokens` (输出 Token)<br>`$.params.tokenUsage.last.reasoningOutputTokens` (推理输出 Token)<br>`$.params.tokenUsage.last.totalTokens` (总 Token)<br>`$.params.tokenUsage.modelContextWindow` (模型上下文窗口) | - | 记录 Token 用量观测 |
+| `turn/completed` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turn.id` (轮次标识)<br>`$.params.turn.status` (轮次生命周期状态)<br>`$.params.turn.rootTurnId` (根任务关联)<br>`$.params.turn.startedAt` (开始时间与耗时计算, 单位: Unix 秒)<br>`$.params.turn.completedAt` (结束时间, 单位: Unix 秒)<br>`$.params.turn.durationMs` (轮次时长, 单位: 毫秒)<br>`$.params.turn.items[*]` (补充子会话关联信息)<br>`$.params.turn.items[*].id` (执行项标识与事件去重)<br>`$.params.turn.items[*].type` (活动分类)<br>`$.params.turn.items[*].status` (执行结果状态)<br>`$.params.turn.items[*].tool` (工具名称与协作动作)<br>`$.params.turn.items[*].server` (MCP 工具来源)<br>`$.params.turn.items[*].agentThreadId` (子会话关联)<br>`$.params.turn.items[*].kind` (子 Agent 生命周期)<br>`$.params.turn.items[*].model` (子会话模型)<br>`$.params.turn.items[*].reasoningEffort` (子会话推理强度)<br>`$.params.turn.items[*].commandActions[*].type` (命令操作分类)<br>`$.params.turn.items[*].commandActions[*].command` (命令摘要与执行状态)<br>`$.params.turn.items[*].phase` (回答阶段)<br>`$.params.turn.items[*].action.type` (网页操作分类)<br>`$.params.turn.items[*].success` (工具执行结果)<br>`$.params.turn.items[*].agentsStates.*.status` (子 Agent 协作状态)<br>`$.params.turn.items[*].delivery` (异步提问判定)<br>`$.params.turn.items[*].questions[*]` (提问数量)<br>`$.params.turn.items[*].questions[*].title` (问题标题解码)<br>`$.params.turn.items[*].content[*].type` (用户消息内容分类)<br>`$.params.turn.items[*].content[*].text` (匹配异步问题与回复, 解码字段: `$[*].questionItemId`) | - | 记录轮次完成, 失败或中断 |
+| `turn/diff/updated` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联) | - | 显示代码差异更新状态 |
+| `turn/plan/updated` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turnId` (轮次关联)<br>`$.params.plan[*]` (计划总步数)<br>`$.params.plan[*].status` (已完成步数统计) | - | 总步数: 数组长度<br>已完成步数: `status == "completed"` 的条目数 |
+| `turn/started` | 服务端通知 | `$.params.threadId` (会话关联)<br>`$.params.turn.id` (轮次标识)<br>`$.params.turn.status` (轮次生命周期状态)<br>`$.params.turn.rootTurnId` (根任务关联)<br>`$.params.turn.startedAt` (开始时间与耗时计算, 单位: Unix 秒)<br>`$.params.turn.completedAt` (结束时间, 单位: Unix 秒)<br>`$.params.turn.durationMs` (轮次时长, 单位: 毫秒)<br>`$.params.turn.items[*]` (补充子会话关联信息)<br>`$.params.turn.items[*].id` (执行项标识与事件去重)<br>`$.params.turn.items[*].type` (活动分类)<br>`$.params.turn.items[*].status` (执行结果状态)<br>`$.params.turn.items[*].tool` (工具名称与协作动作)<br>`$.params.turn.items[*].server` (MCP 工具来源)<br>`$.params.turn.items[*].agentThreadId` (子会话关联)<br>`$.params.turn.items[*].kind` (子 Agent 生命周期)<br>`$.params.turn.items[*].model` (子会话模型)<br>`$.params.turn.items[*].reasoningEffort` (子会话推理强度)<br>`$.params.turn.items[*].commandActions[*].type` (命令操作分类)<br>`$.params.turn.items[*].commandActions[*].command` (命令摘要与执行状态)<br>`$.params.turn.items[*].phase` (回答阶段)<br>`$.params.turn.items[*].action.type` (网页操作分类)<br>`$.params.turn.items[*].success` (工具执行结果)<br>`$.params.turn.items[*].agentsStates.*.status` (子 Agent 协作状态)<br>`$.params.turn.items[*].delivery` (异步提问判定)<br>`$.params.turn.items[*].questions[*]` (提问数量)<br>`$.params.turn.items[*].questions[*].title` (问题标题解码)<br>`$.params.turn.items[*].content[*].type` (用户消息内容分类)<br>`$.params.turn.items[*].content[*].text` (匹配异步问题与回复, 解码字段: `$[*].questionItemId`) | - | 建立运行中轮次及根任务关联 |
+| `warning` | 服务端通知 | `$` (完整警告消息) | - | 记录服务端警告日志 |
