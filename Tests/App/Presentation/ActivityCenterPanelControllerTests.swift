@@ -2,7 +2,7 @@ import AppKit
 import Testing
 
 @MainActor
-struct ActivityPanelControllerTests {
+struct ActivityCenterPanelControllerTests {
     @Test func anchorIgnoresTransientViewFramesAndRejectsOtherHosts() throws {
         let window = makeWindow()
         defer { window.close() }

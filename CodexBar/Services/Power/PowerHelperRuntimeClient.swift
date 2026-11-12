@@ -24,7 +24,7 @@ struct PowerHelperRuntimeStatus {
 }
 
 @MainActor
-final class PowerHelperStatusMonitor {
+final class PowerHelperRuntimeClient {
     enum WakeScheduleResult {
         case success
         case powerHelperFailure(Int32)

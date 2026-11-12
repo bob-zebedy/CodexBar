@@ -47,7 +47,7 @@ private struct SidePanelEntryRebuildHost<Content: View>: View {
 /// 各子面板只差内容视图与高度变化来源, 窗口组关闭规则由 SettingsWindowController 统一维护
 /// 常驻 hosting controller 保留交互状态, 内容通过 ObservableObject 更新
 @MainActor
-final class OptionsPanelController {
+final class SettingsOptionsPanelController {
     private let animationKey: String
     private let resizeDuration: TimeInterval
     private let resizesWithContent: Bool
@@ -61,7 +61,7 @@ final class OptionsPanelController {
     private var panel: NSPanel?
     private var hostingController: NSViewController?
     private weak var anchorContentView: NSView?
-    private var expansionSide = UsageHeatmapDetailSide.right
+    private var expansionSide = SidePanelSide.right
     /// 展开时保留主设置窗口的键盘焦点, 用户点击输入框后再由面板接管
     private lazy var presenter = SidePanelDrawerPresenter(
         animationKey: animationKey,

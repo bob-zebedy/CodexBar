@@ -7,13 +7,8 @@ nonisolated struct UsageHeatmapHoverContext: Equatable {
     let mode: UsageHeatmapMode
     let isStale: Bool
     let alignmentScreenFrame: CGRect?
-    let preferredSide: UsageHeatmapDetailSide
+    let preferredSide: SidePanelSide
     let peakTokens: Int
-}
-
-nonisolated enum UsageHeatmapDetailSide: Equatable {
-    case left
-    case right
 }
 
 /// 选择跟随日期, 位置从最新网格计算
@@ -419,7 +414,7 @@ extension UsageHeatmap {
             CGFloat(rowCount) * squareSize + CGFloat(rowCount - 1) * squareSpacing
         }
 
-        static func preferredDetailSide(for column: Int) -> UsageHeatmapDetailSide {
+        static func preferredDetailSide(for column: Int) -> SidePanelSide {
             column < columnCount / 2 ? .left : .right
         }
     }

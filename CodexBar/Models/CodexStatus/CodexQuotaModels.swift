@@ -301,7 +301,7 @@ nonisolated extension CodexQuotaSnapshot {
         generatedAt: Date = Date()
     ) throws {
         guard let account = accountResponse.account else {
-            throw CodexStatusError.notLoggedIn
+            throw AppServerError.notLoggedIn
         }
 
         let limits = rateLimitsResponse.map { response in

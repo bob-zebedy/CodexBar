@@ -29,7 +29,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private lazy var activityCardPresentationState = ActivityCardPresentationState(activityMonitor: activityMonitor)
     private lazy var heatmapDetailPanelController = HeatmapPanelController(mainPanelSettings: mainPanelSettings)
     private lazy var resetCreditsPanelController = ResetCreditsPanelController(mainPanelSettings: mainPanelSettings)
-    private lazy var activityCenterPanelController = ActivityPanelController(
+    private lazy var activityCenterPanelController = ActivityCenterPanelController(
         activityMonitor: activityMonitor,
         presentationState: activityCenterPresentationState,
         mainPanelSettings: mainPanelSettings
@@ -993,4 +993,4 @@ private protocol MenuSideDetailPanel: AnyObject {
 
 extension HeatmapPanelController: MenuSideDetailPanel {}
 extension ResetCreditsPanelController: MenuSideDetailPanel {}
-extension ActivityPanelController: MenuSideDetailPanel {}
+extension ActivityCenterPanelController: MenuSideDetailPanel {}

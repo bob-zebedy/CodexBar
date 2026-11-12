@@ -72,9 +72,9 @@ struct AppServerStartupTests {
     @Test func doesNotStartServiceForHandshakeFailure() async throws {
         let startup = AppServerStartup(
             environment: [:], installations: CodexInstallations(globalPath: nil, bundledPath: nil),
-            probeConnection: { throw CodexStatusError.invalidServerResponse }
+            probeConnection: { throw AppServerError.invalidServerResponse }
         )
-        await #expect(throws: CodexStatusError.self) { try await startup.ensureStarted() }
+        await #expect(throws: AppServerError.self) { try await startup.ensureStarted() }
     }
 
     @Test func reportsMissingAndUnsupportedInstallations() async throws {
@@ -276,7 +276,7 @@ struct AppServerStartupTests {
         do {
             try await startup.ensureStarted()
             Issue.record("Expected minimum version rejection")
-        } catch let CodexStatusError.unsupportedVersion(minimum) {
+        } catch let AppServerError.unsupportedVersion(minimum) {
             #expect(minimum == "0.162.0")
         }
         #expect(!FileManager.default.fileExists(atPath: directory.url.appendingPathComponent("called").path))
@@ -474,7 +474,7 @@ struct AppServerStartupTests {
             do {
                 _ = try await service.reconnect()
                 Issue.record("Expected actual server version check")
-            } catch let error as CodexStatusError {
+            } catch let error as AppServerError {
                 guard case let .unsupportedVersion(minimum) = error else { throw error }
                 #expect(minimum == "0.162.0")
             }
@@ -499,7 +499,7 @@ struct AppServerStartupTests {
         do {
             _ = try await service.reconnect()
             Issue.record("Expected invalid version rejection")
-        } catch let error as CodexStatusError {
+        } catch let error as AppServerError {
             guard case .serverConnectionClosed = error else { throw error }
         }
         #expect(await service.currentConnectionInfo() == nil)

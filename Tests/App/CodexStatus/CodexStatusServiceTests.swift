@@ -280,7 +280,7 @@ struct CodexStatusServiceTests {
             do {
                 _ = try await service.areTUINotificationsEnabled()
                 Issue.record("Configuration read accepted an uninitialized connection")
-            } catch let error as CodexStatusError {
+            } catch let error as AppServerError {
                 switch error {
                 case .authenticationRequired: #expect(failure == "authentication")
                 case .unsupportedVersion: #expect(failure == "unsupportedVersion")

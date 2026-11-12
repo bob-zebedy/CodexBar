@@ -25,16 +25,6 @@ nonisolated extension CGRect {
 }
 
 @MainActor
-extension NSWindow {
-    /// LSUIElement 应用没有 Dock 图标, 需按此顺序激活才能将窗口置于最前
-    func bringToFrontActivatingApp() {
-        orderFrontRegardless()
-        NSRunningApplication.current.activate(options: [])
-        makeKeyAndOrderFront(nil)
-    }
-}
-
-@MainActor
 extension NSView {
     /// SwiftUI hosting 视图的 fittingSize 可能给出非有限或非正尺寸, 校验通过才能用于窗口布局
     var validFittingSize: NSSize? {

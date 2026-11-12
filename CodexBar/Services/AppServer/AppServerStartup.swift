@@ -95,7 +95,7 @@ actor AppServerStartup {
         }
     }
 
-    private func connectionIsReady() throws {
+    private func verifyConnectionReadiness() throws {
         try probeConnection()
         automaticAttempts = 0
         retryAfter = nil
@@ -105,7 +105,7 @@ actor AppServerStartup {
     private func startIfAbsent(trigger: Trigger) async throws {
         try Task.checkCancellation()
         do {
-            try connectionIsReady()
+            try verifyConnectionReadiness()
             return
         } catch let error as AppServerConnectionError where error.serverIsAbsent {
             // 只有明确缺少监听者才启动, 权限或协议错误不改变服务状态
@@ -123,7 +123,7 @@ actor AppServerStartup {
         try Task.checkCancellation()
         // 能力检测期间其他客户端可能已经启动服务
         do {
-            try connectionIsReady()
+            try verifyConnectionReadiness()
             return
         } catch let error as AppServerConnectionError where error.serverIsAbsent {}
 
@@ -139,7 +139,7 @@ actor AppServerStartup {
         // 命令失败也探测一次, 允许与其他客户端并发启动后复用已就绪的服务
         for attempt in 0 ..< readinessAttempts {
             do {
-                try connectionIsReady()
+                try verifyConnectionReadiness()
                 AppLog.codex.notice("Codex 后台服务已就绪: source=daemonStart")
                 return
             } catch let error as AppServerConnectionError where error.serverIsAbsent {
@@ -184,7 +184,7 @@ actor AppServerStartup {
                 return executable
             }
         }
-        guard hasSupportedVersion else { throw CodexStatusError.unsupportedVersion(minimum: CodexVersionReader.minimumAppServerVersion) }
+        guard hasSupportedVersion else { throw AppServerError.unsupportedVersion(minimum: CodexVersionReader.minimumAppServerVersion) }
         throw StartupError.unsupportedCommand
     }
 

@@ -56,7 +56,7 @@ final nonisolated class AppServerSession {
             address.sun_family = sa_family_t(AF_UNIX)
             let path = Array(socketURL.path.utf8CString)
             guard path.count <= MemoryLayout.size(ofValue: address.sun_path) else {
-                throw CodexStatusError.serverConnectionClosed
+                throw AppServerError.serverConnectionClosed
             }
             withUnsafeMutableBytes(of: &address.sun_path) { destination in
                 path.withUnsafeBytes { destination.copyBytes(from: $0) }
@@ -70,7 +70,7 @@ final nonisolated class AppServerSession {
                 let code = errno
                 guard code == EINPROGRESS else { throw AppServerConnectionError(code: code) }
                 guard try ready(Int16(POLLOUT), before: ContinuousClock.now.advanced(by: .seconds(2))) else {
-                    throw CodexStatusError.serverTimeout
+                    throw AppServerError.serverTimeout
                 }
                 var socketError: Int32 = 0
                 var size = socklen_t(MemoryLayout<Int32>.size)
@@ -121,14 +121,14 @@ final nonisolated class AppServerSession {
         ], timeout: timeout)
         guard let firstToken = result.userAgent?.split(separator: " ").first,
               let slash = firstToken.firstIndex(of: "/") else {
-            throw CodexStatusError.invalidServerResponse
+            throw AppServerError.invalidServerResponse
         }
         let version = String(firstToken[firstToken.index(after: slash)...])
         guard let supported = CodexVersionReader.isVersion(version, atLeast: minimumVersion) else {
-            throw CodexStatusError.invalidServerResponse
+            throw AppServerError.invalidServerResponse
         }
         guard supported else {
-            let error = CodexStatusError.unsupportedVersion(minimum: minimumVersion)
+            let error = AppServerError.unsupportedVersion(minimum: minimumVersion)
             if let logStorage {
                 let details = LogFields.joined("current=\(version)", "minimum=\(minimumVersion)")
                 AppLog.codex.notice("Codex 版本不支持: \(details, privacy: .public)")
@@ -147,7 +147,7 @@ final nonisolated class AppServerSession {
         do {
             return try AppServerRPC.decode(exchange(payload, id: nextID, timeout: timeout), as: Response.self)
         } catch {
-            if error is CancellationError || (error as? CodexStatusError)?.isTransportFailure == true {
+            if error is CancellationError || (error as? AppServerError)?.isTransportFailure == true {
                 close()
             }
             throw error
@@ -184,10 +184,10 @@ final nonisolated class AppServerSession {
 
     func poll(_ request: PendingRequest) throws -> RequestPoll {
         try Task.checkCancellation()
-        guard ContinuousClock.now < request.deadline else { throw CodexStatusError.serverTimeout }
+        guard ContinuousClock.now < request.deadline else { throw AppServerError.serverTimeout }
         guard let data = try receive(before: ContinuousClock.now.advanced(by: .seconds(0.02)), matchingResponseID: request.id) else { return .waiting }
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw CodexStatusError.invalidServerResponse
+            throw AppServerError.invalidServerResponse
         }
         if object["id"] as? Int == request.id, object["result"] != nil || object["error"] != nil {
             if let logID = request.logID {
@@ -250,11 +250,11 @@ final nonisolated class AppServerSession {
             }
             // 审批请求只作为观察事件, 绝不在旁观连接中回答
             if retainsNotifications {
-                guard notifications.count < 4096 else { throw CodexStatusError.serverConnectionClosed }
+                guard notifications.count < 4096 else { throw AppServerError.serverConnectionClosed }
                 notifications.append(data)
             }
         }
-        throw CodexStatusError.serverTimeout
+        throw AppServerError.serverTimeout
     }
 
     func notify(_ method: String, params: [String: Any]? = nil) throws {
@@ -302,10 +302,10 @@ final nonisolated class AppServerSession {
             while !header.suffix(4).elementsEqual([13, 10, 13, 10]), header.count < 16384 {
                 try header.append(read(1, before: deadline))
             }
-            guard let response = String(data: header, encoding: .utf8) else { throw CodexStatusError.invalidServerResponse }
+            guard let response = String(data: header, encoding: .utf8) else { throw AppServerError.invalidServerResponse }
             let expected = Data(Insecure.SHA1.hash(data: Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8))).base64EncodedString()
             guard response.hasPrefix("HTTP/1.1 101 "), response.contains(expected) else {
-                throw CodexStatusError.invalidServerResponse
+                throw AppServerError.invalidServerResponse
             }
             if let token {
                 logStorage?.finishRequest(token, response: response)
@@ -365,19 +365,19 @@ final nonisolated class AppServerSession {
             }
             guard header[1] & 128 == 0, header[0] & 0x70 == 0, length <= UInt64(Int64.max),
                   opcode >= 8 ? ([8, 9, 10].contains(opcode) && header[0] & 128 != 0 && length <= 125)
-                  : opcode == (fragmented ? 0 : 1) else { throw CodexStatusError.invalidServerResponse }
+                  : opcode == (fragmented ? 0 : 1) else { throw AppServerError.invalidServerResponse }
             let messageBytes = UInt64(message.count) + length
             guard opcode >= 8 || messageBytes <= maximumMessageSize else {
                 // 正文尚未读取, 必须关闭连接, 不能把残留正文当作下一条消息
                 close()
-                throw CodexStatusError.messageTooLarge(bytes: messageBytes, limit: maximumMessageSize)
+                throw AppServerError.messageTooLarge(bytes: messageBytes, limit: maximumMessageSize)
             }
             let payload = try read(Int(length), before: frameDeadline)
             if opcode >= 8 {
                 logStorage?.recordReceived(method: controlMethod(opcode), payload: framePayload(payload), connection: connectionName)
             }
             if opcode == 8 {
-                throw CodexStatusError.serverConnectionClosed
+                throw AppServerError.serverConnectionClosed
             }
             if opcode == 9 {
                 try sendFrame(payload, opcode: 10)
@@ -457,7 +457,7 @@ final nonisolated class AppServerSession {
 
     private func ready(_ events: Int16, before deadline: ContinuousClock.Instant) throws -> Bool {
         try AppServerRequestBudget.checkCurrent()
-        guard descriptor >= 0 else { throw CodexStatusError.serverConnectionClosed }
+        guard descriptor >= 0 else { throw AppServerError.serverConnectionClosed }
         let deadline = min(deadline, exchangeDeadline ?? deadline, AppServerRequestBudget.current?.deadline ?? deadline)
         var descriptor = pollfd(fd: descriptor, events: events, revents: 0)
         while ContinuousClock.now < deadline {
@@ -466,14 +466,14 @@ final nonisolated class AppServerSession {
             if result < 0, errno == EINTR {
                 continue
             }
-            guard result >= 0 else { throw CodexStatusError.serverConnectionClosed }
+            guard result >= 0 else { throw AppServerError.serverConnectionClosed }
             if result == 0 {
                 continue
             }
             if descriptor.revents & events != 0 {
                 return true
             }
-            throw CodexStatusError.serverConnectionClosed
+            throw AppServerError.serverConnectionClosed
         }
         return false
     }
@@ -482,12 +482,12 @@ final nonisolated class AppServerSession {
         var result = Data()
         var buffer = [UInt8](repeating: 0, count: min(count, 65536))
         while result.count < count {
-            guard try ready(Int16(POLLIN), before: deadline) else { throw CodexStatusError.serverTimeout }
+            guard try ready(Int16(POLLIN), before: deadline) else { throw AppServerError.serverTimeout }
             let size = recv(descriptor, &buffer, min(buffer.count, count - result.count), 0)
             if size < 0, errno == EINTR || errno == EAGAIN {
                 continue
             }
-            guard size > 0 else { throw CodexStatusError.serverConnectionClosed }
+            guard size > 0 else { throw AppServerError.serverConnectionClosed }
             result.append(contentsOf: buffer.prefix(size))
         }
         return result
@@ -496,12 +496,12 @@ final nonisolated class AppServerSession {
     private func write(_ data: Data, before deadline: ContinuousClock.Instant) throws {
         var offset = 0
         while offset < data.count {
-            guard try ready(Int16(POLLOUT), before: deadline) else { throw CodexStatusError.serverTimeout }
+            guard try ready(Int16(POLLOUT), before: deadline) else { throw AppServerError.serverTimeout }
             let size = data.withUnsafeBytes { Darwin.send(descriptor, $0.baseAddress!.advanced(by: offset), data.count - offset, 0) }
             if size < 0, errno == EINTR || errno == EAGAIN {
                 continue
             }
-            guard size > 0 else { throw CodexStatusError.serverConnectionClosed }
+            guard size > 0 else { throw AppServerError.serverConnectionClosed }
             offset += size
         }
     }

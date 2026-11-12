@@ -378,8 +378,8 @@ final class CodexStatusViewModel: ObservableObject {
         } catch {
             loadState = switch error {
             case let error as AppServerStartup.StartupError where error.isMissingInstallation: .notInstalled
-            case CodexStatusError.notLoggedIn: .notLoggedIn
-            case let CodexStatusError.unsupportedVersion(minimum): .unsupportedVersion(minimum: minimum)
+            case AppServerError.notLoggedIn: .notLoggedIn
+            case let AppServerError.unsupportedVersion(minimum): .unsupportedVersion(minimum: minimum)
             default: .initializationFailed
             }
         }

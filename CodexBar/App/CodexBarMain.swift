@@ -6,7 +6,7 @@ import SwiftUI
 nonisolated enum CodexBarMain {
     static func main() {
         do {
-            // 在 SwiftUI 创建 AppDelegate 前互斥, 避免重复实例初始化服务
+            // 在 SwiftUI 创建 CodexBarLifecycle 前互斥, 避免重复实例初始化服务
             guard let descriptor = try JSONFileStorage.acquireLock(
                 at: AppStorage().lockURL(.appInstance), nonblocking: true
             ) else { return }

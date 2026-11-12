@@ -1,6 +1,6 @@
 /// config/read 的最小响应模型, 只解出 TUI 通知相关状态
 nonisolated struct ConfigReadResponse: Decodable {
-    let config: AppServerConfig
+    let config: CodexConfig
 
     var areTUINotificationsEnabled: Bool {
         config.tui?.notifications?.isEnabled ?? true
@@ -8,16 +8,16 @@ nonisolated struct ConfigReadResponse: Decodable {
 }
 
 /// Codex 用户配置根节点, 字段保持 optional 以兼容不同 Codex 版本
-nonisolated struct AppServerConfig: Decodable {
-    let tui: AppServerTUI?
+nonisolated struct CodexConfig: Decodable {
+    let tui: CodexTUIConfig?
 }
 
 /// tui.notifications 支持布尔值或事件名数组; 空数组等价于不发送通知
-nonisolated struct AppServerTUI: Decodable {
-    let notifications: AppServerTUINotifications?
+nonisolated struct CodexTUIConfig: Decodable {
+    let notifications: TUINotificationConfig?
 }
 
-nonisolated enum AppServerTUINotifications: Decodable {
+nonisolated enum TUINotificationConfig: Decodable {
     case boolean(Bool)
     case events([String])
 

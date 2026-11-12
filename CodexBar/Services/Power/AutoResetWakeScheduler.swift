@@ -33,7 +33,7 @@ final class AutoResetWakeScheduler {
 
     var onErrorMessageChanged: ((String?) -> Void)?
 
-    private let runtimeStatusMonitor = PowerHelperStatusMonitor()
+    private let runtimeClient = PowerHelperRuntimeClient()
     private var isRequested = false
     private var isPowerHelperReady = false
     private var desiredWakeDate: Date?
@@ -169,7 +169,7 @@ final class AutoResetWakeScheduler {
 
     private func cancelSyncTask() {
         syncTask?.cancel()
-        runtimeStatusMonitor.cancelRequest()
+        runtimeClient.cancelRequest()
         syncTask = nil
         syncTaskID = nil
         needsReconcile = false
@@ -209,7 +209,7 @@ final class AutoResetWakeScheduler {
                 return false
             }
 
-            let result = await runtimeStatusMonitor.setAutoResetWakeSchedule(
+            let result = await runtimeClient.setAutoResetWakeSchedule(
                 connection: connection ?? makeConnection(),
                 unixTimestamp: 0,
                 timeout: PowerHelperConfiguration.requestTimeout
@@ -264,7 +264,7 @@ final class AutoResetWakeScheduler {
             }
 
             let requestedDate = desiredWakeDate
-            let result = await runtimeStatusMonitor.setAutoResetWakeSchedule(
+            let result = await runtimeClient.setAutoResetWakeSchedule(
                 connection: connection ?? makeConnection(),
                 unixTimestamp: requestedDate?.timeIntervalSince1970 ?? 0,
                 timeout: PowerHelperConfiguration.requestTimeout
@@ -367,7 +367,7 @@ final class AutoResetWakeScheduler {
         connection.interruptionHandler = nil
         connection.invalidate()
         self.connection = nil
-        runtimeStatusMonitor.cancelRequest()
+        runtimeClient.cancelRequest()
         appliedSchedule = .unknown
         AppLog.keepAlive.notice(
             "自动重置唤醒服务已断开: reason=\(reason, privacy: .public)"

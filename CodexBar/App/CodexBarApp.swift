@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct CodexBarApp: App {
-    @NSApplicationDelegateAdaptor(CodexBarAppDelegate.self) private var appDelegate
+    @NSApplicationDelegateAdaptor(CodexBarLifecycle.self) private var appLifecycle
 
     init() {
         // 缩短系统工具提示首次出现的延迟 (毫秒)
@@ -10,38 +10,17 @@ struct CodexBarApp: App {
     }
 
     var body: some Scene {
-        // 菜单栏 UI 由 AppDelegate 驱动; 系统设置命令转交给自定义设置窗口
+        // 菜单栏 UI 由 CodexBarLifecycle 驱动; 系统设置命令转交给自定义设置窗口
         Settings {
             EmptyView()
         }
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("app.command.settings") {
-                    appDelegate.openSettingsFromCommand()
+                    appLifecycle.openSettingsFromCommand()
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
         }
-    }
-}
-
-nonisolated extension Bundle {
-    var shortVersionString: String? {
-        object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-    }
-
-    /// 版本文案包含构建号; 版本缺失时回退 `--`
-    var displayVersionLabel: String {
-        Self.displayVersionLabel(
-            version: shortVersionString,
-            build: object(forInfoDictionaryKey: "CFBundleVersion") as? String
-        )
-    }
-
-    static func displayVersionLabel(version: String?, build: String?) -> String {
-        guard let version else { return "--" }
-        let label = "v\(version)"
-        guard let build, !build.isEmpty else { return label }
-        return "\(label) (Build \(build))"
     }
 }

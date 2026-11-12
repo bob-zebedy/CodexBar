@@ -102,7 +102,7 @@ actor CodexStatusService {
             trace.failureStage = .connect
             let outcome: CodexFetchOutcome = if (error as? AppServerStartup.StartupError)?.isMissingInstallation == true {
                 .notInstalled
-            } else if case let CodexStatusError.unsupportedVersion(minimum) = error {
+            } else if case let AppServerError.unsupportedVersion(minimum) = error {
                 .unsupportedVersion(minimum: minimum)
             } else {
                 .initializationFailed
@@ -182,7 +182,7 @@ actor CodexStatusService {
         let response: ResetCreditConsumeResponse = try withAutoResetConnection { connection in
             let accountResponse = try connection.session.perform(AccountRequests.account(refreshToken: false))
             guard let account = accountResponse.account else {
-                throw CodexStatusError.notLoggedIn
+                throw AppServerError.notLoggedIn
             }
             guard AutoResetIdentity.accountIdentity(for: account) == expectedAccountIdentity else {
                 throw AutoResetServiceError.accountChanged
@@ -216,10 +216,10 @@ actor CodexStatusService {
         let reused: Bool
         do {
             (connection, reused) = try ensureConnection()
-        } catch CodexStatusError.authenticationRequired {
+        } catch AppServerError.authenticationRequired {
             trace.failureStage = .account
             return .authenticationRequired
-        } catch let CodexStatusError.unsupportedVersion(minimum) {
+        } catch let AppServerError.unsupportedVersion(minimum) {
             trace.failureStage = .connect
             return .unsupportedVersion(minimum: minimum)
         } catch {
@@ -235,13 +235,13 @@ actor CodexStatusService {
                 trace: &trace
             )
             return .data(snapshot)
-        } catch CodexStatusError.notLoggedIn {
+        } catch AppServerError.notLoggedIn {
             supplementalDataCache = SupplementalDataCache()
             connection.accountResponse = AccountReadResponse(account: nil)
             return .notLoggedIn
-        } catch CodexStatusError.authenticationRequired {
+        } catch AppServerError.authenticationRequired {
             return .authenticationRequired
-        } catch let error as CodexStatusError where error.isTransportFailure {
+        } catch let error as AppServerError where error.isTransportFailure {
             teardownConnection()
             if reused, allowRebuild {
                 AppLog.app.notice("codex 连接已失效: reason=transportError")
@@ -271,7 +271,7 @@ actor CodexStatusService {
                     using: activeConnection,
                     operation: operation
                 )
-            } catch let error as CodexStatusError where error.isTransportFailure && canRebuild {
+            } catch let error as AppServerError where error.isTransportFailure && canRebuild {
                 canRebuild = false
                 teardownConnection()
                 AppLog.app.notice("自动重置连接已重建: reason=transportError")
@@ -285,7 +285,7 @@ actor CodexStatusService {
     ) throws -> Value {
         do {
             return try operation(connection)
-        } catch let error as CodexStatusError where error.isAuthenticationRequired {
+        } catch let error as AppServerError where error.isAuthenticationRequired {
             if case .notLoggedIn = error {
                 throw error
             }
@@ -294,11 +294,11 @@ actor CodexStatusService {
 
             do {
                 return try operation(connection)
-            } catch let error as CodexStatusError where error.isAuthenticationRequired {
+            } catch let error as AppServerError where error.isAuthenticationRequired {
                 if case .notLoggedIn = error {
                     throw error
                 }
-                throw CodexStatusError.authenticationRequired
+                throw AppServerError.authenticationRequired
             }
         }
     }
@@ -325,7 +325,7 @@ actor CodexStatusService {
     ) throws -> AutoResetRead {
         let accountResponse = try connection.session.perform(AccountRequests.account(refreshToken: false))
         guard let account = accountResponse.account else {
-            throw CodexStatusError.notLoggedIn
+            throw AppServerError.notLoggedIn
         }
 
         connection.accountResponse = accountResponse
@@ -357,8 +357,8 @@ actor CodexStatusService {
         func readWithAuthRefresh<Value>(_ read: () throws -> Value) throws -> Value {
             do {
                 return try read()
-            } catch let error as CodexStatusError where error.isAuthenticationRequired {
-                guard !didRefresh else { throw CodexStatusError.authenticationRequired }
+            } catch let error as AppServerError where error.isAuthenticationRequired {
+                guard !didRefresh else { throw AppServerError.authenticationRequired }
                 didRefresh = true
                 try Self.refreshAccount(using: connection)
                 return try read()
@@ -377,9 +377,9 @@ actor CodexStatusService {
                     let value = try Self.read(request, using: connection)
                     cache = value
                     return CachedSupplementalRead(value: value, step: .ok)
-                } catch let error as CodexStatusError where error.isUnsupportedMethod {
+                } catch let error as AppServerError where error.isUnsupportedMethod {
                     return CachedSupplementalRead(value: nil, step: .skipped)
-                } catch let error as CodexStatusError where error.isAuthenticationRequired || error.isTransportFailure {
+                } catch let error as AppServerError where error.isAuthenticationRequired || error.isTransportFailure {
                     throw error
                 } catch {
                     guard let cachedValue = cache else {
@@ -398,7 +398,7 @@ actor CodexStatusService {
             let response = try readWithAuthRefresh {
                 try Self.read(AccountRequests.account(refreshToken: false), using: connection)
             }
-            guard response.account != nil else { throw CodexStatusError.notLoggedIn }
+            guard response.account != nil else { throw AppServerError.notLoggedIn }
             connection.accountResponse = response
             trace.account = didRefresh ? .refreshed : .ok
         } else {
@@ -407,7 +407,7 @@ actor CodexStatusService {
 
         func readSnapshot() throws -> CodexQuotaSnapshot {
             let accountResponse = connection.accountResponse
-            guard let account = accountResponse.account else { throw CodexStatusError.notLoggedIn }
+            guard let account = accountResponse.account else { throw AppServerError.notLoggedIn }
             trace.failureStage = .snapshot
             if supplementalDataCache.useAccount(account) {
                 AppLog.app.notice("额度缓存已丢弃: reason=accountChanged")
@@ -473,19 +473,19 @@ actor CodexStatusService {
     ) throws -> Value {
         do {
             return try connection.session.perform(request)
-        } catch let error as CodexStatusError {
+        } catch let error as AppServerError {
             if error.isAuthenticationRequired {
-                throw CodexStatusError.authenticationRequired
+                throw AppServerError.authenticationRequired
             }
             if error.isUnsupportedMethod {
-                throw CodexStatusError.unsupportedMethod
+                throw AppServerError.unsupportedMethod
             }
             if error.isTransportFailure {
-                throw CodexStatusError.serverConnectionClosed
+                throw AppServerError.serverConnectionClosed
             }
             throw error
         } catch {
-            throw CodexStatusError.serverConnectionClosed
+            throw AppServerError.serverConnectionClosed
         }
     }
 
@@ -493,21 +493,21 @@ actor CodexStatusService {
         let response: AccountReadResponse
         do {
             response = try connection.session.perform(AccountRequests.account(refreshToken: true))
-        } catch let error as CodexStatusError {
+        } catch let error as AppServerError {
             if error.isTransportFailure {
-                throw CodexStatusError.serverConnectionClosed
+                throw AppServerError.serverConnectionClosed
             }
             if error.isAuthenticationRequired {
-                throw CodexStatusError.authenticationRequired
+                throw AppServerError.authenticationRequired
             }
             throw error
         } catch {
-            throw CodexStatusError.serverConnectionClosed
+            throw AppServerError.serverConnectionClosed
         }
 
         connection.accountResponse = response
         if response.account == nil {
-            throw CodexStatusError.notLoggedIn
+            throw AppServerError.notLoggedIn
         }
     }
 
@@ -518,7 +518,7 @@ actor CodexStatusService {
             session = try AccountSession(socketURL: socketURL, logStorage: logStorage)
         } catch {
             logStorage?.recordFailure(message: error.localizedDescription)
-            throw CodexStatusError.serverConnectionClosed
+            throw AppServerError.serverConnectionClosed
         }
 
         do {
@@ -533,12 +533,12 @@ actor CodexStatusService {
                 accountResponse: initialized.account,
                 connectionInfo: connectionInfo
             )
-        } catch let error as CodexStatusError where error.isAuthenticationRequired {
+        } catch let error as AppServerError where error.isAuthenticationRequired {
             session.close()
-            throw CodexStatusError.authenticationRequired
-        } catch let CodexStatusError.unsupportedVersion(minimum) {
+            throw AppServerError.authenticationRequired
+        } catch let AppServerError.unsupportedVersion(minimum) {
             session.close()
-            throw CodexStatusError.unsupportedVersion(minimum: minimum)
+            throw AppServerError.unsupportedVersion(minimum: minimum)
         } catch {
             // app-server 交互细节写入日志窗口, 不重复写入系统日志
             logStorage?.recordFailure(
@@ -548,7 +548,7 @@ actor CodexStatusService {
                 )
             )
             session.close()
-            throw CodexStatusError.serverConnectionClosed
+            throw AppServerError.serverConnectionClosed
         }
     }
 }

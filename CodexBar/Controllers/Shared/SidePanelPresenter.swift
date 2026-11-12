@@ -22,7 +22,7 @@ final class SidePanelDrawerAnimator {
         self.areAnimationsEnabled = areAnimationsEnabled
     }
 
-    func hiddenTranslation(for side: UsageHeatmapDetailSide, panelWidth: CGFloat) -> CGFloat {
+    func hiddenTranslation(for side: SidePanelSide, panelWidth: CGFloat) -> CGFloat {
         let distance = panelWidth + overscan
         switch side {
         case .left:
@@ -148,7 +148,7 @@ final class SidePanelDrawerPresenter {
     private weak var panel: NSPanel?
     private var visibilityGeneration = 0
     private var isExitAnimationRunning = false
-    private var currentSide = UsageHeatmapDetailSide.right
+    private var currentSide = SidePanelSide.right
     private weak var parentWindow: NSWindow?
 
     init(
@@ -210,7 +210,7 @@ final class SidePanelDrawerPresenter {
         )
     }
 
-    func updateSide(_ side: UsageHeatmapDetailSide) {
+    func updateSide(_ side: SidePanelSide) {
         currentSide = side
     }
 

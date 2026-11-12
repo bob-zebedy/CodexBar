@@ -37,16 +37,16 @@ actor AppServerActivityBackfill {
                 let request = ActivityRequests.items(reference, limit: limit, cursor: cursor)
                 let page: ActivityItemsPage = try connection!.request(request.method, params: request.params)
                 try budget.check()
-                guard page.nextCursor == nil || page.nextCursor != cursor else { throw CodexStatusError.invalidServerResponse }
+                guard page.nextCursor == nil || page.nextCursor != cursor else { throw AppServerError.invalidServerResponse }
                 return page
             }
             var pageLimit = limit
             while true {
                 do {
                     let page = try read(limit: pageLimit)
-                    guard page.data.allSatisfy({ $0.turnId == reference.turnID }) else { throw CodexStatusError.invalidServerResponse }
+                    guard page.data.allSatisfy({ $0.turnId == reference.turnID }) else { throw AppServerError.invalidServerResponse }
                     return Page(items: page.data, nextCursor: page.nextCursor, limit: pageLimit)
-                } catch let error as CodexStatusError {
+                } catch let error as AppServerError {
                     guard case .messageTooLarge = error else { throw error }
                     // 超大消息会关闭连接, 清除旧会话后缩小分页并重新握手
                     connection?.close()

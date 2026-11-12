@@ -26,7 +26,7 @@ final class SettingsWindowController: HostingWindowController {
     private var windowVisibilityObserver: AnyCancellable?
     private lazy var licensesWindowController = LicensesWindowController(screenProvider: screenProvider)
     /// 首次展开时才构造, 避免未使用的子面板持有 hosting controller 和订阅直到 App 退出
-    private var optionsPanelControllers: [SettingsOptionsPanel: OptionsPanelController] = [:]
+    private var optionsPanelControllers: [SettingsOptionsPanel: SettingsOptionsPanelController] = [:]
     private var optionsDismissEventMonitor: Any?
     private var optionsDismissFocusObserver: AnyCancellable?
     private var optionsDismissedByClick: (panel: SettingsOptionsPanel, event: NSEvent)?
@@ -175,7 +175,7 @@ final class SettingsWindowController: HostingWindowController {
 
     private func optionsPanelController(
         _ panel: SettingsOptionsPanel
-    ) -> OptionsPanelController {
+    ) -> SettingsOptionsPanelController {
         if let existing = existingOptionsPanelController(panel) {
             return existing
         }
@@ -188,20 +188,20 @@ final class SettingsWindowController: HostingWindowController {
     /// 收起时只处理已创建的子面板
     private func existingOptionsPanelController(
         _ panel: SettingsOptionsPanel
-    ) -> OptionsPanelController? {
+    ) -> SettingsOptionsPanelController? {
         optionsPanelControllers[panel]
     }
 
     private func makeOptionsPanelController(
         _ panel: SettingsOptionsPanel
-    ) -> OptionsPanelController {
+    ) -> SettingsOptionsPanelController {
         switch panel {
         case .mainPanel:
             makeMainPanelOptionsPanelController()
         case .menuBarIndicator:
             makeMenuBarIndicatorOptionsPanelController()
         case .taskGlow:
-            OptionsPanelController(
+            SettingsOptionsPanelController(
                 mainPanelSettings: mainPanelSettings,
                 animationKey: "CodexBar.taskGlowOptionsDrawerTransform",
                 willHide: { [taskGlowSettings] in taskGlowSettings.endColorPreview() },
@@ -210,7 +210,7 @@ final class SettingsWindowController: HostingWindowController {
                 }
             )
         case .notification:
-            OptionsPanelController(
+            SettingsOptionsPanelController(
                 mainPanelSettings: mainPanelSettings,
                 animationKey: "CodexBar.notificationOptionsDrawerTransform",
                 resizesWithContent: true,
@@ -227,7 +227,7 @@ final class SettingsWindowController: HostingWindowController {
                 }
             )
         case .autoReset:
-            OptionsPanelController(
+            SettingsOptionsPanelController(
                 mainPanelSettings: mainPanelSettings,
                 animationKey: "CodexBar.autoResetOptionsDrawerTransform",
                 contentProvider: { [autoResetSettings] in
@@ -235,7 +235,7 @@ final class SettingsWindowController: HostingWindowController {
                 }
             )
         case .keepAlive:
-            OptionsPanelController(
+            SettingsOptionsPanelController(
                 mainPanelSettings: mainPanelSettings,
                 animationKey: "CodexBar.keepAliveOptionsDrawerTransform",
                 resizesWithContent: true,
@@ -249,8 +249,8 @@ final class SettingsWindowController: HostingWindowController {
         }
     }
 
-    private func makeMenuBarIndicatorOptionsPanelController() -> OptionsPanelController {
-        OptionsPanelController(
+    private func makeMenuBarIndicatorOptionsPanelController() -> SettingsOptionsPanelController {
+        SettingsOptionsPanelController(
             mainPanelSettings: mainPanelSettings,
             animationKey: "CodexBar.menuBarIndicatorOptionsDrawerTransform",
             resizesWithContent: true,
@@ -260,8 +260,8 @@ final class SettingsWindowController: HostingWindowController {
         )
     }
 
-    private func makeMainPanelOptionsPanelController() -> OptionsPanelController {
-        OptionsPanelController(
+    private func makeMainPanelOptionsPanelController() -> SettingsOptionsPanelController {
+        SettingsOptionsPanelController(
             mainPanelSettings: mainPanelSettings,
             animationKey: "CodexBar.mainPanelOptionsDrawerTransform",
             willShow: { [mainPanelSettings] in

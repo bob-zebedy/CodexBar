@@ -3,7 +3,7 @@ import Combine
 
 /// 点击活动卡片后展开的并发任务中心, 复用菜单侧边抽屉定位和动画
 @MainActor
-final class ActivityPanelController {
+final class ActivityCenterPanelController {
     private let activityMonitor: ActivityMonitor
     private let presentationState: ActivityCenterPresentationState
     private let mainPanelSettings: MainPanelSettings

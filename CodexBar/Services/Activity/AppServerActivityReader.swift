@@ -352,7 +352,7 @@ actor AppServerActivityReader {
             logStorage?.recordFailure(method: "activity/connection", message: error.localizedDescription, connection: "activity")
         }
         // 后续协议错误不能丢掉前面已取得的有效结果, 存储失败时保留队列供下一轮重试
-        try? await flushPending(generation: current)
+        try? await publishPendingUpdates(generation: current)
         guard generation == current, isRunning else { return }
         await disconnected()
     }
@@ -398,13 +398,13 @@ actor AppServerActivityReader {
         for _ in 0 ..< maximumLoadedPages {
             let page = try await request(ActivityRequests.loadedThreads(cursor: cursor), generation: current)
             loaded.formUnion(page.data)
-            guard loaded.count <= 10000 else { throw CodexStatusError.invalidServerResponse }
+            guard loaded.count <= 10000 else { throw AppServerError.invalidServerResponse }
             guard let next = page.nextCursor else { return loaded }
-            guard cursors.insert(next).inserted else { throw CodexStatusError.invalidServerResponse }
+            guard cursors.insert(next).inserted else { throw AppServerError.invalidServerResponse }
             cursor = next
         }
         // 不发布截断列表, 否则未读取的会话会被错误地当作已经卸载
-        throw CodexStatusError.invalidServerResponse
+        throw AppServerError.invalidServerResponse
     }
 
     private func loadCurrentThreads(generation current: Int) async throws -> Set<String>? {
@@ -540,7 +540,7 @@ actor AppServerActivityReader {
                 restoreTokenUsage(threadID: id, generation: current)
             }
             scheduleHistoryTargets(threadID: id, turns: first.data, joined: newSubscription)
-            try await flushPending(generation: current)
+            try await publishPendingUpdates(generation: current)
             let result = try await readRemainingTurns(
                 thread: thread, remaining: remaining, firstCursor: first.nextCursor, checkpoint: checkpoint,
                 bootstrap: bootstrap || newSubscription, forced: forced, generation: current
@@ -567,16 +567,16 @@ actor AppServerActivityReader {
             let historyOnly = !loaded.contains(id) && reducer.states.filter { $0.key.threadID == id }.values.allSatisfy { $0.tracking != .live }
             covered = unchanged && remaining.isDisjoint(with: active) && (thread.status?.type != .notLoaded || historyOnly)
             failed = (thread.status?.type == .notLoaded && !historyOnly) || (result.exhausted && !remaining.isDisjoint(with: active))
-            try await flushPending(generation: current)
+            try await publishPendingUpdates(generation: current)
         } catch where error is ReadInvalidated || (checkpoint.lifecycleID != lifecycleChanges[id]?.id
-            && (error as? CodexStatusError)?.isTransportFailure != true) {
+            && (error as? AppServerError)?.isTransportFailure != true) {
             consumeDeferred(for: id)
             applyLifecycleChange(id)
             return
-        } catch CodexStatusError.invalidResponsePayload {
+        } catch AppServerError.invalidResponsePayload {
             consumeDeferred(for: id)
             invalidateThread(id, method: "activity/thread")
-        } catch let error as CodexStatusError where error.isMissingRollout(for: id)
+        } catch let error as AppServerError where error.isMissingRollout(for: id)
             || (!error.isTransportFailure && !error.isProtocolOrParameterFailure) {
             handleUnavailableThread(id)
         } catch {
@@ -667,7 +667,7 @@ actor AppServerActivityReader {
             let page = try await request(ActivityRequests.turns(id, limit: 100, cursor: cursor), generation: current)
             try checkLifecycle(id, checkpoint: checkpoint)
             guard page.nextCursor != cursor, page.nextCursor.map({ !scan.visitedCursors.contains($0) }) ?? true else {
-                throw CodexStatusError.invalidServerResponse
+                throw AppServerError.invalidServerResponse
             }
             scan.visitedCursors.insert(cursor)
             try await applySnapshot(thread: thread, turns: page.data, checkpoint: pageCheckpoint, bootstrap: bootstrap)
@@ -676,7 +676,7 @@ actor AppServerActivityReader {
             scan.cursor = page.nextCursor
             scan.exhausted = page.nextCursor == nil
             turnScans[id] = scan
-            try await flushPending(generation: current)
+            try await publishPendingUpdates(generation: current)
             try checkLifecycle(id, checkpoint: checkpoint)
         }
         if scan.cursor == nil {
@@ -833,7 +833,7 @@ actor AppServerActivityReader {
         guard !Task.isCancelled, var scan = backfillScans[reference], scan.id == scanID else { return }
         do {
             let page = try result.get()
-            guard page.nextCursor.map({ !scan.visitedCursors.contains($0) }) ?? true else { throw CodexStatusError.invalidServerResponse }
+            guard page.nextCursor.map({ !scan.visitedCursors.contains($0) }) ?? true else { throw AppServerError.invalidServerResponse }
             let events = reducer.historicalEvents(page.items, reference: reference, now: Date())
                 + reducer.historicalTurnEvents(reference)
             try await activityDataRecorder.record(events: events)
@@ -856,7 +856,7 @@ actor AppServerActivityReader {
             guard isRunning, generation == current, backfillEpoch == epoch, !Task.isCancelled, backfillScans[reference]?.id == scanID else { return }
             scan.failures += 1
             scan.retryAfter = Date().addingTimeInterval(scan.failures == 1 ? 5 : 15)
-            let status = error as? CodexStatusError
+            let status = error as? AppServerError
             let oversized = if case .messageTooLarge = status {
                 true
             } else {
@@ -879,7 +879,7 @@ actor AppServerActivityReader {
 
     private func request<Response>(_ request: AppServerRequest<Response>, generation current: Int) async throws -> Response {
         try checkGeneration(current)
-        guard let connection = session else { throw CodexStatusError.serverConnectionClosed }
+        guard let connection = session else { throw AppServerError.serverConnectionClosed }
         let pending = try connection.beginRequest(request.method, params: request.params ?? [:])
         var received = false
         do {
@@ -890,7 +890,7 @@ actor AppServerActivityReader {
                     try await Task.sleep(for: .milliseconds(10))
                 case let .event(data):
                     try consume(data)
-                    try await flushPending(generation: current, force: false)
+                    try await publishPendingUpdates(generation: current, force: false)
                     await Task.yield()
                 case let .response(data):
                     received = true
@@ -921,7 +921,7 @@ actor AppServerActivityReader {
         do {
             notification = try JSONDecoder().decode(ActivityInput.self, from: data)
         } catch is DecodingError {
-            guard let threadID = AppServerActivityProtocol.recoveryThreadID(from: data) else { throw CodexStatusError.invalidServerResponse }
+            guard let threadID = AppServerActivityProtocol.recoveryThreadID(from: data) else { throw AppServerError.invalidServerResponse }
             guard !ignoredThreads.contains(threadID) else { return }
             invalidateThread(threadID, method: method)
             return
@@ -941,7 +941,7 @@ actor AppServerActivityReader {
             expediteRetry(for: notification, threadID: id)
         }
         if let id, preparingThread == id || (reducer.threads[id] == nil && notification.params.thread == nil) {
-            guard deferredNotifications.count < 4096 else { throw CodexStatusError.invalidServerResponse }
+            guard deferredNotifications.count < 4096 else { throw AppServerError.invalidServerResponse }
             deferredNotifications.append(notification)
             return
         }
@@ -1065,18 +1065,18 @@ actor AppServerActivityReader {
     }
 
     private func consumeAvailable(generation current: Int) async throws {
-        try await flushPending(generation: current)
+        try await publishPendingUpdates(generation: current)
         let deadline = ContinuousClock.now.advanced(by: .milliseconds(50))
         for _ in 0 ..< 256 {
             try checkGeneration(current)
             guard let data = try session?.nextEvent() else { break }
             try consume(data)
-            try await flushPending(generation: current, force: false)
+            try await publishPendingUpdates(generation: current, force: false)
             if ContinuousClock.now >= deadline {
                 break
             }
         }
-        try await flushPending(generation: current)
+        try await publishPendingUpdates(generation: current)
     }
 
     private func startStorageWorker() {
@@ -1168,7 +1168,7 @@ actor AppServerActivityReader {
         }
     }
 
-    private func flushPending(generation current: Int, force: Bool = true) async throws {
+    private func publishPendingUpdates(generation current: Int, force: Bool = true) async throws {
         try checkGeneration(current)
         if let change = pendingAccountChange {
             pendingAccountChange = nil

@@ -24,7 +24,7 @@ nonisolated struct AppServerRequestBudget: Sendable {
     func check() throws {
         try Task.checkCancellation()
         guard Date() < wallDeadline, ContinuousClock.now < deadline else {
-            throw CodexStatusError.serverTimeout
+            throw AppServerError.serverTimeout
         }
     }
 

@@ -21,7 +21,7 @@ final class HeatmapPanelController {
         areAnimationsEnabled: { [weak self] in self?.mainPanelSettings.areAnimationsEnabled ?? false }
     )
     private var hideTask: Task<Void, Never>?
-    private var currentSide = UsageHeatmapDetailSide.left
+    private var currentSide = SidePanelSide.left
     private var visibilityGeneration = 0
     private var drawerTransition = DrawerTransition.idle
     private var pendingSideSwitchRequest: PanelRequest?
@@ -217,7 +217,7 @@ final class HeatmapPanelController {
 
     private func beginSideSwitch(
         on panel: NSPanel,
-        from sourceSide: UsageHeatmapDetailSide,
+        from sourceSide: SidePanelSide,
         to request: PanelRequest
     ) {
         visibilityGeneration += 1
@@ -328,7 +328,7 @@ final class HeatmapPanelController {
         relativeTo menuSurfaceWindow: NSWindow,
         contentView: NSView?,
         alignmentScreenFrame: CGRect?,
-        preferredSide: UsageHeatmapDetailSide
+        preferredSide: SidePanelSide
     ) -> SidePanelPosition {
         let menuSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: menuSurfaceWindow) ?? menuSurfaceWindow.frame
         let screen = menuSurfaceWindow.screen ?? NSScreen.main

@@ -380,7 +380,7 @@ final class AutoResetController {
             return
         }
         let key = evaluation?.target.key ?? target?.key
-        if let error = error as? CodexStatusError, error.isAuthenticationRequired {
+        if let error = error as? AppServerError, error.isAuthenticationRequired {
             if let key {
                 records[key]?.block = .authentication
                 dependencies.failed(.authentication, key)
@@ -394,7 +394,7 @@ final class AutoResetController {
             return
         }
         guard let key else { return }
-        if let error = error as? CodexStatusError {
+        if let error = error as? AppServerError {
             if error.isProtocolOrParameterFailure {
                 records[key]?.block = .permanent
                 dependencies.failed(.permanent, key)

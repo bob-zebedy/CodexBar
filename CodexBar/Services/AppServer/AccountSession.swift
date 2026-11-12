@@ -56,13 +56,13 @@ final nonisolated class AccountSession {
 
     func perform<Response>(_ request: AppServerRequest<Response>) throws -> Response {
         guard !unsupportedMethods.contains(request.method) else {
-            throw CodexStatusError.unsupportedMethod
+            throw AppServerError.unsupportedMethod
         }
 
         // app-server 偶发业务错误可重试一次; 传输错误由上层重建连接
         do {
             return try performRequestRememberingUnsupported(request)
-        } catch let error as CodexStatusError where error.isRetriableServerError && AppServerRPC.permitsRetry(request.method) {
+        } catch let error as AppServerError where error.isRetriableServerError && AppServerRPC.permitsRetry(request.method) {
             return try performRequestRememberingUnsupported(request)
         }
     }
@@ -72,7 +72,7 @@ final nonisolated class AccountSession {
     ) throws -> Response {
         do {
             return try transport.request(request.method, params: request.params, timeout: request.timeout ?? timeout)
-        } catch let error as CodexStatusError {
+        } catch let error as AppServerError {
             if error.isUnsupportedMethod {
                 unsupportedMethods.insert(request.method)
             }

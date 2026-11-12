@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct LogMethodFilter: View {
-    @ObservedObject var store: AppServerLogViewModel
+    @ObservedObject var viewModel: AppServerLogViewModel
     @State private var isPresented = false
     @State private var query = ""
     @State private var methods: [String] = []
@@ -11,7 +11,7 @@ struct LogMethodFilter: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if store.selectedMethods.isEmpty {
+            if viewModel.selectedMethods.isEmpty {
                 Button {
                     isPresented.toggle()
                 } label: {
@@ -23,7 +23,7 @@ struct LogMethodFilter: View {
                 .foregroundStyle(.secondary)
             } else {
                 Button {
-                    store.setSelectedMethods([])
+                    viewModel.setSelectedMethods([])
                 } label: {
                     Image(systemName: "trash")
                         .foregroundStyle(.secondary)
@@ -33,7 +33,7 @@ struct LogMethodFilter: View {
 
                 ScrollView(.horizontal) {
                     HStack(spacing: 5) {
-                        ForEach(store.selectedMethods.sorted(), id: \.self) { method in
+                        ForEach(viewModel.selectedMethods.sorted(), id: \.self) { method in
                             HStack(spacing: 4) {
                                 Text(verbatim: method)
                                     .font(LogTypography.captionFont.monospaced())
@@ -115,7 +115,7 @@ struct LogMethodFilter: View {
                             } label: {
                                 HStack(spacing: 8) {
                                     Image(systemName: "checkmark")
-                                        .opacity(store.selectedMethods.contains(method) ? 1 : 0)
+                                        .opacity(viewModel.selectedMethods.contains(method) ? 1 : 0)
                                         .frame(width: 14)
                                     Text(verbatim: method)
                                         .font(LogTypography.captionFont.monospaced())
@@ -141,7 +141,7 @@ struct LogMethodFilter: View {
             isLoading = true
             defer { isLoading = false }
             do {
-                let available = try await store.availableMethods()
+                let available = try await viewModel.availableMethods()
                 try Task.checkCancellation()
                 methods = available
                 errorMessage = nil
@@ -155,16 +155,16 @@ struct LogMethodFilter: View {
 
     private var matchingMethods: [String] {
         let search = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return Set(methods).union(store.selectedMethods).sorted().filter {
+        return Set(methods).union(viewModel.selectedMethods).sorted().filter {
             search.isEmpty || $0.localizedStandardContains(search)
         }
     }
 
     private func toggle(_ method: String) {
-        var selection = store.selectedMethods
+        var selection = viewModel.selectedMethods
         if !selection.insert(method).inserted {
             selection.remove(method)
         }
-        store.setSelectedMethods(selection)
+        viewModel.setSelectedMethods(selection)
     }
 }

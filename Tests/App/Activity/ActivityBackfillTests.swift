@@ -34,7 +34,7 @@ struct ActivityBackfillTests {
             #expect(page.nextCursor == "next-page")
             #expect(page.limit == 2)
             #expect(page.items.first?.item.id == "tool")
-        } catch let error as CodexStatusError {
+        } catch let error as AppServerError {
             #expect(singleItemTooLarge)
             guard case .messageTooLarge = error else { Issue.record("Wrong error: \(error)")
                 return
@@ -67,7 +67,7 @@ struct ActivityBackfillTests {
         do {
             _ = try await backfill.readPage(reference: .init(threadID: "parent", turnID: "root"), cursor: nil, limit: 20, timeout: 0.3)
             Issue.record("Expected shared deadline")
-        } catch let error as CodexStatusError {
+        } catch let error as AppServerError {
             guard case .serverTimeout = error else {
                 Issue.record("Wrong error: \(error)")
                 return
@@ -604,7 +604,7 @@ extension ActivityBackfillTests {
         }
         defer { server.close() }
         let backfill = AppServerActivityBackfill(socketURL: server.url, logStorage: nil)
-        await #expect(throws: CodexStatusError.self) {
+        await #expect(throws: AppServerError.self) {
             try await backfill.readPage(reference: .init(threadID: "main", turnID: "root"), cursor: "cursor", limit: 20, timeout: 3)
         }
         try server.finish()

@@ -357,7 +357,7 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
             let result: IOReturn = if date == nil {
                 cancelAutoResetWakeSchedule(trigger: .appRequest)
             } else {
-                AutoResetWakeScheduler.replaceSchedule(with: date)
+                PowerHelperWakeScheduler.replaceSchedule(with: date)
             }
             guard result == kIOReturnSuccess else {
                 if date != nil {
@@ -449,13 +449,13 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
         trigger: WakeScheduleCleanupTrigger
     ) -> IOReturn {
         defer { scheduleOwnershipTimerIfNeeded() }
-        let result = AutoResetWakeScheduler.replaceSchedule(with: nil)
+        let result = PowerHelperWakeScheduler.replaceSchedule(with: nil)
         guard result == kIOReturnSuccess else {
             isAutoResetWakeCleanupPending = true
             let details = LogFields.joined(
                 "reason=\(trigger.rawValue)",
                 "code=\(result)",
-                "remaining=\(AutoResetWakeScheduler.ownedEventCount)"
+                "remaining=\(PowerHelperWakeScheduler.ownedEventCount)"
             )
             powerHelperLog.error("自动重置唤醒计划取消失败: \(details, privacy: .public)")
             return result
@@ -764,7 +764,7 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
     }
 
     private func recoverAutoResetWakeScheduleAtStartup() {
-        let initialEventCount = AutoResetWakeScheduler.ownedEventCount
+        let initialEventCount = PowerHelperWakeScheduler.ownedEventCount
         guard initialEventCount > 0 else {
             return
         }
@@ -774,7 +774,7 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
             if delay > 0 {
                 Thread.sleep(forTimeInterval: delay)
             }
-            lastResult = AutoResetWakeScheduler.replaceSchedule(with: nil)
+            lastResult = PowerHelperWakeScheduler.replaceSchedule(with: nil)
             if lastResult == kIOReturnSuccess {
                 powerHelperLog.notice(
                     "自动重置遗留唤醒计划已清理: reason=powerHelperStartup count=\(initialEventCount)"
@@ -787,7 +787,7 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
         let details = LogFields.joined(
             "reason=\(WakeScheduleCleanupTrigger.powerHelperStartup.rawValue)",
             "code=\(lastResult)",
-            "remaining=\(AutoResetWakeScheduler.ownedEventCount)"
+            "remaining=\(PowerHelperWakeScheduler.ownedEventCount)"
         )
         powerHelperLog.error("自动重置遗留唤醒计划清理失败: \(details, privacy: .public)")
     }

@@ -105,7 +105,7 @@ enum SidePanelSupport {
         panelSize: CGSize,
         menuSurfaceFrame: CGRect,
         visibleFrame: CGRect,
-        preferredSide: UsageHeatmapDetailSide,
+        preferredSide: SidePanelSide,
         proposedY: CGFloat,
         clampsToSurfaceBottom: Bool = true
     ) -> SidePanelPosition {
@@ -155,7 +155,7 @@ enum SidePanelSupport {
         visibleFrame: CGRect,
         screenFrame: CGRect?,
         alignmentScreenFrame: CGRect?,
-        preferredSide: UsageHeatmapDetailSide,
+        preferredSide: SidePanelSide,
         clampsToSurfaceBottom: Bool = true
     ) -> SidePanelPosition {
         position(
@@ -319,7 +319,7 @@ enum SidePanelSupport {
     }
 
     private static func horizontalPlacement(
-        preferredSide: UsageHeatmapDetailSide,
+        preferredSide: SidePanelSide,
         left: SidePanelHorizontalPlacement,
         right: SidePanelHorizontalPlacement
     ) -> SidePanelHorizontalPlacement {
@@ -336,8 +336,8 @@ enum SidePanelSupport {
         forX x: CGFloat,
         panelWidth: CGFloat,
         menuSurfaceFrame: CGRect,
-        fallback: UsageHeatmapDetailSide
-    ) -> UsageHeatmapDetailSide {
+        fallback: SidePanelSide
+    ) -> SidePanelSide {
         if x + panelWidth <= menuSurfaceFrame.minX {
             return .left
         }
@@ -356,13 +356,18 @@ enum SidePanelSupport {
     }
 }
 
+nonisolated enum SidePanelSide: Equatable {
+    case left
+    case right
+}
+
 private nonisolated struct SidePanelHorizontalPlacement {
     let x: CGFloat
-    let side: UsageHeatmapDetailSide
+    let side: SidePanelSide
     let isAvailable: Bool
 }
 
 nonisolated struct SidePanelPosition {
     let frame: NSRect
-    let side: UsageHeatmapDetailSide
+    let side: SidePanelSide
 }

@@ -4,13 +4,13 @@ import SwiftUI
 nonisolated struct ResetCreditsPanelContext: Equatable {
     let expirationDates: [Date]
     let alignmentScreenFrame: CGRect?
-    let preferredSide: UsageHeatmapDetailSide
+    let preferredSide: SidePanelSide
     let maximumPanelHeight: CGFloat?
 
     init(
         expirationDates: [Date],
         alignmentScreenFrame: CGRect?,
-        preferredSide: UsageHeatmapDetailSide,
+        preferredSide: SidePanelSide,
         maximumPanelHeight: CGFloat? = nil
     ) {
         self.expirationDates = expirationDates

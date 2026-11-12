@@ -144,7 +144,7 @@ actor SyncService {
             } catch {
                 var failure = error
                 if SyncRecovery.stopsOtherSync(error) {
-                    invalidateAccountScopedCaches()
+                    invalidateSyncZoneConfirmation()
                 }
                 if SyncRecovery.isMissingZone(error, zoneID: syncZoneID), !Task.isCancelled, isEnabled() {
                     do {
@@ -674,7 +674,7 @@ private extension SyncService {
     // MARK: - 账号与设备标识
 
     func resolveCurrentDeviceID() async throws -> String {
-        let salt = try await accountSalt()
+        let salt = try await fetchOrCreateAccountSalt()
         let uuid = try Self.ioPlatformUUID()
         let mac = HMAC<SHA256>.authenticationCode(
             for: Data(uuid.utf8),
@@ -684,7 +684,7 @@ private extension SyncService {
     }
 
     /// 每轮读取最新 salt, 识别其他设备重建同名 zone 后的设备身份变化
-    func accountSalt() async throws -> Data {
+    func fetchOrCreateAccountSalt() async throws -> Data {
         let recordID = accountSaltRecordID
         if let salt = try await fetchAccountSalt(recordID) {
             return salt
@@ -748,7 +748,7 @@ private extension SyncService {
         }
 
         if try await syncZoneExists() == false {
-            invalidateAccountScopedCaches()
+            invalidateSyncZoneConfirmation()
             try await resetSyncState(state: &state)
             let zone = CKRecordZone(zoneID: syncZoneID)
             try SyncCancellation.check(isEnabled: isEnabled)
@@ -768,7 +768,7 @@ private extension SyncService {
         isSyncZoneConfirmed = true
     }
 
-    func invalidateAccountScopedCaches() {
+    func invalidateSyncZoneConfirmation() {
         isSyncZoneConfirmed = false
     }
 

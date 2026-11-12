@@ -1,7 +1,7 @@
 import Foundation
 
 /// UI 和日志共用的 app-server 错误分类, 保留可重试/需重连判断
-nonisolated enum CodexStatusError: LocalizedError {
+nonisolated enum AppServerError: LocalizedError {
     case serverTimeout
     case serverConnectionClosed
     case invalidServerResponse

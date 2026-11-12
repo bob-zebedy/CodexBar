@@ -4,7 +4,7 @@ import os
 
 /// 创建并持有应用级服务和 ViewModel
 @MainActor
-final class CodexBarAppDelegate: NSObject, NSApplicationDelegate {
+final class CodexBarLifecycle: NSObject, NSApplicationDelegate {
     private lazy var codexStatusService = CodexStatusService(logStorage: .shared, startup: appServerStartup)
     private lazy var appServerStartup = AppServerStartup()
     lazy var viewModel = CodexStatusViewModel(service: codexStatusService, serviceStatusMonitor: serviceStatusMonitor)

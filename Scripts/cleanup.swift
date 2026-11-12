@@ -124,7 +124,7 @@ private struct CleanupOptions {
     }
 }
 
-private final class KeepAliveCleanupCommand {
+private final class PowerHelperCleanupCommand {
     private let fileManager = FileManager.default
     private let scriptURL = URL(fileURLWithPath: #filePath).standardizedFileURL
 
@@ -666,7 +666,7 @@ if arguments.first == "--unregister-child" {
 }
 
 do {
-    try KeepAliveCleanupCommand().run(arguments: arguments)
+    try PowerHelperCleanupCommand().run(arguments: arguments)
 } catch {
     FileHandle.standardError.write(Data("Cleanup failed: \(error.localizedDescription)\n".utf8))
     Darwin.exit(EXIT_FAILURE)

@@ -100,7 +100,7 @@ final class KeepAliveController: ObservableObject {
     private var pendingRequestCompletion: ((Bool) -> Void)?
     private var retryTask: Task<Void, Never>?
     private var requestTimeoutTask: Task<Void, Never>?
-    private let powerHelperStatusMonitor = PowerHelperStatusMonitor()
+    private let powerHelperRuntimeClient = PowerHelperRuntimeClient()
     private let powerHelperManager = PowerHelperManagerClient()
     private var isPowerHelperStatusAvailable = false
     private var powerHelperFailureTask: Task<Void, Never>?
@@ -818,7 +818,7 @@ final class KeepAliveController: ObservableObject {
             }
         }
 
-        powerHelperStatusMonitor.cancelRequest()
+        powerHelperRuntimeClient.cancelRequest()
         completePendingRequest(success: false)
         let connection = connection ?? makeConnection()
         appliedSleepPreventionRequested = requested
@@ -1036,11 +1036,11 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func fetchPowerHelperRuntimeStatus() async -> PowerHelperRuntimeStatus? {
-        guard !requestInFlight, !powerHelperStatusMonitor.isRequestInFlight else {
+        guard !requestInFlight, !powerHelperRuntimeClient.isRequestInFlight else {
             return nil
         }
         let connection = connection ?? makeConnection()
-        return await powerHelperStatusMonitor.fetch(
+        return await powerHelperRuntimeClient.fetch(
             connection: connection,
             timeout: PowerHelperConfiguration.requestTimeout,
             onConnectionFailure: { [weak self] error in
@@ -1053,11 +1053,11 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func resetSleepAfterPowerHelperUpdate(_ updateIdentifier: String) async -> Bool {
-        guard !requestInFlight, !powerHelperStatusMonitor.isRequestInFlight else {
+        guard !requestInFlight, !powerHelperRuntimeClient.isRequestInFlight else {
             return false
         }
         let connection = connection ?? makeConnection()
-        return await powerHelperStatusMonitor.resetSleepAfterUpdate(
+        return await powerHelperRuntimeClient.resetSleepAfterUpdate(
             connection: connection,
             updateIdentifier: updateIdentifier,
             timeout: PowerHelperConfiguration.requestTimeout,
@@ -1191,7 +1191,7 @@ final class KeepAliveController: ObservableObject {
     private func invalidateConnection() {
         cancelRequestTimeout()
         cancelExternalObservation()
-        powerHelperStatusMonitor.cancelRequest()
+        powerHelperRuntimeClient.cancelRequest()
         requestGeneration &+= 1
         let connection = connection
         self.connection = nil
@@ -1229,7 +1229,7 @@ final class KeepAliveController: ObservableObject {
             cancelExternalObservation()
             return
         }
-        powerHelperStatusMonitor.startObservation(
+        powerHelperRuntimeClient.startObservation(
             interval: PowerHelperConfiguration.externalObservationInterval
         ) { [weak self] in
             guard let self,
@@ -1272,7 +1272,7 @@ final class KeepAliveController: ObservableObject {
     }
 
     private func cancelExternalObservation() {
-        powerHelperStatusMonitor.cancelObservation()
+        powerHelperRuntimeClient.cancelObservation()
     }
 
     // MARK: - 屏幕常亮

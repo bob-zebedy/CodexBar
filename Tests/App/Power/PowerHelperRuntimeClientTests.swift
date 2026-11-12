@@ -2,25 +2,25 @@ import Foundation
 import Testing
 
 @Suite(.timeLimit(.minutes(1)))
-struct PowerHelperStatusMonitorTests {
+struct PowerHelperRuntimeClientTests {
     @Test func observationCanRestartAfterCancellationBeforeFirstTick() async throws {
-        let monitor = PowerHelperStatusMonitor()
-        defer { monitor.cancelObservation() }
+        let client = PowerHelperRuntimeClient()
+        defer { client.cancelObservation() }
         let finished = TestCheckpoint()
-        monitor.startObservation(interval: .seconds(60)) {
+        client.startObservation(interval: .seconds(60)) {
             Issue.record("Cancelled observation ran")
         }
-        monitor.cancelObservation()
-        monitor.startObservation(interval: .zero) {
-            monitor.cancelObservation()
+        client.cancelObservation()
+        client.startObservation(interval: .zero) {
+            client.cancelObservation()
             finished.signal()
         }
         try #require(try await finished.wait())
     }
 
     @Test func cancelledObservationCannotClearReplacementWhileItsActionFinishes() async throws {
-        let monitor = PowerHelperStatusMonitor()
-        defer { monitor.cancelObservation() }
+        let client = PowerHelperRuntimeClient()
+        defer { client.cancelObservation() }
         let oldEntered = TestCheckpoint()
         let oldRelease = TestCheckpoint()
         let oldReturned = TestCheckpoint()
@@ -32,29 +32,29 @@ struct PowerHelperStatusMonitorTests {
             replacementRelease.signal()
         }
         var replacementTicks = 0
-        monitor.startObservation(interval: .zero) {
+        client.startObservation(interval: .zero) {
             oldEntered.signal()
             await oldRelease.waitIgnoringCancellation()
             oldReturned.signal()
         }
         try #require(try await oldEntered.wait())
-        monitor.cancelObservation()
-        monitor.startObservation(interval: .zero) {
+        client.cancelObservation()
+        client.startObservation(interval: .zero) {
             replacementTicks += 1
             if replacementTicks == 1 {
                 replacementEntered.signal()
                 await replacementRelease.waitIgnoringCancellation()
             } else {
-                monitor.cancelObservation()
+                client.cancelObservation()
                 replacementFinished.signal()
             }
         }
         try #require(try await replacementEntered.wait())
         oldRelease.signal()
         try #require(try await oldReturned.wait())
-        monitor.startObservation(interval: .zero) {
+        client.startObservation(interval: .zero) {
             Issue.record("Replacement observation was overwritten")
-            monitor.cancelObservation()
+            client.cancelObservation()
             replacementFinished.signal()
         }
         replacementRelease.signal()
@@ -63,12 +63,12 @@ struct PowerHelperStatusMonitorTests {
     }
 
     @Test func cancelledStatusReplyCannotFinishNewWakeRequest() async throws {
-        let monitor = PowerHelperStatusMonitor()
+        let client = PowerHelperRuntimeClient()
         let powerHelper = MonitorPowerHelper()
         let connection = MonitorConnection(powerHelper: powerHelper)
-        defer { monitor.cancelRequest() }
+        defer { client.cancelRequest() }
         let statusTask = Task {
-            await monitor.fetch(
+            await client.fetch(
                 connection: connection,
                 timeout: .seconds(60),
                 onConnectionFailure: { _ in Issue.record("Unexpected connection failure") },
@@ -76,40 +76,40 @@ struct PowerHelperStatusMonitorTests {
             )
         }
         try #require(try await powerHelper.statusRequested.wait())
-        #expect(monitor.isRequestInFlight)
-        monitor.cancelRequest()
-        #expect(!monitor.isRequestInFlight)
+        #expect(client.isRequestInFlight)
+        client.cancelRequest()
+        #expect(!client.isRequestInFlight)
         #expect(await statusTask.value == nil)
 
         let wakeTask = Task {
-            await monitor.setAutoResetWakeSchedule(connection: connection, unixTimestamp: 0, timeout: .seconds(60))
+            await client.setAutoResetWakeSchedule(connection: connection, unixTimestamp: 0, timeout: .seconds(60))
         }
         try #require(try await powerHelper.wakeRequested.wait())
         powerHelper.statusReply?(0, CodexBarSleepOwnershipState.idle.rawValue, 0, false)
-        #expect(monitor.isRequestInFlight)
+        #expect(client.isRequestInFlight)
         powerHelper.wakeReply?(0)
         guard case .success = await wakeTask.value else {
             Issue.record("New wake request did not succeed")
             return
         }
-        #expect(!monitor.isRequestInFlight)
+        #expect(!client.isRequestInFlight)
     }
 
     @Test func timeoutClearsRequestAndLateReplyDoesNotPreventReuse() async throws {
-        let monitor = PowerHelperStatusMonitor()
+        let client = PowerHelperRuntimeClient()
         let powerHelper = MonitorPowerHelper()
         let connection = MonitorConnection(powerHelper: powerHelper)
-        defer { monitor.cancelRequest() }
-        let result = await monitor.setAutoResetWakeSchedule(connection: connection, unixTimestamp: 0, timeout: .zero)
+        defer { client.cancelRequest() }
+        let result = await client.setAutoResetWakeSchedule(connection: connection, unixTimestamp: 0, timeout: .zero)
         guard case .timedOut = result else {
             Issue.record("Request did not time out")
             return
         }
-        #expect(!monitor.isRequestInFlight)
+        #expect(!client.isRequestInFlight)
         powerHelper.wakeReply?(0)
 
         let statusTask = Task {
-            await monitor.fetch(
+            await client.fetch(
                 connection: connection,
                 timeout: .seconds(60),
                 onConnectionFailure: { _ in Issue.record("Unexpected connection failure") },
@@ -122,7 +122,7 @@ struct PowerHelperStatusMonitorTests {
         #expect(status?.ownership == .owned)
         #expect(status?.activeClientCount == 1)
         #expect(status?.sleepDisabled == true)
-        #expect(!monitor.isRequestInFlight)
+        #expect(!client.isRequestInFlight)
     }
 }
 

@@ -15,7 +15,7 @@ struct AppServerRequestBudgetTests {
             let session = try AccountSession(socketURL: socketURL, logStorage: nil)
             defer { session.close() }
             let budget = AppServerRequestBudget(deadline: Date().addingTimeInterval(-1))
-            #expect(throws: CodexStatusError.self) {
+            #expect(throws: AppServerError.self) {
                 try AppServerRequestBudget.$current.withValue(budget) {
                     let _: [String: String] = try session.perform(AppServerRequest(method: "account/read"))
                 }
@@ -40,7 +40,7 @@ struct AppServerRequestBudgetTests {
             defer { session.close() }
             let started = ContinuousClock.now
             let budget = AppServerRequestBudget(deadline: Date().addingTimeInterval(0.1))
-            #expect(throws: CodexStatusError.self) {
+            #expect(throws: AppServerError.self) {
                 try AppServerRequestBudget.$current.withValue(budget) {
                     let _: [String: String] = try session.perform(AppServerRequest(method: "account/read"))
                 }

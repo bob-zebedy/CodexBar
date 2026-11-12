@@ -35,7 +35,7 @@ struct AppServerSessionTests {
         do {
             let _: Value = try session.request("probe")
             Issue.record("Expected oversized message")
-        } catch let error as CodexStatusError {
+        } catch let error as AppServerError {
             guard case let .messageTooLarge(bytes, maximum) = error else {
                 Issue.record("Wrong error: \(error)")
                 return
@@ -58,7 +58,7 @@ struct AppServerSessionTests {
         do {
             let _: Value = try session.request("probe")
             Issue.record("Expected invalid control frame")
-        } catch let error as CodexStatusError {
+        } catch let error as AppServerError {
             guard case .invalidServerResponse = error else {
                 Issue.record("Wrong error: \(error)")
                 return
@@ -88,7 +88,7 @@ struct AppServerSessionTests {
                 try session.initialize(clientName: "codex_bar_activity", minimumVersion: CodexVersionReader.minimumAppServerVersion)
             }
             Issue.record("Expected handshake rejection")
-        } catch let error as CodexStatusError {
+        } catch let error as AppServerError {
             if userAgent == "codex/0.159.0" {
                 guard case .unsupportedVersion = error else { Issue.record("Wrong error: \(error)")
                     return
@@ -123,7 +123,7 @@ struct AppServerSessionTests {
         let first = try session.perform(AppServerRequest<Value>(method: "account/read"))
         #expect(first.value == 7)
         for _ in 0 ..< 2 {
-            #expect(throws: CodexStatusError.self) { _ = try session.perform(AppServerRequest<Value>(method: "missing")) }
+            #expect(throws: AppServerError.self) { _ = try session.perform(AppServerRequest<Value>(method: "missing")) }
         }
         let next = try session.perform(AppServerRequest<Value>(method: "probe"))
         #expect(next.value == 8)
@@ -151,7 +151,7 @@ struct AppServerSessionTests {
             do {
                 _ = try session.perform(request)
                 Issue.record("Expected request timeout")
-            } catch let error as CodexStatusError {
+            } catch let error as AppServerError {
                 guard case .serverTimeout = error else {
                     Issue.record("Wrong error: \(error)")
                     return
@@ -428,7 +428,7 @@ struct AppServerSessionTests {
         do {
             _ = try session.perform(AppServerRequest<Value>(method: "probe"))
             Issue.record("Expected a payload error")
-        } catch let error as CodexStatusError {
+        } catch let error as AppServerError {
             #expect(!error.isTransportFailure)
             if case .invalidResponsePayload = error {} else {
                 Issue.record("Wrong error: \(error)")
@@ -476,7 +476,7 @@ struct AppServerSessionTests {
         }
         defer { server.close() }
         let session = try AccountSession(socketURL: server.url, logStorage: nil)
-        #expect(throws: CodexStatusError.self) {
+        #expect(throws: AppServerError.self) {
             _ = try session.perform(AppServerRequest<Value>(method: "probe"))
         }
         #expect(!session.isOpen)
@@ -496,7 +496,7 @@ struct AppServerSessionTests {
         defer { server.close() }
         let session = try AppServerSession(socketURL: server.url, logStorage: storage, connectionName: connection)
         defer { session.close() }
-        #expect(throws: CodexStatusError.self) {
+        #expect(throws: AppServerError.self) {
             let _: Value = try session.request("probe", params: ["text": "Test user message", "apiKey": "original secret"])
         }
         try server.finish()
@@ -581,7 +581,7 @@ struct AppServerSessionTests {
         #expect(entries.first { $0.method == "app-server/message" }?.detail == "{broken JSON")
         #expect(entries.first { $0.method == "probe" }?.status == .failure)
         #expect(entries.filter { $0.method == "connection/closed" }.count == 1)
-        #expect(throws: CodexStatusError.self) {
+        #expect(throws: AppServerError.self) {
             _ = try AppServerSession(socketURL: directory.url.appendingPathComponent("missing.sock"), logStorage: storage)
         }
         #expect(try await storage.page().entries.contains { $0.method == "connection/open" && $0.status == .failure })

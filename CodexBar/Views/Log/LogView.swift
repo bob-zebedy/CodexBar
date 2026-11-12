@@ -16,7 +16,7 @@ enum LogTypography {
 
 /// app-server 交互日志窗口根视图
 struct LogView: View {
-    @ObservedObject var store: AppServerLogViewModel
+    @ObservedObject var viewModel: AppServerLogViewModel
     let mainPanelSettings: MainPanelSettings
     @State private var preview = LogPreviewPresentation()
     @State private var scrollPosition = ScrollPosition(idType: UUID.self, edge: .top)
@@ -24,19 +24,19 @@ struct LogView: View {
 
     var body: some View {
         // 每轮渲染只取一次发布快照复用
-        let entries = store.entries
+        let entries = viewModel.entries
         VStack(spacing: 0) {
             header
             Divider()
 
-            if let error = store.errorMessage {
+            if let error = viewModel.errorMessage {
                 Text(error)
                     .font(LogTypography.captionFont)
                     .foregroundStyle(Color.red)
                     .padding(8)
             }
 
-            if entries.isEmpty, store.isLoading {
+            if entries.isEmpty, viewModel.isLoading {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if entries.isEmpty {
                 emptyState
@@ -45,9 +45,9 @@ struct LogView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 480)
-        .task(id: store.selectedMethods) {
+        .task(id: viewModel.selectedMethods) {
             scrollPosition.scrollTo(edge: .top)
-            await store.refresh()
+            await viewModel.refresh()
         }
         .task(id: preview.request?.id) {
             if let request = preview.request {
@@ -73,17 +73,17 @@ struct LogView: View {
             Text("log.app-server.window.title")
                 .font(LogTypography.titleFont)
 
-            Text(verbatim: "\(store.totalCount)")
+            Text(verbatim: "\(viewModel.totalCount)")
                 .font(LogTypography.badgeFont.monospacedDigit())
                 .foregroundStyle(Color.codexSecondaryLabel)
-                .numericTransition(value: store.totalCount, comparison: Double(store.totalCount))
+                .numericTransition(value: viewModel.totalCount, comparison: Double(viewModel.totalCount))
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
                 .background {
                     Capsule().fill(.quaternary)
                 }
 
-            LogMethodFilter(store: store)
+            LogMethodFilter(viewModel: viewModel)
                 .frame(maxWidth: .infinity)
 
             Button {
@@ -93,11 +93,11 @@ struct LogView: View {
             }
             .controlSize(.small)
             .font(LogTypography.controlFont)
-            .disabled((store.totalCount == 0 && store.entries.isEmpty) || store.isLoading)
+            .disabled((viewModel.totalCount == 0 && viewModel.entries.isEmpty) || viewModel.isLoading)
             .alert("log.clear.confirmation.title", isPresented: $isShowingClearConfirmation) {
                 Button("common.action.cancel", role: .cancel) {}
                 Button("common.action.clear", role: .destructive) {
-                    Task { await store.clear() }
+                    Task { await viewModel.clear() }
                 }
             } message: {
                 Text("log.clear.confirmation.message")
@@ -129,7 +129,7 @@ struct LogView: View {
                         Divider()
                     }
                 }
-                if store.hasMore {
+                if viewModel.hasMore {
                     ProgressView()
                         .controlSize(.small)
                         .frame(maxWidth: .infinity)
@@ -143,16 +143,16 @@ struct LogView: View {
             geometry.contentOffset.y + geometry.contentInsets.top > 1
         } action: { _, isBrowsingHistory in
             if isBrowsingHistory {
-                store.pauseFollowingLatest()
+                viewModel.pauseFollowingLatest()
             }
         }
         .onScrollPhaseChange { previousPhase, phase, context in
             // 浏览时按日志身份保持位置, 回到顶部后才重新跟随新日志
-            if store.hasMore, Self.shouldLoadMore(from: previousPhase, to: phase, geometry: context.geometry) {
-                Task { await store.loadMore() }
+            if viewModel.hasMore, Self.shouldLoadMore(from: previousPhase, to: phase, geometry: context.geometry) {
+                Task { await viewModel.loadMore() }
             } else if phase == .idle, context.geometry.contentOffset.y + context.geometry.contentInsets.top <= 1 {
                 scrollPosition.scrollTo(edge: .top)
-                Task { await store.resumeFollowingLatest() }
+                Task { await viewModel.resumeFollowingLatest() }
             }
         }
         .onDisappear { scrollPosition = ScrollPosition(idType: UUID.self, edge: .top) }

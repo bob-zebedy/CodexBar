@@ -8,7 +8,7 @@ struct AutoResetControllerTests {
     @Test func repeatedSnapshotsCannotRestartExhaustedWindow() async throws {
         let fixture = try ResetFixture()
         defer { fixture.stop() }
-        fixture.state.error = CodexStatusError.serverTimeout
+        fixture.state.error = AppServerError.serverTimeout
         fixture.controller.start()
         // 首次读取尚无目标, 用快照发现凭证后再计入业务尝试
         try fixture.outcomes.send(.data(fixture.snapshot()))

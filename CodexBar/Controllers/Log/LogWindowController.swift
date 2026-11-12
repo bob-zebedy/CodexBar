@@ -5,26 +5,26 @@ import SwiftUI
 @MainActor
 final class LogWindowController: HostingWindowController {
     private var closeObserver: (any NSObjectProtocol)?
-    private let store: AppServerLogViewModel
+    private let viewModel: AppServerLogViewModel
     private let mainPanelSettings: MainPanelSettings
 
     init(
         mainPanelSettings: MainPanelSettings,
-        store: AppServerLogViewModel = AppServerLogViewModel(storage: .shared),
+        viewModel: AppServerLogViewModel = AppServerLogViewModel(storage: .shared),
         screenProvider: @escaping () -> NSScreen?
     ) {
-        self.store = store
+        self.viewModel = viewModel
         self.mainPanelSettings = mainPanelSettings
         super.init(screenProvider: screenProvider)
     }
 
     override func open() {
         super.open()
-        store.start()
+        viewModel.start()
     }
 
     override func makeWindow() -> NSWindow {
-        let hostingController = NSHostingController(rootView: LogView(store: store, mainPanelSettings: mainPanelSettings))
+        let hostingController = NSHostingController(rootView: LogView(viewModel: viewModel, mainPanelSettings: mainPanelSettings))
 
         let window = AuxiliaryHostingWindow(contentViewController: hostingController)
         window.title = String(localized: "log.window.title")
@@ -32,7 +32,7 @@ final class LogWindowController: HostingWindowController {
         window.contentMinSize = Metrics.minimumContentSize
         window.setContentSize(Metrics.defaultContentSize)
         closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.store.stop() }
+            MainActor.assumeIsolated { self?.viewModel.stop() }
         }
         return window
     }

@@ -23,27 +23,27 @@ nonisolated enum AppServerRPC {
     static func decode<Response: Decodable>(_ data: Data, as _: Response.Type) throws -> Response {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               (object["error"] != nil) != (object["result"] != nil) else {
-            throw CodexStatusError.invalidServerResponse
+            throw AppServerError.invalidServerResponse
         }
         if let error = object["error"] {
             guard let error = error as? [String: Any], let message = error["message"] as? String else {
-                throw CodexStatusError.invalidServerResponse
+                throw AppServerError.invalidServerResponse
             }
             if let code = error["code"] {
                 guard let number = code as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), code is Int else {
-                    throw CodexStatusError.invalidServerResponse
+                    throw AppServerError.invalidServerResponse
                 }
             }
             let detail = try error["data"].map {
                 try JSONSerialization.data(withJSONObject: $0, options: [.fragmentsAllowed, .sortedKeys, .withoutEscapingSlashes])
             }
-            throw CodexStatusError.serverError(AppServerRPCError(code: error["code"] as? Int, message: message, data: detail))
+            throw AppServerError.serverError(AppServerRPCError(code: error["code"] as? Int, message: message, data: detail))
         }
         do {
             let payload = try JSONSerialization.data(withJSONObject: object["result"]!, options: [.fragmentsAllowed])
             return try JSONDecoder().decode(Response.self, from: payload)
         } catch {
-            throw CodexStatusError.invalidResponsePayload
+            throw AppServerError.invalidResponsePayload
         }
     }
 
