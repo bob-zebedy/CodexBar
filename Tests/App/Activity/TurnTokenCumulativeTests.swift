@@ -65,6 +65,21 @@ struct TurnTokenCumulativeTests {
         let result = try await store.record(TestFixtures.tokenSample(1270, turn: "root"))
         #expect(result.turns["root"]?.totalTokens == 220)
         #expect(result.turns["next"]?.totalTokens == 50)
+        var reducer = AppServerActivityReducer()
+        let events = reducer.reconcile(
+            thread: ActivityThread(id: "main", status: .init(type: .active), origin: .main),
+            turns: [
+                ActivityTurn(id: "root", status: .interrupted, rootTurnId: "root"),
+                ActivityTurn(id: "next", status: .running, rootTurnId: "root", startedAt: now)
+            ],
+            now: now
+        )
+        reducer.applyTokenUsage(result)
+        var graph = ActivityTaskGraph()
+        _ = graph.consume(events, source: .bootstrap)
+        graph.applyActiveTokenUsage(Array(reducer.states.values))
+        let key = ActivityTaskKey(thread: "main", turn: "next")
+        #expect(graph.tasks[key]?.snapshot.tokenUsage?.totalTokens == 50)
         #expect(try await store.refresh(now: now).first?.tokenUsage.totalTokens == 270)
     }
 
@@ -84,7 +99,7 @@ struct TurnTokenCumulativeTests {
         }
         let root = ActivityTurnReference(threadID: "main", turnID: "root")
         let request = TaskTokenUsageRequest(
-            root: root, expectedAgentThreadIDs: ["child", "grandchild"],
+            primaryTurn: root, expectedAgentThreadIDs: ["child", "grandchild"],
             references: [root, .init(threadID: "child", turnID: "child-turn"), .init(threadID: "grandchild", turnID: "grand-turn")]
         )
         #expect(request.tokenUsage(from: Array(reducer.states.values), requiresFinalTokenUsage: false)?.totalTokens == 130)

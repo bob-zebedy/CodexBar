@@ -1,20 +1,22 @@
 import Foundation
 
 nonisolated struct TaskTokenUsageRequest {
-    let root: ActivityTurnReference
+    let primaryTurn: ActivityTurnReference
     let expectedAgentThreadIDs: Set<String>
     var references: Set<ActivityTurnReference>
 
     func tokenUsage(from states: [TurnLifecycleState], requiresFinalTokenUsage: Bool = true) -> TokenUsage? {
-        let agentThreadIDs = Set(references.filter { $0 != root }.map(\.threadID))
+        let agentThreadIDs = Set(references.filter { $0 != primaryTurn }.map(\.threadID))
         guard !requiresFinalTokenUsage || expectedAgentThreadIDs.isSubset(of: agentThreadIDs) else { return nil }
         var total: TokenUsage?
         for reference in references {
+            let isPrimaryTurn = reference == primaryTurn
+            // 恢复后的主轮次可能沿用旧根轮次, 自身用量只按会话和轮次匹配
             guard let state = states.first(where: { $0.requestedThreadID == reference.threadID && $0.turnID == reference.turnID }),
                   state.readStatus == .complete || state.tracking != .live,
-                  state.rootTurnID == root.turnID,
-                  (state.rootThreadID ?? state.requestedThreadID) == root.threadID,
-                  !requiresFinalTokenUsage || reference == root || state.terminal != nil,
+                  isPrimaryTurn || (state.rootTurnID == primaryTurn.turnID
+                      && (state.rootThreadID ?? state.requestedThreadID) == primaryTurn.threadID),
+                  !requiresFinalTokenUsage || isPrimaryTurn || state.terminal != nil,
                   let tokenUsage = state.tokenUsage else {
                 if requiresFinalTokenUsage {
                     return nil
@@ -44,15 +46,15 @@ nonisolated extension ActivityTaskGraph {
     private func tokenUsageRequest(
         for task: ActivityTask
     ) -> TaskTokenUsageRequest {
-        let root = task.turnReference
-        var references: Set = [root]
+        let primaryTurn = task.turnReference
+        var references: Set = [primaryTurn]
         references.formUnion(subagentTurnLinks.filter { $0.value.root == task.key }.map(\.key))
         for owner in task.executions.keys {
             guard let agentThreadID = owner.agentThreadID, let turn = owner.turnID else { continue }
             references.insert(ActivityTurnReference(threadID: agentThreadID, turnID: turn))
         }
         return TaskTokenUsageRequest(
-            root: root, expectedAgentThreadIDs: Set(task.subagentsByThreadID.keys),
+            primaryTurn: primaryTurn, expectedAgentThreadIDs: Set(task.subagentsByThreadID.keys),
             references: references
         )
     }
@@ -77,22 +79,15 @@ nonisolated extension ActivityTaskGraph {
     }
 
     /// 完成卡片保留期间继续补齐用量, 轮次终态可能先于最后一条用量更新
-    mutating func terminalTokenUsageReferences() -> [ActivityTurnReference] {
-        var references: Set<ActivityTurnReference> = []
-        for (id, var request) in terminalTokenUsageRequests {
-            let rootKey = ActivityTaskKey(thread: request.root.threadID, turn: request.root.turnID)
-            request.references.formUnion(subagentTurnLinks.filter { $0.value.root == rootKey }.map(\.key))
-            terminalTokenUsageRequests[id] = request
-            references.formUnion(request.references)
-        }
-        return Array(references)
+    func terminalTokenUsageReferences() -> [ActivityTurnReference] {
+        Array(Set(terminalTokenUsageRequests.values.flatMap(\.references)))
     }
 
     mutating func applyTerminalTokenUsage(_ states: [TurnLifecycleState]) {
         for (id, var request) in terminalTokenUsageRequests {
-            guard states.contains(where: { $0.requestedThreadID == request.root.threadID && $0.turnID == request.root.turnID }) else { continue }
-            let rootKey = ActivityTaskKey(thread: request.root.threadID, turn: request.root.turnID)
-            request.references.formUnion(subagentTurnLinks.filter { $0.value.root == rootKey }.map(\.key))
+            guard states.contains(where: { $0.requestedThreadID == request.primaryTurn.threadID && $0.turnID == request.primaryTurn.turnID }) else { continue }
+            let taskKey = ActivityTaskKey(thread: request.primaryTurn.threadID, turn: request.primaryTurn.turnID)
+            request.references.formUnion(subagentTurnLinks.filter { $0.value.root == taskKey }.map(\.key))
             terminalTokenUsageRequests[id] = request
             // 仅汇总已确认属于本轮的会话, 临时读取不完整时保留上次结果
             guard let tokenUsage = request.tokenUsage(from: states) else { continue }

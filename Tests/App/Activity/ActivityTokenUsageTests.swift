@@ -54,7 +54,7 @@ struct ActivityTokenUsageTests {
     @Test func knownAgentWithoutResolvedTurnPreventsPartialTotal() {
         let root = reference("thread-a", "turn-a")
         let request = TaskTokenUsageRequest(
-            root: root, expectedAgentThreadIDs: ["unknown-child"], references: [root]
+            primaryTurn: root, expectedAgentThreadIDs: ["unknown-child"], references: [root]
         )
         #expect(request.tokenUsage(from: [state(root)]) == nil)
     }
@@ -141,7 +141,8 @@ struct ActivityTokenUsageTests {
         #expect(monitor.graph.completions.first?.tokenUsage?.totalTokens == 520)
     }
 
-    @Test func activeUsageDoesNotCarryAcrossTurnsOrKeepUnavailableData() throws {
+    @Test(arguments: ["current", "earlier", "missing", "other-thread"])
+    func activeUsageDoesNotCarryAcrossTurnsOrKeepUnavailableData(rootMetadata: String) throws {
         var graph = ActivityTaskGraph()
         let event = TestFixtures.event(turn: "turn-b")
         let key = try #require(ActivityTaskKey(event: event))
@@ -149,12 +150,20 @@ struct ActivityTokenUsageTests {
             displayID: UUID(), key: key, event: event, state: .running,
             startedAt: TestFixtures.now, progressGeneration: 1
         )
-        graph.applyActiveTokenUsage([state(reference("thread-a", "turn-a"))])
+        let earlier = reference("thread-a", "previous-turn")
+        let earlierChild = reference("child-a", "previous-child-turn")
+        graph.subagentTurnLinks[earlierChild] = (ActivityTaskKey(thread: earlier.threadID, turn: earlier.turnID), TestFixtures.now)
+        var earlierState = state(earlier, input: 1000)
+        earlierState.rootTurnID = earlier.turnID
+        var earlierChildState = state(earlierChild, input: 500)
+        earlierChildState.rootTurnID = earlier.turnID
+        graph.applyActiveTokenUsage([earlierState, earlierChildState])
         #expect(graph.tasks[key]?.tokenUsage == nil)
         var current = state(reference("thread-a", "turn-b"), terminal: nil)
-        current.rootTurnID = "turn-b"
-        graph.applyActiveTokenUsage([current])
+        setRootMetadata(rootMetadata, for: &current)
+        graph.applyActiveTokenUsage([earlierState, earlierChildState, current])
         #expect(graph.tasks[key]?.tokenUsage?.totalTokens == 110)
+        #expect(graph.activeTokenUsageReferences() == [reference("thread-a", "turn-b")])
         current.readStatus = .unavailable
         graph.applyActiveTokenUsage([current])
         #expect(graph.tasks[key]?.tokenUsage == nil)
@@ -175,7 +184,8 @@ struct ActivityTokenUsageTests {
         #expect(zero.adding(large) == large)
     }
 
-    @Test func completedAndInterruptedTasksReceiveLateUsageWithoutNewTerminalEvents() throws {
+    @Test(arguments: ["current", "earlier", "missing", "other-thread"])
+    func completedAndInterruptedTasksReceiveLateUsageWithoutNewTerminalEvents(rootMetadata: String) throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let preferences = try TestPreferences()
@@ -204,8 +214,10 @@ struct ActivityTokenUsageTests {
         #expect(monitor.graph.terminations.first?.tokenUsage == nil)
 
         var stopped = state(reference("thread-a", "turn-b"), input: 200, terminal: nil)
-        stopped.rootTurnID = "turn-b"
-        let states = [state(reference("thread-a", "turn-a")), stopped]
+        var completedState = state(reference("thread-a", "turn-a"))
+        setRootMetadata(rootMetadata, for: &stopped)
+        setRootMetadata(rootMetadata, for: &completedState)
+        let states = [state(reference("thread-a", "previous-turn"), input: 1000), completedState, stopped]
         var presentations: [ActivityPresentationUpdate] = []
         let presentation = monitor.presentationPublisher.sink { presentations.append($0) }
         defer { presentation.cancel()
@@ -265,8 +277,11 @@ struct ActivityTokenUsageTests {
         #expect(graph.completions.first?.tokenUsage?.totalTokens == 110)
         let lateChild = reference("child-a", "child-turn-a")
         graph.subagentTurnLinks[lateChild] = (firstKey, TestFixtures.now)
-        graph.applyTerminalTokenUsage([firstState])
+        let missingSnapshot = TurnLifecycleSnapshot(states: [:], verifiedTurns: [:])
+        graph.applyTerminalTokenUsage(missingSnapshot.lifecycleStates(for: graph.terminalTokenUsageReferences()))
+        #expect(Set(graph.terminalTokenUsageReferences()) == [reference("thread-a", "turn-a"), lateChild])
         #expect(graph.completions.first?.tokenUsage?.totalTokens == 110)
+        graph.subagentTurnLinks[lateChild] = nil
         graph.applyTerminalTokenUsage([firstState, state(lateChild, input: 200)])
         #expect(graph.completions.first?.tokenUsage?.totalTokens == 320)
         var unavailable = firstState
@@ -406,9 +421,24 @@ struct ActivityTokenUsageTests {
         ActivityTurnReference(threadID: thread, turnID: turn)
     }
 
+    private func setRootMetadata(_ metadata: String, for state: inout TurnLifecycleState) {
+        switch metadata {
+        case "earlier":
+            state.rootTurnID = "previous-turn"
+        case "missing":
+            state.rootTurnID = nil
+            state.rootThreadID = nil
+        case "other-thread":
+            state.rootTurnID = "previous-turn"
+            state.rootThreadID = "other-thread"
+        default:
+            state.rootTurnID = state.turnID
+        }
+    }
+
     private func request(root: ActivityTurnReference, children: [ActivityTurnReference]) -> TaskTokenUsageRequest {
         TaskTokenUsageRequest(
-            root: root, expectedAgentThreadIDs: Set(children.map(\.threadID)), references: Set([root] + children)
+            primaryTurn: root, expectedAgentThreadIDs: Set(children.map(\.threadID)), references: Set([root] + children)
         )
     }
 
