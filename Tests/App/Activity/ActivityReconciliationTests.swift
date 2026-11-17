@@ -46,7 +46,8 @@ struct ActivityReconciliationTests {
         monitor.stop()
     }
 
-    @Test func recoveryRetriesOnlyUnfinishedThreadsAndNewRecoveryReadsAllThreads() async throws {
+    @Test(arguments: ThreadFailure.allCases)
+    func recoveryRetriesOnlyUnfinishedThreadsAndNewRecoveryReadsAllThreads(failure: ThreadFailure) async throws {
         let directory = try TestDirectory()
         var readerStopped = true
         defer {
@@ -56,7 +57,7 @@ struct ActivityReconciliationTests {
         }
         let preferences = try TestPreferences()
         defer { preferences.remove() }
-        let state = Mutex(Scenario())
+        let state = Mutex(Scenario(failure: failure))
         let initial = ContinuousClock.now
         let clock = Mutex(initial)
         let server = try SharedServerFixture { try Self.serve($0, state: state) }
@@ -120,11 +121,11 @@ struct ActivityReconciliationTests {
         try server.finish()
     }
 
-    @Test(arguments: [false, true])
-    func boundedRetriesKeepIdleRefreshIntervalsAndEventuallyRecoverWithoutNotifications(delayedRetry: Bool) async throws {
+    @Test(arguments: [false, true], [ThreadFailure.missingRollout, .modelProviderMismatch])
+    func boundedRetriesKeepIdleRefreshIntervalsAndEventuallyRecoverWithoutNotifications(delayedRetry: Bool, failure: ThreadFailure) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let state = Mutex(Scenario())
+        let state = Mutex(Scenario(failure: failure))
         let initial = ContinuousClock.now
         let recovery = UUID()
         let clock = Mutex(initial)
@@ -184,15 +185,17 @@ struct ActivityReconciliationTests {
         try server.finish()
     }
 
-    @Test func liveThreadChangesInvalidateOnlyItsRecoveryResult() async throws {
+    @Test(arguments: [ThreadFailure.missingRollout, .modelProviderMismatch])
+    func liveThreadChangesInvalidateOnlyItsRecoveryResult(failure: ThreadFailure) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
-        let state = Mutex(Scenario())
+        let state = Mutex(Scenario(failure: failure))
         let clock = ContinuousClock.now
         let recovery = UUID()
         let server = try SharedServerFixture { try Self.serve($0, state: state) }
         defer { server.close() }
         var ready = false
+        var disconnected = false
         var publishedStates = [ActivityTaskState]()
         let reader = AppServerActivityReader(
             socketURL: server.url, logStorage: nil,
@@ -202,6 +205,9 @@ struct ActivityReconciliationTests {
             onBatch: {
                 if $0.phase == .bootstrapEnd {
                     ready = true
+                }
+                if $0.phase == .sourceUnavailable {
+                    disconnected = true
                 }
                 if let task = $0.graph.tasks[.init(thread: "normal", turn: "turn")] {
                     publishedStates.append(task.state)
@@ -231,11 +237,13 @@ struct ActivityReconciliationTests {
         }
         #expect(publishedStates.contains(.running))
         #expect(publishedStates.contains(.waitingApproval))
+        #expect(!disconnected)
         #expect(await reader.stop())
         try server.finish()
     }
 
-    @Test func protocolFailureStillReconnectsAndDiscardsPreviousChecks() async throws {
+    @Test(arguments: [-32602, -32600])
+    func protocolFailureStillReconnectsAndDiscardsPreviousChecks(code: Int) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let state = Mutex(Scenario())
@@ -260,7 +268,7 @@ struct ActivityReconciliationTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         try #require(bootstraps.count == 1)
-        state.withLock { $0.protocolFailure = true }
+        state.withLock { $0.protocolFailureCode = code }
         #expect(await reader.drainForRecovery(generation: UUID()).status == .sourceUnavailable)
         for _ in 0 ..< 500 where bootstraps.count < 2 {
             try await Task.sleep(for: .milliseconds(10))
@@ -376,13 +384,30 @@ struct ActivityReconciliationTests {
         try server.finish()
     }
 
+    nonisolated enum ThreadFailure: String, CaseIterable {
+        case missingRollout
+        case modelProviderMismatch
+        case modelProviderNotConfigured
+        case modelProviderPolicyConflict
+
+        var error: [String: Any] {
+            if self == .missingRollout {
+                return ["code": -32600, "message": "no rollout found for thread id missing"]
+            }
+            return ["code": -32600, "message": "本地化业务错误", "data": [
+                "type": rawValue, "modelProvider": "saved", "currentModelProvider": "current", "requiredModelProvider": "required"
+            ]]
+        }
+    }
+
     private nonisolated struct Scenario {
+        var failure: ThreadFailure = .missingRollout
         var reads: [String: Int] = [:]
         var missing = true
         var loaded = true
         var stage = 0
         var sentStage = 0
-        var protocolFailure = false
+        var protocolFailureCode: Int?
         var lateStage: Int?
         var missingNotification: String?
         var hasMissingActivity = false
@@ -441,13 +466,15 @@ struct ActivityReconciliationTests {
                     }
                     try sendStage(peer, snapshot: changed)
                 }
-                if id == "normal", snapshot.protocolFailure {
-                    state.withLock { $0.protocolFailure = false
+                if id == "normal", let code = snapshot.protocolFailureCode {
+                    state.withLock { $0.protocolFailureCode = nil
                         $0.missing = false
                     }
-                    try peer.send(["id": #require(request["id"]), "error": ["code": -32602, "message": "invalid params"]])
+                    try peer.send(["id": #require(request["id"]), "error": [
+                        "code": code, "message": "无法处理请求", "data": ["type": "futureProviderError"]
+                    ]])
                 } else if id == "missing", snapshot.missing, method == "thread/resume" {
-                    try peer.send(["id": #require(request["id"]), "error": ["code": -32600, "message": "no rollout found for thread id missing"]])
+                    try peer.send(["id": #require(request["id"]), "error": snapshot.failure.error])
                 } else {
                     try peer.reply(to: request, result: ["thread": snapshot.thread(id)])
                 }

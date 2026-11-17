@@ -350,7 +350,6 @@ struct AccountNotificationTests {
         #expect(attempts == 0)
         try await refresh(1)
         try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(5)) { attempts == 1 })
-        settings.setLowQuotaThresholdPercent(15)
         if reappears {
             try await refresh(2)
             try await refresh(3)

@@ -43,24 +43,22 @@ struct HistoryAggregationTests {
         #expect(full.finalized(identifierStorage: .compacted).metrics.toolCallCount == (withCommandActions ? 4 : 1))
     }
 
-    @Test func aggregateJSONLinesPreserveSlashesAndStableBytes() throws {
+    @Test func aggregateJSONPreservesSlashesAndStableBytes() throws {
         var first = TestFixtures.aggregate()
         first.position = 42
         first.projectCounts = ["/projects/a": 1, "/projects/z": 2]
         first.modelCounts = ["model/name": 3]
         var second = first
         second.projectCounts = Dictionary(uniqueKeysWithValues: first.projectCounts.sorted { $0.key > $1.key })
-        let local = try first.jsonLineData()
-        let synced = try first.syncedAggregate.jsonLineData()
-        #expect(try local == (second.jsonLineData()))
-        #expect(try synced == (second.syncedAggregate.jsonLineData()))
+        let local = try JSONLines.stableEncoder.encode(first)
+        let synced = try JSONLines.stableEncoder.encode(first.syncedAggregate)
+        #expect(try local == JSONLines.stableEncoder.encode(second))
+        #expect(try synced == JSONLines.stableEncoder.encode(second.syncedAggregate))
         for data in [local, synced] {
             let text = try #require(String(bytes: data, encoding: .utf8))
             #expect(text.contains("/projects/a"))
             #expect(text.contains("model/name"))
             #expect(!text.contains(#"\/"#))
-            #expect(data.last == JSONLines.newlineByte)
-            #expect(data.filter { $0 == JSONLines.newlineByte }.count == 1)
         }
         #expect(try JSONLines.decoder.decode(ActivityDataAggregate.self, from: local) == first)
         #expect(try JSONLines.decoder.decode(SyncedActivityData.self, from: synced) == first.syncedAggregate)
@@ -120,8 +118,8 @@ struct HistoryAggregationTests {
         #expect(aggregate.eventCount == nil)
         #expect(aggregate.turnAbortedCount == nil)
         #expect(aggregate.turnCompletedCount == 0)
-        let local = try JSONDecoder().decode(ActivityDataAggregate.self, from: aggregate.jsonLineData())
-        let synced = try JSONDecoder().decode(SyncedActivityData.self, from: aggregate.syncedAggregate.jsonLineData())
+        let local = try JSONDecoder().decode(ActivityDataAggregate.self, from: JSONLines.stableEncoder.encode(aggregate))
+        let synced = try JSONDecoder().decode(SyncedActivityData.self, from: JSONLines.stableEncoder.encode(aggregate.syncedAggregate))
         #expect(local == aggregate)
         #expect(synced.turnAbortedCount == nil)
         #expect(synced.turnCompletedCount == 0)
@@ -132,7 +130,7 @@ struct HistoryAggregationTests {
         aggregate.normalizeIdentifierStorage(retainsIdentifiers: false)
         #expect(aggregate.turnCount == nil)
         #expect(aggregate.metrics.turnCount == nil)
-        let synced = try JSONDecoder().decode(SyncedActivityData.self, from: aggregate.syncedAggregate.jsonLineData())
+        let synced = try JSONDecoder().decode(SyncedActivityData.self, from: JSONLines.stableEncoder.encode(aggregate.syncedAggregate))
         #expect(synced.turnCount == nil)
         #expect(synced.metrics.turnCount == nil)
     }
@@ -205,7 +203,7 @@ struct HistoryAggregationTests {
     @Test func syncExportContainsCountsWithoutRawTaskIdentifiers() throws {
         var accumulator = makeAccumulator()
         accumulator.record(TestFixtures.event())
-        let data = try accumulator.finalized(identifierStorage: .retained).syncedAggregate.jsonLineData()
+        let data = try JSONLines.stableEncoder.encode(accumulator.finalized(identifierStorage: .retained).syncedAggregate)
         let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(object["threadIDs"] == nil)
         #expect(object["sourceCheckpoint"] == nil)

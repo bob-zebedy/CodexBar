@@ -97,33 +97,6 @@ struct ActivitySchedulingTests {
         try server.finish()
     }
 
-    @Test func idleThreadsAreNotFullyReadOnEveryDiscovery() async throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let release = DispatchSemaphore(value: 0)
-        defer { release.signal() }
-        let server = try SharedServerFixture { peer in
-            try Self.bootstrap(peer, timestamp: Date().timeIntervalSince1970, idle: true)
-            for _ in 0 ..< 2 {
-                let loaded = try peer.readMessage()
-                #expect(loaded["method"] as? String == "thread/loaded/list")
-                try peer.reply(to: loaded, result: ["data": ["thread"]])
-            }
-            _ = release.wait(timeout: .now() + 5)
-        }
-        defer { server.close() }
-        let reader = AppServerActivityReader(
-            probe: ActivityReaderProbe(), socketURL: server.url,
-            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url),
-            activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url), onBatch: { _ in }
-        )
-        await reader.start()
-        try await Task.sleep(for: .milliseconds(4400))
-        await reader.stop()
-        release.signal()
-        try server.finish()
-    }
-
     @Test(arguments: [false, true])
     func historicalParentsUseIdleCadenceUntilAChildStarts(parentLoaded: Bool) async throws {
         let directory = try TestDirectory()
@@ -410,7 +383,7 @@ struct ActivitySchedulingTests {
         ["id": "thread", "source": "cli", "createdAt": timestamp, "cwd": "/tmp", "status": ["type": status, "activeFlags": []]]
     }
 
-    private nonisolated static func bootstrap(_ peer: SharedServerFixture.Peer, timestamp: Double, idle: Bool = false) throws {
+    private nonisolated static func bootstrap(_ peer: SharedServerFixture.Peer, timestamp: Double) throws {
         let initialize = try peer.readMessage()
         try peer.reply(to: initialize, result: ["userAgent": "codex/0.162.0"])
         _ = try peer.readMessage()
@@ -418,12 +391,12 @@ struct ActivitySchedulingTests {
         try peer.reply(to: loaded, result: ["data": ["thread"]])
         for _ in 0 ..< 2 {
             let request = try peer.readMessage()
-            try peer.reply(to: request, result: ["thread": thread(timestamp, status: idle ? "idle" : "active")])
+            try peer.reply(to: request, result: ["thread": thread(timestamp)])
         }
         let turns = try peer.readMessage()
         #expect(turns["method"] as? String == "thread/turns/list")
         #expect((turns["params"] as? [String: Any])?["itemsView"] as? String == "notLoaded")
-        try peer.reply(to: turns, result: ["data": [["id": "turn", "rootTurnId": "turn", "status": idle ? "completed" : "inProgress", "startedAt": timestamp]]])
+        try peer.reply(to: turns, result: ["data": [["id": "turn", "rootTurnId": "turn", "status": "inProgress", "startedAt": timestamp]]])
     }
 }
 

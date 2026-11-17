@@ -576,7 +576,7 @@ actor AppServerActivityReader {
         } catch AppServerError.invalidResponsePayload {
             consumeDeferred(for: id)
             invalidateThread(id, method: "activity/thread")
-        } catch let error as AppServerError where error.isMissingRollout(for: id)
+        } catch let error as AppServerError where error.isThreadUnavailable(for: id)
             || (!error.isTransportFailure && !error.isProtocolOrParameterFailure) {
             handleUnavailableThread(id)
         } catch {

@@ -64,11 +64,22 @@ nonisolated enum AppServerError: LocalizedError {
         return !isAuthenticationRequired && !isUnsupportedMethod && !isProtocolOrParameterFailure
     }
 
-    /// 服务端也用 -32600 表示会话历史不可用, 仅匹配当前会话的已知错误
-    func isMissingRollout(for threadID: String) -> Bool {
-        guard case let .serverError(error) = self else { return false }
-        return error.code == -32600 && error.message == "no rollout found for thread id \(threadID)"
+    /// 历史缺失和 provider 业务错误也使用 -32600, 只隔离已确认的会话错误
+    func isThreadUnavailable(for threadID: String) -> Bool {
+        guard case let .serverError(error) = self, error.code == -32600 else { return false }
+        if error.message == "no rollout found for thread id \(threadID)" {
+            return true
+        }
+        guard let data = error.data, let detail = try? JSONDecoder().decode(ThreadErrorData.self, from: data) else { return false }
+        switch detail.type {
+        case "modelProviderMismatch", "modelProviderNotConfigured", "modelProviderPolicyConflict":
+            return true
+        default:
+            return false
+        }
     }
+
+    private struct ThreadErrorData: Decodable { let type: String }
 
     /// 参数或协议形状不正确时继续用同一请求重试不会恢复
     var isProtocolOrParameterFailure: Bool {

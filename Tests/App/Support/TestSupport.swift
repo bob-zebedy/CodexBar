@@ -184,18 +184,6 @@ nonisolated extension HistoryDatabase {
     }
 }
 
-nonisolated extension ActivityDataAggregate {
-    func jsonLineData() throws -> Data {
-        try JSONLines.stableEncoder.encode(self) + Data([JSONLines.newlineByte])
-    }
-}
-
-nonisolated extension SyncedActivityData {
-    func jsonLineData() throws -> Data {
-        try JSONLines.stableEncoder.encode(self) + Data([JSONLines.newlineByte])
-    }
-}
-
 /// 测试夹具按采集器的原始记录与缓存聚合两个步骤写入
 extension TokenUsageHistoryStore {
     func recordObservations(_ observations: [TokenUsageObservation], now: Date = Date()) async throws -> [TokenUsageAggregate] {

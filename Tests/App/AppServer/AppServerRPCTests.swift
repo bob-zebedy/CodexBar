@@ -26,20 +26,59 @@ struct AppServerRPCTests {
         let missing = AppServerError.serverError(AppServerRPCError(
             code: -32600, message: "no rollout found for thread id thread-a", data: nil
         ))
-        #expect(missing.isMissingRollout(for: "thread-a"))
-        #expect(!missing.isMissingRollout(for: "thread-b"))
+        #expect(missing.isThreadUnavailable(for: "thread-a"))
+        #expect(!missing.isThreadUnavailable(for: "thread-b"))
         #expect(missing.isProtocolOrParameterFailure)
         for code in [-32700, -32602, -32603] {
             let error = AppServerError.serverError(AppServerRPCError(
                 code: code, message: "no rollout found for thread id thread-a", data: nil
             ))
-            #expect(!error.isMissingRollout(for: "thread-a"))
+            #expect(!error.isThreadUnavailable(for: "thread-a"))
         }
         let invalid = AppServerError.serverError(AppServerRPCError(code: -32600, message: "invalid request", data: nil))
-        #expect(!invalid.isMissingRollout(for: "thread-a"))
+        #expect(!invalid.isThreadUnavailable(for: "thread-a"))
         #expect(invalid.isProtocolOrParameterFailure)
-        #expect(!AppServerError.serverConnectionClosed.isMissingRollout(for: "thread-a"))
-        #expect(!AppServerError.invalidResponsePayload.isMissingRollout(for: "thread-a"))
+        #expect(!AppServerError.serverConnectionClosed.isThreadUnavailable(for: "thread-a"))
+        #expect(!AppServerError.invalidResponsePayload.isThreadUnavailable(for: "thread-a"))
+    }
+
+    @Test(arguments: ["modelProviderMismatch", "modelProviderNotConfigured", "modelProviderPolicyConflict"])
+    func providerErrorsAreThreadLocalWithoutChangingSharedRetryPolicy(type: String) throws {
+        let data = try JSONSerialization.data(withJSONObject: ["id": 1, "error": [
+            "code": -32600, "message": "本地化业务错误", "data": [
+                "type": type, "modelProvider": "saved", "currentModelProvider": "current", "requiredModelProvider": "required"
+            ]
+        ]])
+        do {
+            let _: [String: Int] = try AppServerRPC.decode(data, as: [String: Int].self)
+            Issue.record("Expected provider error")
+        } catch let error as AppServerError {
+            #expect(error.isThreadUnavailable(for: "thread-a"))
+            #expect(!error.isTransportFailure)
+            #expect(error.isProtocolOrParameterFailure)
+            #expect(!error.isRetriableServerError)
+        }
+    }
+
+    @Test(arguments: [
+        nil, "null", "{}", "[]", "{", #""modelProviderMismatch""#,
+        #"{"type":null}"#, #"{"type":1}"#, #"{"type":"futureProviderError"}"#, #"{"type":"ModelProviderMismatch"}"#
+    ] as [String?])
+    func unknownOrMalformedThreadErrorsKeepTheirFallback(detail: String?) {
+        let error = AppServerError.serverError(AppServerRPCError(
+            code: -32600, message: "modelProviderMismatch", data: detail.map { Data($0.utf8) }
+        ))
+        #expect(!error.isThreadUnavailable(for: "thread-a"))
+        #expect(error.isProtocolOrParameterFailure)
+        #expect(!error.isRetriableServerError)
+    }
+
+    @Test(arguments: [nil, -32700, -32602, -32601, -32603, 0] as [Int?])
+    func providerErrorTypeRequiresMatchingRPCCode(code: Int?) {
+        let error = AppServerError.serverError(AppServerRPCError(
+            code: code, message: "本地化业务错误", data: Data(#"{"type":"modelProviderMismatch"}"#.utf8)
+        ))
+        #expect(!error.isThreadUnavailable(for: "thread-a"))
     }
 
     @Test func rpcMalformedEnvelopeAndPayloadHaveDifferentBoundaries() {
