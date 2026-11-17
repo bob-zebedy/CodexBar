@@ -12,7 +12,7 @@ struct ActivityEventRow<Content: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
             Group {
                 if #available(macOS 26.0, *) {
                     // 保留符号身份和原生字形尺寸, 避免替换时插值图片宽高比
