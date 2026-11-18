@@ -1444,7 +1444,7 @@ extension KeepAliveController {
         }
 
         isAutoResetRequested = requested
-        autoResetWakeScheduler.setRequested(requested)
+        autoResetWakeScheduler.autoResetRequestDidChange(requested)
         if requested, isStarted {
             ensurePowerHelperRegistration()
         }

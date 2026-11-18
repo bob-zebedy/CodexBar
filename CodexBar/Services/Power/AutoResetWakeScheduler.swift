@@ -33,12 +33,19 @@ final class AutoResetWakeScheduler {
 
     var onErrorMessageChanged: ((String?) -> Void)?
 
+    private let newConnection: () -> NSXPCConnection
+
+    init(newConnection: @escaping () -> NSXPCConnection = {
+        NSXPCConnection(machServiceName: CodexBarPowerHelperIPC.serviceIdentifier, options: .privileged)
+    }) {
+        self.newConnection = newConnection
+    }
+
     private let runtimeClient = PowerHelperRuntimeClient()
-    private var isRequested = false
     private var isPowerHelperReady = false
     private var desiredWakeDate: Date?
     private var appliedSchedule = AppliedSchedule.unknown
-    private var syncTask: Task<Void, Never>?
+    private(set) var syncTask: Task<Void, Never>?
     private var syncTaskID: UUID?
     private var needsReconcile = false
     private var preparationState = PreparationState.none
@@ -52,18 +59,12 @@ final class AutoResetWakeScheduler {
         }
     }
 
-    func setRequested(_ requested: Bool) {
-        guard requested != isRequested else {
-            reconcile()
-            return
-        }
-
-        isRequested = requested
+    func autoResetRequestDidChange(_ requested: Bool) {
         errorMessage = nil
         if !requested {
             desiredWakeDate = nil
         }
-        restartSyncForDesiredStateChange()
+        reconcile()
     }
 
     func setWakeDate(_ date: Date?) {
@@ -76,7 +77,7 @@ final class AutoResetWakeScheduler {
 
         desiredWakeDate = normalizedDate
         errorMessage = nil
-        restartSyncForDesiredStateChange()
+        reconcile()
     }
 
     func setPowerHelperReady(_ ready: Bool) {
@@ -97,7 +98,6 @@ final class AutoResetWakeScheduler {
     }
 
     func stop() {
-        isRequested = false
         isPowerHelperReady = false
         preparationState = .none
         desiredWakeDate = nil
@@ -156,11 +156,6 @@ final class AutoResetWakeScheduler {
         reconcile()
     }
 
-    private func restartSyncForDesiredStateChange() {
-        cancelSyncTask()
-        reconcile()
-    }
-
     private func suspend() {
         cancelSyncTask()
         invalidateConnection()
@@ -168,6 +163,9 @@ final class AutoResetWakeScheduler {
     }
 
     private func cancelSyncTask() {
+        if syncTask != nil {
+            appliedSchedule = .unknown
+        }
         syncTask?.cancel()
         runtimeClient.cancelRequest()
         syncTask = nil
@@ -337,10 +335,7 @@ final class AutoResetWakeScheduler {
     }
 
     private func makeConnection() -> NSXPCConnection {
-        let connection = NSXPCConnection(
-            machServiceName: CodexBarPowerHelperIPC.serviceIdentifier,
-            options: .privileged
-        )
+        let connection = newConnection()
         connection.remoteObjectInterface = NSXPCInterface(with: CodexBarPowerHelperProtocol.self)
         connection.invalidationHandler = { [weak self, weak connection] in
             Task { @MainActor in

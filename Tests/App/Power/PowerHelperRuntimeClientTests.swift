@@ -3,6 +3,31 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1)))
 struct PowerHelperRuntimeClientTests {
+    @Test(arguments: [false, true])
+    func inFlightWakeRequestConvergesToLatestTarget(clear: Bool) async throws {
+        let helper = MonitorPowerHelper()
+        let scheduler = AutoResetWakeScheduler(newConnection: { MonitorConnection(powerHelper: helper) })
+        defer { scheduler.stop() }
+        let first = Date().addingTimeInterval(1800)
+        let second = first.addingTimeInterval(600)
+        scheduler.setWakeDate(first)
+        scheduler.setPowerHelperReady(true)
+        try #require(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(2)) { helper.wakeDates.count == 1 })
+        helper.wakeReply?(0)
+        await scheduler.syncTask?.value
+        scheduler.setWakeDate(second)
+        try #require(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(2)) { helper.wakeDates.count == 2 })
+        if clear {
+            scheduler.autoResetRequestDidChange(false)
+        } else {
+            scheduler.setWakeDate(first)
+        }
+        helper.wakeReply?(0)
+        #expect(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(2)) { helper.wakeDates.count == 3 })
+        #expect(helper.wakeDates == [first.timeIntervalSince1970, second.timeIntervalSince1970, clear ? 0 : first.timeIntervalSince1970])
+        helper.wakeReply?(0)
+    }
+
     @Test func observationCanRestartAfterCancellationBeforeFirstTick() async throws {
         let client = PowerHelperRuntimeClient()
         defer { client.cancelObservation() }
@@ -134,6 +159,8 @@ private final nonisolated class MonitorConnection: NSXPCConnection {
         super.init()
     }
 
+    override func resume() {}
+
     override func remoteObjectProxyWithErrorHandler(_: @escaping (any Error) -> Void) -> Any {
         powerHelper
     }
@@ -144,6 +171,7 @@ private final class MonitorPowerHelper: NSObject, CodexBarPowerHelperProtocol {
     let statusRequested = TestCheckpoint()
     let wakeRequested = TestCheckpoint()
     var statusReply: (@Sendable (Int32, Int, Int, Bool) -> Void)?
+    var wakeDates: [TimeInterval] = []
     var wakeReply: (@Sendable (Int32) -> Void)?
 
     nonisolated func getSleepPreventionStatus(reply: @escaping @Sendable (Int32, Int, Int, Bool) -> Void) {
@@ -153,8 +181,9 @@ private final class MonitorPowerHelper: NSObject, CodexBarPowerHelperProtocol {
         }
     }
 
-    nonisolated func setAutoResetWakeSchedule(_: TimeInterval, reply: @escaping @Sendable (Int32) -> Void) {
+    nonisolated func setAutoResetWakeSchedule(_ timestamp: TimeInterval, reply: @escaping @Sendable (Int32) -> Void) {
         MainActor.assumeIsolated {
+            wakeDates.append(timestamp)
             wakeReply = reply
             wakeRequested.signal()
         }

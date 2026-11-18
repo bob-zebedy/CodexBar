@@ -3,6 +3,61 @@ import Testing
 
 @Suite(.tags(.integration))
 struct ActivityReaderBoundsTests {
+    @Test func slowHealthyThreadsFinishBootstrapOnOneConnection() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let threads = (0 ..< 12).map { "thread-\($0)" }
+        let server = try SharedServerFixture { peer in
+            try Self.initialize(peer)
+            var inspected = Set<String>()
+            while let request = try? peer.readMessage() {
+                let id = (request["params"] as? [String: Any])?["threadId"] as? String
+                switch request["method"] as? String {
+                case "thread/loaded/list":
+                    try peer.reply(to: request, result: ["data": threads])
+                case "thread/read", "thread/resume":
+                    Thread.sleep(forTimeInterval: 0.02)
+                    try? peer.reply(to: request, result: try ["thread": ["id": #require(id), "source": "cli", "status": ["type": "idle"]]])
+                case "thread/turns/list":
+                    try inspected.insert(#require(id))
+                    Thread.sleep(forTimeInterval: 0.02)
+                    try? peer.reply(to: request, result: ["data": []])
+                default: Issue.record("Unexpected request")
+                }
+            }
+            #expect(inspected == Set(threads))
+        }
+        defer { server.close() }
+        var complete = false
+        var disconnected = false
+        let reader = AppServerActivityReader(
+            socketURL: server.url, logStorage: nil,
+            tokenUsageHistory: TokenUsageHistoryStore(directoryURL: directory.url),
+            activityDataRecorder: ActivityDataRecorder(directoryURL: directory.url), reconciliationTimeout: 0.35
+        ) { update in
+            if update.phase == .bootstrapEnd {
+                complete = update.isComplete
+            }
+            if update.phase == .sourceUnavailable {
+                disconnected = true
+            }
+        }
+        await reader.start()
+        _ = try await waitForCondition(timeout: .seconds(5), pollInterval: .milliseconds(5)) { complete || disconnected }
+        if complete {
+            let recovery = UUID()
+            var result = await reader.drainForRecovery(generation: recovery)
+            for _ in 0 ..< threads.count where result.status == .partial {
+                result = await reader.drainForRecovery(generation: recovery)
+            }
+            #expect(result.status == .completed)
+        }
+        await reader.stop()
+        try server.finish()
+        #expect(complete)
+        #expect(!disconnected)
+    }
+
     @Test(arguments: [["repeat", "repeat"], ["a", "b", "a"], ["a", "b", "c"]])
     func invalidPaginationCannotCompleteBootstrap(cursors: [String]) async throws {
         let directory = try TestDirectory()

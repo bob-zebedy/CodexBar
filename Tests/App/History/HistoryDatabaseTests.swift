@@ -396,7 +396,7 @@ struct HistoryDatabaseTests {
         try database.append(event("activityData", at: now))
         try database.execute("CREATE TRIGGER reject_tokenUsage BEFORE UPDATE OF tokenUsage ON aggregates BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
         let failed = try await store.loadSnapshot(now: now)
-        #expect(failed.coverage == .partial)
+        #expect(failed.coverage == .partial([date]))
         #expect(failed.aggregates == before)
         #expect(try database.aggregateActivityData(date: date).eventCount == 1)
         #expect(try database.tokenUsageAggregates().first?.tokenUsage == tokenUsage(20))
@@ -406,7 +406,7 @@ struct HistoryDatabaseTests {
         let recovered = try await store.loadSnapshot(now: now)
         #expect(recovered.coverage == .complete)
         #expect(recovered.aggregates.first?.tokenUsage == tokenUsage(50))
-        #expect(try await store.refresh(now: now) == recovered.aggregates)
+        #expect(try await store.loadSnapshot(now: now).aggregates == recovered.aggregates)
         #expect(try database.activityDataAggregates().first?.eventCount == 1)
     }
 }

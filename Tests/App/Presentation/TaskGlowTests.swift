@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 
 struct TaskGlowTests {
@@ -129,6 +130,39 @@ struct TaskGlowTests {
         #expect(settings.appearance.colors[.running] == nil)
         #expect(preferences.defaults.object(forKey: "TaskGlow.color.running") == nil)
         #expect(TaskGlowSettings(defaults: preferences.defaults).appearance.color(for: .running) == .systemCyan)
+    }
+
+    @Test func endingIncompleteColorEditRestoresSavedColorAndClearingResetsIt() throws {
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let settings = TaskGlowSettings(defaults: preferences.defaults)
+        settings.setColorHex("AB12EF", for: .running)
+        let host = NSHostingView(rootView: TaskGlowOptionsView(settings: settings))
+        host.setFrameSize(host.fittingSize)
+        host.layoutSubtreeIfNeeded()
+        func runningField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.stringValue == "AB12EF" {
+                return field
+            }
+            return view.subviews.lazy.compactMap { runningField(in: $0) }.first
+        }
+        let field = try #require(runningField(in: host))
+        let delegate = try #require(field.delegate)
+        func edit(_ drafts: [String]) {
+            delegate.controlTextDidBeginEditing?(Notification(name: NSControl.textDidBeginEditingNotification, object: field))
+            for draft in drafts {
+                field.stringValue = draft
+                delegate.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: field))
+            }
+            delegate.controlTextDidEndEditing?(Notification(name: NSControl.textDidEndEditingNotification, object: field))
+        }
+
+        edit(["", "AB12E"])
+        #expect(field.stringValue == "AB12EF")
+        #expect(TaskGlowSettings(defaults: preferences.defaults).appearance.colors[.running] == "AB12EF")
+        edit([""])
+        #expect(field.stringValue.isEmpty)
+        #expect(TaskGlowSettings(defaults: preferences.defaults).appearance.colors[.running] == nil)
     }
 
     @Test func invalidAppearanceValuesFallBackAndInvalidWritesAreIgnored() throws {

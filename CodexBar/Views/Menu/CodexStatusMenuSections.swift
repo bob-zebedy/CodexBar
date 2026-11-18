@@ -207,10 +207,10 @@ struct QuotaLimitsSection: View {
     let limits: [CodexQuotaLimitSnapshot]
     let credits: RateLimitCreditsSnapshot?
     let resetCreditsAvailableCount: Int?
-    let resetCreditExpirationDates: [Date]?
     let isStale: Bool
-    let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
+    let onResetCreditsTap: (ScreenFrameProvider) -> Void
     @State private var sectionFrameProvider = ScreenFrameProvider()
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -232,7 +232,8 @@ struct QuotaLimitsSection: View {
     }
 
     private func quotaLimitSection(_ limit: CodexQuotaLimitSnapshot, showsPrimaryMetadata: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let resetCount = showsPrimaryMetadata ? (resetCreditsAvailableCount ?? 0) : 0
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(limit.title)
                     .font(MenuMetrics.titleFont)
@@ -253,10 +254,12 @@ struct QuotaLimitsSection: View {
                     )
                 }
 
-                if showsPrimaryMetadata, let resetCreditsAvailableCount, resetCreditsAvailableCount > 0 {
-                    resetCreditsButton(count: resetCreditsAvailableCount)
+                if resetCount > 0 {
+                    resetCreditsButton(count: resetCount)
+                        .transition(.opacity)
                 }
             }
+            .animation(allowsAnimations ? .codexStatus : nil, value: resetCount > 0)
 
             VStack(spacing: 8) {
                 ForEach(limit.windows) { window in
@@ -293,13 +296,7 @@ struct QuotaLimitsSection: View {
 
     private func resetCreditsButton(count: Int) -> some View {
         Button {
-            onResetCreditsTap(
-                ResetCreditsPanelContext(
-                    expirationDates: resetCreditExpirationDates ?? [],
-                    alignmentScreenFrame: sectionFrameProvider.currentScreenFrame(),
-                    preferredSide: .right
-                )
-            )
+            onResetCreditsTap(sectionFrameProvider)
         } label: {
             metadataCapsule(String(localized: "banked-reset.count", defaultValue: "\(count, specifier: "%lld")"))
         }

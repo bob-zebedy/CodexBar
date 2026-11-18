@@ -1,6 +1,12 @@
 import CloudKit
 import Foundation
 
+extension TokenUsageHistorySnapshot {
+    static func complete(_ aggregates: [TokenUsageAggregate]) -> Self {
+        Self(aggregates: aggregates, coverage: .complete)
+    }
+}
+
 enum SyncTestFixtures {
     static let zone = CKRecordZone.ID(zoneName: SyncCloudKit.zoneName, ownerName: CKCurrentUserDefaultName)
 

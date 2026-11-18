@@ -61,6 +61,40 @@ struct MenuLoadingTests {
         #expect(fixture.size() == initialSize)
     }
 
+    @Test(.tags(.integration)) func reopeningRecreatesTaskCardBeforeMeasuringTheMenu() async throws {
+        let server = try makeServer(signedIn: false)
+        defer { server.close() }
+        let fixture = try Fixture(socketURL: server.url)
+        defer { await fixture.cleanUp() }
+        let monitor = fixture.menu.activityMonitor
+        monitor.isActivitySourceHealthy = true
+        monitor.consume(.live([TestFixtures.event(at: Date())]))
+        fixture.model.refresh(trigger: .manual)
+        try #require(try await waitForCondition(timeout: .seconds(3), pollInterval: .milliseconds(10)) { fixture.model.loadState == .notLoggedIn })
+
+        let visibility = fixture.menu.menuSurfaceVisibility
+        visibility.prepareForPresentation()
+        let host = fixture.host()
+        func eventRegion(in view: NSView) -> ActivityCardEvents.EventRegion? {
+            view as? ActivityCardEvents.EventRegion ?? view.subviews.lazy.compactMap { eventRegion(in: $0) }.first
+        }
+        func measureCard() throws -> ActivityCardEvents.EventRegion {
+            host.setFrameSize(host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+            return try #require(eventRegion(in: host))
+        }
+        let previous = try measureCard()
+        visibility.didPresent()
+        visibility.endPresentation()
+        monitor.consume(.live([TestFixtures.event(at: Date(), thread: "next")]))
+        visibility.prepareForPresentation()
+        let reopened = try measureCard()
+        #expect(reopened !== previous)
+        visibility.didPresent()
+        #expect(try measureCard() === reopened)
+        try server.finish()
+    }
+
     @Test(.tags(.integration), arguments: [true, false])
     func firstResponseRestoresConfiguredLayoutAndStopsLoading(signedIn: Bool) async throws {
         let server = try makeServer(signedIn: signedIn)

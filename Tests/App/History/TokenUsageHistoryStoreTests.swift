@@ -25,16 +25,16 @@ struct TokenUsageHistoryStoreTests {
         let initial = try await store.recordObservations([first, first, second], now: now)
         #expect(initial.first?.tokenUsage == tokenUsage(50))
         #expect(initial.first?.eventCount == 2)
-        #expect(try await TokenUsageHistoryStore(directoryURL: directory.url).refresh(now: now) == initial)
+        #expect(try await TokenUsageHistoryStore(directoryURL: directory.url).loadSnapshot(now: now).aggregates == initial)
         let database = try HistoryDatabase(directoryURL: directory.url)
         try database.execute("UPDATE aggregates SET tokenUsage = ?", [.data(Data("broken".utf8))])
-        #expect(try await store.refresh(now: now) == initial)
+        #expect(try await store.loadSnapshot(now: now).aggregates == initial)
         try database.execute("UPDATE aggregates SET tokenUsage = ?", [.data(Data("broken".utf8))])
         let rebuilt = try await store.rebuild(for: [HistoryStorage.dateKey(for: now)])
         #expect(rebuilt.eventCount == 2)
         #expect(try await store.persistedAggregates(now: now) == initial)
         try database.execute("UPDATE aggregates SET tokenUsage = NULL")
-        #expect(try await store.refresh(now: now) == initial)
+        #expect(try await store.loadSnapshot(now: now).aggregates == initial)
     }
 
     @Test func tokenRebuildChecksOnlyRequestedDatesWithSourceEvents() async throws {
@@ -80,7 +80,7 @@ struct TokenUsageHistoryStoreTests {
         try database.execute("""
         UPDATE aggregates SET tokenUsage = NULL
         """)
-        #expect(try await store.refresh(now: now) == result)
+        #expect(try await store.loadSnapshot(now: now).aggregates == result)
     }
 
     @Test(arguments: [-1, 1])
@@ -152,6 +152,24 @@ struct TokenUsageHistoryStoreTests {
         #expect(snapshot.aggregates == saved)
     }
 
+    @Test func idleMaintenanceAndSnapshotCanReadWhileAWriterHoldsTheLock() async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let now = Date()
+        let store = TokenUsageHistoryStore(directoryURL: directory.url)
+        try await store.appendObservation(TestFixtures.tokenUsageObservation(at: now, tokenUsage: tokenUsage(20)), now: now)
+        try await store.refreshPendingDates()
+        #expect(try await store.persistedAggregates(now: now).first?.tokenUsage == tokenUsage(20))
+
+        let writer = try HistoryDatabase(directoryURL: directory.url)
+        try writer.execute("BEGIN IMMEDIATE")
+        defer { try? writer.execute("ROLLBACK") }
+        try await store.refreshPendingDates()
+        let snapshot = try await store.loadSnapshot(now: now)
+        #expect(snapshot.coverage == .complete)
+        #expect(snapshot.aggregates.first?.tokenUsage == tokenUsage(20))
+    }
+
     @Test func failedTokenUsageDayPreservesTotalAndHealthyDayStillAdvances() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
@@ -166,7 +184,7 @@ struct TokenUsageHistoryStoreTests {
         try database.execute("UPDATE events SET payload = ? WHERE identity = ?", [.data(Data("broken".utf8)), .text("tokenUsage:" + bad.id)])
         for _ in 0 ..< 2 {
             let snapshot = try await store.loadSnapshot(now: now)
-            #expect(snapshot.coverage == .partial)
+            #expect(snapshot.coverage == .partial([HistoryStorage.dateKey(for: yesterday)]))
             #expect(TokenUsageAggregate.tokenUsageByDate(snapshot.aggregates, now: now) == [
                 HistoryStorage.dateKey(for: yesterday): tokenUsage(10), HistoryStorage.dateKey(for: now): tokenUsage(20)
             ])
@@ -245,7 +263,7 @@ struct TokenUsageHistoryStoreTests {
         )
         _ = try await store.recordObservations([observation, observation], now: now)
         let restarted = TokenUsageHistoryStore(directoryURL: directory.url)
-        let records = try await restarted.refresh(now: now)
+        let records = try await restarted.loadSnapshot(now: now).aggregates
         #expect(records.count == 1)
         #expect(records.first?.tokenUsage == tokenUsage)
     }
@@ -272,7 +290,7 @@ struct TokenUsageHistoryStoreTests {
             tokenUsage: tokenUsage
         )
         _ = try await store.recordObservations([second], now: now.addingTimeInterval(2))
-        let records = try await store.refresh(now: now.addingTimeInterval(2))
+        let records = try await store.loadSnapshot(now: now.addingTimeInterval(2)).aggregates
         #expect(records.first?.tokenUsage == tokenUsage.adding(tokenUsage))
     }
 }

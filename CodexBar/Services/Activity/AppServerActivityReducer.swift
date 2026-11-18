@@ -553,8 +553,8 @@ nonisolated struct AppServerActivityReducer {
     }
 
     func missingSubagentParents(liveOnly: Bool = false) -> Set<String> {
-        let liveThreads = Set(states.values.filter { $0.tracking == .live && $0.terminal == nil }.map(\.requestedThreadID))
-        return Set(threads.values.filter {
+        let liveThreads = liveOnly ? Set(states.values.lazy.filter { $0.tracking == .live && $0.terminal == nil }.map(\.requestedThreadID)) : []
+        return Set(threads.values.lazy.filter {
             subagentContexts[$0.id] == nil && (!liveOnly || liveThreads.contains($0.id))
         }.compactMap(\.parentThreadID))
     }

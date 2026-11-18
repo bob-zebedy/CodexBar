@@ -241,7 +241,9 @@ struct HistoryServiceTests {
         let database = SyncDatabaseFixture()
         let sync = SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
         let history = HistoryService(directoryURL: directory.url, syncService: sync)
-        let now = Date()
+        let today = Date()
+        let now = today.addingTimeInterval(-86400)
+        let goodDate = HistoryStorage.dateKey(for: today)
         let date = HistoryStorage.dateKey(for: now)
         func entry(_ name: String, count: Int64) throws -> Data {
             let observation = TestFixtures.tokenUsageObservation(id: name, at: now, tokenUsage: SyncTestFixtures.counts(count))
@@ -258,13 +260,18 @@ struct HistoryServiceTests {
         try directory.replaceHistory(entry("first", count: 80) + entry("second", count: 200), date: date)
         try HistoryDatabase(directoryURL: directory.url).execute("UPDATE events SET payload = ? WHERE identity = 'tokenUsage:second'", [.data(Data("broken".utf8))])
 
+        let observation = TestFixtures.tokenUsageObservation(id: "healthy", at: today, tokenUsage: SyncTestFixtures.counts(700))
+        try directory.replaceHistory(AppServerEventRecord(tokenUsage: observation, recordedAt: today).jsonLineData(), date: goodDate)
+        let cached = await history.loadSnapshot()
+        #expect(cached.tokenUsageByDate[goodDate] == SyncTestFixtures.counts(700))
         for _ in 0 ..< 2 {
             let partial = await history.loadSnapshot(synchronize: true)
+            #expect(partial.tokenUsageByDate[goodDate] == SyncTestFixtures.counts(700))
             #expect(partial.tokenUsageByDate[date] == SyncTestFixtures.counts(300))
             let saved = try #require(try await database.records(for: [recordID], desiredKeys: nil)[recordID]?.get())
             #expect(try TokenUsageSync.dailyRecord(from: saved)?.tokenUsage == SyncTestFixtures.counts(300))
         }
-        #expect(await database.savedTypes.filter { $0 == "TokenUsage" }.count == 1)
+        #expect(await database.savedTypes.filter { $0 == "TokenUsage" }.count == 2)
 
         try HistoryDatabase(directoryURL: directory.url).execute("""
         UPDATE aggregates SET tokenUsage = NULL
@@ -274,7 +281,7 @@ struct HistoryServiceTests {
         #expect(repaired.tokenUsageByDate[date] == SyncTestFixtures.counts(280))
         let saved = try #require(try await database.records(for: [recordID], desiredKeys: nil)[recordID]?.get())
         #expect(try TokenUsageSync.dailyRecord(from: saved)?.tokenUsage == SyncTestFixtures.counts(280))
-        #expect(await database.savedTypes.filter { $0 == "TokenUsage" }.count == 2)
+        #expect(await database.savedTypes.filter { $0 == "TokenUsage" }.count == 3)
     }
 }
 

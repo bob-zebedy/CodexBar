@@ -1,10 +1,15 @@
 import Foundation
 import IOKit.pwr_mgt
 
-enum PowerHelperWakeScheduler {
+struct PowerHelperWakeScheduler: Sendable {
+    var replace: @Sendable (Date?) -> IOReturn
+    var eventCount: @Sendable () -> Int
+
+    static let system = Self(replace: replaceSchedule, eventCount: { ownedEvents().count })
+
     static let owner = CodexBarPowerHelperIPC.serviceIdentifier + ".auto-reset"
 
-    static func replaceSchedule(with date: Date?) -> IOReturn {
+    private static func replaceSchedule(with date: Date?) -> IOReturn {
         let cancelResult = cancelOwnedEvents()
         guard cancelResult == kIOReturnSuccess else {
             return cancelResult
@@ -29,10 +34,6 @@ enum PowerHelperWakeScheduler {
             return kIOReturnError
         }
         return kIOReturnSuccess
-    }
-
-    static var ownedEventCount: Int {
-        ownedEvents().count
     }
 
     private static func cancelOwnedEvents() -> IOReturn {

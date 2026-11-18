@@ -54,7 +54,7 @@ nonisolated extension ActivityLiveLabel {
         case "verification-needed":
             "checkmark.shield"
         default:
-            "ellipsis"
+            "bolt.horizontal.circle"
         }
     }
 }

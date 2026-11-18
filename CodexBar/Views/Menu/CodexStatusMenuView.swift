@@ -5,15 +5,20 @@ extension EnvironmentValues {
     @Entry var mainPanelEntranceAnimationsEnabled: Bool = true
 }
 
-/// 菜单面板展示状态, 可见性控制逐秒更新, 展示代次区分快速重开
+/// 任务卡片在宿主测量前重建, 额度和热力图在显示后开始入场动画
 @MainActor
 final class MenuSurfaceVisibilityState: ObservableObject {
     @Published private(set) var isVisible = false
-    @Published private(set) var presentationGeneration: UInt = 0
+    @Published private(set) var preparedGeneration: UInt = 0
+    @Published private(set) var presentedGeneration: UInt = 0
 
-    func beginPresentation() {
-        presentationGeneration &+= 1
+    func prepareForPresentation() {
         isVisible = true
+        preparedGeneration &+= 1
+    }
+
+    func didPresent() {
+        presentedGeneration = preparedGeneration
     }
 
     func endPresentation() {
@@ -45,7 +50,7 @@ struct CodexStatusMenuView: View {
     let activityCenterPresentationState: ActivityCenterPresentationState
     let activityCardPresentationState: ActivityCardPresentationState
     let onUsageHeatmapHoverChange: (UsageHeatmapHoverContext?) -> Void
-    let onResetCreditsTap: (ResetCreditsPanelContext) -> Void
+    let onResetCreditsTap: (ScreenFrameProvider) -> Void
     let onActivityCenterTap: (ActivityCenterPanelAnchor) -> Void
     @EnvironmentObject private var appUpdater: AppUpdater
     @State private var activitySectionVisibility: Bool?
@@ -191,6 +196,7 @@ private extension CodexStatusMenuView {
             keepAliveController: keepAliveController,
             onTaskCenterTap: onActivityCenterTap
         )
+        .id(menuSurfaceVisibility.preparedGeneration)
     }
 
     @ViewBuilder
@@ -200,11 +206,10 @@ private extension CodexStatusMenuView {
                 limits: snapshot.limits,
                 credits: snapshot.credits,
                 resetCreditsAvailableCount: snapshot.resetCreditsAvailableCount,
-                resetCreditExpirationDates: snapshot.resetCreditExpirationDates,
                 isStale: snapshot.isRateLimitsStale,
                 onResetCreditsTap: onResetCreditsTap
             )
-            .id(menuSurfaceVisibility.presentationGeneration)
+            .id(menuSurfaceVisibility.presentedGeneration)
         } else if dataPlaceholderSection == .quota {
             EmptyDataPanel()
         }
@@ -223,7 +228,7 @@ private extension CodexStatusMenuView {
                 isStale: viewModel.snapshot?.isUsageStale ?? false,
                 onHoverContextChange: onUsageHeatmapHoverChange
             )
-            .id(menuSurfaceVisibility.presentationGeneration)
+            .id(menuSurfaceVisibility.presentedGeneration)
         } else if dataPlaceholderSection == .usage {
             EmptyDataPanel()
         }

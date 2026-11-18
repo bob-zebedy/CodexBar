@@ -1,14 +1,18 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// 重置次数详情控制器, 复用共享侧边抽屉定位和动画
 @MainActor
 final class ResetCreditsPanelController {
+    private let viewModel: CodexStatusViewModel
     private let mainPanelSettings: MainPanelSettings
+    private var snapshotObservation: AnyCancellable?
+    private var presentedContent: ResetCreditsPanelContent?
     private let contentHost = SidePanelContentHost<ResetCreditsPanelView>(
         initialSize: ResetCreditsPanelView.initialPanelSize,
         ignoresMouseEvents: false,
-        sizingOptions: [.preferredContentSize],
+        sizingOptions: [],
         cornerRadius: ResetCreditsPanelView.panelCornerRadius
     )
     private lazy var presenter = SidePanelDrawerPresenter(
@@ -19,7 +23,8 @@ final class ResetCreditsPanelController {
         }
     )
 
-    init(mainPanelSettings: MainPanelSettings) {
+    init(viewModel: CodexStatusViewModel, mainPanelSettings: MainPanelSettings) {
+        self.viewModel = viewModel
         self.mainPanelSettings = mainPanelSettings
     }
 
@@ -32,84 +37,116 @@ final class ResetCreditsPanelController {
     }
 
     func toggle(
-        context: ResetCreditsPanelContext,
-        relativeTo menuSurfaceWindow: NSWindow?,
+        anchor: ScreenFrameProvider,
+        relativeTo menuSurfaceWindow: NSWindow,
         contentView: NSView?
     ) {
-        if isVisible {
+        if snapshotObservation != nil || isVisible {
             hide()
             return
         }
 
-        show(
-            context: context,
-            relativeTo: menuSurfaceWindow,
-            contentView: contentView
-        )
+        guard let account = viewModel.snapshot?.account else { return }
+        snapshotObservation = Self.expirationDateUpdates(from: viewModel.$snapshot, for: account)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.hide(immediate: true)
+            } receiveValue: { [weak self, weak menuSurfaceWindow, weak contentView] dates in
+                guard let self else { return }
+                guard let menuSurfaceWindow, menuSurfaceWindow.isVisible else {
+                    hide(immediate: true)
+                    return
+                }
+                updateContent(dates, anchor: anchor, window: menuSurfaceWindow, contentView: contentView)
+            }
     }
 
     func hide(immediate: Bool = false) {
+        snapshotObservation = nil
+        presentedContent = nil
         presenter.hide(immediate: immediate)
     }
 
-    private func show(
-        context: ResetCreditsPanelContext,
-        relativeTo menuSurfaceWindow: NSWindow?,
+    /// 入口消失或账号切换即结束本次展示, 仅缺少到期时间时保留详情
+    static func expirationDateUpdates(
+        from snapshots: some Publisher<CodexQuotaSnapshot?, Never>,
+        for account: CodexAccount
+    ) -> some Publisher<[Date], Never> {
+        let identity = AutoResetIdentity.accountIdentity(for: account)
+        return snapshots.prefix { snapshot in
+            guard let snapshot, !snapshot.limits.isEmpty, (snapshot.resetCreditsAvailableCount ?? 0) > 0 else { return false }
+            return AutoResetIdentity.accountIdentity(for: snapshot.account) == identity
+        }
+        .map { $0?.resetCreditExpirationDates ?? [] }
+        .removeDuplicates()
+    }
+
+    private func updateContent(
+        _ dates: [Date],
+        anchor: ScreenFrameProvider,
+        window menuSurfaceWindow: NSWindow,
         contentView: NSView?
     ) {
-        guard let menuSurfaceWindow else {
-            hide(immediate: true)
+        let layout = Placement(anchor: anchor, window: menuSurfaceWindow, contentView: contentView)
+        if let presentedContent {
+            presentedContent.maximumHeight = layout.maximumHeight
+            presentedContent.update(dates, animated: mainPanelSettings.areAnimationsEnabled)
+            if let panel = contentHost.panel {
+                align(panel, at: layout.position(for: panel.frame.size))
+            }
             return
         }
 
+        let content = ResetCreditsPanelContent()
+        content.maximumHeight = layout.maximumHeight
+        content.update(dates, animated: false)
+        presentedContent = content
+
         let panel = contentHost.ensurePanel()
-        let menuSurfaceFrame = SidePanelSupport.contentScreenFrame(for: contentView, in: menuSurfaceWindow) ?? menuSurfaceWindow.frame
-        let alignmentScreenFrame = SidePanelSupport.validatedAlignmentScreenFrame(
-            context.alignmentScreenFrame,
-            menuSurfaceFrame: menuSurfaceFrame
-        )
-        let resolvedContext = context.withPanelGeometry(
-            alignmentScreenFrame: alignmentScreenFrame,
-            maximumPanelHeight: panelMaximumHeight(
-                menuSurfaceFrame: menuSurfaceFrame,
-                alignmentScreenFrame: alignmentScreenFrame
-            )
-        )
-        let panelSize = ResetCreditsPanelView.panelSize(for: resolvedContext)
-        let position = SidePanelSupport.anchoredPosition(
-            panelSize: panelSize,
-            menuSurfaceFrame: menuSurfaceFrame,
-            visibleFrame: (menuSurfaceWindow.screen ?? NSScreen.main)?.visibleFrame ?? menuSurfaceFrame,
-            screenFrame: nil,
-            alignmentScreenFrame: resolvedContext.alignmentScreenFrame,
-            preferredSide: resolvedContext.preferredSide
-        )
-
-        panel.level = menuSurfaceWindow.level
-        defer {
-            SidePanelSupport.restoreMenuSurfaceKeyWindow(menuSurfaceWindow)
+        let resize = { [weak self, weak menuSurfaceWindow, weak contentView, weak content] (size: CGSize) in
+            guard let self, let content, presentedContent === content,
+                  let panel = contentHost.panel, panel.isVisible, let menuSurfaceWindow else { return }
+            let layout = Placement(anchor: anchor, window: menuSurfaceWindow, contentView: contentView)
+            align(panel, at: layout.position(for: size))
         }
-
-        contentHost.updateContent(
-            ResetCreditsPanelView(context: resolvedContext, mainPanelSettings: mainPanelSettings),
-            size: panelSize
-        )
-        presenter.present(panel, at: position, relativeTo: menuSurfaceWindow)
+        let root = ResetCreditsPanelView(content: content, mainPanelSettings: mainPanelSettings, onSizeChange: resize)
+        let size = root.panelSize(at: 1)
+        contentHost.updateContent(root, size: size)
+        panel.level = menuSurfaceWindow.level
+        presenter.present(panel, at: layout.position(for: size), relativeTo: menuSurfaceWindow)
+        SidePanelSupport.restoreMenuSurfaceKeyWindow(menuSurfaceWindow)
     }
 
-    private func panelMaximumHeight(
-        menuSurfaceFrame: CGRect,
-        alignmentScreenFrame: CGRect?
-    ) -> CGFloat? {
-        guard let alignmentScreenFrame else {
-            return nil
+    private func align(_ panel: NSPanel, at position: SidePanelPosition) {
+        presenter.updateSide(position.side)
+        if panel.frame != position.frame {
+            panel.setFrame(position.frame, display: false)
+        }
+    }
+
+    private struct Placement {
+        let surface: CGRect
+        let alignment: CGRect?
+        let visibleFrame: CGRect
+
+        init(anchor: ScreenFrameProvider, window: NSWindow, contentView: NSView?) {
+            surface = SidePanelSupport.contentScreenFrame(for: contentView, in: window) ?? window.frame
+            alignment = SidePanelSupport.validatedAlignmentScreenFrame(anchor.currentScreenFrame(in: window), menuSurfaceFrame: surface)
+            visibleFrame = (window.screen ?? NSScreen.main)?.visibleFrame ?? surface
         }
 
-        let maximumHeight = alignmentScreenFrame.maxY - menuSurfaceFrame.minY
-        guard maximumHeight.isFinite, maximumHeight > 0 else {
-            return nil
+        var maximumHeight: CGFloat? {
+            guard let alignment else { return nil }
+            let height = alignment.maxY - surface.minY
+            return height.isFinite && height > 0 ? height : nil
         }
-        return maximumHeight
+
+        func position(for size: CGSize) -> SidePanelPosition {
+            SidePanelSupport.anchoredPosition(
+                panelSize: size, menuSurfaceFrame: surface, visibleFrame: visibleFrame,
+                screenFrame: nil, alignmentScreenFrame: alignment, preferredSide: .right
+            )
+        }
     }
 
     private enum Metrics {

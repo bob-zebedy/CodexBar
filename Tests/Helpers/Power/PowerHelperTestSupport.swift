@@ -17,10 +17,10 @@ struct PowerHelperFixture {
     let clientID = UUID().uuidString
     let updateID = String(repeating: "a", count: 64)
 
-    init(disabled: Bool, ownership: SleepOwnership = .idle, writeExitCode: Int32 = 0) throws {
+    init(disabled: Bool, ownership: SleepOwnership = .idle, writeExitCode: Int32 = 0, wakeScheduler: PowerHelperWakeScheduler = .init(replace: { _ in 0 }, eventCount: { 0 })) throws {
         store = try MemoryOwnership(state: ownership)
         system = FakeSleepSystem(disabled: disabled, writeExitCode: writeExitCode, store: store)
-        runtime = PowerHelperRuntime(ownershipStore: store, sleepOperations: system.operations)
+        runtime = PowerHelperRuntime(ownershipStore: store, sleepOperations: system.operations, wakeScheduler: wakeScheduler)
         runtime.recoverOwnershipAtStartup()
         connection = TestConnection()
         precondition(runtime.listener(NSXPCListener.anonymous(), shouldAcceptNewConnection: connection))

@@ -55,7 +55,7 @@ struct ActivityIsolationTests {
         #expect(received)
         #expect(await reader.stop())
         #expect(liveUsage == 50)
-        #expect(try await store.refresh().first?.tokenUsage.totalTokens == 50)
+        #expect(try await store.loadSnapshot().aggregates.first?.tokenUsage.totalTokens == 50)
         #expect(try await logs.page(limit: 100).entries.filter { $0.method == "thread/tokenUsage/updated" }.count == 5)
         try server.finish()
     }
@@ -238,8 +238,8 @@ extension ActivityIsolationTests {
         #expect(await reader.stop())
         let observations = try Self.observations(in: directory.url)
         #expect(observations.map { $0.delta?.totalTokens } == [0, 20, 30])
-        #expect(try await store.refresh().first?.tokenUsage.totalTokens == 50)
-        #expect(try await store.refresh().first?.tokenUsage.totalTokens == 50)
+        #expect(try await store.loadSnapshot().aggregates.first?.tokenUsage.totalTokens == 50)
+        #expect(try await store.loadSnapshot().aggregates.first?.tokenUsage.totalTokens == 50)
         try server.finish()
     }
 
@@ -343,15 +343,15 @@ extension ActivityIsolationTests {
         let key = ActivityTaskKey(thread: "healthy", turn: "turn")
         #expect(lifecycle.graph.tasks[key]?.lifecycleCoverageCheckedAt != nil)
         #expect(!lifecycle.graph.unavailableTurns.contains(key))
-        #expect(try await store.refresh().first?.tokenUsage.totalTokens == 50)
-        #expect(try await store.loadSnapshot().coverage == .partial)
+        #expect(try await store.loadSnapshot().aggregates.first?.tokenUsage.totalTokens == 50)
+        #expect(try await store.loadSnapshot().coverage == .partial([oldDate]))
         let observations = try Self.observations(in: directory.url)
         #expect(Set(observations.map(\.id)).count == 3)
         #expect(observations.map { $0.delta?.totalTokens } == [0, 20, 30])
         try HistoryDatabase(directoryURL: directory.url).execute("DELETE FROM days WHERE date = ?", [.text(oldDate)])
-        let recovered = try await store.refresh()
+        let recovered = try await store.loadSnapshot().aggregates
         #expect(recovered.first?.tokenUsage.totalTokens == 50)
-        #expect(try await store.refresh() == recovered)
+        #expect(try await store.loadSnapshot().aggregates == recovered)
         #expect(await reader.stop())
         try server.finish()
     }
@@ -453,9 +453,9 @@ extension ActivityIsolationTests {
         let observations = try Self.observations(in: directory.url)
         #expect(observations.map { $0.delta?.totalTokens } == [0, 80])
         #expect(Set(observations.map(\.id)).count == 2)
-        let restored = try await store.refresh()
+        let restored = try await store.loadSnapshot().aggregates
         #expect(restored.first?.tokenUsage.totalTokens == 80)
-        #expect(try await store.refresh() == restored)
+        #expect(try await store.loadSnapshot().aggregates == restored)
         try server.finish()
     }
 }

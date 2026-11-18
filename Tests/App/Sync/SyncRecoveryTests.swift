@@ -104,7 +104,7 @@ struct SyncRecoveryTests {
         try JSONSerialization.data(withJSONObject: json).write(to: url)
         let queriesBefore = await database.queryCount
         let changesBefore = await database.changesSinceNil.count
-        _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [], localTokenUsageAggregates: [Self.turn(0)], trigger: .manual)
+        _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [], tokenUsage: .complete([Self.turn(0)]), trigger: .manual)
         #expect(await database.queryCount == queriesBefore)
         #expect(await database.changesSinceNil.count > changesBefore)
         #expect(await database.changesSinceNil[changesBefore])
@@ -204,7 +204,7 @@ struct SyncRecoveryTests {
             directoryURL: directory.url,
             isEnabled: { true }
         )
-        _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [], localTokenUsageAggregates: [Self.turn(0)], trigger: .manual)
+        _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [], tokenUsage: .complete([Self.turn(0)]), trigger: .manual)
         #expect(await database.savedTypes.contains(TokenUsageSync.recordType) == !shared)
     }
 
@@ -229,7 +229,7 @@ struct SyncRecoveryTests {
         await database.omitReadResult(named: missingName)
 
         _ = await service.synchronizeIfEnabled(
-            localActivityDataAggregates: [activityData], localTokenUsageAggregates: [tokenUsage], trigger: .manual
+            localActivityDataAggregates: [activityData], tokenUsage: .complete([tokenUsage]), trigger: .manual
         )
         let savedTypes = await database.savedTypes
         #expect(savedTypes.filter { $0 == "Metadata" }.count == 1)
@@ -240,7 +240,7 @@ struct SyncRecoveryTests {
 
         await database.repair()
         _ = await service.synchronizeIfEnabled(
-            localActivityDataAggregates: [activityData], localTokenUsageAggregates: [tokenUsage], trigger: .manual
+            localActivityDataAggregates: [activityData], tokenUsage: .complete([tokenUsage]), trigger: .manual
         )
         let recoveredTypes = await database.savedTypes
         for type in ["Metadata", "ActivityData", "TokenUsage"] {
@@ -279,7 +279,7 @@ struct SyncRecoveryTests {
             directoryURL: directory.url,
             isEnabled: { true }
         )
-        _ = await service.synchronizeIfEnabled(localActivityDataAggregates: aggregates, localTokenUsageAggregates: [Self.turn(0)], trigger: .manual)
+        _ = await service.synchronizeIfEnabled(localActivityDataAggregates: aggregates, tokenUsage: .complete([Self.turn(0)]), trigger: .manual)
         #expect(try ActivityDataSyncStore(directoryURL: directory.url).load().records.count == 29)
         #expect(await database.savedTypes.filter { $0 == "ActivityData" }.count == 29)
         #expect(await database.savedTypes.contains(TokenUsageSync.recordType))
@@ -396,7 +396,7 @@ struct SyncRecoveryTests {
         let url = try directory.write(original, to: "Sync/activityData.json")
         let database = SyncDatabaseFixture()
         let service = SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
-        let result = await service.synchronizeIfEnabled(localActivityDataAggregates: [], localTokenUsageAggregates: [Self.turn(0)], trigger: .manual)
+        let result = await service.synchronizeIfEnabled(localActivityDataAggregates: [], tokenUsage: .complete([Self.turn(0)]), trigger: .manual)
         #expect(!result.isActivityDataComplete)
         #expect(await database.savedTypes.isEmpty)
         #expect(await database.deletedIDs.isEmpty)
@@ -426,7 +426,7 @@ extension SyncRecoveryTests {
         local.turnCount = 2
         var turn = Self.turn(0)
         turn.tokenUsage = SyncTestFixtures.counts(100)
-        let initial = await sync.synchronizeIfEnabled(localActivityDataAggregates: [local], localTokenUsageAggregates: [turn], trigger: .manual)
+        let initial = await sync.synchronizeIfEnabled(localActivityDataAggregates: [local], tokenUsage: .complete([turn]), trigger: .manual)
         let deviceID = try #require(initial.currentDeviceID)
         let activityDataID = CKRecord.ID(recordName: ActivityDataSyncRecord.recordName(deviceID: deviceID, date: date), zoneID: SyncTestFixtures.zone)
         let tokenUsageID = TokenUsageSync.recordID("tokenUsage_\(deviceID)_\(date)", zoneID: SyncTestFixtures.zone)
@@ -445,7 +445,7 @@ extension SyncRecoveryTests {
         await database.storeRecord(otherActivityData)
         try await database.storeRecord(SyncTestFixtures.tokenUsageRecord(TokenUsageSyncRecord(deviceID: "other", date: date, tokenUsage: SyncTestFixtures.counts(900))))
 
-        let combined = await sync.synchronizeIfEnabled(localActivityDataAggregates: [local], localTokenUsageAggregates: [turn], trigger: .manual)
+        let combined = await sync.synchronizeIfEnabled(localActivityDataAggregates: [local], tokenUsage: .complete([turn]), trigger: .manual)
         let snapshot = HistorySnapshot(localActivityDataAggregates: [local], syncedActivityDataRecords: combined.activityData, currentDeviceID: combined.currentDeviceID)
         #expect(snapshot.activityData.first?.turnCount == 5)
         #expect(combined.tokenUsageByDate?[date] == SyncTestFixtures.counts(1000))
@@ -454,7 +454,7 @@ extension SyncRecoveryTests {
 
         local.turnCount = 1
         turn.tokenUsage = SyncTestFixtures.counts(50)
-        let reduced = await sync.synchronizeIfEnabled(localActivityDataAggregates: [local], localTokenUsageAggregates: [turn], trigger: .manual)
+        let reduced = await sync.synchronizeIfEnabled(localActivityDataAggregates: [local], tokenUsage: .complete([turn]), trigger: .manual)
         let updated = HistorySnapshot(localActivityDataAggregates: [local], syncedActivityDataRecords: reduced.activityData, currentDeviceID: reduced.currentDeviceID)
         #expect(updated.activityData.first?.turnCount == 4)
         #expect(reduced.tokenUsageByDate?[date] == SyncTestFixtures.counts(950))
@@ -473,7 +473,7 @@ extension SyncRecoveryTests {
         let recordID = TokenUsageSync.recordID("tokenUsage_device_\(daily.date)", zoneID: SyncTestFixtures.zone)
         try await service.synchronize(local: [daily], accountScopedDeviceID: "device", zoneID: SyncTestFixtures.zone)
         #expect(await database.savedTypes == ["TokenUsage"])
-        #expect(try await service.snapshot(local: [daily], accountScopedDeviceID: "device")[daily.date] == SyncTestFixtures.counts(300))
+        #expect(try await service.snapshot(local: .complete([daily]), accountScopedDeviceID: "device")[daily.date] == SyncTestFixtures.counts(300))
         #expect(await service.hasPendingUpdates(local: [daily], accountScopedDeviceID: "device") == false)
         try await service.synchronize(local: [daily], accountScopedDeviceID: "device", zoneID: SyncTestFixtures.zone)
         #expect(await database.savedTypes == ["TokenUsage"])
@@ -485,7 +485,7 @@ extension SyncRecoveryTests {
         #expect(try Self.cachedDailyCount(in: directory.url) == 1)
         daily.tokenUsage = .zero
         try await service.synchronize(local: [daily], accountScopedDeviceID: "device", zoneID: SyncTestFixtures.zone)
-        #expect(try await service.snapshot(local: [daily], accountScopedDeviceID: "device")[daily.date] == .zero)
+        #expect(try await service.snapshot(local: .complete([daily]), accountScopedDeviceID: "device")[daily.date] == .zero)
     }
 
     @Test(arguments: [100, 900] as [Int64])
@@ -501,7 +501,7 @@ extension SyncRecoveryTests {
         await database.storeRecord(otherRecord)
         let service = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
         try await service.synchronize(local: [local], accountScopedDeviceID: "device", zoneID: SyncTestFixtures.zone)
-        #expect(try await service.snapshot(local: [local], accountScopedDeviceID: "device")[date] == SyncTestFixtures.counts(100 + otherCount))
+        #expect(try await service.snapshot(local: .complete([local]), accountScopedDeviceID: "device")[date] == SyncTestFixtures.counts(100 + otherCount))
         let localID = TokenUsageSync.recordID("tokenUsage_device_\(date)", zoneID: SyncTestFixtures.zone)
         let saved = try #require(try await database.records(for: [localID], desiredKeys: nil)[localID]?.get())
         #expect(try TokenUsageSync.dailyRecord(from: saved)?.tokenUsage == SyncTestFixtures.counts(100))
@@ -515,8 +515,8 @@ extension SyncRecoveryTests {
         let after = try JSONLines.decoder.decode(TokenUsageSyncCache.self, from: Data(contentsOf: cacheURL))
         #expect(after.records[before.id] == before)
         #expect(await database.savedTypes == ["TokenUsage"])
-        #expect(try await restarted.snapshot(local: [local], accountScopedDeviceID: "new-account")[date] == SyncTestFixtures.counts(100))
-        #expect(try await restarted.snapshot(local: [], accountScopedDeviceID: "device")[date] == SyncTestFixtures.counts(100 + otherCount))
+        #expect(try await restarted.snapshot(local: .complete([local]), accountScopedDeviceID: "new-account")[date] == SyncTestFixtures.counts(100))
+        #expect(try await restarted.snapshot(local: .empty, accountScopedDeviceID: "device")[date] == SyncTestFixtures.counts(100 + otherCount))
     }
 
     @Test func rebuiltLocalObservationsReplaceCloudDailyTotalsWithoutCloudTurnState() async throws {
@@ -542,7 +542,7 @@ extension SyncRecoveryTests {
         try HistoryDatabase(directoryURL: directory.url).execute("""
         UPDATE aggregates SET tokenUsage = NULL
         """)
-        let recovered = try await TokenUsageHistoryStore(directoryURL: directory.url).refresh(now: now)
+        let recovered = try await TokenUsageHistoryStore(directoryURL: directory.url).loadSnapshot(now: now).aggregates
         try await sync.synchronize(local: recovered, accountScopedDeviceID: "device", zoneID: SyncTestFixtures.zone)
         #expect(await database.savedTypes == ["TokenUsage", "TokenUsage"])
     }
@@ -554,7 +554,7 @@ extension SyncRecoveryTests {
         let date = HistoryStorage.dateKey(for: Date())
         let local = TestFixtures.activityDataAggregate(date: date)
         let service = SyncService(database: database, directoryURL: directory.url, isEnabled: { true })
-        _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [local], localTokenUsageAggregates: [Self.turn(0)], trigger: .manual)
+        _ = await service.synchronizeIfEnabled(localActivityDataAggregates: [local], tokenUsage: .complete([Self.turn(0)]), trigger: .manual)
 
         var deviceIDs: [String] = []
         for kind in ["activityData", "tokenUsage"] {

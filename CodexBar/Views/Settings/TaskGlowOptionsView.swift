@@ -204,11 +204,15 @@ private struct TaskGlowColorHexField: View {
                 text: $draft,
                 isFocused: $isFocused,
                 placeholder: TaskGlowAppearance.encodeColor(role.defaultColor) ?? "",
-                onChange: { settings.setColorHex($0, for: role) },
+                onChange: { value in
+                    // 全选后删除可能只是准备输入新颜色, 结束编辑时才提交清空
+                    if !value.isEmpty {
+                        settings.setColorHex(value, for: role)
+                    }
+                },
                 onEndEditing: { value in
-                    let hex = TaskGlowAppearance.normalizedColorHex(value) ?? ""
-                    settings.setColorHex(hex, for: role)
-                    return hex
+                    settings.setColorHex(value, for: role)
+                    return settings.appearance.colors[role] ?? ""
                 },
                 onCancel: { settings.appearance.colors[role] ?? "" }
             )

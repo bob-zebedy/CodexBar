@@ -370,7 +370,8 @@ final nonisolated class HistoryDatabase {
         return result
     }
 
-    func pendingTokenUsageDates() throws -> [String] {
+    /// 等待重算的日期仍可显示旧汇总, 上传时跳过这些日期
+    func pendingTokenUsageDates(collectAggregate: (TokenUsageAggregate) -> Void = { _ in }) throws -> [String] {
         var dates: [String] = []
         try query("""
         SELECT days.date, aggregates.tokenUsage,
@@ -382,9 +383,12 @@ final nonisolated class HistoryDatabase {
         ORDER BY days.date
         """) { row in
             let aggregate = try? JSONLines.decoder.decode(TokenUsageAggregate.self, from: Self.data(row, at: 1))
-            if let aggregate, aggregate.aggregationVersion == AggregationVersion.tokenUsage,
-               aggregate.position >= sqlite3_column_int64(row, 2) {
-                return
+            if let aggregate {
+                collectAggregate(aggregate)
+                if aggregate.aggregationVersion == AggregationVersion.tokenUsage,
+                   aggregate.position >= sqlite3_column_int64(row, 2) {
+                    return
+                }
             }
             dates.append(Self.text(row, at: 0))
         }

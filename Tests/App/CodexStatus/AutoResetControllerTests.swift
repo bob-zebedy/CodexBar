@@ -5,6 +5,28 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1)))
 struct AutoResetControllerTests {
+    @Test(arguments: [600.0, 86400.0])
+    func freshExpirationDeterminesWhetherToConsume(remaining: TimeInterval) async throws {
+        let fixture = try ResetFixture()
+        defer { fixture.stop() }
+        try fixture.outcomes.send(.data(fixture.snapshot()))
+        let expiry = fixture.start.addingTimeInterval(remaining)
+        fixture.state.candidate = AutoResetCandidate(id: fixture.state.candidate.id, expirationDate: expiry)
+        fixture.controller.start()
+        try #require(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(2)) {
+            fixture.state.readCount > 0 && fixture.state.activeAssertions.isEmpty
+        })
+        #expect(fixture.state.assertionTimeouts.first == 300)
+        if remaining > fixture.settings.leadTime.duration {
+            let expected = expiry.addingTimeInterval(-fixture.settings.leadTime.duration)
+            #expect(fixture.state.consumeCount == 0)
+            #expect(fixture.controller.scheduledDate == expected)
+            #expect(fixture.controller.wakeDate == expected)
+        } else {
+            #expect(fixture.state.consumeCount == 1)
+        }
+    }
+
     @Test func repeatedSnapshotsCannotRestartExhaustedWindow() async throws {
         let fixture = try ResetFixture()
         defer { fixture.stop() }
@@ -262,7 +284,7 @@ private final class ResetClock {
 
 private final class ResetState {
     var account = CodexAccount(type: "chatgpt", email: "test@example.com", planType: "plus")
-    let candidate: AutoResetCandidate
+    var candidate: AutoResetCandidate
     var read: AutoResetRead {
         AutoResetRead(accountIdentity: AutoResetIdentity.accountIdentity(for: account), availableCount: 1, candidates: [candidate])
     }
@@ -274,6 +296,7 @@ private final class ResetState {
     var consumeCount = 0
     var consumedAccounts: [String] = []
     var successes = 0
+    var assertionTimeouts: [TimeInterval] = []
     var createdAssertions = 0
     var activeAssertions: Set<Int> = []
     var releasedAssertions: [Int] = []
@@ -345,7 +368,10 @@ private final class ResetFixture {
             },
             setRequested: { _ in }, setWakeDate: { _ in },
             succeeded: { _, _ in state.successes += 1 }, failed: { _, _ in }, refresh: {},
-            makeWakeActivity: { ResetAssertion(state: state) }, now: { clock.now }, sleep: { try await clock.sleep(until: $0) }
+            makeWakeActivity: { timeout in
+                state.assertionTimeouts.append(timeout)
+                return ResetAssertion(state: state)
+            }, now: { clock.now }, sleep: { try await clock.sleep(until: $0) }
         ))
     }
 

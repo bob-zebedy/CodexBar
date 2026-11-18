@@ -55,18 +55,15 @@ actor HistoryService {
             tokenUsageSnapshot = await TokenUsageHistorySnapshot(aggregates: (try? tokenUsageHistory.persistedAggregates()) ?? [], coverage: .unavailable)
             AppLog.history.error("Token 历史读取失败: \(error.localizedDescription, privacy: .public)")
         }
-        let tokenUsageAggregates = tokenUsageSnapshot.aggregates
-        let reliable = tokenUsageSnapshot.coverage.isComplete
         let sync: SyncSnapshot = if synchronize {
             await syncService.synchronizeIfEnabled(
-                localActivityDataAggregates: aggregates.filter { !pending.contains($0.date) }, localTokenUsageAggregates: tokenUsageAggregates,
-                isTokenUsageSourceComplete: reliable, trigger: trigger
+                localActivityDataAggregates: aggregates.filter { !pending.contains($0.date) }, tokenUsage: tokenUsageSnapshot, trigger: trigger
             )
         } else {
-            await syncService.snapshotFromCacheIfEnabled(localTokenUsageAggregates: reliable ? tokenUsageAggregates : [])
+            await syncService.snapshotFromCacheIfEnabled(tokenUsage: tokenUsageSnapshot)
         }
         var snapshot = HistorySnapshot(localActivityDataAggregates: aggregates, syncedActivityDataRecords: sync.activityData, currentDeviceID: sync.currentDeviceID)
-        snapshot.tokenUsageByDate = sync.tokenUsageByDate ?? TokenUsageAggregate.tokenUsageByDate(tokenUsageAggregates)
+        snapshot.tokenUsageByDate = sync.tokenUsageByDate ?? TokenUsageAggregate.tokenUsageByDate(tokenUsageSnapshot.aggregates)
         snapshot.isActivityDataComplete = snapshot.isActivityDataComplete && readable && sync.isActivityDataComplete
         let known = Set(aggregates.map(\.date)).union(sync.activityData.filter { $0.deviceID == sync.currentDeviceID }.map(\.date))
         snapshot.unavailableActivityDataDates.formUnion(pending.subtracting(known))

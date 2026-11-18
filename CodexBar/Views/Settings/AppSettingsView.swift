@@ -208,7 +208,7 @@ private extension AppSettingsView {
     }
 
     static let releaseNotesURL: URL = {
-        var components = URLComponents(string: "https://codexbar.zabrian.app/notes")!
+        var components = URLComponents(string: "https://codexbar.zabrian.app/changelog")!
         let language = Bundle.main.preferredLocalizations.first == "zh-Hans" ? "zh-CN" : "en-US"
         components.queryItems = [URLQueryItem(name: "lang", value: language)]
         components.fragment = Bundle.main.shortVersionString

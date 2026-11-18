@@ -93,6 +93,12 @@ final class SystemSleepService {
         )
     }
 
+    convenience init(sleepAssertionName: String, timeout: TimeInterval) {
+        self.init(sleepAssertionName: sleepAssertionName, createAssertion: { type, name, id in
+            IOPMAssertionCreateWithDescription(type, name, nil, nil, nil, timeout, kIOPMAssertionTimeoutActionRelease as CFString, &id)
+        })
+    }
+
     func beginPreventingIdleSleep() -> IOReturn {
         sleepAssertion.begin(create: createAssertion)
     }

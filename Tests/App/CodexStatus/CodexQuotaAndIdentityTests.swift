@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -59,6 +60,35 @@ struct CodexQuotaAndIdentityTests {
         #expect(missing.autoResetCandidates == nil)
         #expect(empty.autoResetCandidates == [])
         #expect(empty.availableExpirationDates(now: TestFixtures.now) == nil)
+    }
+
+    @Test(arguments: [true, false])
+    func openResetCreditDetailFollowsAvailableDatesUntilDismissal(switchAccount: Bool) throws {
+        let account = try #require(accountResponse.account)
+        let first = TestFixtures.now
+        let second = first.addingTimeInterval(3600)
+        let window = QuotaWindow(kind: .primary, windowDurationMins: 300, usedPercent: 10, resetsAt: nil)
+        func snapshot(count: Int, dates: [Date]?, accountOverride: CodexAccount? = nil) -> CodexQuotaSnapshot {
+            CodexQuotaSnapshot(
+                account: accountOverride ?? account, planType: nil, ordinaryUsageAllowed: nil, credits: nil,
+                resetCreditsAvailableCount: count, resetCreditExpirationDates: dates, autoResetCandidates: nil,
+                generatedAt: first, limits: [CodexQuotaLimitSnapshot(limitID: "codex", limitName: nil, windows: [window])],
+                usage: nil, isRateLimitsStale: false, isUsageStale: false
+            )
+        }
+        let snapshots = CurrentValueSubject<CodexQuotaSnapshot?, Never>(snapshot(count: 2, dates: [first, second]))
+        var displayed: [[Date]] = []
+        var dismissed = false
+        let observation = ResetCreditsPanelController.expirationDateUpdates(from: snapshots, for: account)
+            .sink(receiveCompletion: { _ in dismissed = true }, receiveValue: { displayed.append($0) })
+        defer { observation.cancel() }
+        snapshots.send(snapshot(count: 1, dates: [second]))
+        snapshots.send(snapshot(count: 1, dates: nil))
+        let otherAccount = CodexAccount(type: account.type, email: "other@example.test", planType: account.planType)
+        snapshots.send(switchAccount ? snapshot(count: 1, dates: [second], accountOverride: otherAccount) : snapshot(count: 0, dates: []))
+        #expect(dismissed)
+        snapshots.send(snapshot(count: 1, dates: [first]))
+        #expect(displayed == [[first, second], [second], []])
     }
 
     @Test func quotaWindowsClampPercentageAndKeepMissingDistinctFromZero() {

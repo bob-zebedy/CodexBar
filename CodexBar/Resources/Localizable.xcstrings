@@ -4289,6 +4289,22 @@
         }
       }
     },
+    "log.empty.no-filter-matches" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No logs match the filter"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有符合筛选条件的日志"
+          }
+        }
+      }
+    },
     "log.filter.methods" : {
       "localizations" : {
         "en" : {

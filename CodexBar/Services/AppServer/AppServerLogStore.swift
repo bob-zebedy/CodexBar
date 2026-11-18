@@ -335,6 +335,8 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
             throw StorageError(message: String(localized: "log.persistence.error.read"))
         }
         database = opened
+        // 旧连接关闭时也可能短暂占锁, 首次读取版本前就要启用等待
+        sqlite3_busy_timeout(database, 3000)
         do {
             let schemaVersion = try scalar("PRAGMA user_version")
             if schemaVersion != 0 {
@@ -343,7 +345,6 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
                 throw StorageCompatibilityError.unsupportedFormat("Logs", schemaVersion)
             }
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
-            sqlite3_busy_timeout(database, 3000)
             if try scalar("PRAGMA auto_vacuum") != 2 {
                 try execute("PRAGMA auto_vacuum = INCREMENTAL")
                 try execute("VACUUM")

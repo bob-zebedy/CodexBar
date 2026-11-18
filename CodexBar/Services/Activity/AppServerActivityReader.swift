@@ -55,7 +55,7 @@ actor AppServerActivityReader {
     private var ignoredThreads = Set<String>()
     private var loop: Task<Void, Never>?
     private var storageTask: Task<Void, Never>?
-    private var tokenUsageRefreshTask: Task<[TokenUsageAggregate], Error>?
+    private var tokenUsageRefreshTask: Task<Void, Error>?
     private var generation = 0
     private var reconciledAt = Date.distantPast
     private var lastTokenUsageRefresh = Date.distantPast
@@ -384,11 +384,8 @@ actor AppServerActivityReader {
         }
     }
 
-    private func reconcile(bootstrap: Bool, forced: Bool, recovering: Bool = false, generation current: Int) async throws {
-        let budget = AppServerRequestBudget(deadline: Date().addingTimeInterval(reconciliationTimeout))
-        try await AppServerRequestBudget.$current.withValue(budget) {
-            try await reconcileWithinBudget(bootstrap: bootstrap, forced: forced, recovering: recovering, generation: current)
-        }
+    private func readBudget() -> AppServerRequestBudget {
+        AppServerRequestBudget(deadline: Date().addingTimeInterval(reconciliationTimeout))
     }
 
     private func loadThreads(generation current: Int) async throws -> Set<String> {
@@ -422,8 +419,13 @@ actor AppServerActivityReader {
         return loaded
     }
 
-    private func reconcileWithinBudget(bootstrap: Bool, forced: Bool, recovering: Bool, generation current: Int) async throws {
-        guard let loaded = try await loadCurrentThreads(generation: current) else {
+    private func reconcile(bootstrap: Bool, forced: Bool, recovering: Bool = false, generation current: Int) async throws {
+        let roundDeadline = ContinuousClock.now.advanced(by: .seconds(reconciliationTimeout))
+        let discovery = discoveryRevision
+        let discovered = try await AppServerRequestBudget.$current.withValue(readBudget()) {
+            try await loadCurrentThreads(generation: current)
+        }
+        guard let loaded = discovered else {
             if !bootstrap {
                 await publish(.lifecycleChanged)
             }
@@ -437,13 +439,13 @@ actor AppServerActivityReader {
                 && reducer.threads[$0.threadID]?.status?.type != .notLoaded
         }.map(\.threadID))
         let now = reconciliationClock()
-        let dependencies = Set(reducer.missingRootTurns(liveOnly: forced || recovering).keys)
-            .union(reducer.missingSubagentParents(liveOnly: forced || recovering)).union(backfillThreads.keys)
         // 历史关联保留补读资格, 只有实时依赖需要快速核对
-        let liveDependencies = Set(reducer.missingRootTurns(liveOnly: true).keys)
-            .union(reducer.missingSubagentParents(liveOnly: true))
-        let required = loaded.union(knownActive).union(liveDependencies)
-        let candidates = loaded.union(knownActive).union(dependencies).union(pending).subtracting(ignoredThreads).filter { id in
+        let liveDependencies = missingParentThreads(liveOnly: true)
+        let parents = forced || recovering ? liveDependencies : missingParentThreads(liveOnly: false)
+        let loadedOrActive = loaded.union(knownActive)
+        let required = loadedOrActive.union(liveDependencies)
+        let tracked = loadedOrActive.union(parents).union(backfillThreads.keys).union(pending)
+        let candidates = tracked.subtracting(ignoredThreads).filter { id in
             guard lifecycleChanges[id]?.kind != .threadDeleted else { return false }
             let interval: TimeInterval = invalidThreads.contains(id) || knownActive.contains(id)
                 || liveDependencies.contains(id) || reducer.threads[id]?.status?.type == .active ? 5 : 60
@@ -470,19 +472,44 @@ actor AppServerActivityReader {
             }
             return (threadChecks[$0]?.checkedAt ?? now, $0) < (threadChecks[$1]?.checkedAt ?? now, $1)
         }
-        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        // 分页发现和单个线程的请求各自限时, 避免正常响应的累计耗时被当作连接故障
+        let slice = Duration.seconds(min(1, reconciliationTimeout))
+        var deadline = ContinuousClock.now.advanced(by: slice)
         for id in candidates {
             try checkGeneration(current)
-            try await reconcileThread(id, loaded: loaded, bootstrap: bootstrap, forced: forced || (recovering && !isThreadVerified(id)), generation: current)
-            // 日常核对分轮执行, 强制排空则等待本轮完整覆盖
-            if !forced, ContinuousClock.now >= deadline {
-                break
+            if lifecycleChanges[id]?.kind != .threadDeleted {
+                try await AppServerRequestBudget.$current.withValue(readBudget()) {
+                    try await reconcileThread(id, loaded: loaded, bootstrap: bootstrap, forced: forced || (recovering && !isThreadVerified(id)), generation: current)
+                }
+            }
+            if ContinuousClock.now >= deadline {
+                // 恢复时如果本轮到期还没查完, 就先返回当前进度, 下轮继续核对剩余线程
+                guard forced, bootstrap || ContinuousClock.now < roundDeadline else { break }
+                try await consumeAvailable(generation: current)
+                deadline = ContinuousClock.now.advanced(by: slice)
             }
         }
         reducer.maintain(loadedThreads: loaded.subtracting(ignoredThreads), now: Date())
         pruneBackfill(now: Date())
         subscribed.formIntersection(loaded)
-        let retained = loaded.union(knownActive).union(dependencies).union(pending).subtracting(ignoredThreads)
+        pruneReconciliationState(retaining: tracked.subtracting(ignoredThreads))
+        reconciledAt = Date()
+        try checkGeneration(current)
+        isReconciliationComplete = discovery == discoveryRevision && loadedOrActive.subtracting(ignoredThreads).allSatisfy(isThreadVerified)
+            && !lifecycleChanges.values.contains { $0.kind != nil && $0.kind != .threadDeleted }
+            && !reducer.states.values.contains {
+                $0.tracking == .live && $0.terminal == nil && ($0.rootThreadID == nil || $0.rootTurnID == nil)
+            }
+        if !bootstrap {
+            await publish(.lifecycleChanged)
+        }
+    }
+
+    private func missingParentThreads(liveOnly: Bool) -> Set<String> {
+        Set(reducer.missingRootTurns(liveOnly: liveOnly).keys).union(reducer.missingSubagentParents(liveOnly: liveOnly))
+    }
+
+    private func pruneReconciliationState(retaining retained: Set<String>) {
         threadChecks = threadChecks.filter { retained.contains($0.key) }
         revisions = revisions.filter { retained.contains($0.key) }
         verifiedTurns = verifiedTurns.filter { reducer.states[$0.key] != nil && retained.contains($0.key.threadID) }
@@ -491,16 +518,6 @@ actor AppServerActivityReader {
         liveStartedTurns = liveStartedTurns.filter { reducer.states[$0] != nil }
         invalidThreads.formIntersection(retained)
         lifecycleChanges = lifecycleChanges.filter { reducer.threads[$0.key] != nil || retained.contains($0.key) }
-        reconciledAt = Date()
-        try checkGeneration(current)
-        isReconciliationComplete = loaded.union(knownActive).subtracting(ignoredThreads).allSatisfy(isThreadVerified)
-            && !lifecycleChanges.values.contains { $0.kind != nil && $0.kind != .threadDeleted }
-            && !reducer.states.values.contains {
-                $0.tracking == .live && $0.terminal == nil && ($0.rootThreadID == nil || $0.rootTurnID == nil)
-            }
-        if !bootstrap {
-            await publish(.lifecycleChanged)
-        }
     }
 
     private func isThreadVerified(_ id: String) -> Bool {
@@ -1149,11 +1166,11 @@ actor AppServerActivityReader {
     private func refreshTokenUsageHistory(generation current: Int) async {
         guard isTokenUsageWriter, pendingSamples.isEmpty, Date() >= tokenUsageRetryAfter,
               Date().timeIntervalSince(lastTokenUsageRefresh) >= 1 else { return }
-        let refresh = Task { try await tokenUsageHistory.refresh() }
+        let refresh = Task { try await tokenUsageHistory.refreshPendingDates() }
         tokenUsageRefreshTask = refresh
         defer { tokenUsageRefreshTask = nil }
         do {
-            _ = try await refresh.value
+            try await refresh.value
             guard generation == current, isRunning, !Task.isCancelled else { return }
             tokenUsageRetryAfter = .distantPast
             lastTokenUsageRefresh = Date()

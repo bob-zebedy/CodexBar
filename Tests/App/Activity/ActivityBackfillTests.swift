@@ -159,7 +159,7 @@ struct ActivityBackfillTests {
             try await Self.waitForItemReads(logs, count: 2)
             await reader.stop()
         }
-        #expect(try await store.refresh().first?.tokenUsage.totalTokens == 50)
+        #expect(try await store.loadSnapshot().aggregates.first?.tokenUsage.totalTokens == 50)
         try server.finish()
     }
 
@@ -525,7 +525,7 @@ extension ActivityBackfillTests {
             let aggregate = try database.aggregateActivityData(date: HistoryStorage.dateKey(for: start))
             #expect(aggregate.toolStartedCount == count)
             #expect(aggregate.turnStartedCount == 1)
-            #expect(try await store.refresh().first?.tokenUsage.totalTokens == Int64(total - 100))
+            #expect(try await store.loadSnapshot().aggregates.first?.tokenUsage.totalTokens == Int64(total - 100))
             try server.finish()
         }
     }

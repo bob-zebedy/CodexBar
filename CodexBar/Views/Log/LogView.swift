@@ -113,11 +113,18 @@ struct LogView: View {
                 .font(.largeTitle)
                 .foregroundStyle(.tertiary)
 
-            Text("log.empty.no-entries")
+            Text(emptyStateTitle)
                 .font(LogTypography.bodyFont)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    var emptyStateTitle: LocalizedStringResource {
+        if viewModel.totalCount > 0, !viewModel.selectedMethods.isEmpty {
+            return "log.empty.no-filter-matches"
+        }
+        return "log.empty.no-entries"
     }
 
     private func logList(entries: [AppServerLogEntry]) -> some View {

@@ -92,7 +92,7 @@ struct ActivitySchedulingTests {
         #expect(receivedFollowup)
         #expect(!failed)
         await reader.stop()
-        #expect(try await store.refresh().first?.tokenUsage.totalTokens == 50)
+        #expect(try await store.loadSnapshot().aggregates.first?.tokenUsage.totalTokens == 50)
         release.signal()
         try server.finish()
     }

@@ -23,8 +23,8 @@ final class AutoResetController {
         var succeeded: (Int?, String) -> Void
         var failed: (AutoResetFailureNotice, String) -> Void
         var refresh: () -> Void
-        var makeWakeActivity: () -> any AutoResetWakeActivity = {
-            SystemSleepService(sleepAssertionName: "CodexBar - Automatic Reset")
+        var makeWakeActivity: (TimeInterval) -> any AutoResetWakeActivity = { timeout in
+            SystemSleepService(sleepAssertionName: "CodexBar - Automatic Reset", timeout: timeout)
         }
 
         var now: () -> Date = Date.init
@@ -54,6 +54,7 @@ final class AutoResetController {
     private struct Evaluation {
         let target: Target
         let attempt: AutoResetSchedule.Attempt
+        let schedule: AutoResetSchedule
     }
 
     private let settings: AutoResetSettings
@@ -270,7 +271,13 @@ final class AutoResetController {
 
     private func performEvaluation(trigger: LogTrigger, generation: Int) async {
         guard isCurrent(generation) else { return }
-        let activity = dependencies.makeWakeActivity()
+        let now = dependencies.now()
+        var evaluation = beginDueEvaluation(now: now)
+        let readDeadline = evaluation?.attempt.deadline ?? now.addingTimeInterval(60)
+        let timeout = readDeadline.timeIntervalSince(now)
+        guard timeout > 0 else { return }
+        let budget = AppServerRequestBudget(deadline: readDeadline, now: now)
+        let activity = dependencies.makeWakeActivity(timeout)
         let holdsAssertion = activity.beginPreventingIdleSleep() == kIOReturnSuccess
         if !holdsAssertion {
             AppLog.app.error("自动重置短时防睡眠建立失败")
@@ -280,7 +287,6 @@ final class AutoResetController {
                 AppLog.app.error("自动重置短时防睡眠释放失败")
             }
         }
-        var evaluation = beginDueEvaluation()
         var transientFailure = true
         defer {
             if let evaluation {
@@ -288,8 +294,6 @@ final class AutoResetController {
             }
         }
         do {
-            let readDeadline = evaluation?.attempt.deadline ?? dependencies.now().addingTimeInterval(60)
-            let budget = AppServerRequestBudget(deadline: readDeadline, now: dependencies.now())
             let read = try await dependencies.read(budget)
             guard isCurrent(generation) else { return }
             reconcile(read)
@@ -297,12 +301,14 @@ final class AutoResetController {
             if let evaluation, evaluation.target.key != currentTarget.key {
                 return
             }
-            if evaluation == nil {
-                evaluation = beginDueEvaluation()
+            // 新有效期可能落在本次执行窗口之外, 按最新凭证重新判断
+            if evaluation?.target.candidate.expirationDate != currentTarget.candidate.expirationDate {
+                evaluation = beginDueEvaluation(now: dependencies.now())
             }
             guard let evaluation, records[evaluation.target.key]?.block == nil else { return }
             let deadline = min(evaluation.attempt.deadline, AutoResetSchedule.cutoff(for: currentTarget.candidate.expirationDate))
             guard dependencies.now() < deadline, isCurrent(generation) else { return }
+            records[currentTarget.key]?.schedule = evaluation.schedule
             updateWakeDate(during: evaluation)
             AppLog.app.notice("自动重置开始: trigger=\(trigger.rawValue, privacy: .public)")
             let result = try await dependencies.consume(
@@ -317,18 +323,17 @@ final class AutoResetController {
         }
     }
 
-    private func beginDueEvaluation() -> Evaluation? {
-        let now = dependencies.now()
+    private func beginDueEvaluation(now: Date) -> Evaluation? {
         guard let target, var record = records[target.key], !record.consumed, record.block == nil,
               let attempt = record.schedule.begin(expirationDate: target.candidate.expirationDate, leadTime: settings.leadTime.duration, now: now) else { return nil }
-        records[target.key] = record
-        let evaluation = Evaluation(target: target, attempt: attempt)
+        let evaluation = Evaluation(target: target, attempt: attempt, schedule: record.schedule)
         updateWakeDate(during: evaluation)
         return evaluation
     }
 
     private func finishAttempt(_ evaluation: Evaluation, transientFailure: Bool, coversFinal: Bool) {
-        guard var record = records[evaluation.target.key], !record.consumed else { return }
+        guard var record = records[evaluation.target.key], !record.consumed, record.expirationDate == evaluation.target.candidate.expirationDate else { return }
+        record.schedule = evaluation.schedule
         record.schedule.finish(evaluation.attempt, transientFailure: transientFailure, leadTime: settings.leadTime.duration, now: dependencies.now())
         if coversFinal {
             record.schedule.coverFinalIfNeeded(evaluation.attempt, expirationDate: record.expirationDate, transientFailure: transientFailure, now: dependencies.now())

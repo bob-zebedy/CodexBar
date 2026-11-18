@@ -28,7 +28,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let activityCenterPresentationState = ActivityCenterPresentationState()
     private lazy var activityCardPresentationState = ActivityCardPresentationState(activityMonitor: activityMonitor)
     private lazy var heatmapDetailPanelController = HeatmapPanelController(mainPanelSettings: mainPanelSettings)
-    private lazy var resetCreditsPanelController = ResetCreditsPanelController(mainPanelSettings: mainPanelSettings)
+    private lazy var resetCreditsPanelController = ResetCreditsPanelController(viewModel: viewModel, mainPanelSettings: mainPanelSettings)
     private lazy var activityCenterPanelController = ActivityCenterPanelController(
         activityMonitor: activityMonitor,
         presentationState: activityCenterPresentationState,
@@ -259,8 +259,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             onUsageHeatmapHoverChange: { [weak self] context in
                 self?.updateHeatmapDetailPanel(context)
             },
-            onResetCreditsTap: { [weak self] context in
-                self?.toggleResetCreditsPanel(context)
+            onResetCreditsTap: { [weak self] anchor in
+                self?.toggleResetCreditsPanel(anchor)
             },
             onActivityCenterTap: { [weak self] anchor in
                 self?.toggleActivityCenterPanel(anchor)
@@ -479,14 +479,16 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     private func toggleMenuSurface(open: () -> Void) {
         switch menuSurfaceState {
-        case .hidden:
-            open()
         case .opening, .shown:
             closeMenuSurface()
+            return
         case .closing:
             completeMenuSurfaceClose()
-            open()
+        case .hidden:
+            break
         }
+        menuSurfaceVisibility.prepareForPresentation()
+        open()
     }
 
     /// 判断 toggle 是否会打开面板, 条件与 toggleMenuSurface 一致
@@ -574,7 +576,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private func completeMenuSurfaceOpen() {
-        menuSurfaceVisibility.beginPresentation()
+        menuSurfaceVisibility.didPresent()
         menuSurfaceDismissMonitor.install(
             onDismiss: { [weak self] in
                 self?.closeMenuSurface()
@@ -866,7 +868,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         )
     }
 
-    private func toggleResetCreditsPanel(_ context: ResetCreditsPanelContext) {
+    private func toggleResetCreditsPanel(_ anchor: ScreenFrameProvider) {
         guard isActiveMenuSurfaceVisible,
               let menuSurfaceContentView = activeMenuSurfaceContentView,
               let menuSurfaceWindow = activeMenuSurfaceWindow else {
@@ -876,7 +878,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
         hideSideDetailPanels(except: resetCreditsPanelController)
         resetCreditsPanelController.toggle(
-            context: context,
+            anchor: anchor,
             relativeTo: menuSurfaceWindow,
             contentView: menuSurfaceContentView
         )

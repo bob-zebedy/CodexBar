@@ -140,6 +140,7 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
 
     private let queue = DispatchQueue(label: CodexBarPowerHelperIPC.serviceIdentifier + ".state")
     private let ownershipStore: any OwnershipStoring
+    private let wakeScheduler: PowerHelperWakeScheduler
     private let sleepOperations: PowerHelperSleepOperations
     private var ownership = SleepOwnership.idle
     private var transactionID = UUID()
@@ -155,7 +156,8 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
     private var signalSources = [DispatchSourceSignal]()
     private var listener: NSXPCListener?
 
-    init(ownershipStore: (any OwnershipStoring)? = nil, sleepOperations: PowerHelperSleepOperations = .system) {
+    init(ownershipStore: (any OwnershipStoring)? = nil, sleepOperations: PowerHelperSleepOperations = .system, wakeScheduler: PowerHelperWakeScheduler = .system) {
+        self.wakeScheduler = wakeScheduler
         self.ownershipStore = ownershipStore ?? OwnershipStore(url: CodexBarPowerHelperStorage.ownershipURL)
         self.sleepOperations = sleepOperations
         super.init()
@@ -336,50 +338,39 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
                 return
             }
 
-            let date: Date?
             if unixTimestamp == 0 {
-                date = nil
-            } else {
-                let requestedDate = Date(timeIntervalSince1970: unixTimestamp)
-                guard requestedDate > Date() else {
-                    reply(kIOReturnBadArgument)
+                if let owner = autoResetWakeConnectionIdentifier, owner != identifier {
+                    reply(kIOReturnSuccess)
                     return
                 }
-                date = requestedDate
+                guard autoResetWakeConnectionIdentifier != nil || isAutoResetWakeCleanupPending else {
+                    reply(kIOReturnSuccess)
+                    return
+                }
+                reply(cancelAutoResetWakeSchedule(trigger: .appRequest))
+                return
             }
 
-            if date == nil {
-                autoResetWakeConnectionIdentifier = nil
-            } else {
-                autoResetWakeConnectionIdentifier = identifier
+            let date = Date(timeIntervalSince1970: unixTimestamp)
+            guard date > Date() else {
+                reply(kIOReturnBadArgument)
+                return
             }
-
-            let result: IOReturn = if date == nil {
-                cancelAutoResetWakeSchedule(trigger: .appRequest)
-            } else {
-                PowerHelperWakeScheduler.replaceSchedule(with: date)
-            }
+            let result = wakeScheduler.replace(date)
             guard result == kIOReturnSuccess else {
-                if date != nil {
+                if autoResetWakeConnectionIdentifier == nil {
+                    isAutoResetWakeCleanupPending = true
                     scheduleOwnershipTimerIfNeeded()
                 }
-                let details = LogFields.joined(
-                    "action=\(date == nil ? "cancel" : "schedule")",
-                    "code=\(result)"
-                )
-                powerHelperLog.error("自动重置唤醒计划更新失败: \(details, privacy: .public)")
+                powerHelperLog.error("自动重置唤醒计划设置失败: code=\(result)")
                 reply(result)
                 return
             }
 
-            if date != nil {
-                isAutoResetWakeCleanupPending = false
-                scheduleOwnershipTimerIfNeeded()
-            }
-            if let date {
-                let epoch = Int(date.timeIntervalSince1970)
-                powerHelperLog.notice("自动重置唤醒计划已设置: epoch=\(epoch)")
-            }
+            autoResetWakeConnectionIdentifier = identifier
+            isAutoResetWakeCleanupPending = false
+            scheduleOwnershipTimerIfNeeded()
+            powerHelperLog.notice("自动重置唤醒计划已设置: epoch=\(Int(date.timeIntervalSince1970))")
             reply(kIOReturnSuccess)
         }
     }
@@ -449,18 +440,19 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
         trigger: WakeScheduleCleanupTrigger
     ) -> IOReturn {
         defer { scheduleOwnershipTimerIfNeeded() }
-        let result = PowerHelperWakeScheduler.replaceSchedule(with: nil)
+        let result = wakeScheduler.replace(nil)
         guard result == kIOReturnSuccess else {
             isAutoResetWakeCleanupPending = true
             let details = LogFields.joined(
                 "reason=\(trigger.rawValue)",
                 "code=\(result)",
-                "remaining=\(PowerHelperWakeScheduler.ownedEventCount)"
+                "remaining=\(wakeScheduler.eventCount())"
             )
             powerHelperLog.error("自动重置唤醒计划取消失败: \(details, privacy: .public)")
             return result
         }
 
+        autoResetWakeConnectionIdentifier = nil
         isAutoResetWakeCleanupPending = false
         powerHelperLog.notice(
             "自动重置唤醒计划已取消: reason=\(trigger.rawValue, privacy: .public)"
@@ -764,7 +756,7 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
     }
 
     private func recoverAutoResetWakeScheduleAtStartup() {
-        let initialEventCount = PowerHelperWakeScheduler.ownedEventCount
+        let initialEventCount = wakeScheduler.eventCount()
         guard initialEventCount > 0 else {
             return
         }
@@ -774,7 +766,7 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
             if delay > 0 {
                 Thread.sleep(forTimeInterval: delay)
             }
-            lastResult = PowerHelperWakeScheduler.replaceSchedule(with: nil)
+            lastResult = wakeScheduler.replace(nil)
             if lastResult == kIOReturnSuccess {
                 powerHelperLog.notice(
                     "自动重置遗留唤醒计划已清理: reason=powerHelperStartup count=\(initialEventCount)"
@@ -787,28 +779,28 @@ final class PowerHelperRuntime: NSObject, NSXPCListenerDelegate, @unchecked Send
         let details = LogFields.joined(
             "reason=\(WakeScheduleCleanupTrigger.powerHelperStartup.rawValue)",
             "code=\(lastResult)",
-            "remaining=\(PowerHelperWakeScheduler.ownedEventCount)"
+            "remaining=\(wakeScheduler.eventCount())"
         )
         powerHelperLog.error("自动重置遗留唤醒计划清理失败: \(details, privacy: .public)")
     }
 
-    private func installOwnershipTimer() {
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.setEventHandler { [weak self] in
-            guard let self else {
-                return
-            }
+    func enqueueOwnershipCheck() {
+        queue.async { [self] in
             if activeClientCount > 0 {
                 _ = reconcileRequestedSleep(logsExternalState: false)
             } else if ownership.needsRestore, watchdogs.isEmpty {
                 _ = restoreOwnedSleep(trigger: .ownershipCheck)
             }
-            if isAutoResetWakeCleanupPending,
-               autoResetWakeConnectionIdentifier == nil {
-                _ = cancelAutoResetWakeSchedule(trigger: .ownershipCheck)
+            if isAutoResetWakeCleanupPending {
+                cancelAutoResetWakeSchedule(trigger: .ownershipCheck)
             }
             scheduleOwnershipTimerIfNeeded()
         }
+    }
+
+    private func installOwnershipTimer() {
+        let timer = DispatchSource.makeTimerSource()
+        timer.setEventHandler { [weak self] in self?.enqueueOwnershipCheck() }
         ownershipTimer = timer
         scheduleOwnershipTimerIfNeeded(force: true)
         timer.resume()

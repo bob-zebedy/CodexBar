@@ -16,7 +16,7 @@ BUILD_DIR="${BUILD_DIR:-${PROJECT_DIR}/Build}"
 DMG_PATH="${1:-}"
 APPCAST_PATH="${APPCAST_PATH:-${PROJECT_DIR}/appcast.xml}"
 DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://codexbar.zabrian.app/download}"
-RELEASE_NOTES_BASE_URL="${RELEASE_NOTES_BASE_URL:-https://codexbar.zabrian.app/notes}"
+RELEASE_NOTES_BASE_URL="${RELEASE_NOTES_BASE_URL:-https://codexbar.zabrian.app/changelog}"
 MINIMUM_SYSTEM_VERSION="${MINIMUM_SYSTEM_VERSION:-15.0}"
 INCLUDE_RELEASE_NOTES="${INCLUDE_RELEASE_NOTES:-1}"
 SIGN_UPDATE="${SIGN_UPDATE:-}"
@@ -39,7 +39,7 @@ Environment:
                            Both links append lang=en-US and lang=zh-CN query parameters.
                            Release notes append the current version as #X.Y.Z.
                            The browser upgrade link appends #${UPGRADE_GUIDE_VERSION}-Guide.
-                           Defaults to https://codexbar.zabrian.app/notes.
+                           Defaults to https://codexbar.zabrian.app/changelog.
   INCLUDE_RELEASE_NOTES   Set to 0 to omit sparkle:releaseNotesLink.
   MINIMUM_SYSTEM_VERSION  Defaults to 15.0.
   SIGN_UPDATE             Optional path to Sparkle's sign_update tool.

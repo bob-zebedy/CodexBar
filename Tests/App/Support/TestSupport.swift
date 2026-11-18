@@ -187,10 +187,10 @@ nonisolated extension HistoryDatabase {
 /// 测试夹具按采集器的原始记录与缓存聚合两个步骤写入
 extension TokenUsageHistoryStore {
     func recordObservations(_ observations: [TokenUsageObservation], now: Date = Date()) async throws -> [TokenUsageAggregate] {
-        _ = try await refresh(now: now)
+        try await refreshPendingDates()
         for observation in observations {
             try await appendObservation(observation, now: now)
         }
-        return try await refresh(now: now)
+        return try await loadSnapshot(now: now).aggregates
     }
 }

@@ -4,6 +4,76 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1)))
 struct PowerHelperSleepTests {
+    @Test func onlyWakeOwnerCanCancelAndRetry() async throws {
+        struct State {
+            var date: Date?
+            var rejectCancellation = false
+        }
+        let state = Mutex(State())
+        let wake = PowerHelperWakeScheduler(replace: { date in
+            state.withLock {
+                if date == nil, $0.rejectCancellation {
+                    return -1
+                }
+                $0.date = date
+                return 0
+            }
+        }, eventCount: { state.withLock { $0.date == nil ? 0 : 1 } })
+        let fixture = try PowerHelperFixture(disabled: false, wakeScheduler: wake)
+        let other = TestConnection()
+        try #require(fixture.runtime.listener(NSXPCListener.anonymous(), shouldAcceptNewConnection: other))
+        let session = try #require(other.exportedObject as? any CodexBarPowerHelperProtocol)
+        func set(_ client: any CodexBarPowerHelperProtocol, _ date: Date?) async -> Int32 {
+            await withCheckedContinuation { continuation in
+                client.setAutoResetWakeSchedule(date?.timeIntervalSince1970 ?? 0) { continuation.resume(returning: $0) }
+            }
+        }
+        // 状态请求排在维护检查之后, 用作同一串行队列的屏障
+        func waitForQueuedWork() async {
+            await withCheckedContinuation { continuation in
+                session.getSleepPreventionStatus { _, _, _, _ in continuation.resume() }
+            }
+        }
+        let date = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded() + 600)
+        #expect(await set(fixture.session, date) == 0)
+        #expect(await set(session, nil) == 0)
+        #expect(state.withLock { $0.date } == date)
+        state.withLock { $0.rejectCancellation = true }
+        #expect(await set(fixture.session, nil) != 0)
+        #expect(await set(session, nil) == 0)
+        state.withLock { $0.rejectCancellation = false }
+        #expect(await set(fixture.session, nil) == 0)
+        #expect(state.withLock { $0.date } == nil)
+
+        #expect(await set(fixture.session, date) == 0)
+        state.withLock { $0.rejectCancellation = true }
+        fixture.connection.invalidationHandler?()
+        let next = date.addingTimeInterval(600)
+        #expect(await set(session, next) == 0)
+        state.withLock { $0.rejectCancellation = false }
+        fixture.runtime.enqueueOwnershipCheck()
+        await waitForQueuedWork()
+        #expect(state.withLock { $0.date } == next)
+
+        state.withLock { $0.rejectCancellation = true }
+        #expect(await set(session, nil) != 0)
+        state.withLock { $0.rejectCancellation = false }
+        fixture.runtime.enqueueOwnershipCheck()
+        await waitForQueuedWork()
+        #expect(state.withLock { $0.date } == nil)
+
+        // 持有唤醒计划的连接断开后, 如果系统取消计划失败, Helper 会在下次维护时重试
+        #expect(await set(session, next) == 0)
+        state.withLock { $0.rejectCancellation = true }
+        other.invalidationHandler?()
+        await waitForQueuedWork()
+        #expect(state.withLock { $0.date } == next)
+        state.withLock { $0.rejectCancellation = false }
+        fixture.runtime.enqueueOwnershipCheck()
+        await waitForQueuedWork()
+        #expect(state.withLock { $0.date } == nil)
+    }
+
     @Test func acquisitionPersistsOwnershipBeforeDisablingAndReleaseRestores() async throws {
         let fixture = try PowerHelperFixture(disabled: false)
         let acquired = await fixture.request(true, generation: 1)

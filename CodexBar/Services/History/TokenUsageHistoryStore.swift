@@ -55,15 +55,7 @@ final nonisolated class TokenUsageHistoryStore: Sendable {
         try await database.access { try $0.tokenUsageSnapshot(threadID: threadID) }
     }
 
-    func refresh(now: Date = Date()) async throws -> [TokenUsageAggregate] {
-        try await loadSnapshot(now: now).aggregates
-    }
-
-    func loadSnapshot(now: Date = Date()) async throws -> TokenUsageHistorySnapshot {
-        try await readSnapshot(now: now)
-    }
-
-    private func readSnapshot(now: Date) async throws -> TokenUsageHistorySnapshot {
+    func refreshPendingDates() async throws {
         let dates = try await database.access { try $0.pendingTokenUsageDates() }
         for date in dates {
             do {
@@ -74,13 +66,18 @@ final nonisolated class TokenUsageHistoryStore: Sendable {
                 // 单日失败保留上次提交结果, 其他日期继续处理
             }
         }
+    }
+
+    func loadSnapshot(now: Date = Date()) async throws -> TokenUsageHistorySnapshot {
+        try await refreshPendingDates()
         return try await database.access { database in
-            try database.transaction {
-                try TokenUsageHistorySnapshot(
-                    aggregates: Self.retained(database.tokenUsageAggregates(), now: now),
-                    coverage: database.pendingTokenUsageDates().isEmpty ? .complete : .partial
-                )
-            }
+            // 逐日聚合期间可能写入新观测, 用同一次查询取得日总量和待处理日期
+            var aggregates: [TokenUsageAggregate] = []
+            let pending = try database.pendingTokenUsageDates { aggregates.append($0) }
+            return TokenUsageHistorySnapshot(
+                aggregates: Self.retained(aggregates, now: now),
+                coverage: pending.isEmpty ? .complete : .partial(Set(pending))
+            )
         }
     }
 
@@ -112,14 +109,27 @@ final nonisolated class TokenUsageHistoryStore: Sendable {
 }
 
 nonisolated struct TokenUsageHistorySnapshot {
+    static let empty = Self(aggregates: [], coverage: .complete)
+
     let aggregates: [TokenUsageAggregate]
     let coverage: TokenUsageReplayCoverage
+
+    var uploadableAggregates: [TokenUsageAggregate] {
+        aggregates.filter { coverage.isComplete(for: $0.date) }
+    }
 }
 
 nonisolated enum TokenUsageReplayCoverage: Equatable {
-    case complete, partial, unavailable
-    var isComplete: Bool {
-        self == .complete
+    case complete
+    case partial(Set<String>)
+    case unavailable
+
+    func isComplete(for date: String) -> Bool {
+        switch self {
+        case .complete: true
+        case let .partial(pending): !pending.contains(date)
+        case .unavailable: false
+        }
     }
 }
 

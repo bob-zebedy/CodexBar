@@ -35,7 +35,7 @@ struct TurnTokenCumulativeTests {
         #expect(observations.count == 2)
         #expect(observations.first?.previous == observations.first?.current.total)
         #expect(observations.last?.current.modelContextWindow == 10000)
-        #expect(try await store.refresh(now: now).first?.tokenUsage.totalTokens == 200)
+        #expect(try await store.loadSnapshot(now: now).aggregates.first?.tokenUsage.totalTokens == 200)
     }
 
     @Test(.tags(.integration)) func successiveRestartsIncludeOfflineDifferencesWithoutCountingFirstTotal() async throws {
@@ -47,7 +47,7 @@ struct TurnTokenCumulativeTests {
                 _ = try await store.record(TestFixtures.tokenSample(Int64(total), start: now))
             }
             #expect(try await store.snapshot(threadID: "main").turns["root"]?.totalTokens == Int64(expected))
-            #expect(try await store.refresh(now: now).first?.tokenUsage.totalTokens == Int64(expected))
+            #expect(try await store.loadSnapshot(now: now).aggregates.first?.tokenUsage.totalTokens == Int64(expected))
         }
         let restarted = TokenUsageHistoryStore(directoryURL: directory.url)
         #expect(try await restarted.snapshot(threadID: "main").turns["root"]?.totalTokens == 2300)
@@ -80,7 +80,7 @@ struct TurnTokenCumulativeTests {
         graph.applyActiveTokenUsage(Array(reducer.states.values))
         let key = ActivityTaskKey(thread: "main", turn: "next")
         #expect(graph.tasks[key]?.snapshot.tokenUsage?.totalTokens == 50)
-        #expect(try await store.refresh(now: now).first?.tokenUsage.totalTokens == 270)
+        #expect(try await store.loadSnapshot(now: now).aggregates.first?.tokenUsage.totalTokens == 270)
     }
 
     @Test(.tags(.integration)) func childThreadsHaveIndependentBaselinesAndRestoreIntoResolvedRoot() async throws {
@@ -103,7 +103,7 @@ struct TurnTokenCumulativeTests {
             references: [root, .init(threadID: "child", turnID: "child-turn"), .init(threadID: "grandchild", turnID: "grand-turn")]
         )
         #expect(request.tokenUsage(from: Array(reducer.states.values), requiresFinalTokenUsage: false)?.totalTokens == 130)
-        #expect(try await store.refresh(now: now).first?.tokenUsage.totalTokens == 130)
+        #expect(try await store.loadSnapshot(now: now).aggregates.first?.tokenUsage.totalTokens == 130)
     }
 
     @Test(.tags(.integration)) func crossMidnightUsesKnownTurnStartAndUnknownStartUsesObservationDate() async throws {
@@ -114,7 +114,7 @@ struct TurnTokenCumulativeTests {
         _ = try await store.record(TestFixtures.tokenSample(100, at: yesterday, start: yesterday))
         _ = try await store.record(TestFixtures.tokenSample(150, at: now, start: yesterday))
         _ = try await store.record(TestFixtures.tokenSample(180, turn: "unknown", at: now))
-        let daily = try await TokenUsageAggregate.tokenUsageByDate(store.refresh(now: now), now: now)
+        let daily = try await TokenUsageAggregate.tokenUsageByDate(store.loadSnapshot(now: now).aggregates, now: now)
         #expect(daily[HistoryStorage.dateKey(for: yesterday)]?.totalTokens == 50)
         #expect(daily[HistoryStorage.dateKey(for: now)]?.totalTokens == 30)
     }
@@ -159,7 +159,7 @@ struct TurnTokenCumulativeTests {
             _ = try await store.record(sample)
         }
         #expect(try await store.snapshot(threadID: "main").turns["root"]?.totalTokens == 50)
-        #expect(try await store.refresh(now: now).first?.tokenUsage.totalTokens == 50)
+        #expect(try await store.loadSnapshot(now: now).aggregates.first?.tokenUsage.totalTokens == 50)
     }
 
     @Test(.tags(.integration)) func explicitZeroObservationIsDifferentFromMissingChildUsage() async throws {
@@ -185,7 +185,7 @@ struct TurnTokenCumulativeTests {
         #expect(updated.turns["root"]?.totalTokens == 2000)
         #expect(updated.position > baseline.position)
         #expect(try await store.snapshot(threadID: "main").turns == updated.turns)
-        #expect(try await store.refresh(now: now).first?.tokenUsage.totalTokens == 2000)
+        #expect(try await store.loadSnapshot(now: now).aggregates.first?.tokenUsage.totalTokens == 2000)
     }
 
     @Test(.tags(.integration)) func knownThreadBaselineKeepsNewTurnZeroAndFirstIncrement() async throws {

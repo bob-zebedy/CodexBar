@@ -17,13 +17,15 @@ actor TokenUsageSync {
         fileCache = TokenUsageFileCache(url: AppStorage(rootURL: directoryURL).tokenUsageSyncCacheURL)
     }
 
-    func snapshot(local: [TokenUsageAggregate], accountScopedDeviceID: String?) throws -> [String: TokenUsage] {
+    func snapshot(local: TokenUsageHistorySnapshot, accountScopedDeviceID: String?) throws -> [String: TokenUsage] {
         guard let deviceID = accountScopedDeviceID, let cache = try load(), cache.state.deviceID == deviceID else {
-            return TokenUsageAggregate.tokenUsageByDate(local)
+            return TokenUsageAggregate.tokenUsageByDate(local.aggregates)
         }
         var records = cache.records
-        for record in try TokenUsageSyncRecord.dailyRecords(local: local, deviceID: deviceID) {
-            records[record.id] = record
+        for record in try TokenUsageSyncRecord.dailyRecords(local: local.aggregates, deviceID: deviceID) {
+            if local.coverage.isComplete(for: record.date) || records[record.id] == nil {
+                records[record.id] = record
+            }
         }
         return TokenUsageSyncRecord.tokenUsageByDate(Array(records.values))
     }
@@ -52,7 +54,7 @@ actor TokenUsageSync {
         }
     }
 
-    func synchronize(local: [TokenUsageAggregate], accountScopedDeviceID: String, zoneID: CKRecordZone.ID, canUpload: Bool = true) async throws {
+    func synchronize(local: [TokenUsageAggregate], accountScopedDeviceID: String, zoneID: CKRecordZone.ID) async throws {
         try SyncCancellation.check(isEnabled: isEnabled)
         // 整轮同步共用非阻塞锁, 防止另一个进程用较早的快照覆盖游标, 界面读取不等待网络
         guard let lock = try JSONFileStorage.acquireLock(at: storage.lockURL(.tokenUsageSync), nonblocking: true) else { return }
@@ -75,10 +77,7 @@ actor TokenUsageSync {
         }
         // 先落盘拉取结果, 上传失败时也能展示已经读取的其他设备贡献
         try save(cache)
-        // 原始事件不完整时仍可拉取其他设备数量, 但不能用局部结果替换整天的数量
-        if canUpload {
-            try await upload(local: local, cache: &cache, zoneID: zoneID)
-        }
+        try await upload(local: local, cache: &cache, zoneID: zoneID)
         try await prune(cache: &cache, zoneID: zoneID)
         try save(cache)
     }

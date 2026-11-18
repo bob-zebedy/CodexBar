@@ -341,7 +341,7 @@ struct ActivityLifecycleNotificationTests {
         #expect(probe.graph.tasks.isEmpty)
         #expect(probe.graph.completions.count == 1)
         #expect(await reader.stop())
-        #expect(try await store.refresh().reduce(0) { $0 + $1.tokenUsage.totalTokens } == 15)
+        #expect(try await store.loadSnapshot().aggregates.reduce(0) { $0 + $1.tokenUsage.totalTokens } == 15)
         #expect(try directory.historyRecords().contains(where: { $0.activityData?.eventKind == .turnCompleted }))
         try server.finish()
     }

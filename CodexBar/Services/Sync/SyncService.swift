@@ -76,13 +76,13 @@ actor SyncService {
         }
     }
 
-    func snapshotFromCacheIfEnabled(localTokenUsageAggregates: [TokenUsageAggregate] = []) async -> SyncSnapshot {
+    func snapshotFromCacheIfEnabled(tokenUsage: TokenUsageHistorySnapshot) async -> SyncSnapshot {
         guard isEnabled() else {
             return .disabled
         }
 
         let state = activityDataStore.loadState()
-        return await snapshot(from: state, localTokenUsageAggregates: localTokenUsageAggregates)
+        return await snapshot(from: state, tokenUsage: tokenUsage)
     }
 
     func hasPendingActivityDataUpdates(local: [ActivityDataAggregate]) -> Bool {
@@ -101,8 +101,7 @@ actor SyncService {
 
     func synchronizeIfEnabled(
         localActivityDataAggregates: [ActivityDataAggregate],
-        localTokenUsageAggregates: [TokenUsageAggregate] = [],
-        isTokenUsageSourceComplete: Bool = true,
+        tokenUsage: TokenUsageHistorySnapshot = .empty,
         trigger: LogTrigger
     ) async -> SyncSnapshot {
         guard isEnabled(), !Task.isCancelled else {
@@ -130,13 +129,13 @@ actor SyncService {
             return SyncSnapshot(activityData: [], currentDeviceID: nil, isActivityDataComplete: false)
         }
 
+        let uploadableTokenUsage = tokenUsage.uploadableAggregates
         // 显式开启同步允许恢复缺失的 zone, 同一轮最多重新执行一次
         for attempt in 0 ..< 2 {
             do {
                 try SyncCancellation.check(isEnabled: isEnabled)
                 failureMessage = try await synchronizeOnce(
-                    localActivityDataAggregates: localActivityDataAggregates, localTokenUsageAggregates: localTokenUsageAggregates,
-                    isTokenUsageSourceComplete: isTokenUsageSourceComplete,
+                    localActivityDataAggregates: localActivityDataAggregates, localTokenUsageAggregates: uploadableTokenUsage,
                     state: &state, stage: &stage, trigger: trigger
                 )
                 didSucceed = failureMessage == nil
@@ -170,11 +169,11 @@ actor SyncService {
 
         guard !Task.isCancelled, isEnabled() else { return .disabled }
         let latestState = activityDataStore.loadState()
-        return await snapshot(from: latestState, localTokenUsageAggregates: isTokenUsageSourceComplete ? localTokenUsageAggregates : [])
+        return await snapshot(from: latestState, tokenUsage: tokenUsage)
     }
 
     private func synchronizeOnce(
-        localActivityDataAggregates: [ActivityDataAggregate], localTokenUsageAggregates: [TokenUsageAggregate], isTokenUsageSourceComplete: Bool,
+        localActivityDataAggregates: [ActivityDataAggregate], localTokenUsageAggregates: [TokenUsageAggregate],
         state: inout ActivityDataSyncState, stage: inout SyncStage, trigger: LogTrigger
     ) async throws -> String? {
         let duration = LogDuration()
@@ -208,7 +207,7 @@ actor SyncService {
         }
         stage = .tokenUsage
         try await tokenUsageSync.synchronize(
-            local: localTokenUsageAggregates, accountScopedDeviceID: deviceID, zoneID: syncZoneID, canUpload: isTokenUsageSourceComplete
+            local: localTokenUsageAggregates, accountScopedDeviceID: deviceID, zoneID: syncZoneID
         )
         if let activityDataFailure {
             try SyncCancellation.check(isEnabled: isEnabled)
@@ -321,7 +320,7 @@ actor SyncService {
         }
     }
 
-    private func snapshot(from state: ActivityDataSyncState, localTokenUsageAggregates: [TokenUsageAggregate]) async -> SyncSnapshot {
+    private func snapshot(from state: ActivityDataSyncState, tokenUsage: TokenUsageHistorySnapshot) async -> SyncSnapshot {
         var result = SyncSnapshot(activityData: [], currentDeviceID: state.deviceID)
         do {
             let cache = try activityDataStore.load()
@@ -329,7 +328,7 @@ actor SyncService {
         } catch {
             result.isActivityDataComplete = false
         }
-        result.tokenUsageByDate = try? await tokenUsageSync.snapshot(local: localTokenUsageAggregates, accountScopedDeviceID: state.deviceID)
+        result.tokenUsageByDate = try? await tokenUsageSync.snapshot(local: tokenUsage, accountScopedDeviceID: state.deviceID)
         result.isActivityDataComplete = result.isActivityDataComplete && isActivityDataCacheComplete
         return result
     }
