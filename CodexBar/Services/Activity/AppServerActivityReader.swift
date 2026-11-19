@@ -32,10 +32,6 @@ actor AppServerActivityReader {
     /// 只排除已确认无需采集的来源, 缺失或未知来源继续正常处理
     private static let ignoredThreadSources: Set<String> = ["thread_title"]
 
-    nonisolated static var defaultSocketURL: URL {
-        CodexPaths.codexHomeDirectory().appendingPathComponent("app-server-control/app-server-control.sock")
-    }
-
     private var taskGraph = ActivityTaskGraph()
     private let readerID = UUID()
     private var revision: UInt64 = 0
@@ -142,7 +138,7 @@ actor AppServerActivityReader {
     private let waitBeforeReconnect: @Sendable (Duration) async throws -> Void
 
     init(
-        socketURL: URL = AppServerActivityReader.defaultSocketURL,
+        socketURL: URL = CodexPaths.appServerSocket(),
         logStorage: AppServerLogStore?,
         tokenUsageHistory: TokenUsageHistoryStore = TokenUsageHistoryStore(),
         activityDataRecorder: ActivityDataRecorder = ActivityDataRecorder(),

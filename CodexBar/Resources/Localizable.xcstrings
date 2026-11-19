@@ -3009,22 +3009,6 @@
         }
       }
     },
-    "codex.version.unknown" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unknown version"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未知版本"
-          }
-        }
-      }
-    },
     "common.action.cancel" : {
       "localizations" : {
         "en" : {
@@ -6070,13 +6054,109 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex Daemon"
+            "value" : "Daemon"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Codex Daemon"
+            "value" : "Daemon"
+          }
+        }
+      }
+    },
+    "settings.codex.desktop-daemon.error" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t read or apply Codex Desktop’s launch settings"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取或应用 Codex Desktop 的启动设置"
+          }
+        }
+      }
+    },
+    "settings.codex.desktop-daemon.help" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect Codex Desktop to the background service. Changes take effect after you fully quit and reopen Codex Desktop"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "让 Codex Desktop 连接到后台服务。修改后需要完全退出并重新打开 Codex Desktop 后才会生效"
+          }
+        }
+      }
+    },
+    "settings.codex.desktop-daemon.mismatch" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The launch settings have been modified"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "启动设置已被修改"
+          }
+        }
+      }
+    },
+    "settings.codex.desktop-daemon.restore-off" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn Back Off"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新关闭"
+          }
+        }
+      }
+    },
+    "settings.codex.desktop-daemon.restore-on" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn Back On"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新开启"
+          }
+        }
+      }
+    },
+    "settings.codex.desktop-daemon.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Desktop Background Service"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex Desktop 后台服务"
           }
         }
       }

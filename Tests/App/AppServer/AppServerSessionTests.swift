@@ -581,8 +581,11 @@ struct AppServerSessionTests {
         #expect(entries.first { $0.method == "app-server/message" }?.detail == "{broken JSON")
         #expect(entries.first { $0.method == "probe" }?.status == .failure)
         #expect(entries.filter { $0.method == "connection/closed" }.count == 1)
-        #expect(throws: AppServerError.self) {
+        do {
             _ = try AppServerSession(socketURL: directory.url.appendingPathComponent("missing.sock"), logStorage: storage)
+            Issue.record("Expected ENOENT when connecting to a missing socket")
+        } catch let error as AppServerConnectionError {
+            #expect(error.code == ENOENT)
         }
         #expect(try await storage.page().entries.contains { $0.method == "connection/open" && $0.status == .failure })
     }

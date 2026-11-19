@@ -6,7 +6,8 @@ import os
 @MainActor
 final class CodexBarLifecycle: NSObject, NSApplicationDelegate {
     private lazy var codexStatusService = CodexStatusService(logStorage: .shared, startup: appServerStartup)
-    private lazy var appServerStartup = AppServerStartup()
+    private let desktopLaunchSettings = CodexDesktopLaunchSettings()
+    private lazy var appServerStartup = AppServerStartup(onFirstReady: desktopLaunchSettings.applySavedPreference)
     lazy var viewModel = CodexStatusViewModel(service: codexStatusService, serviceStatusMonitor: serviceStatusMonitor)
     let historyViewModel = HistoryViewModel()
     lazy var tuiNotificationSettings = TUINotificationSettings(
@@ -53,6 +54,7 @@ final class CodexBarLifecycle: NSObject, NSApplicationDelegate {
             activityMonitor: activityMonitor,
             syncSettings: syncSettings,
             globalHotKeySettings: globalHotKeySettings,
+            desktopLaunchSettings: desktopLaunchSettings,
             menuBarIndicatorSettings: menuBarIndicatorSettings,
             appearanceSettings: appearanceSettings,
             mainPanelSettings: mainPanelSettings,
@@ -175,6 +177,7 @@ final class CodexBarLifecycle: NSObject, NSApplicationDelegate {
                 NSApplication.shared.reply(toApplicationShouldTerminate: false)
                 return
             }
+            await desktopLaunchSettings.prepareForTermination()
             await startupTask?.value
             autoResetController?.prepareForTermination()
             let activitySaved = await activityMonitor.prepareForTermination()
@@ -191,6 +194,7 @@ final class CodexBarLifecycle: NSObject, NSApplicationDelegate {
                 }
             }
             if !success {
+                desktopLaunchSettings.resumeAfterTerminationCancellation()
                 await activityMonitor.resumeAfterTerminationCancellation()
                 autoResetController?.resumeAfterTerminationCancellation()
             }

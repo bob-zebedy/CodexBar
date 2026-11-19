@@ -13,6 +13,7 @@ struct AppSettingsView: View {
     @StateObject private var codexVersions = CodexVersionViewModel()
     @ObservedObject var syncSettings: SyncSettings
     @ObservedObject var globalHotKeySettings: GlobalHotKeySettings
+    @ObservedObject var desktopLaunchSettings: CodexDesktopLaunchSettings
     let menuBarIndicatorSettings: MenuBarIndicatorSettings
     @ObservedObject var appearanceSettings: AppearanceSettings
     let mainPanelSettings: MainPanelSettings
@@ -314,6 +315,10 @@ private extension AppSettingsView {
             LiquidGlassDivider()
             keepAliveRow
             LiquidGlassDivider()
+            if desktopLaunchSettings.isInstalled {
+                desktopDaemonRow
+                LiquidGlassDivider()
+            }
             syncRow
             LiquidGlassDivider()
             dataUpdateIntervalRow
@@ -322,6 +327,43 @@ private extension AppSettingsView {
         }
         .padding(Metrics.panelPadding)
         .liquidGlassSurface(cornerRadius: Metrics.panelCornerRadius)
+        .onAppear { desktopLaunchSettings.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .settingsWindowDidOpen)) { _ in
+            desktopLaunchSettings.refresh()
+        }
+    }
+
+    var desktopDaemonRow: some View {
+        SettingsRowWithCaption(desktopDaemonCaption) {
+            SettingsToggleRow(
+                icon: "server.rack",
+                title: "settings.codex.desktop-daemon.title",
+                help: "settings.codex.desktop-daemon.help",
+                isOn: Binding(
+                    get: { desktopLaunchSettings.isEnabled },
+                    set: desktopLaunchSettings.setEnabled
+                )
+            ) {
+                if desktopLaunchSettings.isUpdating {
+                    ProgressView()
+                        .controlSize(.mini)
+                }
+            }
+        } caption: { settingsStatusCaptionRow($0, isCurrent: $1) }
+            .allowsHitTesting(!desktopLaunchSettings.isUpdating)
+    }
+
+    var desktopDaemonCaption: SettingsStatusCaption? {
+        let restoreAction = SettingsStatusCaption.Action.restoreDesktopDaemon(enabled: desktopLaunchSettings.isEnabled)
+        if desktopLaunchSettings.updateFailed {
+            return SettingsStatusCaption(
+                message: String(localized: "settings.codex.desktop-daemon.error"),
+                isError: true,
+                action: desktopLaunchSettings.canRestore ? restoreAction : nil
+            )
+        }
+        guard desktopLaunchSettings.hasMismatch else { return nil }
+        return SettingsStatusCaption(message: String(localized: "settings.codex.desktop-daemon.mismatch"), action: restoreAction)
     }
 
     var aboutSettingsPage: some View {
@@ -385,7 +427,7 @@ private extension AppSettingsView {
     }
 
     var launchAtLoginRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        SettingsRowWithCaption(launchAtLoginCaption) {
             SettingsToggleRow(
                 icon: "power",
                 title: "settings.general.launch-at-login",
@@ -395,16 +437,17 @@ private extension AppSettingsView {
                     set: { loginItemSettings.setEnabled($0) }
                 )
             )
+        } caption: { settingsStatusCaptionRow($0, isCurrent: $1) }
+    }
 
-            if loginItemSettings.requiresApproval {
-                settingsStatusCaptionRow(SettingsStatusCaption(
-                    message: String(localized: "settings.general.launch-at-login-authorization-required"),
-                    showsSystemSettingsButton: true
-                ))
-            } else if let message = loginItemSettings.errorMessage {
-                SettingsCaptionMessageRow(message: message)
-            }
+    var launchAtLoginCaption: SettingsStatusCaption? {
+        if loginItemSettings.requiresApproval {
+            return SettingsStatusCaption(
+                message: String(localized: "settings.general.launch-at-login-authorization-required"),
+                action: .openSystemSettings
+            )
         }
+        return loginItemSettings.errorMessage.map { SettingsStatusCaption(message: $0, isError: true) }
     }
 
     var automaticUpdateCheckRow: some View {
@@ -429,11 +472,7 @@ private extension AppSettingsView {
     }
 
     var mainPanelLayoutRow: some View {
-        MainPanelLayoutSettingsRow { anchorProvider in
-            onOptionsAction(
-                .toggle(panel: .mainPanel, anchorProvider: anchorProvider)
-            )
-        }
+        MainPanelLayoutSettingsRow(onOptionsAction: onOptionsAction)
     }
 
     // MARK: - 高级页各行
@@ -463,7 +502,7 @@ private extension AppSettingsView {
         let canShowOptions = isEnabled && keepAliveController.powerHelperStatus == .enabled
         let caption = autoResetCaption
 
-        return VStack(alignment: .leading, spacing: 4) {
+        return SettingsRowWithCaption(caption) {
             SettingsToggleRow(
                 icon: "arrow.counterclockwise.circle",
                 title: "settings.auto-reset.title",
@@ -479,30 +518,19 @@ private extension AppSettingsView {
                     }
                 )
             ) {
-                SettingsOptionsButton(isAvailable: canShowOptions) {
-                    onOptionsAction(
-                        .toggle(
-                            panel: .autoReset,
-                            anchorProvider: autoResetAnchorProvider
-                        )
-                    )
-                }
+                SettingsOptionsButton(
+                    panel: .autoReset,
+                    isAvailable: canShowOptions,
+                    anchorProvider: autoResetAnchorProvider,
+                    onOptionsAction: onOptionsAction
+                )
             }
-
-            settingsStatusCaptionRow(caption)
-        }
-        .background {
-            ScreenFrameReader(provider: autoResetAnchorProvider)
-        }
-        .animation(Metrics.statusAnimation, value: caption)
-        .animation(Metrics.statusAnimation, value: isEnabled)
-        .onChange(of: canShowOptions) { _, canShowOptions in
-            guard !canShowOptions else {
-                return
+        } caption: { settingsStatusCaptionRow($0, isCurrent: $1) }
+            .background {
+                ScreenFrameReader(provider: autoResetAnchorProvider)
             }
-
-            onOptionsAction(.close(panel: .autoReset))
-        }
+            .animation(Metrics.statusAnimation, value: caption)
+            .animation(Metrics.statusAnimation, value: isEnabled)
     }
 
     var autoResetCaption: SettingsStatusCaption? {
@@ -524,7 +552,7 @@ private extension AppSettingsView {
         case .requiresApproval:
             SettingsStatusCaption(
                 message: String(localized: "power-helper.status.authorization-required"),
-                showsSystemSettingsButton: true
+                action: .openSystemSettings
             )
         case .notInstalled:
             SettingsStatusCaption(
@@ -542,7 +570,7 @@ private extension AppSettingsView {
     var keepAliveRow: some View {
         let caption = keepAliveCaption
 
-        return VStack(alignment: .leading, spacing: 4) {
+        return SettingsRowWithCaption(caption) {
             SettingsToggleRow(
                 icon: "moon.zzz",
                 title: "settings.keep-alive.title",
@@ -558,52 +586,46 @@ private extension AppSettingsView {
                     }
                 )
             ) {
-                SettingsOptionsButton(isAvailable: canShowKeepAliveOptions) {
-                    onOptionsAction(
-                        .toggle(panel: .keepAlive, anchorProvider: keepAliveAnchorProvider)
-                    )
-                }
+                SettingsOptionsButton(
+                    panel: .keepAlive,
+                    isAvailable: canShowKeepAliveOptions,
+                    anchorProvider: keepAliveAnchorProvider,
+                    onOptionsAction: onOptionsAction
+                )
             }
-
-            settingsStatusCaptionRow(caption)
-        }
-        .background {
-            ScreenFrameReader(provider: keepAliveAnchorProvider)
-        }
-        .animation(Metrics.statusAnimation, value: caption)
-        .animation(Metrics.statusAnimation, value: keepAliveController.isEnabled)
-        .onChange(of: canShowKeepAliveOptions) { _, canShowOptions in
-            guard !canShowOptions else {
-                return
+        } caption: { settingsStatusCaptionRow($0, isCurrent: $1) }
+            .background {
+                ScreenFrameReader(provider: keepAliveAnchorProvider)
             }
-
-            onOptionsAction(.close(panel: .keepAlive))
-        }
+            .animation(Metrics.statusAnimation, value: caption)
+            .animation(Metrics.statusAnimation, value: keepAliveController.isEnabled)
     }
 
-    @ViewBuilder
-    func settingsStatusCaptionRow(_ caption: SettingsStatusCaption?) -> some View {
-        if let caption {
-            SettingsIndentedRow(alignment: .top) {
-                Text(caption.message)
-                    .font(SettingsRowMetrics.captionFont)
-                    .foregroundStyle(caption.isError ? Color.red : Color.codexSecondaryLabel)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .numericTransition(value: caption.message)
+    func settingsStatusCaptionRow(_ caption: SettingsStatusCaption, isCurrent: Bool) -> some View {
+        SettingsIndentedRow {
+            Text(caption.message)
+                .font(SettingsRowMetrics.captionFont)
+                .foregroundStyle(caption.isError ? Color.red : Color.codexSecondaryLabel)
+                .fixedSize(horizontal: false, vertical: true)
+                .numericTransition(value: caption.message)
 
-                Spacer(minLength: 8)
+            Spacer(minLength: 8)
 
-                if caption.showsSystemSettingsButton {
-                    Button("common.action.open-system-settings") {
-                        SMAppService.openSystemSettingsLoginItems()
+            if let action = caption.action {
+                Button(action.title) {
+                    // 提示收起时按钮仍然可见, 此时按键不应触发旧操作
+                    guard isCurrent else { return }
+                    switch action {
+                    case .openSystemSettings: SMAppService.openSystemSettingsLoginItems()
+                    case .openNotificationSettings: notificationSettings.openSystemNotificationSettings()
+                    case .restoreDesktopDaemon: desktopLaunchSettings.restore()
                     }
-                    .controlSize(.small)
-                    .font(SettingsRowMetrics.controlFont)
-                    .fixedSize()
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
+                .controlSize(.small)
+                .font(SettingsRowMetrics.controlFont)
+                .fixedSize()
+                .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
-            .transition(.opacity)
         }
     }
 
@@ -650,16 +672,13 @@ private extension AppSettingsView {
     }
 
     var syncRow: some View {
-        let state = syncRowState
-        let lastSyncText = syncSettings.lastUploadAtText
-
-        return VStack(alignment: .leading, spacing: 4) {
+        SettingsRowWithCaption(syncCaption) {
             SettingsToggleRow(
                 icon: "icloud",
                 title: "settings.sync.title",
                 help: "settings.sync.title.help",
                 isOn: Binding(
-                    get: { state.isActive },
+                    get: { syncSettings.isEffectivelyActive },
                     set: { enabled in
                         guard syncSettings.setEnabled(enabled) else {
                             return
@@ -667,13 +686,14 @@ private extension AppSettingsView {
                         onSyncChanged(enabled)
                     }
                 ),
-                isEnabled: state.canToggle
+                isEnabled: syncSettings.isSyncAvailable
             )
-
-            if let message = syncSettings.unavailableMessage {
+        } caption: { displayed, _ in
+            switch displayed {
+            case let .unavailable(message):
                 SettingsCaptionMessageRow(message: message)
-                    .frame(minHeight: Metrics.syncStatusRowHeight, alignment: .top)
-            } else if state.shouldShowSyncStatus(lastSyncText: lastSyncText) {
+                    .frame(minHeight: Metrics.syncStatusRowHeight)
+            case .syncing, .lastSync:
                 SettingsIndentedRow {
                     Text("sync.status.last-sync")
                         .font(SettingsRowMetrics.captionFont)
@@ -682,7 +702,14 @@ private extension AppSettingsView {
                     Spacer(minLength: 8)
 
                     ZStack(alignment: .trailing) {
-                        if syncSettings.isSyncing {
+                        if case let .lastSync(lastSyncText) = displayed {
+                            Text(lastSyncText)
+                                .font(SettingsRowMetrics.captionFont.monospacedDigit())
+                                .foregroundStyle(Color.codexSecondaryLabel)
+                                .numericTransition(value: lastSyncText)
+                                .lineLimit(1)
+                                .transition(.opacity)
+                        } else {
                             ProgressView()
                                 .controlSize(.mini)
                                 .frame(
@@ -691,13 +718,6 @@ private extension AppSettingsView {
                                 )
                                 .help("sync.status.syncing")
                                 .transition(.opacity)
-                        } else if let lastSyncText {
-                            Text(lastSyncText)
-                                .font(SettingsRowMetrics.captionFont.monospacedDigit())
-                                .foregroundStyle(Color.codexSecondaryLabel)
-                                .numericTransition(value: lastSyncText)
-                                .lineLimit(1)
-                                .transition(.opacity)
                         }
                     }
                     .frame(
@@ -705,19 +725,22 @@ private extension AppSettingsView {
                         height: Metrics.syncStatusRowHeight,
                         alignment: .trailing
                     )
-                    .animation(Metrics.statusAnimation, value: syncSettings.isSyncing)
+                    .animation(Metrics.statusAnimation, value: displayed == .syncing)
                 }
                 .frame(height: Metrics.syncStatusRowHeight)
             }
         }
     }
 
-    var syncRowState: SyncRowState {
-        SyncRowState(
-            isActive: syncSettings.isEffectivelyActive,
-            isSyncAvailable: syncSettings.isSyncAvailable,
-            isSyncing: syncSettings.isSyncing
-        )
+    var syncCaption: SyncCaption? {
+        if let message = syncSettings.unavailableMessage {
+            return .unavailable(message)
+        }
+        guard syncSettings.isEffectivelyActive else { return nil }
+        if syncSettings.isSyncing {
+            return .syncing
+        }
+        return syncSettings.lastUploadAtText.map(SyncCaption.lastSync)
     }
 
     // MARK: - 数据重建
@@ -852,7 +875,10 @@ private extension AppSettingsView {
 
     /// 主开关行保留在设置窗口内, 子选项在右侧子面板中展开
     var notificationRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        let caption = notificationSettings.authorizationMessage.map {
+            SettingsStatusCaption(message: $0, action: notificationSettings.needsAuthorization ? .openNotificationSettings : nil)
+        }
+        return SettingsRowWithCaption(caption) {
             SettingsToggleRow(
                 icon: "bell.badge",
                 title: "settings.notifications.system.title",
@@ -862,32 +888,17 @@ private extension AppSettingsView {
                     set: { notificationSettings.setEnabled($0) }
                 )
             ) {
-                SettingsOptionsButton(isAvailable: notificationSettings.canShowOptions) {
-                    onOptionsAction(
-                        .toggle(panel: .notification, anchorProvider: notificationAnchorProvider)
-                    )
-                }
+                SettingsOptionsButton(
+                    panel: .notification,
+                    isAvailable: notificationSettings.canShowOptions,
+                    anchorProvider: notificationAnchorProvider,
+                    onOptionsAction: onOptionsAction
+                )
             }
-
-            if let message = notificationSettings.authorizationMessage {
-                NotificationAuthorizationRow(settings: notificationSettings, message: message)
-                    .transition(.identity)
-                    .transaction { transaction in
-                        transaction.animation = nil
-                    }
+        } caption: { settingsStatusCaptionRow($0, isCurrent: $1) }
+            .background {
+                ScreenFrameReader(provider: notificationAnchorProvider)
             }
-        }
-        .background {
-            ScreenFrameReader(provider: notificationAnchorProvider)
-        }
-        // canShowOptions 已包含总开关和系统授权状态, 变为 false 时收起面板
-        .onChange(of: notificationSettings.canShowOptions) { _, canShowOptions in
-            guard !canShowOptions else {
-                return
-            }
-
-            onOptionsAction(.close(panel: .notification))
-        }
     }
 
     // MARK: - 关于页
@@ -1044,7 +1055,20 @@ private struct RebuildResult {
 private struct SettingsStatusCaption: Equatable {
     let message: String
     var isError = false
-    var showsSystemSettingsButton = false
+    var action: Action?
+
+    enum Action: Equatable {
+        case openSystemSettings, openNotificationSettings
+        case restoreDesktopDaemon(enabled: Bool)
+
+        var title: LocalizedStringResource {
+            switch self {
+            case .openSystemSettings, .openNotificationSettings: "common.action.open-system-settings"
+            case .restoreDesktopDaemon(enabled: true): "settings.codex.desktop-daemon.restore-on"
+            case .restoreDesktopDaemon(enabled: false): "settings.codex.desktop-daemon.restore-off"
+            }
+        }
+    }
 }
 
 private enum SettingsTab: CaseIterable, Identifiable {
@@ -1087,17 +1111,8 @@ private struct SettingsPageHeightPreferenceKey: PreferenceKey {
     }
 }
 
-private struct SyncRowState {
-    /// 同步可用性由 SyncSettings.isEffectivelyActive 判定
-    let isActive: Bool
-    let isSyncAvailable: Bool
-    let isSyncing: Bool
-
-    var canToggle: Bool {
-        isSyncAvailable
-    }
-
-    func shouldShowSyncStatus(lastSyncText: String?) -> Bool {
-        isActive && (isSyncing || lastSyncText != nil)
-    }
+private enum SyncCaption: Equatable {
+    case unavailable(String)
+    case syncing
+    case lastSync(String)
 }

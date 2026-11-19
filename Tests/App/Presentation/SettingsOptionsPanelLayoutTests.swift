@@ -5,6 +5,31 @@ import Testing
 
 @MainActor
 struct SettingsOptionsPanelLayoutTests {
+    @Test func disablingTaskGlowClosesOnlyItsOptionsPanel() throws {
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let settings = TaskGlowSettings(defaults: preferences.defaults)
+        var closedPanels: [SettingsOptionsPanel] = []
+        let host = NSHostingView(rootView: TaskGlowSettingsRow(settings: settings) { action in
+            guard case let .close(panel) = action else {
+                Issue.record("设置开关变化时只应触发对应面板的关闭动作")
+                return
+            }
+            closedPanels.append(panel)
+        })
+        host.frame = CGRect(x: 0, y: 0, width: 300, height: 32)
+        host.layoutSubtreeIfNeeded()
+        #expect(closedPanels.isEmpty)
+
+        settings.setEnabled(true)
+        host.layoutSubtreeIfNeeded()
+        #expect(closedPanels.isEmpty)
+
+        settings.setEnabled(false)
+        host.layoutSubtreeIfNeeded()
+        #expect(closedPanels == [.taskGlow])
+    }
+
     @Test(arguments: [(67.25, 68), (93.75, 94), (67.25, 94), (93.75, 67)] as [(CGFloat, CGFloat)])
     func resizingKeepsFirstRowAtTopWithRoundedOrPreviousHeight(height: CGFloat, hostHeight: CGFloat) {
         var reportedSize = CGSize.zero

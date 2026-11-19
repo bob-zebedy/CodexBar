@@ -8,6 +8,7 @@ actor AppServerStartup {
     private let probeConnection: @Sendable () throws -> Void
     private let commandTimeout: TimeInterval
     private let readinessAttempts: Int
+    private var onFirstReady: (@MainActor @Sendable () -> Void)?
     enum Trigger { case automatic, manual }
 
     private let now: @Sendable () -> ContinuousClock.Instant
@@ -19,15 +20,17 @@ actor AppServerStartup {
     private var unfinishedProcess: Process?
 
     init(
-        socketURL: URL = AppServerActivityReader.defaultSocketURL,
+        socketURL: URL = CodexPaths.appServerSocket(),
         environment: [String: String] = CodexPaths.environment,
         installations: CodexInstallations? = nil,
         commandTimeout: TimeInterval = 15,
         readinessAttempts: Int = 10,
         probeConnection: (@Sendable () throws -> Void)? = nil,
-        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
+        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now },
+        onFirstReady: (@MainActor @Sendable () -> Void)? = nil
     ) {
         self.now = now
+        self.onFirstReady = onFirstReady
         self.environment = environment
         self.installations = installations
         self.commandTimeout = commandTimeout
@@ -48,6 +51,10 @@ actor AppServerStartup {
                 try await waitForAttempt(trigger: .manual)
             default: throw error
             }
+        }
+        if let onFirstReady {
+            self.onFirstReady = nil
+            await onFirstReady()
         }
     }
 
@@ -155,7 +162,7 @@ actor AppServerStartup {
 
     private func supportedExecutable() async throws -> URL {
         let installations = installations ?? CodexPaths.resolveInstallations(environment: environment)
-        let paths = [installations.globalPath, installations.bundledPath].compactMap(\.self)
+        let paths = [installations.standalonePath, installations.bundledPath].compactMap(\.self)
         guard !paths.isEmpty else { throw StartupError.notInstalled }
         var checked = Set<String>()
         var hasSupportedVersion = false

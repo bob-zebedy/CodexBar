@@ -241,7 +241,7 @@ struct NotificationOptionsView: View {
                 get: { tuiNotificationSettings.isEnabled ?? false },
                 set: { tuiNotificationSettings.setEnabled($0) }
             ),
-            isEnabled: tuiNotificationSettings.isAvailable && !tuiNotificationSettings.isUpdating
+            isEnabled: tuiNotificationSettings.isAvailable
         ) {
             if tuiNotificationSettings.isUpdating {
                 ProgressView()
@@ -254,6 +254,7 @@ struct NotificationOptionsView: View {
                     .help(errorMessage)
             }
         }
+        .allowsHitTesting(!tuiNotificationSettings.isUpdating)
     }
 
     // MARK: - 行构建器
@@ -333,9 +334,7 @@ struct NotificationOptionsView: View {
                 Spacer(minLength: 0)
 
                 accessory()
-                    .opacity(showsSoundControls ? 1 : 0)
-                    .disabled(!showsSoundControls)
-                    .allowsHitTesting(showsSoundControls)
+                    .settingsControlVisibility(showsSoundControls)
 
                 Toggle(title, isOn: isOn)
                     .labelsHidden()
@@ -476,30 +475,5 @@ struct NotificationOptionsView: View {
         static let soundPreviewButtonSize: CGFloat = 18
         static let soundPreviewIconSize: CGFloat = 13
         static let statusIconSize: CGFloat = 16
-    }
-}
-
-struct NotificationAuthorizationRow: View {
-    let settings: NotificationSettings
-    let message: String
-
-    var body: some View {
-        SettingsIndentedRow {
-            Text(message)
-                .font(SettingsRowMetrics.captionFont)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 8)
-
-            if settings.needsAuthorization {
-                Button("common.action.open-system-settings") {
-                    settings.openSystemNotificationSettings()
-                }
-                .controlSize(.small)
-                .font(SettingsRowMetrics.controlFont)
-                .fixedSize()
-            }
-        }
     }
 }

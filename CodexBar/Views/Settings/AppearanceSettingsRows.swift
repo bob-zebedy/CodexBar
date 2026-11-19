@@ -21,10 +21,6 @@ struct TaskGlowSettingsRow: View {
     let onOptionsAction: (SettingsOptionsPanelAction) -> Void
     @State private var anchorProvider = ScreenFrameProvider()
 
-    private var canShowOptions: Bool {
-        settings.isEnabled
-    }
-
     var body: some View {
         SettingsToggleRow(
             icon: "light.max",
@@ -35,17 +31,15 @@ struct TaskGlowSettingsRow: View {
                 set: { settings.setEnabled($0) }
             )
         ) {
-            SettingsOptionsButton(isAvailable: canShowOptions) {
-                onOptionsAction(.toggle(panel: .taskGlow, anchorProvider: anchorProvider))
-            }
+            SettingsOptionsButton(
+                panel: .taskGlow,
+                isAvailable: settings.isEnabled,
+                anchorProvider: anchorProvider,
+                onOptionsAction: onOptionsAction
+            )
         }
         .background {
             ScreenFrameReader(provider: anchorProvider)
-        }
-        .onChange(of: canShowOptions) { _, available in
-            if !available {
-                onOptionsAction(.close(panel: .taskGlow))
-            }
         }
     }
 }

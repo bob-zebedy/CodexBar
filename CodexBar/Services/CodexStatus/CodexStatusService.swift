@@ -86,7 +86,7 @@ actor CodexStatusService {
     private let logStorage: AppServerLogStore?
     private let startup: AppServerStartup?
 
-    init(socketURL: URL = AppServerActivityReader.defaultSocketURL, logStorage: AppServerLogStore?, startup: AppServerStartup? = nil) {
+    init(socketURL: URL = CodexPaths.appServerSocket(), logStorage: AppServerLogStore?, startup: AppServerStartup? = nil) {
         self.socketURL = socketURL
         self.logStorage = logStorage
         self.startup = startup

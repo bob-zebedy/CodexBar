@@ -35,6 +35,7 @@ final nonisolated class AppServerSession {
 
     init(
         socketURL: URL,
+        handshakePath: StaticString = "/",
         retainsNotifications: Bool = true,
         logStorage: AppServerLogStore?,
         connectionName: String = "activity",
@@ -54,9 +55,12 @@ final nonisolated class AppServerSession {
             guard descriptor >= 0, fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0 else { throw AppServerConnectionError(code: errno) }
             var address = sockaddr_un()
             address.sun_family = sa_family_t(AF_UNIX)
-            let path = Array(socketURL.path.utf8CString)
-            guard path.count <= MemoryLayout.size(ofValue: address.sun_path) else {
-                throw AppServerError.serverConnectionClosed
+            let capacity = MemoryLayout.size(ofValue: address.sun_path)
+            var path = socketURL.path.utf8CString
+            if path.count > capacity {
+                let directory = try CodexPaths.socketDirectoryReference(socketURL.deletingLastPathComponent())
+                path = directory.appendingPathComponent(socketURL.lastPathComponent).path.utf8CString
+                guard path.count <= capacity else { throw AppServerConnectionError(code: ENAMETOOLONG) }
             }
             withUnsafeMutableBytes(of: &address.sun_path) { destination in
                 path.withUnsafeBytes { destination.copyBytes(from: $0) }
@@ -81,7 +85,7 @@ final nonisolated class AppServerSession {
             }
             var enabled: Int32 = 1
             _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout<Int32>.size))
-            try handshake()
+            try handshake(path: handshakePath)
             if let connectionLogID {
                 logStorage?.finishRequest(connectionLogID, response: socketPath)
             } else if !recordsConnectionAttempts {
@@ -291,9 +295,9 @@ final nonisolated class AppServerSession {
         }
     }
 
-    private func handshake() throws {
+    private func handshake(path: StaticString) throws {
         let key = Data((0 ..< 16).map { _ in UInt8.random(in: .min ... .max) }).base64EncodedString()
-        let text = "GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: \(key)\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        let text = "GET \(path) HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: \(key)\r\nSec-WebSocket-Version: 13\r\n\r\n"
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         let token = logStorage?.beginRequest(method: "websocket/handshake", payload: text, connection: connectionName, source: .connection)
         var header = Data()

@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 
 enum TaskGlowColorRole: String, CaseIterable {
     case running, waiting, completed, terminated
@@ -125,6 +126,7 @@ final class TaskGlowSettings: ObservableObject {
         guard enabled != isEnabled else { return }
         defaults.set(enabled, forKey: Self.enabledKey)
         isEnabled = enabled
+        AppLog.settings.notice("流光效果变更: enabled=\(enabled ? 1 : 0)")
         if enabled {
             previewSubject.send(.enabled)
         }

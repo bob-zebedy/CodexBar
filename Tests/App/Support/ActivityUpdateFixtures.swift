@@ -22,7 +22,7 @@ extension ActivityEventDrainResult {
 extension AppServerActivityReader {
     init(
         probe: ActivityReaderProbe,
-        socketURL: URL = AppServerActivityReader.defaultSocketURL,
+        socketURL: URL = CodexPaths.appServerSocket(),
         logStorage: AppServerLogStore? = nil,
         tokenUsageHistory: TokenUsageHistoryStore = TokenUsageHistoryStore(),
         activityDataRecorder: ActivityDataRecorder = ActivityDataRecorder(),

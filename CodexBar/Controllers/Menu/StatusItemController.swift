@@ -11,6 +11,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private let activityMonitor: ActivityMonitor
     private let syncSettings: SyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
+    private let desktopLaunchSettings: CodexDesktopLaunchSettings
     private let menuBarIndicatorSettings: MenuBarIndicatorSettings
     private let appearanceSettings: AppearanceSettings
     private let mainPanelSettings: MainPanelSettings
@@ -49,6 +50,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         tuiNotificationSettings: tuiNotificationSettings,
         syncSettings: syncSettings,
         globalHotKeySettings: globalHotKeySettings,
+        desktopLaunchSettings: desktopLaunchSettings,
         menuBarIndicatorSettings: menuBarIndicatorSettings,
         appearanceSettings: appearanceSettings,
         mainPanelSettings: mainPanelSettings,
@@ -121,6 +123,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         activityMonitor: ActivityMonitor,
         syncSettings: SyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
+        desktopLaunchSettings: CodexDesktopLaunchSettings,
         menuBarIndicatorSettings: MenuBarIndicatorSettings,
         appearanceSettings: AppearanceSettings,
         mainPanelSettings: MainPanelSettings,
@@ -137,6 +140,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         self.activityMonitor = activityMonitor
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
+        self.desktopLaunchSettings = desktopLaunchSettings
         self.menuBarIndicatorSettings = menuBarIndicatorSettings
         self.appearanceSettings = appearanceSettings
         self.mainPanelSettings = mainPanelSettings

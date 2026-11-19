@@ -38,17 +38,35 @@ extension EnvironmentValues {
 }
 
 extension View {
+    func settingsControlVisibility(_ isVisible: Bool, transition: some Transition = .opacity) -> some View {
+        ZStack(alignment: .topLeading) {
+            if isVisible {
+                self.transition(transition)
+            } else {
+                // 只禁用隐藏的占位控件, 避免正在收起的控件变灰
+                hidden().disabled(true).transition(.identity)
+            }
+        }
+        .allowsHitTesting(isVisible)
+    }
+
     func settingsOptionsReveal(isExpanded: Bool, height: CGFloat, spacing: CGFloat = 0) -> some View {
         frame(height: height)
             .padding(.top, spacing)
+            .settingsControlVisibility(isExpanded, transition: SettingsDrawerTransition())
             .frame(height: isExpanded ? height + spacing : 0, alignment: .top)
             .clipped()
-            .disabled(!isExpanded)
-            .allowsHitTesting(isExpanded)
     }
 
     func settingsOptionsPanel(height: CGFloat) -> some View {
         modifier(SettingsOptionsPanelSurface(height: height))
+    }
+}
+
+private struct SettingsDrawerTransition: Transition {
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        SettingsDrawerLayout(progress: phase.isIdentity ? 1 : 0) { content }
+            .clipped()
     }
 }
 

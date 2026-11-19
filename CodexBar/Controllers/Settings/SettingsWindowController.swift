@@ -10,6 +10,7 @@ final class SettingsWindowController: HostingWindowController {
     private let tuiNotificationSettings: TUINotificationSettings
     private let syncSettings: SyncSettings
     private let globalHotKeySettings: GlobalHotKeySettings
+    private let desktopLaunchSettings: CodexDesktopLaunchSettings
     private let menuBarIndicatorSettings: MenuBarIndicatorSettings
     private let appearanceSettings: AppearanceSettings
     private let mainPanelSettings: MainPanelSettings
@@ -39,6 +40,7 @@ final class SettingsWindowController: HostingWindowController {
         tuiNotificationSettings: TUINotificationSettings,
         syncSettings: SyncSettings,
         globalHotKeySettings: GlobalHotKeySettings,
+        desktopLaunchSettings: CodexDesktopLaunchSettings,
         menuBarIndicatorSettings: MenuBarIndicatorSettings,
         appearanceSettings: AppearanceSettings,
         mainPanelSettings: MainPanelSettings,
@@ -56,6 +58,7 @@ final class SettingsWindowController: HostingWindowController {
         self.tuiNotificationSettings = tuiNotificationSettings
         self.syncSettings = syncSettings
         self.globalHotKeySettings = globalHotKeySettings
+        self.desktopLaunchSettings = desktopLaunchSettings
         self.menuBarIndicatorSettings = menuBarIndicatorSettings
         self.appearanceSettings = appearanceSettings
         self.mainPanelSettings = mainPanelSettings
@@ -84,6 +87,7 @@ final class SettingsWindowController: HostingWindowController {
             rootView: AppSettingsView(
                 syncSettings: syncSettings,
                 globalHotKeySettings: globalHotKeySettings,
+                desktopLaunchSettings: desktopLaunchSettings,
                 menuBarIndicatorSettings: menuBarIndicatorSettings,
                 appearanceSettings: appearanceSettings,
                 mainPanelSettings: mainPanelSettings,
@@ -118,8 +122,9 @@ final class SettingsWindowController: HostingWindowController {
         // LSUIElement 窗口重新获得焦点时不一定伴随 App 激活事件
         windowFocusObserver = NotificationCenter.default
             .publisher(for: NSWindow.didBecomeKeyNotification, object: window)
-            .sink { [weak notificationSettings] _ in
+            .sink { [weak notificationSettings, weak desktopLaunchSettings] _ in
                 notificationSettings?.refreshAuthorizationStatus()
+                desktopLaunchSettings?.refresh()
             }
         // 关闭后 hosting controller 仍然保留, 必须按窗口可见性停止持续动画
         windowVisibilityObserver = Publishers.MergeMany([

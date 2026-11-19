@@ -44,7 +44,7 @@ struct CodexVersionTests {
 
         let installations = CodexPaths.resolveInstallations(environment: ["PATH": ""], bundledResourceURL: directory.url)
         #expect(installations.bundledPath == entrypoint.path)
-        #expect(installations.globalPath == nil)
+        #expect(installations.standalonePath == nil)
     }
 
     @Test(arguments: [nil, "invalid", "{}", #"{"entrypoint":42}"#, #"{"entrypoint":""}"#, #"{"entrypoint":"bin/missing"}"#, #"{"entrypoint":"bin/codex"}"#])
@@ -60,35 +60,35 @@ struct CodexVersionTests {
 
         let installations = CodexPaths.resolveInstallations(environment: ["PATH": ""], bundledResourceURL: directory.url)
         #expect(installations.bundledPath == legacy.path)
-        #expect(installations.globalPath == nil)
+        #expect(installations.standalonePath == nil)
         try FileManager.default.removeItem(at: legacy)
         let missing = CodexPaths.resolveInstallations(environment: ["PATH": ""], bundledResourceURL: directory.url)
         #expect(missing.bundledPath == nil)
     }
 
-    @Test func globalCLIStillTakesPriorityOverManifestEntrypoint() throws {
+    @Test func standaloneCLIStillTakesPriorityOverManifestEntrypoint() throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         _ = try directory.write(#"{"entrypoint":"bin/codex"}"#, to: "codex-cli/codex-package.json")
         let bundled = try directory.executable("exit 0", named: "codex-cli/bin/codex")
-        let global = try directory.executable("exit 0", named: "global/codex")
+        let standalone = try directory.executable("exit 0", named: "standalone/codex")
 
         let installations = CodexPaths.resolveInstallations(
-            environment: ["PATH": global.deletingLastPathComponent().path],
+            environment: ["PATH": standalone.deletingLastPathComponent().path],
             bundledResourceURL: directory.url
         )
-        #expect(installations.globalPath == global.path)
+        #expect(installations.standalonePath == standalone.path)
         #expect(installations.bundledPath == bundled.path)
     }
 
     @Test(arguments: ["codex-cli/bin/codex", "codex"])
-    func pathSymlinkToBundledCLIIsNotClassifiedAsGlobal(_ target: String) throws {
+    func pathSymlinkToBundledCLIIsNotClassifiedAsStandalone(_ target: String) throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         _ = try directory.write(#"{"entrypoint":"bin/codex"}"#, to: "codex-cli/codex-package.json")
         let bundled = try directory.executable("exit 0", named: "codex-cli/bin/codex")
         _ = try directory.executable("exit 0", named: "codex")
-        let link = directory.url.appendingPathComponent("global/codex")
+        let link = directory.url.appendingPathComponent("standalone/codex")
         try FileManager.default.createDirectory(at: link.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: directory.url.appendingPathComponent(target))
 
@@ -96,7 +96,7 @@ struct CodexVersionTests {
             environment: ["PATH": link.deletingLastPathComponent().path],
             bundledResourceURL: directory.url
         )
-        #expect(installations.globalPath == nil)
+        #expect(installations.standalonePath == nil)
         #expect(installations.bundledPath == bundled.path)
     }
 }

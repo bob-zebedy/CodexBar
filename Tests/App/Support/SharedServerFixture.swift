@@ -11,7 +11,7 @@ final nonisolated class SharedServerFixture: @unchecked Sendable {
     private let lock = NSLock()
     private var failure: (any Error)?
 
-    init(connections: Int = 1, concurrentConnections: Bool = false, handler: @escaping @Sendable (Peer) throws -> Void) throws {
+    init(connections: Int = 1, concurrentConnections: Bool = false, handshakePath: String = "/", handler: @escaping @Sendable (Peer) throws -> Void) throws {
         descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw FixtureError.io }
         var address = sockaddr_un()
@@ -49,7 +49,7 @@ final nonisolated class SharedServerFixture: @unchecked Sendable {
                         defer { Darwin.close(client) }
                         do {
                             let peer = Peer(descriptor: client)
-                            try peer.handshake()
+                            try peer.handshake(path: handshakePath)
                             try handler(peer)
                         } catch {
                             lock.withLock { failure = error }
@@ -86,12 +86,13 @@ final nonisolated class SharedServerFixture: @unchecked Sendable {
     struct Peer {
         let descriptor: Int32
 
-        func handshake() throws {
+        func handshake(path: String) throws {
             var header = Data()
             while !header.suffix(4).elementsEqual([13, 10, 13, 10]), header.count < 16384 {
                 try header.append(read(1))
             }
             let text = try #require(String(data: header, encoding: .utf8))
+            try #require(text.hasPrefix("GET \(path) HTTP/1.1\r\n"))
             let key = try #require(text.components(separatedBy: "\r\n").first { $0.hasPrefix("Sec-WebSocket-Key: ") }?.dropFirst(19))
             let accept = Data(Insecure.SHA1.hash(data: Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8))).base64EncodedString()
             try write(Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n".utf8))

@@ -1,15 +1,16 @@
+import AppKit
 import Darwin
 import Foundation
 
 /// 用于展示已安装版本的来源
 nonisolated enum CodexExecutableSource: String, Equatable {
-    case global
+    case standalone
     case bundled
 
     var displayName: String {
         switch self {
-        case .global: "Codex CLI"
-        case .bundled: "Codex App"
+        case .standalone: "CLI"
+        case .bundled: "App"
         }
     }
 }
@@ -23,17 +24,29 @@ nonisolated struct CodexServerConnectionInfo: Equatable {
 
 /// 一次 PATH 扫描得到的安装结果, 供版本检测使用
 nonisolated struct CodexInstallations: Equatable {
-    let globalPath: String?
+    let standalonePath: String?
     let bundledPath: String?
 }
 
 /// 解析真实用户环境下的 Codex 可执行文件, 避免使用 Xcode/container 的 HOME
 nonisolated enum CodexPaths {
-    static let bundledResourceURL = URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources", isDirectory: true)
+    private static let desktopBundleIdentifier = "com.openai.codex"
     static let environment = resolvedEnvironment()
 
     private struct PackageManifest: Decodable {
         let entrypoint: String
+    }
+
+    static func desktopApplication(
+        registeredURL: URL? = NSWorkspace.shared.urlForApplication(withBundleIdentifier: desktopBundleIdentifier),
+        fallbackURL: URL = URL(fileURLWithPath: "/Applications/ChatGPT.app", isDirectory: true)
+    ) -> Bundle? {
+        for case let url? in [registeredURL, fallbackURL] {
+            guard FileManager.default.fileExists(atPath: url.path),
+                  let bundle = Bundle(url: url), bundle.bundleIdentifier == desktopBundleIdentifier else { continue }
+            return bundle
+        }
+        return nil
     }
 
     /// Codex 配置目录: 优先 CODEX_HOME, 回退真实用户 HOME 下的 .codex
@@ -48,6 +61,17 @@ nonisolated enum CodexPaths {
             .appendingPathComponent(".codex", isDirectory: true)
     }
 
+    static func appServerSocket(in home: URL = codexHomeDirectory()) -> URL {
+        home.appendingPathComponent("app-server-control/app-server-control.sock")
+    }
+
+    /// 在同一目录下重建同名 socket 后, 仍可通过目录的 /.vol 路径连接
+    static func socketDirectoryReference(_ directory: URL) throws -> URL {
+        var info = stat()
+        guard stat(directory.path, &info) == 0 else { throw AppServerConnectionError(code: errno) }
+        return URL(fileURLWithPath: "/.vol/\(info.st_dev)/\(info.st_ino)", isDirectory: true)
+    }
+
     private static func nonEmptyEnvironmentValue(
         _ key: String,
         in environment: [String: String]
@@ -58,11 +82,11 @@ nonisolated enum CodexPaths {
 
     static func resolveInstallations(
         environment: [String: String] = environment,
-        bundledResourceURL: URL = bundledResourceURL
+        bundledResourceURL: URL? = desktopApplication()?.resourceURL
     ) -> CodexInstallations {
         let bundledExecutablePaths = [
-            packageExecutablePath(in: bundledResourceURL),
-            bundledResourceURL.appendingPathComponent("codex").path
+            bundledResourceURL.flatMap(packageExecutablePath(in:)),
+            bundledResourceURL?.appendingPathComponent("codex").path
         ].compactMap(\.self)
         let cliPath = findExecutable(named: "codex", environment: environment)
         let cliIsBundled = cliPath.map { path in
@@ -74,7 +98,7 @@ nonisolated enum CodexPaths {
         } ?? (cliIsBundled ? cliPath : nil)
 
         return CodexInstallations(
-            globalPath: cliIsBundled ? nil : cliPath,
+            standalonePath: cliIsBundled ? nil : cliPath,
             bundledPath: bundledPath
         )
     }

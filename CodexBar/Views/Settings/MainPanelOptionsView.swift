@@ -3,7 +3,7 @@ import SwiftUI
 
 /// 通用设置页中的面板布局入口, 自己持有定位锚点
 struct MainPanelLayoutSettingsRow: View {
-    let onOptionsTap: (ScreenFrameProvider) -> Void
+    let onOptionsAction: (SettingsOptionsPanelAction) -> Void
     @State private var anchorProvider = ScreenFrameProvider()
 
     var body: some View {
@@ -17,9 +17,12 @@ struct MainPanelLayoutSettingsRow: View {
 
             Spacer()
 
-            SettingsOptionsButton {
-                onOptionsTap(anchorProvider)
-            }
+            SettingsOptionsButton(
+                panel: .mainPanel,
+                isAvailable: true,
+                anchorProvider: anchorProvider,
+                onOptionsAction: onOptionsAction
+            )
         }
         .background {
             ScreenFrameReader(provider: anchorProvider)

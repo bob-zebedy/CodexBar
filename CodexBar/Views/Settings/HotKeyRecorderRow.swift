@@ -8,7 +8,7 @@ struct HotKeyRecorderRow: View {
     @State private var isRecording = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        SettingsRowWithCaption(settings.errorMessage) {
             HStack(spacing: SettingsRowMetrics.spacing) {
                 Image(systemName: "keyboard")
                     .frame(width: SettingsRowMetrics.iconWidth)
@@ -59,10 +59,8 @@ struct HotKeyRecorderRow: View {
                     stopRecording()
                 }
             }
-
-            if let message = settings.errorMessage {
-                SettingsCaptionMessageRow(message: message)
-            }
+        } caption: { message, _ in
+            SettingsCaptionMessageRow(message: message)
         }
         .onDisappear {
             resetTransientState()

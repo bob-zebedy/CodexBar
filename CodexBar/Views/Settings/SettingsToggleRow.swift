@@ -17,16 +17,15 @@ enum SettingsRowMetrics {
 
 /// 设置窗口子面板入口共用的滑杆按钮
 struct SettingsOptionsButton: View {
+    let panel: SettingsOptionsPanel
     let isAvailable: Bool
-    let action: () -> Void
-
-    init(isAvailable: Bool = true, action: @escaping () -> Void) {
-        self.isAvailable = isAvailable
-        self.action = action
-    }
+    let anchorProvider: ScreenFrameProvider
+    let onOptionsAction: (SettingsOptionsPanelAction) -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            onOptionsAction(.toggle(panel: panel, anchorProvider: anchorProvider))
+        } label: {
             Image(systemName: "slider.horizontal.3")
         }
         .buttonStyle(.plain)
@@ -36,9 +35,13 @@ struct SettingsOptionsButton: View {
             width: SettingsRowMetrics.optionsButtonSize,
             height: SettingsRowMetrics.optionsButtonSize
         )
-        .opacity(isAvailable ? 1 : 0)
-        .disabled(!isAvailable)
+        .settingsControlVisibility(isAvailable)
         .animation(.codexStatus, value: isAvailable)
+        .onChange(of: isAvailable) { _, available in
+            if !available {
+                onOptionsAction(.close(panel: panel))
+            }
+        }
     }
 }
 

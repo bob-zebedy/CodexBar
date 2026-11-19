@@ -15,17 +15,15 @@ struct MenuBarIndicatorSettingsRow: View {
                 set: { settings.setEnabled($0) }
             )
         ) {
-            SettingsOptionsButton(isAvailable: settings.configuration.isEnabled) {
-                onOptionsAction(.toggle(panel: .menuBarIndicator, anchorProvider: anchorProvider))
-            }
+            SettingsOptionsButton(
+                panel: .menuBarIndicator,
+                isAvailable: settings.configuration.isEnabled,
+                anchorProvider: anchorProvider,
+                onOptionsAction: onOptionsAction
+            )
         }
         .background {
             ScreenFrameReader(provider: anchorProvider)
-        }
-        .onChange(of: settings.configuration.isEnabled) { _, isEnabled in
-            if !isEnabled {
-                onOptionsAction(.close(panel: .menuBarIndicator))
-            }
         }
     }
 }

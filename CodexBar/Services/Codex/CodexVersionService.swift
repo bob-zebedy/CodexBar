@@ -3,43 +3,41 @@ import os
 
 /// 设置页版本区域的完整快照
 nonisolated struct CodexVersionSnapshot: Equatable {
-    let global: CodexVersionItem
-    let bundled: CodexVersionItem
+    let installedItems: [CodexVersionItem]
     let refreshedAt: Date
 
     /// 让首次 refresh 不受节流限制
-    static let empty = CodexVersionSnapshot(
-        global: CodexVersionItem(source: .global),
-        bundled: CodexVersionItem(source: .bundled),
-        refreshedAt: .distantPast
-    )
+    static let empty = CodexVersionSnapshot(installedItems: [], refreshedAt: .distantPast)
 }
 
 /// 单个安装源的磁盘检测结果
 nonisolated struct CodexVersionItem: Equatable, Identifiable {
     let source: CodexExecutableSource
-    let path: String?
-    let version: String?
-    let errorMessage: String?
+    let path: String
+    let result: Result<String, ProbeFailure>
 
     var id: CodexExecutableSource {
         source
     }
 
-    init(
-        source: CodexExecutableSource,
-        path: String? = nil,
-        version: String? = nil,
-        errorMessage: String? = nil
-    ) {
-        self.source = source
-        self.path = path
-        self.version = version
-        self.errorMessage = errorMessage
-    }
+    nonisolated enum ProbeFailure: Error, Equatable {
+        case launch
+        case timeout
+        case read
+        case parse
 
-    var displayVersion: String {
-        version ?? errorMessage ?? String(localized: "codex.version.unknown")
+        var message: String {
+            switch self {
+            case .launch:
+                String(localized: "codex.version.launch-failed")
+            case .timeout:
+                String(localized: "codex.version.read-timeout")
+            case .read:
+                String(localized: "codex.version.read-failed")
+            case .parse:
+                String(localized: "codex.version.parse-failed")
+            }
+        }
     }
 }
 
@@ -62,9 +60,9 @@ actor CodexVersionService {
         let installations = installations ?? CodexPaths.resolveInstallations(environment: environment)
 
         // 两个安装源互不依赖, 并发检测避免两个超时串行叠加
-        async let global = probeVersion(
-            source: .global,
-            path: installations.globalPath,
+        async let standalone = probeVersion(
+            source: .standalone,
+            path: installations.standalonePath,
             environment: environment
         )
         async let bundled = probeVersion(
@@ -72,11 +70,10 @@ actor CodexVersionService {
             path: installations.bundledPath,
             environment: environment
         )
-        let (globalItem, bundledItem) = await (global, bundled)
+        let (standaloneItem, bundledItem) = await (standalone, bundled)
 
         return CodexVersionSnapshot(
-            global: globalItem,
-            bundled: bundledItem,
+            installedItems: [standaloneItem, bundledItem].compactMap(\.self),
             refreshedAt: Date()
         )
     }
@@ -85,12 +82,21 @@ actor CodexVersionService {
         source: CodexExecutableSource,
         path: String?,
         environment: [String: String]
-    ) async -> CodexVersionItem {
-        guard let path else { return CodexVersionItem(source: source) }
+    ) async -> CodexVersionItem? {
+        guard let path else { return nil }
+        let result = await readVersion(source: source, path: path, environment: environment)
+        return CodexVersionItem(source: source, path: path, result: result)
+    }
+
+    private func readVersion(
+        source: CodexExecutableSource,
+        path: String,
+        environment: [String: String]
+    ) async -> Result<String, CodexVersionItem.ProbeFailure> {
         // await 会让出 actor, 同一安装源的旧命令退出前不能再次启动
         guard !activeSources.contains(source), unfinishedProcesses[source]?.isRunning != true else {
             Self.logVersionDetectionFailure(source: source, stage: "busy")
-            return Self.failedVersionItem(source: source, path: path, failure: .read)
+            return .failure(.read)
         }
         unfinishedProcesses[source] = nil
         activeSources.insert(source)
@@ -107,32 +113,32 @@ actor CodexVersionService {
         case .exited:
             guard result.exitCode == 0 else {
                 Self.logVersionDetectionFailure(source: source, stage: "exit", exitCode: result.exitCode)
-                return Self.failedVersionItem(source: source, path: path, failure: .read)
+                return .failure(.read)
             }
         case let .launchFailed(detail):
             Self.logVersionDetectionFailure(source: source, stage: "launch", detail: detail)
-            return Self.failedVersionItem(source: source, path: path, failure: .launch)
+            return .failure(.launch)
         case .timedOut:
             Self.logVersionDetectionFailure(source: source, stage: "timeout")
-            return Self.failedVersionItem(source: source, path: path, failure: .timeout)
+            return .failure(.timeout)
         case .cancelled:
             // 刷新协调器会丢弃取消结果, 不将主动取消记录为超时
-            return Self.failedVersionItem(source: source, path: path, failure: .timeout)
+            return .failure(.timeout)
         case .ioFailed, .invalidConfiguration:
             Self.logVersionDetectionFailure(source: source, stage: "read")
-            return Self.failedVersionItem(source: source, path: path, failure: .read)
+            return .failure(.read)
         }
 
         let output = String(data: result.standardOutput.data, encoding: .utf8) ?? ""
         let errorOutput = String(data: result.standardError.data, encoding: .utf8) ?? ""
         guard let version = Self.firstLine(in: output) ?? Self.firstLine(in: errorOutput) else {
             Self.logVersionDetectionFailure(source: source, stage: "parse")
-            return Self.failedVersionItem(source: source, path: path, failure: .parse)
+            return .failure(.parse)
         }
 
         let displayVersion = CodexVersionReader.displayVersion(from: version)
         Self.logVersionDetectionCompleted(source: source, version: displayVersion)
-        return CodexVersionItem(source: source, path: path, version: displayVersion)
+        return .success(displayVersion)
     }
 
     private static func logVersionDetectionFailure(
@@ -166,39 +172,11 @@ actor CodexVersionService {
         AppLog.codex.notice("版本检测完成: \(details, privacy: .public)")
     }
 
-    private static func failedVersionItem(
-        source: CodexExecutableSource,
-        path: String,
-        failure: VersionProbeFailure
-    ) -> CodexVersionItem {
-        CodexVersionItem(source: source, path: path, errorMessage: failure.message)
-    }
-
     private static func firstLine(in text: String) -> String? {
         text
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
-    }
-
-    private enum VersionProbeFailure {
-        case launch
-        case timeout
-        case read
-        case parse
-
-        var message: String {
-            switch self {
-            case .launch:
-                String(localized: "codex.version.launch-failed")
-            case .timeout:
-                String(localized: "codex.version.read-timeout")
-            case .read:
-                String(localized: "codex.version.read-failed")
-            case .parse:
-                String(localized: "codex.version.parse-failed")
-            }
-        }
     }
 }
 

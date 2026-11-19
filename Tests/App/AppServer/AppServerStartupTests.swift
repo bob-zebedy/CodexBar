@@ -10,10 +10,41 @@ struct AppServerStartupTests {
         defer { server.close() }
         let startup = AppServerStartup(
             socketURL: server.url, environment: [:],
-            installations: CodexInstallations(globalPath: nil, bundledPath: nil)
+            installations: CodexInstallations(standalonePath: nil, bundledPath: nil)
         )
         try await startup.ensureStarted()
         try server.finish()
+    }
+
+    @Test(arguments: [false, true])
+    func relocatedDesktopProvidesCLIForVersionAndStartup(usesFallback: Bool) async throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let name = "Applications/Renamed Desktop.app"
+        let app = directory.url.appendingPathComponent(name, isDirectory: true)
+        let missing = directory.url.appendingPathComponent("missing.app")
+        let info = try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "com.openai.codex"], format: .xml, options: 0)
+        _ = try directory.write(info, to: "\(name)/Contents/Info.plist")
+        let executable = try Self.executable(in: directory, """
+        if [ "$4" = '--help' ]; then printf 'daemon start'; exit 0; fi
+        [ "$*" = 'app-server daemon start' ] || exit 1
+        printf ready > "$HOME/ready"
+        """, named: "\(name)/Contents/Resources/codex")
+
+        let bundle = try #require(CodexPaths.desktopApplication(registeredURL: usesFallback ? missing : app, fallbackURL: usesFallback ? app : missing))
+        #expect(bundle.bundleURL.path == app.path)
+        let environment = ["PATH": "", "HOME": directory.url.path]
+        let installations = CodexPaths.resolveInstallations(environment: environment, bundledResourceURL: bundle.resourceURL)
+        try #require(installations == .init(standalonePath: nil, bundledPath: executable.path))
+        let versions = await CodexVersionService(environment: environment, installations: installations).fetchSnapshot()
+        #expect(versions.installedItems.first?.result == .success("0.162.0"))
+
+        let ready = directory.url.appendingPathComponent("ready")
+        let startup = AppServerStartup(environment: environment, installations: installations, probeConnection: {
+            guard FileManager.default.fileExists(atPath: ready.path) else { throw AppServerConnectionError(code: ENOENT) }
+        })
+        try await startup.ensureStarted()
+        #expect(FileManager.default.fileExists(atPath: ready.path))
     }
 
     @Test func startsMissingServiceWithResolvedEnvironmentAndBundledFallback() async throws {
@@ -25,6 +56,8 @@ struct AppServerStartupTests {
         if [ "$4" = '--help' ]; then
             printf 'Usage: codex app-server daemon start [OPTIONS]'
         elif [ "$*" = 'app-server daemon start' ]; then
+            /bin/mkdir -p "$CODEX_HOME/app-server-control" || exit 5
+            /bin/ln -s "$TEST_SERVER_SOCKET" "$CODEX_HOME/app-server-control/app-server-control.sock" || exit 6
             printf '%s' "$CODEX_HOME" > "$HOME/started"
         else
             exit 4
@@ -33,32 +66,34 @@ struct AppServerStartupTests {
         let server = try SharedServerFixture { _ in }
         defer { server.close() }
         let marker = directory.url.appendingPathComponent("started")
-        let environment = ["HOME": directory.url.path, "CODEX_HOME": directory.url.appendingPathComponent("custom codex").path]
+        let home = directory.url.appendingPathComponent("custom codex " + String(repeating: "x", count: 100), isDirectory: true)
+        let socket = CodexPaths.appServerSocket(in: home)
+        try #require(socket.path.utf8.count >= MemoryLayout.size(ofValue: sockaddr_un().sun_path))
+        let environment = ["HOME": directory.url.path, "CODEX_HOME": home.path, "TEST_SERVER_SOCKET": server.url.path]
         let startup = AppServerStartup(
-            environment: environment,
-            installations: CodexInstallations(globalPath: unsupported.path, bundledPath: supported.path),
-            probeConnection: {
-                guard FileManager.default.fileExists(atPath: marker.path) else {
-                    throw AppServerConnectionError(code: ENOENT)
-                }
-                let connection = try AppServerSession(socketURL: server.url, logStorage: nil)
-                connection.close()
-            }
+            socketURL: socket, environment: environment,
+            installations: CodexInstallations(standalonePath: unsupported.path, bundledPath: supported.path)
         )
         try await startup.ensureStarted()
+        try server.finish()
+        let replacement = try SharedServerFixture { _ in }
+        defer { replacement.close() }
+        try FileManager.default.removeItem(at: socket)
+        try FileManager.default.createSymbolicLink(at: socket, withDestinationURL: replacement.url)
+        try await startup.ensureStarted()
+        try replacement.finish()
         #expect(try String(contentsOf: marker, encoding: .utf8) == environment["CODEX_HOME"])
         #expect(try String(contentsOf: directory.url.appendingPathComponent("calls"), encoding: .utf8) == """
         app-server daemon start --help
         app-server daemon start
 
         """)
-        try server.finish()
     }
 
     @Test(arguments: [EACCES, EPERM, ENOTSOCK])
     func doesNotStartServiceForOtherConnectionErrors(_ code: Int32) async throws {
         let startup = AppServerStartup(
-            environment: [:], installations: CodexInstallations(globalPath: nil, bundledPath: nil),
+            environment: [:], installations: CodexInstallations(standalonePath: nil, bundledPath: nil),
             probeConnection: { throw AppServerConnectionError(code: code) }
         )
         do {
@@ -71,7 +106,7 @@ struct AppServerStartupTests {
 
     @Test func doesNotStartServiceForHandshakeFailure() async throws {
         let startup = AppServerStartup(
-            environment: [:], installations: CodexInstallations(globalPath: nil, bundledPath: nil),
+            environment: [:], installations: CodexInstallations(standalonePath: nil, bundledPath: nil),
             probeConnection: { throw AppServerError.invalidServerResponse }
         )
         await #expect(throws: AppServerError.self) { try await startup.ensureStarted() }
@@ -83,7 +118,7 @@ struct AppServerStartupTests {
         let unsupported = try Self.executable(in: directory, "exit 2", named: "fake codex")
         for path in [nil, unsupported.path] {
             let startup = AppServerStartup(
-                environment: [:], installations: CodexInstallations(globalPath: path, bundledPath: nil),
+                environment: [:], installations: CodexInstallations(standalonePath: path, bundledPath: nil),
                 probeConnection: { throw AppServerConnectionError(code: ECONNREFUSED) }
             )
             do {
@@ -113,7 +148,7 @@ struct AppServerStartupTests {
         """, named: "fake codex")
         let startup = AppServerStartup(
             environment: ["HOME": directory.url.path],
-            installations: CodexInstallations(globalPath: command.path, bundledPath: nil),
+            installations: CodexInstallations(standalonePath: command.path, bundledPath: nil),
             commandTimeout: 0.3, readinessAttempts: 2,
             probeConnection: { throw AppServerConnectionError(code: ECONNREFUSED) }
         )
@@ -146,7 +181,7 @@ struct AppServerStartupTests {
         let probes = OSAllocatedUnfairLock(initialState: 0)
         let startup = AppServerStartup(
             environment: ["HOME": directory.url.path],
-            installations: CodexInstallations(globalPath: command.path, bundledPath: nil),
+            installations: CodexInstallations(standalonePath: command.path, bundledPath: nil),
             probeConnection: {
                 let count = probes.withLock { $0 += 1
                     return $0
@@ -172,7 +207,7 @@ struct AppServerStartupTests {
         let marker = directory.url.appendingPathComponent("started")
         let startup = AppServerStartup(
             environment: ["PROCESS_TEST_DIR": directory.url.path],
-            installations: .init(globalPath: command.path, bundledPath: nil),
+            installations: .init(standalonePath: command.path, bundledPath: nil),
             probeConnection: {
                 if !FileManager.default.fileExists(atPath: marker.path) {
                     throw AppServerConnectionError(code: ENOENT)
@@ -202,7 +237,7 @@ struct AppServerStartupTests {
         let marker = directory.url.appendingPathComponent("started")
         let startup = AppServerStartup(
             environment: ["PROCESS_TEST_DIR": directory.url.path, "PROCESS_TEST_STAGE": stage],
-            installations: .init(globalPath: command.path, bundledPath: nil),
+            installations: .init(standalonePath: command.path, bundledPath: nil),
             probeConnection: {
                 if !FileManager.default.fileExists(atPath: marker.path) {
                     throw AppServerConnectionError(code: ENOENT)
@@ -252,7 +287,7 @@ struct AppServerStartupTests {
         let ready = directory.url.appendingPathComponent("ready")
         let startup = AppServerStartup(
             environment: ["PROCESS_TEST_DIR": directory.url.path],
-            installations: .init(globalPath: cliVersion == "absent" ? nil : cli.path, bundledPath: bundled.path),
+            installations: .init(standalonePath: cliVersion == "absent" ? nil : cli.path, bundledPath: bundled.path),
             probeConnection: {
                 guard FileManager.default.fileExists(atPath: ready.path) else { throw AppServerConnectionError(code: ENOENT) }
             }
@@ -270,7 +305,7 @@ struct AppServerStartupTests {
         printf unexpected > "$PROCESS_TEST_DIR/called"
         """)
         let startup = AppServerStartup(
-            environment: ["PROCESS_TEST_DIR": directory.url.path], installations: .init(globalPath: command.path, bundledPath: command.path),
+            environment: ["PROCESS_TEST_DIR": directory.url.path], installations: .init(standalonePath: command.path, bundledPath: command.path),
             probeConnection: { throw AppServerConnectionError(code: ECONNREFUSED) }
         )
         do {
@@ -293,7 +328,7 @@ struct AppServerStartupTests {
         exit 7
         """)
         let startup = AppServerStartup(
-            environment: ["PROCESS_TEST_DIR": directory.url.path], installations: .init(globalPath: command.path, bundledPath: nil),
+            environment: ["PROCESS_TEST_DIR": directory.url.path], installations: .init(standalonePath: command.path, bundledPath: nil),
             probeConnection: {
                 if !ready.withLock({ $0 }) {
                     throw AppServerConnectionError(code: ENOENT)
@@ -343,7 +378,7 @@ struct AppServerStartupTests {
         """)
         let ready = directory.url.appendingPathComponent("ready")
         let startup = AppServerStartup(
-            environment: ["PROCESS_TEST_DIR": directory.url.path], installations: .init(globalPath: command.path, bundledPath: nil),
+            environment: ["PROCESS_TEST_DIR": directory.url.path], installations: .init(standalonePath: command.path, bundledPath: nil),
             probeConnection: {
                 if !FileManager.default.fileExists(atPath: ready.path) {
                     throw AppServerConnectionError(code: ENOENT)
@@ -379,7 +414,7 @@ struct AppServerStartupTests {
         }
         defer { server.close() }
         let startup = AppServerStartup(
-            environment: [:], installations: .init(globalPath: nil, bundledPath: nil),
+            environment: [:], installations: .init(standalonePath: nil, bundledPath: nil),
             probeConnection: {
                 if !ready.withLock({ $0 }) {
                     throw AppServerConnectionError(code: ENOENT)
@@ -424,7 +459,7 @@ struct AppServerStartupTests {
         """)
         let ready = directory.url.appendingPathComponent("ready")
         let startup = AppServerStartup(
-            environment: ["PROCESS_TEST_DIR": directory.url.path], installations: .init(globalPath: command.path, bundledPath: nil),
+            environment: ["PROCESS_TEST_DIR": directory.url.path], installations: .init(standalonePath: command.path, bundledPath: nil),
             probeConnection: {
                 if !FileManager.default.fileExists(atPath: ready.path) {
                     throw AppServerConnectionError(code: ENOENT)
@@ -468,7 +503,7 @@ struct AppServerStartupTests {
             try peer.reply(to: initialize, result: ["userAgent": "codex/0.161.0"])
         }
         defer { server.close() }
-        let startup = AppServerStartup(environment: [:], installations: .init(globalPath: nil, bundledPath: nil), probeConnection: {})
+        let startup = AppServerStartup(environment: [:], installations: .init(standalonePath: nil, bundledPath: nil), probeConnection: {})
         let service = CodexStatusService(socketURL: server.url, logStorage: nil, startup: startup)
         if manual {
             do {

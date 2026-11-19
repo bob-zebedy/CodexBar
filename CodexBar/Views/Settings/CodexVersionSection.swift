@@ -4,39 +4,77 @@ import SwiftUI
 /// 分别展示安装版本和 Codex 后台服务运行版本, 只重连当前客户端
 struct CodexVersionSection: View {
     @EnvironmentObject private var animationState: SettingsWindowAnimationState
+    @Environment(\.contentAnimationsEnabled) private var allowsAnimations
     let snapshot: CodexVersionSnapshot
     let connectionInfo: CodexServerConnectionInfo?
     let isReconnecting: Bool
     let isBusy: Bool
     let onReconnect: () -> Void
+    @State private var isExpanded = false
     @State private var copiedPathResetTasks: [String: Task<Void, Never>] = [:]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: "number.circle")
-                    .frame(width: Metrics.iconWidth)
-                    .foregroundStyle(.tint)
+                HStack(spacing: 10) {
+                    Image(systemName: "number.circle")
+                        .frame(width: Metrics.iconWidth)
+                        .foregroundStyle(.tint)
 
-                Text("settings.codex.version.title")
+                    Text("settings.codex.version.title")
+                }
+                .contentShape(Rectangle())
+                .onTapGesture(perform: toggleDetails)
 
                 reconnectButton
 
-                Spacer()
-            }
+                Button(action: toggleDetails) {
+                    HStack(spacing: Metrics.controlSpacing) {
+                        Spacer(minLength: 0)
 
-            VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
-                daemonRow
+                        if !isExpanded {
+                            if let connectionInfo {
+                                Text("settings.codex.daemon.title")
+                                Text(connectionInfo.version)
+                                    .monospacedDigit()
+                            } else {
+                                Text("settings.codex.daemon.disconnected")
+                            }
+                        }
 
-                ForEach(displayedItems) { item in
-                    codexVersionRow(icon: item.source == .global ? "terminal" : "app.badge", item: item)
+                        Image(systemName: "chevron.right")
+                            .imageScale(.small)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
+                    .foregroundStyle(.secondary)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
-            .padding(.leading, Metrics.childIndent)
+
+            SettingsDrawerLayout(progress: isExpanded ? 1 : 0) {
+                VStack(alignment: .leading, spacing: Metrics.rowSpacing) {
+                    daemonRow
+
+                    ForEach(snapshot.installedItems) { item in
+                        codexVersionRow(icon: item.source == .standalone ? "terminal" : "app.badge", item: item)
+                    }
+                }
+                .padding(.leading, Metrics.childIndent)
+                .padding(.top, Metrics.rowSpacing)
+            }
+            .clipped()
+            .allowsHitTesting(isExpanded)
         }
         .font(SettingsRowMetrics.bodyFont)
         .onDisappear {
             copiedPathResetTasks.values.forEach { $0.cancel() }
+        }
+    }
+
+    private func toggleDetails() {
+        withAnimation(allowsAnimations ? SettingsOptionsPanelMetrics.contentAnimation : nil) {
+            isExpanded.toggle()
         }
     }
 
@@ -76,10 +114,6 @@ struct CodexVersionSection: View {
         .help(label)
     }
 
-    private var displayedItems: [CodexVersionItem] {
-        [snapshot.global, snapshot.bundled].filter { $0.path != nil }
-    }
-
     private var daemonRow: some View {
         VStack(alignment: .trailing, spacing: 3) {
             HStack(alignment: .top, spacing: Metrics.controlSpacing) {
@@ -111,15 +145,16 @@ struct CodexVersionSection: View {
             }
 
             if let info = connectionInfo {
-                CopyablePathText(path: info.socketPath, isCopied: copiedPathResetTasks["shared"] != nil)
-                    .padding(.leading, Metrics.iconWidth + Metrics.controlSpacing)
-                    .onTapGesture { copyPathToPasteboard(info.socketPath, key: "shared") }
+                copyablePath(info.socketPath, key: "shared")
             }
         }
     }
 
     private func codexVersionRow(icon: String, item: CodexVersionItem) -> some View {
-        let hasVersion = item.version != nil
+        let (text, hasVersion) = switch item.result {
+        case let .success(version): (version, true)
+        case let .failure(error): (error.message, false)
+        }
 
         return VStack(alignment: .trailing, spacing: 3) {
             HStack(alignment: .top, spacing: Metrics.controlSpacing) {
@@ -132,23 +167,22 @@ struct CodexVersionSection: View {
 
                 Spacer(minLength: 28)
 
-                Text(item.displayVersion)
+                Text(text)
                     .font(hasVersion ? SettingsRowMetrics.bodyFont.monospacedDigit() : SettingsRowMetrics.bodyFont)
                     .foregroundStyle(Color(nsColor: hasVersion ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor))
                     .lineLimit(1)
-                    .numericTransition(value: item.displayVersion)
+                    .numericTransition(value: text)
             }
 
-            if let path = item.path {
-                CopyablePathText(path: path, isCopied: copiedPathResetTasks[item.source.rawValue] != nil)
-                    .padding(.leading, Metrics.iconWidth + Metrics.controlSpacing)
-                    .onTapGesture {
-                        copyPathToPasteboard(path, key: item.source.rawValue)
-                    }
-                    .transition(.opacity)
-            }
+            copyablePath(item.path, key: item.source.rawValue)
         }
         .animation(Metrics.statusAnimation, value: item.path)
+    }
+
+    private func copyablePath(_ path: String, key: String) -> some View {
+        CopyablePathText(path: path, isCopied: copiedPathResetTasks[key] != nil)
+            .padding(.leading, Metrics.iconWidth + Metrics.controlSpacing)
+            .onTapGesture { copyPathToPasteboard(path, key: key) }
     }
 
     private func copyPathToPasteboard(_ path: String, key: String) {
