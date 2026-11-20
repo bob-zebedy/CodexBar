@@ -20,6 +20,8 @@ nonisolated struct CodexAccount: Decodable, Equatable {
             return "ChatGPT"
         case "amazonBedrock":
             return "Amazon Bedrock"
+        case "gcp":
+            return "Google Cloud"
         default:
             return type
         }
