@@ -26,10 +26,6 @@ nonisolated struct CodexQuotaSnapshot: Equatable {
     let isRateLimitsStale: Bool
     let isUsageStale: Bool
 
-    var accountLabel: String {
-        account.displayName
-    }
-
     var planLabel: String? {
         account.planType ?? planType
     }

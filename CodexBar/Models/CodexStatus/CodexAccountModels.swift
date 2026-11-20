@@ -1,14 +1,28 @@
+import Foundation
+
 /// app-server account/read 的账号信息, 只保留菜单面板需要展示的字段
 nonisolated struct CodexAccount: Decodable, Equatable {
     let type: String
     let email: String?
     let planType: String?
+    var workspaceName: String?
 
-    var hasEmail: Bool {
-        email?.isEmpty == false
+    private var workspaceLabel: String? {
+        guard type == "chatgpt", let name = workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else { return nil }
+        return name
+    }
+
+    var hasEmailOrWorkspaceName: Bool {
+        email?.isEmpty == false || workspaceLabel != nil
     }
 
     var displayName: String {
+        guard let workspaceLabel else { return baseDisplayName }
+        return "\(baseDisplayName)(\(workspaceLabel))"
+    }
+
+    var baseDisplayName: String {
         if let email, !email.isEmpty {
             return email
         }
@@ -23,6 +37,11 @@ nonisolated struct CodexAccount: Decodable, Equatable {
         default:
             return type
         }
+    }
+
+    func hasSameQuotaContext(as other: Self?) -> Bool {
+        guard let other else { return false }
+        return type == other.type && email == other.email && planType == other.planType
     }
 }
 

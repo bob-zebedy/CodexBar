@@ -3,6 +3,35 @@ import Foundation
 import Testing
 
 struct CodexQuotaAndIdentityTests {
+    @Test func workspaceNameAppearsInAccountLabelWhenAvailable() throws {
+        let cases = [
+            ("", "user@example.test"),
+            (#","workspaceName":null"#, "user@example.test"),
+            (#","workspaceName":"""#, "user@example.test"),
+            (#","workspaceName":"  ""#, "user@example.test"),
+            (#","workspaceName":" 研发团队 ""#, "user@example.test(研发团队)")
+        ]
+        for (field, label) in cases {
+            let response = try TestFixtures.decode(AccountReadResponse.self, """
+            {"account":{"type":"chatgpt","email":"user@example.test"\(field)}}
+            """)
+            let account = try #require(response.account)
+            #expect(account.displayName == label)
+            #expect(account.hasEmailOrWorkspaceName)
+        }
+    }
+
+    @Test func workspaceLabelCanBeBlurredWithoutAnEmailAndDoesNotChangeQuotaContext() {
+        let original = CodexAccount(type: "chatgpt", email: nil, planType: "plus")
+        var updated = original
+        updated.workspaceName = "Team"
+        #expect(original.displayName == "ChatGPT")
+        #expect(!original.hasEmailOrWorkspaceName)
+        #expect(updated.displayName == "ChatGPT(Team)")
+        #expect(updated.hasEmailOrWorkspaceName)
+        #expect(updated.hasSameQuotaContext(as: original))
+    }
+
     @MainActor
     @Test func ordinaryUsagePermissionReachesStatusIconWithoutInferringFromQuota() throws {
         let presentation = StatusItemIconPresentation()
