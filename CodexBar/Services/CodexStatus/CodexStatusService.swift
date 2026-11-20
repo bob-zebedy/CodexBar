@@ -68,13 +68,12 @@ private nonisolated struct SupplementalDataCache {
     var rateLimits: AccountRateLimitsResponse?
     var usage: AccountUsageResponse?
 
-    /// 返回缓存是否因账户变化而被丢弃, 调用方直接据此记录日志
-    @discardableResult
-    mutating func useAccount(_ account: CodexAccount) -> Bool {
-        guard self.account != account else { return false }
-        let hadCachedAccount = self.account != nil
+    mutating func useAccount(_ account: CodexAccount) {
+        guard !account.hasSameQuotaContext(as: self.account) else { return }
+        if self.account != nil {
+            AppLog.app.notice("额度缓存已丢弃: reason=accountChanged")
+        }
         self = Self(account: account)
-        return hadCachedAccount
     }
 }
 
@@ -329,9 +328,7 @@ actor CodexStatusService {
         }
 
         connection.accountResponse = accountResponse
-        if supplementalDataCache.useAccount(account) {
-            AppLog.app.notice("额度缓存已丢弃: reason=accountChanged")
-        }
+        supplementalDataCache.useAccount(account)
 
         let rateLimitsResponse = try connection.session.perform(AccountRequests.rateLimits)
         supplementalDataCache.rateLimits = rateLimitsResponse
@@ -367,12 +364,12 @@ actor CodexStatusService {
 
         func readSupplemental<Value: Decodable>(
             _ request: AppServerRequest<Value>,
+            for account: CodexAccount,
             cache: inout Value?
         ) throws -> CachedSupplementalRead<Value> {
-            let account = connection.accountResponse.account
             // 缓存回退只包住接口读取, 认证刷新失败必须继续上抛
-            return try readWithAuthRefresh {
-                guard connection.accountResponse.account == account else { throw SupplementalReadError.accountChanged }
+            try readWithAuthRefresh {
+                guard account.hasSameQuotaContext(as: connection.accountResponse.account) else { throw SupplementalReadError.accountChanged }
                 do {
                     let value = try Self.read(request, using: connection)
                     cache = value
@@ -406,17 +403,14 @@ actor CodexStatusService {
         }
 
         func readSnapshot() throws -> CodexQuotaSnapshot {
-            let accountResponse = connection.accountResponse
-            guard let account = accountResponse.account else { throw AppServerError.notLoggedIn }
+            guard let account = connection.accountResponse.account else { throw AppServerError.notLoggedIn }
             trace.failureStage = .snapshot
-            if supplementalDataCache.useAccount(account) {
-                AppLog.app.notice("额度缓存已丢弃: reason=accountChanged")
-            }
+            supplementalDataCache.useAccount(account)
 
-            let rateLimitsRead = try readSupplemental(AccountRequests.rateLimits, cache: &supplementalDataCache.rateLimits)
+            let rateLimitsRead = try readSupplemental(AccountRequests.rateLimits, for: account, cache: &supplementalDataCache.rateLimits)
             trace.rateLimits = rateLimitsRead.step
 
-            let usageRead = try readSupplemental(AccountRequests.usage, cache: &supplementalDataCache.usage)
+            let usageRead = try readSupplemental(AccountRequests.usage, for: account, cache: &supplementalDataCache.usage)
             trace.usage = usageRead.step
 
             trace.resetCredits = Self.resetCreditsStepResult(
@@ -427,7 +421,7 @@ actor CodexStatusService {
             // rateLimits/usage 都可为空, 只要账户有效就让 UI 展示"暂无数据"
 
             let snapshot = try CodexQuotaSnapshot(
-                accountResponse: accountResponse,
+                accountResponse: connection.accountResponse,
                 rateLimitsResponse: rateLimitsRead.value,
                 usageResponse: usageRead.value,
                 isRateLimitsStale: rateLimitsRead.isStale,

@@ -18,15 +18,14 @@ enum MenuMetrics {
     static let contentEntranceDuration: TimeInterval = 0.65
 }
 
-/// 已登录状态的账号行, 邮箱可双击模糊, 图标可双击刷新
+/// 已登录状态的账号行, 邮箱和工作区可双击模糊, 图标可双击刷新
 struct AccountCard: View {
-    let title: String
-    let isEmail: Bool
+    let account: CodexAccount
     let plan: String?
     let isRefreshing: Bool
     let onRefresh: () -> Void
     @Environment(\.colorScheme) private var colorScheme
-    @State private var isEmailBlurred = false
+    @State private var isDisplayNameBlurred = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -36,15 +35,16 @@ struct AccountCard: View {
                 .frame(width: MenuMetrics.accountIconSize, height: MenuMetrics.accountIconSize)
                 .onTapGesture(count: 2, perform: onRefresh)
 
-            Text(title)
+            Text(account.displayName)
                 .font(MenuMetrics.titleFont)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .blur(radius: isEmail && isEmailBlurred ? 3 : 0)
-                .animation(.snappy(duration: 0.20), value: isEmailBlurred)
+                .blur(radius: account.hasEmailOrWorkspaceName && isDisplayNameBlurred ? 3 : 0)
+                .animation(.snappy(duration: 0.20), value: isDisplayNameBlurred)
+                .contentShape(Rectangle())
                 .onTapGesture(count: 2) {
-                    guard isEmail else { return }
-                    isEmailBlurred.toggle()
+                    guard account.hasEmailOrWorkspaceName else { return }
+                    isDisplayNameBlurred.toggle()
                 }
 
             if isRefreshing {
@@ -67,8 +67,8 @@ struct AccountCard: View {
         .padding(.horizontal, MenuMetrics.panelPadding)
         .padding(.vertical, 8)
         .liquidGlassSurface(cornerRadius: MenuMetrics.panelCornerRadius)
-        .onChange(of: title) { _, _ in
-            isEmailBlurred = false
+        .onChange(of: account.baseDisplayName) { _, _ in
+            isDisplayNameBlurred = false
         }
     }
 

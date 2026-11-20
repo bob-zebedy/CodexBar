@@ -175,8 +175,7 @@ private extension CodexStatusMenuView {
     var accountSection: some View {
         if let snapshot = viewModel.snapshot {
             AccountCard(
-                title: snapshot.accountLabel,
-                isEmail: snapshot.account.hasEmail,
+                account: snapshot.account,
                 plan: snapshot.planLabel,
                 isRefreshing: viewModel.isRefreshing,
                 onRefresh: { viewModel.refresh(trigger: .manual) }
