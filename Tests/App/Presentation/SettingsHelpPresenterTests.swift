@@ -3,7 +3,7 @@ import Testing
 
 @MainActor
 struct SettingsHelpPresenterTests {
-    @Test func doesNotShowForHiddenOrDetachedAnchors() {
+    @Test func doesNotShowForAnAnchorInAHiddenWindow() {
         let window = makeWindow()
         defer { window.close() }
         let anchor = makeAnchor(in: window)
@@ -12,9 +12,6 @@ struct SettingsHelpPresenterTests {
         #expect(!window.isVisible)
 
         presenter.show("settings.sync.title.help", anchorProvider: anchor)
-        #expect(window.childWindows?.isEmpty != false)
-
-        presenter.show("settings.sync.title.help", anchorProvider: ScreenFrameProvider())
         #expect(window.childWindows?.isEmpty != false)
     }
 

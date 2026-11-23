@@ -68,7 +68,15 @@ struct AppServerSessionTests {
         try server.finish()
     }
 
-    @Test(arguments: ["account", "activity"], [nil, "0.162.0", "codex/", "codex/invalid", "codex/0.159.0"] as [String?])
+    @Test(arguments: [
+        ("shared", nil),
+        ("shared", "0.162.0"),
+        ("shared", "codex/"),
+        ("shared", "codex/invalid"),
+        ("shared", "codex/0.159.0"),
+        ("account", "codex/invalid"),
+        ("account", "codex/0.159.0")
+    ] as [(String, String?)])
     func connectionsShareHandshakeValidation(_ connection: String, userAgent: String?) throws {
         let server = try SharedServerFixture { peer in
             let request = try peer.readMessage()
@@ -464,8 +472,12 @@ struct AppServerSessionTests {
 
     @Test func missingSharedSocketFailsWithoutFallback() throws {
         let url = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).sock")
-        #expect(throws: AppServerConnectionError.self) {
+        do {
             _ = try AccountSession(socketURL: url, logStorage: nil)
+            Issue.record("Expected missing socket")
+        } catch let error as AppServerConnectionError {
+            #expect(error.code == ENOENT)
+            #expect(error.serverIsAbsent)
         }
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }

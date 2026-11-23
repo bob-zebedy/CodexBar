@@ -188,24 +188,6 @@ struct HistoryDatabaseTests {
         #expect(try database.pendingActivityDataDates() == [HistoryStorage.dateKey(for: yesterday)])
     }
 
-    @Test func actualTaskCancellationRollsBackAndReleasesDatabaseLock() async throws {
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let url = directory.url
-        let writer = Task.detached {
-            let database = try HistoryDatabase(directoryURL: url)
-            try database.transaction {
-                try database.execute("INSERT INTO days(date) VALUES ('cancelled')")
-                withUnsafeCurrentTask { $0?.cancel() }
-            }
-        }
-        await #expect(throws: CancellationError.self) { try await writer.value }
-        let reopened = try HistoryDatabase(directoryURL: url)
-        #expect(try reopened.dates().isEmpty)
-        try reopened.transaction { try reopened.execute("INSERT INTO days(date) VALUES ('cancelled')") }
-        #expect(try reopened.dates() == ["cancelled"])
-    }
-
     @Test func damagedAggregateIsPendingWhileOtherDatesRemainReadable() throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

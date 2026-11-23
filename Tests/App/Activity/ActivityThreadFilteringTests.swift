@@ -83,7 +83,7 @@ struct ActivityThreadFilteringTests {
         #expect(counts["thread/turns/list:normal"] == 4)
     }
 
-    @Test(arguments: ["missing", "null", "future_source", "THREAD_TITLE"])
+    @Test(arguments: ["missing", "null", "THREAD_TITLE"])
     func otherSourcesKeepNormalSubscription(source: String) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

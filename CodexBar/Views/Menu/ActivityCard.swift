@@ -67,11 +67,12 @@ struct ActivityCard: View {
     // MARK: - 卡片布局
 
     var body: some View {
+        let content = currentContent
         // 连接状态提示沿用卡片容器, 无任务记录时禁止打开任务中心
         Button {
             onTaskCenterTap(frameProvider)
         } label: {
-            if let content = retainedContent ?? currentContent {
+            if let content = content ?? retainedContent {
                 card(content)
             }
         }
@@ -93,11 +94,24 @@ struct ActivityCard: View {
             geometry.frame(in: .named(ActivityCenterPanelAnchor.coordinateSpace)).minY
         } action: { frameProvider.updateTopOffset($0) }
         .onHover { isHovered = $0 }
-        .onChange(of: currentContent, initial: true) { _, content in updateContent(content) }
+        .onChange(of: content.map(ActivityCardTransition.init), initial: true) { previous, next in
+            guard let next else {
+                // 区域收起时仍需绘制最后一帧, 包括刚更新的用量和文字
+                retainedContent = previous?.content
+                return
+            }
+            let retained = retainedContent.map(ActivityCardTransition.init)
+            // 翻页已处理过目标卡片, 收尾后不再从旧页淡入一次
+            guard swipeContent == nil, next != retained else { return }
+            retainedContent = next.content
+            if let source = previous ?? retained, source != next {
+                animateTransition(from: source.content)
+            }
+        }
         .onChange(of: allowsAnimations) { _, enabled in
             if !enabled {
                 completeSwipe()
-                settleTransition()
+                resetTransition()
                 cardPresentation.setGestureActive(false, owner: gestureOwner)
                 retainedContent = currentContent
             }
@@ -146,10 +160,13 @@ struct ActivityCard: View {
             }
         case let .step(direction):
             completeSwipe()
-            guard selection.carouselActivities.count > 1 else { return }
+            guard selection.carouselActivities.count > 1, let previous = currentContent else { return }
             cardPresentation.setGestureActive(true, owner: gestureOwner)
             cardPresentation.swipe(direction)
-            updateContent(currentContent)
+            retainedContent = currentContent
+            animateTransition(from: previous, direction: direction) {
+                cardPresentation.setGestureActive(false, owner: gestureOwner)
+            }
         }
     }
 
@@ -173,7 +190,7 @@ struct ActivityCard: View {
         swipeContent = ActivityCardSwipeContent(
             previous: page(-1), current: page(0), next: page(1)
         )
-        settleTransition()
+        resetTransition()
     }
 
     private func completeSwipe() {
@@ -190,7 +207,7 @@ struct ActivityCard: View {
     private func cancelSwipe() {
         guard swipe.isActive || swipeContent != nil || outgoingContent != nil || selection.isGestureActive else { return }
         clearSwipe()
-        settleTransition()
+        resetTransition()
         cardPresentation.setGestureActive(false, owner: gestureOwner)
     }
 
@@ -199,58 +216,29 @@ struct ActivityCard: View {
         swipeContent = nil
     }
 
-    private func settleTransition() {
+    private func resetTransition(from previous: ActivityCardContent? = nil, distance: CGFloat = 0) {
         animationGeneration += 1
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            outgoingContent = nil
-            transitionProgress = 1
-            transitionDistance = 0
+            outgoingContent = previous
+            transitionProgress = previous == nil ? 1 : 0
+            transitionDistance = distance
         }
     }
 
-    private func updateContent(_ content: ActivityCardContent?) {
-        if let pages = swipeContent {
-            let available = Set(selection.activities.compactMap(\.cardSelectionID))
-            if selection.isGestureActive, !showsUnavailableState, selection.selectedID == pages.current.selectionID,
-               [pages.previous, pages.current, pages.next].allSatisfy({ $0.selectionID.map(available.contains) == true }) {
-                return
-            }
-            cancelSwipe()
-        }
-        // 退场期间保留最后一份内容, 避免正在收回的区域变为空卡片
-        guard let content else { return }
-        guard let previous = retainedContent, content.requiresContentTransition(from: previous) else {
-            retainedContent = content
-            if outgoingContent == nil {
-                cardPresentation.setGestureActive(false, owner: gestureOwner)
-            }
-            return
-        }
-        settleTransition()
+    private func animateTransition(from previous: ActivityCardContent, direction: Int = 0, completion: @escaping () -> Void = {}) {
         guard allowsAnimations, cardWidth > 0 else {
-            retainedContent = content
-            cardPresentation.setGestureActive(false, owner: gestureOwner)
+            resetTransition()
+            completion()
             return
         }
+        resetTransition(from: previous, distance: CGFloat(direction) * cardWidth)
         let generation = animationGeneration
-        // 手动切换的方向只用于不同轮播项之间, 同一 thread 的新 turn 仍沿用淡入淡出
-        let slides = selection.transitionDirection != nil
-            && content.selectionID != nil && previous.selectionID != nil && content.selectionID != previous.selectionID
-        let distance = CGFloat(selection.transitionDirection ?? 0) * cardWidth
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            outgoingContent = previous
-            retainedContent = content
-            transitionDistance = slides ? distance : 0
-            transitionProgress = 0
-        }
         Task { @MainActor in
             await Task.yield()
             guard generation == animationGeneration else { return }
-            let animation = slides
+            let animation = direction != 0
                 ? Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: 0.3)
                 : .easeInOut(duration: 0.2)
             withAnimation(animation, completionCriteria: .removed) {
@@ -258,9 +246,7 @@ struct ActivityCard: View {
             } completion: {
                 guard generation == animationGeneration else { return }
                 outgoingContent = nil
-                if slides {
-                    cardPresentation.setGestureActive(false, owner: gestureOwner)
-                }
+                completion()
             }
         }
     }
@@ -607,7 +593,20 @@ private struct ActivityCardSwipeContent {
     }
 }
 
-private struct ActivityCardContent: Equatable {
+/// 只观察需要换页或淡入淡出的变化, 同时保留转场前的实际画面
+private struct ActivityCardTransition: Equatable {
+    let content: ActivityCardContent
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        let old = lhs.content, new = rhs.content
+        return old.taskID == new.taskID && old.symbolName == new.symbolName
+            && (old.tokenUsage == nil) == (new.tokenUsage == nil)
+            && (old.detail == nil) == (new.detail == nil)
+            && (old.recent == nil) == (new.recent == nil)
+    }
+}
+
+private struct ActivityCardContent {
     var taskID: UUID?
     var selectionID: String?
     var projectName: String?
@@ -624,13 +623,6 @@ private struct ActivityCardContent: Equatable {
     var hasPin = false
     var isPinned = false
     var statusTextEffect = ActivityStatusText.Effect.none
-
-    func requiresContentTransition(from previous: Self) -> Bool {
-        taskID != previous.taskID || symbolName != previous.symbolName
-            || (tokenUsage == nil) != (previous.tokenUsage == nil)
-            || (detail == nil) != (previous.detail == nil)
-            || (recent == nil) != (previous.recent == nil)
-    }
 
     var headerLines: [String] {
         [header.first ?? "", header.dropFirst().joined(separator: " • ")]

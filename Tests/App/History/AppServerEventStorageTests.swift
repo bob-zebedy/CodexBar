@@ -17,7 +17,6 @@ struct AppServerEventStorageTests {
         let data = try AppServerEventRecord(activityData: event, recordedAt: now).jsonLineData()
         let record = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(Set(record.keys) == ["schemaVersion", "recordedAt", "context", "activityData"])
-        #expect(record["kind"] == nil)
         let context = try #require(record["context"] as? [String: Any])
         #expect(Set(context.keys) == [
             "method", "threadID", "turnID", "parentThreadID", "rootThreadID",
@@ -42,13 +41,25 @@ struct AppServerEventStorageTests {
         #expect(!text.contains("commandLine"))
     }
 
-    @Test func unsupportedVersionAndMixedPayloadAreRejected() throws {
+    @Test func eventRequiresSupportedVersionAndExactlyOnePayload() throws {
         let observation = TestFixtures.tokenUsageObservation(at: now, tokenUsage: .zero)
-        let valid = try #require(String(bytes: AppServerEventRecord(tokenUsage: observation, recordedAt: now).jsonLineData(), encoding: .utf8))
-        let future = valid.replacingOccurrences(of: "\"schemaVersion\":1", with: "\"schemaVersion\":99")
-        let mixed = valid.replacingOccurrences(of: "\"schemaVersion\":1", with: "\"schemaVersion\":1,\"activityData\":{}")
-        for text in [future, mixed] {
-            #expect(throws: (any Error).self) { try AppServerEventRecord.decode(from: Data(text.utf8)) }
+        let tokenData = try AppServerEventRecord(tokenUsage: observation, recordedAt: now).jsonLineData()
+        let tokenRecord = try #require(JSONSerialization.jsonObject(with: tokenData) as? [String: Any])
+        let activityData = try JSONLines.stableEncoder.encode(TestFixtures.event(.toolStarted))
+        var future = tokenRecord
+        future["schemaVersion"] = AppServerEventRecord.schemaVersion + 1
+        var mixed = tokenRecord
+        mixed["activityData"] = try JSONSerialization.jsonObject(with: activityData)
+        var empty = tokenRecord
+        empty.removeValue(forKey: "tokenUsage")
+        for (scenario, record, errorPath) in [("future version", future, ["schemaVersion"]), ("both payloads", mixed, []), ("no payload", empty, [])] {
+            let data = try JSONSerialization.data(withJSONObject: record)
+            do {
+                _ = try AppServerEventRecord.decode(from: data)
+                Issue.record("Accepted invalid event: \(scenario)")
+            } catch let DecodingError.dataCorrupted(context) {
+                #expect(context.codingPath.map(\.stringValue) == errorPath, "\(scenario)")
+            }
         }
     }
 

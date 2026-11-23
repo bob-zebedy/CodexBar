@@ -89,7 +89,7 @@ struct HistoryDatabaseStoreTests {
         #expect(Set(dates) == Set((0 ..< 24).filter { !$0.isMultiple(of: 2) }.map { "day-\($0)" }))
     }
 
-    @Test func cancellationRollsBackWithoutDiscardingTheConnection() async throws {
+    @Test func cancellationRollsBackAndUnlocksWithoutDiscardingTheConnection() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = HistoryDatabaseStore.shared(in: directory.url)
@@ -108,8 +108,10 @@ struct HistoryDatabaseStoreTests {
             return try $0.dates()
         }
         #expect(dates.isEmpty)
+        let otherConnection = try HistoryDatabase(directoryURL: directory.url)
+        try otherConnection.transaction { try otherConnection.execute("INSERT INTO days(date) VALUES ('other')") }
         try await store.access { try $0.execute("INSERT INTO days(date) VALUES ('committed')") }
-        #expect(try await store.access { try $0.dates() } == ["committed"])
+        #expect(try otherConnection.dates() == ["committed", "other"])
     }
 
     @Test func failedOpenCanRecoverOnTheSameStore() async throws {

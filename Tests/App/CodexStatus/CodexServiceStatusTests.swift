@@ -98,27 +98,21 @@ struct CodexServiceStatusTests {
         #expect(CodexServiceStatus.operational.componentNames.isEmpty)
     }
 
-    @Test func disabledMonitorSkipsRefresh() async {
+    @Test func eachRefreshFetchesOnceWhileMonitorIsEnabled() async {
         let probe = ServiceStatusProbe()
         let monitor = CodexServiceStatusMonitor(fetch: { try await probe.fetch() })
         await monitor.refresh()
         #expect(await probe.calls == 0)
         monitor.setEnabled(true)
         await monitor.refresh()
-        #expect(monitor.state == .available(.operational))
-        monitor.setEnabled(false)
-        await monitor.refresh()
         #expect(await probe.calls == 1)
         #expect(monitor.state == .available(.operational))
-    }
-
-    @Test func eachExplicitRefreshFetchesOnce() async {
-        let probe = ServiceStatusProbe()
-        let monitor = CodexServiceStatusMonitor(fetch: { try await probe.fetch() })
-        monitor.setEnabled(true)
-        await monitor.refresh()
         await monitor.refresh()
         #expect(await probe.calls == 2)
+        monitor.setEnabled(false)
+        await monitor.refresh()
+        #expect(await probe.calls == 2)
+        #expect(monitor.state == .available(.operational))
     }
 
     @Test func concurrentRefreshesShareThePendingRequest() async throws {

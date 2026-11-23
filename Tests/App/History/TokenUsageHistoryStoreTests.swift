@@ -15,15 +15,19 @@ struct TokenUsageHistoryStoreTests {
         second.releaseRecordingLease()
     }
 
-    @Test func dailyTokenUsageDeduplicateRetriesAndRebuildAfterCacheDamage() async throws {
+    @Test func dailyTokenCountersSurviveRetriesRestartAndCacheDamage() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let now = Date()
         let store = TokenUsageHistoryStore(directoryURL: directory.url)
-        let first = TestFixtures.tokenUsageObservation(at: now, tokenUsage: tokenUsage(20))
-        let second = TestFixtures.tokenUsageObservation(at: now, tokenUsage: tokenUsage(30), previous: tokenUsage(20))
+        let firstUsage = TokenUsage(inputTokens: 20, cachedInputTokens: 9, cacheWriteInputTokens: 3, outputTokens: 8, reasoningOutputTokens: 4, totalTokens: 28)
+        let nextUsage = TokenUsage(inputTokens: 30, cachedInputTokens: 12, cacheWriteInputTokens: 4, outputTokens: 10, reasoningOutputTokens: 5, totalTokens: 40)
+        let expected = TokenUsage(inputTokens: 50, cachedInputTokens: 21, cacheWriteInputTokens: 7, outputTokens: 18, reasoningOutputTokens: 9, totalTokens: 68)
+        let first = TestFixtures.tokenUsageObservation(at: now, tokenUsage: firstUsage)
+        let second = TestFixtures.tokenUsageObservation(at: now, tokenUsage: nextUsage, previous: firstUsage)
         let initial = try await store.recordObservations([first, first, second], now: now)
-        #expect(initial.first?.tokenUsage == tokenUsage(50))
+        #expect(initial.count == 1)
+        #expect(initial.first?.tokenUsage == expected)
         #expect(initial.first?.eventCount == 2)
         #expect(try await TokenUsageHistoryStore(directoryURL: directory.url).loadSnapshot(now: now).aggregates == initial)
         let database = try HistoryDatabase(directoryURL: directory.url)
@@ -243,29 +247,6 @@ struct TokenUsageHistoryStoreTests {
             timestamp: date, name: ActivityDataEventKind.toolStarted.rawValue, origin: .main, cwd: "/test",
             toolName: "read", commandActionTypes: nil, model: nil, effort: nil, threadID: "thread", turnID: "turn", agentThreadID: nil, id: id
         ), recordedAt: date)
-    }
-
-    @Test func incrementalTokenStorageRetainsAllCountersAcrossRestart() async throws {
-        let now = TestFixtures.now
-        let directory = try TestDirectory()
-        defer { try? directory.remove() }
-        let store = TokenUsageHistoryStore(directoryURL: directory.url)
-        let tokenUsage = TokenUsage(
-            inputTokens: 100,
-            cachedInputTokens: 50,
-            cacheWriteInputTokens: 10,
-            outputTokens: 20,
-            reasoningOutputTokens: 5,
-            totalTokens: 120
-        )
-        let observation = TestFixtures.tokenUsageObservation(
-            id: "stream", at: now, tokenUsage: tokenUsage
-        )
-        _ = try await store.recordObservations([observation, observation], now: now)
-        let restarted = TokenUsageHistoryStore(directoryURL: directory.url)
-        let records = try await restarted.loadSnapshot(now: now).aggregates
-        #expect(records.count == 1)
-        #expect(records.first?.tokenUsage == tokenUsage)
     }
 
     @Test func rebuildUsesObservedRecordsAndContinuesCollecting() async throws {

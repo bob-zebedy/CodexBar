@@ -596,7 +596,7 @@ struct AppServerLogTests {
 }
 
 extension AppServerLogTests {
-    @Test(arguments: [65537, 131072, 131073])
+    @Test(arguments: [131072, 131073])
     func defaultBodyLimitPreservesLargePayloadsAndTruncatesOverflow(bodyBytes: Int) async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

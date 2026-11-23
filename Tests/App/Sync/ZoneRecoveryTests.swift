@@ -7,12 +7,11 @@ import Testing
 struct ZoneRecoveryTests {
     private static let zone = CKRecordZone.ID(zoneName: SyncCloudKit.zoneName, ownerName: CKCurrentUserDefaultName)
 
-    @Test(arguments: [CKError.Code.zoneNotFound, .userDeletedZone, .unknownItem], [false, true])
-    func absentZoneIsCreatedAndLocalDataIsUploaded(code: CKError.Code, wrapped: Bool) async throws {
+    @Test func absentZoneIsCreatedAndLocalDataIsUploaded() async throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let database = ZoneDatabase()
-        await database.removeZone(code: code, wrapped: wrapped)
+        await database.removeZone(code: .unknownItem, wrapped: true)
         _ = try directory.write("invalid activityData cache", to: "Sync/activityData.json")
         _ = try directory.write("invalid token cache", to: "Sync/tokenUsage.json")
         let service = service(database, directory)
@@ -209,7 +208,10 @@ struct ZoneRecoveryTests {
             CKError(.partialFailure, userInfo: [CKPartialErrorsByItemIDKey: [key: CKError(code)]])
         }
         #expect(!SyncRecovery.isMissingZone(CKError(.unknownItem), zoneID: Self.zone))
-        #expect(SyncRecovery.isMissingZone(CKError(.unknownItem), zoneID: Self.zone, queryingZone: true))
+        for code in [CKError.Code.zoneNotFound, .userDeletedZone, .unknownItem] {
+            #expect(SyncRecovery.isMissingZone(CKError(code), zoneID: Self.zone, queryingZone: true))
+            #expect(SyncRecovery.isMissingZone(partial(Self.zone, code), zoneID: Self.zone, queryingZone: true))
+        }
         #expect(!SyncRecovery.isMissingZone(partial(item, .unknownItem), zoneID: Self.zone, queryingZone: true))
         #expect(!SyncRecovery.isMissingZone(partial(other, .userDeletedZone), zoneID: Self.zone))
         #expect(SyncRecovery.isMissingZone(partial(item, .userDeletedZone), zoneID: Self.zone))

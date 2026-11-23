@@ -6,7 +6,6 @@ nonisolated struct ActivityCardSelection: Equatable {
     private(set) var selectedID: String?
     private(set) var pinnedID: String?
     private(set) var manualViewingDeadline: Date?
-    private(set) var transitionDirection: Int?
     private(set) var isVisible = false
     private var orderedIDs: [String] = []
     private var automaticID: String?
@@ -57,7 +56,6 @@ nonisolated struct ActivityCardSelection: Equatable {
             manualViewingDeadline = nil
             gestureBeganAt = nil
             gestureActivities = nil
-            transitionDirection = nil
             // 断连期间保留会话顺序和固定关系, 恢复后再根据完整快照裁剪
             return
         }
@@ -102,7 +100,6 @@ nonisolated struct ActivityCardSelection: Equatable {
         manualViewingDeadline = nil
         gestureBeganAt = nil
         gestureActivities = nil
-        transitionDirection = nil
         if visible {
             reconcile(at: now)
         }
@@ -113,7 +110,6 @@ nonisolated struct ActivityCardSelection: Equatable {
         guard isVisible, carousel.count > 1,
               let index = carousel.firstIndex(where: { $0.cardSelectionID == selectedID }) else { return }
         let direction = step < 0 ? -1 : 1
-        transitionDirection = direction
         selectedID = carousel[(index + direction + carousel.count) % carousel.count].cardSelectionID
         beginManualViewing(at: now)
     }
@@ -121,7 +117,6 @@ nonisolated struct ActivityCardSelection: Equatable {
     mutating func selectAfterSwipe(_ id: String, now: Date) {
         guard isVisible, activities.contains(where: { $0.cardSelectionID == id }) else { return }
         selectedID = id
-        transitionDirection = nil
         beginManualViewing(at: now)
     }
 
@@ -158,12 +153,9 @@ nonisolated struct ActivityCardSelection: Equatable {
         }
         manualViewingDeadline = nil
         let available = Set(activities.compactMap(\.cardSelectionID))
-        let next = pinnedID.flatMap { available.contains($0) ? $0 : nil }
+        selectedID = pinnedID.flatMap { available.contains($0) ? $0 : nil }
             ?? automaticID.flatMap { available.contains($0) ? $0 : nil }
             ?? activities.first?.cardSelectionID
-        guard next != selectedID else { return }
-        transitionDirection = nil
-        selectedID = next
     }
 
     private mutating func beginManualViewing(at now: Date) {

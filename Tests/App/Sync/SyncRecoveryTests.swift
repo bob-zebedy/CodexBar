@@ -168,7 +168,10 @@ struct SyncRecoveryTests {
         defer { try? directory.remove() }
         let database = SyncDatabaseFixture()
         let service = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
-        try await service.synchronize(local: [Self.turn(0)], accountScopedDeviceID: "device", zoneID: SyncTestFixtures.zone)
+        let date = HistoryStorage.dateKey(for: Date())
+        let old = try SyncTestFixtures.tokenUsageRecord(TokenUsageSyncRecord(deviceID: "old-device", date: date, tokenUsage: .zero))
+        await database.storeRecord(old)
+        try await service.synchronize(local: [], accountScopedDeviceID: "device", zoneID: SyncTestFixtures.zone)
         let url = directory.url.appendingPathComponent("Sync/tokenUsage.json")
         if cursorOnly {
             var json = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
@@ -177,9 +180,14 @@ struct SyncRecoveryTests {
         } else {
             try Data("broken cache".utf8).write(to: url)
         }
+        let replacement = TokenUsageSyncRecord(deviceID: "new-device", date: date, tokenUsage: SyncTestFixtures.counts(50))
+        await database.removeRecord(old.recordID)
+        try await database.storeRecord(SyncTestFixtures.tokenUsageRecord(replacement))
         let reopened = TokenUsageSync(database: database, directoryURL: directory.url, isEnabled: { true })
         try await reopened.synchronize(local: [], accountScopedDeviceID: "device", zoneID: SyncTestFixtures.zone)
-        #expect(try Self.cachedDailyCount(in: directory.url) == 1)
+        let cache = try JSONLines.decoder.decode(TokenUsageSyncCache.self, from: Data(contentsOf: url))
+        #expect(cache.sortedRecords.map(\.id) == [replacement.id])
+        #expect(cache.records[replacement.id]?.tokenUsage == replacement.tokenUsage)
     }
 
     @Test func failedTokenUsageRebuildPreservesOriginalBytes() async throws {

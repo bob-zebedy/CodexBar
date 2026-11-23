@@ -15,8 +15,7 @@ final class ActivityCenterPanelController {
     )
     private var currentAnchor: ActivityCenterPanelAnchor?
     private weak var menuSurfaceWindow: NSWindow?
-    private var cancellables = Set<AnyCancellable>()
-    private var layoutSubscriptions = Set<AnyCancellable>()
+    private var panelSubscriptions = Set<AnyCancellable>()
     private var presentationTask: Task<Void, Never>?
     private var panelUpdateTask: Task<Void, Never>?
     private lazy var presenter = SidePanelDrawerPresenter(
@@ -35,21 +34,6 @@ final class ActivityCenterPanelController {
         self.activityMonitor = activityMonitor
         self.presentationState = presentationState
         self.mainPanelSettings = mainPanelSettings
-
-        activityMonitor.$snapshot
-            .map { snapshot -> CGSize? in
-                guard snapshot.hasTaskCenterContent else { return nil }
-                return ActivityCenterView.panelSize(maximumHeight: .greatestFiniteMagnitude, snapshot: snapshot)
-            }
-            .removeDuplicates()
-            .dropFirst()
-            .sink { [weak self] size in
-                guard let self, presentationState.isPresented else {
-                    return
-                }
-                schedulePanelUpdate(hasContent: size != nil)
-            }
-            .store(in: &cancellables)
     }
 
     var isVisible: Bool {
@@ -79,12 +63,12 @@ final class ActivityCenterPanelController {
 
     func hide(immediate: Bool = false) {
         cancelScheduledPresentation()
-        layoutSubscriptions.removeAll()
+        panelSubscriptions.removeAll()
+        cancelScheduledPanelUpdate()
         currentAnchor = nil
         menuSurfaceWindow = nil
         // 重复隐藏请求不再写入展示状态, 避免触发无效的视图更新
         if presentationState.isPresented || presenter.isVisible {
-            cancelScheduledPanelUpdate()
             presentationState.isPresented = false
         } else if !immediate {
             return
@@ -130,6 +114,9 @@ final class ActivityCenterPanelController {
         relativeTo menuSurfaceWindow: NSWindow?,
         contentView: NSView?
     ) {
+        cancelScheduledPanelUpdate()
+        // 尺寸订阅会跳过初始值, 先订阅再读快照才不会漏掉打开面板时的变化
+        panelSubscriptions = [observePanelSize()]
         let snapshot = activityMonitor.snapshot
         guard snapshot.hasTaskCenterContent,
               let menuSurfaceWindow else {
@@ -138,7 +125,6 @@ final class ActivityCenterPanelController {
         }
 
         let panel = contentHost.ensurePanel()
-        cancelScheduledPanelUpdate()
         currentAnchor = anchor
         self.menuSurfaceWindow = menuSurfaceWindow
         contentView?.layoutSubtreeIfNeeded()
@@ -158,7 +144,28 @@ final class ActivityCenterPanelController {
             SidePanelSupport.restoreMenuSurfaceKeyWindow(menuSurfaceWindow)
         }
         presenter.present(panel, at: layout.position, relativeTo: menuSurfaceWindow)
-        observeLayout(anchor: anchor, window: menuSurfaceWindow)
+        anchor.layoutChanges(in: menuSurfaceWindow)
+            .sink { [weak self] in
+                guard let self, activityMonitor.snapshot.hasTaskCenterContent else { return }
+                if !updateVisibleLayout(for: activityMonitor.snapshot) {
+                    // 主窗口缩放时锚点可能暂时越界, 稍后再试一次, 仍无法定位才收起面板
+                    schedulePanelUpdate(hasContent: true)
+                }
+            }
+            .store(in: &panelSubscriptions)
+    }
+
+    private func observePanelSize() -> AnyCancellable {
+        activityMonitor.$snapshot
+            .map { snapshot -> CGSize? in
+                guard snapshot.hasTaskCenterContent else { return nil }
+                return ActivityCenterView.panelSize(maximumHeight: .greatestFiniteMagnitude, snapshot: snapshot)
+            }
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] size in
+                self?.schedulePanelUpdate(hasContent: size != nil)
+            }
     }
 
     private func panelLayout(
@@ -192,45 +199,16 @@ final class ActivityCenterPanelController {
         return (panelSize, position)
     }
 
-    private func updateVisibleLayout(for snapshot: ActivitySnapshot) {
+    private func updateVisibleLayout(for snapshot: ActivitySnapshot) -> Bool {
         guard let panel = contentHost.panel,
               panel.isVisible,
               let currentAnchor,
-              let menuSurfaceWindow else {
-            return
+              let menuSurfaceWindow,
+              let layout = panelLayout(anchor: currentAnchor, menuSurfaceWindow: menuSurfaceWindow, snapshot: snapshot) else { return false }
+        if panel.frame != layout.position.frame {
+            panel.setFrame(layout.position.frame, display: true)
         }
-
-        guard let layout = panelLayout(
-            anchor: currentAnchor,
-            menuSurfaceWindow: menuSurfaceWindow,
-            snapshot: snapshot
-        ) else {
-            hide()
-            return
-        }
-        guard panel.frame != layout.position.frame else {
-            return
-        }
-        // 宿主随 SwiftUI 布局逐帧伸缩, 窗口位置同步更新, 避免叠加动画
-        panel.setFrame(layout.position.frame, display: true)
-    }
-
-    private func observeLayout(anchor: ActivityCenterPanelAnchor, window: NSWindow) {
-        layoutSubscriptions.removeAll()
-        anchor.$topOffset
-            .dropFirst()
-            .sink { [weak self] _ in self?.scheduleGeometryUpdate() }
-            .store(in: &layoutSubscriptions)
-        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didChangeScreenNotification] {
-            NotificationCenter.default.publisher(for: name, object: window)
-                .sink { [weak self] _ in self?.scheduleGeometryUpdate() }
-                .store(in: &layoutSubscriptions)
-        }
-    }
-
-    private func scheduleGeometryUpdate() {
-        guard presentationState.isPresented, activityMonitor.snapshot.hasTaskCenterContent else { return }
-        schedulePanelUpdate(hasContent: true)
+        return true
     }
 
     private func schedulePanelUpdate(hasContent: Bool) {
@@ -251,9 +229,7 @@ final class ActivityCenterPanelController {
             }
 
             panelUpdateTask = nil
-            if hasContent {
-                updateVisibleLayout(for: snapshot)
-            } else {
+            if !hasContent || !updateVisibleLayout(for: snapshot) {
                 hide()
             }
         }

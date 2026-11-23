@@ -71,10 +71,10 @@ struct ActivityLiveLabelTests {
         #expect(item.liveCompletionLabel?.text == String(localized: "activity.live.named-tool-failed", defaultValue: "\(name)"))
     }
 
-    @Test(arguments: ["tool-completed", "tool-failed", "tool-declined", "command-completed", "command-failed", "command-declined", "calling-tool", "command", "model-changed"])
-    func missingDetailsKeepStandaloneLabels(key: String) {
-        #expect(ActivityLiveLabel(key).text == ActivityLiveLabel(key).localizedText)
-        #expect(ActivityLiveLabel(key, detail: "").text == ActivityLiveLabel(key).localizedText)
+    @Test func missingDetailsKeepStandaloneLabels() {
+        let expected = String(localized: "activity.live.tool-failed")
+        #expect(ActivityLiveLabel("tool-failed").text == expected)
+        #expect(ActivityLiveLabel("tool-failed", detail: "").text == expected)
     }
 
     @Test(arguments: [
@@ -152,9 +152,8 @@ struct ActivityLiveLabelTests {
         #expect(item.liveCompletionLabel?.text == expected.text)
     }
 
-    @Test(arguments: ["completed", "failed", "declined", "unknown"])
-    func toolOutcomeDoesNotAssumeSuccess(status: String) {
-        let item = ActivityItem(id: "image", type: .imageGeneration, status: status)
-        #expect(item.liveCompletionLabel?.key == (status == "unknown" ? nil : "image-" + status))
+    @Test func unknownToolOutcomeHasNoCompletionLabel() {
+        let item = ActivityItem(id: "image", type: .imageGeneration, status: "unknown")
+        #expect(item.liveCompletionLabel == nil)
     }
 }

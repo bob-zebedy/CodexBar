@@ -88,30 +88,29 @@ struct ActivityPresentationTests {
     }
 
     @Test(arguments: [
-        (ActivityItem(id: "command", type: .commandExecution, commandActions: ["search", "read", "read"].map { .init(type: $0) }), "activity.live.actions-read-search"),
-        (ActivityItem(id: "command", type: .commandExecution), "activity.action.command"),
-        (ActivityItem(id: "file", type: .fileChange), "activity.action.edit-files"),
-        (ActivityItem(id: "agent", type: .collabAgentToolCall, tool: "spawnAgent"), "activity.action.start-subagent")
-    ] as [(ActivityItem, LocalizedStringResource)], [false, true])
-    func waitingSurfacesShareLocalizedActions(
-        operation: (source: ActivityItem, action: LocalizedStringResource), hasProject: Bool
-    ) {
+        (ActivityItem(id: "command", type: .commandExecution, commandActions: ["search", "read", "read"].map { .init(type: $0) }), ("activity.live.actions-read-search", true)),
+        (ActivityItem(id: "command", type: .commandExecution), ("activity.action.command", false)),
+        (ActivityItem(id: "file", type: .fileChange), ("activity.action.edit-files", true)),
+        (ActivityItem(id: "agent", type: .collabAgentToolCall, tool: "spawnAgent"), ("activity.action.start-subagent", false))
+    ] as [(ActivityItem, (LocalizedStringResource, Bool))])
+    func waitingSurfacesShareLocalizedActions(source: ActivityItem, example: (action: LocalizedStringResource, hasProject: Bool)) {
         let approval = ActivityApproval(
-            requestedAt: TestFixtures.now, toolName: operation.source.tool, sequence: 0,
-            itemType: operation.source.type.rawValue, commandActionTypes: operation.source.commandActions?.map(\.type)
+            requestedAt: TestFixtures.now, toolName: source.tool, sequence: 0,
+            itemType: source.type.rawValue, commandActionTypes: source.commandActions?.map(\.type)
         )
         let task = ActivityTaskSnapshot(
             id: UUID(),
-            projectName: hasProject ? "CodexBar" : nil, modelName: nil, effort: nil,
+            projectName: example.hasProject ? "CodexBar" : nil, modelName: nil, effort: nil,
             startedAt: TestFixtures.now, stateChangedAt: TestFixtures.now,
             activeSubagentCount: nil, approvalActionText: approval.actionText, threadID: "waiting-thread"
         )
-        let expected = String(localized: operation.action)
+        let expected = String(localized: example.action)
         let notice = NotificationContent.taskWaiting(project: task.projectName, actionText: task.approvalActionText)
         #expect(task.approvalActionText == expected)
         #expect(notice.body.contains(expected))
-        #expect(!notice.body.contains(operation.source.type.rawValue))
-        if let raw = operation.source.tool {
+        #expect(notice.body.contains("CodexBar") == example.hasProject)
+        #expect(!notice.body.contains(source.type.rawValue))
+        if let raw = source.tool {
             #expect(!notice.body.contains(raw))
         }
     }

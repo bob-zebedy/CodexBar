@@ -67,17 +67,14 @@ struct PowerHelperManagerClientTests {
         #expect(KeepAliveController.PowerHelperStatus(status).isRegisteredOrAwaitingApproval)
     }
 
-    @Test func registrationFailureCannotBeMistakenForApproval() throws {
-        let data = try reply(.notRegistered, errorDomain: SMAppServiceErrorDomain, errorCode: 1)
+    @Test(arguments: [
+        (PowerHelperManagement.Command.register, SMAppService.Status.notRegistered),
+        (.unregister, .enabled)
+    ])
+    func failedRegistrationChangeReportsError(command: PowerHelperManagement.Command, status: SMAppService.Status) throws {
+        let data = try reply(status, errorDomain: SMAppServiceErrorDomain, errorCode: 1)
         #expect(throws: NSError.self) {
-            try PowerHelperManagerClient.status(from: data, command: .register)
-        }
-    }
-
-    @Test func unregistrationFailureIsNotHiddenByEnabledStatus() throws {
-        let data = try reply(.enabled, errorDomain: SMAppServiceErrorDomain, errorCode: 1)
-        #expect(throws: NSError.self) {
-            try PowerHelperManagerClient.status(from: data, command: .unregister)
+            try PowerHelperManagerClient.status(from: data, command: command)
         }
     }
 

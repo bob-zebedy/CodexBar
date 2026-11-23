@@ -32,19 +32,16 @@ struct LogPreviewTests {
         }
     }
 
-    @Test(arguments: ["", "🙂 汉字 é\nsecond line", "{invalid JSON}", "{\"partial\":\n[Truncated, original: 200000 bytes]"])
-    func plainInvalidAndTruncatedContentRemainUnchanged(raw: String) async throws {
+    @Test(arguments: [
+        ("", nil), ("🙂 汉字 é\nsecond line", nil), ("{invalid JSON}", nil),
+        ("{\"partial\":\n[Truncated, original: 200000 bytes]", nil),
+        ("true", "JSON"), ("null", "JSON"), ("42", "JSON"), ("\"🙂\"", "JSON")
+    ] as [(String, String?)])
+    func previewPreservesTextAndRecognizesJSONFragments(raw: String, expectedLanguage: String?) async throws {
         let document = try await LogPreviewPreparer.shared.document(for: raw)
-        #expect(document.language == nil)
+        #expect(document.language == expectedLanguage)
         #expect(document.storage.string == raw)
         #expect(document.characterCount == raw.count)
-    }
-
-    @Test(arguments: ["true", "null", "42", "\"🙂\""])
-    func jsonFragmentsRemainSupported(raw: String) async throws {
-        let document = try await LogPreviewPreparer.shared.document(for: raw)
-        #expect(document.language == "JSON")
-        #expect(document.storage.string == raw)
     }
 
     @Test func inlinePreviewUpdatesWhenResponseArrivesWithoutChangingEntryIdentity() async throws {

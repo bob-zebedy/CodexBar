@@ -48,7 +48,7 @@ struct SyncRecordCodecTests {
     }
 
     @Test(arguments: [nil, ""]) func cloudActivityDataRejectsMissingDevice(deviceID: String?) {
-        let record = CKRecord(recordType: "ActivityData", recordID: CKRecord.ID(recordName: "activityData_device_2026-09-15"))
+        let record = CKRecord(recordType: "ActivityData", recordID: CKRecord.ID(recordName: "activityData__2026-09-15"))
         record["schemaVersion"] = 1 as CKRecordValue
         record["aggregationVersion"] = 1 as CKRecordValue
         record["activityData"] = Data(#"{"projectCounts":{},"modelCounts":{}}"#.utf8) as CKRecordValue

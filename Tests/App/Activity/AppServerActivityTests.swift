@@ -309,15 +309,6 @@ struct AppServerActivityTests {
         #expect(reducer.states[key]?.isWaitingApproval == false)
     }
 
-    @Test func automaticReviewDoesNotCountRequest() throws {
-        var reducer = try prepared()
-        let events = try reducer.consume(message("item/autoApprovalReview/started", params: """
-        {"threadId":"main","turnId":"turn","targetItemId":"command","reviewId":"review"}
-        """), now: now)
-        #expect(events.isEmpty)
-        #expect(reducer.states.values.first?.isWaitingApproval != true)
-    }
-
     @Test func snapshotWaitingDoesNotInventHistoricalApprovalCount() throws {
         var reducer = try prepared()
         let events = try reducer.consume(message("thread/status/changed", params: """

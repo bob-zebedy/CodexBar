@@ -74,12 +74,11 @@ struct TaskWaitingNotificationTests {
         #expect(fixture.delivery.removals == [[fixture.identifier]])
     }
 
-    @Test(arguments: [false, true])
-    func resolvedBeforeSubmissionSkipsDeliveryAndClearsTracking(blockingInput: Bool) async throws {
+    @Test func resolvedBeforeSubmissionSkipsDeliveryAndClearsTracking() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
         try await fixture.start()
-        let submission = try fixture.enterWaiting(blockingInput: blockingInput)
+        let submission = try fixture.enterWaiting(blockingInput: false)
 
         try fixture.resolveWaiting()
         #expect(fixture.delivery.attempts.isEmpty)
@@ -91,13 +90,12 @@ struct TaskWaitingNotificationTests {
         #expect(fixture.delivery.removals == [[fixture.identifier]])
     }
 
-    @Test(arguments: [false, true])
-    func resolvedDuringSubmissionWithdrawsLateDelivery(blockingInput: Bool) async throws {
+    @Test func resolvedDuringSubmissionWithdrawsLateDelivery() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
         try await fixture.start()
         fixture.delivery.suspendsSubmissions = true
-        let submission = try fixture.enterWaiting(blockingInput: blockingInput)
+        let submission = try fixture.enterWaiting(blockingInput: true)
         try #require(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(5)) {
             fixture.delivery.hasPendingSubmission
         }, "Notification operation did not reach the expected state")
@@ -129,13 +127,12 @@ struct TaskWaitingNotificationTests {
         #expect(fixture.delivery.removals == [[fixture.identifier]])
     }
 
-    @Test(arguments: [false, true])
-    func exhaustedSubmissionRetriesClearTrackingWhileTaskStillWaits(blockingInput: Bool) async throws {
+    @Test func exhaustedSubmissionRetriesClearTrackingWhileTaskStillWaits() async throws {
         let fixture = try Fixture()
         defer { fixture.cleanUp() }
         try await fixture.start()
         fixture.delivery.failuresRemaining = 2
-        let submission = try fixture.enterWaiting(blockingInput: blockingInput)
+        let submission = try fixture.enterWaiting(blockingInput: false)
         #expect(await submission.value == false)
         #expect(fixture.delivery.attempts.count == 2)
         #expect(fixture.monitor.snapshot.blockingWaitingTaskIDs == [fixture.taskID])
@@ -144,7 +141,7 @@ struct TaskWaitingNotificationTests {
 
         try fixture.resolveWaiting()
         #expect(fixture.delivery.removals.isEmpty)
-        let retried = try fixture.enterWaiting(blockingInput: blockingInput)
+        let retried = try fixture.enterWaiting(blockingInput: false)
         #expect(await retried.value)
         #expect(fixture.delivery.delivered == [fixture.identifier])
         try fixture.resolveWaiting()

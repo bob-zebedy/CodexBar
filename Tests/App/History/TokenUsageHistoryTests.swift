@@ -11,17 +11,16 @@ struct TokenUsageHistoryTests {
         var first = TokenUsageFileCache<[String: Int]>(url: url)
         var second = TokenUsageFileCache<[String: Int]>(url: url)
         try first.save(["cursor": 1])
+        let modifiedAt = Date(timeIntervalSince1970: 1000000)
+        try FileManager.default.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: url.path)
         #expect(try first.load() == ["cursor": 1])
         #expect(try second.load() == ["cursor": 1])
-        let initial = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let initialSize = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize
         try first.save(["cursor": 1])
-        #expect(try (url.resourceValues(forKeys: [.fileSizeKey])).fileSize == initial.fileSize)
-        let modifiedAt = try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate]
+        #expect(try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date == modifiedAt)
         try Data("{\"cursor\":2}".utf8).write(to: url)
-        if let modifiedAt {
-            try FileManager.default.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: url.path)
-        }
-        #expect(try url.resourceValues(forKeys: [.fileResourceIdentifierKey, .fileSizeKey, .contentModificationDateKey]).fileSize == initial.fileSize)
+        try FileManager.default.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: url.path)
+        #expect(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize == initialSize)
         #expect(try first.load() == ["cursor": 2])
         #expect(try second.load() == ["cursor": 2])
         try second.save(["cursor": 3])

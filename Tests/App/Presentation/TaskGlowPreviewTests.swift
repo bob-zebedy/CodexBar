@@ -27,8 +27,7 @@ struct TaskGlowPreviewTests {
     @Test func completionDuringPreviewGetsFullDurationAfterReturnTransition() {
         var state = enabledState()
         state.suspend(now: now)
-        let completion = completed(at: 2)
-        update(&state, snapshot: completion, at: 2)
+        update(&state, snapshot: completed(at: 2), at: 2)
         state.refresh(now: time(60), terminalDuration: 15)
         #expect(state.state == .completed)
         #expect(state.isSuspended)
@@ -36,7 +35,6 @@ struct TaskGlowPreviewTests {
         state.refresh(now: time(60), terminalDuration: 15)
         #expect(state.terminal?.startedAt == time(60.4))
         #expect(state.terminal?.expiresAt == time(75.4))
-        #expect(completion.latestTerminalEvent?.endedAt == time(2))
         state.refresh(now: time(75.4), terminalDuration: 15)
         #expect(state.state == .hidden)
     }

@@ -57,6 +57,24 @@ final class ActivityCenterPanelAnchor {
         topOffset = offset
     }
 
+    func layoutChanges(in window: NSWindow) -> AnyPublisher<Void, Never> {
+        let notifications = NotificationCenter.default
+        // topOffset 在 willSet 中发出新值, 此时读取属性仍是旧值
+        // AppKit 也会先发出父窗口的移动通知, 再移动子窗口
+        let deferredChanges = Publishers.Merge3(
+            $topOffset.dropFirst().map { _ in () },
+            notifications.publisher(for: NSWindow.didMoveNotification, object: window).map { _ in () },
+            notifications.publisher(for: NSWindow.didChangeScreenNotification, object: window).map { _ in () }
+        )
+        .receive(on: DispatchQueue.main)
+
+        // 收到缩放通知时父窗口已是新尺寸, 可以在回调中把子窗口对齐到锚点
+        return notifications.publisher(for: NSWindow.didResizeNotification, object: window)
+            .map { _ in () }
+            .merge(with: deferredChanges)
+            .eraseToAnyPublisher()
+    }
+
     func screenFrame(in window: NSWindow) -> CGRect? {
         guard view?.window === window, let topOffset else { return nil }
         // Popover 的 hosting view 会先于窗口更新尺寸, 不从该视图转换屏幕坐标

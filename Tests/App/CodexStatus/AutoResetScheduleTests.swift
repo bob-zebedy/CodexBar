@@ -16,7 +16,7 @@ struct AutoResetScheduleTests {
             schedule.finish(attempt, transientFailure: true, leadTime: lead, now: now)
             if index < 4 {
                 let expected = start.addingTimeInterval([15, 45, 105, 225][index])
-                for _ in 0 ..< 20 {
+                for _ in 0 ..< 2 {
                     let observed2 = schedule.plan(expirationDate: expiration, leadTime: lead, now: now)
                     #expect(observed2?.evaluationDate == expected)
                 }

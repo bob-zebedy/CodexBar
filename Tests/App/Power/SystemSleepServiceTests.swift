@@ -25,12 +25,10 @@ struct SystemSleepServiceTests {
         )
         #expect(service.beginPreventingDisplaySleep() == kIOReturnSuccess)
         #expect(try await waitForCondition(timeout: .milliseconds(100), pollInterval: .milliseconds(1)) { didDeclare })
-        #expect(didDeclare)
         #expect(service.endPreventingDisplaySleep() == kIOReturnError)
         #expect(!service.isPreventingDisplaySleep)
         #expect(service.hasDisplaySleepResources)
         #expect(try await waitForCondition(timeout: .milliseconds(100), pollInterval: .milliseconds(1)) { !service.hasDisplaySleepResources })
-        #expect(!service.hasDisplaySleepResources)
         #expect(releaseCounts[failedID] == 2)
         #expect(releaseCounts[userActivityFails ? 1 : 2] == 1)
     }

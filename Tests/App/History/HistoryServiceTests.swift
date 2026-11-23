@@ -106,11 +106,14 @@ struct HistoryServiceTests {
         defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
         let local = try HistoryDatabase(directoryURL: fixture.directory.url)
         let original = try local.activityDataAggregates()
+        let savesBeforeFailure = await fixture.database.savedTypes
         try local.execute("CREATE TRIGGER reject_aggregate BEFORE UPDATE ON aggregates BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
         await #expect(throws: (any Error).self) {
             try await fixture.history.rebuildData(for: [fixture.date], synchronize: true)
         }
         #expect(try local.activityDataAggregates() == original)
+        #expect(await fixture.database.savedTypes == savesBeforeFailure)
+        #expect(try await SyncTestFixtures.activityDataEventCount(fixture.database.activityDataRecords().first) == 9)
         #expect(await fixture.database.deletedIDs.isEmpty)
     }
 

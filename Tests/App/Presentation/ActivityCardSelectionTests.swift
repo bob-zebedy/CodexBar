@@ -11,22 +11,18 @@ struct ActivityCardSelectionTests {
         #expect(state.positionText(for: "b") == "2/2")
         #expect(state.positionText(for: nil) == nil)
         #expect(state.positionText(for: "missing") == nil)
-        #expect(state.transitionDirection == nil)
         update(&state, running: [b, a, c])
         #expect(state.selectedID == "b")
-        #expect(state.transitionDirection == nil)
         #expect(state.activities.compactMap(\.cardSelectionID) == ["a", "b", "c"])
         #expect(state.positionText(for: state.selectedID) == "2/3")
         #expect(state.positionText(for: "a") == "1/3")
         #expect(state.positionText(for: "c") == "3/3")
         state.swipe(1, now: now)
         #expect(state.selectedID == "c")
-        #expect(state.transitionDirection == 1)
         state.swipe(1, now: now)
         #expect(state.selectedID == "a")
         state.swipe(-1, now: now)
         #expect(state.positionText(for: state.selectedID) == "3/3")
-        #expect(state.transitionDirection == -1)
     }
 
     @Test func pinFollowsThreadThroughCompletionAndNewTurn() {
@@ -63,12 +59,10 @@ struct ActivityCardSelectionTests {
         #expect(state.returnDeadline == now.addingTimeInterval(duration))
         update(&state, running: [a, b].filter { !waiting || $0.id != b.id }, waiting: waiting ? [c, b] : [c])
         #expect(state.selectedID == "b")
-        #expect(state.transitionDirection == 1)
         state.reconcile(at: now.addingTimeInterval(duration - 0.01))
         #expect(state.selectedID == "b")
         state.reconcile(at: now.addingTimeInterval(duration))
         #expect(state.selectedID == (pinned ? "a" : "c"))
-        #expect(state.transitionDirection == nil)
     }
 
     @Test func pinReplacementAndUnpinKeepCurrentTaskVisible() {
@@ -97,7 +91,6 @@ struct ActivityCardSelectionTests {
         #expect(!state.isGestureActive)
         #expect(state.positionText(for: "b") == "2/3")
         #expect(state.returnDeadline == nil)
-        #expect(state.transitionDirection == nil)
         state.setVisible(true, now: now)
         #expect(state.selectedID == "a")
         state.setGestureActive(true, now: now)
@@ -106,7 +99,6 @@ struct ActivityCardSelectionTests {
         #expect(state.carouselActivities.isEmpty)
         #expect(state.current == nil)
         #expect(state.pinnedID == "a")
-        #expect(state.transitionDirection == nil)
         update(&state, running: [b, a])
         #expect(state.activities.compactMap(\.cardSelectionID) == ["a", "b"])
         #expect(state.current == .running(a))
@@ -130,7 +122,6 @@ struct ActivityCardSelectionTests {
         #expect(state.selectedID == "b")
         #expect(state.current == .running(b))
         #expect(state.activities.count == 1)
-        #expect(state.transitionDirection == nil)
         update(&state, running: [c, b], completions: completions, terminations: terminations, at: now.addingTimeInterval(601))
         #expect(state.selectedID == "c")
         let next = task("a")
@@ -188,7 +179,6 @@ struct ActivityCardSelectionTests {
         #expect(state.selectedID == "c")
         state.reconcile(at: now.addingTimeInterval(35))
         #expect(state.selectedID == "a")
-        #expect(state.transitionDirection == nil)
     }
 
     @Test func disappearingManualTaskFallsBackAndSingleTaskDoesNotStartTimer() {
@@ -198,7 +188,6 @@ struct ActivityCardSelectionTests {
         state.swipe(1, now: now)
         update(&state, running: [a])
         #expect(state.selectedID == "a")
-        #expect(state.transitionDirection == nil)
         #expect(state.positionText(for: state.selectedID) == nil)
         #expect(state.returnDeadline == nil)
         state.swipe(1, now: now)
@@ -291,7 +280,6 @@ struct ActivityCardSelectionTests {
         #expect(state.current == .running(b))
         #expect(state.positionText(for: "b") == "2/2")
         #expect(state.returnDeadline == nil)
-        #expect(state.transitionDirection == nil)
         state.setGestureActive(false, now: now.addingTimeInterval(3))
         #expect(state.current == (waiting ? .waiting(b) : .running(b)))
         let deadline = now.addingTimeInterval(waiting ? 18 : 13)

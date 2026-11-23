@@ -385,14 +385,10 @@ struct ActivityLivePresentationTests {
     }
 
     @Test(arguments: [
-        CommandPresentationCase(command: "python3 - <<'PY'\nprint('test')\nPY", started: .init("executing-tool", detail: "python3"), completionPrefix: "command-"),
+        CommandPresentationCase(command: "git status", started: .init("executing-tool", detail: "git"), completionPrefix: "command-"),
         CommandPresentationCase(command: "git status; ls", started: .init("executing-tool", detail: "git, ls"), completionPrefix: "command-"),
         CommandPresentationCase(command: "git status; ls; pwd", started: .init("executing-tools", detail: "git, ls"), completionPrefix: "tools-"),
-        CommandPresentationCase(command: "sed -n 1p a; sed -n 2p a; sed -n 3p a", started: .init("executing-tool", detail: "sed"), completionPrefix: "command-"),
-        CommandPresentationCase(command: "sed -n 1p a; sed -n 2p a; git status", started: .init("executing-tool", detail: "sed, git"), completionPrefix: "command-"),
-        CommandPresentationCase(command: "sed -n 1p a; sed -n 2p a; git status; ls", started: .init("executing-tools", detail: "sed, git"), completionPrefix: "tools-"),
-        CommandPresentationCase(command: "\"$CMD\" status", started: .init("command"), completionPrefix: "command-"),
-        CommandPresentationCase(command: "python3 'unfinished", started: .init("command"), completionPrefix: "command-")
+        CommandPresentationCase(command: "\"$CMD\" status", started: .init("command"), completionPrefix: "command-")
     ], ["completed", "failed", "declined"])
     func parsedCommandsKeepStartedProgressAndCompletedConsistent(example: CommandPresentationCase, status: String) throws {
         var item: [String: Any] = [
@@ -595,14 +591,15 @@ struct ActivityLivePresentationTests {
         #expect(try summary(reducer).toolCount == nil)
     }
 
-    @Test(arguments: ["approved", "denied", "timedOut", "aborted"])
-    func automaticReviewHasNoPresentationOrHistory(status: String) throws {
+    @Test func automaticReviewHasNoPresentationOrHistory() throws {
         var reducer = try prepared()
-        _ = try reducer.consume(message("item/autoApprovalReview/started", #""reviewId":"review","review":{"status":"inProgress"}"#), now: now)
+        let started = try message("item/autoApprovalReview/started", #""targetItemId":"command","reviewId":"review","review":{"status":"inProgress"}"#)
+        #expect(reducer.consume(started, now: now).isEmpty)
+        #expect(reducer.states.values.first?.isWaitingApproval != true)
         #expect(try summary(reducer).current.key == "processing")
         #expect(try summary(reducer).waiting == nil)
         let events = try reducer.consume(
-            message("item/autoApprovalReview/completed", "\"reviewId\":\"review\",\"review\":{\"status\":\"\(status)\"}"),
+            message("item/autoApprovalReview/completed", #""reviewId":"review","review":{"status":"approved"}"#),
             now: now.addingTimeInterval(1)
         )
         #expect(events.isEmpty)

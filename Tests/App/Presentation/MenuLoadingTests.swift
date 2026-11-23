@@ -75,9 +75,6 @@ struct MenuLoadingTests {
         let visibility = fixture.menu.menuSurfaceVisibility
         visibility.prepareForPresentation()
         let host = fixture.host()
-        func eventRegion(in view: NSView) -> ActivityCardEvents.EventRegion? {
-            view as? ActivityCardEvents.EventRegion ?? view.subviews.lazy.compactMap { eventRegion(in: $0) }.first
-        }
         func measureCard() throws -> ActivityCardEvents.EventRegion {
             host.setFrameSize(host.fittingSize)
             host.layoutSubtreeIfNeeded()
@@ -93,6 +90,94 @@ struct MenuLoadingTests {
         visibility.didPresent()
         #expect(try measureCard() === reopened)
         try server.finish()
+    }
+
+    @Test(.tags(.integration), arguments: [false, true])
+    func cardRefreshDuringSwipeKeepsPreviewUntilRelease(animations: Bool) async throws {
+        let fixture = try Fixture()
+        defer { await fixture.cleanUp() }
+        let monitor = fixture.menu.activityMonitor
+        monitor.isActivitySourceHealthy = true
+        let now = Date()
+        monitor.consume(.live([
+            TestFixtures.event(at: now.addingTimeInterval(-2), thread: "a"),
+            TestFixtures.event(at: now.addingTimeInterval(-1), thread: "b")
+        ]))
+        let presentation = fixture.menu.activityCardPresentationState
+        presentation.setVisible(true)
+        defer { presentation.setVisible(false) }
+        presentation.togglePin()
+        let first = try #require(presentation.selection.selectedID)
+        let second = try #require(presentation.selection.activities.compactMap(\.cardSelectionID).first { $0 != first })
+        let card = ActivityCard(
+            activityMonitor: monitor, centerPresentation: fixture.menu.activityCenterPresentationState,
+            cardPresentation: presentation, keepAliveController: fixture.menu.keepAliveController, onTaskCenterTap: { _ in }
+        )
+        fixture.settings.setAnimationsEnabled(animations)
+        let host = NSHostingView(rootView: card.contentAnimations(settings: fixture.settings)
+            .frame(width: CodexStatusMenuView.menuWidth).fixedSize(horizontal: false, vertical: true))
+        func layout() {
+            host.setFrameSize(host.fittingSize)
+            host.layoutSubtreeIfNeeded()
+        }
+        layout()
+        let region = try #require(eventRegion(in: host))
+        func settle() async throws {
+            try #require(try await waitForCondition(timeout: .seconds(2), pollInterval: .milliseconds(10)) {
+                layout()
+                return !presentation.selection.isGestureActive
+            })
+        }
+
+        region.scroll(delta: -150, timestamp: 1, phase: .began)
+        monitor.consume(.live([TestFixtures.event(.approvalRequested, at: now, thread: first)]))
+        layout()
+        #expect(presentation.selection.isGestureActive)
+        #expect(presentation.selection.current?.isCardWaiting == false)
+        region.scroll(delta: 0, timestamp: 1.1, phase: .cancelled)
+        try await settle()
+        #expect(presentation.selection.selectedID == first)
+        #expect(presentation.selection.current?.isCardWaiting == true)
+
+        region.scroll(delta: -220, timestamp: 2, phase: .began)
+        monitor.consume(.live([TestFixtures.event(.turnCompleted, at: now, thread: second)]))
+        layout()
+        #expect(presentation.selection.isGestureActive)
+        region.scroll(delta: 0, timestamp: 2.1, phase: .ended)
+        try await settle()
+        #expect(presentation.selection.selectedID == second)
+        #expect(presentation.selection.current?.cardEndedAt != nil)
+
+        region.scroll(delta: 1, timestamp: 3, phase: [], precise: false)
+        try await settle()
+        #expect(presentation.selection.selectedID == first)
+        #expect(presentation.selection.returnDeadline != nil)
+
+        guard animations else { return }
+        region.scroll(delta: -1, timestamp: 4, phase: [], precise: false)
+        #expect(presentation.selection.selectedID == second)
+        layout()
+        await Task.yield()
+        region.scroll(delta: 1, timestamp: 4.1, phase: [], precise: false)
+        #expect(presentation.selection.selectedID == first)
+        layout()
+        await Task.yield()
+        region.scroll(delta: -220, timestamp: 4.2, phase: .began)
+        // 拖动接管后, 即使旧的滚轮动画完成, 当前手势仍由卡片持有
+        try await Task.sleep(for: .milliseconds(400))
+        layout()
+        #expect(presentation.selection.isGestureActive)
+        region.scroll(delta: 0, timestamp: 4.7, phase: .ended)
+        #expect(presentation.selection.isGestureActive)
+        fixture.settings.setAnimationsEnabled(false)
+        layout()
+        #expect(!presentation.selection.isGestureActive)
+        #expect(presentation.selection.selectedID == second)
+        #expect(presentation.selection.returnDeadline != nil)
+    }
+
+    private func eventRegion(in view: NSView) -> ActivityCardEvents.EventRegion? {
+        view as? ActivityCardEvents.EventRegion ?? view.subviews.lazy.compactMap { eventRegion(in: $0) }.first
     }
 
     @Test(.tags(.integration), arguments: [true, false])

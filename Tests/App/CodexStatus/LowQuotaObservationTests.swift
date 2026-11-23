@@ -16,15 +16,15 @@ struct LowQuotaObservationTests {
         #expect(!repeatedNextCycleLow)
     }
 
-    @Test(arguments: [-60.0, -1, 0, 1, 60])
-    func resetTimeDriftDoesNotCreateANewCycle(_ drift: TimeInterval) {
+    @Test(arguments: [(-61.0, true), (-60.0, false), (60.0, false), (61.0, true)])
+    func resetTimeDriftDeterminesWhetherANewCycleStarts(_ drift: TimeInterval, startsNewCycle: Bool) {
         var observation = NotificationService.LowQuotaObservation()
         let firstLow = observation.observe(remainingPercent: 5, resetsAt: TestFixtures.now, thresholdPercent: 10)
         #expect(firstLow)
         let driftedLow = observation.observe(remainingPercent: 5, resetsAt: TestFixtures.now.addingTimeInterval(drift), thresholdPercent: 10)
-        #expect(!driftedLow)
+        #expect(driftedLow == startsNewCycle)
         let returnedLow = observation.observe(remainingPercent: 4, resetsAt: TestFixtures.now, thresholdPercent: 10)
-        #expect(!returnedLow)
+        #expect(returnedLow == startsNewCycle)
     }
 
     @Test func thresholdCrossingAndMissingResetRetainTheirMeaning() {

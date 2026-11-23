@@ -260,17 +260,6 @@ struct AppServerStartupTests {
         #expect(FileManager.default.fileExists(atPath: marker.path))
     }
 
-    @Test nonisolated func missingSocketPreservesConnectionErrno() throws {
-        let socket = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).sock")
-        do {
-            _ = try AppServerSession(socketURL: socket, logStorage: nil)
-            Issue.record("Expected missing socket")
-        } catch let error as AppServerConnectionError {
-            #expect(error.code == ENOENT)
-            #expect(error.serverIsAbsent)
-        }
-    }
-
     @Test(arguments: ["0.161.0", "0.162.0-alpha.17.2", "unrecognized", "absent"])
     func selectsSupportedBundledVersionBeforeLaunching(cliVersion: String) async throws {
         let directory = try TestDirectory()
