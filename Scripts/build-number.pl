@@ -7,14 +7,14 @@ use File::Temp     qw(tempfile);
 
 exit 0 if ( $ENV{ACTION} // '' ) =~ /^(?:clean|analyze|indexbuild)$/;
 
-# Increment the build number only for builds
+# Set CODEXBAR_AUTO_INCREMENT_BUILD_NUMBER to NO to keep the current build number
 exit 0 if ( $ENV{CODEXBAR_AUTO_INCREMENT_BUILD_NUMBER} // 'YES' ) eq 'NO';
 
 @ARGV == 1
   or die "error: Usage: build-number.pl BuildNumber.xcconfig\n";
 my ($config_path) = @ARGV;
 
-# Keep the lock at a stable path so increments stay serialized across atomic replacements
+# Lock a separate file so concurrent builds share the same lock when the config file is replaced
 open my $lock, '>>', "$config_path.lock"
   or die "error: Cannot open build number lock: $!\n";
 flock $lock, LOCK_EX

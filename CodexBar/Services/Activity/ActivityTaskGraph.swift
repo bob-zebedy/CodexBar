@@ -68,11 +68,6 @@ nonisolated struct ActivityTaskGraph {
     mutating func reconcile(_ states: [TurnLifecycleState]) -> [ActivityTransition] {
         unavailableTurns = Set(states.filter { $0.tracking == .live && $0.readStatus != .complete }
             .map { ActivityTaskKey(thread: $0.requestedThreadID, turn: $0.turnID) })
-        for state in states where state.tracking == .live && state.readStatus != .complete {
-            if let root = state.rootThreadID, let turn = state.rootTurnID {
-                unavailableTurns.insert(ActivityTaskKey(thread: root, turn: turn))
-            }
-        }
         var transitions: [ActivityTransition] = []
         let retired = Set(states.filter { $0.tracking != .live }.map { ActivityTurnReference(threadID: $0.requestedThreadID, turnID: $0.turnID) })
         pendingSubagentEvents = pendingSubagentEvents.filter { subagentReference(for: $0.event).map(retired.contains) != true }
@@ -84,7 +79,7 @@ nonisolated struct ActivityTaskGraph {
         let waiting = replayAssociatedSubagentEvents(into: &transitions)
         mergeExecutionLifecycles(states)
         transitions += waitingApprovalTransitions(waiting)
-        reconcileSubagentCounts(states)
+        reconcileTaskCoverage(states)
         applyActiveTokenUsage(states)
         applyTerminalTokenUsage(states)
         prune(now: Date())
@@ -194,8 +189,7 @@ nonisolated struct ActivityTaskGraph {
         let key = ActivityTaskKey(thread: state.requestedThreadID, turn: state.turnID)
         if state.tracking != .live {
             pendingTerminalTasks[key] = nil
-            if var task = tasks[key] {
-                task.lifecycleCoverageCheckedAt = nil
+            if let task = tasks[key] {
                 tasks[key] = task.executions.values.contains { !$0.isTerminal && !$0.isDetached } ? task : nil
             }
             return
@@ -218,8 +212,6 @@ nonisolated struct ActivityTaskGraph {
             return
         }
         guard var task = tasks[key] else { return }
-        let hadCoverage = task.lifecycleCoverageCheckedAt != nil
-        task.recordLifecycleRead(state, at: Date())
         Self.mergeLifecycleBackfill(from: state, into: &task)
         let progressed = mergeLifecycleProgress(from: state, key: key, into: &task)
         if state.readStatus == .complete, let terminal = state.terminal {
@@ -235,7 +227,7 @@ nonisolated struct ActivityTaskGraph {
             return
         }
         tasks[key] = task
-        if progressed || (!hadCoverage && task.lifecycleCoverageCheckedAt != nil) {
+        if progressed {
             backfilledTasks.insert(key)
         }
     }

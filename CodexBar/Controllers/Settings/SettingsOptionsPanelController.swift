@@ -90,7 +90,7 @@ final class SettingsOptionsPanelController {
         self.mainPanelSettings = mainPanelSettings
         self.willShow = willShow
         self.willHide = willHide
-        // 内容闭包在首次构造面板时才执行, 保留 SwiftUI 状态的创建时机
+        // 首次创建面板时才调用内容闭包, SwiftUI 状态也在那时创建
         contentControllerProvider = { cue, onSizeChanged in
             let controller = NSHostingController(
                 rootView: SidePanelEntryRebuildHost(cue: cue, content: contentProvider())

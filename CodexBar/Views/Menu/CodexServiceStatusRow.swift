@@ -7,7 +7,7 @@ struct CodexServiceStatusRow: View {
     @State private var isHovered = false
 
     var body: some View {
-        Link(destination: CodexServiceStatusService.statusPageURL) {
+        Link(destination: CodexStatusPageClient.statusPageURL) {
             HStack(spacing: MenuMetrics.statusIconSpacing) {
                 ZStack {
                     Image(systemName: statusSymbol)

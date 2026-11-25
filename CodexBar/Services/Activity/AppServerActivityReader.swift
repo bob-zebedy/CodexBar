@@ -905,9 +905,9 @@ actor AppServerActivityReader {
                     try consume(data)
                     try await publishPendingUpdates(generation: current, force: false)
                     await Task.yield()
-                case let .response(data):
+                case let .response(object):
                     received = true
-                    return try AppServerRPC.decode(data, as: Response.self)
+                    return try AppServerRPC.decode(object, as: Response.self)
                 }
             }
         } catch {
@@ -1248,7 +1248,7 @@ actor AppServerActivityReader {
             }
             for sample in samples where isTokenUsageWriter {
                 guard !isHistoryRecordingPaused else { return }
-                let bytes = try JSONLines.stableEncoder.encode(sample).count
+                let bytes = try StorageJSON.stableEncoder.encode(sample).count
                 pendingSamples.append((sample, bytes))
                 pendingStorageBytes += bytes
                 enforceStorageLimit()

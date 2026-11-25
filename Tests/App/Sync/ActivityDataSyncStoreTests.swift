@@ -7,10 +7,10 @@ struct ActivityDataSyncStoreTests {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
         let store = ActivityDataSyncStore(directoryURL: directory.url)
-        let uploadedAt = JSONLines.storageDate(Date())
+        let uploadedAt = StorageJSON.storageDate(Date())
         try store.saveState(ActivityDataSyncState(lastUploadAt: uploadedAt))
         do {
-            let lock = try #require(try JSONFileStorage.acquireLock(at: AppStorage(rootURL: directory.url).lockURL(.activityDataSyncCache)))
+            let lock = try #require(try JSONFileStorage.acquireLock(at: AppStoragePaths(rootURL: directory.url).lockURL(.activityDataSyncCache)))
             defer { JSONFileStorage.releaseLock(lock) }
             await #expect(throws: POSIXError.self) { try await SyncService.loadLastUploadAt(in: directory.url) }
         }
@@ -33,7 +33,7 @@ struct ActivityDataSyncStoreTests {
         #expect(try store.load().cursor == Data("previous cursor".utf8))
         let daily = SyncedActivityData(date: "2026-10-05", eventCount: 2, projectCounts: [:], modelCounts: [:])
         let record = try ActivityDataSyncRecord(deviceID: "device", activityData: daily, recordName: "activityData_device_2026-10-05")
-        let uploadedAt = JSONLines.storageDate(Date())
+        let uploadedAt = StorageJSON.storageDate(Date())
         try store.saveConfirmedRecords([record], lastUploadAt: uploadedAt)
         let confirmed = try store.load()
         #expect(confirmed.cursor == Data("previous cursor".utf8))

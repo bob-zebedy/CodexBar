@@ -59,7 +59,7 @@ private struct AutoRefreshCountdownCircle: View {
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: MenuMetrics.statusIconSize, height: MenuMetrics.statusIconSize)
-        // 只让刷新起点变化触发动画, 避免每秒 tick 被补间
+        // 新一轮倒计时开始时才播放动画, 每秒更新进度时直接重画
         .animation(isActive ? .linear(duration: Metrics.resetAnimationDuration) : nil, value: startedAt)
     }
 

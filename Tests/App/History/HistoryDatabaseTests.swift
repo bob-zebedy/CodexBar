@@ -256,7 +256,7 @@ struct HistoryDatabaseTests {
         let fields = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(fields["position"] as? Int == 1)
         #expect(fields["aggregationVersion"] as? Int == AggregationVersion.activityData)
-        #expect(try JSONLines.decoder.decode(ActivityDataAggregate.self, from: data) == aggregate)
+        #expect(try StorageJSON.decoder.decode(ActivityDataAggregate.self, from: data) == aggregate)
         #expect(try database.pendingTokenUsageDates().isEmpty)
         #expect(try database.tokenUsageAggregates().isEmpty)
     }

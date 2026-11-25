@@ -166,7 +166,7 @@ final class PowerSourceMonitor {
         }
 
         for source in sources {
-            // Get 语义, 不能 takeRetainedValue
+            // IOPSGetPowerSourceDescription 返回借用的对象, 所有权仍属于 IOKit
             guard let description = IOPSGetPowerSourceDescription(blob, source)?
                 .takeUnretainedValue() as? [String: Any],
                 description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType,

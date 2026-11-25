@@ -5,8 +5,8 @@ included:
     - Shared
 
 line_length:
-    warning: 180
-    error: 220
+    warning: 220
+    error: 300
     ignores_comments: true
     ignores_urls: true
     ignores_function_declarations: true

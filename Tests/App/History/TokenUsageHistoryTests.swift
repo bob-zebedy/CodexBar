@@ -48,9 +48,9 @@ struct TokenUsageHistoryTests {
         let old = TestFixtures.tokenUsageAggregate(at: now.addingTimeInterval(-220 * 86400), tokenUsage: tokenUsage(input: 300))
         let future = TestFixtures.tokenUsageAggregate(at: now.addingTimeInterval(86400), tokenUsage: tokenUsage(input: 500))
         #expect(TokenUsageAggregate.tokenUsageByDate([old, current, future], now: now) == [day: current.tokenUsage])
-        #expect(try JSONLines.decoder.decode(TokenUsageAggregate.self, from: JSONLines.stableEncoder.encode(current)) == current)
+        #expect(try StorageJSON.decoder.decode(TokenUsageAggregate.self, from: StorageJSON.stableEncoder.encode(current)) == current)
         let record = try #require(TokenUsageSyncRecord.dailyRecords(local: [current], deviceID: "device", now: now).first)
-        let fields = try #require(JSONSerialization.jsonObject(with: JSONLines.stableEncoder.encode(record)) as? [String: Any])
+        let fields = try #require(JSONSerialization.jsonObject(with: StorageJSON.stableEncoder.encode(record)) as? [String: Any])
         #expect(fields["position"] == nil)
     }
 

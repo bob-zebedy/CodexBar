@@ -35,8 +35,8 @@ final class KeepAliveController: ObservableObject {
 
     /// Power Helper 安装与注册状态的错误, 注册恢复正常时才清除
     @Published private var registrationErrorMessage: String?
-    /// 切换睡眠状态过程中的错误, 由下一次操作结果 用户动作或明确的依赖失效覆盖
-    /// 与注册类错误分开存储: refreshPowerHelperStatus 每次 App 激活都会跑, 不能抹掉操作结果
+    /// 切换睡眠状态时的错误, 会随下一次操作结果, 用户操作或依赖失效而更新
+    /// 单独保存这个错误, 以免每次 App 激活时刷新 Power Helper 注册状态把它清掉
     @Published private var operationErrorMessage: String?
 
     /// 注册失败时优先展示注册错误, 操作错误可能由此引起
@@ -93,7 +93,7 @@ final class KeepAliveController: ObservableObject {
     private let powerHelperClientSessionID = UUID().uuidString
     private var connection: NSXPCConnection?
     private var appliedSleepPreventionRequested: Bool?
-    /// true 请求可能已被 Power Helper 接收却丢了回复, 只有一次成功的 false 才能清除这个可能性
+    /// Power Helper 可能已收到防睡眠请求, 只是回复丢了, 要等它确认释放才能清除此标记
     private var mayHavePowerHelperLease = false
     private var requestInFlight = false
     private var requestGeneration: UInt64 = 0
@@ -300,7 +300,7 @@ final class KeepAliveController: ObservableObject {
         AppLog.keepAlive.notice("KeepAlive 等待回应时保持防睡眠变更: enabled=\(enabled ? 1 : 0)")
         keepsAwakeWhileWaiting = enabled
         defaults.set(enabled, forKey: Self.keepsAwakeWhileWaitingKey)
-        // 快照不会因为改设置重发一次, 等待中的任务只能在这里重新求值
+        // 改设置不会触发新的任务快照, 这里要重新判断等待中的任务是否计入防睡眠
         reconcileSleepState(trigger: .settings)
     }
 
@@ -362,7 +362,7 @@ final class KeepAliveController: ObservableObject {
             return
         }
 
-        // 读失败与确认没有电池必须分开: 后者该清零, 前者维持现状
+        // 读数失败时沿用上次的低电量状态, 确认没有电池时清除状态和待发提醒
         guard reading != .unreadable else {
             return
         }
@@ -599,7 +599,7 @@ final class KeepAliveController: ObservableObject {
 
     /// @Published 在 willSet 无条件发布变化, 同值赋值也会刷新菜单面板和设置页
     /// refreshPowerHelperStatus 每次 App 激活时执行, releaseSleepPrevention 每条活动快照都会调用
-    /// 这些重复求值路径通过此方法跳过同值写入, 用户动作和一次性操作结果仍直接赋值
+    /// 这两处只有值变化时才写入, 用户操作和一次性操作的结果仍直接赋值
     private func assign<Value: Equatable>(
         _ value: Value,
         to keyPath: ReferenceWritableKeyPath<KeepAliveController, Value>
@@ -720,7 +720,7 @@ final class KeepAliveController: ObservableObject {
     }
 
     /// 通知选项是否可用取决于用户开关, 电量和时长上限
-    /// 各输入的更新路径统一调用此方法, 避免各自维护判定规则
+    /// 用户改设置或电池状态变化时, 都在这里重新判断哪些通知选项可用
     private func publishNotificationDependencies() {
         let isKeepAliveUsable = isEnabled
         assign(
@@ -1392,7 +1392,7 @@ final class KeepAliveController: ObservableObject {
         if !isEnabled {
             return .userOff
         }
-        // 先检查依赖, 避免任务恢复前以 noTasks 提前放出未授权 Power Helper 的设置入口
+        // 先检查 Power Helper 授权, 否则没有任务时会误把未授权的设置入口显示出来
         if !isPowerHelperStatusAvailable || powerHelperStatus != .enabled {
             return .powerHelperUnavailable
         }

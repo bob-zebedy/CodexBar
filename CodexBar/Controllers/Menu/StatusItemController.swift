@@ -159,7 +159,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         configureStatusButton()
         configurePopover()
         configureGlobalHotKey()
-        // 订阅时 CombineLatest 会同步发出当前值, 初始图标由订阅路径统一渲染
+        // CombineLatest 在订阅时就会发出当前值, 第一次回调会画出初始图标
         observeViewModel()
         observeSyncState()
     }

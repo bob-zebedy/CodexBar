@@ -7,7 +7,7 @@ nonisolated struct AppServerRPCError: Error {
     let data: Data?
 }
 
-/// 账户与活动连接使用相同的信封和载荷错误边界
+/// 账户和活动连接共用这套解码规则, 分别报告 RPC 响应格式错误和 result 内容错误
 nonisolated enum AppServerRPC {
     static func encode(method: String, id: Int?, params: [String: Any]?) throws -> Data {
         var object: [String: Any] = ["method": method]
@@ -20,9 +20,8 @@ nonisolated enum AppServerRPC {
         return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
     }
 
-    static func decode<Response: Decodable>(_ data: Data, as _: Response.Type) throws -> Response {
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              (object["error"] != nil) != (object["result"] != nil) else {
+    static func decode<Response: Decodable>(_ object: [String: Any], as _: Response.Type) throws -> Response {
+        guard (object["error"] != nil) != (object["result"] != nil) else {
             throw AppServerError.invalidServerResponse
         }
         if let error = object["error"] {

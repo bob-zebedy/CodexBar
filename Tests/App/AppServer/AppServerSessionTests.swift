@@ -270,8 +270,8 @@ struct AppServerSessionTests {
                 switch try session.poll(request) {
                 case .waiting: continue
                 case let .event(data): delivered.append(data)
-                case let .response(data):
-                    #expect(try AppServerRPC.decode(data, as: Value.self).value == 7)
+                case let .response(object):
+                    #expect(try AppServerRPC.decode(object, as: Value.self).value == 7)
                     break receive
                 }
             }
@@ -304,6 +304,10 @@ struct AppServerSessionTests {
 
     private func logDeliveryMessages() throws -> (filtered: [Data], retained: [Data]) {
         var filtered = try unusedNotifications()
+        let parent = UUID().uuidString, child = UUID().uuidString
+        try filtered.append(notification("thread/started", params: ["thread": ["id": parent, "threadSource": "codexbar_bridge"]]))
+        try filtered.append(notification("thread/started", params: ["thread": ["id": child, "source": ["subAgent": ["threadSpawn": ["parent_thread_id": parent]]]]]))
+        try filtered.append(notification("turn/completed", params: ["threadId": child, "turn": ["id": "test", "items": [["type": "agentMessage", "text": "Synthetic Bridge child answer"]]]]))
         var retained = try [
             "thread/started", "thread/status/changed", "turn/started", "turn/completed",
             "thread/closed", "thread/archived", "thread/deleted", "thread/reverted",

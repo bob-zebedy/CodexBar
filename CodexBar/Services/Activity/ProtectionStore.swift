@@ -28,7 +28,7 @@ actor ProtectionStore {
 
     init(directoryURL: URL? = nil, fileManager: FileManager = .default) {
         self.fileManager = fileManager
-        let storage = AppStorage(rootURL: directoryURL ?? AppStorage.directoryURL(fileManager: fileManager))
+        let storage = AppStoragePaths(rootURL: directoryURL ?? AppStoragePaths.directoryURL(fileManager: fileManager))
         self.directoryURL = storage.protectionStateURL.deletingLastPathComponent()
         stateURL = storage.protectionStateURL
         lockURL = storage.lockURL(.protectionState)

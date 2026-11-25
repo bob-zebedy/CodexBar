@@ -24,6 +24,11 @@ final nonisolated class AppServerSession {
     private let logStorage: AppServerLogStore?
     private let socketPath: String
     private let connectionName: String
+    private var bridgeLogStream = BridgeLogPayload.Stream()
+    private var isBridgeConnection: Bool {
+        connectionName == BridgeControlConnection.connectionName
+    }
+
     private let retainsNotifications: Bool
     private var exchangeDeadline: ContinuousClock.Instant?
     var isOpen: Bool {
@@ -55,16 +60,8 @@ final nonisolated class AppServerSession {
             guard descriptor >= 0, fcntl(descriptor, F_SETFL, O_NONBLOCK) == 0 else { throw AppServerConnectionError(code: errno) }
             var address = sockaddr_un()
             address.sun_family = sa_family_t(AF_UNIX)
-            let capacity = MemoryLayout.size(ofValue: address.sun_path)
-            var path = socketURL.path.utf8CString
-            if path.count > capacity {
-                let directory = try CodexPaths.socketDirectoryReference(socketURL.deletingLastPathComponent())
-                path = directory.appendingPathComponent(socketURL.lastPathComponent).path.utf8CString
-                guard path.count <= capacity else { throw AppServerConnectionError(code: ENAMETOOLONG) }
-            }
-            withUnsafeMutableBytes(of: &address.sun_path) { destination in
-                path.withUnsafeBytes { destination.copyBytes(from: $0) }
-            }
+            guard let path = try CodexPaths.unixSocketPath(socketURL) else { throw AppServerConnectionError(code: ENAMETOOLONG) }
+            withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: path.utf8) }
             let result = withUnsafePointer(to: &address) {
                 $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                     Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
@@ -87,13 +84,13 @@ final nonisolated class AppServerSession {
             _ = setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &enabled, socklen_t(MemoryLayout<Int32>.size))
             try handshake(path: handshakePath)
             if let connectionLogID {
-                logStorage?.finishRequest(connectionLogID, response: socketPath)
+                logStorage?.finishRequest(connectionLogID, response: socketPath, connection: connectionName)
             } else if !recordsConnectionAttempts {
                 logStorage?.recordConnection(method: "connection/open", detail: socketPath, connection: connectionName, status: .success)
             }
         } catch {
             if let connectionLogID {
-                logStorage?.failRequest(connectionLogID, message: error.localizedDescription)
+                logStorage?.failRequest(connectionLogID, message: error.localizedDescription, connection: connectionName)
             }
             close(recordsEvent: recordsConnectionAttempts)
             throw error
@@ -116,12 +113,12 @@ final nonisolated class AppServerSession {
     /// 按服务端 userAgent 校验当前连接的实际版本, 安装版本不能代替运行中的服务版本
     /// 版本缺失或无法解析时也拒绝完成握手, 防止绕过最低版本要求
     @discardableResult
-    func initialize(clientName: String, minimumVersion: String, timeout: TimeInterval = 10, title: String? = nil) throws -> String {
+    func initialize(clientName: String, minimumVersion: String, timeout: TimeInterval = 10, title: String? = nil, experimentalAPI: Bool = false) throws -> String {
         var clientInfo = ["name": clientName, "version": Bundle.main.shortVersionString.flatMap { $0.isEmpty ? nil : $0 } ?? "1.0.0"]
         clientInfo["title"] = title
         let result: Initialization = try request("initialize", params: [
             "clientInfo": clientInfo,
-            "capabilities": ["experimentalApi": false]
+            "capabilities": ["experimentalApi": experimentalAPI]
         ], timeout: timeout)
         guard let firstToken = result.userAgent?.split(separator: " ").first,
               let slash = firstToken.firstIndex(of: "/") else {
@@ -149,7 +146,8 @@ final nonisolated class AppServerSession {
         nextID += 1
         let payload = try AppServerRPC.encode(method: method, id: nextID, params: params)
         do {
-            return try AppServerRPC.decode(exchange(payload, id: nextID, timeout: timeout), as: Response.self)
+            let response = try exchange(payload, id: nextID, method: method, threadID: params?["threadId"] as? String, timeout: timeout)
+            return try AppServerRPC.decode(response, as: Response.self)
         } catch {
             if error is CancellationError || (error as? AppServerError)?.isTransportFailure == true {
                 close()
@@ -161,13 +159,20 @@ final nonisolated class AppServerSession {
     struct PendingRequest {
         let id: Int
         let logID: UUID?
+        let threadID: String?
+        let method: String
         let deadline: ContinuousClock.Instant
     }
 
     enum RequestPoll {
         case waiting
         case event(Data)
-        case response(Data)
+        case response([String: Any])
+    }
+
+    private struct IncomingMessage {
+        let data: Data
+        lazy var parsedObject = Result { try JSONSerialization.jsonObject(with: data) as? [String: Any] }
     }
 
     /// 活动连接分步等响应, 由所属 actor 在等待期间消费推送和处理取消
@@ -176,7 +181,9 @@ final nonisolated class AppServerSession {
         let payload = try AppServerRPC.encode(method: method, id: nextID, params: params)
         let request = PendingRequest(
             id: nextID,
-            logID: logStorage?.beginRequest(method: method, payload: String(bytes: payload, encoding: .utf8) ?? "", connection: connectionName),
+            logID: logStorage?.beginRequest(method: method, payload: logPayload(payload, method: method), connection: connectionName),
+            threadID: params["threadId"] as? String,
+            method: method,
             deadline: ContinuousClock.now.advanced(by: .seconds(10))
         )
         do { try sendFrame(payload, opcode: 1) } catch {
@@ -189,91 +196,64 @@ final nonisolated class AppServerSession {
     func poll(_ request: PendingRequest) throws -> RequestPoll {
         try Task.checkCancellation()
         guard ContinuousClock.now < request.deadline else { throw AppServerError.serverTimeout }
-        guard let data = try receive(before: ContinuousClock.now.advanced(by: .seconds(0.02)), matchingResponseID: request.id) else { return .waiting }
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        guard var message = try receive(before: ContinuousClock.now.advanced(by: .seconds(0.02)), matchingResponseID: request.id) else { return .waiting }
+        guard let object = try message.parsedObject.get() else {
             throw AppServerError.invalidServerResponse
         }
-        if object["id"] as? Int == request.id, object["result"] != nil || object["error"] != nil {
-            if let logID = request.logID {
-                let response = (String(bytes: data, encoding: .utf8) ?? "")
-                if object["error"] != nil {
-                    logStorage?.failRequest(logID, message: response)
-                } else {
-                    logStorage?.finishRequest(logID, response: response)
-                }
-            }
-            return .response(data)
+        if Self.isResponse(object, to: request.id) {
+            finishResponseLog(request.logID, data: message.data, object: object, method: request.method, threadID: request.threadID)
+            return .response(object)
         }
-        return .event(data)
+        return .event(message.data)
     }
 
     func fail(_ request: PendingRequest, error: Error) {
         if let logID = request.logID {
-            logStorage?.failRequest(logID, message: error.localizedDescription)
+            logStorage?.failRequest(logID, message: error.localizedDescription, connection: connectionName)
         }
     }
 
     /// 账户和活动连接共用帧协议与请求日志, 业务解码由调用方负责
-    private func exchange(_ payload: Data, id: Int, timeout: TimeInterval) throws -> Data {
+    private func exchange(_ payload: Data, id: Int, method: String, threadID: String?, timeout: TimeInterval) throws -> [String: Any] {
         try AppServerRequestBudget.checkCurrent()
-        exchangeDeadline = ContinuousClock.now.advanced(by: .seconds(timeout))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
+        exchangeDeadline = deadline
         defer { exchangeDeadline = nil }
-        let request = try JSONSerialization.jsonObject(with: payload) as? [String: Any]
-        let method = request?["method"] as? String ?? "unknown"
-        let text = String(data: payload, encoding: .utf8) ?? ""
-        let token = logStorage?.beginRequest(method: method, payload: text, connection: connectionName)
+        let token = logStorage?.beginRequest(method: method, payload: logPayload(payload, method: method), connection: connectionName)
         do {
-            let data = try receiveResponse(payload, id: id, timeout: timeout)
-            if let token {
-                let response = String(data: data, encoding: .utf8) ?? ""
-                let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                if object?["error"] != nil {
-                    logStorage?.failRequest(token, message: response)
-                } else {
-                    logStorage?.finishRequest(token, response: response)
+            try sendFrame(payload, opcode: 1)
+            while ContinuousClock.now < deadline {
+                try AppServerRequestBudget.checkCurrent()
+                guard var message = try receive(before: deadline, matchingResponseID: id),
+                      let object = try message.parsedObject.get() else { continue }
+                if Self.isResponse(object, to: id) {
+                    finishResponseLog(token, data: message.data, object: object, method: method, threadID: threadID)
+                    return object
+                }
+                if retainsNotifications {
+                    guard notifications.count < 4096 else { throw AppServerError.serverConnectionClosed }
+                    notifications.append(message.data)
                 }
             }
-            return data
+            throw AppServerError.serverTimeout
         } catch {
             if let token {
-                logStorage?.failRequest(token, message: error.localizedDescription)
+                logStorage?.failRequest(token, message: error.localizedDescription, connection: connectionName)
             }
             throw error
         }
     }
 
-    private func receiveResponse(_ payload: Data, id: Int, timeout: TimeInterval) throws -> Data {
-        try sendFrame(payload, opcode: 1)
-        let deadline = exchangeDeadline ?? ContinuousClock.now.advanced(by: .seconds(timeout))
-        while ContinuousClock.now < deadline {
-            try AppServerRequestBudget.checkCurrent()
-            guard let data = try receive(before: deadline, matchingResponseID: id),
-                  let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-            if object["id"] as? Int == id, object["result"] != nil || object["error"] != nil {
-                return data
-            }
-            // 审批请求只作为观察事件, 绝不在旁观连接中回答
-            if retainsNotifications {
-                guard notifications.count < 4096 else { throw AppServerError.serverConnectionClosed }
-                notifications.append(data)
-            }
-        }
-        throw AppServerError.serverTimeout
-    }
-
     func notify(_ method: String, params: [String: Any]? = nil) throws {
-        try notify(AppServerRPC.encode(method: method, id: nil, params: params))
+        try sendMessage(AppServerRPC.encode(method: method, id: nil, params: params), method: method)
     }
 
-    private func notify(_ payload: Data) throws {
-        let object = try JSONSerialization.jsonObject(with: payload) as? [String: Any]
-        let method = object?["method"] as? String ?? "unknown"
-        let text = String(data: payload, encoding: .utf8) ?? ""
+    func sendMessage(_ payload: Data, method: String) throws {
         do {
             try sendFrame(payload, opcode: 1)
-            logStorage?.recordSent(method: method, payload: text, connection: connectionName)
+            logStorage?.recordSent(method: method, payload: logPayload(payload, method: method), connection: connectionName)
         } catch {
-            logStorage?.recordSent(method: method, payload: text, connection: connectionName, error: error.localizedDescription)
+            logStorage?.recordSent(method: method, payload: logPayload(payload, method: method), connection: connectionName, error: error.localizedDescription)
             throw error
         }
     }
@@ -288,7 +268,7 @@ final nonisolated class AppServerSession {
             return notifications.removeFirst()
         }
         do {
-            return try receive(before: ContinuousClock.now.advanced(by: .seconds(0.05)))
+            return try receive(before: ContinuousClock.now.advanced(by: .seconds(0.05)))?.data
         } catch {
             logStorage?.recordFailure(method: "connection/receive", message: error.localizedDescription, connection: connectionName, source: .connection)
             throw error
@@ -312,12 +292,12 @@ final nonisolated class AppServerSession {
                 throw AppServerError.invalidServerResponse
             }
             if let token {
-                logStorage?.finishRequest(token, response: response)
+                logStorage?.finishRequest(token, response: response, connection: connectionName)
             }
         } catch {
             if let token {
                 let received = String(data: header, encoding: .utf8) ?? header.base64EncodedString()
-                logStorage?.failRequest(token, message: received.isEmpty ? error.localizedDescription : received + "\n" + error.localizedDescription)
+                logStorage?.failRequest(token, message: received.isEmpty ? error.localizedDescription : received + "\n" + error.localizedDescription, connection: connectionName)
             }
             throw error
         }
@@ -355,7 +335,7 @@ final nonisolated class AppServerSession {
         }
     }
 
-    private func receive(before deadline: ContinuousClock.Instant, matchingResponseID: Int? = nil) throws -> Data? {
+    private func receive(before deadline: ContinuousClock.Instant, matchingResponseID: Int? = nil) throws -> IncomingMessage? {
         guard try ready(Int16(POLLIN), before: deadline) else { return nil }
         let frameDeadline = ContinuousClock.now.advanced(by: .seconds(10))
         var message = Data()
@@ -398,29 +378,39 @@ final nonisolated class AppServerSession {
             }
             message.append(payload)
             if header[0] & 128 != 0 {
+                var incoming = IncomingMessage(data: message)
                 if !retainsNotifications,
-                   let object = try? JSONSerialization.jsonObject(with: message) as? [String: Any],
+                   let object = try? incoming.parsedObject.get(),
                    let method = object["method"] as? String, let change = AccountChange(method: method) {
                     accountChange = change.merging(accountChange)
                 }
-                recordIncoming(message, matchingResponseID: matchingResponseID)
-                return message
+                recordIncoming(&incoming, matchingResponseID: matchingResponseID)
+                return incoming
             }
             fragmented = true
         }
     }
 
+    private static func isResponse(_ object: [String: Any]?, to id: Int) -> Bool {
+        object?["id"] as? Int == id && (object?["result"] != nil || object?["error"] != nil)
+    }
+
     /// 在完整消息首次读取时记录, 队列取出和业务消费不重复写日志
-    private func recordIncoming(_ data: Data, matchingResponseID: Int?) {
+    private func recordIncoming(_ message: inout IncomingMessage, matchingResponseID: Int?) {
         guard let logStorage else { return }
-        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        if let matchingResponseID, object?["id"] as? Int == matchingResponseID,
-           object?["result"] != nil || object?["error"] != nil {
+        let object = try? message.parsedObject.get()
+        if let matchingResponseID, Self.isResponse(object, to: matchingResponseID) {
             return
         }
-        guard Self.shouldRecordIncoming(object) else { return }
         let method = object?["method"] as? String ?? "app-server/message"
-        logStorage.recordReceived(method: method, payload: framePayload(data), connection: connectionName)
+        let text: String
+        if isBridgeConnection {
+            text = bridgeLogStream.text(message.data, method: method, params: object?["params"] as? [String: Any])
+        } else {
+            guard !BridgeLogPrivacy.shared.trackThreadsAndCheckRedaction(object), Self.shouldRecordIncoming(object) else { return }
+            text = framePayload(message.data)
+        }
+        logStorage.recordReceived(method: method, payload: text, connection: connectionName)
     }
 
     /// 推送只记录已使用的账户和活动事件, 跳过高频 delta, 保留错误和异常协议消息
@@ -452,6 +442,20 @@ final nonisolated class AppServerSession {
         case 9: "websocket/ping"
         case 10: "websocket/pong"
         default: "websocket/opcode/\(opcode)"
+        }
+    }
+
+    private func logPayload(_ data: Data, method: String) -> String {
+        isBridgeConnection ? BridgeLogPayload.text(data, method: method) : framePayload(data)
+    }
+
+    private func finishResponseLog(_ id: UUID?, data: Data, object: [String: Any], method: String, threadID: String?) {
+        guard let logStorage, let id else { return }
+        let text = !isBridgeConnection && BridgeLogPrivacy.shared.trackThreadsAndCheckRedaction(object, threadID: threadID, method: method) ? "{}" : logPayload(data, method: method)
+        if object["error"] != nil {
+            logStorage.failRequest(id, message: text, connection: connectionName)
+        } else {
+            logStorage.finishRequest(id, response: text, connection: connectionName)
         }
     }
 

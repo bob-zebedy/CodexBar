@@ -2,7 +2,7 @@ import Foundation
 import Testing
 
 struct TurnLifecycleSnapshotTests {
-    @Test func unavailableChildInvalidatesAncestorsButNotOtherThreads() {
+    @Test func unavailableGrandchildPreservesVerifiedAncestors() {
         let now = Date()
         var states: [ActivityTurnReference: TurnLifecycleState] = [:]
         for id in ["root", "child", "grandchild", "other"] {
@@ -20,8 +20,8 @@ struct TurnLifecycleSnapshotTests {
         })
         let snapshot = TurnLifecycleSnapshot(states: states, verifiedTurns: verified)
         let result = snapshot.lifecycleStates(for: Array(states.keys), now: now)
-        #expect(result.first { $0.requestedThreadID == "other" }?.readStatus == .complete)
-        #expect(result.filter { $0.requestedThreadID != "other" }.allSatisfy { $0.readStatus == .unavailable })
+        #expect(result.first { $0.requestedThreadID == "grandchild" }?.readStatus == .unavailable)
+        #expect(result.filter { $0.requestedThreadID != "grandchild" }.allSatisfy { $0.readStatus == .complete })
     }
 
     @Test func missingVerificationAndCoverageExpiryInvalidateLifecycle() {
@@ -127,7 +127,8 @@ extension TurnLifecycleSnapshotTests {
         )
         let snapshot = TurnLifecycleSnapshot(states: states, verifiedTurns: [reference("root", "old"): now, reference("root", "current"): now])
         let result = snapshot.lifecycleStates(for: [reference("root", "old"), reference("root", "current")], now: now)
-        #expect(result.first { $0.turnID == "old" }?.readStatus == .unavailable)
+        #expect(result.first { $0.turnID == "child" }?.readStatus == .unavailable)
+        #expect(result.first { $0.turnID == "old" }?.readStatus == .complete)
         #expect(result.first { $0.turnID == "current" }?.readStatus == .complete)
         let verified = TurnLifecycleSnapshot(states: states, verifiedTurns: Dictionary(uniqueKeysWithValues: states.keys.map { ($0, now) }))
         #expect(verified.lifecycleStates(for: Array(states.keys), now: now).allSatisfy { $0.readStatus == .complete })

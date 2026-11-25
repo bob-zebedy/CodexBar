@@ -55,6 +55,10 @@ CodexBar 是 macOS 菜单栏 App，可查看 Codex 账户、额度、Token 用�
 - 可在等待回应时继续保持唤醒，或同时保持屏幕常亮
 - 支持防睡眠时限、低电量保护和异常任务保护
 
+### Codex Bridge
+
+- 让其他 AI Agent 通过 MCP 调用本机的 Codex
+
 ## 安装
 
 ### Homebrew

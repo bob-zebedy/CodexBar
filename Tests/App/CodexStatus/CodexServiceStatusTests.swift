@@ -237,7 +237,7 @@ struct CodexServiceStatusTests {
                 configuration.httpAdditionalHeaders = ["X-Test-Scenario": scenario]
                 configuration.timeoutIntervalForRequest = 3
                 configuration.timeoutIntervalForResource = 3
-                let service = CodexServiceStatusService(session: URLSession(configuration: configuration))
+                let service = CodexStatusPageClient(session: URLSession(configuration: configuration))
                 do {
                     try await continuation.yield(service.fetch())
                     continuation.finish()

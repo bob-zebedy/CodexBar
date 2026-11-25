@@ -86,10 +86,10 @@ nonisolated struct TokenUsageObservation: Codable, Equatable {
         previous: TokenUsage, current: TokenUsageUpdate
     ) {
         self.id = id
-        self.observedAt = JSONLines.storageDate(observedAt)
+        self.observedAt = StorageJSON.storageDate(observedAt)
         self.threadID = threadID
         self.turnID = turnID
-        self.turnStartedAt = turnStartedAt.map(JSONLines.storageDate)
+        self.turnStartedAt = turnStartedAt.map(StorageJSON.storageDate)
         self.previous = previous
         self.current = current
     }

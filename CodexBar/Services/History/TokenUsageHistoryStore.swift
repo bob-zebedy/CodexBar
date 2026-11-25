@@ -7,7 +7,7 @@ final nonisolated class TokenUsageHistoryStore: Sendable {
     private let database: HistoryDatabaseStore
     private let recordingLease = OSAllocatedUnfairLock<Int32?>(initialState: nil)
 
-    init(directoryURL: URL = AppStorage.directoryURL()) {
+    init(directoryURL: URL = AppStoragePaths.directoryURL()) {
         self.directoryURL = directoryURL
         database = HistoryDatabaseStore.shared(in: directoryURL)
     }
@@ -26,7 +26,7 @@ final nonisolated class TokenUsageHistoryStore: Sendable {
             if lease != nil {
                 return true
             }
-            lease = try JSONFileStorage.acquireLock(at: AppStorage(rootURL: directoryURL).lockURL(.tokenUsageRecording), nonblocking: true)
+            lease = try JSONFileStorage.acquireLock(at: AppStoragePaths(rootURL: directoryURL).lockURL(.tokenUsageRecording), nonblocking: true)
             return lease != nil
         }
     }
@@ -160,7 +160,7 @@ nonisolated struct TokenUsageFileCache<Value: Codable & Equatable> {
         if current == data {
             return value
         }
-        let decoded = try JSONLines.decoder.decode(Value.self, from: current)
+        let decoded = try StorageJSON.decoder.decode(Value.self, from: current)
         data = current
         value = decoded
         return decoded
@@ -171,7 +171,7 @@ nonisolated struct TokenUsageFileCache<Value: Codable & Equatable> {
         if let current, current == data, updated == value {
             return
         }
-        let encoded = try JSONLines.stableEncoder.encode(updated)
+        let encoded = try StorageJSON.stableEncoder.encode(updated)
         if current != encoded {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try encoded.write(to: url, options: .atomic)

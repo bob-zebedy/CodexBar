@@ -329,7 +329,7 @@ safe_remove_path() {
     validate_build_path "${resolved}"
     case "${resolved}" in
         "${BUILD_DIR}"/*)
-            # Retry a bounded number of times because other processes may recreate entries during removal
+            # Other processes can recreate files during cleanup, so retry a few times
             for attempt in 1 2 3; do
                 validate_build_path "${resolved}"
                 if removal_error="$(rm -rf "${resolved}" 2>&1)"; then

@@ -45,7 +45,7 @@ struct AppServerEventStorageTests {
         let observation = TestFixtures.tokenUsageObservation(at: now, tokenUsage: .zero)
         let tokenData = try AppServerEventRecord(tokenUsage: observation, recordedAt: now).jsonLineData()
         let tokenRecord = try #require(JSONSerialization.jsonObject(with: tokenData) as? [String: Any])
-        let activityData = try JSONLines.stableEncoder.encode(TestFixtures.event(.toolStarted))
+        let activityData = try StorageJSON.stableEncoder.encode(TestFixtures.event(.toolStarted))
         var future = tokenRecord
         future["schemaVersion"] = AppServerEventRecord.schemaVersion + 1
         var mixed = tokenRecord
@@ -101,9 +101,9 @@ struct AppServerEventStorageTests {
         let object = try #require(JSONSerialization.jsonObject(with: stored) as? [String: Any])
         #expect(object["updatedAt"] as? Int64 == expected)
         #expect(object["date"] as? String == "2026-09-15")
-        let restored = try JSONLines.decoder.decode(ActivityDataSyncRecord.self, from: stored)
+        let restored = try StorageJSON.decoder.decode(ActivityDataSyncRecord.self, from: stored)
         #expect(restored.updatedAt == decoded.recordedAt)
-        #expect(try JSONLines.stableEncoder.encode(restored) == stored)
+        #expect(try StorageJSON.stableEncoder.encode(restored) == stored)
 
         var cache = TokenUsageFileCache<[TokenUsageObservation]>(url: directory.url.appendingPathComponent("tokenUsage.json"))
         try cache.save([TestFixtures.tokenUsageObservation(at: timestamp, tokenUsage: .zero)])

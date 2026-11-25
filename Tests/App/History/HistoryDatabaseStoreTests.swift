@@ -56,10 +56,13 @@ struct HistoryDatabaseStoreTests {
             try $0.execute("CREATE TEMP TRIGGER reject_aggregate BEFORE INSERT ON main.aggregates BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
         }
         let failed = await history.loadSnapshotWithMaintenance(synchronize: false, trigger: .manual, now: now)
+        #expect(failed.counts?.attemptedDateCount == 1)
         #expect(failed.counts?.failed == 1)
         #expect(try await store.access { try $0.activityDataAggregates().isEmpty })
         try await store.access { try $0.execute("DROP TRIGGER reject_aggregate") }
         let recovered = await history.loadSnapshotWithMaintenance(synchronize: false, trigger: .manual, now: now)
+        #expect(recovered.counts?.attemptedDateCount == 1)
+        #expect(recovered.counts?.eventCountDelta == 1)
         #expect(recovered.counts?.written == 1)
         #expect(try await store.access { try $0.activityDataAggregates().first?.eventCount } == 1)
     }

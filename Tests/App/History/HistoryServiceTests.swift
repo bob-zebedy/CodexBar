@@ -4,6 +4,19 @@ import Testing
 
 @Suite(.tags(.integration))
 struct HistoryServiceTests {
+    @Test func maintenanceFailureBeforeReadingDatesReportsNoAttemptedDates() async throws {
+        let directory = try TestDirectory()
+        defer { await #expect(throws: Never.self) { try await directory.removeAfterClosingHistory() } }
+        _ = try directory.write("not a database", to: "event.db")
+        let sync = SyncService(directoryURL: directory.url, isEnabled: { false })
+        let history = HistoryService(directoryURL: directory.url, syncService: sync)
+
+        let result = await history.loadSnapshotWithMaintenance(synchronize: false, trigger: .manual)
+        let counts = try #require(result.counts)
+        #expect(counts.attemptedDateCount == 0)
+        #expect(counts.failed == 1)
+    }
+
     @Test func sameSourceRecalculationCanReduceCountsWithoutDeletingRecord() async throws {
         let fixture = try await HistoryRebuildFixture()
         defer { await #expect(throws: Never.self) { try await fixture.directory.removeAfterClosingHistory() } }
@@ -200,7 +213,7 @@ struct HistoryServiceTests {
         previous.aggregationVersion = 1
         try HistoryDatabase(directoryURL: fixture.directory.url).execute(
             "UPDATE aggregates SET activityData = ? WHERE date = ?",
-            [.data(JSONLines.stableEncoder.encode(previous)), .text(fixture.date)]
+            [.data(StorageJSON.stableEncoder.encode(previous)), .text(fixture.date)]
         )
         let remote = try #require(await fixture.database.activityDataRecords().first)
         try ActivityDataRecordCodec.apply(previous.syncedAggregate, deviceID: #require(remote["deviceID"] as? String), to: remote)

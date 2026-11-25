@@ -50,18 +50,18 @@ struct HistoryAggregationTests {
         first.modelCounts = ["model/name": 3]
         var second = first
         second.projectCounts = Dictionary(uniqueKeysWithValues: first.projectCounts.sorted { $0.key > $1.key })
-        let local = try JSONLines.stableEncoder.encode(first)
-        let synced = try JSONLines.stableEncoder.encode(first.syncedAggregate)
-        #expect(try local == JSONLines.stableEncoder.encode(second))
-        #expect(try synced == JSONLines.stableEncoder.encode(second.syncedAggregate))
+        let local = try StorageJSON.stableEncoder.encode(first)
+        let synced = try StorageJSON.stableEncoder.encode(first.syncedAggregate)
+        #expect(try local == StorageJSON.stableEncoder.encode(second))
+        #expect(try synced == StorageJSON.stableEncoder.encode(second.syncedAggregate))
         for data in [local, synced] {
             let text = try #require(String(bytes: data, encoding: .utf8))
             #expect(text.contains("/projects/a"))
             #expect(text.contains("model/name"))
             #expect(!text.contains(#"\/"#))
         }
-        #expect(try JSONLines.decoder.decode(ActivityDataAggregate.self, from: local) == first)
-        #expect(try JSONLines.decoder.decode(SyncedActivityData.self, from: synced) == first.syncedAggregate)
+        #expect(try StorageJSON.decoder.decode(ActivityDataAggregate.self, from: local) == first)
+        #expect(try StorageJSON.decoder.decode(SyncedActivityData.self, from: synced) == first.syncedAggregate)
         let syncedFields = try #require(JSONSerialization.jsonObject(with: synced) as? [String: Any])
         #expect(syncedFields["position"] == nil)
     }
@@ -80,7 +80,7 @@ struct HistoryAggregationTests {
         let restored = ActivityDataSyncStore(directoryURL: debugRoot)
         #expect(restored.loadState().deviceID == "debug")
         #expect(SyncCloudKit.zoneName == "CodexBarAppZone")
-        let root = AppStorage.directoryURL()
+        let root = AppStoragePaths.directoryURL()
         #if DEBUG
             #expect(root.lastPathComponent == "CodexBar Data Debug")
         #else
@@ -118,8 +118,8 @@ struct HistoryAggregationTests {
         #expect(aggregate.eventCount == nil)
         #expect(aggregate.turnAbortedCount == nil)
         #expect(aggregate.turnCompletedCount == 0)
-        let local = try JSONDecoder().decode(ActivityDataAggregate.self, from: JSONLines.stableEncoder.encode(aggregate))
-        let synced = try JSONDecoder().decode(SyncedActivityData.self, from: JSONLines.stableEncoder.encode(aggregate.syncedAggregate))
+        let local = try JSONDecoder().decode(ActivityDataAggregate.self, from: StorageJSON.stableEncoder.encode(aggregate))
+        let synced = try JSONDecoder().decode(SyncedActivityData.self, from: StorageJSON.stableEncoder.encode(aggregate.syncedAggregate))
         #expect(local == aggregate)
         #expect(synced.turnAbortedCount == nil)
         #expect(synced.turnCompletedCount == 0)
@@ -130,7 +130,7 @@ struct HistoryAggregationTests {
         aggregate.normalizeIdentifierStorage(retainsIdentifiers: false)
         #expect(aggregate.turnCount == nil)
         #expect(aggregate.metrics.turnCount == nil)
-        let synced = try JSONDecoder().decode(SyncedActivityData.self, from: JSONLines.stableEncoder.encode(aggregate.syncedAggregate))
+        let synced = try JSONDecoder().decode(SyncedActivityData.self, from: StorageJSON.stableEncoder.encode(aggregate.syncedAggregate))
         #expect(synced.turnCount == nil)
         #expect(synced.metrics.turnCount == nil)
     }
@@ -203,7 +203,7 @@ struct HistoryAggregationTests {
     @Test func syncExportContainsCountsWithoutRawTaskIdentifiers() throws {
         var accumulator = makeAccumulator()
         accumulator.record(TestFixtures.event())
-        let data = try JSONLines.stableEncoder.encode(accumulator.finalized(identifierStorage: .retained).syncedAggregate)
+        let data = try StorageJSON.stableEncoder.encode(accumulator.finalized(identifierStorage: .retained).syncedAggregate)
         let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(object["threadIDs"] == nil)
         #expect(object["sourceCheckpoint"] == nil)

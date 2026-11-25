@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-/// 生命周期由菜单控制器持有, 两种面板宿主共享同一份内存选择
+/// 菜单控制器保存当前选中的活动卡片, 两种菜单面板共用这份选择
 @MainActor
 final class ActivityCardPresentationState: ObservableObject {
     @Published private(set) var selection = ActivityCardSelection()

@@ -64,18 +64,19 @@ nonisolated extension ActivityTaskGraph {
         tasks[key] = task
     }
 
-    mutating func reconcileSubagentCounts(_ states: [TurnLifecycleState]) {
+    mutating func reconcileTaskCoverage(_ states: [TurnLifecycleState]) {
         for (key, var task) in tasks {
             let root = task.turnReference
             let children = TurnLifecycleState.subagentStates(for: [root], in: states)
             let references = Set(children.map { ActivityTurnReference(threadID: $0.requestedThreadID, turnID: $0.turnID) })
             let agentThreadIDs = Set(children.map(\.requestedThreadID))
-            let hasRoot = states.contains {
-                $0.requestedThreadID == root.threadID && $0.turnID == root.turnID && ($0.readStatus == .complete || $0.tracking != .live)
+            let rootState = states.first { $0.requestedThreadID == root.threadID && $0.turnID == root.turnID }
+            func isLinkedChild(_ child: TurnLifecycleState) -> Bool {
+                let reference = ActivityTurnReference(threadID: child.requestedThreadID, turnID: child.turnID)
+                return child.rootThreadID == root.threadID && child.rootTurnID == root.turnID && subagentTurnLinks[reference]?.root == key
             }
             let hasChildren = children.allSatisfy {
-                ($0.readStatus == .complete || $0.tracking != .live) && $0.rootThreadID == root.threadID && $0.rootTurnID == root.turnID
-                    && subagentTurnLinks[ActivityTurnReference(threadID: $0.requestedThreadID, turnID: $0.turnID)]?.root == key
+                ($0.readStatus == .complete || $0.tracking != .live) && isLinkedChild($0)
             }
             let hasExecutions = task.executions.keys.allSatisfy { owner in
                 guard !owner.isUnattributed else { return false }
@@ -83,19 +84,40 @@ nonisolated extension ActivityTaskGraph {
                 guard let turn = owner.turnID else { return false }
                 return references.contains(ActivityTurnReference(threadID: agentThreadID, turnID: turn))
             }
-            let hasPendingEvents = pendingSubagentEvents.contains { $0.event.threadID == root.threadID }
+            let hasPendingEvents = pendingSubagentEvents.contains { pending in
+                guard pending.event.threadID == root.threadID else { return false }
+                // 子事件的 turnID 属于子轮次, 缺少根轮次时只能按会话等待核验
+                guard let rootTurnID = pending.event.context?.rootTurnID, !rootTurnID.isEmpty else { return true }
+                return rootTurnID == root.turnID
+            }
+            let hasRoot = rootState.map { $0.readStatus == .complete || $0.tracking != .live } ?? false
             task.hasCompleteSubagentCoverage = hasRoot && hasChildren && hasExecutions && !hasPendingEvents
                 && Set(task.subagentsByThreadID.keys).isSubset(of: agentThreadIDs)
-            if task.hasCompleteSubagentCoverage {
+            let hadCoverage = task.lifecycleCoverageCheckedAt != nil
+            if let rootState, task.hasCompleteSubagentCoverage {
                 task.subagentsByThreadID = Dictionary(grouping: children, by: \.requestedThreadID).mapValues { turns in
                     SubagentObservation(
                         isRunning: turns.contains { $0.tracking == .live && $0.terminal == nil },
                         timestamp: turns.compactMap { $0.lastProgressAt ?? $0.startedAt }.max() ?? .distantPast
                     )
                 }
-                if states.contains(where: { $0.requestedThreadID == root.threadID && $0.turnID == root.turnID && $0.tracking != .live }) {
+                if rootState.tracking == .live {
+                    task.recordLifecycleRead(rootState, at: Date())
+                } else {
                     task.lifecycleCoverageCheckedAt = children.filter { $0.tracking == .live && $0.terminal == nil }.compactMap(\.verifiedAt).min()
                 }
+            } else {
+                // 异常会话判定需要整项任务的进展, 子轮次待核验时暂停判定
+                task.lifecycleCoverageCheckedAt = nil
+            }
+            if !hadCoverage, task.lifecycleCoverageCheckedAt != nil {
+                backfilledTasks.insert(key)
+            }
+            // 主轮次退出跟踪后, 只有已核验且仍在运行的子轮次可以维持任务可见
+            if let rootState, rootState.tracking != .live, !children.contains(where: {
+                $0.tracking == .live && $0.terminal == nil && $0.readStatus == .complete && isLinkedChild($0)
+            }) {
+                unavailableTurns.insert(key)
             }
             tasks[key] = task
         }

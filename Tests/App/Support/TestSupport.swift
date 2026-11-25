@@ -99,7 +99,7 @@ nonisolated struct TestDirectory {
             try database.execute("""
             INSERT INTO aggregates(date, tokenUsage) VALUES (?, ?)
             ON CONFLICT(date) DO UPDATE SET tokenUsage = excluded.tokenUsage
-            """, [.text(aggregate.date), .data(JSONLines.stableEncoder.encode(aggregate))])
+            """, [.text(aggregate.date), .data(StorageJSON.stableEncoder.encode(aggregate))])
         }
     }
 
@@ -112,7 +112,7 @@ nonisolated struct TestDirectory {
     func replaceHistory(_ data: Data, date: String) throws {
         let database = try HistoryDatabase(directoryURL: url)
         try database.execute("DELETE FROM events WHERE date = ?", [.text(date)])
-        for line in data.split(separator: JSONLines.newlineByte) {
+        for line in data.split(separator: StorageJSON.newlineByte) {
             try database.append(AppServerEventRecord.decode(from: Data(line)))
         }
     }

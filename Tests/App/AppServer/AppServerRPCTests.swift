@@ -4,9 +4,9 @@ import Testing
 struct AppServerRPCTests {
     @Test(arguments: [-32601, -32602, -32600, -32700])
     func rpcCodesWorkWithoutEnglishErrorMessages(_ code: Int) throws {
-        let data = try JSONSerialization.data(withJSONObject: ["id": 1, "error": ["code": code, "message": "本地化错误", "data": ["field": "test"]]])
+        let response: [String: Any] = ["id": 1, "error": ["code": code, "message": "本地化错误", "data": ["field": "test"]]]
         do {
-            let _: [String: Int] = try AppServerRPC.decode(data, as: [String: Int].self)
+            let _: [String: Int] = try AppServerRPC.decode(response, as: [String: Int].self)
             Issue.record("Expected RPC error")
         } catch let error as AppServerError {
             guard case let .serverError(detail) = error else { Issue.record("Lost RPC error")
@@ -44,13 +44,13 @@ struct AppServerRPCTests {
 
     @Test(arguments: ["modelProviderMismatch", "modelProviderNotConfigured", "modelProviderPolicyConflict"])
     func providerErrorsAreThreadLocalWithoutChangingSharedRetryPolicy(type: String) throws {
-        let data = try JSONSerialization.data(withJSONObject: ["id": 1, "error": [
+        let response: [String: Any] = ["id": 1, "error": [
             "code": -32600, "message": "本地化业务错误", "data": [
                 "type": type, "modelProvider": "saved", "currentModelProvider": "current", "requiredModelProvider": "required"
             ]
-        ]])
+        ]]
         do {
-            let _: [String: Int] = try AppServerRPC.decode(data, as: [String: Int].self)
+            let _: [String: Int] = try AppServerRPC.decode(response, as: [String: Int].self)
             Issue.record("Expected provider error")
         } catch let error as AppServerError {
             #expect(error.isThreadUnavailable(for: "thread-a"))
@@ -83,10 +83,10 @@ struct AppServerRPCTests {
 
     @Test func rpcMalformedEnvelopeAndPayloadHaveDifferentBoundaries() {
         #expect(throws: AppServerError.self) {
-            let _: Int = try AppServerRPC.decode(Data(#"{"error":{},"result":3}"#.utf8), as: Int.self)
+            let _: Int = try AppServerRPC.decode(["error": [:], "result": 3], as: Int.self)
         }
         do {
-            let _: Int = try AppServerRPC.decode(Data(#"{"result":"wrong"}"#.utf8), as: Int.self)
+            let _: Int = try AppServerRPC.decode(["result": "wrong"], as: Int.self)
             Issue.record("Expected invalid response payload")
         } catch let error as AppServerError {
             #expect(!error.isTransportFailure)

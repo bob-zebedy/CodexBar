@@ -4,7 +4,7 @@ import Foundation
 /// 按设备和日期覆盖每日数量, 本机数据与其他设备的汇总分别保留
 actor TokenUsageSync {
     private let database: any SyncDatabase
-    private let storage: AppStorage
+    private let storage: AppStoragePaths
     private let isEnabled: @Sendable () -> Bool
     private var fileCache: TokenUsageFileCache<TokenUsageSyncCache>
     static let recordType = "TokenUsage"
@@ -12,9 +12,9 @@ actor TokenUsageSync {
 
     init(database: any SyncDatabase, directoryURL: URL, isEnabled: @escaping @Sendable () -> Bool = { SyncSettings.isEnabled() }) {
         self.database = database
-        storage = AppStorage(rootURL: directoryURL)
+        storage = AppStoragePaths(rootURL: directoryURL)
         self.isEnabled = isEnabled
-        fileCache = TokenUsageFileCache(url: AppStorage(rootURL: directoryURL).tokenUsageSyncCacheURL)
+        fileCache = TokenUsageFileCache(url: AppStoragePaths(rootURL: directoryURL).tokenUsageSyncCacheURL)
     }
 
     func snapshot(local: TokenUsageHistorySnapshot, accountScopedDeviceID: String?) throws -> [String: TokenUsage] {
@@ -194,9 +194,9 @@ actor TokenUsageSync {
     }
 
     nonisolated static func pruneLocalCache(in directoryURL: URL, now: Date) throws {
-        let storage = AppStorage(rootURL: directoryURL)
+        let storage = AppStoragePaths(rootURL: directoryURL)
         try JSONFileStorage.withLock(at: storage.lockURL(.tokenUsageSyncCache)) {
-            var fileCache = TokenUsageFileCache<TokenUsageSyncCache>(url: AppStorage(rootURL: directoryURL).tokenUsageSyncCacheURL)
+            var fileCache = TokenUsageFileCache<TokenUsageSyncCache>(url: AppStoragePaths(rootURL: directoryURL).tokenUsageSyncCacheURL)
             if var cache = try loadCache(&fileCache), cache.prune(now: now) {
                 try fileCache.save(cache)
             }
@@ -219,7 +219,7 @@ actor TokenUsageSync {
             "cacheWriteInputTokens": tokenUsage?.cacheWriteInputTokens, "outputTokens": tokenUsage?.outputTokens,
             "reasoningOutputTokens": tokenUsage?.reasoningOutputTokens, "totalTokens": tokenUsage?.totalTokens
         ]
-        record["tokenUsage"] = try JSONLines.stableEncoder.encode(tokenUsageCounts) as CKRecordValue
+        record["tokenUsage"] = try StorageJSON.stableEncoder.encode(tokenUsageCounts) as CKRecordValue
     }
 
     static func dailyRecord(from record: CKRecord) throws -> TokenUsageSyncRecord? {

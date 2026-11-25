@@ -81,7 +81,7 @@ nonisolated enum AppServerError: LocalizedError {
 
     private struct ThreadErrorData: Decodable { let type: String }
 
-    /// 参数或协议形状不正确时继续用同一请求重试不会恢复
+    /// 请求参数或协议格式有误时, 原样重发仍会失败
     var isProtocolOrParameterFailure: Bool {
         switch self {
         case .invalidResponsePayload, .unsupportedMethod, .unsupportedVersion:

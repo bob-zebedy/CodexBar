@@ -19,7 +19,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
     }
 
     static var defaultDirectory: URL {
-        AppStorage().logDirectoryURL
+        AppStoragePaths().logDirectoryURL
     }
 
     static let databaseName = "app.db"
@@ -30,6 +30,10 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
         var bytes = 50 * 1024 * 1024
         var bodyBytes = 128 * 1024
         var pageEntries = 1000
+
+        func bodyLimit(for connection: String?) -> Int {
+            connection == BridgeControlConnection.connectionName ? bytes : bodyBytes
+        }
     }
 
     private let limits: Limits
@@ -97,12 +101,12 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
         return entry.id
     }
 
-    func finishRequest(_ id: UUID, response: String) {
-        complete(id, status: .success, detail: response)
+    func finishRequest(_ id: UUID, response: String, connection: String? = nil) {
+        complete(id, status: .success, detail: response, connection: connection)
     }
 
-    func failRequest(_ id: UUID, message: String) {
-        complete(id, status: .failure, detail: message)
+    func failRequest(_ id: UUID, message: String, connection: String? = nil) {
+        complete(id, status: .failure, detail: message, connection: connection)
     }
 
     func recordSent(method: String, payload: String, connection: String? = nil, error: String? = nil) {
@@ -229,17 +233,18 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
     }
 
     private func append(_ entry: AppServerLogEntry) {
-        let entry = entry.bounded(to: limits.bodyBytes)
+        let entry = entry.bounded(to: limits.bodyLimit(for: entry.connection))
         enqueue(cost: (entry.request?.utf8.count ?? 0) + (entry.detail?.utf8.count ?? 0)
             + (entry.method?.utf8.count ?? 0) + (entry.connection?.utf8.count ?? 0) + 1024) { storage in
                 try storage.transaction { try storage.save(entry, inserting: true) }
             }
     }
 
-    private func complete(_ id: UUID, status: AppServerLogEntry.Status, detail: String) {
+    private func complete(_ id: UUID, status: AppServerLogEntry.Status, detail: String, connection: String?) {
         let completed = Date()
         let originalBytes = detail.utf8.count
-        let detail = AppServerLogEntry.truncated(detail, limit: limits.bodyBytes)
+        let limit = limits.bodyLimit(for: connection)
+        let detail = AppServerLogEntry.truncated(detail, limit: limit)
         enqueue(cost: detail.utf8.count + 1024) { storage in
             try storage.transaction {
                 let statement = try storage.prepare("SELECT position, payload, id FROM entries WHERE id = ?")
@@ -248,7 +253,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
                 guard try storage.step(statement) == SQLITE_ROW, var entry = storage.decode(statement, skipCorrupt: true) else { return }
                 entry.status = status
                 entry.detail = detail
-                entry.detailOriginalBytes = originalBytes > storage.limits.bodyBytes ? originalBytes : nil
+                entry.detailOriginalBytes = originalBytes > limit ? originalBytes : nil
                 entry.respondedAt = completed
                 try storage.save(entry, inserting: false)
             }
@@ -397,7 +402,7 @@ final nonisolated class AppServerLogStore: @unchecked Sendable {
         defer { sqlite3_finalize(statement) }
         try bind(entry.id.uuidString, to: statement, at: 1)
         try bind(entry.status.rawValue, to: statement, at: 2)
-        let data = try JSONEncoder().encode(entry.bounded(to: limits.bodyBytes))
+        let data = try JSONEncoder().encode(entry.bounded(to: limits.bodyLimit(for: entry.connection)))
         let bound = data.withUnsafeBytes { sqlite3_bind_blob(statement, 3, $0.baseAddress, Int32($0.count), Self.transient) }
         guard bound == SQLITE_OK else { throw failure() }
         _ = try step(statement)

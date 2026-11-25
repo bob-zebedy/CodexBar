@@ -45,7 +45,7 @@ actor SyncService {
     init(
         container: CKContainer? = nil,
         database: (any SyncDatabase)? = nil,
-        directoryURL: URL = AppStorage.directoryURL(),
+        directoryURL: URL = AppStoragePaths.directoryURL(),
         isEnabled: @escaping @Sendable () -> Bool = { SyncSettings.isEnabled() }
     ) {
         self.container = container
@@ -817,7 +817,7 @@ private extension SyncService {
 
 extension SyncService {
     /// 设置页读取最近上传时间时, 与内部 loadState 使用相同的 schemaVersion 校验规则
-    @concurrent nonisolated static func loadLastUploadAt(in directoryURL: URL = AppStorage.directoryURL()) async throws -> Date? {
+    @concurrent nonisolated static func loadLastUploadAt(in directoryURL: URL = AppStoragePaths.directoryURL()) async throws -> Date? {
         try Task.checkCancellation()
         return try ActivityDataSyncStore(directoryURL: directoryURL).load(nonblocking: true).state.lastUploadAt
     }

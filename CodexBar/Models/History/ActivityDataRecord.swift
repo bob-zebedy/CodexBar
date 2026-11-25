@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - 归一化活动事件
 
-/// 事件来源的本地归一化分类, 不保留原始 context 内容
+/// 本地只记录事件的来源类别, 不保存原始 context 内容
 nonisolated enum ActivityDataOrigin: String, Codable, Sendable {
     case main
     case autoReview
@@ -16,7 +16,7 @@ nonisolated enum ActivityDataOrigin: String, Codable, Sendable {
     }
 }
 
-/// app-server 的最小统计事件, 在边界归一化来源与可选元数据
+/// 只保留统计需要的 app-server 事件字段, 读取时按本地格式整理来源和可选字段
 nonisolated struct ActivityDataRecord: Codable, Equatable {
     let id: String?
     let timestamp: Date
@@ -150,7 +150,7 @@ nonisolated struct ActivityDataRecord: Codable, Equatable {
     }
 }
 
-/// 任务归属与生命周期事实, 时间统一为 Date 和秒, method 仅用于来源诊断
+/// 记录任务归属和轮次状态, 起止时间用 Date 表示, 耗时以秒计, method 用于排查事件来源
 nonisolated struct ActivityDataContext: Codable, Equatable {
     let method: String
     let threadID: String

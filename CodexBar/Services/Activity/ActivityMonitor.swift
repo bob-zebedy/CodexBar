@@ -93,7 +93,7 @@ final class ActivityMonitor: ObservableObject {
     init(
         protectionSettings: ProtectionSettings,
         protectionStore: ProtectionStore = ProtectionStore(),
-        activityDataDirectoryURL: URL = AppStorage.directoryURL(),
+        activityDataDirectoryURL: URL = AppStoragePaths.directoryURL(),
         logStorage: AppServerLogStore? = nil
     ) {
         self.protectionSettings = protectionSettings
@@ -215,7 +215,7 @@ final class ActivityMonitor: ObservableObject {
                     guard isStarted, !Task.isCancelled, generation == protectionLoadGeneration else { return }
                     protectionRecords = records
                     protectionLoadState = .available
-                    // 成功重读后必须经过活动读取屏障, 才能重新判定任务
+                    // 重读保护记录后, 要再读一轮活动数据才能恢复异常任务判定
                     beginProtectionRecovery()
                     startReaderIfReady()
                     requestActivityRecovery()
@@ -327,7 +327,7 @@ final class ActivityMonitor: ObservableObject {
         }
     }
 
-    /// 恢复结果携带屏障之后发布的快照, 避免跨 actor 查询时读到另一份状态
+    /// 恢复时直接用本轮读取返回的快照, 再向 reader 查询可能会拿到下一次更新
     func requestActivityRecovery() {
         guard !isSystemSleeping, let reader = activityReader, !isBootstrapping, let recoveryGeneration = activeRecoveryID else { return }
         recoveryTask?.cancel()

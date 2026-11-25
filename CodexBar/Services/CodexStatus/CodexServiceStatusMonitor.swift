@@ -15,7 +15,7 @@ final class CodexServiceStatusMonitor: ObservableObject {
     private var refreshTask: Task<Void, Never>?
 
     convenience init() {
-        let service = CodexServiceStatusService()
+        let service = CodexStatusPageClient()
         self.init(fetch: { try await service.fetch() })
     }
 

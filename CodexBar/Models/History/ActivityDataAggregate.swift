@@ -2,14 +2,14 @@ import Foundation
 
 // MARK: - 每日事件聚合
 
-/// ID 保留期限只决定最终存储形态, 不能影响聚合结果
+/// 保留期决定保存 ID 还是只保存去重后的数量
 nonisolated enum ActivityDataIdentifiers {
     case retained
     case compacted
 }
 
 /// 从原始事件生成每日聚合的纯内存累加器
-/// 全量和增量路径都收集 ID, 只有 finalize 时才按保留策略决定是否落盘
+/// 全量重建和增量更新都用 ID 去重, 生成每日汇总时才决定是否保存 ID
 nonisolated struct ActivityDataAccumulator {
     private var aggregate: ActivityDataAggregate
     private var threadIDs: Set<String> = []
@@ -102,7 +102,7 @@ nonisolated struct ActivityDataAccumulator {
     }
 }
 
-/// 每日聚合按保留期压缩去重身份, 不改变计数含义
+/// 会话和轮次的 ID 超出保留期后, 每日汇总仍保存各自的去重数量
 nonisolated struct ActivityDataAggregate: Codable, Equatable {
     static let schemaVersion = 1
     var schemaVersion = Self.schemaVersion
@@ -128,7 +128,7 @@ nonisolated struct ActivityDataAggregate: Codable, Equatable {
     var threadIDs: [String]?
     var turnIDs: [String]?
 
-    /// 增量路径只有在完整 ID 集合仍然存在时才能继续安全去重
+    /// 只有保留了完整的 ID 集合, 才能判断新事件里的会话和轮次是否已经计数
     var supportsIncrementalAggregation: Bool {
         threadCount == nil && turnCount == nil
     }
@@ -191,11 +191,11 @@ nonisolated struct ActivityDataAggregate: Codable, Equatable {
             return
         }
 
-        threadCount = CountResolution.preferredCount(
+        threadCount = Self.identifierCount(
             compactedCount: threadCount,
             identifiers: threadIDs
         )
-        turnCount = CountResolution.preferredCount(
+        turnCount = Self.identifierCount(
             compactedCount: turnCount,
             identifiers: turnIDs
         )
@@ -252,17 +252,27 @@ nonisolated struct ActivityDataAggregate: Codable, Equatable {
     }
 
     private var syncedThreadCount: Int? {
-        CountResolution.preferredCount(
+        Self.identifierCount(
             compactedCount: threadCount,
             identifiers: threadIDs
         )
     }
 
     private var syncedTurnCount: Int? {
-        CountResolution.preferredCount(
+        Self.identifierCount(
             compactedCount: turnCount,
             identifiers: turnIDs
         )
+    }
+
+    private static func identifierCount(compactedCount: Int?, identifiers: [String]?) -> Int? {
+        if let compactedCount, compactedCount > 0 {
+            return compactedCount
+        }
+        if let identifiers {
+            return Set(identifiers).count
+        }
+        return compactedCount == 0 ? 0 : nil
     }
 
     private static func normalizedIdentifiers(_ identifiers: [String]?) -> [String]? {

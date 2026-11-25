@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 
-/// 协议测试通过正式发布接口观察值快照, 不共享 reader 内部状态
+/// 测试保存 reader 发布的任务图快照, 无需访问它的内部状态
 @MainActor final class ActivityReaderProbe {
     var graph = ActivityTaskGraph()
 }
@@ -75,7 +75,7 @@ extension ActivityMonitor {
     private static let fixtureReaderID = UUID()
     private static let fixtureRecoveryID = UUID()
 
-    /// 展示和保护测试从任务图产生真实 update, 每次经过 monitor 的正式消费接口
+    /// 展示和保护测试把任务图包装成 ActivityUpdate, 交给 ActivityMonitor 的 consume 方法
     func acceptFixtureGraph(_ graph: ActivityTaskGraph, phase: ActivityUpdate.Phase = .lifecycleChanged, transitions: [ActivityTransition] = []) {
         Self.fixtureRevision &+= 1
         consume(ActivityUpdate(

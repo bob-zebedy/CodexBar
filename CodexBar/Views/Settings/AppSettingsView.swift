@@ -24,6 +24,7 @@ struct AppSettingsView: View {
     let onSyncChanged: (Bool) -> Void
     let onRebuildHistoryData: SyncScheduler.RebuildHandler
     let onOptionsAction: (SettingsOptionsPanelAction) -> Void
+    let onOpenBridge: () -> Void
     let onOpenSourceLicenses: () -> Void
     let onContentHeightChanged: (CGFloat) -> Void
     @State private var selectedTab = SettingsTab.general
@@ -314,6 +315,8 @@ private extension AppSettingsView {
             autoResetRow
             LiquidGlassDivider()
             keepAliveRow
+            LiquidGlassDivider()
+            BridgeSettingsRow(open: onOpenBridge)
             LiquidGlassDivider()
             if desktopLaunchSettings.isInstalled {
                 desktopDaemonRow

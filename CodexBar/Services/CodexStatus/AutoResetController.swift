@@ -345,7 +345,7 @@ final class AutoResetController {
         let attempted = evaluation.target
         switch result.outcome {
         case .reset, .alreadyRedeemed:
-            // 已确认的副作用不能因任务取消丢失, 但旧读取不能重建计划
+            // 凭证一旦确认已兑换, 即使任务已取消也要记下结果, 只有当前任务的读取结果能更新计划
             var record = records[attempted.key] ?? Record(expirationDate: attempted.candidate.expirationDate)
             let wasConsumed = record.consumed
             record.consumed = true

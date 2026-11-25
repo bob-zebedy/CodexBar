@@ -32,6 +32,64 @@ struct ActivityArchitectureTests {
         #expect(monitor.graph.tasks.isEmpty)
     }
 
+    @Test func startingSubagentsKeepsVerifiedRootOnCardAndInKeepAlive() throws {
+        let directory = try TestDirectory()
+        defer { try? directory.remove() }
+        let preferences = try TestPreferences()
+        defer { preferences.remove() }
+        let monitor = makeMonitor(directory, preferences)
+        defer { monitor.stop() }
+        let now = Date()
+        let root = ActivityTurnReference(threadID: "thread-a", turnID: "turn-a")
+        let parent = ActivityThread(id: root.threadID, status: .init(type: .active), origin: .main)
+        let turn = ActivityTurn(id: root.turnID, status: .running, rootTurnId: root.turnID, startedAt: now)
+        var reducer = AppServerActivityReducer()
+        var verified = [root: now]
+        var graph = ActivityTaskGraph()
+        var card = ActivityCardSelection()
+        func publish(_ events: [ActivityDataRecord] = []) {
+            let transitions = graph.update(events: events, source: .live, lifecycle: .init(states: reducer.states, verifiedTurns: verified))
+            monitor.acceptFixtureGraph(graph, phase: .live, transitions: transitions)
+            card.update(snapshot: monitor.snapshot, isHealthy: true, now: now)
+        }
+        publish([TestFixtures.event(.turnCompleted, at: now.addingTimeInterval(-60), turn: "previous")])
+        publish(reducer.reconcile(thread: parent, turns: [turn], now: now))
+        let taskID = try #require(monitor.snapshot.runningTasks.first?.id)
+        for index in 1 ... 7 {
+            let child = ActivityThread(id: "child-\(index)", status: .init(type: .active), origin: .auxiliary, parentThreadID: root.threadID)
+            let childTurn = ActivityTurn(id: "work-\(index)", status: .running, rootTurnId: root.turnID, startedAt: now)
+            _ = reducer.reconcile(thread: child, turns: [], now: now)
+            let start = try TestFixtures.decode(ActivityInput.self, """
+            {"method":"turn/started","params":{"threadId":"\(child.id)","turn":{"id":"\(childTurn.id)","status":"inProgress","rootTurnId":"\(root.turnID)"}}}
+            """)
+            publish(reducer.consume(start, now: now))
+            #expect(monitor.snapshot.keepAliveTaskIDs.running == [taskID])
+            #expect(graph.tasks.values.first?.protectionDeadline(at: now, inactivityDuration: 3600) == nil)
+            if case let .running(task) = card.current {
+                #expect(task.id == taskID)
+                #expect(task.activeSubagentCount == nil)
+            } else {
+                Issue.record("Expected the current turn to stay on the card")
+            }
+            verified[.init(threadID: child.id, turnID: childTurn.id)] = now
+            publish(reducer.reconcile(thread: child, turns: [childTurn], now: now))
+            #expect(monitor.snapshot.keepAliveTaskIDs.running == [taskID])
+            #expect(monitor.snapshot.runningTasks.first?.activeSubagentCount == index)
+            #expect(graph.tasks.values.first?.hasFreshLifecycle(at: now) == true)
+        }
+        verified[root] = now.addingTimeInterval(-16)
+        publish()
+        #expect(monitor.snapshot.keepAliveTaskIDs.running.isEmpty)
+        #expect(monitor.snapshot.recentCompletions.count == 1)
+        let completion = try TestFixtures.decode(ActivityInput.self, """
+        {"method":"turn/completed","params":{"threadId":"\(root.threadID)","turn":{"id":"\(root.turnID)","status":"completed","completedAt":\(now.timeIntervalSince1970)}}}
+        """)
+        publish(reducer.consume(completion, now: now))
+        #expect(monitor.snapshot.recentCompletions.count == 2)
+        #expect(monitor.snapshot.recentCompletions.first?.taskID == taskID)
+        #expect(card.current == monitor.snapshot.recentCompletions.first.map(CodexPrimaryActivity.completed))
+    }
+
     @Test func creationNoticeUpdatesRootWithoutInventingExecution() throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }
@@ -295,7 +353,7 @@ struct ActivityArchitectureTests {
         for state in states {
             monitor.applySubagentLifecycle(state)
         }
-        monitor.graph.reconcileSubagentCounts(states)
+        monitor.graph.reconcileTaskCoverage(states)
     }
 
     private func state(_ id: String, at date: Date, parent: String? = nil, terminal: TurnTerminalState? = nil) -> TurnLifecycleState {

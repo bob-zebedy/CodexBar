@@ -15,7 +15,7 @@ nonisolated struct TurnLifecycleSnapshot {
         let childReferences = TurnLifecycleState.subagentStates(for: requested, in: Array(states.values)).map {
             ActivityTurnReference(threadID: $0.requestedThreadID, turnID: $0.turnID)
         }
-        var result = Array(requested.union(childReferences)).map { reference in
+        return requested.union(childReferences).map { reference in
             var state = states[reference] ?? TurnLifecycleState(
                 requestedThreadID: reference.threadID, turnID: reference.turnID, startedAt: nil,
                 effort: nil, lastProgressAt: nil, terminal: nil, readStatus: .notFound
@@ -28,24 +28,6 @@ nonisolated struct TurnLifecycleSnapshot {
             }
             return state
         }
-        var changed = true
-        while changed {
-            changed = false
-            for child in result where child.tracking == .live && child.terminal == nil && child.readStatus != .complete {
-                guard let root = child.rootThreadID, let turn = child.rootTurnID else { continue }
-                for index in result.indices {
-                    let parent = result[index]
-                    let isRoot = parent.requestedThreadID == root && parent.turnID == turn
-                    let isAncestor = parent.requestedThreadID == child.parentThreadID
-                        && parent.rootThreadID == root && parent.rootTurnID == turn
-                    if isRoot || isAncestor, parent.tracking == .live, parent.terminal == nil, parent.readStatus == .complete {
-                        result[index].readStatus = .unavailable
-                        changed = true
-                    }
-                }
-            }
-        }
-        return result
     }
 }
 

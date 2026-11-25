@@ -108,7 +108,6 @@ final class ScreenFrameProvider {
             return nil
         }
 
-        view.layoutSubtreeIfNeeded()
         let frameInWindow = view.convert(view.bounds, to: nil)
         let screenFrame = window.convertToScreen(frameInWindow).standardized
         guard screenFrame.isValidScreenRect else {

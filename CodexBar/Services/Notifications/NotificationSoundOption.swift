@@ -28,7 +28,7 @@ struct NotificationSoundOption: Identifiable, Hashable {
         Category(title: "Material", sounds: materialSounds)
     ]
 
-    /// 持久化值可能指向已移除或不再支持的声音, 这时交给调用方回落
+    /// 已保存的声音如果被移除或不再受支持, 返回 nil 让调用方选择备用声音
     static func option(forID id: String) -> NotificationSoundOption? {
         if id == silent.id {
             return silent

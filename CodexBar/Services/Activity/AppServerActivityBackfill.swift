@@ -22,42 +22,19 @@ actor AppServerActivityBackfill {
         // 缩小分页后的重试共用本次截止时间, 避免重连反复延长读取上限
         let budget = AppServerRequestBudget(deadline: Date().addingTimeInterval(timeout))
         return try AppServerRequestBudget.$current.withValue(budget) {
-            var connection: AppServerSession?
-            defer { connection?.close() }
-            func read(limit: Int) throws -> ActivityItemsPage {
-                try budget.check()
-                if connection == nil {
-                    let opened = try AppServerSession(
-                        socketURL: socketURL, retainsNotifications: false, logStorage: logStorage,
-                        connectionName: "activity/backfill", maximumMessageSize: maximumMessageSize
-                    )
-                    connection = opened
-                    try opened.initialize(clientName: "codex_bar_activity_backfill", minimumVersion: CodexVersionReader.minimumAppServerVersion)
-                }
-                let request = ActivityRequests.items(reference, limit: limit, cursor: cursor)
-                let page: ActivityItemsPage = try connection!.request(request.method, params: request.params)
-                try budget.check()
-                guard page.nextCursor == nil || page.nextCursor != cursor else { throw AppServerError.invalidServerResponse }
-                return page
-            }
             var pageLimit = limit
-            while true {
-                do {
-                    let page = try read(limit: pageLimit)
-                    guard page.data.allSatisfy({ $0.turnId == reference.turnID }) else { throw AppServerError.invalidServerResponse }
-                    return Page(items: page.data, nextCursor: page.nextCursor, limit: pageLimit)
-                } catch let error as AppServerError {
-                    guard case .messageTooLarge = error else { throw error }
-                    // 超大消息会关闭连接, 清除旧会话后缩小分页并重新握手
-                    connection?.close()
-                    connection = nil
-                    if pageLimit > 1 {
-                        pageLimit = max(1, pageLimit / 2)
-                        continue
-                    }
-                    throw error
-                }
+            let page: ActivityItemsPage = try budget.readPage(limit: &pageLimit) { limit in
+                let connection = try AppServerSession(
+                    socketURL: socketURL, retainsNotifications: false, logStorage: logStorage,
+                    connectionName: "activity/backfill", maximumMessageSize: maximumMessageSize
+                )
+                defer { connection.close() }
+                try connection.initialize(clientName: "codex_bar_activity_backfill", minimumVersion: CodexVersionReader.minimumAppServerVersion)
+                let request = ActivityRequests.items(reference, limit: limit, cursor: cursor)
+                return try connection.request(request.method, params: request.params)
             }
+            guard page.nextCursor == nil || page.nextCursor != cursor, page.data.allSatisfy({ $0.turnId == reference.turnID }) else { throw AppServerError.invalidServerResponse }
+            return Page(items: page.data, nextCursor: page.nextCursor, limit: pageLimit)
         }
     }
 }

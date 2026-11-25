@@ -1,6 +1,6 @@
 import Foundation
 
-actor CodexServiceStatusService {
+actor CodexStatusPageClient {
     static let statusPageURL = URL(string: "https://status.openai.com")!
     private static let endpoint = URL(string: "https://status.openai.com/proxy/status.openai.com")!
     private static let maximumResponseBytes = 256 * 1024

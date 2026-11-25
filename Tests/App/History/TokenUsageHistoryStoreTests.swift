@@ -113,7 +113,7 @@ struct TokenUsageHistoryStoreTests {
             try database.transaction {
                 try database.execute("INSERT INTO days(date) VALUES (?)", [.text(storedDate)])
                 try database.execute("UPDATE events SET date = ?", [.text(storedDate)])
-                try database.execute("INSERT INTO aggregates(date, tokenUsage) VALUES (?, ?)", [.text(storedDate), .data(JSONLines.stableEncoder.encode(stored))])
+                try database.execute("INSERT INTO aggregates(date, tokenUsage) VALUES (?, ?)", [.text(storedDate), .data(StorageJSON.stableEncoder.encode(stored))])
                 try database.execute("DELETE FROM days WHERE date = ?", [.text(localDate)])
             }
         }

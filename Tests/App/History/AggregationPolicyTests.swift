@@ -12,7 +12,7 @@ struct AggregationPolicyTests {
         try TokenUsageSync.apply(daily, to: record)
         #expect(try TokenUsageSync.dailyRecord(from: record)?.aggregationVersion == AggregationVersion.tokenUsage)
         let observation = TestFixtures.tokenUsageObservation(at: now, tokenUsage: .zero)
-        let encoded = try JSONLines.stableEncoder.encode(observation)
+        let encoded = try StorageJSON.stableEncoder.encode(observation)
         let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         #expect(object["turn"] == nil)
         #expect(object["rootID"] == nil)
@@ -26,7 +26,7 @@ struct AggregationPolicyTests {
         unsupported.aggregationVersion = 999
         #expect(throws: StorageCompatibilityError.self) { try TokenUsageSyncRecord.dailyRecords(local: [first, unsupported], deviceID: "device") }
         #expect(throws: StorageCompatibilityError.self) {
-            try JSONLines.decoder.decode(TokenUsageAggregate.self, from: JSONLines.stableEncoder.encode(unsupported))
+            try StorageJSON.decoder.decode(TokenUsageAggregate.self, from: StorageJSON.stableEncoder.encode(unsupported))
         }
     }
 

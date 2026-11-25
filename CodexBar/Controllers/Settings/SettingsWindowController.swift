@@ -25,6 +25,7 @@ final class SettingsWindowController: HostingWindowController {
     private let animationState = SettingsWindowAnimationState()
     private var windowFocusObserver: AnyCancellable?
     private var windowVisibilityObserver: AnyCancellable?
+    private lazy var bridgeWindowController = BridgeSettingsWindowController(screenProvider: screenProvider)
     private lazy var licensesWindowController = LicensesWindowController(screenProvider: screenProvider)
     /// 首次展开时才构造, 避免未使用的子面板持有 hosting controller 和订阅直到 App 退出
     private var optionsPanelControllers: [SettingsOptionsPanel: SettingsOptionsPanelController] = [:]
@@ -100,6 +101,7 @@ final class SettingsWindowController: HostingWindowController {
                 onOptionsAction: { [weak self] action in
                     self?.handleOptionsAction(action)
                 },
+                onOpenBridge: { [weak self] in self?.bridgeWindowController.open() },
                 onOpenSourceLicenses: { [weak self] in
                     self?.licensesWindowController.open()
                 },
@@ -154,6 +156,7 @@ final class SettingsWindowController: HostingWindowController {
     override func setAllowsKeyFocus(_ allowsKeyFocus: Bool) {
         super.setAllowsKeyFocus(allowsKeyFocus)
         licensesWindowController.setAllowsKeyFocus(allowsKeyFocus)
+        bridgeWindowController.setAllowsKeyFocus(allowsKeyFocus)
     }
 
     private enum Metrics {

@@ -54,7 +54,7 @@ final nonisolated class HistoryDatabase {
     }
 
     init(directoryURL: URL) throws {
-        let url = AppStorage(rootURL: directoryURL).historyDatabaseURL
+        let url = AppStoragePaths(rootURL: directoryURL).historyDatabaseURL
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let result = sqlite3_open_v2(url.path, &connection, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil)
         guard result == SQLITE_OK else {
@@ -175,7 +175,7 @@ final nonisolated class HistoryDatabase {
     @discardableResult
     private func insert(_ record: AppServerEventRecord) throws -> Bool {
         let date = HistoryStorage.dateKey(for: record.activityData?.timestamp ?? record.tokenUsage?.aggregationDate ?? record.recordedAt)
-        let data = try JSONLines.stableEncoder.encode(record)
+        let data = try StorageJSON.stableEncoder.encode(record)
         guard data.count <= 1024 * 1024 else { throw StorageCompatibilityError.incompleteSource }
         try execute("INSERT OR IGNORE INTO days(date) VALUES (?)", [.text(date)])
         try execute(
@@ -278,7 +278,7 @@ final nonisolated class HistoryDatabase {
     func activityDataAggregates() throws -> [ActivityDataAggregate] {
         var values: [ActivityDataAggregate] = []
         try query("SELECT activityData FROM aggregates WHERE activityData IS NOT NULL ORDER BY date") {
-            if let value = try? JSONLines.decoder.decode(ActivityDataAggregate.self, from: Self.data($0, at: 0)) {
+            if let value = try? StorageJSON.decoder.decode(ActivityDataAggregate.self, from: Self.data($0, at: 0)) {
                 values.append(value)
             }
         }
@@ -294,7 +294,7 @@ final nonisolated class HistoryDatabase {
         LEFT JOIN aggregates ON aggregates.date = days.date
         ORDER BY days.date
         """) { row in
-            let aggregate = try? JSONLines.decoder.decode(ActivityDataAggregate.self, from: Self.data(row, at: 1))
+            let aggregate = try? StorageJSON.decoder.decode(ActivityDataAggregate.self, from: Self.data(row, at: 1))
             if let aggregate, aggregate.aggregationVersion == AggregationVersion.activityData,
                aggregate.position >= sqlite3_column_int64(row, 2) {
                 return
@@ -314,7 +314,7 @@ final nonisolated class HistoryDatabase {
             var position: Int64 = 0
             if !rebuilding {
                 try query("SELECT activityData FROM aggregates WHERE date = ?", [.text(date)]) { row in
-                    guard let aggregate = try? JSONLines.decoder.decode(ActivityDataAggregate.self, from: Self.data(row, at: 0)),
+                    guard let aggregate = try? StorageJSON.decoder.decode(ActivityDataAggregate.self, from: Self.data(row, at: 0)),
                           aggregate.aggregationVersion == AggregationVersion.activityData else { return }
                     base = aggregate
                     position = aggregate.position
@@ -341,7 +341,7 @@ final nonisolated class HistoryDatabase {
             try execute("""
             INSERT INTO aggregates(date, activityData) VALUES (?, ?)
             ON CONFLICT(date) DO UPDATE SET activityData = excluded.activityData
-            """, [.text(date), .data(JSONLines.stableEncoder.encode(aggregate))])
+            """, [.text(date), .data(StorageJSON.stableEncoder.encode(aggregate))])
             return aggregate
         }
     }
@@ -363,7 +363,7 @@ final nonisolated class HistoryDatabase {
     func tokenUsageAggregates() throws -> [TokenUsageAggregate] {
         var result: [TokenUsageAggregate] = []
         try query("SELECT tokenUsage FROM aggregates WHERE tokenUsage IS NOT NULL ORDER BY date") {
-            if let value = try? JSONLines.decoder.decode(TokenUsageAggregate.self, from: Self.data($0, at: 0)) {
+            if let value = try? StorageJSON.decoder.decode(TokenUsageAggregate.self, from: Self.data($0, at: 0)) {
                 result.append(value)
             }
         }
@@ -382,7 +382,7 @@ final nonisolated class HistoryDatabase {
             OR EXISTS (SELECT 1 FROM events WHERE events.date = days.date AND events.kind = 'tokenUsage')
         ORDER BY days.date
         """) { row in
-            let aggregate = try? JSONLines.decoder.decode(TokenUsageAggregate.self, from: Self.data(row, at: 1))
+            let aggregate = try? StorageJSON.decoder.decode(TokenUsageAggregate.self, from: Self.data(row, at: 1))
             if let aggregate {
                 collectAggregate(aggregate)
                 if aggregate.aggregationVersion == AggregationVersion.tokenUsage,
@@ -401,7 +401,7 @@ final nonisolated class HistoryDatabase {
             var baseline: TokenUsageAggregate?
             var position: Int64 = 0
             try query("SELECT tokenUsage FROM aggregates WHERE date = ?", [.text(date)]) {
-                guard let aggregate = try? JSONLines.decoder.decode(TokenUsageAggregate.self, from: Self.data($0, at: 0)),
+                guard let aggregate = try? StorageJSON.decoder.decode(TokenUsageAggregate.self, from: Self.data($0, at: 0)),
                       aggregate.aggregationVersion == AggregationVersion.tokenUsage else { return }
                 baseline = aggregate
                 if !rebuilding {
@@ -425,7 +425,7 @@ final nonisolated class HistoryDatabase {
             try execute("""
             INSERT INTO aggregates(date, tokenUsage) VALUES (?, ?)
             ON CONFLICT(date) DO UPDATE SET tokenUsage = excluded.tokenUsage
-            """, [.text(date), .data(JSONLines.stableEncoder.encode(aggregate))])
+            """, [.text(date), .data(StorageJSON.stableEncoder.encode(aggregate))])
             return aggregate
         }
     }
@@ -438,7 +438,7 @@ final nonisolated class HistoryDatabase {
             for aggregate in try activityDataAggregates() {
                 guard let normalized = ActivityDataAggregate.normalized(aggregates: [aggregate], today: now).first,
                       normalized != aggregate else { continue }
-                try execute("UPDATE aggregates SET activityData = ? WHERE date = ?", [.data(JSONLines.stableEncoder.encode(normalized)), .text(aggregate.date)])
+                try execute("UPDATE aggregates SET activityData = ? WHERE date = ?", [.data(StorageJSON.stableEncoder.encode(normalized)), .text(aggregate.date)])
             }
             return removed
         }

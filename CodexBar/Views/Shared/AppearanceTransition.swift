@@ -311,7 +311,7 @@ final class AppearanceTransition {
             ) + 1
             revealMask.type = .radial
             revealMask.startPoint = origin
-            // 径向渐变按横纵半径绘制椭圆, 分别归一化同一半径才能保持圆形并覆盖最远角
+            // 横纵坐标分别以宽和高为单位, 同一个半径要分别换算, 圆形渐变才能覆盖最远的角
             revealMask.endPoint = CGPoint(x: origin.x + radius / bounds.width, y: origin.y + radius / bounds.height)
         }
 

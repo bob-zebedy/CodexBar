@@ -14,7 +14,7 @@ nonisolated enum BoundedProcess {
         var gracefulTimeout: TimeInterval = 0.25
         var killTimeout: TimeInterval = 0.5
         var drainTimeout: TimeInterval = 0.25
-        /// 指定时执行与输出排空共用期限, 并计入排队和启动耗时
+        /// 排队和启动也占用这段时间, 运行进程和读取剩余输出共用同一截止时间
         var deadline: ContinuousClock.Instant?
     }
 
@@ -54,7 +54,7 @@ nonisolated enum BoundedProcess {
             if case let .launchFailed(message) = completion {
                 return message
             }
-            // Power Helper 和后台服务保留替换无效 UTF-8 字节的展示行为
+            // Power Helper 和后台服务展示输出时用替代字符显示无效的 UTF-8 字节
             // swiftlint:disable:next optional_data_string_conversion
             return String(decoding: standardOutput.data, as: UTF8.self)
         }

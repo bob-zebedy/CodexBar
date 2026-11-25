@@ -5,11 +5,11 @@ nonisolated struct ActivityDataSyncStore {
     let directoryURL: URL
 
     private var cacheURL: URL {
-        AppStorage(rootURL: directoryURL).activityDataSyncCacheURL
+        AppStoragePaths(rootURL: directoryURL).activityDataSyncCacheURL
     }
 
     private var lockURL: URL {
-        AppStorage(rootURL: directoryURL).lockURL(.activityDataSyncCache)
+        AppStoragePaths(rootURL: directoryURL).lockURL(.activityDataSyncCache)
     }
 
     func load(nonblocking: Bool = false) throws -> ActivityDataSyncCache {
@@ -65,7 +65,7 @@ nonisolated struct ActivityDataSyncStore {
         let cache: ActivityDataSyncCache
         do {
             guard let data = try readData() else { return ActivityDataSyncCache(state: ActivityDataSyncState()) }
-            cache = try JSONLines.decoder.decode(ActivityDataSyncCache.self, from: data)
+            cache = try StorageJSON.decoder.decode(ActivityDataSyncCache.self, from: data)
         } catch is DecodingError {
             // 损坏时整体失效, 不保留脱离缓存数据的游标
             return ActivityDataSyncCache(state: ActivityDataSyncState())

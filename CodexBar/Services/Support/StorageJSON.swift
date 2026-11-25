@@ -1,10 +1,10 @@
 import Foundation
 
 /// 落盘 JSON 与事件行共用的序列化配置
-nonisolated enum JSONLines {
+nonisolated enum StorageJSON {
     static let newlineByte: UInt8 = 0x0A
 
-    /// 落盘 JSON 统一的稳定输出配置, 保证文件可 diff 且格式一致
+    /// 写入 JSON 时按键名排序并保留斜杠原样, 便于比较文件差异
     /// 配置后不再修改, encode 可重入, 可跨并发域缓存共享
     static let stableEncoder: JSONEncoder = {
         let encoder = JSONEncoder()

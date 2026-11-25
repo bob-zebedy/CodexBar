@@ -46,6 +46,7 @@ final class CodexBarLifecycle: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_: Notification) {
         AppProcessDiagnostics.install()
+        Task { await BridgeHost.shared.restoreAtLaunch() }
         configureAppearance()
         let controller = StatusItemController(
             viewModel: viewModel,
@@ -110,7 +111,9 @@ final class CodexBarLifecycle: NSObject, NSApplicationDelegate {
         taskGlowController.start()
         self.taskGlowController = taskGlowController
         keepAliveController.start()
-        logLaunchState()
+        let version = Bundle.main.shortVersionString ?? "-"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
+        AppLog.app.notice("App 已启动: version=\(version, privacy: .public) build=\(build, privacy: .public)")
         startupTask = Task { [weak self, startup = appServerStartup] in
             do {
                 try await startup.ensureStarted()
@@ -189,11 +192,11 @@ final class CodexBarLifecycle: NSObject, NSApplicationDelegate {
                 return
             }
             if success {
+                await BridgeHost.shared.stop()
                 do { try await AppServerLogStore.shared.close() } catch {
                     AppLog.app.error("退出 App 前日志写入失败")
                 }
-            }
-            if !success {
+            } else {
                 desktopLaunchSettings.resumeAfterTerminationCancellation()
                 await activityMonitor.resumeAfterTerminationCancellation()
                 autoResetController?.resumeAfterTerminationCancellation()
@@ -203,33 +206,6 @@ final class CodexBarLifecycle: NSObject, NSApplicationDelegate {
             NSApplication.shared.reply(toApplicationShouldTerminate: success)
         }
         return .terminateLater
-    }
-
-    /// 启动时记录各开关的初始值, 后续日志只记录变化
-    private func logLaunchState() {
-        // 先拼成普通字符串再交给 Logger, 避免在日志 autoclosure 中直接捕获属性
-        let state = LogFields.joined(
-            "version=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-")",
-            "build=\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-")",
-            "theme=\(appearanceSettings.theme.rawValue)",
-            "animations=\(mainPanelSettings.areAnimationsEnabled ? 1 : 0)",
-            "taskGlow=\(taskGlowSettings.isEnabled ? 1 : 0)",
-            "keepAlive=\(keepAliveController.isEnabled ? 1 : 0)",
-            "keepAliveLimit=\(keepAliveController.maximumDuration.loggedHours)",
-            "keepAliveBattery=\(keepAliveController.lowBatteryThreshold.rawValue)",
-            "keepAliveWaiting=\(keepAliveController.keepsAwakeWhileWaiting ? 1 : 0)",
-            "keepAliveDisplay=\(keepAliveController.keepsDisplayAwake ? 1 : 0)",
-            "protectionMinutes=\(protectionSettings.inactivityDuration.loggedMinutes)",
-            "sync=\(syncSettings.isEnabled ? 1 : 0)",
-            "notification=\(notificationSettings.isEnabled ? 1 : 0)",
-            "autoReset=\(autoResetSettings.isEnabled ? 1 : 0)",
-            "autoResetLeadTimeSeconds=\(autoResetSettings.leadTime.rawValue)",
-            "menuBarIndicators=\(menuBarIndicatorSettings.configuration.visibleMetrics(in: viewModel.snapshot?.codexLimit?.windows ?? []).map(\.rawValue).joined(separator: ","))",
-            "mainPanel=\(mainPanelSettings.layout.visibleSections.map(\.rawValue).joined(separator: ","))",
-            "usageHeatmapMode=\(mainPanelSettings.usageHeatmapMode.rawValue)",
-            "hotKey=\(globalHotKeySettings.shortcut == nil ? 0 : 1)"
-        )
-        AppLog.app.notice("App 已启动: \(state, privacy: .public)")
     }
 
     func openSettingsFromCommand() {

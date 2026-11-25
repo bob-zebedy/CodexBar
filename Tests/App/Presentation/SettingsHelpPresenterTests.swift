@@ -15,6 +15,28 @@ struct SettingsHelpPresenterTests {
         #expect(window.childWindows?.isEmpty != false)
     }
 
+    @Test func readingAnchorCoordinatesDoesNotRequestAnotherLayout() {
+        let window = makeWindow()
+        defer { window.close() }
+        let anchor = LayoutCountingView(frame: CGRect(x: 12, y: 20, width: 18, height: 18))
+        window.contentView?.addSubview(anchor)
+        let provider = ScreenFrameProvider()
+        provider.bind(to: anchor)
+        let expected = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
+        let layouts = anchor.layoutRequests
+        #expect(provider.currentScreenFrame(in: window) == expected)
+        #expect(anchor.layoutRequests == layouts)
+    }
+
+    private final class LayoutCountingView: NSView {
+        private(set) var layoutRequests = 0
+
+        override func layoutSubtreeIfNeeded() {
+            layoutRequests += 1
+            super.layoutSubtreeIfNeeded()
+        }
+    }
+
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 100, y: 100, width: 470, height: 300),

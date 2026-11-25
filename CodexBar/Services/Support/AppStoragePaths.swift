@@ -1,7 +1,7 @@
 import Foundation
 
 /// App 数据根目录下的文件和锁路径在这里统一定义
-nonisolated struct AppStorage {
+nonisolated struct AppStoragePaths {
     enum Lock: String {
         case appInstance
         case tokenUsageRecording

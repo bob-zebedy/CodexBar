@@ -2,7 +2,8 @@ import Foundation
 import os
 
 nonisolated struct HistoryMaintenanceCounts {
-    var events = 0
+    var attemptedDateCount = 0
+    var eventCountDelta = 0
     var written = 0
     var failed = 0
     var pruned = 0
@@ -10,13 +11,9 @@ nonisolated struct HistoryMaintenanceCounts {
     /// 此前连续无变化的轮数, 用于确认日志静默期间维护仍在执行
     var idle = 0
 
-    var dates: Int {
-        written + failed
-    }
-
     /// 本轮是否有聚合处理结果或过期清理, 包括处理失败的情况
     var hasWork: Bool {
-        dates > 0 || pruned > 0
+        attemptedDateCount > 0 || failed > 0 || pruned > 0
     }
 }
 
@@ -28,7 +25,7 @@ actor HistoryService {
     private var idleMaintenanceRounds = 0
     private var lastRetentionCutoff: Date?
 
-    init(directoryURL: URL = AppStorage.directoryURL(), syncService: SyncService? = nil, tokenUsageHistory: TokenUsageHistoryStore? = nil) {
+    init(directoryURL: URL = AppStoragePaths.directoryURL(), syncService: SyncService? = nil, tokenUsageHistory: TokenUsageHistoryStore? = nil) {
         database = HistoryDatabaseStore.shared(in: directoryURL)
         self.syncService = syncService ?? SyncService(directoryURL: directoryURL)
         self.tokenUsageHistory = tokenUsageHistory ?? TokenUsageHistoryStore(directoryURL: directoryURL)
@@ -86,9 +83,10 @@ actor HistoryService {
             }
             counts.dateRange = dates.first.map { $0 == dates.last ? $0 : $0 + ".." + (dates.last ?? $0) } ?? "-"
             for date in dates {
+                counts.attemptedDateCount += 1
                 do {
                     let aggregate = try await database.access { try $0.aggregateActivityData(date: date, now: now) }
-                    counts.events += (aggregate.eventCount ?? 0) - (previous[date] ?? 0)
+                    counts.eventCountDelta += (aggregate.eventCount ?? 0) - (previous[date] ?? 0)
                     counts.written += 1
                 } catch {
                     counts.failed += 1

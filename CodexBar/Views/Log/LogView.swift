@@ -23,7 +23,7 @@ struct LogView: View {
     @State private var isShowingClearConfirmation = false
 
     var body: some View {
-        // 每轮渲染只取一次发布快照复用
+        // 本轮绘制用同一份日志列表
         let entries = viewModel.entries
         VStack(spacing: 0) {
             header

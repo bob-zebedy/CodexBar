@@ -66,15 +66,15 @@ nonisolated struct AppServerEventRecord: Codable, Equatable {
     }
 
     func jsonLineData() throws -> Data {
-        try Self.encoder.encode(self) + Data([JSONLines.newlineByte])
+        try Self.encoder.encode(self) + Data([StorageJSON.newlineByte])
     }
 
     static func decode(from data: Data) throws -> Self {
         try decoder.decode(Self.self, from: data)
     }
 
-    private static let encoder = JSONLines.stableEncoder
-    private static let decoder = JSONLines.decoder
+    private static let encoder = StorageJSON.stableEncoder
+    private static let decoder = StorageJSON.decoder
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion

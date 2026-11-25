@@ -30,7 +30,7 @@ nonisolated enum JSONFileStorage {
     }
 
     static func save(_ value: some Encodable, to url: URL) throws {
-        let data = try JSONLines.stableEncoder.encode(value)
+        let data = try StorageJSON.stableEncoder.encode(value)
         guard (try? Data(contentsOf: url)) != data else { return }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)

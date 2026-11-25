@@ -4,7 +4,7 @@ import Foundation
 nonisolated struct ActivityDataRecorder: Sendable {
     private let database: HistoryDatabaseStore
 
-    init(directoryURL: URL = AppStorage.directoryURL()) {
+    init(directoryURL: URL = AppStoragePaths.directoryURL()) {
         database = HistoryDatabaseStore.shared(in: directoryURL)
     }
 

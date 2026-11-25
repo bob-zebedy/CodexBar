@@ -67,7 +67,7 @@ struct ActivitySchedulingTests {
                 try peer.send(["method": "thread/tokenUsage/updated", "params": ["threadId": "thread", "turnId": "turn", "tokenUsage": ["total": tokenUsage, "last": tokenUsage]]])
             }
             try peer.send(["method": "thread/status/changed", "params": ["threadId": "thread", "status": 123]])
-            // 后续通知作为处理屏障, 避免在畸形消息被消费前结束测试
+            // 等 account/updated 到达, 就知道 reader 已经处理过前面那条格式错误的消息
             try peer.send(["method": "account/updated", "params": [:]])
             _ = release.wait(timeout: .now() + 5)
         }

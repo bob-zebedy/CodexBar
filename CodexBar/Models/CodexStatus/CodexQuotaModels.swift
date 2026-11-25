@@ -235,7 +235,7 @@ nonisolated struct AutoResetRead: Sendable {
     let candidates: [AutoResetCandidate]?
 }
 
-/// app-server 消费重置凭证的稳定结果集合
+/// app-server 返回的重置凭证兑换结果
 nonisolated enum ResetCreditConsumeOutcome: String, Decodable, Sendable {
     case reset
     case nothingToReset

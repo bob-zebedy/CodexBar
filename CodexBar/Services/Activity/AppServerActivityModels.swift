@@ -25,7 +25,7 @@ private nonisolated struct WireActivityThreadStatus: Decodable {
     var activeFlags: [String]?
 }
 
-private nonisolated struct WireActivityThreadSource: Decodable {
+nonisolated struct WireActivityThreadSource: Decodable {
     let origin: ActivityDataOrigin
     let parentThreadID: String?
 

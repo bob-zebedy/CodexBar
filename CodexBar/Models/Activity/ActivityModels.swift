@@ -156,7 +156,7 @@ nonisolated struct ActivitySnapshot: Equatable {
     }
 }
 
-/// 快照归一后的主活动状态
+/// 活动卡片根据快照显示的任务状态
 nonisolated enum CodexPrimaryActivity: Equatable {
     case waiting(ActivityTaskSnapshot)
     case running(ActivityTaskSnapshot)
@@ -165,7 +165,7 @@ nonisolated enum CodexPrimaryActivity: Equatable {
     case idle
 }
 
-/// 等待携带实际起点, monitor 在初始化和恢复期间屏蔽通知
+/// 等待通知使用任务实际开始等待的时间, ActivityMonitor 在初始化和恢复期间暂停通知
 nonisolated enum ActivityTransition: Equatable {
     case waiting(ActivityTaskSnapshot, since: Date)
     case completed(ActivityCompletion)

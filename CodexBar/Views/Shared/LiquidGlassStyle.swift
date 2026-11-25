@@ -133,7 +133,7 @@ extension View {
         opacity(isStale ? 0.55 : 1)
     }
 
-    /// 侧边详情面板统一的外观: 玻璃底 + 背板填充 + 边界描边 + 圆角裁剪
+    /// 侧边详情面板共用玻璃背景, 背板填充, 描边和圆角
     func sidePanelChrome(cornerRadius: CGFloat) -> some View {
         modifier(SidePanelChrome(cornerRadius: cornerRadius))
     }
@@ -170,7 +170,7 @@ private struct SidePanelChrome: ViewModifier {
     }
 }
 
-/// 分区之间的细分隔线, 以银灰和冷白高光衬托玻璃背景
+/// 浅色面板的分隔线带有银灰色和冷白色高光, 深色面板使用纯色
 struct LiquidGlassDivider: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var isVisible = false

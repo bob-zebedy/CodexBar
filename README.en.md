@@ -55,6 +55,10 @@ CodexBar is a macOS menu bar app for viewing your Codex account, rate limits, to
 - Choose whether to keep your Mac awake while tasks await a response and whether to keep the display on
 - Set a keep-awake time limit and enable low-battery and stalled task protection
 
+### Codex Bridge
+
+- Let other AI agents call Codex on your Mac via MCP
+
 ## Installation
 
 ### Homebrew

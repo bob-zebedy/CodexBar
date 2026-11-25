@@ -259,7 +259,7 @@ APPCAST_ITEM="        <item>
         </item>"
 
 echo "==> Updating appcast"
-# Write through a temp file so a perl die leaves appcast.xml untouched
+# Write to a temporary file so a Perl error leaves appcast.xml intact
 APPCAST_ITEM="${APPCAST_ITEM}" APPCAST_VERSION="${BUILD_VERSION}" perl -0p -e '
   my $item = $ENV{"APPCAST_ITEM"};
   my $version = $ENV{"APPCAST_VERSION"};

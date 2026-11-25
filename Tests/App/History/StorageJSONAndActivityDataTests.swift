@@ -1,14 +1,14 @@
 import Foundation
 import Testing
 
-struct JSONLinesAndActivityDataTests {
+struct StorageJSONAndActivityDataTests {
     @Test func millisecondTimestampsRemainStableAcrossRepeatedEncoding() throws {
         let base = Int64(TestFixtures.now.timeIntervalSince1970 * 1000)
         for offset in 0 ..< 1000 {
             let expected = base + Int64(offset)
             let data = Data("{\"time\":\(expected)}".utf8)
-            let dates = try JSONLines.decoder.decode([String: Date].self, from: data)
-            #expect(try JSONLines.stableEncoder.encode(dates) == data)
+            let dates = try StorageJSON.decoder.decode([String: Date].self, from: data)
+            #expect(try StorageJSON.stableEncoder.encode(dates) == data)
         }
     }
 
@@ -41,13 +41,13 @@ struct JSONLinesAndActivityDataTests {
             cwd: "/projects/a\"b", toolName: "line\nbreak", model: nil,
             effort: nil, threadID: "thread", turnID: "turn", agentThreadID: "agent-thread"
         )
-        let data = try JSONLines.stableEncoder.encode(event)
+        let data = try StorageJSON.stableEncoder.encode(event)
         let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(payload["threadID"] as? String == "thread")
         #expect(payload["turnID"] as? String == "turn")
         #expect(payload["agentThreadID"] as? String == "agent-thread")
-        #expect(!data.contains(JSONLines.newlineByte))
-        #expect(try JSONLines.decoder.decode(ActivityDataRecord.self, from: data) == event)
+        #expect(!data.contains(StorageJSON.newlineByte))
+        #expect(try StorageJSON.decoder.decode(ActivityDataRecord.self, from: data) == event)
     }
 
     @Test func modelNameDoesNotClassifyTaskOrigin() throws {

@@ -65,6 +65,15 @@ nonisolated enum CodexPaths {
         home.appendingPathComponent("app-server-control/app-server-control.sock")
     }
 
+    static func unixSocketPath(_ url: URL) throws -> String? {
+        let capacity = MemoryLayout.size(ofValue: sockaddr_un().sun_path)
+        if url.path.utf8.count < capacity {
+            return url.path
+        }
+        let shortened = try socketDirectoryReference(url.deletingLastPathComponent()).appendingPathComponent(url.lastPathComponent).path
+        return shortened.utf8.count < capacity ? shortened : nil
+    }
+
     /// 在同一目录下重建同名 socket 后, 仍可通过目录的 /.vol 路径连接
     static func socketDirectoryReference(_ directory: URL) throws -> URL {
         var info = stat()

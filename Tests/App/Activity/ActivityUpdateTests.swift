@@ -172,6 +172,49 @@ struct ActivityUpdateTests {
         #expect(!task.hasFreshLifecycle(at: now.addingTimeInterval(6)))
     }
 
+    @Test(arguments: [true, false])
+    func pendingChildEventAcrossInterruptedTurns(hasRootTurnID: Bool) throws {
+        let now = Date()
+        var reducer = try approvalReducer(at: now)
+        var graph = ActivityTaskGraph()
+        let oldKey = ActivityTaskKey(thread: "thread-a", turn: "turn-a")
+        let newKey = ActivityTaskKey(thread: "thread-a", turn: "turn-b")
+        _ = graph.update(
+            events: [TestFixtures.event(at: now.addingTimeInterval(-60))],
+            source: .bootstrap, lifecycle: lifecycle(reducer, at: now, verifiesChild: false)
+        )
+        let tool = try TestFixtures.decode(ActivityInput.self, """
+        {"method":"item/started","params":{"threadId":"child","turnId":"child-turn","item":{"id":"cmd","type":"commandExecution"}}}
+        """)
+        var event = try #require(reducer.consume(tool, now: now.addingTimeInterval(-8)).first)
+        #expect(event.context?.rootTurnID == oldKey.turnID)
+        if !hasRootTurnID {
+            event.context?.rootTurnID = nil
+        }
+        _ = graph.update(events: [event], source: .live, lifecycle: lifecycle(reducer, at: now, verifiesChild: false))
+        #expect(graph.tasks[oldKey]?.hasFreshLifecycle(at: now) == false)
+
+        let interrupt = try TestFixtures.decode(ActivityInput.self, """
+        {"method":"turn/completed","params":{"threadId":"thread-a","turn":{"id":"turn-a","rootTurnId":"turn-a","status":"interrupted"}}}
+        """)
+        let start = try TestFixtures.decode(ActivityInput.self, """
+        {"method":"turn/started","params":{"threadId":"thread-a","turn":{"id":"turn-b","rootTurnId":"turn-b","status":"inProgress"}}}
+        """)
+        let interrupted = reducer.consume(interrupt, now: now.addingTimeInterval(-7))
+        _ = graph.update(events: interrupted, source: .live, lifecycle: lifecycle(reducer, at: now, verifiesChild: false))
+        let started = reducer.consume(start, now: now)
+        _ = graph.update(events: started, source: .live, lifecycle: lifecycle(reducer, at: now, verifiesChild: false))
+        #expect(graph.pendingSubagentEvents.count == 1)
+        let newTask = try #require(graph.tasks[newKey])
+        #expect(newTask.hasFreshLifecycle(at: now) == hasRootTurnID)
+
+        _ = graph.update(events: [], source: .live, lifecycle: lifecycle(reducer, at: now))
+        #expect(graph.pendingSubagentEvents.isEmpty)
+        #expect(graph.subagentTurnLinks[.init(threadID: "child", turnID: "child-turn")]?.root == oldKey)
+        #expect(graph.tasks[newKey]?.hasFreshLifecycle(at: now) == true)
+        #expect(graph.tasks[newKey]?.snapshot.activeSubagentCount == 0)
+    }
+
     @Test func recoveryAppliesExplicitTerminalSilentlyAndKeepsProtectionPaused() throws {
         let directory = try TestDirectory()
         defer { try? directory.remove() }

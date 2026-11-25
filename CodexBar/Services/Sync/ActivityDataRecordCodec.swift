@@ -31,7 +31,7 @@ nonisolated enum ActivityDataRecordCodec {
         record[FieldKeys.aggregationVersion] = aggregate.aggregationVersion as CKRecordValue
         record[FieldKeys.deviceID] = deviceID as CKRecordValue
         record[FieldKeys.date] = aggregate.date as CKRecordValue
-        record[FieldKeys.activityData] = try JSONLines.stableEncoder.encode(aggregate.counts) as CKRecordValue
+        record[FieldKeys.activityData] = try StorageJSON.stableEncoder.encode(aggregate.counts) as CKRecordValue
         record[FieldKeys.updatedAt] = Date() as CKRecordValue
     }
 

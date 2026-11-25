@@ -211,6 +211,6 @@ private struct LicenseTextView: NSViewRepresentable {
         LicenseTextScrollView(text: text, license: license)
     }
 
-    /// 文本在创建时固定, 切换许可证由外层文档身份重建视图
+    /// 切换许可证时外层会创建新视图, 同一视图里的文本始终不变
     func updateNSView(_: LicenseTextScrollView, context _: Context) {}
 }
