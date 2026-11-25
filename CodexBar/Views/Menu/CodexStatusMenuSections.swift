@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// 主面板共享的字体和尺寸, 按内容角色区分层级并保持各分区对齐
+/// 主面板各分区共用的字体, 尺寸和入场时长
 enum MenuMetrics {
     static let titleFont = Font.caption.weight(.semibold)
     static let bodyFont = Font.caption.weight(.regular)
@@ -14,6 +14,8 @@ enum MenuMetrics {
     static let statusIconSize: CGFloat = 10
     static let statusIconSpacing: CGFloat = 8
     static let loadingVerticalPadding: CGFloat = 16
+
+    static let contentEntranceDuration: TimeInterval = 0.65
 }
 
 /// 已登录状态的账号行, 邮箱可双击模糊, 图标可双击刷新

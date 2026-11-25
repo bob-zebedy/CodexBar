@@ -1,7 +1,194 @@
-import Foundation
+import SwiftUI
 import Testing
 
 struct UsageHeatmapTests {
+    @Test func fullWaveFinishesWithTheQuotaBars() throws {
+        let duration = MenuMetrics.contentEntranceDuration
+        let timings = UsageHeatmapTransition.tileTimings
+        let lastTileEnd = try #require(timings.map { $0.delay + $0.duration }.max())
+        #expect(abs(lastTileEnd - duration) < 1e-12)
+
+        for mode in [UsageHeatmapMode.daily, .weekly] {
+            let otherMode: UsageHeatmapMode = mode == .daily ? .weekly : .daily
+            for source in [nil, otherMode] {
+                let transition = UsageHeatmapTransition(to: mode, from: source, interrupting: nil, at: 0)
+                #expect(transition.endsAt == duration)
+                let finalFrame = transition.frameSampler(at: duration)
+                #expect(timings.allSatisfy { finalFrame($0) == .resting(mode) })
+            }
+        }
+    }
+
+    @Test(arguments: [UsageHeatmapMode.daily, .weekly])
+    func tileChangesModeWhileHiddenAndRoundsAsItShrinksAndExpands(source: UsageHeatmapMode) {
+        let destination: UsageHeatmapMode = source == .daily ? .weekly : .daily
+        let transition = UsageHeatmapTransition(to: destination, from: source, interrupting: nil, at: 0)
+        let timing = UsageHeatmapTransition.tileTimings[0]
+        func frame(at fraction: Double) -> UsageHeatmapTransition.Frame {
+            transition.frameSampler(at: timing.delay + timing.duration * fraction)(timing)
+        }
+        let shrinking = frame(at: 0.3)
+        let growing = frame(at: 0.64)
+        let circleRadius = UsageHeatmap.Metrics.squareSize / 2
+        #expect(frame(at: 0) == .resting(source))
+        #expect(shrinking.mode == source && shrinking.scale > 0 && shrinking.scale < 1)
+        #expect(shrinking.cornerRadius == circleRadius)
+        #expect(frame(at: 0.49).scale == 0 && frame(at: 0.51).scale == 0)
+        #expect(growing.mode == destination && growing.scale > 0 && growing.scale < 1)
+        #expect(growing.cornerRadius == circleRadius)
+        #expect(frame(at: 0.8).scale > 1)
+        #expect(frame(at: 1) == .resting(destination))
+    }
+
+    @Test(arguments: [UsageHeatmapMode.daily, .weekly])
+    func entranceExpandsOnceFromAnEmptyCell(mode: UsageHeatmapMode) {
+        let transition = UsageHeatmapTransition(to: mode, from: nil, interrupting: nil, at: 0)
+        let timing = UsageHeatmapTransition.tileTimings[0]
+        let frames = (0 ... 20).map { step in
+            transition.frameSampler(at: timing.duration * (Double(step) / 20))(timing)
+        }
+        #expect(frames[0].scale == 0)
+        #expect(frames[1].mode == mode && frames[1].cornerRadius == UsageHeatmap.Metrics.squareSize / 2)
+        #expect(zip(frames.prefix(16), frames.dropFirst()).allSatisfy { $0.scale < $1.scale })
+        #expect(frames[16].scale > 1)
+        #expect(frames[20] == .resting(mode))
+    }
+
+    @Test(arguments: [UsageHeatmapMode.daily, .weekly])
+    func interruptedSwitchAndSecondToggleRetraceEachTilesTimeline(source: UsageHeatmapMode) {
+        let destination: UsageHeatmapMode = source == .daily ? .weekly : .daily
+        let forward = UsageHeatmapTransition(to: destination, from: source, interrupting: nil, at: 0)
+        let reverse = UsageHeatmapTransition(to: source, from: destination, interrupting: forward, at: 0.375)
+        let resumed = UsageHeatmapTransition(to: destination, from: source, interrupting: reverse, at: 0.5)
+        for delta in [0.0, 0.0625, 0.125, 0.25, 0.375] {
+            let retraced = reverse.frameSampler(at: 0.375 + delta)
+            let returning = forward.frameSampler(at: 0.375 - delta)
+            let continued = resumed.frameSampler(at: 0.5 + delta)
+            let advancing = forward.frameSampler(at: 0.25 + delta)
+            for timing in UsageHeatmapTransition.tileTimings {
+                #expect(retraced(timing) == returning(timing))
+                #expect(continued(timing) == advancing(timing))
+            }
+        }
+    }
+
+    @Test func interruptedEntranceRewindsBeforeRevealingTheOtherMode() {
+        let daily = UsageHeatmapTransition(to: .daily, from: nil, interrupting: nil, at: 0)
+        let toWeekly = UsageHeatmapTransition(to: .weekly, from: .daily, interrupting: daily, at: 0.25)
+        let weekly = UsageHeatmapTransition(to: .weekly, from: nil, interrupting: nil, at: 0.5)
+        for delta in [0.0, 0.125, 0.25] {
+            let retraced = toWeekly.frameSampler(at: 0.25 + delta)
+            let returning = daily.frameSampler(at: 0.25 - delta)
+            let continued = toWeekly.frameSampler(at: 0.5 + delta)
+            let entering = weekly.frameSampler(at: 0.5 + delta)
+            for timing in UsageHeatmapTransition.tileTimings {
+                #expect(retraced(timing) == returning(timing))
+                #expect(continued(timing) == entering(timing))
+            }
+        }
+    }
+
+    @Test @MainActor func reopeningPanelStartsTheSelectedEntranceFromTheBeginning() throws {
+        typealias Metrics = UsageHeatmap.Metrics
+        let today = try #require(CodexDateFormat.dayDate(from: "2026-10-24"))
+        let dates = UsageHeatmapDay.grid(usage: nil, history: .empty, columnCount: Metrics.columnCount, today: today)
+        let days = dates.enumerated().map { index, date in
+            date.map { day($0.startDate, tokens: index.isMultiple(of: Metrics.rowCount) ? 100 : 0) }
+        }
+        let weeks = UsageHeatmapPeriod.weeks(in: days)
+        let panel = MenuSurfaceVisibilityState()
+        func grid(_ mode: UsageHeatmapMode, at time: TimeInterval) -> some View {
+            UsageHeatmapGrid(
+                days: days, weeks: weeks, mode: mode, selection: .constant(nil),
+                peakDailyTokens: 100, peakWeeklyTokens: 100, uptime: { time }
+            )
+            .environment(\.isMenuHostPresented, panel.isPresented)
+            .environment(\.colorScheme, .light)
+        }
+
+        let host = NSHostingView(rootView: grid(.daily, at: 0))
+        host.frame = CGRect(x: 0, y: 0, width: Metrics.totalWidth, height: Metrics.gridHeight)
+        func sample(_ mode: UsageHeatmapMode, at time: TimeInterval) throws -> [CGFloat] {
+            host.rootView = grid(mode, at: time)
+            return try edgeAlphas(in: host)
+        }
+
+        let middleRow = Metrics.rowCount / 2
+        let left = UsageHeatmapTransition.tileTimings[middleRow]
+        let right = UsageHeatmapTransition.tileTimings[(Metrics.columnCount - 1) * Metrics.rowCount + middleRow]
+        let midWave = (left.delay + left.duration + right.delay) / 2
+        let closeAt = 3 + midWave
+        let reopenAt = closeAt + 0.01
+        panel.prepareForPresentation()
+        panel.didPresent()
+        _ = try sample(.daily, at: 0)
+        let daily = try sample(.daily, at: 2)
+        _ = try sample(.weekly, at: 3)
+        let switching = try sample(.weekly, at: closeAt)
+        panel.endPresentation()
+        let closing = try sample(.weekly, at: closeAt)
+        panel.prepareForPresentation()
+        panel.didPresent()
+        let reopened = try sample(.weekly, at: reopenAt)
+        let entering = try sample(.weekly, at: reopenAt + midWave)
+        panel.endPresentation()
+        _ = try sample(.weekly, at: reopenAt + midWave)
+        let frozen = try sample(.weekly, at: 5)
+        panel.prepareForPresentation()
+        panel.didPresent()
+        let reopenedAgain = try sample(.weekly, at: 5)
+        let weekly = try sample(.weekly, at: 7)
+        #expect(zip(daily, weekly).allSatisfy { day, week in day > 0 && week > 0 && day != week })
+        #expect(switching == [weekly[0], daily[1]])
+        #expect(closing == switching)
+        #expect(reopened.allSatisfy { $0 == 0 })
+        #expect(entering == [weekly[0], 0])
+        #expect(frozen == entering)
+        #expect(reopenedAgain == reopened)
+    }
+
+    @Test @MainActor func settledTileAnimatesUsageRefreshWhileOtherTilesAreEntering() throws {
+        typealias Metrics = UsageHeatmap.Metrics
+        let today = try #require(CodexDateFormat.dayDate(from: "2026-10-24"))
+        let dates = UsageHeatmapDay.grid(usage: nil, history: .empty, columnCount: Metrics.columnCount, today: today)
+        func grid(tokens: Int, time: TimeInterval, animation: Animation? = nil) -> some View {
+            let days = dates.map { $0.map { day($0.startDate, tokens: tokens) } }
+            return UsageHeatmapGrid(
+                days: days, weeks: [], mode: .daily, selection: .constant(nil),
+                peakDailyTokens: 100, peakWeeklyTokens: 1, uptime: { time }
+            )
+            .environment(\.isMenuHostPresented, true)
+            .environment(\.colorScheme, .light)
+            .animation(animation, value: days)
+        }
+
+        let host = NSHostingView(rootView: grid(tokens: 0, time: 0))
+        host.frame = CGRect(x: 0, y: 0, width: Metrics.totalWidth, height: Metrics.gridHeight)
+        _ = try edgeAlphas(in: host)
+        let left = UsageHeatmapTransition.tileTimings[Metrics.rowCount / 2]
+        let time = left.delay + left.duration
+        host.rootView = grid(tokens: 0, time: time)
+        let light = try edgeAlphas(in: host)
+        host.rootView = grid(tokens: 100, time: time)
+        let dark = try edgeAlphas(in: host)
+        host.rootView = grid(tokens: 0, time: time, animation: .codexStatus)
+        let fading = try edgeAlphas(in: host)
+        #expect(light[0] > 0 && dark[0] > light[0])
+        #expect(fading[0] > light[0])
+        #expect(fading[1] == 0)
+    }
+
+    @MainActor private func edgeAlphas(in host: NSView) throws -> [CGFloat] {
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+        let center = UsageHeatmap.Metrics.squareSize / 2
+        return try [center, host.bounds.width - center].map { x in
+            try #require(bitmap.colorAt(x: Int(x * scale), y: bitmap.pixelsHigh / 2)).alphaComponent
+        }
+    }
+
     @Test(arguments: [UsageHeatmapMode.daily, .weekly])
     func pointerReconciliationKeepsSelectionAndFollowsAnotherCell(mode: UsageHeatmapMode) throws {
         let today = try #require(CodexDateFormat.dayDate(from: "2026-10-24"))

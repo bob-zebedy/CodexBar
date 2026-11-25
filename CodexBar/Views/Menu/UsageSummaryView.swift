@@ -9,7 +9,7 @@ struct UsageSummaryView: View {
     let isStale: Bool
     let onHoverContextChange: (UsageHeatmapHoverContext?) -> Void
     private let days: [UsageHeatmapDay?]
-    private let peakTokens: Int
+    private let peakDailyTokens: Int
     private let weeks: [UsageHeatmapPeriod?]
     private let peakWeeklyTokens: Int
     @Binding var mode: UsageHeatmapMode
@@ -38,7 +38,7 @@ struct UsageSummaryView: View {
         let weeks = UsageHeatmapPeriod.weeks(in: days)
         self.weeks = weeks
         peakWeeklyTokens = max(weeks.lazy.compactMap { $0?.tokensForHeatmap }.max() ?? 0, 1)
-        peakTokens = max(days.lazy.compactMap { $0?.tokensForHeatmap }.max() ?? 0, 1)
+        peakDailyTokens = max(days.lazy.compactMap { $0?.tokensForHeatmap }.max() ?? 0, 1)
     }
 
     var body: some View {
@@ -70,7 +70,8 @@ struct UsageSummaryView: View {
                 weeks: weeks,
                 mode: $mode,
                 selection: $hoverSelection,
-                peakTokens: mode == .daily ? peakTokens : peakWeeklyTokens,
+                peakDailyTokens: peakDailyTokens,
+                peakWeeklyTokens: peakWeeklyTokens,
                 onScreenFrameChange: { frame in
                     heatmapScreenFrame = frame
                 }
@@ -169,7 +170,7 @@ struct UsageSummaryView: View {
             isStale: isStale,
             alignmentScreenFrame: heatmapScreenFrame,
             preferredSide: UsageHeatmap.Metrics.preferredDetailSide(for: column),
-            peakTokens: mode == .daily ? peakTokens : peakWeeklyTokens
+            peakTokens: mode == .daily ? peakDailyTokens : peakWeeklyTokens
         )
     }
 

@@ -3,6 +3,7 @@ import SwiftUI
 
 extension EnvironmentValues {
     @Entry var mainPanelEntranceAnimationsEnabled: Bool = true
+    @Entry var isMenuHostPresented: Bool = false
 }
 
 /// 任务卡片在宿主测量前重建, 额度和热力图在显示后开始入场动画
@@ -11,6 +12,10 @@ final class MenuSurfaceVisibilityState: ObservableObject {
     @Published private(set) var isVisible = false
     @Published private(set) var preparedGeneration: UInt = 0
     @Published private(set) var presentedGeneration: UInt = 0
+
+    var isPresented: Bool {
+        isVisible && preparedGeneration == presentedGeneration
+    }
 
     func prepareForPresentation() {
         isVisible = true
@@ -74,10 +79,8 @@ struct CodexStatusMenuView: View {
         MenuSectionLayout(spacing: Metrics.verticalSpacing) {
             content
         }
-        .environment(
-            \.mainPanelEntranceAnimationsEnabled,
-            mainPanelSettings.areAnimationsEnabled
-        )
+        .environment(\.mainPanelEntranceAnimationsEnabled, mainPanelSettings.areAnimationsEnabled)
+        .environment(\.isMenuHostPresented, animationState.allowsAnimations && menuSurfaceVisibility.isPresented)
         .animation(Metrics.statusAnimation, value: loadState)
         .animation(Metrics.statusAnimation, value: mainPanelSettings.layout)
         .animation(Metrics.statusAnimation, value: syncSettings.isEnabled)

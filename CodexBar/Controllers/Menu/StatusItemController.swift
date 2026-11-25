@@ -955,7 +955,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private enum Metrics {
-        static let fadeInDuration: TimeInterval = 0.24
+        static let fadeInDuration: TimeInterval = 0.20
         static let fadeOutDuration: TimeInterval = 0.18
         static let auxiliaryWindowKeyFocusRestoreDelayMilliseconds: UInt64 = 120
         static let minimumTrustedAnchorLength: CGFloat = 1

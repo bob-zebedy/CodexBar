@@ -54,7 +54,6 @@ private extension QuotaRow {
         static let percentWidth: CGFloat = 37
         static let percentResetSpacing: CGFloat = 6
         static let resetWidth: CGFloat = 75
-        static let entranceDuration: TimeInterval = 0.65
     }
 
     var resetText: String {
@@ -107,7 +106,7 @@ private extension QuotaRow {
             return
         }
 
-        withAnimation(.easeOut(duration: Metrics.entranceDuration)) {
+        withAnimation(.easeOut(duration: MenuMetrics.contentEntranceDuration)) {
             revealedPercent = targetPercent
         }
     }
